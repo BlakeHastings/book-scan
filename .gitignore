@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Scan output: the catalogue, the cover photos, and local overrides.
+books.db
+books.db-wal
+books.db-shm
+books.csv
+captures/
+backups/
+settings.json
