@@ -47,6 +47,48 @@ export function isbn10To13(value: string): string {
   return `${core}${(10 - (sum % 10)) % 10}`
 }
 
+export function isbn13To10(value: string): string {
+  const digits = normaliseIsbn(value)
+  if (digits.length !== 13 || !digits.startsWith('978')) return ''
+
+  const core = digits.slice(3, 12)
+  let sum = 0
+  for (let i = 0; i < 9; i += 1) {
+    sum += Number(core[i]) * (10 - i)
+  }
+  const check = (11 - (sum % 11)) % 11
+  return `${core}${check === 10 ? 'X' : check}`
+}
+
+/**
+ * Pull ISBNs out of OCR'd text.
+ *
+ * Printed ISBNs carry hyphens and OCR sprinkles in spaces, so the patterns
+ * tolerate a separator after every digit. That is deliberately loose, which
+ * is safe only because every candidate is then check-digit validated. Without
+ * that validation this would match half the numbers on a copyright page.
+ */
+export function extractIsbnsFromText(text: string): string[] {
+  const found: string[] = []
+  const push = (value: string) => {
+    if (value && !found.includes(value)) found.push(value)
+  }
+
+  const isbn13 = /(97[89][\s-]?(?:\d[\s-]?){10})/g
+  for (const match of (text ?? '').matchAll(isbn13)) {
+    const candidate = normaliseIsbn(match[1] ?? '')
+    if (isValidIsbn13(candidate)) push(candidate)
+  }
+
+  const isbn10 = /(?<!\d)((?:\d[\s-]?){9}[\dXx])(?!\d)/g
+  for (const match of (text ?? '').matchAll(isbn10)) {
+    const candidate = normaliseIsbn(match[1] ?? '')
+    if (isValidIsbn10(candidate)) push(isbn10To13(candidate))
+  }
+
+  return found
+}
+
 /**
  * Is this barcode a book? EAN-13 codes starting 978 or 979 are Bookland;
  * anything else on the back cover is a price add-on or a UPC.

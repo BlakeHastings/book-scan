@@ -147,12 +147,90 @@ html, body {
 .camera__res { color: var(--muted); font-variant-numeric: tabular-nums; }
 .camera__hud .btn { margin-left: auto; }
 
-.cover {
-  width: 120px;
-  border-radius: 8px;
-  display: block;
+/* --- Capture deck ----------------------------------------------------- */
+
+.deck {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
   margin: 12px 0;
 }
+
+.slot {
+  display: grid;
+  gap: 4px;
+  padding: 8px 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  text-align: center;
+}
+.slot--active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.slot--found { border-color: var(--good); }
+
+.slot__frame {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 4;
+  background: var(--panel-2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.slot__frame img { width: 100%; height: 100%; object-fit: cover; }
+.slot__placeholder { font-size: 22px; color: var(--muted); font-weight: 700; }
+
+.slot__label { font-size: 12px; color: var(--muted); }
+.slot__status { font-size: 11px; font-weight: 600; }
+.slot__status--busy { color: var(--warn); }
+.slot__status--found { color: var(--good); }
+.slot__status--none { color: var(--muted); }
+
+/* --- Shutter ---------------------------------------------------------- */
+
+.shutter-row { display: grid; place-items: center; margin: 8px 0 4px; }
+.shutter {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--line);
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.shutter:active { transform: scale(0.94); }
+.shutter__ring {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2px solid #1a1a24;
+  background: #fff;
+}
+
+.found {
+  background: rgba(134, 209, 154, 0.14);
+  border: 1px solid var(--good);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.hint--center { text-align: center; margin: 8px 0; }
+
+/* --- Review thumbnails ------------------------------------------------ */
+
+.deck--review { grid-template-columns: repeat(3, 1fr); }
+.shot { margin: 0; display: grid; gap: 4px; }
+.shot img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.shot figcaption { font-size: 11px; color: var(--muted); text-align: center; }
 
 /* --- Forms ------------------------------------------------------------ */
 

@@ -35,7 +35,11 @@ export interface DraftBook {
   seriesIndex?: number | null
   location?: string
   lookupSource?: string
-  coverImage?: string
+  frontImage?: string
+  backImage?: string
+  edgeImage?: string
+  isbnSource?: string
+  ocrText?: string
   /** Overrides the derived filing name when the user edited it by hand. */
   authorFilingOverride?: string | null
 }
@@ -197,14 +201,15 @@ export class Store {
              pages, notes, shelf_range, is_fiction, classification_source,
              classification_confidence, author_filing, series_name,
              series_index, title_filing, sort_key, location, lookup_source,
-             cover_image, scanned_at, shelved_at
+             front_image, back_image, edge_image, isbn_source, ocr_text,
+             scanned_at, shelved_at
            ) VALUES (
              @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
              @published, @pages, @notes, @shelf_range, @is_fiction,
              @classification_source, @classification_confidence,
              @author_filing, @series_name, @series_index, @title_filing,
-             @sort_key, @location, @lookup_source, @cover_image, @scanned_at,
-             @shelved_at
+             @sort_key, @location, @lookup_source, @front_image, @back_image,
+             @edge_image, @isbn_source, @ocr_text, @scanned_at, @shelved_at
            )`,
         )
         .run({
@@ -228,7 +233,11 @@ export class Store {
           sort_key: resolved.sortKey,
           location,
           lookup_source: draft.lookupSource ?? '',
-          cover_image: draft.coverImage ?? '',
+          front_image: draft.frontImage ?? '',
+          back_image: draft.backImage ?? '',
+          edge_image: draft.edgeImage ?? '',
+          isbn_source: draft.isbnSource ?? '',
+          ocr_text: (draft.ocrText ?? '').slice(0, 4000),
           scanned_at: now,
           shelved_at: location ? now : null,
         })

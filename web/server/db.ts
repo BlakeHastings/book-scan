@@ -39,7 +39,14 @@ CREATE TABLE IF NOT EXISTS books (
 
     location                  TEXT    DEFAULT '',
     lookup_source             TEXT    DEFAULT '',
-    cover_image               TEXT    DEFAULT '',
+
+    -- Three photos per book: cover, back (barcode and blurb), spine.
+    front_image               TEXT    DEFAULT '',
+    back_image                TEXT    DEFAULT '',
+    edge_image                TEXT    DEFAULT '',
+    isbn_source               TEXT    DEFAULT '',
+    ocr_text                  TEXT    DEFAULT '',
+
     scanned_at                TEXT    NOT NULL,
     shelved_at                TEXT
 );
@@ -94,9 +101,39 @@ export interface BookRow {
   sort_key: string
   location: string
   lookup_source: string
-  cover_image: string
+  front_image: string
+  back_image: string
+  edge_image: string
+  isbn_source: string
+  ocr_text: string
   scanned_at: string
   shelved_at: string | null
+}
+
+/**
+ * Add any column the schema gained since this database was created. Cheaper
+ * and safer than a numbered migration chain for a single-user catalogue, and
+ * it means an existing books.db keeps working after a schema change.
+ */
+function addMissingColumns(db: Database.Database): void {
+  const existing = new Set(
+    (db.pragma('table_info(books)') as { name: string }[]).map((c) => c.name),
+  )
+
+  const wanted: [string, string][] = [
+    ['front_image', "TEXT DEFAULT ''"],
+    ['back_image', "TEXT DEFAULT ''"],
+    ['edge_image', "TEXT DEFAULT ''"],
+    ['isbn_source', "TEXT DEFAULT ''"],
+    ['ocr_text', "TEXT DEFAULT ''"],
+    ['subtitle', "TEXT DEFAULT ''"],
+  ]
+
+  for (const [name, definition] of wanted) {
+    if (!existing.has(name)) {
+      db.exec(`ALTER TABLE books ADD COLUMN ${name} ${definition}`)
+    }
+  }
 }
 
 export function openDatabase(path: string): Database.Database {
@@ -106,6 +143,7 @@ export function openDatabase(path: string): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA)
+  addMissingColumns(db)
 
   const version = db.pragma('user_version', { simple: true }) as number
   if (version < SCHEMA_VERSION) {

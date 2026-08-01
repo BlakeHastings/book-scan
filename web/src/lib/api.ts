@@ -43,6 +43,8 @@ export interface Draft {
   seriesIndex: string
   location: string
   lookupSource: string
+  isbnSource: string
+  ocrText: string
   authorFilingOverride: string
 }
 
@@ -76,6 +78,21 @@ export interface Misfile {
   reason: string
 }
 
+export interface IdentifyResult {
+  isbn13: string
+  isbn10: string
+  source: 'barcode' | 'ocr' | ''
+  barcodes: string[]
+  titleGuess: string
+  text: string
+  notes: string[]
+}
+
+export interface IdentifyResponse {
+  identify: IdentifyResult
+  lookup: LookupResponse | null
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -99,6 +116,13 @@ function draftBody(draft: Draft) {
 }
 
 export const api = {
+  /** Read an ISBN off one photo, and look the book up if one is found. */
+  identify: (image: string, slot: 'front' | 'back' | 'edge') =>
+    request<IdentifyResponse>('/api/identify', {
+      method: 'POST',
+      body: JSON.stringify({ image, slot }),
+    }),
+
   lookupIsbn: (isbn: string) =>
     request<LookupResponse>(`/api/lookup/isbn/${encodeURIComponent(isbn)}`),
 
@@ -111,10 +135,14 @@ export const api = {
       body: JSON.stringify(draftBody(draft)),
     }),
 
-  saveBook: (draft: Draft, coverImageData: string, saveFilingOverride: boolean) =>
+  saveBook: (
+    draft: Draft,
+    images: Partial<Record<'front' | 'back' | 'edge', string>>,
+    saveFilingOverride: boolean,
+  ) =>
     request<{ id: number; placement: Placement; counts: Counts }>('/api/books', {
       method: 'POST',
-      body: JSON.stringify({ ...draftBody(draft), coverImageData, saveFilingOverride }),
+      body: JSON.stringify({ ...draftBody(draft), images, saveFilingOverride }),
     }),
 
   listBooks: (range: ShelfRange) =>
@@ -133,7 +161,7 @@ export const emptyDraft: Draft = {
   published: '', pages: '', notes: '', isFiction: true,
   classificationSource: 'auto', classificationConfidence: 'unknown',
   seriesName: '', seriesIndex: '', location: '', lookupSource: '',
-  authorFilingOverride: '',
+  isbnSource: '', ocrText: '', authorFilingOverride: '',
 }
 
 export function draftFromLookup(result: LookupResponse): Draft {

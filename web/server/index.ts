@@ -8,9 +8,26 @@ import express from 'express'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { openDatabase } from './db'
+import { identify } from './identify'
 import { lookupIsbn, searchTitle } from './lookup'
 import { Store, type DraftBook } from './store'
 import { isValidIsbn13, isbn10To13, normaliseIsbn } from '../shared/isbn'
+
+export type Slot = 'front' | 'back' | 'edge'
+
+/** Strip a data URL down to the bytes. Returns null if it is not an image. */
+function decodeDataUrl(value: string): Buffer | null {
+  if (!value.startsWith('data:image/')) return null
+  const comma = value.indexOf(',')
+  if (comma < 0) return null
+  return Buffer.from(value.slice(comma + 1), 'base64')
+}
+
+function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {
+  const name = `${Date.now()}_${isbn || 'noisbn'}_${slot}.jpg`
+  writeFileSync(join(COVER_DIR, name), buffer)
+  return name
+}
 
 const PORT = Number(process.env.PORT ?? 3001)
 const DATA_DIR = resolve(process.env.BOOKSCAN_DATA ?? 'data')
@@ -51,11 +68,55 @@ function asDraft(body: Record<string, unknown>): DraftBook {
         : Number(body.seriesIndex),
     location: String(body.location ?? ''),
     lookupSource: String(body.lookupSource ?? ''),
+    isbnSource: String(body.isbnSource ?? ''),
+    ocrText: String(body.ocrText ?? ''),
     authorFilingOverride: body.authorFilingOverride
       ? String(body.authorFilingOverride)
       : null,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Identify
+// ---------------------------------------------------------------------------
+
+/**
+ * Read an ISBN off one captured photo, and look the book up if one is found.
+ *
+ * Both steps happen in a single round trip because the caller is a phone on
+ * wifi: two sequential requests is a visibly slower shutter-to-answer time.
+ */
+app.post('/api/identify', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const slot: Slot = body.slot === 'front' || body.slot === 'edge' ? body.slot : 'back'
+
+  const image = decodeDataUrl(String(body.image ?? ''))
+  if (!image) {
+    res.status(400).json({ error: 'Expected an image data URL.' })
+    return
+  }
+
+  // Only the front cover needs a title guess, and it is the expensive part.
+  const result = await identify(image, { wantTitle: slot === 'front' })
+
+  const lookup = result.isbn13
+    ? await lookupIsbn(result.isbn13, { googleApiKey: GOOGLE_API_KEY })
+    : null
+
+  const existing = result.isbn13 ? store.findByIsbn13(result.isbn13) : undefined
+
+  res.json({
+    identify: result,
+    lookup: lookup
+      ? {
+          ...lookup,
+          duplicateOf: existing
+            ? { id: existing.id, title: existing.title, location: existing.location }
+            : null,
+        }
+      : null,
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Lookup
@@ -117,14 +178,16 @@ app.post('/api/books', (req, res) => {
     return
   }
 
-  // Cover still arrives as a data URL and is written beside the database
-  // rather than into it, so the SQLite file stays small enough to copy around.
-  const coverData = String(body.coverImageData ?? '')
-  if (coverData.startsWith('data:image/')) {
-    const base64 = coverData.slice(coverData.indexOf(',') + 1)
-    const name = `${Date.now()}_${draft.isbn13 || 'noisbn'}.jpg`
-    writeFileSync(join(COVER_DIR, name), Buffer.from(base64, 'base64'))
-    draft.coverImage = name
+  // Photos arrive as data URLs and are written beside the database rather than
+  // into it, so the SQLite file stays small enough to copy around.
+  const images = (body.images ?? {}) as Record<string, unknown>
+  for (const slot of ['front', 'back', 'edge'] as const) {
+    const buffer = decodeDataUrl(String(images[slot] ?? ''))
+    if (!buffer) continue
+    const name = saveImage(buffer, draft.isbn13 ?? '', slot)
+    if (slot === 'front') draft.frontImage = name
+    if (slot === 'back') draft.backImage = name
+    if (slot === 'edge') draft.edgeImage = name
   }
 
   if (body.saveFilingOverride && draft.authorFilingOverride) {

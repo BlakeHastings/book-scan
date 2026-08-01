@@ -1,26 +1,41 @@
 /**
- * Camera and barcode decoding, written for Safari on iOS.
+ * Camera access and manual still capture, written for Safari on iOS.
  *
- * Three Safari facts drive the shape of this file:
- *   1. There is no BarcodeDetector, so decoding goes through ZXing.
- *   2. There is no ImageCapture, so a still is a canvas draw of the video
- *      frame rather than a real photo. Requesting a high-resolution track is
- *      therefore the only lever on still quality.
- *   3. getUserMedia needs a user gesture and the video element needs both
- *      `playsinline` and `muted`, or playback silently never starts.
+ * There is no barcode decoding here any more. Live decoding in the browser
+ * could not read real book barcodes: video frames are motion-blurred and
+ * lower resolution than the sensor, and Safari has no BarcodeDetector so it
+ * fell to ZXing on downscaled frames. The server now decodes a full-resolution
+ * still with zbar plus preprocessing variants, and falls back to OCR, which is
+ * what the Python version does.
+ *
+ * Safari constraints that shape this file:
+ *   - getUserMedia needs a user gesture, so the camera starts from a tap
+ *   - the video element needs `playsinline` and `muted` or playback never
+ *     starts and the frame stays black
+ *   - there is no ImageCapture, so a still is a canvas draw of the video
+ *     frame, which makes the requested track resolution the only real lever
+ *     on quality
  */
 
-import { BrowserMultiFormatReader } from '@zxing/browser'
-import { BarcodeFormat, DecodeHintType } from '@zxing/library'
-import { pickIsbn } from '../../shared/isbn'
+export type Slot = 'front' | 'back' | 'edge'
 
-export interface ScannerControls {
-  stop(): void
+export const SLOTS: Slot[] = ['front', 'back', 'edge']
+
+export const SLOT_LABEL: Record<Slot, string> = {
+  front: 'Front cover',
+  back: 'Back cover',
+  edge: 'Spine',
+}
+
+export const SLOT_HINT: Record<Slot, string> = {
+  front: 'The cover, for the title and the record.',
+  back: 'Where the barcode and printed ISBN are. This is the one that matters.',
+  edge: 'The spine, as it will look on the shelf.',
 }
 
 /**
- * Ask for the back camera at 1080p. Safari treats these as hints and returns
- * the nearest mode it has, so this degrades rather than failing.
+ * Ask for the back camera at the highest resolution Safari will give us.
+ * These are hints, so an older phone degrades rather than failing.
  */
 export async function openCamera(): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -36,16 +51,18 @@ export async function openCamera(): Promise<MediaStream> {
       audio: false,
       video: {
         facingMode: { ideal: 'environment' },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        // Ask high. Safari clamps to the nearest supported mode, and the
+        // still is only ever as good as the track we are drawing from.
+        width: { ideal: 3840 },
+        height: { ideal: 2160 },
       },
     })
   } catch (error) {
     const name = (error as DOMException)?.name
     if (name === 'NotAllowedError') {
       throw new Error(
-        'Camera permission was denied. On iPhone, reload and tap Allow, or ' +
-          'check Settings, Safari, Camera.',
+        'Camera permission was denied. Reload and tap Allow, or check ' +
+          'Settings, Safari, Camera.',
       )
     }
     if (name === 'NotFoundError' || name === 'OverconstrainedError') {
@@ -56,56 +73,13 @@ export async function openCamera(): Promise<MediaStream> {
 }
 
 /**
- * Attach the stream and start decoding EAN-13 only. Restricting the format
- * matters: it is markedly faster per frame, and it stops ZXing reporting the
- * EAN-5 price add-on that sits next to the ISBN on most back covers.
- *
- * `onIsbn` only fires for real Bookland (978/979) codes that pass their check
- * digit, so a price barcode never reaches the lookup.
- */
-export async function startDecoding(
-  stream: MediaStream,
-  video: HTMLVideoElement,
-  onIsbn: (isbn: string) => void,
-): Promise<ScannerControls> {
-  const hints = new Map()
-  hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13])
-  hints.set(DecodeHintType.TRY_HARDER, true)
-
-  const reader = new BrowserMultiFormatReader(hints, {
-    delayBetweenScanAttempts: 120,
-  })
-
-  let lastSeen = ''
-  let lastSeenAt = 0
-
-  const controls = await reader.decodeFromStream(stream, video, (result) => {
-    if (!result) return
-
-    const isbn = pickIsbn([result.getText()])
-    if (!isbn) return
-
-    // The same book stays in frame for many frames. Debounce so one physical
-    // book triggers one lookup.
-    const now = Date.now()
-    if (isbn === lastSeen && now - lastSeenAt < 4000) return
-    lastSeen = isbn
-    lastSeenAt = now
-
-    onIsbn(isbn)
-  })
-
-  return { stop: () => controls.stop() }
-}
-
-/**
  * Grab the current frame as a JPEG data URL.
  *
- * Capped at `maxWidth` because the payload travels as base64 inside a JSON
- * body. 1600px keeps a cover legible while staying well under the server's
- * body limit.
+ * Kept large and lightly compressed: this image is going to a barcode decoder
+ * and an OCR pass, and both lose accuracy fast on a downscaled or blocky
+ * source. It travels as base64 inside a JSON body, hence the ceiling.
  */
-export function captureStill(video: HTMLVideoElement, maxWidth = 1600): string {
+export function captureStill(video: HTMLVideoElement, maxWidth = 2400): string {
   const sourceWidth = video.videoWidth
   const sourceHeight = video.videoHeight
   if (!sourceWidth || !sourceHeight) return ''
@@ -119,14 +93,33 @@ export function captureStill(video: HTMLVideoElement, maxWidth = 1600): string {
   if (!context) return ''
   context.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-  return canvas.toDataURL('image/jpeg', 0.85)
+  return canvas.toDataURL('image/jpeg', 0.92)
+}
+
+/** Smaller copy for on-screen thumbnails, so state stays cheap to hold. */
+export function thumbnail(dataUrl: string, maxWidth = 320): Promise<string> {
+  return new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => {
+      const scale = Math.min(1, maxWidth / image.width)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(image.width * scale)
+      canvas.height = Math.round(image.height * scale)
+      const context = canvas.getContext('2d')
+      if (!context) return resolve(dataUrl)
+      context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/jpeg', 0.7))
+    }
+    image.onerror = () => resolve(dataUrl)
+    image.src = dataUrl
+  })
 }
 
 export function stopStream(stream: MediaStream | null): void {
   stream?.getTracks().forEach((track) => track.stop())
 }
 
-/** Human-readable resolution, so the user can see they really are getting HD. */
+/** Human-readable resolution, so it is obvious the phone really is in HD. */
 export function describeStream(stream: MediaStream | null): string {
   const track = stream?.getVideoTracks()[0]
   if (!track) return ''

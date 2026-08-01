@@ -3,43 +3,48 @@ import {
   api, draftFromLookup, emptyDraft,
   type Counts, type Draft, type LookupResponse, type PlacementResponse,
 } from './lib/api'
-import type { ScannerControls } from './lib/scanner'
+import {
+  captureStill, describeStream, openCamera, SLOTS, SLOT_HINT, SLOT_LABEL,
+  stopStream, thumbnail, type Slot,
+} from './lib/scanner'
 import { filingName } from '../shared/shelving'
-
-/**
- * ZXing is the bulk of the bundle and is useless until the camera starts, so
- * it loads on the first tap of "Start camera" rather than on page load. That
- * keeps the first paint quick over phone wifi.
- */
-type ScannerModule = typeof import('./lib/scanner')
-let scannerPromise: Promise<ScannerModule> | null = null
-const loadScanner = () => (scannerPromise ??= import('./lib/scanner'))
+import { CaptureDeck, type SlotStatus } from './components/CaptureDeck'
 import { PlacementCard } from './components/PlacementCard'
 import { ReviewPane } from './components/ReviewPane'
 import { LibraryPane } from './components/LibraryPane'
 
-type Mode = 'scan' | 'review' | 'library'
+type Mode = 'capture' | 'review' | 'library'
+
+/** Next slot with no photo in it, so the shutter advances by itself. */
+function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
+  const order = [...SLOTS.slice(SLOTS.indexOf(from) + 1), ...SLOTS]
+  return order.find((slot) => !shots[slot]) ?? from
+}
 
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const controlsRef = useRef<ScannerControls | null>(null)
 
-  const [mode, setMode] = useState<Mode>('scan')
+  const [mode, setMode] = useState<Mode>('capture')
   const [cameraOn, setCameraOn] = useState(false)
   const [resolution, setResolution] = useState('')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // Full-resolution captures go to the server; thumbs are what we render.
+  const [shots, setShots] = useState<Partial<Record<Slot, string>>>({})
+  const [thumbs, setThumbs] = useState<Partial<Record<Slot, string>>>({})
+  const [status, setStatus] = useState<Partial<Record<Slot, SlotStatus>>>({})
+  const [activeSlot, setActiveSlot] = useState<Slot>('back')
 
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [lookup, setLookup] = useState<LookupResponse | null>(null)
-  const [cover, setCover] = useState('')
+  const [identified, setIdentified] = useState(false)
   const [placement, setPlacement] = useState<PlacementResponse | null>(null)
   const [placementStale, setPlacementStale] = useState(false)
   const [savedPlacement, setSavedPlacement] = useState<PlacementResponse | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
-  const [manualIsbn, setManualIsbn] = useState('')
+  const [manualEntry, setManualEntry] = useState('')
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
 
@@ -52,11 +57,7 @@ export default function App() {
   // -----------------------------------------------------------------------
 
   const stopCamera = useCallback(() => {
-    controlsRef.current?.stop()
-    controlsRef.current = null
-    // Stopping tracks inline rather than through the lazy module, so teardown
-    // works even if the module never finished loading.
-    streamRef.current?.getTracks().forEach((track) => track.stop())
+    stopStream(streamRef.current)
     streamRef.current = null
     setCameraOn(false)
     setResolution('')
@@ -64,49 +65,19 @@ export default function App() {
 
   useEffect(() => stopCamera, [stopCamera])
 
-  const handleIsbn = useCallback(async (isbn: string) => {
-    // Freeze the frame we decoded from before any await, so the cover matches
-    // the book that was actually in shot. The module is guaranteed loaded
-    // here: this only runs from the decode callback.
-    const scanner = await loadScanner()
-    if (videoRef.current) setCover(scanner.captureStill(videoRef.current))
-
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.lookupIsbn(isbn)
-      setLookup(result)
-      if (result.found) {
-        setDraft(draftFromLookup(result))
-      } else {
-        setDraft({ ...emptyDraft, isbn13: isbn })
-        setError(`ISBN ${isbn} was not found. Enter the details by hand.`)
-      }
-      setMode('review')
-      stopCamera()
-    } catch (caught) {
-      setError((caught as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }, [stopCamera])
-
-  // getUserMedia needs a user gesture on iOS, so this is only ever called
-  // from a button press.
+  // getUserMedia needs a user gesture on iOS, so this only runs from a tap.
   const startCamera = async () => {
     setError('')
     try {
-      const scanner = await loadScanner()
-      const stream = await scanner.openCamera()
+      const stream = await openCamera()
       streamRef.current = stream
       setCameraOn(true)
-      setResolution(scanner.describeStream(stream))
-
+      setResolution(describeStream(stream))
       const video = videoRef.current
-      if (!video) return
-      controlsRef.current = await scanner.startDecoding(stream, video, (isbn) => {
-        void handleIsbn(isbn)
-      })
+      if (video) {
+        video.srcObject = stream
+        await video.play().catch(() => {})
+      }
     } catch (caught) {
       setError((caught as Error).message)
       stopCamera()
@@ -114,12 +85,80 @@ export default function App() {
   }
 
   // -----------------------------------------------------------------------
+  // Capture and identify
+  // -----------------------------------------------------------------------
+
+  const applyLookup = (result: LookupResponse) => {
+    setLookup(result)
+    setIdentified(true)
+    setDraft((current) => ({
+      ...draftFromLookup(result),
+      // Keep anything the user already typed by hand.
+      location: current.location,
+      notes: current.notes,
+    }))
+  }
+
+  /**
+   * Take the shot, then send it for identification. The photo is kept
+   * regardless of whether an ISBN comes back: the user asked for all three
+   * images stored, and a failed read is not a reason to throw a photo away.
+   */
+  const shoot = async () => {
+    const video = videoRef.current
+    if (!video) return
+
+    const slot = activeSlot
+    const full = captureStill(video)
+    if (!full) {
+      setError('The camera has not produced a frame yet. Give it a moment.')
+      return
+    }
+
+    setShots((current) => ({ ...current, [slot]: full }))
+    setThumbs((current) => ({ ...current, [slot]: full }))
+    void thumbnail(full).then((small) =>
+      setThumbs((current) => ({ ...current, [slot]: small })),
+    )
+    setStatus((current) => ({ ...current, [slot]: 'busy' }))
+    setActiveSlot((current) => nextEmpty({ ...shots, [slot]: full }, current))
+
+    try {
+      const response = await api.identify(full, slot)
+      const found = Boolean(response.identify.isbn13)
+      setStatus((current) => ({ ...current, [slot]: found ? 'found' : 'none' }))
+
+      setDraft((current) => ({
+        ...current,
+        isbnSource: response.identify.source || current.isbnSource,
+        ocrText: response.identify.text || current.ocrText,
+      }))
+
+      // Do not overwrite a book we already identified from another photo.
+      if (response.lookup?.found && !identified) {
+        applyLookup(response.lookup)
+      } else if (found && !identified) {
+        setDraft((current) => ({ ...current, isbn13: response.identify.isbn13 }))
+        setError(
+          `Found ISBN ${response.identify.isbn13} but no catalogue entry. ` +
+            'Enter the details by hand.',
+        )
+      } else if (!found && response.identify.titleGuess && !identified) {
+        // No ISBN anywhere, but the cover gave us a title to search on.
+        setDraft((current) =>
+          current.title ? current : { ...current, title: response.identify.titleGuess },
+        )
+      }
+    } catch (caught) {
+      setStatus((current) => ({ ...current, [slot]: 'none' }))
+      setError((caught as Error).message)
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Live placement preview
   // -----------------------------------------------------------------------
 
-  // Recomputed as the user edits, debounced so typing an author does not fire
-  // a request per keystroke. This is the "live" part of the brief: the
-  // instruction updates the moment the fiction toggle or author changes.
   useEffect(() => {
     if (mode !== 'review' || !draft.title.trim()) {
       setPlacement(null)
@@ -131,7 +170,6 @@ export default function App() {
         .then((result) => {
           setPlacement(result)
           setPlacementStale(false)
-          // Only auto-fill the location while the user has not touched it.
           setDraft((current) =>
             current.location ? current : { ...current, location: result.suggestedLocation },
           )
@@ -149,32 +187,32 @@ export default function App() {
   // -----------------------------------------------------------------------
 
   const lookupManual = async () => {
-    const value = manualIsbn.trim()
+    const value = manualEntry.trim()
     if (!value) return
-    if (/^\d[\dXx-]{8,}$/.test(value)) {
-      await handleIsbn(value)
-    } else {
-      setBusy(true)
-      try {
-        const result = await api.searchTitle(value)
-        setLookup(result)
-        setDraft(result.found ? draftFromLookup(result) : { ...emptyDraft, title: value })
+    setError('')
+    try {
+      const result = /^[\d\s-]{9,}[\dXx]?$/.test(value)
+        ? await api.lookupIsbn(value)
+        : await api.searchTitle(value)
+      if (result.found) {
+        applyLookup(result)
         setMode('review')
-        stopCamera()
-      } catch (caught) {
-        setError((caught as Error).message)
-      } finally {
-        setBusy(false)
+      } else {
+        setDraft((current) => ({ ...current, title: value }))
+        setError(`Nothing found for "${value}". Enter the details by hand.`)
+        setMode('review')
       }
+    } catch (caught) {
+      setError((caught as Error).message)
     }
-    setManualIsbn('')
+    setManualEntry('')
   }
 
   const save = async () => {
     setSaving(true)
     setError('')
     try {
-      const result = await api.saveBook(draft, cover, Boolean(draft.authorFilingOverride))
+      const result = await api.saveBook(draft, shots, Boolean(draft.authorFilingOverride))
       setCounts(result.counts)
       setSavedPlacement(placement)
       reset()
@@ -188,10 +226,17 @@ export default function App() {
   const reset = () => {
     setDraft(emptyDraft)
     setLookup(null)
-    setCover('')
+    setIdentified(false)
+    setShots({})
+    setThumbs({})
+    setStatus({})
+    setActiveSlot('back')
     setPlacement(null)
-    setMode('scan')
+    setMode('capture')
   }
+
+  const shotCount = SLOTS.filter((slot) => shots[slot]).length
+  const busy = SLOTS.some((slot) => status[slot] === 'busy')
 
   // -----------------------------------------------------------------------
 
@@ -200,10 +245,16 @@ export default function App() {
       <header className="topbar">
         <h1>Book scan</h1>
         <nav>
-          <button className={mode !== 'library' ? 'tab tab--on' : 'tab'} onClick={() => setMode(mode === 'library' ? 'scan' : mode)}>
+          <button
+            className={mode !== 'library' ? 'tab tab--on' : 'tab'}
+            onClick={() => setMode(mode === 'library' ? 'capture' : mode)}
+          >
             Scan
           </button>
-          <button className={mode === 'library' ? 'tab tab--on' : 'tab'} onClick={() => setMode('library')}>
+          <button
+            className={mode === 'library' ? 'tab tab--on' : 'tab'}
+            onClick={() => setMode('library')}
+          >
             Library
           </button>
         </nav>
@@ -221,58 +272,94 @@ export default function App() {
 
       {mode !== 'library' && (
         <main className="main">
-          {/* The instruction from the last saved book stays visible while the
-              user walks to the shelf and comes back for the next scan. */}
-          {mode === 'scan' && savedPlacement && (
+          {mode === 'capture' && savedPlacement && (
             <PlacementCard placement={savedPlacement} pending={false} saved />
           )}
-
           {mode === 'review' && (
             <PlacementCard placement={placement} pending={placementStale} saved={false} />
           )}
 
-          <section className={mode === 'review' ? 'camera camera--hidden' : 'camera'}>
-            <video
-              ref={videoRef}
-              className="camera__video"
-              playsInline
-              muted
-              autoPlay
-            />
-            {!cameraOn && (
-              <div className="camera__idle">
-                <p>Point the back camera at the barcode on the back cover.</p>
-                <button className="btn btn--primary btn--big" onClick={startCamera}>
-                  Start camera
-                </button>
-              </div>
-            )}
-            {cameraOn && (
-              <div className="camera__hud">
-                <span>{busy ? 'Looking up...' : 'Scanning for ISBN'}</span>
-                {resolution && <span className="camera__res">{resolution}</span>}
-                <button className="btn btn--ghost" onClick={stopCamera}>Stop</button>
-              </div>
-            )}
-          </section>
+          {mode === 'capture' && (
+            <>
+              <section className="camera">
+                <video ref={videoRef} className="camera__video" playsInline muted autoPlay />
+                {!cameraOn && (
+                  <div className="camera__idle">
+                    <p>Take three photos of the book: cover, back, spine.</p>
+                    <button className="btn btn--primary btn--big" onClick={startCamera}>
+                      Start camera
+                    </button>
+                  </div>
+                )}
+                {cameraOn && (
+                  <div className="camera__hud">
+                    <span>Next: <strong>{SLOT_LABEL[activeSlot]}</strong></span>
+                    {resolution && <span className="camera__res">{resolution}</span>}
+                  </div>
+                )}
+              </section>
 
-          {mode === 'scan' && (
-            <div className="manual">
-              <input
-                value={manualIsbn}
-                onChange={(event) => setManualIsbn(event.target.value)}
-                onKeyDown={(event) => { if (event.key === 'Enter') void lookupManual() }}
-                placeholder="Or type an ISBN or a title"
+              {cameraOn && <p className="hint hint--center">{SLOT_HINT[activeSlot]}</p>}
+
+              <CaptureDeck
+                thumbs={thumbs}
+                status={status}
+                active={activeSlot}
+                onSelect={setActiveSlot}
               />
-              <button className="btn" onClick={lookupManual} disabled={busy}>
-                Look up
-              </button>
-            </div>
+
+              {cameraOn && (
+                <div className="shutter-row">
+                  <button className="shutter" onClick={shoot} aria-label="Take photo">
+                    <span className="shutter__ring" />
+                  </button>
+                </div>
+              )}
+
+              {identified && (
+                <div className="found">
+                  Identified: <strong>{draft.title}</strong>
+                  {draft.authors ? ` by ${draft.authors}` : ''}
+                  {draft.isbnSource ? ` (${draft.isbnSource})` : ''}
+                </div>
+              )}
+
+              <div className="actions">
+                <button
+                  className="btn btn--primary"
+                  onClick={() => setMode('review')}
+                  disabled={busy || (!identified && shotCount === 0 && !draft.title)}
+                >
+                  {busy ? 'Reading...' : `Review${shotCount ? ` (${shotCount}/3 photos)` : ''}`}
+                </button>
+                {(shotCount > 0 || identified) && (
+                  <button className="btn" onClick={reset}>Start over</button>
+                )}
+              </div>
+
+              <div className="manual">
+                <input
+                  value={manualEntry}
+                  onChange={(event) => setManualEntry(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') void lookupManual() }}
+                  placeholder="Or type an ISBN or a title"
+                />
+                <button className="btn" onClick={lookupManual}>Look up</button>
+              </div>
+            </>
           )}
 
           {mode === 'review' && (
             <>
-              {cover && <img className="cover" src={cover} alt="Captured cover" />}
+              <div className="deck deck--review">
+                {SLOTS.map((slot) => thumbs[slot] && (
+                  <figure key={slot} className="shot">
+                    <img src={thumbs[slot]} alt={SLOT_LABEL[slot]} />
+                    <figcaption>{SLOT_LABEL[slot]}</figcaption>
+                  </figure>
+                ))}
+              </div>
+
               <ReviewPane
                 draft={draft}
                 lookup={lookup}
@@ -282,6 +369,12 @@ export default function App() {
                 onDiscard={reset}
                 saving={saving}
               />
+
+              <div className="actions">
+                <button className="btn" onClick={() => setMode('capture')}>
+                  Back to camera
+                </button>
+              </div>
             </>
           )}
         </main>
