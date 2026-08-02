@@ -5,11 +5,12 @@
  */
 
 import express from 'express'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { openDatabase } from './db'
 import { identify } from './identify'
 import { lookupIsbn, searchTitle } from './lookup'
+import { CaptureQueue } from './queue'
 import { Store, type DraftBook } from './store'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 
@@ -39,6 +40,19 @@ mkdirSync(COVER_DIR, { recursive: true })
 
 const db = openDatabase(DB_PATH)
 const store = new Store(db)
+
+const queue = new CaptureQueue(
+  db,
+  (name) => {
+    if (!name) return null
+    try {
+      return readFileSync(join(COVER_DIR, name))
+    } catch {
+      return null
+    }
+  },
+  { googleApiKey: GOOGLE_API_KEY },
+)
 
 const app = express()
 app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
@@ -87,6 +101,63 @@ function asDraft(body: Record<string, unknown>): DraftBook {
       : null,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Capture queue
+// ---------------------------------------------------------------------------
+
+/**
+ * Accept three photos and return at once. Reading them happens in the
+ * background, so the person holding the books can move straight to the next
+ * one instead of waiting on OCR.
+ */
+app.post('/api/captures', (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const images = (body.images ?? {}) as Record<string, unknown>
+
+  const saved: { front?: string; back?: string; edge?: string } = {}
+  for (const slot of ['front', 'back', 'edge'] as const) {
+    const buffer = decodeDataUrl(String(images[slot] ?? ''))
+    if (buffer) saved[slot] = saveImage(buffer, '', slot)
+  }
+
+  if (!saved.front && !saved.back && !saved.edge) {
+    res.status(400).json({ error: 'At least one photo is required.' })
+    return
+  }
+
+  const capture = queue.add(saved)
+  // Not awaited: the whole point is that the response does not wait for OCR.
+  void queue.drain()
+
+  res.status(201).json({ capture, counts: queue.counts() })
+})
+
+app.get('/api/captures', (_req, res) => {
+  res.json({ captures: queue.list(), counts: queue.counts() })
+})
+
+app.post('/api/captures/:id/claim', (req, res) => {
+  const who = String((req.body ?? {}).who ?? '').trim() || 'unknown'
+  const result = queue.claim(Number(req.params.id), who)
+  if (!result.ok) {
+    res.status(409).json({
+      error: `That book is being worked on by ${result.heldBy}.`,
+    })
+    return
+  }
+  res.json({ capture: result.row })
+})
+
+app.post('/api/captures/:id/release', (req, res) => {
+  queue.release(Number(req.params.id), String((req.body ?? {}).who ?? ''))
+  res.json({ ok: true })
+})
+
+app.delete('/api/captures/:id', (req, res) => {
+  queue.remove(Number(req.params.id))
+  res.json({ ok: true, counts: queue.counts() })
+})
 
 // ---------------------------------------------------------------------------
 // Identify
@@ -220,7 +291,19 @@ app.post('/api/books', (req, res) => {
   }
 
   const { id, placement } = store.addBook(draft)
-  res.status(201).json({ id, placement, counts: store.counts() })
+
+  const captureId = Number(body.captureId ?? 0)
+  if (captureId) queue.markDone(captureId, id)
+
+  res.status(201).json({
+    id,
+    // The freshly computed placement, not whatever the client previewed.
+    // With two people scanning, a neighbour can appear between preview and
+    // save, and the stale one would send the book to the wrong gap.
+    placement,
+    counts: store.counts(),
+    queue: queue.counts(),
+  })
 })
 
 app.get('/api/books', (req, res) => {
@@ -246,6 +329,8 @@ app.get('/api/misfiles', (_req, res) => {
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, counts: store.counts(), db: DB_PATH })
 })
+
+queue.resumeOnStartup()
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`[api] listening on http://127.0.0.1:${PORT}`)

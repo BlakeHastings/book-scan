@@ -86,25 +86,100 @@ export async function openCamera(): Promise<MediaStream> {
 }
 
 /**
+ * A crop expressed as fractions of the *displayed* video box.
+ *
+ * The on-screen guide and the real crop are both driven from this one value,
+ * so they cannot drift apart.
+ */
+export interface CropFraction {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Tall, narrow, centred: the shape of a book spine held up to the camera. */
+export const SPINE_CROP: CropFraction = {
+  width: 0.24,
+  height: 0.80,
+  x: (1 - 0.24) / 2,
+  y: (1 - 0.80) / 2,
+}
+
+export const SLOT_CROP: Partial<Record<Slot, CropFraction>> = {
+  edge: SPINE_CROP,
+}
+
+/**
+ * Translate a crop given in displayed-box fractions into source pixels.
+ *
+ * The video is rendered with `object-fit: cover`, which scales to fill and
+ * clips the overflow, so displayed coordinates are not source coordinates.
+ * Getting this wrong puts the saved crop somewhere other than the rectangle
+ * the user framed, which is worse than no crop at all.
+ */
+export function cropToSource(
+  video: HTMLVideoElement,
+  crop: CropFraction,
+): { sx: number; sy: number; sw: number; sh: number } {
+  const videoWidth = video.videoWidth
+  const videoHeight = video.videoHeight
+  const boxWidth = video.clientWidth || videoWidth
+  const boxHeight = video.clientHeight || videoHeight
+
+  // object-fit: cover scales by the larger ratio, then centres and clips.
+  const scale = Math.max(boxWidth / videoWidth, boxHeight / videoHeight)
+  const overflowX = (videoWidth * scale - boxWidth) / 2
+  const overflowY = (videoHeight * scale - boxHeight) / 2
+
+  const sx = (crop.x * boxWidth + overflowX) / scale
+  const sy = (crop.y * boxHeight + overflowY) / scale
+  const sw = (crop.width * boxWidth) / scale
+  const sh = (crop.height * boxHeight) / scale
+
+  // Clamp so a rounding error never asks the canvas for pixels off the frame.
+  const clampedX = Math.max(0, Math.min(sx, videoWidth))
+  const clampedY = Math.max(0, Math.min(sy, videoHeight))
+  return {
+    sx: clampedX,
+    sy: clampedY,
+    sw: Math.max(1, Math.min(sw, videoWidth - clampedX)),
+    sh: Math.max(1, Math.min(sh, videoHeight - clampedY)),
+  }
+}
+
+export interface CaptureOptions {
+  maxWidth?: number
+  /** Omit for the full frame. */
+  crop?: CropFraction
+}
+
+/**
  * Grab the current frame as a JPEG data URL.
  *
- * Kept large and lightly compressed: this image is going to a barcode decoder
- * and an OCR pass, and both lose accuracy fast on a downscaled or blocky
- * source. It travels as base64 inside a JSON body, hence the ceiling.
+ * Kept large and lightly compressed: this image goes to a barcode decoder and
+ * an OCR pass, and both lose accuracy fast on a downscaled or blocky source.
+ * It travels as base64 inside a JSON body, hence the ceiling.
  */
-export function captureStill(video: HTMLVideoElement, maxWidth = 2400): string {
-  const sourceWidth = video.videoWidth
-  const sourceHeight = video.videoHeight
-  if (!sourceWidth || !sourceHeight) return ''
+export function captureStill(
+  video: HTMLVideoElement,
+  options: CaptureOptions = {},
+): string {
+  if (!video.videoWidth || !video.videoHeight) return ''
 
-  const scale = Math.min(1, maxWidth / sourceWidth)
+  const { maxWidth = 2400, crop } = options
+  const { sx, sy, sw, sh } = crop
+    ? cropToSource(video, crop)
+    : { sx: 0, sy: 0, sw: video.videoWidth, sh: video.videoHeight }
+
+  const scale = Math.min(1, maxWidth / sw)
   const canvas = document.createElement('canvas')
-  canvas.width = Math.round(sourceWidth * scale)
-  canvas.height = Math.round(sourceHeight * scale)
+  canvas.width = Math.round(sw * scale)
+  canvas.height = Math.round(sh * scale)
 
   const context = canvas.getContext('2d')
   if (!context) return ''
-  context.drawImage(video, 0, 0, canvas.width, canvas.height)
+  context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
 
   return canvas.toDataURL('image/jpeg', 0.92)
 }

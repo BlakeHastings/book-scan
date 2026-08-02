@@ -88,6 +88,33 @@ The phone only ever talks to Vite over HTTPS. Vite proxies `/api` to the
 Express process server-side, which is what keeps the page free of the
 mixed-content errors Safari would otherwise block.
 
+## The queue, and two people scanning at once
+
+Photographing a book takes seconds; reading it takes longer. So a capture is
+accepted the moment the photos exist and read afterwards. **Next book** hands
+the three photos to `/api/captures` and clears the camera immediately, and the
+Queue tab is where books are confirmed and shelved. Three books enqueue in
+under 100 ms; the reading happens behind them.
+
+The queue lives in the database, not the browser, so it survives a refresh and
+both people see the same list.
+
+### What was actually wrong for two people
+
+| Problem | Status |
+| --- | --- |
+| Two simultaneous identifications hitting one tesseract worker, which handles a single job at a time, and zbar-wasm's module-level scanner | Fixed. All identification is serialised process-wide |
+| Placement previewed, then a neighbour inserted by the other person before saving, so the book is filed into a gap that no longer exists | Fixed. The server recomputes placement at save time and the client now shows *that*, not its stale preview |
+| Both people opening the same queued book and filling it in twice | Fixed. Claiming a capture is a single conditional UPDATE, so only one wins. It is a lease, not a lock, so a claim left open does not block the book forever |
+| A contended SQLite write failing instead of waiting | Fixed with `busy_timeout` |
+| The same book scanned twice, once by barcode and once by typed ISBN-10 | Already handled: duplicate detection matches on either column |
+
+**Still true, and worth knowing:** two people can be told to put different
+books into the *same* gap at the same time. Both instructions are correct when
+issued, and the order of those two books relative to each other is then
+whatever the shelf ends up with. The misfile check catches it afterwards
+rather than preventing it, which for a home shelf is the right trade.
+
 ## Why it is built this way
 
 **Identification happens on the server, not the phone.** The first version
@@ -170,7 +197,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-94 tests. The ones worth knowing about:
+110 tests. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real zbar and tesseract pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on

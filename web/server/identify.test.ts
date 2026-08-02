@@ -157,3 +157,20 @@ describe('extractIsbnsFromText', () => {
       .toHaveLength(0)
   })
 })
+
+describe('concurrent identification', () => {
+  it('serialises overlapping calls and keeps results correct', async () => {
+    // Two people scanning at once used to mean two simultaneous calls into a
+    // tesseract worker that handles one job at a time. Each result must still
+    // match its own input.
+    const [dune, none] = await Promise.all([
+      identify(await backCover(ISBN), { ocrEnabled: false }),
+      identify(await backCover(ISBN, { barcode: false, printedIsbn: false }), {
+        ocrEnabled: false,
+      }),
+    ])
+
+    expect(dune.isbn13).toBe(ISBN)
+    expect(none.isbn13).toBe('')
+  }, 60_000)
+})

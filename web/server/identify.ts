@@ -326,8 +326,33 @@ export interface IdentifyOptions {
   ocrEnabled?: boolean
 }
 
+/**
+ * One identification at a time, process-wide.
+ *
+ * A tesseract.js worker handles a single job at a time and zbar-wasm keeps a
+ * module-level scanner, so two overlapping calls can interleave and corrupt
+ * each other's results. That never happened with one person scanning; with
+ * two phones pointed at the same server it happens immediately. Serialising
+ * here covers both the queue worker and the live /api/identify path.
+ */
+let identifyChain: Promise<unknown> = Promise.resolve()
+
+function serialise<T>(work: () => Promise<T>): Promise<T> {
+  const result = identifyChain.then(work, work)
+  // Keep the chain alive even if this job rejects.
+  identifyChain = result.then(() => undefined, () => undefined)
+  return result
+}
+
 /** Barcode first, OCR second. Never throws. */
-export async function identify(
+export function identify(
+  input: Buffer,
+  options: IdentifyOptions = {},
+): Promise<IdentifyResult> {
+  return serialise(() => identifyNow(input, options))
+}
+
+async function identifyNow(
   input: Buffer,
   options: IdentifyOptions = {},
 ): Promise<IdentifyResult> {

@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  api, draftFromLookup, emptyDraft,
-  type Counts, type Draft, type LookupResponse, type PlacementResponse,
+  api, deviceName, draftFromLookup, emptyDraft,
+  type Capture, type Counts, type Draft, type LookupResponse,
+  type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import {
-  captureStill, describeStream, openCamera, SLOTS, SLOT_HINT, SLOT_LABEL,
-  SLOT_SHORT, stopStream, thumbnail, type Slot,
+  captureStill, describeStream, openCamera, SLOT_CROP, SLOTS, SLOT_HINT,
+  SLOT_LABEL, SLOT_SHORT, stopStream, thumbnail, type Slot,
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
 import { PlacementCard } from './components/PlacementCard'
 import { ReviewPane } from './components/ReviewPane'
 import { LibraryPane } from './components/LibraryPane'
+import { QueuePane } from './components/QueuePane'
 
-type Mode = 'capture' | 'review' | 'library'
+type Mode = 'capture' | 'review' | 'library' | 'queue'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
 
 /** Next slot with no photo in it, so the shutter advances by itself. */
@@ -45,11 +47,15 @@ export default function App() {
   const [counts, setCounts] = useState<Counts | null>(null)
   const [manualEntry, setManualEntry] = useState('')
   const [lookingUp, setLookingUp] = useState(false)
+  const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
+  const [captureId, setCaptureId] = useState<number | null>(null)
+  const [enqueuing, setEnqueuing] = useState(false)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
   const busy = SLOTS.some((slot) => status[slot] === 'busy')
   const fullScreenCamera = mode === 'capture'
+  const me = deviceName()
 
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
@@ -118,7 +124,7 @@ export default function App() {
     if (!video) return
 
     const slot = activeSlot
-    const full = captureStill(video)
+    const full = captureStill(video, { crop: SLOT_CROP[slot] })
     if (!full) {
       setError('The camera has not produced a frame yet. Give it a moment.')
       return
@@ -249,9 +255,15 @@ export default function App() {
     setSaving(true)
     setError('')
     try {
-      const result = await api.saveBook(draft, shots, Boolean(draft.authorFilingOverride))
+      const result = await api.saveBook(
+        draft, shots, Boolean(draft.authorFilingOverride), captureId ?? undefined,
+      )
       setCounts(result.counts)
-      setSavedPlacement(placement)
+      setQueueCounts(result.queue)
+      // The server recomputes placement at save time. With two people
+      // scanning, a neighbour can land between preview and save, so the
+      // preview we rendered may already be wrong.
+      setSavedPlacement(result.placement)
       reset()
     } catch (caught) {
       setError((caught as Error).message)
@@ -260,7 +272,58 @@ export default function App() {
     }
   }
 
+  /**
+   * Hand the photos to the queue and immediately clear for the next book.
+   * Identification happens server-side afterwards, so the person holding the
+   * books never waits on OCR.
+   */
+  const nextBook = async () => {
+    if (shotCount === 0) return
+    setError('')
+    setEnqueuing(true)
+    try {
+      const result = await api.enqueue(shots)
+      setQueueCounts(result.counts)
+      reset()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setEnqueuing(false)
+    }
+  }
+
+  /** Open a queue item in the review pane, pre-filled from its lookup. */
+  const openCapture = (capture: Capture) => {
+    const looked = capture.draft_json
+      ? (JSON.parse(capture.draft_json) as LookupResponse)
+      : null
+
+    setCaptureId(capture.id)
+    setLookup(looked)
+    setIdentified(Boolean(looked?.found))
+    setDraft(
+      looked?.found
+        ? draftFromLookup(looked)
+        : {
+            ...emptyDraft,
+            isbn13: capture.isbn13,
+            isbn10: capture.isbn10,
+            title: capture.title_guess,
+            isbnSource: capture.isbn_source,
+          },
+    )
+    setThumbs({
+      front: capture.front_image ? `/api/covers/${capture.front_image}` : undefined,
+      back: capture.back_image ? `/api/covers/${capture.back_image}` : undefined,
+      edge: capture.edge_image ? `/api/covers/${capture.edge_image}` : undefined,
+    })
+    // The photos already live on the server; do not re-upload them on save.
+    setShots({})
+    setMode('review')
+  }
+
   const reset = () => {
+    if (captureId) void api.releaseCapture(captureId, me).catch(() => {})
     setDraft(emptyDraft)
     setLookup(null)
     setIdentified(false)
@@ -269,6 +332,7 @@ export default function App() {
     setStatus({})
     setActiveSlot('back')
     setPlacement(null)
+    setCaptureId(null)
     setMode('capture')
   }
 
@@ -281,12 +345,34 @@ export default function App() {
       <div className="cam">
         <video ref={videoRef} className="cam__video" playsInline muted autoPlay />
 
+        {cameraOn && SLOT_CROP[activeSlot] && (
+          <div
+            className="cam__guide"
+            style={{
+              left: `${SLOT_CROP[activeSlot]!.x * 100}%`,
+              top: `${SLOT_CROP[activeSlot]!.y * 100}%`,
+              width: `${SLOT_CROP[activeSlot]!.width * 100}%`,
+              height: `${SLOT_CROP[activeSlot]!.height * 100}%`,
+            }}
+          >
+            <span className="cam__guide-label">Fit the spine in here</span>
+          </div>
+        )}
+
         <div className="cam__top">
           <button className="cam__chip-btn" onClick={() => { stopCamera(); setMode('library') }}>
             Library
           </button>
+          <button className="cam__chip-btn" onClick={() => { stopCamera(); setMode('queue') }}>
+            Queue
+            {queueCounts && queueCounts.pending + queueCounts.ready + queueCounts.failed > 0 && (
+              <span className="cam__badge">
+                {queueCounts.pending + queueCounts.ready + queueCounts.failed}
+              </span>
+            )}
+          </button>
           <span className="cam__meta">
-            {counts ? `${counts.total} books` : ''}
+            {counts ? `${counts.total} shelved` : ''}
             {resolution ? ` · ${resolution}` : ''}
           </span>
           {(shotCount > 0 || identified) && (
@@ -374,13 +460,16 @@ export default function App() {
           </p>
 
           <div className="cam__controls">
-            <div className="cam__thumbs">
-              {SLOTS.map((slot) => (
-                <span key={slot} className="cam__thumb" aria-hidden>
-                  {thumbs[slot] && <img src={thumbs[slot]} alt="" />}
-                </span>
-              ))}
-            </div>
+
+            <button
+              className="cam__next"
+              onClick={nextBook}
+              disabled={enqueuing || shotCount === 0}
+              title="Send these photos to the queue and start the next book"
+            >
+              {enqueuing ? '...' : 'Next book'}
+              {shotCount > 0 && <span className="cam__count">{shotCount}/3</span>}
+            </button>
 
             <button
               className="shutter"
@@ -416,6 +505,12 @@ export default function App() {
         <nav>
           <button className="tab" onClick={() => setMode('capture')}>Camera</button>
           <button
+            className={mode === 'queue' ? 'tab tab--on' : 'tab'}
+            onClick={() => setMode('queue')}
+          >
+            Queue
+          </button>
+          <button
             className={mode === 'library' ? 'tab tab--on' : 'tab'}
             onClick={() => setMode('library')}
           >
@@ -431,6 +526,10 @@ export default function App() {
       </header>
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
+
+      {mode === 'queue' && (
+        <QueuePane onOpen={openCapture} onCounts={setQueueCounts} />
+      )}
 
       {mode === 'library' && <LibraryPane />}
 

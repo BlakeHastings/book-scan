@@ -77,6 +77,38 @@ CREATE TABLE IF NOT EXISTS shelf_ranges (
     start_label TEXT NOT NULL,
     note        TEXT DEFAULT ''
 );
+
+-- The work queue. A capture is three photos and nothing else until the
+-- background worker has read them, which is what lets the person holding the
+-- books keep moving instead of waiting on OCR.
+--
+-- Deliberately separate from the books table. That one drives shelf ordering
+-- and misfile detection, and letting half-identified rows into it would
+-- corrupt both.
+CREATE TABLE IF NOT EXISTS captures (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- pending: not yet read. ready: identified, awaiting confirmation.
+    -- failed: read, but no ISBN or no catalogue match. done: became a book.
+    status       TEXT    NOT NULL DEFAULT 'pending',
+    front_image  TEXT    DEFAULT '',
+    back_image   TEXT    DEFAULT '',
+    edge_image   TEXT    DEFAULT '',
+    isbn13       TEXT    DEFAULT '',
+    isbn10       TEXT    DEFAULT '',
+    isbn_source  TEXT    DEFAULT '',
+    title_guess  TEXT    DEFAULT '',
+    -- The looked-up metadata, as a draft the review pane can load directly.
+    draft_json   TEXT    DEFAULT '',
+    note         TEXT    DEFAULT '',
+    -- Soft lease, so two people cannot work the same capture at once.
+    claimed_by   TEXT    DEFAULT '',
+    claimed_at   TEXT,
+    book_id      INTEGER REFERENCES books(id) ON DELETE SET NULL,
+    created_at   TEXT    NOT NULL,
+    processed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_captures_status ON captures (status, id);
 `
 
 export interface BookRow {
@@ -142,6 +174,10 @@ export function openDatabase(path: string): Database.Database {
   const db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
+  // Two people scanning at once means overlapping writes. WAL allows one
+  // writer alongside readers; this stops a contended write failing outright
+  // instead of waiting its turn.
+  db.pragma('busy_timeout = 5000')
   db.exec(SCHEMA)
   addMissingColumns(db)
 

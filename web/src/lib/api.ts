@@ -96,6 +96,43 @@ export interface IdentifyResponse {
   lookup: LookupResponse | null
 }
 
+export type CaptureStatus = 'pending' | 'ready' | 'failed' | 'done'
+
+export interface Capture {
+  id: number
+  status: CaptureStatus
+  front_image: string
+  back_image: string
+  edge_image: string
+  isbn13: string
+  isbn10: string
+  isbn_source: string
+  title_guess: string
+  draft_json: string
+  note: string
+  claimed_by: string
+  claimed_at: string | null
+  book_id: number | null
+  created_at: string
+  processed_at: string | null
+}
+
+export type QueueCounts = Record<CaptureStatus, number>
+
+/**
+ * Stable per-device name, so a claim can say who holds a capture and the same
+ * browser can reclaim its own work after a refresh.
+ */
+export function deviceName(): string {
+  const key = 'bookscan.device'
+  let name = localStorage.getItem(key)
+  if (!name) {
+    name = `device-${Math.random().toString(36).slice(2, 6)}`
+    localStorage.setItem(key, name)
+  }
+  return name
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -142,15 +179,48 @@ export const api = {
       body: JSON.stringify(draftBody(draft)),
     }),
 
+  /** Hand three photos to the queue and return at once. */
+  enqueue: (images: Partial<Record<'front' | 'back' | 'edge', string>>) =>
+    request<{ capture: Capture; counts: QueueCounts }>('/api/captures', {
+      method: 'POST',
+      body: JSON.stringify({ images }),
+    }),
+
+  listCaptures: () =>
+    request<{ captures: Capture[]; counts: QueueCounts }>('/api/captures'),
+
+  claimCapture: (id: number, who: string) =>
+    request<{ capture: Capture }>(`/api/captures/${id}/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ who }),
+    }),
+
+  releaseCapture: (id: number, who: string) =>
+    request<{ ok: true }>(`/api/captures/${id}/release`, {
+      method: 'POST',
+      body: JSON.stringify({ who }),
+    }),
+
+  deleteCapture: (id: number) =>
+    request<{ ok: true; counts: QueueCounts }>(`/api/captures/${id}`, {
+      method: 'DELETE',
+    }),
+
   saveBook: (
     draft: Draft,
     images: Partial<Record<'front' | 'back' | 'edge', string>>,
     saveFilingOverride: boolean,
+    captureId?: number,
   ) =>
-    request<{ id: number; placement: Placement; counts: Counts }>('/api/books', {
-      method: 'POST',
-      body: JSON.stringify({ ...draftBody(draft), images, saveFilingOverride }),
-    }),
+    request<{ id: number; placement: PlacementResponse; counts: Counts; queue: QueueCounts }>(
+      '/api/books',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ...draftBody(draft), images, saveFilingOverride, captureId,
+        }),
+      },
+    ),
 
   listBooks: (range: ShelfRange) =>
     request<{ books: BookRow[]; counts: Counts }>(`/api/books?range=${range}`),
