@@ -169,9 +169,17 @@ export default function App() {
           `Read ISBN ${response.identify.isbn13}, but no catalogue has it. ` +
             'Open Review to correct it or fill the details in.',
         )
-      } else if (!found && response.identify.titleGuess && !identified) {
-        setDraft((current) =>
-          current.title ? current : { ...current, title: response.identify.titleGuess },
+      } else if (!found && !identified) {
+        // Deliberately not filled into the title. The largest line on a cover
+        // is as often the author as the title, and writing a person's name
+        // into the title field is worse than leaving it blank.
+        const lines = response.identify.coverLines ?? []
+        setError(
+          lines.length
+            ? `No ISBN found. Read from the cover: ${lines.join(' / ')}. ` +
+              'Open Review to set the ISBN or type the details in.'
+            : 'No ISBN found, and the cover was not readable. Open Review to ' +
+              'enter the book by hand.',
         )
       }
     } catch (caught) {

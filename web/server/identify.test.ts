@@ -7,7 +7,7 @@
 
 import { afterAll, describe, expect, it } from 'vitest'
 import { backCover, barcodePng, frontCover, glossy } from './fixtures'
-import { decodeBarcodes, identify, pickTitle, shutdownOcr } from './identify'
+import { decodeBarcodes, identify, pickCoverLines, pickTitle, shutdownOcr } from './identify'
 import { extractIsbnsFromText, isbn13To10 } from '../shared/isbn'
 
 const bwipBarcode = (isbn: string) => barcodePng(isbn, 4)
@@ -201,5 +201,53 @@ describe('pre-ISBN-13 paperback: UPC barcode, ISBN only in print', () => {
     expect(result.isbn13).toBe(ISBN13)
     expect(result.isbn10).toBe(ISBN10)
     expect(result.source).toBe('ocr')
+  }, 120_000)
+})
+
+describe('reading a front cover', () => {
+  it('discards artwork debris that is not words', () => {
+    // Verbatim lines from OCR over an illustrated cover. The largest of them
+    // used to become the book's title.
+    expect(pickCoverLines([
+      { text: '4] F', height: 400, words: 2 },
+      { text: ': R 0', height: 380, words: 3 },
+      { text: 'dy', height: 300, words: 1 },
+      { text: 'DUNE', height: 200, words: 1 },
+    ])).toEqual(['DUNE'])
+  })
+
+  it('discards series taglines', () => {
+    // A real one that became a title: the largest non-noise line on the cover.
+    expect(pickCoverLines([
+      { text: 'THE STORY OF THE CASTEEL FAMILY CONTINUES', height: 400, words: 7 },
+      { text: 'THE EXTRAORDINARY NEW BESTSELLER!', height: 390, words: 4 },
+      { text: 'VCANDREWS', height: 300, words: 1 },
+    ])).toEqual(['VCANDREWS'])
+  })
+
+  it('returns several lines, largest first, since either may be the title', () => {
+    expect(pickCoverLines([
+      { text: 'Frank Herbert', height: 100, words: 2 },
+      { text: 'DUNE', height: 300, words: 1 },
+    ])).toEqual(['DUNE', 'Frank Herbert'])
+  })
+
+  it('trims the stray marks OCR tacks onto big cover type', () => {
+    expect(pickCoverLines([{ text: 'VCANDREWS |', height: 300, words: 2 }]))
+      .toEqual(['VCANDREWS'])
+  })
+
+  it('returns nothing rather than debris when a cover is unreadable', () => {
+    expect(pickCoverLines([
+      { text: '~~', height: 200, words: 1 },
+      { text: 'X', height: 190, words: 1 },
+    ])).toEqual([])
+  })
+
+  it('still finds a plain title on a plain cover', async () => {
+    const result = await identify(await frontCover('DUNE', 'Frank Herbert'), {
+      wantTitle: true,
+    })
+    expect(result.coverLines.join(' ').toUpperCase()).toContain('DUNE')
   }, 120_000)
 })

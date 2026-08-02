@@ -98,6 +98,7 @@ export interface IdentifyResult {
   source: 'barcode' | 'ocr' | ''
   barcodes: string[]
   titleGuess: string
+  coverLines: string[]
   text: string
   notes: string[]
 }
@@ -119,6 +120,7 @@ export interface Capture {
   isbn10: string
   isbn_source: string
   title_guess: string
+  cover_text: string
   draft_json: string
   note: string
   claimed_by: string

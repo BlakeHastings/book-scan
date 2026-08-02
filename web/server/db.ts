@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS captures (
     isbn10       TEXT    DEFAULT '',
     isbn_source  TEXT    DEFAULT '',
     title_guess  TEXT    DEFAULT '',
+    -- Largest readable lines off the front cover, newline separated.
+    cover_text   TEXT    DEFAULT '',
     -- The looked-up metadata, as a draft the review pane can load directly.
     draft_json   TEXT    DEFAULT '',
     note         TEXT    DEFAULT '',
@@ -148,22 +150,33 @@ export interface BookRow {
  * it means an existing books.db keeps working after a schema change.
  */
 function addMissingColumns(db: Database.Database): void {
-  const existing = new Set(
-    (db.pragma('table_info(books)') as { name: string }[]).map((c) => c.name),
-  )
+  // CREATE TABLE IF NOT EXISTS is a no-op on a table that already exists, so
+  // new columns have to be added explicitly or an existing database silently
+  // keeps the old shape.
+  const wanted: Record<string, [string, string][]> = {
+    books: [
+      ['front_image', "TEXT DEFAULT ''"],
+      ['back_image', "TEXT DEFAULT ''"],
+      ['edge_image', "TEXT DEFAULT ''"],
+      ['isbn_source', "TEXT DEFAULT ''"],
+      ['ocr_text', "TEXT DEFAULT ''"],
+      ['subtitle', "TEXT DEFAULT ''"],
+    ],
+    captures: [
+      ['cover_text', "TEXT DEFAULT ''"],
+    ],
+  }
 
-  const wanted: [string, string][] = [
-    ['front_image', "TEXT DEFAULT ''"],
-    ['back_image', "TEXT DEFAULT ''"],
-    ['edge_image', "TEXT DEFAULT ''"],
-    ['isbn_source', "TEXT DEFAULT ''"],
-    ['ocr_text', "TEXT DEFAULT ''"],
-    ['subtitle', "TEXT DEFAULT ''"],
-  ]
+  for (const [table, columns] of Object.entries(wanted)) {
+    const existing = new Set(
+      (db.pragma(`table_info(${table})`) as { name: string }[]).map((c) => c.name),
+    )
+    if (existing.size === 0) continue // table not created yet
 
-  for (const [name, definition] of wanted) {
-    if (!existing.has(name)) {
-      db.exec(`ALTER TABLE books ADD COLUMN ${name} ${definition}`)
+    for (const [name, definition] of columns) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`)
+      }
     }
   }
 }

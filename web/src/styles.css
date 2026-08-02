@@ -719,3 +719,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   cursor: pointer;
 }
 .shelf__body--tap:active { opacity: 0.6; }
+
+/* What OCR could read off the cover, shown rather than assumed to be a title. */
+.queue__cover { font-size: 12px; color: var(--accent); }

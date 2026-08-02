@@ -93,6 +93,11 @@ export function QueuePane({ onOpen, onCounts }: Props) {
                 <span className="queue__meta">
                   {draft?.authors?.join(', ') || capture.isbn13 || 'no ISBN yet'}
                 </span>
+                {!capture.isbn13 && capture.cover_text && (
+                  <span className="queue__cover">
+                    Cover reads: {capture.cover_text.split('\n').join(' / ')}
+                  </span>
+                )}
                 <span className={`queue__status queue__status--${capture.status}`}>
                   {STATUS_LABEL[capture.status]}
                   {heldByOther ? ` · with ${capture.claimed_by}` : ''}

@@ -28,6 +28,7 @@ export interface CaptureRow {
   isbn10: string
   isbn_source: string
   title_guess: string
+  cover_text: string
   draft_json: string
   note: string
   claimed_by: string
@@ -174,23 +175,85 @@ export class CaptureQueue {
         ? await identify(back, { wantTitle: false })
         : null
 
-      if (!result?.isbn13) {
+      // Let the catalogue settle which OCR reading is real.
+      //
+      // A garbled digit inside a labelled ISBN can still satisfy the check
+      // digit, so a reading that validates is not necessarily the book. Trying
+      // each candidate and keeping the one that actually exists costs a couple
+      // of lookups and removes a whole class of confident wrong answer. A
+      // barcode reading needs none of this: it is self-validating.
+      const candidates = result?.source === 'barcode'
+        ? [result.isbn13]
+        : (result?.isbnCandidates ?? [])
+
+      let isbn13 = result?.isbn13 ?? ''
+      let coverLines: string[] = result?.coverLines ?? []
+      let lookup = null as Awaited<ReturnType<typeof lookupIsbn>> | null
+
+      for (const candidate of candidates.filter(Boolean)) {
+        const found = await lookupIsbn(candidate, this.lookupOptions)
+        if (found.found) {
+          isbn13 = candidate
+          lookup = found
+          break
+        }
+        lookup ??= found
+      }
+
+      const notes: string[] = [...(result?.notes ?? [])]
+
+      // An OCR reading that no catalogue recognises is not evidence of
+      // anything. A garbled digit can still satisfy the check digit, so
+      // storing it would attach a confident wrong ISBN to the book and, worse,
+      // look identified. Report what was read and leave the field empty for
+      // Change ISBN to fill. A barcode reading is kept regardless: it is
+      // self-validating and a catalogue simply may not carry the book.
+      if (result?.source === 'ocr' && !lookup?.found) {
+        notes.push(
+          candidates.length
+            ? `Could not confirm an ISBN. OCR read ${candidates.join(' or ')}, ` +
+              'but no catalogue has either. Use Change ISBN with the number ' +
+              'printed on the book.'
+            : 'No ISBN could be read from these photos.',
+        )
+        isbn13 = ''
+        lookup = null
+      }
+
+      // Nothing confirmed, so read the front cover for whatever text it can
+      // offer. Done here rather than earlier because an unconfirmed reading
+      // off the back is no reason to skip it, which is what the old order did.
+      if (!lookup?.found) {
         const front = this.readImage(capture.front_image)
         if (front) {
           const fromFront = await identify(front, { wantTitle: true })
-          result = fromFront.isbn13 || !result ? fromFront : result
+          coverLines = fromFront.coverLines
+
+          for (const candidate of fromFront.isbnCandidates) {
+            const found = await lookupIsbn(candidate, this.lookupOptions)
+            if (found.found) {
+              isbn13 = candidate
+              lookup = found
+              notes.push('ISBN found on the front cover.')
+              break
+            }
+          }
         }
       }
 
-      const isbn13 = result?.isbn13 ?? ''
-      const lookup = isbn13 ? await lookupIsbn(isbn13, this.lookupOptions) : null
-
-      const notes: string[] = [...(result?.notes ?? [])]
+      if (candidates.length > 1 && lookup?.found) {
+        notes.push(`Read ${candidates.length} possible ISBNs; used the one the catalogue has.`)
+      }
       if (isbn13 && !lookup?.found) {
         notes.push('ISBN read, but no catalogue has it. Fill the details in by hand.')
       }
       if (!isbn13) {
-        notes.push('No ISBN found in these photos. Type it in, or enter the book by hand.')
+        const lines = coverLines
+        notes.push(
+          lines.length
+            ? `No ISBN found. Read from the cover: ${lines.join(' / ')}.`
+            : 'No ISBN found in these photos, and the cover was not readable.',
+        )
       }
 
       this.db
@@ -198,6 +261,7 @@ export class CaptureQueue {
           `UPDATE captures SET
              status = @status, isbn13 = @isbn13, isbn10 = @isbn10,
              isbn_source = @source, title_guess = @titleGuess,
+             cover_text = @coverText,
              draft_json = @draft, note = @note, processed_at = @now
            WHERE id = @id`,
         )
@@ -208,6 +272,7 @@ export class CaptureQueue {
           isbn10: result?.isbn10 ?? '',
           source: result?.source ?? '',
           titleGuess: result?.titleGuess ?? '',
+          coverText: coverLines.join('\n'),
           draft: lookup ? JSON.stringify(lookup) : '',
           note: notes.join(' '),
           now: new Date().toISOString(),

@@ -23,7 +23,7 @@ import { scanGrayBuffer } from '@undecaf/zbar-wasm'
 import { createWorker, PSM, type Worker } from 'tesseract.js'
 import {
   extractIsbnCandidates, resolveIsbnPair,
-  type IsbnCandidate, type IsbnPair,
+  type IsbnPair,
 } from '../shared/isbn'
 
 export type IsbnSource = 'barcode' | 'ocr' | ''
@@ -34,6 +34,26 @@ export interface IdentifyResult {
   source: IsbnSource
   barcodes: string[]
   titleGuess: string
+  /**
+   * The largest readable lines on the cover, biggest first, with publisher
+   * boilerplate removed.
+   *
+   * Kept separate from titleGuess because there is no reliable way to tell a
+   * title from an author by geometry: on one cover the title is the largest
+   * text, on the next it is the author's name. Showing both to the user beats
+   * guessing wrong on their behalf.
+   */
+  coverLines: string[]
+  /**
+   * Every ISBN any OCR pass produced, best first.
+   *
+   * A single reading is not trustworthy on a worn label. OCR can garble a
+   * digit inside the number and still land on a value that satisfies its
+   * check digit, which is a confident, wrong book. Readings that more than
+   * one pass agree on rank above ones only a single pass saw, and the caller
+   * can settle the rest by asking a catalogue which of them actually exists.
+   */
+  isbnCandidates: string[]
   text: string
   notes: string[]
 }
@@ -302,6 +322,7 @@ function regionAroundBarcode(
 async function ocrVariants(
   input: Buffer,
   barcodeBox: { left: number; top: number; width: number; height: number } | null,
+  wantTitle = false,
 ): Promise<OcrVariant[]> {
   const meta = await sharp(input).metadata()
   const width = meta.width ?? 0
@@ -318,6 +339,28 @@ async function ocrVariants(
       build: async () => sharp(await region()).threshold(160).png().toBuffer(),
     })
     variants.push({ name: 'barcode-region', psm: PSM.SPARSE_TEXT, build: region })
+  }
+
+  if (wantTitle && width && height) {
+    // Title and author sit in the upper half of almost every cover. Running
+    // the whole frame instead lets the artwork dominate and returns fragments
+    // of the tagline, which is worse than reading nothing.
+    const topHalf = () => sharp(input)
+      .extract({ left: 0, top: Math.round(height * 0.06), width, height: Math.round(height * 0.46) })
+      .grayscale()
+      .resize({ width: 2400, withoutEnlargement: false, fit: 'inside' })
+      .normalise()
+
+    variants.push({
+      name: 'cover-top',
+      psm: PSM.AUTO,
+      build: () => topHalf().png().toBuffer(),
+    })
+    variants.push({
+      name: 'cover-top-threshold',
+      psm: PSM.AUTO,
+      build: () => topHalf().threshold(120).png().toBuffer(),
+    })
   }
 
   variants.push({
@@ -409,10 +452,71 @@ const TITLE_NOISE: RegExp[] = [
   /^author\s+of\b/i,
   /^with\s+a\s+new\b/i,
   /^now\s+a\s+major\b/i,
+  // Series taglines. A real example that became a book's title:
+  // "THE STORY OF THE CASTEEL FAMILY CONTINUES".
+  /\bthe\s+story\s+of\b.*\bcontinu/i,
+  /\bcontinues\.{0,3}$/i,
+  /^the\s+extraordinary\b/i,
+  /\bsequel\s+to\b/i,
+  /\bmillion\s+copies\b/i,
+  /^look\s+for\b/i,
+  /^praise\s+for\b/i,
 ]
 
 function isTitleNoise(text: string): boolean {
   return TITLE_NOISE.some((pattern) => pattern.test(text))
+}
+
+/**
+ * Text that survived the noise filter but is still neither a name nor a
+ * title: OCR debris from cover artwork.
+ *
+ * The failure this exists to stop is real. Running OCR over a whole
+ * illustrated cover produced lines like "4] F", ": R 0" and "dy", and the
+ * largest of them was promoted to the book's title.
+ */
+function looksLikeWords(text: string): boolean {
+  const letters = text.replace(/[^A-Za-z]/g, '')
+  if (letters.length < 3) return false
+  // Mostly letters, not punctuation and stray digits.
+  if (letters.length < text.replace(/\s/g, '').length * 0.6) return false
+  // Artwork debris is usually consonant salad with no vowel in it.
+  return /[aeiouAEIOU]/.test(letters)
+}
+
+/**
+ * Pick the most title-looking line off a front cover. Titles are set larger
+ * than everything else, so score by glyph height with a mild bonus for longer
+ * lines, or a single stray capital beats a real multi-word title.
+ */
+function scoreLines(lines: OcrLine[]): { score: number; text: string }[] {
+  return lines
+    .filter((line) =>
+      line.text.length >= 3 && !isTitleNoise(line.text) && looksLikeWords(line.text))
+    .map((line) => ({ score: line.height * (1 + 0.1 * line.words), text: line.text }))
+    .sort((a, b) => b.score - a.score)
+}
+
+/**
+ * The biggest readable lines on a cover, largest first.
+ *
+ * Deliberately not labelled as title or author. On this shelf one cover has
+ * the title largest and the next has the author largest, and guessing wrong
+ * writes a person's name into the title field.
+ */
+export function pickCoverLines(lines: OcrLine[], limit = 3): string[] {
+  const seen = new Set<string>()
+  const picked: string[] = []
+  for (const line of scoreLines(lines)) {
+    // OCR tacks stray marks onto the ends of big cover type ("VCANDREWS |").
+    const text = line.text.replace(/^[^A-Za-z0-9]+/, '').replace(/[^A-Za-z0-9.!?']+$/, '')
+    const key = text.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    picked.push(text)
+    if (picked.length >= limit) break
+  }
+  return picked
 }
 
 /**
@@ -421,13 +525,7 @@ function isTitleNoise(text: string): boolean {
  * lines, or a single stray capital beats a real multi-word title.
  */
 export function pickTitle(lines: OcrLine[]): string {
-  const scored = lines
-    .filter((line) =>
-      line.text.length >= 3 && /[A-Za-z]/.test(line.text) && !isTitleNoise(line.text))
-    .map((line) => ({ score: line.height * (1 + 0.1 * line.words), text: line.text }))
-
-  scored.sort((a, b) => b.score - a.score)
-  return scored[0]?.text ?? ''
+  return scoreLines(lines)[0]?.text ?? ''
 }
 
 // ---------------------------------------------------------------------------
@@ -488,8 +586,8 @@ async function identifyNow(
   options: IdentifyOptions = {},
 ): Promise<IdentifyResult> {
   const result: IdentifyResult = {
-    isbn13: '', isbn10: '', source: '', barcodes: [], titleGuess: '', text: '',
-    notes: [],
+    isbn13: '', isbn10: '', source: '', barcodes: [], titleGuess: '',
+    coverLines: [], isbnCandidates: [], text: '', notes: [],
   }
 
   const decoded = await decodeBarcodesDetailed(input)
@@ -513,8 +611,12 @@ async function identifyNow(
 
   // Work down the preprocessing ladder until something yields an ISBN. Each
   // rung is a full OCR pass, so stopping early matters.
-  const variants = await ocrVariants(input, barcodeBox)
-  let candidates: IsbnCandidate[] = []
+  const variants = await ocrVariants(input, barcodeBox, options.wantTitle)
+
+  // How many passes produced each reading. Agreement is the only cheap signal
+  // that a number came off the page rather than out of OCR noise.
+  const votes = new Map<string, number>()
+  const order: string[] = []
 
   for (const variant of variants) {
     let ocr: OcrOutput
@@ -526,28 +628,41 @@ async function identifyNow(
 
     result.text = result.text ? `${result.text}
 ${ocr.text}` : ocr.text
-    if (options.wantTitle && !result.titleGuess) {
-      result.titleGuess = pickTitle(ocr.lines)
+    if (options.wantTitle && !result.coverLines.length) {
+      result.coverLines = pickCoverLines(ocr.lines)
+      result.titleGuess = result.coverLines[0] ?? ''
     }
 
-    if (!result.isbn13) {
-      candidates = extractIsbnCandidates(ocr.text)
-      if (candidates.length) {
-        const best = candidates[0]!
-        result.isbn13 = best.isbn13
-        result.isbn10 = best.isbn10
-        result.source = 'ocr'
-        result.notes.push(
-          best.labelled
-            ? `ISBN read from the printed label (${variant.name}).`
-            : `ISBN read by OCR (${variant.name}).`,
-        )
-      }
+    for (const candidate of extractIsbnCandidates(ocr.text)) {
+      if (!votes.has(candidate.isbn13)) order.push(candidate.isbn13)
+      votes.set(candidate.isbn13, (votes.get(candidate.isbn13) ?? 0) + 1)
     }
 
-    // Stop once we have what we came for. The title guess only needs the
-    // first readable pass.
-    if (result.isbn13 && (!options.wantTitle || result.titleGuess)) break
+    // Keep going even after a hit: a later pass may read the same label
+    // differently, and the caller can ask a catalogue which reading is real.
+    // Bounded so a photo with no ISBN does not run every rung twice.
+    if (order.length >= 3) break
+  }
+
+  // Ranked by which pass saw it first, NOT by how many passes agree.
+  //
+  // Agreement looked like the obvious signal and is a trap here. The rungs
+  // are ordered best-first, and on a worn label two weaker passes will
+  // happily agree with each other on the same misreading, outvoting the one
+  // pass that read it correctly. Order beat votes on a real book.
+  result.isbnCandidates = order
+
+  const best = result.isbnCandidates[0]
+  if (best) {
+    const pair = resolveIsbnPair(best)
+    result.isbn13 = pair.isbn13
+    result.isbn10 = pair.isbn10
+    result.source = 'ocr'
+    result.notes.push(
+      result.isbnCandidates.length > 1
+        ? `ISBN read from the printed label. ${result.isbnCandidates.length} readings differed; the catalogue decides.`
+        : 'ISBN read from the printed label.',
+    )
   }
 
   if (!result.isbn13) {
@@ -560,8 +675,8 @@ ${ocr.text}` : ocr.text
 /** Merge results from several photos, preferring a barcode over OCR. */
 export function mergeIdentifications(results: IdentifyResult[]): IdentifyResult {
   const merged: IdentifyResult = {
-    isbn13: '', isbn10: '', source: '', barcodes: [], titleGuess: '', text: '',
-    notes: [],
+    isbn13: '', isbn10: '', source: '', barcodes: [], titleGuess: '',
+    coverLines: [], isbnCandidates: [], text: '', notes: [],
   }
 
   for (const result of results) {
