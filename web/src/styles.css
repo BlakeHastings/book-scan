@@ -1323,3 +1323,84 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 
 .isbncam__hint--good { color: var(--good); }
+
+/* --- Home ------------------------------------------------------------- */
+
+/* The title doubles as the way back, so every flow has an exit that is
+   always in the same place. */
+.topbar__home {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+
+.home {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0 14px;
+}
+
+.tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 112px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+}
+.tile:active { background: var(--panel-2); }
+/* Adding books is the job most sessions are, so it leads. */
+.tile--primary { border-color: var(--accent); border-width: 2px; }
+
+.tile__title { font-size: 18px; font-weight: 600; }
+.tile__body { font-size: 13px; color: var(--muted); line-height: 1.35; }
+
+/* A to-do list rather than a job you set out to do, so it sits apart and
+   disappears when there is nothing in it. */
+.home__queue {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.home__queue-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.home__queue-badge {
+  background: var(--warn);
+  color: #221803;
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.home__queue-body { font-size: 13px; color: var(--muted); }
+
+.home__off {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+}

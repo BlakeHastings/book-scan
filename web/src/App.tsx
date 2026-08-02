@@ -15,10 +15,11 @@ import { BookDetail } from './components/BookDetail'
 import { PlacementView } from './components/ShelfStrip'
 import { ShelfView } from './components/ShelfView'
 import { ShelveView } from './components/ShelveView'
+import { HomePane } from './components/HomePane'
 import { QueuePane } from './components/QueuePane'
 import { ShelfCamera } from './components/ShelfCamera'
 
-type Mode = 'capture' | 'review' | 'shelve' | 'library' | 'queue'
+type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
 
 /** Next slot with no photo in it, so the shutter advances by itself. */
@@ -31,7 +32,7 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
-  const [mode, setMode] = useState<Mode>('capture')
+  const [mode, setMode] = useState<Mode>('home')
   const [cameraOn, setCameraOn] = useState(false)
   const [resolution, setResolution] = useState('')
   const [lenses, setLenses] = useState<Lens[]>([])
@@ -71,7 +72,8 @@ export default function App() {
 
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
-  }, [])
+    api.listCaptures().then((r) => setQueueCounts(r.counts)).catch(() => {})
+  }, [mode])
 
   // The camera view is a fixed overlay, so the document behind it must not
   // scroll or iOS will rubber-band the whole page under the controls.
@@ -534,7 +536,7 @@ export default function App() {
       <ShelfCamera
         mode={scanMode}
         onShelve={(book) => void shelveScanned(book.id)}
-        onClose={() => setScanMode(null)}
+        onClose={() => { setScanMode(null); setMode('home') }}
       />
     )
   }
@@ -559,6 +561,9 @@ export default function App() {
         )}
 
         <div className="cam__top">
+          <button className="cam__chip-btn" onClick={() => { stopCamera(); setMode('home') }}>
+            Home
+          </button>
           <button className="cam__chip-btn" onClick={() => { stopCamera(); setMode('library') }}>
             Library
           </button>
@@ -716,7 +721,14 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <h1>Book scan</h1>
+        <h1>
+          <button className="topbar__home" onClick={() => setMode('home')}>
+            Book scan
+          </button>
+        </h1>
+        {/* Redundant on the home page, where the tiles say the same thing
+            with room to explain themselves. */}
+        {mode !== 'home' && (
         <nav>
           <button className="tab" onClick={() => setMode('capture')}>Camera</button>
           <button
@@ -732,6 +744,7 @@ export default function App() {
             Library
           </button>
         </nav>
+        )}
         {counts && (
           <span className="counts">
             {counts.total} books · {counts.fiction} fiction · {counts.nonfiction} non-fiction
@@ -757,12 +770,19 @@ export default function App() {
         <QueuePane onOpen={openCapture} onCounts={setQueueCounts} />
       )}
 
-      {mode === 'library' && (
-        <ShelfView
-          onOpen={openBook}
-          onScan={(which) => setScanMode(which)}
+      {mode === 'home' && (
+        <HomePane
+          counts={counts}
+          queue={queueCounts}
+          onAdd={() => setMode('capture')}
+          onCheckOut={() => setScanMode('out')}
+          onShelve={() => setScanMode('in')}
+          onLibrary={() => setMode('library')}
+          onQueue={() => setMode('queue')}
         />
       )}
+
+      {mode === 'library' && <ShelfView onOpen={openBook} />}
 
       {mode === 'review' && (
         <main className="main">
