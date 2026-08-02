@@ -829,3 +829,20 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 
 .shelfgroup__shelf { font-size: 13px; color: var(--text); }
+
+/* Destructive actions read as destructive, and never as the primary button. */
+.btn--danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #1a0d10;
+  font-weight: 600;
+}
+
+/* Set apart from Save and Cancel so it cannot be hit by accident. */
+.danger-zone {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: grid;
+}
+.danger-zone .btn { color: var(--bad); border-color: rgba(247, 118, 142, 0.4); }

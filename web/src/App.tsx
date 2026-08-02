@@ -51,6 +51,7 @@ export default function App() {
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [captureId, setCaptureId] = useState<number | null>(null)
   const [bookId, setBookId] = useState<number | null>(null)
+  const [deletingBook, setDeletingBook] = useState(false)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
@@ -267,6 +268,23 @@ export default function App() {
       setRelookupError((caught as Error).message)
     } finally {
       setRelookupBusy(false)
+    }
+  }
+
+  /** Remove a shelved book and the photos nothing else is using. */
+  const deleteBook = async () => {
+    if (bookId === null) return
+    setDeletingBook(true)
+    setError('')
+    try {
+      const result = await api.deleteBook(bookId)
+      setCounts(result.counts)
+      reset()
+      setMode('library')
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setDeletingBook(false)
     }
   }
 
@@ -573,6 +591,8 @@ export default function App() {
             onClearRelookupError={() => setRelookupError('')}
             onSave={save}
             onDiscard={reset}
+            onDelete={bookId !== null ? deleteBook : undefined}
+            deleting={deletingBook}
           />
 
           <div className="actions">

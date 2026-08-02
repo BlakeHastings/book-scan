@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Draft, LookupResponse } from '../lib/api'
 import { SLOTS, SLOT_LABEL, type Slot } from '../lib/scanner'
+import { ConfirmDialog } from './ConfirmDialog'
 import { IsbnPrompt } from './IsbnPrompt'
 import { ReviewPane } from './ReviewPane'
 
@@ -17,6 +18,9 @@ interface Props {
   onClearRelookupError: () => void
   onSave: () => void
   onDiscard: () => void
+  /** Present only for a book already on the shelves. */
+  onDelete?: () => void
+  deleting?: boolean
 }
 
 /**
@@ -32,8 +36,10 @@ export function BookDetail({
   draft, lookup, photos, derivedFiling, saving,
   relookupBusy, relookupError,
   onChange, onRelookup, onClearRelookupError, onSave, onDiscard,
+  onDelete, deleting = false,
 }: Props) {
   const [asking, setAsking] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [zoomed, setZoomed] = useState<Slot | null>(null)
 
   const taken = SLOTS.filter((slot) => photos[slot])
@@ -92,6 +98,20 @@ export function BookDetail({
         />
       )}
 
+      {confirmingDelete && onDelete && (
+        <ConfirmDialog
+          title="Delete this book?"
+          body={
+            `${draft.title || 'This book'} will be removed from the catalogue and ` +
+            'its photos deleted from disk. This cannot be undone.'
+          }
+          confirmLabel="Delete book"
+          busy={deleting}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={onDelete}
+        />
+      )}
+
       <ReviewPane
         draft={draft}
         lookup={lookup}
@@ -101,6 +121,16 @@ export function BookDetail({
         onDiscard={onDiscard}
         saving={saving}
       />
+
+      {/* Only offered for a book that is actually on the shelves. Kept away
+          from Save and Cancel so it is not hit by accident. */}
+      {onDelete && (
+        <div className="danger-zone">
+          <button className="btn btn--ghost" onClick={() => setConfirmingDelete(true)}>
+            Delete this book and its photos
+          </button>
+        </div>
+      )}
     </>
   )
 }

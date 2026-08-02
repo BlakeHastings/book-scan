@@ -5,7 +5,7 @@
  */
 
 import express from 'express'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { openDatabase } from './db'
 
@@ -71,6 +71,37 @@ const queue = new CaptureQueue(
   },
   { googleApiKey: GOOGLE_API_KEY },
 )
+
+/**
+ * Remove photo files that nothing points at any more.
+ *
+ * Call this only AFTER the owning row is gone, so it does not count itself.
+ *
+ * The reference check is not optional. A capture hands its filenames to the
+ * book it becomes, so a capture and a shelved book routinely name the same
+ * files on disk. Deleting a capture's photos without checking would take the
+ * book's photos with them, and there is no getting those back.
+ */
+function deleteOrphanedImages(names: string[]): string[] {
+  const usedByBook = db.prepare(
+    'SELECT 1 FROM books WHERE front_image = ? OR back_image = ? OR edge_image = ? LIMIT 1',
+  )
+  const usedByCapture = db.prepare(
+    'SELECT 1 FROM captures WHERE front_image = ? OR back_image = ? OR edge_image = ? LIMIT 1',
+  )
+
+  const removed: string[] = []
+  for (const name of names.filter(Boolean)) {
+    if (usedByBook.get(name, name, name) || usedByCapture.get(name, name, name)) continue
+    try {
+      rmSync(join(COVER_DIR, name), { force: true })
+      removed.push(name)
+    } catch {
+      // A missing file is already in the state we want.
+    }
+  }
+  return removed
+}
 
 const app = express()
 app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
@@ -190,8 +221,18 @@ app.post('/api/captures/:id/release', (req, res) => {
 })
 
 app.delete('/api/captures/:id', (req, res) => {
-  queue.remove(Number(req.params.id))
-  res.json({ ok: true, counts: queue.counts() })
+  const id = Number(req.params.id)
+  const capture = queue.get(id)
+  if (!capture) {
+    res.status(404).json({ error: 'No such capture.' })
+    return
+  }
+
+  const images = [capture.front_image, capture.back_image, capture.edge_image]
+  queue.remove(id)
+  const removed = deleteOrphanedImages(images)
+
+  res.json({ ok: true, counts: queue.counts(), photosRemoved: removed.length })
 })
 
 // ---------------------------------------------------------------------------
@@ -391,8 +432,18 @@ app.patch('/api/books/:id/location', (req, res) => {
 })
 
 app.delete('/api/books/:id', (req, res) => {
-  store.deleteBook(Number(req.params.id))
-  res.json({ ok: true, counts: store.counts() })
+  const id = Number(req.params.id)
+  const book = store.getBook(id)
+  if (!book) {
+    res.status(404).json({ error: 'No such book.' })
+    return
+  }
+
+  const images = [book.front_image, book.back_image, book.edge_image]
+  store.deleteBook(id)
+  const removed = deleteOrphanedImages(images)
+
+  res.json({ ok: true, counts: store.counts(), photosRemoved: removed.length })
 })
 
 app.get('/api/misfiles', (_req, res) => {

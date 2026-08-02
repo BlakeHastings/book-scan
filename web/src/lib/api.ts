@@ -231,9 +231,9 @@ export const api = {
     }),
 
   deleteCapture: (id: number) =>
-    request<{ ok: true; counts: QueueCounts }>(`/api/captures/${id}`, {
-      method: 'DELETE',
-    }),
+    request<{ ok: true; counts: QueueCounts; photosRemoved: number }>(
+      `/api/captures/${id}`, { method: 'DELETE' },
+    ),
 
   saveBook: (
     draft: Draft,
@@ -263,7 +263,9 @@ export const api = {
     request<{ books: BookRow[]; counts: Counts }>(`/api/books?range=${range}`),
 
   deleteBook: (id: number) =>
-    request<{ ok: true; counts: Counts }>(`/api/books/${id}`, { method: 'DELETE' }),
+    request<{ ok: true; counts: Counts; photosRemoved: number }>(
+      `/api/books/${id}`, { method: 'DELETE' },
+    ),
 
   shelves: (range: ShelfRange) =>
     request<{ groups: ShelfGroupDto[] }>(`/api/shelves?range=${range}`),

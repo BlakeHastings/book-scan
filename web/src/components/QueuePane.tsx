@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, deviceName, type Capture, type QueueCounts } from '../lib/api'
 import { coverUrl } from './PlacementCard'
+import { ConfirmDialog } from './ConfirmDialog'
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'reading photos',
@@ -24,6 +25,8 @@ export function QueuePane({ onOpen, onCounts }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const me = deviceName()
+  const [discarding, setDiscarding] = useState<Capture | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(() => {
     api.listCaptures()
@@ -60,9 +63,44 @@ export function QueuePane({ onOpen, onCounts }: Props) {
     }
   }
 
+  const discard = async () => {
+    if (!discarding) return
+    setDeleting(true)
+    try {
+      const result = await api.deleteCapture(discarding.id)
+      setDiscarding(null)
+      if (result.photosRemoved === 0) {
+        // Its photos are still in use by the book it became, so they stay.
+        setError('Removed from the queue. Its photos belong to a shelved book, so they were kept.')
+      }
+      load()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const photoCount = (capture: Capture) =>
+    [capture.front_image, capture.back_image, capture.edge_image].filter(Boolean).length
+
   return (
     <main className="main">
       <h2 className="pane-title">Queue</h2>
+
+      {discarding && (
+        <ConfirmDialog
+          title="Discard this book?"
+          body={
+            `It will be removed from the queue and its ${photoCount(discarding)} ` +
+            'photo(s) deleted from disk. This cannot be undone.'
+          }
+          confirmLabel="Discard and delete"
+          busy={deleting}
+          onCancel={() => setDiscarding(null)}
+          onConfirm={discard}
+        />
+      )}
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
       {loading && <p className="hint">Loading...</p>}
 
@@ -115,10 +153,7 @@ export function QueuePane({ onOpen, onCounts }: Props) {
                 >
                   {capture.status === 'pending' ? '...' : 'Shelve'}
                 </button>
-                <button
-                  className="btn btn--ghost"
-                  onClick={() => api.deleteCapture(capture.id).then(load)}
-                >
+                <button className="btn btn--ghost" onClick={() => setDiscarding(capture)}>
                   Discard
                 </button>
               </span>

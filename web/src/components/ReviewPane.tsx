@@ -124,7 +124,7 @@ export function ReviewPane({
           {saving ? 'Saving...' : 'Save and shelve'}
         </button>
         <button className="btn" onClick={onDiscard} disabled={saving}>
-          Discard
+          Cancel
         </button>
       </div>
     </div>
