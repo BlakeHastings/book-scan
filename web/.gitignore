@@ -5,3 +5,4 @@ data/
 
 # tesseract.js drops this in cwd if cachePath is unset
 *.traineddata
+vite.config.verify.ts
