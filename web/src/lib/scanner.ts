@@ -46,11 +46,69 @@ export const SLOT_HINT: Record<Slot, string> = {
   edge: 'The spine, as it will look on the shelf.',
 }
 
+export interface Lens {
+  deviceId: string
+  label: string
+}
+
+const LENS_KEY = 'bookscan.lens'
+
+/** The lens last chosen, so it survives a reload rather than re-picking. */
+export function rememberedLens(): string {
+  return localStorage.getItem(LENS_KEY) ?? ''
+}
+
+export function rememberLens(deviceId: string): void {
+  if (deviceId) localStorage.setItem(LENS_KEY, deviceId)
+  else localStorage.removeItem(LENS_KEY)
+}
+
+/**
+ * The rear lenses this phone will name.
+ *
+ * Labels are empty until camera permission has been granted, so this is only
+ * worth calling once a stream is open.
+ */
+export async function listLenses(): Promise<Lens[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return []
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    return devices
+      .filter((d) => d.kind === 'videoinput')
+      .filter((d) => !/front/i.test(d.label))
+      .map((d) => ({ deviceId: d.deviceId, label: d.label || 'Camera' }))
+  } catch {
+    return []
+  }
+}
+
+/** "Back Ultra Wide Camera" is too long for a chip; "Ultra Wide" is not. */
+export function lensName(label: string): string {
+  const short = label.replace(/\bback\b/i, '').replace(/\bcamera\b/i, '').trim()
+  return short || 'Main'
+}
+
+/**
+ * Prefer a single physical lens over the combined one.
+ *
+ * An iPhone offers a virtual "Back Dual/Triple Camera" alongside the real
+ * lenses, and that virtual device is what silently switches lens mid-shot as
+ * the phone guesses at the subject distance. Asking for the plain back camera
+ * pins it, so the framing stops jumping while you are lining a book up.
+ */
+export function preferredLens(lenses: Lens[]): string {
+  const plain = lenses.find((l) => /back camera$/i.test(l.label.trim()))
+  if (plain) return plain.deviceId
+
+  const notVirtual = lenses.find((l) => !/dual|triple|combined/i.test(l.label))
+  return (notVirtual ?? lenses[0])?.deviceId ?? ''
+}
+
 /**
  * Ask for the back camera at the highest resolution Safari will give us.
  * These are hints, so an older phone degrades rather than failing.
  */
-export async function openCamera(): Promise<MediaStream> {
+export async function openCamera(deviceId = ''): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error(
       'This browser will not expose a camera. On iPhone the page must be ' +
@@ -63,7 +121,11 @@ export async function openCamera(): Promise<MediaStream> {
     return await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
-        facingMode: { ideal: 'environment' },
+        // exact pins the lens. Without it the phone is free to swap between
+        // wide and ultra-wide mid-session, which moves the framing under you.
+        ...(deviceId
+          ? { deviceId: { exact: deviceId } }
+          : { facingMode: { ideal: 'environment' } }),
         // Ask high. Safari clamps to the nearest supported mode, and the
         // still is only ever as good as the track we are drawing from.
         width: { ideal: 3840 },
@@ -255,4 +317,59 @@ export function describeStream(stream: MediaStream | null): string {
   if (!track) return ''
   const { width, height } = track.getSettings()
   return width && height ? `${width}x${height}` : ''
+}
+
+/**
+ * Nudge the camera towards the subject in the middle of the frame.
+ *
+ * Everything here is feature-detected and optional, because the browser that
+ * matters supports almost none of it. iOS Safari exposes no focus control at
+ * all: there is no focusMode, no focusDistance, and no tap-to-focus hook. So
+ * this helps on Android and is a no-op on an iPhone, and the honest fix for a
+ * spine that will not come sharp is distance, not code. Returns what it
+ * actually managed to apply, so the UI can say rather than imply.
+ */
+export async function applyFocusHints(
+  stream: MediaStream | null,
+  close: boolean,
+): Promise<string[]> {
+  const track = stream?.getVideoTracks()[0]
+  if (!track?.getCapabilities) return []
+
+  let capabilities: MediaTrackCapabilities
+  try {
+    capabilities = track.getCapabilities()
+  } catch {
+    return []
+  }
+
+  const applied: string[] = []
+  const wanted: Record<string, unknown> = {}
+  const supported = capabilities as Record<string, unknown>
+
+  const focusModes = supported.focusMode as string[] | undefined
+  if (Array.isArray(focusModes) && focusModes.includes('continuous')) {
+    wanted.focusMode = 'continuous'
+    applied.push('continuous focus')
+  }
+
+  // A little optical zoom pushes the camera to meter and focus on the middle
+  // of the frame rather than whatever is nearest, which is usually a hand.
+  const zoom = supported.zoom as { min?: number; max?: number } | undefined
+  if (close && zoom && typeof zoom.max === 'number' && typeof zoom.min === 'number') {
+    const target = Math.min(zoom.max, Math.max(zoom.min, zoom.min * 1.8))
+    if (target > zoom.min) {
+      wanted.zoom = target
+      applied.push(`zoom ${target.toFixed(1)}x`)
+    }
+  }
+
+  if (!Object.keys(wanted).length) return []
+
+  try {
+    await track.applyConstraints({ advanced: [wanted] } as MediaTrackConstraints)
+    return applied
+  } catch {
+    return []
+  }
 }

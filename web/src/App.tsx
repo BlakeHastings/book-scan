@@ -5,9 +5,10 @@ import {
   type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import {
-  captureStill, describeStream, openCamera, SLOT_CROP, SLOT_GUIDE,
+  applyFocusHints, captureStill, describeStream, listLenses, openCamera,
+  lensName, preferredLens, rememberedLens, rememberLens, SLOT_CROP, SLOT_GUIDE,
   SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL, SLOT_SHORT, stopStream,
-  thumbnail, type Slot,
+  thumbnail, type Lens, type Slot,
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
 import { PlacementCard } from './components/PlacementCard'
@@ -32,6 +33,9 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('capture')
   const [cameraOn, setCameraOn] = useState(false)
   const [resolution, setResolution] = useState('')
+  const [lenses, setLenses] = useState<Lens[]>([])
+  const [lensId, setLensId] = useState(rememberedLens())
+  const [focusNote, setFocusNote] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -85,23 +89,60 @@ export default function App() {
   useEffect(() => stopCamera, [stopCamera])
 
   // getUserMedia needs a user gesture on iOS, so this only runs from a tap.
-  const startCamera = async () => {
+  const startCamera = async (preferred = lensId) => {
     setError('')
     try {
-      const stream = await openCamera()
+      const stream = await openCamera(preferred)
       streamRef.current = stream
       setCameraOn(true)
       setResolution(describeStream(stream))
+
       const video = videoRef.current
       if (video) {
         video.srcObject = stream
-        await video.play().catch(() => {})
+        // Deliberately not awaited: a stream that never delivers a frame
+        // leaves this pending forever, and the lens work below must not be
+        // held up by it.
+        void video.play().catch(() => {})
       }
+
+      // Lens labels stay blank until permission is granted, so the list can
+      // only be read once a stream is actually open.
+      const found = await listLenses()
+      setLenses(found)
+      if (!preferred && found.length > 1) {
+        const pick = preferredLens(found)
+        // Reopen pinned to one physical lens, so the phone stops swapping
+        // between wide and ultra-wide while a book is being lined up.
+        if (pick) {
+          stopStream(stream)
+          setLensId(pick)
+          rememberLens(pick)
+          void startCamera(pick)
+          return
+        }
+      }
+
+      setFocusNote((await applyFocusHints(stream, activeSlot === 'edge')).join(', '))
     } catch (caught) {
       setError((caught as Error).message)
       stopCamera()
     }
   }
+
+  const switchLens = async (deviceId: string) => {
+    setLensId(deviceId)
+    rememberLens(deviceId)
+    stopCamera()
+    await startCamera(deviceId)
+  }
+
+  // The spine is shot closest, so re-apply the hints when that slot is picked.
+  useEffect(() => {
+    if (!cameraOn) return
+    void applyFocusHints(streamRef.current, activeSlot === 'edge')
+      .then((applied) => setFocusNote(applied.join(', ')))
+  }, [activeSlot, cameraOn])
 
   // -----------------------------------------------------------------------
   // Capture and identify
@@ -436,6 +477,7 @@ export default function App() {
           <span className="cam__meta">
             {counts ? `${counts.total} shelved` : ''}
             {resolution ? ` · ${resolution}` : ''}
+            {focusNote ? ` · ${focusNote}` : ''}
           </span>
           {(shotCount > 0 || identified) && (
             <button className="cam__chip-btn" onClick={reset}>Start over</button>
@@ -457,7 +499,7 @@ export default function App() {
           <div className="cam__idle">
             <h2>Photograph the book</h2>
             <p>Back cover first, for the barcode. Then the front, then the spine.</p>
-            <button className="btn btn--primary btn--big" onClick={startCamera}>
+            <button className="btn btn--primary btn--big" onClick={() => startCamera()}>
               Start camera
             </button>
           </div>
@@ -496,7 +538,30 @@ export default function App() {
 
           <p className="cam__hint">
             {cameraOn ? SLOT_HINT[activeSlot] : 'Tap start to use the camera.'}
+            {cameraOn && activeSlot === 'edge' && (
+              <>
+                {' '}
+                <span className="cam__tip">
+                  If it will not focus, move the book further away. The crop
+                  keeps the detail.
+                </span>
+              </>
+            )}
           </p>
+
+          {cameraOn && lenses.length > 1 && (
+            <div className="cam__lenses">
+              {lenses.map((lens) => (
+                <button
+                  key={lens.deviceId}
+                  className={lens.deviceId === lensId ? 'cam__lens cam__lens--on' : 'cam__lens'}
+                  onClick={() => switchLens(lens.deviceId)}
+                >
+                  {lensName(lens.label)}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="cam__controls">
 
