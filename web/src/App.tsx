@@ -11,8 +11,8 @@ import {
   thumbnail, type Lens, type Slot,
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
-import { PlacementCard } from './components/PlacementCard'
 import { BookDetail } from './components/BookDetail'
+import { PlacementView } from './components/ShelfStrip'
 import { ShelfView } from './components/ShelfView'
 import { ShelveView } from './components/ShelveView'
 import { QueuePane } from './components/QueuePane'
@@ -689,7 +689,7 @@ export default function App() {
 
       {mode === 'review' && (
         <main className="main">
-          <PlacementCard placement={placement} pending={placementStale} saved={false} />
+          <PlacementView placement={placement} pending={placementStale} />
 
           <BookDetail
             draft={draft}

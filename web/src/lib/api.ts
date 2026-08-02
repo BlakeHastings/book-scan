@@ -62,8 +62,13 @@ export interface StripBook {
 export interface PlacementStrip {
   label: string
   books: StripBook[]
-  /** How many books sit to the left of the gap. */
+  /** How many books sit to the left of the gap, or -1 when there is no gap. */
   gapIndex: number
+  /**
+   * Where the book itself sits in the row, when it is already shelved and
+   * still filed correctly. Null when it has yet to be put anywhere.
+   */
+  placedIndex: number | null
 }
 
 export interface PlacementResponse extends Placement {

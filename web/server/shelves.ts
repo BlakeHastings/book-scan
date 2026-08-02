@@ -9,7 +9,7 @@ import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
   diffLayout, groupByShelf, layoutRange, locationLabel, NEWCOMER_ID, overflow,
-  shelfLoads, stripAround,
+  shelfLoads, stripAround, stripAt,
   type RangeStart,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
   type ShelfGroup, type Strip,
@@ -111,6 +111,11 @@ export class Shelves {
   /** The shelf this book lands on, end on, with the gap it goes in. */
   strip(range: ShelfRange, sortKey: string, excludeId = 0): Strip<ShelvedBook> | null {
     return stripAround(this.layoutWith(range, sortKey, excludeId))
+  }
+
+  /** The shelf a book already sits on, and where along it. */
+  stripOf(range: ShelfRange, bookId: number): { label: string; books: Placed<ShelvedBook>[]; index: number } | null {
+    return stripAt(this.layout(range), bookId)
   }
 
   /** Where one book sits now, or '' if it is not shelved in this range. */

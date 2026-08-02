@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { api, type Move, type PlacementResponse } from '../lib/api'
-import { PlacementCard } from './PlacementCard'
-import { ShelfStrip } from './ShelfStrip'
+import { PlacementView } from './ShelfStrip'
 import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
@@ -75,14 +74,7 @@ export function ShelveView({
 
       {/* Where the new book goes. Unchanged by the cascade: the gap it belongs
           in is decided by the alphabet, not by how full the shelf is. */}
-      {placement?.strip ? (
-        <>
-          <p className="shelve__instruction">{placement.instruction}</p>
-          <ShelfStrip strip={placement.strip} authorFiling={placement.authorFiling} />
-        </>
-      ) : (
-        <PlacementCard placement={placement} pending={false} saved={false} />
-      )}
+      <PlacementView placement={placement} pending={false} />
 
       {steps.length > 0 && (
         <div className="moves">

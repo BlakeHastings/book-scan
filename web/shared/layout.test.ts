@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   areaLabel, groupByShelf, layoutRange, locationLabel, NEWCOMER_ID, overflow,
-  shelfLoads, stripAround,
+  shelfLoads, stripAt, stripAround,
   type Separator,
 } from './layout'
 
@@ -184,5 +184,27 @@ describe('stripAround', () => {
 
   it('returns nothing when the newcomer was never laid out', () => {
     expect(stripAround(layoutRange(run('ABC'), []))).toBeNull()
+  })
+})
+
+describe('stripAt', () => {
+  it('finds a shelved book in its own row', () => {
+    const separators = [sep(1, 'D')]
+    const found = stripAt(layoutRange(run('ABCDEF'), separators), 5)!
+    expect(found.label).toBe('1B')
+    expect(found.books.map((p) => p.book.sortKey)).toEqual(['D', 'E', 'F'])
+    expect(found.index).toBe(1)
+  })
+
+  it('leaves the book in place rather than cutting it out', () => {
+    // The difference from stripAround: a book already on the shelf is drawn
+    // where it is, not as a hole where it would go.
+    const found = stripAt(layoutRange(run('ABC'), []), 1)!
+    expect(found.books).toHaveLength(3)
+    expect(found.index).toBe(0)
+  })
+
+  it('returns nothing for a book that is not shelved here', () => {
+    expect(stripAt(layoutRange(run('ABC'), []), 99)).toBeNull()
   })
 })

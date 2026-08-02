@@ -11,7 +11,7 @@ import { openDatabase } from './db'
 
 import { lookupIsbn, searchTitle } from './lookup'
 import { CaptureQueue } from './queue'
-import { Shelves } from './shelves'
+import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import { buildPlacement } from '../shared/shelving'
@@ -107,27 +107,53 @@ function stripFor(
   sortKey: string,
   excludeId?: number,
 ) {
+  // A book that is already on the shelf where it belongs is drawn in the row,
+  // not as a hole in it. Only when its filing has actually changed does it
+  // become something that has to move, and then it wants a gap again.
+  const settled = excludeId ? settledRow(range, sortKey, excludeId) : null
+  if (settled) return settled
+
   const strip = shelves.strip(range, sortKey, excludeId)
   if (!strip) return null
 
   return {
     label: strip.label,
     gapIndex: strip.gapIndex,
-    books: strip.books.map((placed, i) => {
-      const adjacent = i === strip.gapIndex - 1 || i === strip.gapIndex
-      const row = placed.book
-      return {
-        id: row.id,
-        title: row.title,
-        authorFiling: row.author_filing,
-        // Same precedence as a neighbour thumbnail: the spine is what you see
-        // looking at a shelf, and a cover is only a fallback.
-        spine: adjacent
-          ? row.edge_image || row.front_image || row.back_image || ''
-          : '',
-        spineSlot: adjacent && !row.edge_image ? 'front' : 'edge',
-      }
-    }),
+    placedIndex: null,
+    books: strip.books.map((placed, i) =>
+      stripBook(placed.book, i === strip.gapIndex - 1 || i === strip.gapIndex),
+    ),
+  }
+}
+
+/** The row as it stands, when this book is already in it and in the right place. */
+function settledRow(range: 'fiction' | 'nonfiction', sortKey: string, id: number) {
+  const row = store.getBook(id)
+  if (!row || row.shelf_range !== range || row.sort_key !== sortKey) return null
+
+  const strip = shelves.stripOf(range, id)
+  if (!strip) return null
+
+  return {
+    label: strip.label,
+    gapIndex: -1,
+    placedIndex: strip.index,
+    books: strip.books.map((placed, i) =>
+      // The book itself and the two it sits between.
+      stripBook(placed.book, Math.abs(i - strip.index) <= 1),
+    ),
+  }
+}
+
+function stripBook(row: ShelvedBook, withPhoto: boolean) {
+  return {
+    id: row.id,
+    title: row.title,
+    authorFiling: row.author_filing,
+    // Same precedence as a neighbour thumbnail: the spine is what you see
+    // looking at a shelf, and a cover is only a fallback.
+    spine: withPhoto ? row.edge_image || row.front_image || row.back_image || '' : '',
+    spineSlot: withPhoto && !row.edge_image ? 'front' : 'edge',
   }
 }
 

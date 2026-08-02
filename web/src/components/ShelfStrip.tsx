@@ -1,6 +1,32 @@
 import { useEffect, useRef } from 'react'
-import type { PlacementStrip } from '../lib/api'
-import { coverUrl } from './PlacementCard'
+import type { PlacementResponse, PlacementStrip } from '../lib/api'
+import { coverUrl, PlacementCard } from './PlacementCard'
+
+/**
+ * How a placement is shown, wherever it is shown.
+ *
+ * Both the detail view and the shelving step answer the same question, so
+ * they answer it the same way. Falls back to the old card when a placement
+ * arrives without a strip, which is what an empty range or an older server
+ * would give.
+ */
+export function PlacementView({
+  placement, pending,
+}: {
+  placement: PlacementResponse | null
+  pending: boolean
+}) {
+  if (!placement?.strip) {
+    return <PlacementCard placement={placement} pending={pending} saved={false} />
+  }
+
+  return (
+    <div className={pending ? 'placement--stale' : ''}>
+      <p className="placement-view__instruction">{placement.instruction}</p>
+      <ShelfStrip strip={placement.strip} authorFiling={placement.authorFiling} />
+    </div>
+  )
+}
 
 interface Props {
   strip: PlacementStrip
@@ -22,16 +48,20 @@ interface Props {
  * are there to be counted along, not read.
  */
 export function ShelfStrip({ strip, authorFiling }: Props) {
-  const gapRef = useRef<HTMLDivElement>(null)
+  const focusRef = useRef<HTMLDivElement>(null)
 
-  // A full shelf is wider than a phone, and the gap is the only part worth
-  // looking at, so bring it into view rather than starting at book one.
+  // A full shelf is wider than a phone, and only one part of it is worth
+  // looking at, so bring that into view rather than starting at book one.
   useEffect(() => {
-    gapRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' })
-  }, [strip.label, strip.gapIndex, strip.books.length])
+    focusRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [strip.label, strip.gapIndex, strip.placedIndex, strip.books.length])
 
-  const left = strip.gapIndex
-  const right = strip.books.length - strip.gapIndex
+  // Already on the shelf: it is drawn in the row, and there is no gap to open
+  // and nothing to carry over. Otherwise the row breaks at the gap.
+  const placed = strip.placedIndex !== null
+  const at = placed ? strip.placedIndex! : strip.gapIndex
+  const left = at
+  const right = strip.books.length - at - (placed ? 1 : 0)
 
   return (
     <div className="strip">
@@ -51,22 +81,29 @@ export function ShelfStrip({ strip, authorFiling }: Props) {
               key={book.id}
               book={book}
               position={i + 1}
-              column={i < strip.gapIndex ? i + 1 : i + 2}
+              // Without a gap the columns are simply the books; with one,
+              // everything past it shifts along to leave the space.
+              column={placed || i < strip.gapIndex ? i + 1 : i + 2}
+              here={placed && i === strip.placedIndex}
+              markRef={placed && i === strip.placedIndex ? focusRef : undefined}
             />
           ))}
 
-          <div
-            ref={gapRef}
-            className="strip__gap"
-            style={{ gridColumn: strip.gapIndex + 1 }}
-            aria-label="where this book goes"
-          />
+          {!placed && (
+            <>
+              <div
+                ref={focusRef}
+                className="strip__gap"
+                style={{ gridColumn: strip.gapIndex + 1 }}
+                aria-label="where this book goes"
+              />
+              <div className="strip__new" style={{ gridColumn: strip.gapIndex + 1 }}>
+                <span className="strip__new-author">{authorFiling || 'this book'}</span>
+              </div>
+            </>
+          )}
 
           <div className="strip__shelf" />
-
-          <div className="strip__new" style={{ gridColumn: strip.gapIndex + 1 }}>
-            <span className="strip__new-author">{authorFiling || 'this book'}</span>
-          </div>
         </div>
       </div>
     </div>
@@ -74,17 +111,25 @@ export function ShelfStrip({ strip, authorFiling }: Props) {
 }
 
 function Spine({
-  book, position, column,
+  book, position, column, here = false, markRef,
 }: {
   book: PlacementStrip['books'][number]
   position: number
   column: number
+  /** This is the book being looked at, already in place. */
+  here?: boolean
+  markRef?: React.RefObject<HTMLDivElement>
 }) {
   const photo = coverUrl(book.spine)
 
   return (
     <div
-      className={photo ? 'spine spine--known' : 'spine'}
+      ref={markRef}
+      className={[
+        'spine',
+        photo ? 'spine--known' : '',
+        here ? 'spine--here' : '',
+      ].filter(Boolean).join(' ')}
       style={{ gridColumn: column }}
       title={`${position}. ${book.title}`}
     >

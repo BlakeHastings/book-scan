@@ -323,16 +323,35 @@ export interface Strip<T extends LayoutInput> {
 export function stripAround<T extends LayoutInput>(
   placed: Placed<T>[],
 ): Strip<T> | null {
-  const at = placed.findIndex((p) => p.book.id === NEWCOMER_ID)
-  if (at === -1) return null
-
-  const label = placed[at]!.label
-  const row = placed.filter((p) => p.label === label)
+  const found = stripAt(placed, NEWCOMER_ID)
+  if (!found) return null
 
   return {
-    label,
-    books: row.filter((p) => p.book.id !== NEWCOMER_ID),
+    label: found.label,
+    books: found.books.filter((p) => p.book.id !== NEWCOMER_ID),
     // Its index within the row, which is exactly the count to its left.
-    gapIndex: row.findIndex((p) => p.book.id === NEWCOMER_ID),
+    gapIndex: found.index,
+  }
+}
+
+/**
+ * The shelf one book is on, and where along it that book sits.
+ *
+ * The same row as stripAround, but for a book that is already shelved rather
+ * than one being fitted in. Nothing is removed, so the book appears in its
+ * own row at `index`.
+ */
+export function stripAt<T extends LayoutInput>(
+  placed: Placed<T>[],
+  id: number,
+): { label: string; books: Placed<T>[]; index: number } | null {
+  const at = placed.find((p) => p.book.id === id)
+  if (!at) return null
+
+  const books = placed.filter((p) => p.label === at.label)
+  return {
+    label: at.label,
+    books,
+    index: books.findIndex((p) => p.book.id === id),
   }
 }
