@@ -84,15 +84,28 @@ export function locationLabel(shelf: number, area: number): string {
  * Books past the last separator land on a final, open-ended shelf, which is
  * where everything sits before any capacity has been marked at all.
  */
+/** Where a range begins on the furniture. Non-fiction lives on bookcase 4. */
+export interface RangeStart {
+  /** Bookcase, 1-based. */
+  shelf: number
+  /** Plank within it, 0-based. */
+  area: number
+}
+
+export const FIRST_SHELF: RangeStart = { shelf: 1, area: 0 }
+
 export function layoutRange<T extends LayoutInput>(
   books: T[],
   separators: Separator[],
+  start: RangeStart = FIRST_SHELF,
 ): Placed<T>[] {
   const ordered = [...separators]
     .sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : 0))
 
-  let shelf = 1
-  let area = 0
+  // Ranges do not all begin at 1A. Non-fiction has its own bookcase, and
+  // laying both out from 1A gave two different planks the same name.
+  let shelf = start.shelf
+  let area = start.area
   let next = 0
   const placed: Placed<T>[] = []
 
@@ -251,6 +264,21 @@ export function overflow(
         kindIfNew === 'shelf' ? 0 : group.area + 1,
       ),
       create: { startsAt: moved.sortKey, kind: kindIfNew },
+    }
+  }
+
+  // Asking for a new bookcase when the next boundary is only a plank break
+  // needs a boundary of its own, inserted before it. Shifting the plank break
+  // instead would keep everything in this bookcase, which is the opposite of
+  // what was asked. The existing break survives and now divides the NEW
+  // bookcase, so the books after it move along too, which is right: the whole
+  // run past a full bookcase belongs in the next one.
+  if (kindIfNew === 'shelf' && nextGroup.kind !== 'shelf') {
+    return {
+      moved,
+      from: label,
+      to: locationLabel(group.shelf + 1, 0),
+      create: { startsAt: moved.sortKey, kind: 'shelf' },
     }
   }
 

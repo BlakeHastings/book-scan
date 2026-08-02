@@ -73,9 +73,13 @@ CREATE TABLE IF NOT EXISTS author_filing (
 );
 
 CREATE TABLE IF NOT EXISTS shelf_ranges (
-    shelf_range TEXT PRIMARY KEY,
-    start_label TEXT NOT NULL,
-    note        TEXT DEFAULT ''
+    shelf_range TEXT    PRIMARY KEY,
+    start_label TEXT    NOT NULL,
+    -- Which bookcase this range begins on. Non-fiction has its own, so both
+    -- ranges laid out from bookcase 1 would give two real planks one name.
+    start_shelf INTEGER NOT NULL DEFAULT 1,
+    start_area  INTEGER NOT NULL DEFAULT 0,
+    note        TEXT    DEFAULT ''
 );
 
 -- The work queue. A capture is three photos and nothing else until the
@@ -195,6 +199,10 @@ function addMissingColumns(db: Database.Database): void {
     separators: [
       ['starts_at', "TEXT DEFAULT ''"],
     ],
+    shelf_ranges: [
+      ['start_shelf', 'INTEGER NOT NULL DEFAULT 1'],
+      ['start_area', 'INTEGER NOT NULL DEFAULT 0'],
+    ],
   }
 
   for (const [table, columns] of Object.entries(wanted)) {
@@ -296,11 +304,22 @@ export function openDatabase(path: string): Database.Database {
 
   // Shelf 4 is dedicated to non-fiction; fiction starts at 1A.
   const seed = db.prepare(
-    `INSERT OR IGNORE INTO shelf_ranges (shelf_range, start_label, note)
-     VALUES (?, ?, ?)`,
+    `INSERT OR IGNORE INTO shelf_ranges
+       (shelf_range, start_label, start_shelf, start_area, note)
+     VALUES (?, ?, ?, ?, ?)`,
   )
-  seed.run('fiction', '1A', 'Everything except the non-fiction shelf')
-  seed.run('nonfiction', 'S4', 'Shelf 4 is dedicated to non-fiction')
+  seed.run('fiction', '1A', 1, 0, 'Starts on the first bookcase')
+  seed.run('nonfiction', '4A', 4, 0, 'Bookcase 4 is dedicated to non-fiction')
+
+  // A database seeded before ranges had a starting bookcase still says S4.
+  db.prepare(
+    "UPDATE shelf_ranges SET start_shelf = 4, start_area = 0, start_label = '4A' " +
+    "WHERE shelf_range = 'nonfiction' AND start_label = 'S4'",
+  ).run()
+  db.prepare(
+    "UPDATE shelf_ranges SET start_label = '1A' WHERE shelf_range = 'fiction' " +
+    "AND start_label != '1A'",
+  ).run()
 
   return db
 }

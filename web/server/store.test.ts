@@ -37,7 +37,7 @@ describe('placement as books arrive one at a time', () => {
     // so this must not be told to go next to Herbert.
     expect(placement.kind).toBe('first-in-range')
     expect(placement.range).toBe('nonfiction')
-    expect(placement.suggestedLocation).toBe('S4')
+    expect(placement.suggestedLocation).toBe('4A')
   })
 
   it('names both neighbours once there is something either side', () => {

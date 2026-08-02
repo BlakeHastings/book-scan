@@ -116,6 +116,6 @@ describe('ranges are independent', () => {
     store.addBook({ title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false })
 
     shelves.overflow('fiction', '1A', 'shelf')
-    expect(shelves.layout('nonfiction').map((p) => p.label)).toEqual(['1A'])
+    expect(shelves.layout('nonfiction').map((p) => p.label)).toEqual(['4A'])
   })
 })

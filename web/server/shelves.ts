@@ -9,6 +9,7 @@ import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
   diffLayout, groupByShelf, layoutRange, locationLabel, overflow, shelfLoads,
+  type RangeStart,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
   type ShelfGroup,
 } from '../shared/layout'
@@ -46,6 +47,14 @@ export class Shelves {
     ).map(toSeparator)
   }
 
+  /** Which bookcase a range begins on. */
+  private startOf(range: ShelfRange): RangeStart {
+    const row = this.db
+      .prepare('SELECT start_shelf, start_area FROM shelf_ranges WHERE shelf_range = ?')
+      .get(range) as { start_shelf: number; start_area: number } | undefined
+    return { shelf: row?.start_shelf ?? 1, area: row?.start_area ?? 0 }
+  }
+
   private booksIn(range: ShelfRange): BookRow[] {
     return this.db
       .prepare('SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC')
@@ -57,6 +66,7 @@ export class Shelves {
     return layoutRange(
       this.booksIn(range).map((row) => ({ ...row, sortKey: row.sort_key })),
       this.list(range),
+      this.startOf(range),
     )
   }
 
@@ -81,8 +91,9 @@ export class Shelves {
     const merged = [...books, { id: -1, sortKey } as ShelvedBook]
       .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
 
-    return layoutRange(merged, this.list(range))
-      .find((p) => p.book.id === -1)?.label ?? locationLabel(0, 1)
+    const start = this.startOf(range)
+    return layoutRange(merged, this.list(range), start)
+      .find((p) => p.book.id === -1)?.label ?? locationLabel(start.shelf, start.area)
   }
 
   /** Where one book sits now, or '' if it is not shelved in this range. */
