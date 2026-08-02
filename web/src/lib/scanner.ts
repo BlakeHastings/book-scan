@@ -19,18 +19,26 @@
 
 export type Slot = 'front' | 'back' | 'edge'
 
-export const SLOTS: Slot[] = ['front', 'back', 'edge']
+/** Shooting order: front, spine, back. The back comes last because it is the
+ *  natural way to turn a book over in your hands. */
+export const SLOTS: Slot[] = ['front', 'edge', 'back']
 
 export const SLOT_LABEL: Record<Slot, string> = {
   front: 'Front cover',
-  back: 'Back cover',
   edge: 'Spine',
+  back: 'Back cover',
+}
+
+export const SLOT_SHORT: Record<Slot, string> = {
+  front: 'Front',
+  edge: 'Spine',
+  back: 'Back',
 }
 
 export const SLOT_HINT: Record<Slot, string> = {
-  front: 'The cover, for the title and the record.',
-  back: 'Where the barcode and printed ISBN are. This is the one that matters.',
+  front: 'The cover. Used for the title if no ISBN turns up.',
   edge: 'The spine, as it will look on the shelf.',
+  back: 'The barcode and printed ISBN. This is the one that identifies the book.',
 }
 
 /**
