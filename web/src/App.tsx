@@ -62,6 +62,7 @@ export default function App() {
   const [deletingBook, setDeletingBook] = useState(false)
   const [checkedOutAt, setCheckedOutAt] = useState<string | null>(null)
   const [checkingOut, setCheckingOut] = useState(false)
+  const [coverImage, setCoverImage] = useState('')
   const [scanMode, setScanMode] = useState<'out' | 'in' | null>(null)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
@@ -454,6 +455,7 @@ export default function App() {
       })
       setBookId(id)
       setCheckedOutAt(book.checked_out_at)
+      setCoverImage(book.cover_image ? `/api/covers/${book.cover_image}` : '')
       setCaptureId(null)
       setLookup(null)
       setIdentified(Boolean(book.isbn13))
@@ -504,6 +506,7 @@ export default function App() {
   const backToLibrary = () => {
     setBookId(null)
     setCheckedOutAt(null)
+    setCoverImage('')
     setDraft(emptyDraft)
     setPlacement(null)
     setMode('library')
@@ -522,6 +525,7 @@ export default function App() {
     setCaptureId(null)
     setBookId(null)
     setCheckedOutAt(null)
+    setCoverImage('')
     setMode('capture')
   }
 
@@ -819,6 +823,9 @@ export default function App() {
             shelfLabel={placement?.derivedLocation ?? ''}
             onDelete={bookId !== null ? deleteBook : undefined}
             deleting={deletingBook}
+            /* A saved book has its cover on disk; one still being confirmed
+               only has whatever the lookup just handed back. */
+            catalogueCover={coverImage || lookup?.coverUrl || ''}
             checkedOutAt={checkedOutAt}
             onCheckOut={bookId !== null ? checkOut : undefined}
             checkingOut={checkingOut}

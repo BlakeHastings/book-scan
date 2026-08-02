@@ -37,6 +37,12 @@ interface Props {
   deleting?: boolean
   /** Derived shelf, for display only. */
   shelfLabel?: string
+  /**
+   * The publisher's cover for whatever ISBN this matched, so the match itself
+   * can be checked. An ISBN is thirteen digits nobody can verify by reading;
+   * the cover is the one part of a lookup a person can confirm at a glance.
+   */
+  catalogueCover?: string
 }
 
 /**
@@ -56,7 +62,7 @@ export function BookDetail({
   relookupBusy, relookupError, saved,
   onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
   onDelete, deleting = false, shelfLabel = '', doneLabel = 'Done', placement,
-  checkedOutAt = null, onCheckOut, checkingOut = false,
+  checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
   // because correcting it is the whole reason it is on screen.
@@ -155,6 +161,23 @@ export function BookDetail({
       )}
 
       {placement}
+
+      {/* Side by side and nothing else between them, because the whole job
+          here is deciding whether these are the same book. */}
+      {catalogueCover && (
+        <div className="compare">
+          <figure className="compare__side">
+            <img src={catalogueCover} alt="Cover from the catalogue" loading="lazy" />
+            <figcaption>Catalogue says</figcaption>
+          </figure>
+          <figure className="compare__side">
+            {photos.front
+              ? <img src={photos.front} alt="The book photographed" loading="lazy" />
+              : <span className="compare__none">no front photo</span>}
+            <figcaption>Your photo</figcaption>
+          </figure>
+        </div>
+      )}
 
       {taken.length > 0 && (
         <div className="photos">

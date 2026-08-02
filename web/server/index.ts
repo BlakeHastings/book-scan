@@ -11,6 +11,7 @@ import { openDatabase } from './db'
 
 import { lookupIsbn, searchTitle } from './lookup'
 import { identify } from './identify'
+import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { CaptureQueue } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
@@ -187,7 +188,9 @@ const queue = new CaptureQueue(
  */
 function deleteOrphanedImages(names: string[]): string[] {
   const usedByBook = db.prepare(
-    'SELECT 1 FROM books WHERE front_image = ? OR back_image = ? OR edge_image = ? LIMIT 1',
+    `SELECT 1 FROM books
+      WHERE front_image = ?1 OR back_image = ?1 OR edge_image = ?1 OR cover_image = ?1
+      LIMIT 1`,
   )
   const usedByCapture = db.prepare(
     'SELECT 1 FROM captures WHERE front_image = ? OR back_image = ? OR edge_image = ? LIMIT 1',
@@ -195,7 +198,7 @@ function deleteOrphanedImages(names: string[]): string[] {
 
   const removed: string[] = []
   for (const name of names.filter(Boolean)) {
-    if (usedByBook.get(name, name, name) || usedByCapture.get(name, name, name)) continue
+    if (usedByBook.get(name) || usedByCapture.get(name, name, name)) continue
     try {
       rmSync(join(COVER_DIR, name), { force: true })
       removed.push(name)
@@ -472,6 +475,10 @@ app.post('/api/books', (req, res) => {
 
   if (captureId) queue.markDone(captureId, id)
 
+  // Deliberately not awaited. The person is waiting to be told where the book
+  // goes, and a cover that arrives a second later costs them nothing.
+  void fetchCoverFor(id)
+
   res.status(201).json({
     id,
     // The freshly computed placement, not whatever the client previewed.
@@ -586,7 +593,7 @@ app.delete('/api/books/:id', (req, res) => {
     return
   }
 
-  const images = [book.front_image, book.back_image, book.edge_image]
+  const images = [book.front_image, book.back_image, book.edge_image, book.cover_image]
   store.deleteBook(id)
   const removed = deleteOrphanedImages(images)
 
@@ -616,6 +623,90 @@ app.post('/api/books/:id/checkout', (req, res) => {
   store.setCheckedOut(id, out)
   res.json({ book: store.getBook(id), counts: store.counts() })
 })
+
+/**
+ * Fetch and store the publisher cover for one book.
+ *
+ * Open Library indexes covers by ISBN, so the common case needs no metadata
+ * lookup. Only when it has nothing do we spend a full lookup to see whether
+ * Google has one.
+ */
+async function fetchCoverFor(id: number): Promise<string> {
+  const book = store.getBook(id)
+  if (!book || book.cover_image) return book?.cover_image ?? ''
+
+  const isbn = book.isbn13 || book.isbn10
+  if (!isbn) return ''
+
+  let name = await downloadCover(openLibraryCover(isbn), isbn, COVER_DIR)
+
+  if (!name) {
+    const found = await lookupIsbn(isbn, { googleApiKey: GOOGLE_API_KEY })
+      .catch(() => null)
+    if (found?.coverUrl) {
+      name = await downloadCover(upgradeGoogleCover(found.coverUrl), isbn, COVER_DIR)
+    }
+  }
+
+  // Stamped either way, so a book with no cover anywhere is asked about once.
+  store.setCoverImage(id, name)
+  return name
+}
+
+/**
+ * Work through books that have no cover yet, a batch at a time.
+ *
+ * Batched rather than all at once because it is someone else's API and there
+ * is no hurry: every book in the library predates this column, and they only
+ * need fetching once.
+ */
+// Not under /api/covers: that path is a static mount with fallthrough off,
+// which answers anything beneath it and would reject this as a 405.
+app.post('/api/backfill/covers', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const limit = Math.min(50, Math.max(1, Number(body.limit ?? 10)))
+  // Ask again about the ones that came up empty, for when a cover has since
+  // been added upstream or a lookup was simply down at the time.
+  const retry = body.retry === true
+  try {
+    const todo = store.missingCovers(limit, retry)
+
+    let fetched = 0
+    for (const book of todo) {
+      if (await fetchCoverFor(book.id)) fetched += 1
+    }
+
+    res.json({
+      tried: todo.length,
+      fetched,
+      remaining: store.missingCovers(1000).length,
+      withoutCover: store.missingCovers(1000, true).length,
+    })
+  } catch (caught) {
+    // Express 4 does not catch a rejected async handler, and an uncaught one
+    // takes the process down. Fetching covers is not worth the server.
+    res.status(500).json({ error: (caught as Error).message })
+  }
+})
+
+/**
+ * Work through missing covers quietly in the background.
+ *
+ * Slow on purpose. It is someone else's API, nobody is waiting on the result,
+ * and cover_checked_at means the work converges: once every book has been
+ * asked about, this finds nothing and stops until new books arrive.
+ */
+async function backfillCoversInBackground(): Promise<void> {
+  for (;;) {
+    const todo = store.missingCovers(5)
+    if (!todo.length) return
+
+    for (const book of todo) {
+      await fetchCoverFor(book.id)
+      await new Promise((done) => setTimeout(done, 400))
+    }
+  }
+}
 
 app.get('/api/checked-out', (_req, res) => {
   res.json({ books: store.checkedOut() })
@@ -689,6 +780,14 @@ app.get('/api/health', (_req, res) => {
 })
 
 queue.resumeOnStartup()
+
+// After the port is open, so a slow or unreachable cover service never
+// delays the server being usable.
+setTimeout(() => {
+  void backfillCoversInBackground().catch((caught) => {
+    console.error('[covers] backfill stopped:', (caught as Error).message)
+  })
+}, 3_000)
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`[api] listening on http://127.0.0.1:${PORT}`)

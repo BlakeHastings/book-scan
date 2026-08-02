@@ -418,6 +418,33 @@ export class Store {
       .run(out ? new Date().toISOString() : null, id)
   }
 
+  /**
+   * Record the outcome of looking for a cover.
+   *
+   * The timestamp is set either way. Plenty of books have no cover anywhere,
+   * and without a record of having asked, every backfill would spend its whole
+   * batch re-asking about the same ones and never reach the rest.
+   */
+  setCoverImage(id: number, name: string): void {
+    this.db
+      .prepare('UPDATE books SET cover_image = ?, cover_checked_at = ? WHERE id = ?')
+      .run(name, new Date().toISOString(), id)
+  }
+
+  /** Books with an ISBN whose cover has never been looked for. */
+  missingCovers(limit: number, retry = false): { id: number; isbn13: string; isbn10: string }[] {
+    return this.db
+      .prepare(
+        `SELECT id, isbn13, isbn10 FROM books
+          WHERE (cover_image IS NULL OR cover_image = '')
+            AND (isbn13 != '' OR isbn10 != '')
+            AND (:retry = 1 OR cover_checked_at IS NULL)
+          ORDER BY id LIMIT :limit`,
+      )
+      .all({ limit, retry: retry ? 1 : 0 }) as
+        { id: number; isbn13: string; isbn10: string }[]
+  }
+
   /** Books off the shelf, oldest first, so nothing is quietly forgotten. */
   checkedOut(): BookRow[] {
     return this.db

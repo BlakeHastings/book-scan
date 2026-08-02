@@ -113,6 +113,8 @@ export interface BookRow {
   edge_image: string
   /** Set while the book is off the shelf; null while it is on one. */
   checked_out_at: string | null
+  /** Publisher cover from the catalogue, for comparing against the real book. */
+  cover_image: string
   /** Flattened filing key. What the whole ordering hangs off. */
   sort_key: string
 }
@@ -323,6 +325,12 @@ export const api = {
     }),
 
   checkedOut: () => request<{ books: BookRow[] }>('/api/checked-out'),
+
+  backfillCovers: (limit = 10) =>
+    request<{ tried: number; fetched: number; remaining: number }>(
+      '/api/backfill/covers',
+      { method: 'POST', body: JSON.stringify({ limit }) },
+    ),
 
   /** Photo in, decision out. See ScanCheckout for what each outcome means. */
   scanCheckout: (image: string, out: boolean) =>

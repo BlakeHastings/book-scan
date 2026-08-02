@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS books (
     front_image               TEXT    DEFAULT '',
     back_image                TEXT    DEFAULT '',
     edge_image                TEXT    DEFAULT '',
+    -- The publisher's cover, fetched from the catalogue rather than
+    -- photographed. Kept beside the three photos: it is what a matched book is
+    -- supposed to look like, which is the thing worth comparing against.
+    cover_image               TEXT    DEFAULT '',
+    -- When a cover was last looked for. Set whether or not one was found, so
+    -- a book with no cover anywhere is not re-fetched on every backfill.
+    cover_checked_at          TEXT,
     isbn_source               TEXT    DEFAULT '',
     ocr_text                  TEXT    DEFAULT '',
 
@@ -178,6 +185,10 @@ export interface BookRow {
   shelved_at: string | null
   /** ISO timestamp while the book is off the shelf, null while it is on one. */
   checked_out_at: string | null
+  /** Publisher cover from the catalogue, as a filename under /api/covers. */
+  cover_image: string
+  /** When a cover was last looked for, found or not. */
+  cover_checked_at: string | null
 }
 
 /**
@@ -198,6 +209,8 @@ function addMissingColumns(db: Database.Database): void {
       ['ocr_text', "TEXT DEFAULT ''"],
       ['subtitle', "TEXT DEFAULT ''"],
       ['checked_out_at', 'TEXT'],
+      ['cover_image', "TEXT DEFAULT ''"],
+      ['cover_checked_at', 'TEXT'],
     ],
     captures: [
       ['cover_text', "TEXT DEFAULT ''"],
