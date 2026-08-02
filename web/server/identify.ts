@@ -22,8 +22,7 @@ import sharp, { type Sharp } from 'sharp'
 import { scanGrayBuffer } from '@undecaf/zbar-wasm'
 import { createWorker, PSM, type Worker } from 'tesseract.js'
 import {
-  extractIsbnsFromText, isValidIsbn10, isValidIsbn13, isbn10To13, isbn13To10,
-  normaliseIsbn,
+  extractIsbnsFromText, isbn13To10, resolveIsbnPair, type IsbnPair,
 } from '../shared/isbn'
 
 export type IsbnSource = 'barcode' | 'ocr' | ''
@@ -304,11 +303,19 @@ export function pickTitle(lines: OcrLine[]): string {
 // Top level
 // ---------------------------------------------------------------------------
 
-function fromBarcodes(codes: string[]): { isbn13: string; isbn10: string } | null {
+/**
+ * First decoded barcode that is actually a book.
+ *
+ * This must go through resolveIsbnPair rather than testing the check digit
+ * directly: nearly every back cover carries a second barcode beside the ISBN
+ * (an EAN-5 price add-on, or a plain EAN-13 retail code), and a plain EAN-13
+ * satisfies the ISBN-13 checksum. Accepting one produces a confident lookup
+ * for entirely the wrong book.
+ */
+function fromBarcodes(codes: string[]): IsbnPair | null {
   for (const code of codes) {
-    const digits = normaliseIsbn(code)
-    if (isValidIsbn13(digits)) return { isbn13: digits, isbn10: isbn13To10(digits) }
-    if (isValidIsbn10(digits)) return { isbn13: isbn10To13(digits), isbn10: digits }
+    const pair = resolveIsbnPair(code)
+    if (pair.isbn13) return pair
   }
   return null
 }

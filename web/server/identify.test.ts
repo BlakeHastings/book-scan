@@ -6,9 +6,11 @@
  */
 
 import { afterAll, describe, expect, it } from 'vitest'
-import { backCover, frontCover, glossy } from './fixtures'
+import { backCover, barcodePng, frontCover, glossy } from './fixtures'
 import { decodeBarcodes, identify, pickTitle, shutdownOcr } from './identify'
 import { extractIsbnsFromText, isbn13To10 } from '../shared/isbn'
+
+const bwipBarcode = (isbn: string) => barcodePng(isbn, 4)
 
 const ISBN = '9780441013593' // Dune
 
@@ -77,6 +79,34 @@ describe('identify', () => {
     })
     expect(result.titleGuess.toUpperCase()).toContain('DUNE')
   }, 120_000)
+})
+
+describe('barcode category', () => {
+  it('does not accept a non-book EAN-13 as an ISBN', async () => {
+    // The regression this guards: fromBarcodes used to test isValidIsbn13,
+    // which a plain retail EAN-13 passes, because the checksum is identical.
+    // A back cover often carries exactly such a barcode next to the ISBN.
+    const png = await bwipBarcode('4006381333931')
+    const result = await identify(png, { ocrEnabled: false })
+    expect(result.isbn13).toBe('')
+    expect(result.source).toBe('')
+    expect(result.notes.join(' ')).toContain('price code')
+  }, 30_000)
+
+  it('still accepts a 979 Bookland ISBN', async () => {
+    const png = await bwipBarcode('9791234567896')
+    const result = await identify(png, { ocrEnabled: false })
+    expect(result.isbn13).toBe('9791234567896')
+    // 979 has no 10-digit equivalent, so this is correctly empty rather than
+    // a wrong value.
+    expect(result.isbn10).toBe('')
+  }, 30_000)
+
+  it('reports both forms for a 978 ISBN', async () => {
+    const result = await identify(await backCover(ISBN), { ocrEnabled: false })
+    expect(result.isbn13).toBe('9780441013593')
+    expect(result.isbn10).toBe('0441013597')
+  }, 30_000)
 })
 
 describe('pickTitle', () => {

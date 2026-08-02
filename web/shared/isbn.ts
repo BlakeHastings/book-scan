@@ -102,18 +102,57 @@ export function isBooklandIsbn(value: string): boolean {
   )
 }
 
+export interface IsbnPair {
+  /** Always the 13-digit form when the input was a book at all. */
+  isbn13: string
+  /** The 10-digit form. Empty for 979 ISBNs, which genuinely have none. */
+  isbn10: string
+}
+
+const NO_ISBN: IsbnPair = { isbn13: '', isbn10: '' }
+
 /**
- * Pick the ISBN out of whatever the camera decoded this frame. Returns '' when
- * nothing in the list is a book barcode.
+ * Resolve both ISBN forms from whatever we were handed, validating each
+ * candidate against the rules for its own length. This is the single place
+ * that decides whether something is a book identifier, so barcode decoding,
+ * OCR and manual entry cannot disagree.
+ *
+ * The trap this exists to close: a 13-digit code with a correct check digit
+ * is not necessarily an ISBN. EAN-13 product barcodes use the identical
+ * checksum, so `isValidIsbn13('4006381333931')` is true for a jar of coffee.
+ * Only the 978/979 Bookland prefix separates the two categories, and a book's
+ * back cover usually carries a second, non-Bookland barcode right next to the
+ * ISBN. Length alone, or checksum alone, will happily pick the wrong one.
+ *
+ * The two forms are kept as separate data points rather than one canonical
+ * value: catalogues index editions under whichever ISBN the edition was
+ * issued with, so both are worth carrying and worth searching.
+ */
+export function resolveIsbnPair(value: string): IsbnPair {
+  const digits = normaliseIsbn(value)
+
+  if (digits.length === 13) {
+    if (!isBooklandIsbn(digits)) return NO_ISBN
+    // isbn13To10 returns '' for 979, which has no 10-digit equivalent.
+    return { isbn13: digits, isbn10: isbn13To10(digits) }
+  }
+
+  if (digits.length === 10) {
+    if (!isValidIsbn10(digits)) return NO_ISBN
+    return { isbn13: isbn10To13(digits), isbn10: digits }
+  }
+
+  return NO_ISBN
+}
+
+/**
+ * Pick the ISBN out of a list of decoded barcodes. Returns '' when nothing in
+ * the list is a book barcode.
  */
 export function pickIsbn(codes: string[]): string {
   for (const code of codes) {
-    const digits = normaliseIsbn(code)
-    if (isBooklandIsbn(digits)) return digits
-    if (isValidIsbn10(digits)) {
-      const converted = isbn10To13(digits)
-      if (converted) return converted
-    }
+    const { isbn13 } = resolveIsbnPair(code)
+    if (isbn13) return isbn13
   }
   return ''
 }

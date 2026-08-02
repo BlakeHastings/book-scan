@@ -12,6 +12,7 @@
  */
 
 import { classify, type Classification } from './classify'
+import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 
 const OPEN_LIBRARY_URL = 'https://openlibrary.org/api/books'
 const OPEN_LIBRARY_SEARCH_URL = 'https://openlibrary.org/search.json'
@@ -232,23 +233,23 @@ export interface LookupOptions {
   fetchEdition?: boolean
 }
 
-export async function lookupIsbn(
-  rawIsbn: string,
-  options: LookupOptions = {},
-): Promise<LookupResult> {
+/**
+ * Look a single ISBN form up. Returns null when neither catalogue has it, so
+ * the caller can try the other form.
+ */
+async function lookupOne(
+  isbn: string,
+  options: LookupOptions,
+): Promise<LookupResult | null> {
   const timeoutMs = options.timeoutMs ?? 8000
   const apiKey = options.googleApiKey ?? ''
-  const isbn = (rawIsbn ?? '').replace(/[^0-9Xx]/g, '').toUpperCase()
-  if (!isbn) return emptyResult(['No ISBN to look up.'])
 
   const [openLibrary, google] = await Promise.all([
     fromOpenLibrary(isbn, timeoutMs),
     fromGoogleIsbn(isbn, timeoutMs, apiKey),
   ])
 
-  if (!openLibrary && !google) {
-    return emptyResult([`ISBN ${isbn} not found in either catalogue.`])
-  }
+  if (!openLibrary && !google) return null
 
   const edition =
     options.fetchEdition === false ? null : await fromOpenLibraryEdition(isbn, timeoutMs)
@@ -277,8 +278,8 @@ export async function lookupIsbn(
     publisher: openLibrary?.publisher || google?.publisher || '',
     published: openLibrary?.published || google?.published || '',
     pages: openLibrary?.pages || google?.pages || '',
-    isbn13: openLibrary?.isbn13 || google?.isbn13 || (isbn.length === 13 ? isbn : ''),
-    isbn10: openLibrary?.isbn10 || google?.isbn10 || (isbn.length === 10 ? isbn : ''),
+    isbn13: openLibrary?.isbn13 || google?.isbn13 || '',
+    isbn10: openLibrary?.isbn10 || google?.isbn10 || '',
     seriesName: edition?.seriesName ?? '',
     seriesIndex: edition?.seriesIndex ?? null,
     coverUrl: openLibrary?.coverUrl || google?.coverUrl || '',
@@ -286,6 +287,52 @@ export async function lookupIsbn(
     classification,
     notes,
   }
+}
+
+export async function lookupIsbn(
+  rawIsbn: string,
+  options: LookupOptions = {},
+): Promise<LookupResult> {
+  const pair = resolveIsbnPair(rawIsbn)
+
+  // Both forms are tried, in that order. A catalogue indexes an edition under
+  // whichever ISBN it was issued with, so an older book registered only under
+  // its 10-digit ISBN is invisible to a 13-only search, and vice versa.
+  const candidates = [pair.isbn13, pair.isbn10].filter(Boolean)
+
+  if (!candidates.length) {
+    const raw = normaliseIsbn(rawIsbn)
+    if (!raw) return emptyResult(['No ISBN to look up.'])
+    // Not a valid ISBN in either length. Manual entry still gets one attempt
+    // rather than being refused outright, but it is flagged.
+    const loose = await lookupOne(raw, options)
+    return loose
+      ? { ...loose, notes: [...loose.notes, `"${raw}" is not a valid ISBN. Please verify this is the right book.`] }
+      : emptyResult([`"${raw}" is not a valid ISBN-10 or ISBN-13.`])
+  }
+
+  for (const [index, candidate] of candidates.entries()) {
+    const found = await lookupOne(candidate, options)
+    if (!found) continue
+
+    const notes = [...found.notes]
+    if (index > 0) {
+      notes.push(`Found under the 10-digit ISBN ${candidate}, not the 13-digit form.`)
+    }
+
+    // Always carry both forms. Prefer what was scanned, since that is the
+    // copy in hand, and fall back to whatever the catalogue reported.
+    return {
+      ...found,
+      isbn13: pair.isbn13 || found.isbn13,
+      isbn10: pair.isbn10 || found.isbn10,
+      notes,
+    }
+  }
+
+  return emptyResult([
+    `ISBN ${candidates.join(' / ')} not found in either catalogue.`,
+  ])
 }
 
 interface OpenLibraryDoc {

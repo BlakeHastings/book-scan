@@ -17,6 +17,7 @@ import {
   type Placement,
   type ShelfRange,
 } from '../shared/shelving'
+import { resolveIsbnPair } from '../shared/isbn'
 
 export interface DraftBook {
   isbn13?: string
@@ -198,6 +199,11 @@ export class Store {
     const now = new Date().toISOString()
     const location = draft.location?.trim() ?? ''
 
+    // Both forms are stored as separate data points, derived from whichever
+    // one we actually have. Duplicate detection searches both columns, so a
+    // book scanned from its barcode still matches one entered by ISBN-10.
+    const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
+
     const insert = this.db.transaction(() => {
       const result = this.db
         .prepare(
@@ -218,8 +224,8 @@ export class Store {
            )`,
         )
         .run({
-          isbn13: draft.isbn13 ?? '',
-          isbn10: draft.isbn10 ?? '',
+          isbn13: isbn.isbn13 || draft.isbn13 || '',
+          isbn10: isbn.isbn10 || draft.isbn10 || '',
           title: draft.title,
           subtitle: draft.subtitle ?? '',
           authors: draft.authors.filter(Boolean).join(', '),
@@ -262,11 +268,26 @@ export class Store {
     return { id: insert(), placement }
   }
 
-  findByIsbn13(isbn13: string): BookRow | undefined {
-    if (!isbn13) return undefined
+  /**
+   * Find an existing copy by either ISBN form.
+   *
+   * Matching on the 13-digit form alone misses the case that matters: the
+   * same book scanned once from its barcode (13) and once from a printed
+   * ISBN-10, or an edition the catalogue reports under only one of the two.
+   * Both columns are populated on save, so both are worth searching.
+   */
+  findByIsbn(value: string): BookRow | undefined {
+    const { isbn13, isbn10 } = resolveIsbnPair(value)
+    if (!isbn13 && !isbn10) return undefined
+
     return this.db
-      .prepare('SELECT * FROM books WHERE isbn13 = ? ORDER BY id LIMIT 1')
-      .get(isbn13) as BookRow | undefined
+      .prepare(
+        `SELECT * FROM books
+          WHERE (isbn13 != '' AND isbn13 = :isbn13)
+             OR (isbn10 != '' AND isbn10 = :isbn10)
+          ORDER BY id LIMIT 1`,
+      )
+      .get({ isbn13, isbn10 }) as BookRow | undefined
   }
 
   setLocation(id: number, location: string): void {

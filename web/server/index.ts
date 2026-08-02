@@ -11,7 +11,7 @@ import { openDatabase } from './db'
 import { identify } from './identify'
 import { lookupIsbn, searchTitle } from './lookup'
 import { Store, type DraftBook } from './store'
-import { isValidIsbn13, isbn10To13, normaliseIsbn } from '../shared/isbn'
+import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -115,7 +115,7 @@ app.post('/api/identify', async (req, res) => {
     ? await lookupIsbn(result.isbn13, { googleApiKey: GOOGLE_API_KEY })
     : null
 
-  const existing = result.isbn13 ? store.findByIsbn13(result.isbn13) : undefined
+  const existing = result.isbn13 ? store.findByIsbn(result.isbn13) : undefined
 
   res.json({
     identify: result,
@@ -136,15 +136,20 @@ app.post('/api/identify', async (req, res) => {
 
 app.get('/api/lookup/isbn/:isbn', async (req, res) => {
   const raw = normaliseIsbn(req.params.isbn)
-  const isbn13 = raw.length === 10 ? isbn10To13(raw) : raw
+  const pair = resolveIsbnPair(raw)
 
-  if (isbn13 && !isValidIsbn13(isbn13)) {
-    res.status(400).json({ error: `"${req.params.isbn}" is not a valid ISBN.` })
+  // The old guard tested `isbn13 && !isValidIsbn13(isbn13)`, which let an
+  // invalid 10-digit entry straight through: the conversion returned '',
+  // making the left side falsy and skipping the check entirely.
+  if (!pair.isbn13 && raw.length >= 10) {
+    res.status(400).json({
+      error: `"${req.params.isbn}" is not a valid ISBN-10 or ISBN-13.`,
+    })
     return
   }
 
-  const result = await lookupIsbn(isbn13 || raw, { googleApiKey: GOOGLE_API_KEY })
-  const existing = store.findByIsbn13(result.isbn13 || isbn13)
+  const result = await lookupIsbn(raw, { googleApiKey: GOOGLE_API_KEY })
+  const existing = store.findByIsbn(result.isbn13 || pair.isbn13)
 
   res.json({
     ...result,

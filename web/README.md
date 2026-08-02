@@ -93,6 +93,25 @@ has no `BarcodeDetector` to fall back on. The server now does what
 It also keeps several megabytes of WASM off the phone. The client bundle no
 longer contains a barcode library at all.
 
+**ISBN-10 and ISBN-13 are two data points, not one.** `resolveIsbnPair` is the
+single place that decides whether something is a book identifier, so barcode
+decoding, OCR and manual entry cannot disagree. Both forms are derived, both
+are stored, both are searched:
+
+- A **valid checksum is not enough**. EAN-13 product barcodes use the identical
+  check-digit algorithm, so `isValidIsbn13('4006381333931')` is true for a jar
+  of coffee. Only the 978/979 Bookland prefix separates a book from a retail
+  code, and back covers routinely carry a second, non-Bookland barcode right
+  beside the ISBN. Testing the checksum alone accepts the wrong one and
+  produces a confident lookup for entirely the wrong book.
+- **Lookups try both forms.** A catalogue indexes an edition under whichever
+  ISBN it was issued with, so an older book registered only under its 10-digit
+  ISBN is invisible to a 13-only search.
+- **Duplicate detection searches both columns**, so the same book scanned once
+  from its barcode and once from a printed ISBN-10 still matches.
+- **979 ISBNs have no 10-digit form.** That field is correctly left empty
+  rather than filled with something derived and wrong.
+
 **Every OCR'd ISBN candidate is check-digit validated.** The extraction
 patterns are deliberately loose, tolerating a hyphen or an OCR-inserted space
 after any digit. That is only safe because nothing survives without a valid
@@ -136,7 +155,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-79 tests. The ones worth knowing about:
+94 tests. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real zbar and tesseract pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on

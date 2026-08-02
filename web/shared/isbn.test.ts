@@ -1,5 +1,62 @@
 import { describe, expect, it } from 'vitest'
-import { isValidIsbn10, isValidIsbn13, isbn10To13, isBooklandIsbn, pickIsbn } from './isbn'
+import {
+  isValidIsbn10, isValidIsbn13, isbn10To13, isbn13To10, isBooklandIsbn,
+  pickIsbn, resolveIsbnPair,
+} from './isbn'
+
+describe('resolveIsbnPair', () => {
+  it('returns both forms from a 13-digit Bookland ISBN', () => {
+    expect(resolveIsbnPair('9780441013593'))
+      .toEqual({ isbn13: '9780441013593', isbn10: '0441013597' })
+  })
+
+  it('returns both forms from a 10-digit ISBN', () => {
+    expect(resolveIsbnPair('0441013597'))
+      .toEqual({ isbn13: '9780441013593', isbn10: '0441013597' })
+  })
+
+  it('agrees with itself in both directions', () => {
+    const fromThirteen = resolveIsbnPair('9780441013593')
+    const fromTen = resolveIsbnPair('0441013597')
+    expect(fromThirteen).toEqual(fromTen)
+  })
+
+  it('rejects a plain EAN-13 product code that is not a book', () => {
+    // 4006381333931 has a perfectly valid EAN-13 check digit, so a bare
+    // "is this a valid ISBN-13" test says yes. It is not a book. Only the
+    // 978/979 Bookland prefix separates the two categories.
+    expect(isValidIsbn13('4006381333931')).toBe(true)
+    expect(resolveIsbnPair('4006381333931')).toEqual({ isbn13: '', isbn10: '' })
+  })
+
+  it('leaves isbn10 empty for a 979 ISBN, which has no 10-digit form', () => {
+    const pair = resolveIsbnPair('9791234567896')
+    expect(pair.isbn13).toBe('9791234567896')
+    expect(pair.isbn10).toBe('')
+  })
+
+  it('rejects a bad check digit in either length', () => {
+    expect(resolveIsbnPair('9780441013594')).toEqual({ isbn13: '', isbn10: '' })
+    expect(resolveIsbnPair('0441013598')).toEqual({ isbn13: '', isbn10: '' })
+  })
+
+  it('rejects lengths that are neither 10 nor 13', () => {
+    expect(resolveIsbnPair('51999')).toEqual({ isbn13: '', isbn10: '' })
+    expect(resolveIsbnPair('')).toEqual({ isbn13: '', isbn10: '' })
+  })
+
+  it('tolerates hyphens and spaces in either form', () => {
+    expect(resolveIsbnPair('978-0-441-01359-3').isbn13).toBe('9780441013593')
+    expect(resolveIsbnPair('0-441-01359-7').isbn13).toBe('9780441013593')
+  })
+
+  it('handles the X check digit on an ISBN-10', () => {
+    const pair = resolveIsbnPair('080442957X')
+    expect(pair.isbn10).toBe('080442957X')
+    expect(isValidIsbn13(pair.isbn13)).toBe(true)
+    expect(isbn13To10(pair.isbn13)).toBe('080442957X')
+  })
+})
 
 describe('ISBN validation', () => {
   it('accepts real ISBN-13s', () => {
