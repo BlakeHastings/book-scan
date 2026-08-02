@@ -10,7 +10,7 @@ import {
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
 import { PlacementCard } from './components/PlacementCard'
-import { ReviewPane } from './components/ReviewPane'
+import { BookDetail } from './components/BookDetail'
 import { LibraryPane } from './components/LibraryPane'
 import { QueuePane } from './components/QueuePane'
 
@@ -45,8 +45,8 @@ export default function App() {
   const [placementStale, setPlacementStale] = useState(false)
   const [savedPlacement, setSavedPlacement] = useState<PlacementResponse | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
-  const [manualEntry, setManualEntry] = useState('')
-  const [lookingUp, setLookingUp] = useState(false)
+  const [relookupBusy, setRelookupBusy] = useState(false)
+  const [relookupError, setRelookupError] = useState('')
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [captureId, setCaptureId] = useState<number | null>(null)
   const [enqueuing, setEnqueuing] = useState(false)
@@ -161,15 +161,12 @@ export default function App() {
       if (response.lookup?.found && !identified) {
         applyLookup(response.lookup)
       } else if (found && !identified) {
-        // The ISBN read fine but no catalogue has it. Put it in the manual
-        // box so it can be corrected and retried, rather than leaving the
-        // user with a message and nowhere to act on it.
+        // Read fine, but no catalogue has it. Carry the digits forward; the
+        // detail view is where they can be corrected and looked up again.
         setDraft((current) => ({ ...current, isbn13: response.identify.isbn13 }))
-        setManualEntry(response.identify.isbn13)
         setError(
           `Read ISBN ${response.identify.isbn13}, but no catalogue has it. ` +
-            'Check the digits below and search again, or open Review to type ' +
-            'the details in.',
+            'Open Review to correct it or fill the details in.',
         )
       } else if (!found && response.identify.titleGuess && !identified) {
         setDraft((current) =>
@@ -214,40 +211,44 @@ export default function App() {
   // -----------------------------------------------------------------------
 
   /**
-   * Manual ISBN or title entry. Takes the same path as a successful scan:
-   * on a hit it fills the draft and stays on the camera, so the remaining
-   * photos can still be taken. Only a miss sends the user to the form.
+   * Replace the ISBN and refetch the record from the catalogue.
+   *
+   * The ISBN is the key everything else hangs off, so a misread digit makes
+   * every other field wrong. Correcting it refetches rather than asking the
+   * user to retype the metadata. Location and notes are kept: they are the
+   * fields the person, not the catalogue, is the authority on.
    */
-  const lookupManual = async () => {
-    const value = manualEntry.trim()
-    if (!value) return
-
-    setError('')
-    setLookingUp(true)
+  const relookup = async (isbn: string) => {
+    setRelookupBusy(true)
+    setRelookupError('')
     try {
-      // Ten or thirteen digits, allowing separators and a trailing X, is an
-      // ISBN. Anything else is treated as a title.
-      const digits = value.replace(/[^0-9Xx]/g, '')
-      const result = digits.length === 10 || digits.length === 13
-        ? await api.lookupIsbn(value)
-        : await api.searchTitle(value)
-
+      const result = await api.lookupIsbn(isbn)
       if (result.found) {
-        applyLookup(result)
-        setManualEntry('')
+        setLookup(result)
+        setIdentified(true)
+        setDraft((current) => ({
+          ...draftFromLookup(result),
+          location: current.location,
+          notes: current.notes,
+          isbnSource: 'manual',
+        }))
       } else {
+        // Record the corrected digits even when nothing matches, so the book
+        // is not left carrying an ISBN we know to be wrong.
         setDraft((current) => ({
           ...current,
-          ...(digits.length ? { isbn13: digits } : { title: value }),
+          isbn13: result.isbn13 || isbn.replace(/[^0-9Xx]/g, ''),
+          isbn10: result.isbn10 || '',
+          isbnSource: 'manual',
         }))
         setError(
-          `Nothing found for "${value}". Open Review to type the details in.`,
+          `No catalogue has ${isbn}. The ISBN has been saved; fill the rest in by hand.`,
         )
       }
     } catch (caught) {
-      setError((caught as Error).message)
+      setRelookupError((caught as Error).message)
     } finally {
-      setLookingUp(false)
+      setRelookupBusy(false)
     }
   }
 
@@ -394,7 +395,7 @@ export default function App() {
         {!cameraOn && (
           <div className="cam__idle">
             <h2>Photograph the book</h2>
-            <p>Front cover, spine, then the back cover with the barcode.</p>
+            <p>Back cover first, for the barcode. Then the front, then the spine.</p>
             <button className="btn btn--primary btn--big" onClick={startCamera}>
               Start camera
             </button>
@@ -402,33 +403,10 @@ export default function App() {
         )}
 
         <div className="cam__bottom">
-          {identified ? (
+          {identified && (
             <div className="cam__found">
               <strong>{draft.title}</strong>
               {draft.authors ? ` · ${draft.authors}` : ''}
-            </div>
-          ) : (
-            /* Always available while the book is still unknown, and
-               pre-filled with a scanned-but-unmatched ISBN so it can be
-               corrected and retried in place. */
-            <div className="cam__manual">
-              <input
-                value={manualEntry}
-                onChange={(event) => setManualEntry(event.target.value)}
-                onKeyDown={(event) => { if (event.key === 'Enter') void lookupManual() }}
-                placeholder="Type the ISBN or a title"
-                enterKeyHint="search"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-              <button
-                className="btn btn--primary"
-                onClick={lookupManual}
-                disabled={lookingUp || !manualEntry.trim()}
-              >
-                {lookingUp ? '...' : 'Find'}
-              </button>
             </div>
           )}
 
@@ -537,25 +515,19 @@ export default function App() {
         <main className="main">
           <PlacementCard placement={placement} pending={placementStale} saved={false} />
 
-          {shotCount > 0 && (
-            <div className="deck deck--review">
-              {SLOTS.map((slot) => thumbs[slot] && (
-                <figure key={slot} className="shot">
-                  <img src={thumbs[slot]} alt={SLOT_LABEL[slot]} />
-                  <figcaption>{SLOT_LABEL[slot]}</figcaption>
-                </figure>
-              ))}
-            </div>
-          )}
-
-          <ReviewPane
+          <BookDetail
             draft={draft}
             lookup={lookup}
+            photos={thumbs}
             derivedFiling={derivedFiling}
+            saving={saving}
+            relookupBusy={relookupBusy}
+            relookupError={relookupError}
             onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+            onRelookup={relookup}
+            onClearRelookupError={() => setRelookupError('')}
             onSave={save}
             onDiscard={reset}
-            saving={saving}
           />
 
           <div className="actions">

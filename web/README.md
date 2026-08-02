@@ -78,11 +78,16 @@ still needs a title, which is what forces the expensive full OCR pass.
 Tap any slot to make it the shutter's target and retake it. A photo is kept
 whether or not an ISBN is found.
 
-**When identification fails there is always a way forward.** A typed ISBN or
-title sits in the camera view whenever the book is still unknown. If a barcode
-scans but no catalogue has it, the digits are pre-filled into that box so they
-can be corrected and searched again, and a successful manual lookup fills the
-record exactly as a scan would, without leaving the camera.
+**Correcting a book happens in the detail view, not at the camera.** Opening a
+queued book shows its photos, every editable field, and the ISBN it was matched
+on. **Change ISBN** prompts for the right digits, validates them before
+spending a request, then refetches the whole record from the catalogue.
+
+That is deliberately the only place an ISBN can be typed. The ISBN is the key
+every other field hangs off, so correcting one means refetching rather than
+retyping metadata, and you need the photos on screen to read the digits off the
+cover. Location and notes survive a refetch; the catalogue is not the authority
+on those.
 
 The phone only ever talks to Vite over HTTPS. Vite proxies `/api` to the
 Express process server-side, which is what keeps the page free of the
