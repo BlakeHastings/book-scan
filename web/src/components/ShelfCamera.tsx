@@ -207,10 +207,15 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
             >
               {match.cover
                 ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
-                : <span className="choice__nocover">no cover</span>}
+                : <span className="choice__nocover">no photo</span>}
               <span className="choice__text">
                 <span className="choice__title">{match.title}</span>
                 <span className="choice__author">{match.authorFiling}</span>
+                {/* Said out loud, so an unfamiliar cover design reads as a
+                    different printing rather than as a wrong match. */}
+                {match.fromCatalogue && (
+                  <span className="choice__note">catalogue image, not your photo</span>
+                )}
                 {match.checkedOut && <span className="choice__state">already off the shelf</span>}
               </span>
             </button>

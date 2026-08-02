@@ -461,13 +461,14 @@ export class Store {
   hashIndex(): {
     id: number; title: string; author_filing: string
     cover_image: string; front_image: string
+    edge_image: string; back_image: string
     checked_out_at: string | null
     front_hash: string; cover_hash: string
   }[] {
     return this.db
       .prepare(
-        `SELECT id, title, author_filing, cover_image, front_image, checked_out_at,
-                front_hash, cover_hash
+        `SELECT id, title, author_filing, cover_image, front_image, edge_image,
+                back_image, checked_out_at, front_hash, cover_hash
            FROM books
           WHERE front_hash != '' OR cover_hash != ''`,
       )

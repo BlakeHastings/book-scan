@@ -149,8 +149,10 @@ export interface CoverMatch {
   id: number
   title: string
   authorFiling: string
-  /** Filename under /api/covers: the publisher cover, or the photo of it. */
+  /** Filename under /api/covers. Your own photo of this copy where there is one. */
   cover: string
+  /** True when no photo exists and this is the catalogue's cover instead. */
+  fromCatalogue: boolean
   checkedOut: boolean
   /** Differing bits out of 64. Lower is more alike. */
   distance: number

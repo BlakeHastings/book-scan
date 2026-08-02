@@ -743,10 +743,30 @@ async function looksLike(input: Buffer, limit = 4) {
       id: row.id,
       title: row.title,
       authorFiling: row.author_filing,
-      cover: row.cover_image || row.front_image,
+      // The photo taken of this actual copy, in preference to the
+      // catalogue's. An ISBN often has several cover designs against it, and
+      // showing one the person has never seen makes them doubt a correct
+      // match. Their own photo is of the book in their hands.
+      ...ownPhoto(row),
       checkedOut: row.checked_out_at !== null,
       distance: d,
     }))
+}
+
+/**
+ * Which image to show for a candidate, and whether it is really theirs.
+ *
+ * The catalogue cover is the last resort rather than the first, and is
+ * labelled when used, so a design they do not recognise is explained instead
+ * of quietly undermining the match.
+ */
+function ownPhoto(row: {
+  front_image: string; edge_image: string; back_image: string; cover_image: string
+}) {
+  const mine = row.front_image || row.edge_image || row.back_image
+  return mine
+    ? { cover: mine, fromCatalogue: false }
+    : { cover: row.cover_image, fromCatalogue: Boolean(row.cover_image) }
 }
 
 /**
