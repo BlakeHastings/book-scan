@@ -837,7 +837,14 @@ app.post('/api/books/scan-checkout', async (req, res) => {
      *
      * So OCR is last, and only runs when the cover is not recognised either.
      */
-    const read = await identify(buffer, { wantTitle: false, ocrEnabled: false })
+    const read = await identify(buffer, {
+      wantTitle: false,
+      ocrEnabled: false,
+      // zxing only. A front held up to the camera has no barcode at all, and
+      // the thorough ladder spends 2.6 seconds proving it before the cover
+      // match answers in fifty milliseconds.
+      barcodeEffort: 'fast',
+    })
 
     if (!read.isbn13) {
       const candidates = await looksLike(buffer)
@@ -855,7 +862,27 @@ app.post('/api/books/scan-checkout', async (req, res) => {
       read.isbn13 = slow.isbn13
     }
 
-    const book = store.findByIsbn(read.isbn13)
+    /*
+     * One photo can decode several barcodes, and not all of them are real.
+     * A back cover carries the EAN-13 and often an EAN-5 price add-on, and
+     * zbar will occasionally return a misread alongside the true one: Mary
+     * Barton decodes as 9781240286898, 9781840226898 and 9181840826898, and
+     * only the middle one is the book. All three pass their own check digit
+     * or are discarded by the Bookland test, so arithmetic cannot separate
+     * them.
+     *
+     * The catalogue can. Here we are looking for a book that is already in
+     * the library, so the reading that names one is the reading that is
+     * right, whatever order zbar happened to return them in.
+     */
+    const book =
+      read.barcodes
+        .map((code) => resolveIsbnPair(code).isbn13)
+        .filter(Boolean)
+        .map((isbn) => store.findByIsbn(isbn))
+        .find(Boolean)
+      ?? store.findByIsbn(read.isbn13)
+
     if (!book) {
       res.json({ outcome: 'not-catalogued', isbn13: read.isbn13 })
       return

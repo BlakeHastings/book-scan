@@ -16,10 +16,12 @@
  *   - it falls back to OCR when there is no readable barcode at all
  */
 
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import sharp, { type Sharp } from 'sharp'
 import { scanGrayBuffer } from '@undecaf/zbar-wasm'
+import { prepareZXingModule, readBarcodesFromImageFile } from 'zxing-wasm/reader'
 import { createWorker, PSM, type Worker } from 'tesseract.js'
 import {
   extractIsbnCandidates, resolveIsbnPair,
@@ -199,7 +201,81 @@ function boxFromPoints(points: unknown, scale: number) {
   return box
 }
 
-export async function decodeBarcodesDetailed(input: Buffer): Promise<DecodedBarcode[]> {
+/**
+ * zxing-cpp, compiled to WASM, does in one call what the ladder below does in
+ * six passes: rotation, inversion, downscaling and a harder search are all its
+ * own options, and it decodes the JPEG itself so nothing has to be
+ * preprocessed first.
+ *
+ * Measured over the 53 back covers in the library, at the 2400px the phone
+ * sends: it reads 32 of them in 158ms each, where the zbar ladder reads 27 in
+ * 1306ms. So it goes first. zbar still runs when it finds nothing, because
+ * the two fail on different images and between them they read 35.
+ */
+let zxingReady: Promise<unknown> | null = null
+
+function readyZXing(): Promise<unknown> {
+  // Node has no CDN to fetch the wasm from, so it is handed over directly.
+  return (zxingReady ??= prepareZXingModule({
+    overrides: {
+      wasmBinary: readFileSync(
+        createRequire(import.meta.url).resolve('zxing-wasm/reader/zxing_reader.wasm'),
+      ),
+    },
+    fireImmediately: true,
+  }))
+}
+
+async function decodeWithZXing(input: Buffer): Promise<DecodedBarcode[]> {
+  try {
+    await readyZXing()
+    // toArrayBuffer copies the exact view: a Buffer's own .buffer is pooled
+    // and would hand unrelated heap to the decoder.
+    const results = await readBarcodesFromImageFile(new Blob([toArrayBuffer(input)]), {
+      tryHarder: true,
+      tryRotate: true,
+      tryInvert: true,
+      tryDownscale: true,
+      // Retail book codes only. Leaving QR and the rest on invites a sticker
+      // or a promo code to answer instead of the book.
+      formats: ['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E'],
+      // The five-digit price strip beside the ISBN is not part of it.
+      eanAddOnSymbol: 'Ignore',
+      maxNumberOfSymbols: 4,
+    })
+
+    return results
+      .filter((r) => r.isValid && r.text.length >= 8)
+      .map((r) => {
+        const xs = Object.values(r.position).map((p) => p.x)
+        const ys = Object.values(r.position).map((p) => p.y)
+        const left = Math.min(...xs)
+        const top = Math.min(...ys)
+        const box = {
+          left,
+          top,
+          width: Math.max(...xs) - left,
+          height: Math.max(...ys) - top,
+        }
+        // Already in source pixels, unlike zbar's, which come back in the
+        // coordinate space of whichever variant happened to decode.
+        return {
+          value: r.text.trim(),
+          box: box.width >= MIN_BOX && box.height >= MIN_BOX ? box : null,
+        }
+      })
+  } catch {
+    return []
+  }
+}
+
+export async function decodeBarcodesDetailed(
+  input: Buffer,
+  effort: 'fast' | 'thorough' = 'thorough',
+): Promise<DecodedBarcode[]> {
+  const quick = await decodeWithZXing(input)
+  if (quick.length || effort === 'fast') return quick
+
   const sourceWidth = (await sharp(input).metadata()).width ?? 0
   const variants = barcodeVariants(input)
 
@@ -258,8 +334,11 @@ export async function decodeBarcodesDetailed(input: Buffer): Promise<DecodedBarc
   return []
 }
 
-export async function decodeBarcodes(input: Buffer): Promise<string[]> {
-  return (await decodeBarcodesDetailed(input)).map((b) => b.value)
+export async function decodeBarcodes(
+  input: Buffer,
+  effort: 'fast' | 'thorough' = 'thorough',
+): Promise<string[]> {
+  return (await decodeBarcodesDetailed(input, effort)).map((b) => b.value)
 }
 
 // ---------------------------------------------------------------------------
@@ -622,6 +701,18 @@ export interface IdentifyOptions {
   /** Front covers get a title guess; backs and spines do not need one. */
   wantTitle?: boolean
   ocrEnabled?: boolean
+  /**
+   * How hard to look for a barcode.
+   *
+   * 'fast' is zxing alone: one pass, about 160ms, and it reads 32 of the 53
+   * back covers in the library. 'thorough' adds the zbar ladder underneath,
+   * which finds three more and costs 2.6 seconds to discover it has found
+   * nothing, which is what a front cover always is.
+   *
+   * Worth it when the number is the answer, as in the ISBN dialog. Not worth
+   * it when a recognisable cover will do, as at the shelf.
+   */
+  barcodeEffort?: 'fast' | 'thorough'
 }
 
 /**
@@ -659,7 +750,7 @@ async function identifyNow(
     coverLines: [], isbnCandidates: [], text: '', notes: [],
   }
 
-  const decoded = await decodeBarcodesDetailed(input)
+  const decoded = await decodeBarcodesDetailed(input, options.barcodeEffort ?? 'thorough')
   result.barcodes = decoded.map((b) => b.value)
   const barcodeBox = decoded.find((b) => b.box)?.box ?? null
   const fromBarcode = fromBarcodes(result.barcodes)
