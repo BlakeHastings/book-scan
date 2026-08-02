@@ -51,7 +51,6 @@ export default function App() {
   const [identified, setIdentified] = useState(false)
   const [placement, setPlacement] = useState<PlacementResponse | null>(null)
   const [placementStale, setPlacementStale] = useState(false)
-  const [savedPlacement, setSavedPlacement] = useState<PlacementResponse | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [relookupBusy, setRelookupBusy] = useState(false)
   const [relookupError, setRelookupError] = useState('')
@@ -353,10 +352,10 @@ export default function App() {
       setCounts(result.counts)
       // Only the insert path reports queue counts; an edit does not touch it.
       if ('queue' in result) setQueueCounts(result.queue as QueueCounts)
-      // The server recomputes placement at save time. With two people
-      // scanning, a neighbour can land between preview and save, so the
-      // preview we rendered may already be wrong.
-      setSavedPlacement(result.placement)
+      // result.placement is deliberately dropped. The server still recomputes
+      // it at save time, but you have just come through the shelving step
+      // with the book in your hand, so repeating the instruction over the
+      // next book's viewfinder tells you nothing you did not act on.
       reset()
     } catch (caught) {
       setError((caught as Error).message)
@@ -542,15 +541,6 @@ export default function App() {
 
               <button className="btn" onClick={() => setSettingsOpen(false)}>Close</button>
             </div>
-          </div>
-        )}
-
-        {/* The instruction from the last saved book, so it survives the walk
-            to the shelf and back for the next scan. */}
-        {savedPlacement && (
-          <div className="cam__placement" onClick={() => setSavedPlacement(null)}>
-            <span className="cam__placement-label">Last book</span>
-            {savedPlacement.instruction}
           </div>
         )}
 
