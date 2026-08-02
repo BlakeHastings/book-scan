@@ -350,7 +350,12 @@ export default function App() {
     }
   }
 
-  const save = async () => {
+  /**
+   * Write the book. `stay` is the difference between finishing a new book,
+   * which hands the screen back to the camera for the next one, and editing a
+   * catalogued book, where throwing you out to the camera would be absurd.
+   */
+  const persist = async (stay: boolean): Promise<boolean> => {
     setSaving(true)
     setError('')
     try {
@@ -366,13 +371,25 @@ export default function App() {
       // it at save time, but you have just come through the shelving step
       // with the book in your hand, so repeating the instruction over the
       // next book's viewfinder tells you nothing you did not act on.
-      reset()
+      if (stay) refreshPlacement()
+      else reset()
+      return true
+      return false
     } catch (caught) {
       setError((caught as Error).message)
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  // Named wrappers rather than passing persist straight to a handler: onClick
+  // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
+  /** Finish a new book and hand the screen back to the camera. */
+  const save = () => persist(false)
+
+  /** Write edits to a catalogued book without leaving it. */
+  const saveEdits = () => persist(true)
 
   /**
    * Move on. The photos are already with the queue, so this only clears the
@@ -445,6 +462,14 @@ export default function App() {
     // The photos already live on the server; do not re-upload them on save.
     setShots({})
     setMode('review')
+  }
+
+  /** Leave a catalogued book the way you came in. */
+  const backToLibrary = () => {
+    setBookId(null)
+    setDraft(emptyDraft)
+    setPlacement(null)
+    setMode('library')
   }
 
   const reset = () => {
@@ -675,7 +700,7 @@ export default function App() {
           range={draft.isFiction ? 'fiction' : 'nonfiction'}
           title={draft.title || 'this book'}
           saving={saving}
-          onShelved={save}
+          onShelved={() => save()}
           onBack={() => setMode('review')}
           onRefresh={refreshPlacement}
         />
@@ -689,8 +714,6 @@ export default function App() {
 
       {mode === 'review' && (
         <main className="main">
-          <PlacementView placement={placement} pending={placementStale} />
-
           <BookDetail
             draft={draft}
             lookup={lookup}
@@ -702,18 +725,32 @@ export default function App() {
             onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
             onRelookup={relookup}
             onClearRelookupError={() => setRelookupError('')}
-            onSave={() => setMode('shelve')}
-            onDiscard={reset}
+            saved={bookId !== null}
+            placement={
+              <PlacementView
+                placement={placement}
+                pending={placementStale}
+                instruction={false}
+              />
+            }
+            doneLabel={bookId !== null ? 'Back to library' : 'Done'}
+            onShelve={() => setMode('shelve')}
+            onSaveEdits={saveEdits}
+            onDiscard={bookId !== null ? backToLibrary : reset}
             shelfLabel={placement?.derivedLocation ?? ''}
             onDelete={bookId !== null ? deleteBook : undefined}
             deleting={deletingBook}
           />
 
-          <div className="actions">
-            <button className="btn" onClick={() => setMode('capture')}>
-              Back to camera
-            </button>
-          </div>
+          {/* Only for a book still being scanned. A catalogued book came
+              from the library and goes back there. */}
+          {bookId === null && (
+            <div className="actions">
+              <button className="btn" onClick={() => setMode('capture')}>
+                Back to camera
+              </button>
+            </div>
+          )}
         </main>
       )}
     </div>

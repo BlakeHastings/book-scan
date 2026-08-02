@@ -1090,3 +1090,45 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   box-shadow: 0 0 0 2px rgba(134, 209, 154, 0.25);
 }
 .spine--here .spine__no { background: var(--good); color: #0b1a10; font-weight: 700; }
+
+/* --- Book detail, read-only state ------------------------------------- */
+
+.detail__head { margin-bottom: 14px; }
+.detail__title { margin: 0; font-size: 22px; line-height: 1.25; }
+.detail__subtitle { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+.detail__author { margin: 6px 0 0; font-size: 16px; }
+
+/* The reason you opened the page, so it does not sit under a form you did
+   not come to fill in. */
+.actions--top { margin-bottom: 16px; }
+
+/* Facts as a record, not as a row of inputs pretending to be one. */
+.facts {
+  margin: 0 0 18px;
+  border-top: 1px solid var(--line);
+}
+.facts__row {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.facts__row dt { color: var(--muted); font-size: 14px; }
+.facts__row dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Collapsed by default. Everything in here came from the catalogue and is
+   almost never the thing you opened the book to change. */
+.more {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.more > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 6px 2px;
+  min-height: 32px;
+}

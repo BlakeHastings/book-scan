@@ -11,10 +11,16 @@ import { coverUrl, PlacementCard } from './PlacementCard'
  * would give.
  */
 export function PlacementView({
-  placement, pending,
+  placement, pending, instruction = true,
 }: {
   placement: PlacementResponse | null
   pending: boolean
+  /**
+   * Whether to spell the placement out in words as well as drawing it. The
+   * shelving step wants both; the detail view does not, because there the
+   * drawing is context rather than an instruction to act on.
+   */
+  instruction?: boolean
 }) {
   if (!placement?.strip) {
     return <PlacementCard placement={placement} pending={pending} saved={false} />
@@ -22,7 +28,9 @@ export function PlacementView({
 
   return (
     <div className={pending ? 'placement--stale' : ''}>
-      <p className="placement-view__instruction">{placement.instruction}</p>
+      {instruction && (
+        <p className="placement-view__instruction">{placement.instruction}</p>
+      )}
       <ShelfStrip strip={placement.strip} authorFiling={placement.authorFiling} />
     </div>
   )

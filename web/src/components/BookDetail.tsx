@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Draft, LookupResponse } from '../lib/api'
 import { SLOTS, SLOT_LABEL, type Slot } from '../lib/scanner'
+import { BookFields } from './BookFields'
 import { ConfirmDialog } from './ConfirmDialog'
 import { IsbnPrompt } from './IsbnPrompt'
-import { ReviewPane } from './ReviewPane'
 
 interface Props {
   draft: Draft
@@ -13,11 +13,20 @@ interface Props {
   saving: boolean
   relookupBusy: boolean
   relookupError: string
+  /** True once the book is in the catalogue, which changes what you can do. */
+  saved: boolean
   onChange: (patch: Partial<Draft>) => void
   onRelookup: (isbn: string) => void
   onClearRelookupError: () => void
-  onSave: () => void
+  /** New book: on to the shelving step. */
+  onShelve: () => void
+  /** Existing book: write the edits and stay here. Resolves false if it failed. */
+  onSaveEdits: () => Promise<boolean>
   onDiscard: () => void
+  /** Label for the way out, since it depends on where you came from. */
+  doneLabel?: string
+  /** The shelf drawing. Rendered under the actions, as context not as a task. */
+  placement?: ReactNode
   /** Present only for a book already on the shelves. */
   onDelete?: () => void
   deleting?: boolean
@@ -26,28 +35,88 @@ interface Props {
 }
 
 /**
- * Everything known about one book: its three photos, every editable field, and
- * the ISBN it was matched on.
+ * Everything known about one book.
  *
- * The ISBN sits at the top and is changeable, because it is the key the whole
- * record hangs off. A misread digit means every other field is wrong, and the
- * fix is to correct the ISBN and re-fetch rather than retype the metadata by
- * hand.
+ * Two states, because there are two jobs. A book that is already catalogued is
+ * something you look at: its facts read as text, and nothing invites a change
+ * you did not mean. A book fresh off the camera, or one you have chosen to
+ * edit, is something you correct, and only then do the fields become inputs.
+ *
+ * The actions sit at the top in both. They are the reason you opened the page,
+ * and burying them under a form you did not come to fill in means scrolling
+ * past twelve fields to reach the one button you wanted.
  */
 export function BookDetail({
   draft, lookup, photos, derivedFiling, saving,
-  relookupBusy, relookupError,
-  onChange, onRelookup, onClearRelookupError, onSave, onDiscard,
-  onDelete, deleting = false, shelfLabel = '',
+  relookupBusy, relookupError, saved,
+  onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
+  onDelete, deleting = false, shelfLabel = '', doneLabel = 'Done', placement,
 }: Props) {
+  // A catalogued book opens as a record. A new one opens ready to correct,
+  // because correcting it is the whole reason it is on screen.
+  const [editing, setEditing] = useState(!saved)
   const [asking, setAsking] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [zoomed, setZoomed] = useState<Slot | null>(null)
 
   const taken = SLOTS.filter((slot) => photos[slot])
+  const category = draft.isFiction ? 'Fiction' : 'Non-fiction'
+  const filing = draft.authorFilingOverride || derivedFiling
 
   return (
     <>
+      {!editing && (
+        <header className="detail__head">
+          <h2 className="detail__title">{draft.title || 'Untitled'}</h2>
+          {draft.subtitle && <p className="detail__subtitle">{draft.subtitle}</p>}
+          <p className="detail__author">{draft.authors || 'no author'}</p>
+        </header>
+      )}
+
+      <div className="actions actions--top">
+        {editing ? (
+          <>
+            {saved ? (
+              <button
+                className="btn btn--primary"
+                onClick={async () => {
+                  // Back to the record only if the write went through; on a
+                  // failure the edits must stay on screen to be retried.
+                  if (await onSaveEdits()) setEditing(false)
+                }}
+                disabled={saving || !draft.title}
+              >
+                {saving ? 'Saving...' : 'Save changes'}
+              </button>
+            ) : (
+              <button
+                className="btn btn--primary"
+                onClick={onShelve}
+                disabled={saving || !draft.title}
+              >
+                Looks right, shelve it
+              </button>
+            )}
+            <button
+              className="btn"
+              onClick={() => (saved ? setEditing(false) : onDiscard())}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="btn btn--primary" onClick={() => setEditing(true)}>
+              Edit details
+            </button>
+            <button className="btn" onClick={onDiscard}>{doneLabel}</button>
+          </>
+        )}
+      </div>
+
+      {placement}
+
       {taken.length > 0 && (
         <div className="photos">
           {taken.map((slot) => (
@@ -66,25 +135,26 @@ export function BookDetail({
         </div>
       )}
 
+      {/* The ISBN is the key everything else hangs off, so it is changeable
+          even though it is not a field: a wrong digit means every other value
+          is wrong, and the fix is to re-fetch rather than retype the lot. */}
       <div className="isbn-block">
         <div className="isbn-block__values">
           <span className="isbn-block__label">ISBN</span>
-          <span className="isbn-block__number">
-            {draft.isbn13 || 'not set'}
-          </span>
-          {draft.isbn10 && (
-            <span className="isbn-block__alt">also {draft.isbn10}</span>
-          )}
+          <span className="isbn-block__number">{draft.isbn13 || 'not set'}</span>
+          {draft.isbn10 && <span className="isbn-block__alt">also {draft.isbn10}</span>}
           {draft.isbnSource && (
             <span className="isbn-block__source">read from {draft.isbnSource}</span>
           )}
         </div>
-        <button
-          className="btn"
-          onClick={() => { onClearRelookupError(); setAsking(true) }}
-        >
-          Change ISBN
-        </button>
+        {editing && (
+          <button
+            className="btn"
+            onClick={() => { onClearRelookupError(); setAsking(true) }}
+          >
+            Change ISBN
+          </button>
+        )}
       </div>
 
       {asking && (
@@ -93,10 +163,7 @@ export function BookDetail({
           busy={relookupBusy}
           error={relookupError}
           onCancel={() => { setAsking(false); onClearRelookupError() }}
-          onSubmit={(isbn) => {
-            onRelookup(isbn)
-            setAsking(false)
-          }}
+          onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
         />
       )}
 
@@ -114,19 +181,27 @@ export function BookDetail({
         />
       )}
 
-      <ReviewPane
-        draft={draft}
-        lookup={lookup}
-        derivedFiling={derivedFiling}
-        onChange={onChange}
-        onSave={onSave}
-        onDiscard={onDiscard}
-        saving={saving}
-        shelfLabel={shelfLabel}
-      />
+      {editing ? (
+        <BookFields
+          draft={draft}
+          lookup={lookup}
+          derivedFiling={derivedFiling}
+          onChange={onChange}
+        />
+      ) : (
+        <dl className="facts">
+          <Fact label="Category" value={category} />
+          <Fact label="Files under" value={filing} />
+          <Fact label="Shelf" value={shelfLabel} />
+          <Fact label="Series" value={seriesText(draft)} />
+          <Fact label="Publisher" value={draft.publisher} />
+          <Fact label="Published" value={draft.published} />
+          <Fact label="Pages" value={draft.pages} />
+          <Fact label="Notes" value={draft.notes} />
+        </dl>
+      )}
 
-      {/* Only offered for a book that is actually on the shelves. Kept away
-          from Save and Cancel so it is not hit by accident. */}
+      {/* Kept well away from Save and Cancel so it cannot be hit by accident. */}
       {onDelete && (
         <div className="danger-zone">
           <button className="btn btn--ghost" onClick={() => setConfirmingDelete(true)}>
@@ -135,5 +210,21 @@ export function BookDetail({
         </div>
       )}
     </>
+  )
+}
+
+function seriesText(draft: Draft): string {
+  if (!draft.seriesName) return ''
+  return draft.seriesIndex ? `${draft.seriesName} #${draft.seriesIndex}` : draft.seriesName
+}
+
+/** A row of the record. Empty values are dropped rather than shown as blanks. */
+function Fact({ label, value }: { label: string; value: string }) {
+  if (!value) return null
+  return (
+    <div className="facts__row">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
   )
 }
