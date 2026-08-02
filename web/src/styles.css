@@ -1263,3 +1263,15 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .offshelf__title { font-weight: 500; }
 .offshelf__author { color: var(--muted); font-size: 13px; }
+
+/* Belongs on this shelf but is not on it. Dimmed and dashed so it reads as a
+   gap in the run rather than as a book you could walk up and pull out. */
+.shelfrow--off { opacity: 0.6; }
+.shelfrow--off .shelfrow__photo { filter: grayscale(1); }
+.shelfrow--off .shelfrow__title { text-decoration: line-through; }
+.shelfrow--off .shelfrow__loc {
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 11px;
+}
+.shelfrow--off .shelfrow__n { color: var(--warn); }

@@ -494,6 +494,17 @@ app.get('/api/shelves', (req, res) => {
     groups: shelfGroups(range),
     separators: shelves.list(range),
     loads: shelves.loads(range),
+    /*
+     * Books off the shelf, each with the shelf it would land on.
+     *
+     * They hold no position, so they are absent from the groups above and the
+     * numbering there counts only what is physically there. This is display
+     * only: it lets the library show a gap where a book belongs instead of
+     * making an absent book invisible from the shelf it came off.
+     */
+    checkedOut: store.checkedOut()
+      .filter((book) => book.shelf_range === range)
+      .map((book) => ({ book, label: shelves.shelfForSortKey(range, book.sort_key) })),
   })
 })
 

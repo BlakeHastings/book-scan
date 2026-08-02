@@ -113,6 +113,8 @@ export interface BookRow {
   edge_image: string
   /** Set while the book is off the shelf; null while it is on one. */
   checked_out_at: string | null
+  /** Flattened filing key. What the whole ordering hangs off. */
+  sort_key: string
 }
 
 export interface Move {
@@ -130,6 +132,12 @@ export interface ShelfGroupDto {
   books: { book: BookRow }[]
   separatorId: number | null
   kind: 'shelf' | 'area' | null
+}
+
+/** A book off the shelf, with the shelf it would go back on. */
+export interface CheckedOutAt {
+  book: BookRow
+  label: string
 }
 
 export interface Misfile {
@@ -317,7 +325,9 @@ export const api = {
     ),
 
   shelves: (range: ShelfRange) =>
-    request<{ groups: ShelfGroupDto[] }>(`/api/shelves?range=${range}`),
+    request<{ groups: ShelfGroupDto[]; checkedOut: CheckedOutAt[] }>(
+      `/api/shelves?range=${range}`,
+    ),
 
   /**
    * The person at the shelf says it will not take another book. Returns the

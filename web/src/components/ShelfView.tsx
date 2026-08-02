@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type BookRow, type Counts, type Move, type ShelfGroupDto } from '../lib/api'
+import {
+  api, type BookRow, type CheckedOutAt, type Counts, type Move, type ShelfGroupDto,
+} from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { areaLabel } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
@@ -24,7 +26,7 @@ export function ShelfView({ onOpen }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [counts, setCounts] = useState<Counts | null>(null)
-  const [off, setOff] = useState<BookRow[]>([])
+  const [off, setOff] = useState<CheckedOutAt[]>([])
 
   /*
    * Both tallies, not just this tab's. A non-fiction book saved while the
@@ -33,15 +35,15 @@ export function ShelfView({ onOpen }: Props) {
    */
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
-    // Books off the shelf are in neither range's layout, so without a list of
-    // their own they would exist only as a number nobody can act on.
-    api.checkedOut().then((r) => setOff(r.books)).catch(() => {})
   }, [groups])
 
   const load = useCallback(() => {
     setLoading(true)
     api.shelves(range)
-      .then((result) => setGroups(result.groups))
+      .then((result) => {
+        setGroups(result.groups)
+        setOff(result.checkedOut)
+      })
       .catch((caught) => setError((caught as Error).message))
       .finally(() => setLoading(false))
   }, [range])
@@ -60,6 +62,24 @@ export function ShelfView({ onOpen }: Props) {
   }
 
   const title = (book: BookRow) => book.author_filing || book.authors || book.title
+
+  /**
+   * The books on a shelf plus, in their alphabetical slots, the ones that
+   * belong there but are currently off it.
+   *
+   * The numbering deliberately counts only what is physically present, since
+   * that is what you use to find a book by counting along. An absent book gets
+   * a dash: it is in the list to explain a gap, not to be counted to.
+   */
+  const rowsFor = (group: ShelfGroupDto) => {
+    const present = group.books.map(({ book }, i) => ({ book, n: i + 1, here: true }))
+    const absent = off
+      .filter((entry) => entry.label === group.label)
+      .map((entry) => ({ book: entry.book, n: 0, here: false }))
+
+    return [...present, ...absent].sort((a, b) =>
+      a.book.sort_key < b.book.sort_key ? -1 : a.book.sort_key > b.book.sort_key ? 1 : 0)
+  }
 
   return (
     <main className="main">
@@ -89,10 +109,10 @@ export function ShelfView({ onOpen }: Props) {
             Held out of the layout, so nothing is filed next to them. Open one
             to put it back.
           </p>
-          {off.map((book) => (
+          {off.map(({ book, label }) => (
             <button key={book.id} className="offshelf__row" onClick={() => onOpen(book.id)}>
               <span className="offshelf__title">{book.title}</span>
-              <span className="offshelf__author">{title(book)}</span>
+              <span className="offshelf__author">{title(book)} · belongs at {label}</span>
             </button>
           ))}
         </section>
@@ -127,16 +147,21 @@ export function ShelfView({ onOpen }: Props) {
                   half people actually need when walking to the book. */}
               <span className="shelfgroup__label">Shelf {group.shelf}</span>
               <span className="shelfgroup__shelf">Area {areaLabel(group.area)}</span>
-              <span className="shelfgroup__count">{group.books.length} books</span>
+              <span className="shelfgroup__count">
+                {group.books.length} books
+                {rowsFor(group).length > group.books.length
+                  ? `, ${rowsFor(group).length - group.books.length} off`
+                  : ''}
+              </span>
             </header>
 
             <ol className="shelf">
-              {group.books.map(({ book }, position) => (
-                <li key={book.id} className="shelfrow">
+              {rowsFor(group).map(({ book, n, here }) => (
+                <li key={book.id} className={here ? 'shelfrow' : 'shelfrow shelfrow--off'}>
                   {/* Count along the shelf to find it. The old per-row A1 is
                       gone now that the header carries the location, so this is
                       what identifies a book in the room. */}
-                  <span className="shelfrow__n">{position + 1}</span>
+                  <span className="shelfrow__n">{here ? n : '--'}</span>
                   <span className="shelfrow__photo">
                     {(book.edge_image || book.front_image) && (
                       <img
@@ -153,7 +178,9 @@ export function ShelfView({ onOpen }: Props) {
                   </button>
                   {/* Repeated per row so a row still says where it is once the
                       header has scrolled away. */}
-                  <span className="shelfrow__loc">{group.label}</span>
+                  <span className="shelfrow__loc">
+                    {here ? group.label : 'off shelf'}
+                  </span>
                 </li>
               ))}
             </ol>
