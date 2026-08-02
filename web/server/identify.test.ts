@@ -7,7 +7,11 @@
 
 import { afterAll, describe, expect, it } from 'vitest'
 import { backCover, barcodePng, frontCover, glossy } from './fixtures'
-import { decodeBarcodes, identify, pickCoverLines, pickTitle, shutdownOcr } from './identify'
+import sharp from 'sharp'
+import {
+  decodeBarcodes, identify, pickCoverLines, pickTitle, regionAroundBarcode,
+  shutdownOcr,
+} from './identify'
 import { extractIsbnsFromText, isbn13To10 } from '../shared/isbn'
 
 const bwipBarcode = (isbn: string) => barcodePng(isbn, 4)
@@ -250,4 +254,46 @@ describe('reading a front cover', () => {
     })
     expect(result.coverLines.join(' ').toUpperCase()).toContain('DUNE')
   }, 120_000)
+})
+
+describe('barcode region, the crop handed to OCR', () => {
+  const meta = { width: 2160, height: 3840 }
+  const image = () => sharp({
+    create: { width: meta.width, height: meta.height, channels: 3, background: '#fff' },
+  }).jpeg().toBuffer()
+
+  it('crops around a real barcode', async () => {
+    const region = regionAroundBarcode(
+      await image(),
+      { left: 1192, top: 2327, width: 257, height: 125 },
+      meta,
+    )
+    expect(region).not.toBeNull()
+    const out = await sharp(await region!).metadata()
+    // Both sides bounded, whatever the aspect ratio going in.
+    expect(out.width!).toBeLessThanOrEqual(5000)
+    expect(out.height!).toBeLessThanOrEqual(5000)
+  })
+
+  it('refuses a symbol with no width', async () => {
+    // Taken from the capture that killed the server: zbar reported collinear
+    // points, so the box had zero width. Padding made it a 1x21 crop, and the
+    // upscale turned that into 2000x42000, which leptonica refuses and which
+    // took the OCR worker, and then the whole process, down with it.
+    const region = regionAroundBarcode(
+      await image(),
+      { left: 1442.2153846153847, top: 2414.2153846153847, width: 0, height: 4.984615384615385 },
+      meta,
+    )
+    expect(region).toBeNull()
+  })
+
+  it('refuses a box that clips away to nothing at the edge', async () => {
+    const region = regionAroundBarcode(
+      await image(),
+      { left: meta.width - 2, top: 10, width: 1, height: 40 },
+      meta,
+    )
+    expect(region).toBeNull()
+  })
 })

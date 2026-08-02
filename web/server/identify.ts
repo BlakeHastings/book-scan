@@ -170,6 +170,16 @@ export interface DecodedBarcode {
  */
 const BORDER = 24
 
+/**
+ * Smallest barcode geometry worth believing, in source pixels.
+ *
+ * zbar will occasionally report a symbol whose points are collinear, giving a
+ * box of zero width. That is not a barcode location, and treating it as one
+ * produced a one-pixel-wide crop that the upscale then blew up to 2000x42000
+ * and killed the OCR worker outright.
+ */
+const MIN_BOX = 12
+
 function boxFromPoints(points: unknown, scale: number) {
   if (!Array.isArray(points) || points.length < 2) return null
   const xs = points.map((p) => (p as { x: number }).x)
@@ -177,12 +187,16 @@ function boxFromPoints(points: unknown, scale: number) {
 
   // Undo the quiet-zone border, then the resize, to get back to source pixels.
   const toSource = (v: number) => (v - BORDER) / scale
-  return {
+  const box = {
     left: toSource(Math.min(...xs)),
     top: toSource(Math.min(...ys)),
     width: (Math.max(...xs) - Math.min(...xs)) / scale,
     height: (Math.max(...ys) - Math.min(...ys)) / scale,
   }
+
+  if (!Number.isFinite(box.left) || !Number.isFinite(box.top)) return null
+  if (box.width < MIN_BOX || box.height < MIN_BOX) return null
+  return box
 }
 
 export async function decodeBarcodesDetailed(input: Buffer): Promise<DecodedBarcode[]> {
@@ -256,7 +270,22 @@ function workerOptions() {
  * text at mixed sizes and costs nothing here.
  */
 function getGeneralWorker(): Promise<Worker> {
-  return (generalWorker ??= createWorker('eng', undefined, workerOptions()).then(async (worker) => {
+  return (generalWorker ??= createWorker('eng', undefined, {
+    ...workerOptions(),
+    /*
+     * Not optional. Without a handler here tesseract.js rethrows the failure
+     * from inside a MessagePort callback, where nothing can catch it, and node
+     * takes the whole process down. It has already rejected the pending
+     * promise by this point, so the await sees an ordinary rejection and this
+     * only has to stop the rethrow.
+     */
+    errorHandler: (data: unknown) => {
+      console.error('[ocr] worker error:', data)
+      // The worker is not to be trusted after this, and the cached promise
+      // would hand the same broken one to every later book.
+      generalWorker = null
+    },
+  }).then(async (worker) => {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO })
     return worker
   }))
@@ -293,12 +322,22 @@ interface OcrVariant {
   psm: PSM
 }
 
+/**
+ * Upper bound on either side of anything handed to OCR.
+ *
+ * Every upscale below sets a width and lets height follow the aspect ratio.
+ * For an ordinary photo that is fine; for a sliver it is not, and leptonica
+ * refuses the result rather than failing softly. Bounding both sides means a
+ * bad aspect ratio costs accuracy instead of the process.
+ */
+const MAX_OCR_SIDE = 5000
+
 /** Generous region around the barcode: the printed ISBN sits right by it. */
-function regionAroundBarcode(
+export function regionAroundBarcode(
   input: Buffer,
   box: { left: number; top: number; width: number; height: number },
   meta: { width: number; height: number },
-): Promise<Buffer> {
+): Promise<Buffer> | null {
   // Wide on purpose. The ISBN line runs wider than the barcode above it, and
   // clipping its last character costs the check digit, which makes the whole
   // number unusable.
@@ -310,10 +349,17 @@ function regionAroundBarcode(
   const right = Math.min(meta.width, Math.round(box.left + box.width + padX))
   const bottom = Math.min(meta.height, Math.round(box.top + box.height + padY))
 
+  const cropWidth = right - left
+  const cropHeight = bottom - top
+
+  // Clipping against the image edges can leave nothing usable, which is a
+  // reason to fall back to the whole photo rather than to crop anyway.
+  if (cropWidth < MIN_BOX || cropHeight < MIN_BOX) return null
+
   return sharp(input)
-    .extract({ left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) })
+    .extract({ left, top, width: cropWidth, height: cropHeight })
     .grayscale()
-    .resize({ width: 2000, withoutEnlargement: false, fit: 'inside' })
+    .resize({ width: 2000, height: MAX_OCR_SIDE, withoutEnlargement: false, fit: 'inside' })
     .normalise()
     .png()
     .toBuffer()
@@ -329,8 +375,12 @@ async function ocrVariants(
   const height = meta.height ?? 0
   const variants: OcrVariant[] = []
 
-  if (barcodeBox && width && height) {
-    const region = () => regionAroundBarcode(input, barcodeBox, { width, height })
+  // A region is only offered when it survives the clipping. When it does not,
+  // the whole-image variants below still run, so a bad box costs nothing.
+  if (barcodeBox && width && height
+      && regionAroundBarcode(input, barcodeBox, { width, height })) {
+    const region = () =>
+      regionAroundBarcode(input, barcodeBox, { width, height }) as Promise<Buffer>
     variants.push({
       // Hard threshold plus SINGLE_BLOCK is what reads a label carrying a
       // ghosted second impression of the same text, which defeats AUTO.
@@ -348,7 +398,7 @@ async function ocrVariants(
     const topHalf = () => sharp(input)
       .extract({ left: 0, top: Math.round(height * 0.06), width, height: Math.round(height * 0.46) })
       .grayscale()
-      .resize({ width: 2400, withoutEnlargement: false, fit: 'inside' })
+      .resize({ width: 2400, height: MAX_OCR_SIDE, withoutEnlargement: false, fit: 'inside' })
       .normalise()
 
     variants.push({
@@ -367,7 +417,7 @@ async function ocrVariants(
     name: 'wide-normalised',
     psm: PSM.AUTO,
     build: () => sharp(input).grayscale()
-      .resize({ width: 2200, withoutEnlargement: false, fit: 'inside' })
+      .resize({ width: 2200, height: MAX_OCR_SIDE, withoutEnlargement: false, fit: 'inside' })
       .normalise().png().toBuffer(),
   })
 
@@ -379,7 +429,7 @@ async function ocrVariants(
       build: () => sharp(input)
         .extract({ left: 0, top: Math.round(height * 0.55), width, height: Math.round(height * 0.44) })
         .grayscale()
-        .resize({ width: 2400, withoutEnlargement: false, fit: 'inside' })
+        .resize({ width: 2400, height: MAX_OCR_SIDE, withoutEnlargement: false, fit: 'inside' })
         .normalise().png().toBuffer(),
     })
   }
@@ -388,7 +438,7 @@ async function ocrVariants(
     name: 'clahe',
     psm: PSM.AUTO,
     build: () => sharp(input).grayscale()
-      .resize({ width: 1800, withoutEnlargement: false, fit: 'inside' })
+      .resize({ width: 1800, height: MAX_OCR_SIDE, withoutEnlargement: false, fit: 'inside' })
       .clahe({ width: 8, height: 8, maxSlope: 3 }).png().toBuffer(),
   })
 
