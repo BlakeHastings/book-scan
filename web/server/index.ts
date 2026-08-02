@@ -402,12 +402,18 @@ async function settleAmbiguity(
   )]
   if (readings.length < 2) return result
 
-  for (const isbn of readings) {
-    const found = await lookupIsbn(isbn, { googleApiKey: GOOGLE_API_KEY })
-      .catch(() => null)
-    if (found?.found) return resolveIsbnPair(isbn)
-  }
-  return result
+  // All at once, then chosen in reading order. Asked one at a time this cost
+  // a lookup per wrong guess, and the wrong guesses come first.
+  const checked = await Promise.all(
+    readings.map(async (isbn) => ({
+      isbn,
+      real: (await lookupIsbn(isbn, { googleApiKey: GOOGLE_API_KEY })
+        .catch(() => null))?.found ?? false,
+    })),
+  )
+
+  const winner = checked.find((entry) => entry.real)
+  return winner ? resolveIsbnPair(winner.isbn) : result
 }
 
 app.get('/api/lookup/isbn/:isbn', async (req, res) => {

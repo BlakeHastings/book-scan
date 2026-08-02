@@ -275,6 +275,11 @@ export async function decodeBarcodesDetailed(
 ): Promise<DecodedBarcode[]> {
   const quick = await decodeWithZXing(input)
   if (quick.length || effort === 'fast') return quick
+  return decodeWithZBar(input)
+}
+
+/** The slow ladder, kept separate so it can be raced against OCR. */
+async function decodeWithZBar(input: Buffer): Promise<DecodedBarcode[]> {
 
   const sourceWidth = (await sharp(input).metadata()).width ?? 0
   const variants = barcodeVariants(input)
@@ -527,10 +532,16 @@ export function regionAroundBarcode(
     .toBuffer()
 }
 
-async function ocrVariants(
+/**
+ * The rungs that need to know where the barcode is.
+ *
+ * Split out from the rest because they are the only ones that have to wait
+ * for the decoder: everything else can be read off the whole photo and so can
+ * start immediately, in parallel with the barcode attempt.
+ */
+async function regionVariants(
   input: Buffer,
   barcodeBox: { left: number; top: number; width: number; height: number } | null,
-  wantTitle = false,
 ): Promise<OcrVariant[]> {
   const meta = await sharp(input).metadata()
   const width = meta.width ?? 0
@@ -552,6 +563,19 @@ async function ocrVariants(
     })
     variants.push({ name: 'barcode-region', psm: PSM.SPARSE_TEXT, build: region })
   }
+
+  return variants
+}
+
+/** Everything that can be read without knowing where the barcode is. */
+async function ocrVariants(
+  input: Buffer,
+  wantTitle = false,
+): Promise<OcrVariant[]> {
+  const meta = await sharp(input).metadata()
+  const width = meta.width ?? 0
+  const height = meta.height ?? 0
+  const variants: OcrVariant[] = []
 
   if (wantTitle && width && height) {
     // Title and author sit in the upper half of almost every cover. Running
@@ -605,6 +629,19 @@ async function ocrVariants(
   })
 
   return variants
+}
+
+/** Run a set of rungs at once, each on its own worker. */
+function runAll(variants: OcrVariant[]): Promise<OcrOutput[]> {
+  return Promise.all(
+    variants.map(async (variant) => {
+      try {
+        return await runOcr(await variant.build(), variant.psm)
+      } catch {
+        return { text: '', lines: [] } as OcrOutput
+      }
+    }),
+  )
 }
 
 interface OcrLine {
@@ -815,7 +852,33 @@ async function identifyNow(
     coverLines: [], isbnCandidates: [], text: '', notes: [],
   }
 
-  const decoded = await decodeBarcodesDetailed(input, options.barcodeEffort ?? 'thorough')
+  /*
+   * Look once quickly, then race everything else.
+   *
+   * zxing answers in about 160ms and reads most covers, so it goes alone
+   * first: when it succeeds nothing else is started and the whole call costs
+   * a fifth of a second. Racing OCR from the very beginning was tried and
+   * made that common case worse, because the discarded OCR competes for the
+   * same cores.
+   *
+   * Once it fails, though, everything left is worth starting at once. The
+   * zbar ladder takes 2.6 seconds to admit it has nothing, and OCR used to
+   * wait all of that out before beginning, on exactly the scans that needed
+   * OCR most. Now they run together and the ladder is free.
+   */
+  const effort = options.barcodeEffort ?? 'thorough'
+  const wantOcr = options.ocrEnabled !== false
+
+  let decoded = await decodeWithZXing(input)
+  let generalPasses: Promise<OcrOutput[]> | null = null
+
+  if (!decoded.length && effort === 'thorough') {
+    generalPasses = wantOcr ? ocrVariants(input, options.wantTitle).then(runAll) : null
+    // Nothing may reject unobserved: an early return below abandons this.
+    generalPasses?.catch(() => {})
+    decoded = await decodeWithZBar(input)
+  }
+
   result.barcodes = decoded.map((b) => b.value)
   const barcodeBox = decoded.find((b) => b.box)?.box ?? null
   const fromBarcode = fromBarcodes(result.barcodes)
@@ -848,17 +911,12 @@ async function identifyNow(
    * came from is what decides between two disagreeing readings, and that has
    * to stay a property of the ladder, not of which worker finished first.
    */
-  const variants = await ocrVariants(input, barcodeBox, options.wantTitle)
-
-  const passes = await Promise.all(
-    variants.map(async (variant) => {
-      try {
-        return await runOcr(await variant.build(), variant.psm)
-      } catch {
-        return { text: '', lines: [] } as OcrOutput
-      }
-    }),
-  )
+  // Ladder order: the region rungs read a label the decoder has already
+  // located, so they come first and settle any disagreement.
+  const passes = [
+    ...await runAll(await regionVariants(input, barcodeBox)),
+    ...await (generalPasses ?? ocrVariants(input, options.wantTitle).then(runAll)),
+  ]
 
   // How many passes produced each reading. Agreement is the only cheap signal
   // that a number came off the page rather than out of OCR noise.
