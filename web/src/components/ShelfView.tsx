@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type BookRow, type Move, type ShelfGroupDto } from '../lib/api'
 import { coverUrl } from './PlacementCard'
+import { areaLabel } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
@@ -104,7 +105,10 @@ export function ShelfView({ onOpen }: Props) {
         return (
           <section key={group.label} className="shelfgroup">
             <header className="shelfgroup__head">
-              <span className="shelfgroup__label">{group.label}</span>
+              {/* Spelled out rather than left as "A2": the shelf number is the
+                  half people actually need when walking to the book. */}
+              <span className="shelfgroup__label">Area {areaLabel(group.area)}</span>
+              <span className="shelfgroup__shelf">Shelf {group.shelf}</span>
               <span className="shelfgroup__count">
                 {group.books.length}
                 {group.capacity !== null ? ` of ${group.capacity}` : ''}
@@ -113,9 +117,13 @@ export function ShelfView({ onOpen }: Props) {
             </header>
 
             <ol className="shelf">
-              {group.books.map(({ book }) => (
-                <li key={book.id} className="shelf__row">
-                  <span className="shelf__photo">
+              {group.books.map(({ book }, position) => (
+                <li key={book.id} className="shelfrow">
+                  {/* Count along the shelf to find it. The old per-row A1 is
+                      gone now that the header carries the location, so this is
+                      what identifies a book in the room. */}
+                  <span className="shelfrow__n">{position + 1}</span>
+                  <span className="shelfrow__photo">
                     {(book.edge_image || book.front_image) && (
                       <img
                         className={book.edge_image ? 'thumb thumb--edge' : 'thumb thumb--front'}
@@ -125,10 +133,13 @@ export function ShelfView({ onOpen }: Props) {
                       />
                     )}
                   </span>
-                  <button className="shelf__body shelf__body--tap" onClick={() => onOpen(book.id)}>
-                    <span className="shelf__author">{title(book)}</span>
-                    <span className="shelf__title">{book.title}</span>
+                  <button className="shelfrow__body" onClick={() => onOpen(book.id)}>
+                    <span className="shelfrow__author">{title(book)}</span>
+                    <span className="shelfrow__title">{book.title}</span>
                   </button>
+                  {/* Repeated per row so a row still says where it is once the
+                      header has scrolled away. */}
+                  <span className="shelfrow__loc">{group.label}</span>
                 </li>
               ))}
             </ol>

@@ -774,3 +774,58 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .moves ul { margin: 6px 0; padding-left: 18px; }
 .moves .hint { margin: 0; }
+
+/* --- Shelf rows -------------------------------------------------------- */
+
+/* Its own grid. Reusing .shelf__row inherited a four-column layout built for
+   a different row shape, so two children landed in the two narrow columns and
+   the rest of the width sat empty. */
+.shelfrow {
+  display: grid;
+  grid-template-columns: 26px 34px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.shelfrow__n {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+}
+.shelfrow__photo {
+  width: 34px;
+  height: 46px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-2);
+  display: block;
+}
+.shelfrow__body {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.shelfrow__body:active { opacity: 0.6; }
+.shelfrow__author { font-size: 13px; color: var(--muted); }
+.shelfrow__title {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shelfrow__loc {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.shelfgroup__shelf { font-size: 13px; color: var(--text); }
