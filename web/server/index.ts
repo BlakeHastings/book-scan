@@ -113,7 +113,19 @@ function asDraft(body: Record<string, unknown>): DraftBook {
  */
 app.post('/api/captures', (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>
-  const slot: Slot = body.slot === 'front' || body.slot === 'edge' ? body.slot : 'back'
+  // The client knows which side it just photographed, so the slot is required
+  // rather than inferred or defaulted. Quietly falling back to 'back' would
+  // file a cover photo as the barcode side, and the worker would then read it
+  // expecting an ISBN and report an honest-looking failure for the wrong
+  // reason. Better to refuse the request.
+  const slot = body.slot as Slot
+  if (slot !== 'front' && slot !== 'back' && slot !== 'edge') {
+    res.status(400).json({
+      error: `Expected slot to be front, back or edge; got ${JSON.stringify(body.slot)}.`,
+    })
+    return
+  }
+
   const captureId = Number(body.captureId ?? 0) || null
 
   const buffer = decodeDataUrl(String(body.image ?? ''))
