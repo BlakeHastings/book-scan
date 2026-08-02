@@ -21,6 +21,8 @@ interface Props {
   /** Present only for a book already on the shelves. */
   onDelete?: () => void
   deleting?: boolean
+  /** Derived shelf, for display only. */
+  shelfLabel?: string
 }
 
 /**
@@ -36,7 +38,7 @@ export function BookDetail({
   draft, lookup, photos, derivedFiling, saving,
   relookupBusy, relookupError,
   onChange, onRelookup, onClearRelookupError, onSave, onDiscard,
-  onDelete, deleting = false,
+  onDelete, deleting = false, shelfLabel = '',
 }: Props) {
   const [asking, setAsking] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -120,6 +122,7 @@ export function BookDetail({
         onSave={onSave}
         onDiscard={onDiscard}
         saving={saving}
+        shelfLabel={shelfLabel}
       />
 
       {/* Only offered for a book that is actually on the shelves. Kept away

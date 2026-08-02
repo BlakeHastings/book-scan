@@ -8,6 +8,8 @@ interface Props {
   onSave: () => void
   onDiscard: () => void
   saving: boolean
+  /** Derived shelf, for display only. */
+  shelfLabel?: string
 }
 
 const CONFIDENCE_LABEL: Record<string, string> = {
@@ -19,6 +21,7 @@ const CONFIDENCE_LABEL: Record<string, string> = {
 
 export function ReviewPane({
   draft, lookup, derivedFiling, onChange, onSave, onDiscard, saving,
+  shelfLabel = '',
 }: Props) {
   const field = (key: keyof Draft, label: string, type = 'text') => (
     <label className="field">
@@ -111,11 +114,16 @@ export function ReviewPane({
         {field('published', 'Published')}
       </div>
 
-      {field('location', 'Shelved at')}
-      <p className="hint">
-        Pre-filled from the suggestion. Change it to wherever the book actually
-        went if that shelf was full.
-      </p>
+      {/* Where a book sits is derived from the shelf boundaries now, not
+          typed in, so there is nothing to edit here. Showing it read-only
+          keeps the information without inviting a value that the layout would
+          immediately contradict. */}
+      {shelfLabel && (
+        <div className="field">
+          <span>Shelf</span>
+          <p className="readonly">{shelfLabel}</p>
+        </div>
+      )}
 
       {field('notes', 'Notes')}
 

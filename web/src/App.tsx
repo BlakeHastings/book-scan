@@ -214,9 +214,6 @@ export default function App() {
         .then((result) => {
           setPlacement(result)
           setPlacementStale(false)
-          setDraft((current) =>
-            current.location ? current : { ...current, location: result.suggestedLocation },
-          )
         })
         .catch((caught) => setError((caught as Error).message))
     }, 250)
@@ -603,6 +600,7 @@ export default function App() {
             onClearRelookupError={() => setRelookupError('')}
             onSave={() => setMode('shelve')}
             onDiscard={reset}
+            shelfLabel={placement?.derivedLocation ?? ''}
             onDelete={bookId !== null ? deleteBook : undefined}
             deleting={deletingBook}
           />

@@ -855,3 +855,15 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   margin-bottom: 14px;
 }
 .shelve__ask p { margin: 0 0 10px; }
+
+/* Derived, so shown rather than offered for editing. */
+.readonly {
+  margin: 0;
+  padding: 11px 12px;
+  min-height: 44px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 700;
+  color: var(--accent);
+}

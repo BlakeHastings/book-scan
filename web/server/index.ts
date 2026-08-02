@@ -14,6 +14,7 @@ import { CaptureQueue } from './queue'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
+import { buildPlacement } from '../shared/shelving'
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -50,6 +51,44 @@ const shelves = new Shelves(db)
 function describeMoves(range: 'fiction' | 'nonfiction', moves: { id: number; from: string; to: string }[]) {
   const titles = new Map(shelves.layout(range).map((p) => [p.book.id, p.book.title]))
   return moves.map((move) => ({ ...move, title: titles.get(move.id) ?? '' }))
+}
+
+/**
+ * Restate a placement in the derived scheme.
+ *
+ * store.placementFor still answers in the old per-book scheme, where a
+ * location is a string somebody typed and the range starts at "1A". Those
+ * shelves no longer exist. Everything the user reads has to come from the
+ * layout, or the card tells them to put a book on a shelf the app cannot
+ * find, which is what "1A" was.
+ */
+function inDerivedScheme<T extends ReturnType<typeof store.placementFor>>(
+  range: 'fiction' | 'nonfiction',
+  placement: T,
+) {
+  const layout = shelves.layout(range)
+  const labelOf = (id: number | undefined) =>
+    id === undefined ? '' : layout.find((p) => p.book.id === id)?.label ?? ''
+
+  const predecessor = placement.predecessor
+    ? { ...placement.predecessor, location: labelOf(placement.predecessor.id) }
+    : null
+  const successor = placement.successor
+    ? { ...placement.successor, location: labelOf(placement.successor.id) }
+    : null
+
+  const derivedLocation = shelves.shelfForSortKey(range, placement.sortKey)
+
+  // Rebuilt rather than patched: the instruction has the old labels baked
+  // into its wording.
+  const restated = buildPlacement(range, predecessor, successor, derivedLocation)
+
+  return {
+    ...placement,
+    ...restated,
+    suggestedLocation: derivedLocation,
+    derivedLocation,
+  }
 }
 
 function shelfGroups(range: 'fiction' | 'nonfiction') {
@@ -286,14 +325,7 @@ app.post('/api/placement/preview', (req, res) => {
   // When editing a saved book, it must not turn up as its own neighbour.
   const excludeId = Number(body.excludeId ?? 0) || undefined
   const placement = store.placementFor(draft, excludeId)
-
-  res.json({
-    ...placement,
-    // The shelf this book would actually land on, in the derived scheme.
-    // suggestedLocation is the old per-book scheme and names shelves that no
-    // longer exist, which is what made the shelving step ask about "1A".
-    derivedLocation: shelves.shelfForSortKey(placement.range, placement.sortKey),
-  })
+  res.json(inDerivedScheme(placement.range, placement))
 })
 
 // ---------------------------------------------------------------------------
@@ -347,7 +379,7 @@ app.post('/api/books', (req, res) => {
     // The freshly computed placement, not whatever the client previewed.
     // With two people scanning, a neighbour can appear between preview and
     // save, and the stale one would send the book to the wrong gap.
-    placement,
+    placement: inDerivedScheme(placement.range, { ...placement, ...store.resolveKey(draft) }),
     counts: store.counts(),
     queue: queue.counts(),
   })
@@ -428,7 +460,7 @@ app.put('/api/books/:id', (req, res) => {
   }
 
   const placement = store.updateBook(id, draft)
-  res.json({ id, placement, counts: store.counts() })
+  res.json({ id, placement: inDerivedScheme(placement.range, placement), counts: store.counts() })
 })
 
 app.patch('/api/books/:id/location', (req, res) => {
