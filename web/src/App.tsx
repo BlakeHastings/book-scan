@@ -12,7 +12,7 @@ import {
 import { filingName } from '../shared/shelving'
 import { PlacementCard } from './components/PlacementCard'
 import { BookDetail } from './components/BookDetail'
-import { LibraryPane } from './components/LibraryPane'
+import { ShelfView } from './components/ShelfView'
 import { QueuePane } from './components/QueuePane'
 
 type Mode = 'capture' | 'review' | 'library' | 'queue'
@@ -554,7 +554,7 @@ export default function App() {
         <QueuePane onOpen={openCapture} onCounts={setQueueCounts} />
       )}
 
-      {mode === 'library' && <LibraryPane onOpen={openBook} />}
+      {mode === 'library' && <ShelfView onOpen={openBook} />}
 
       {mode === 'review' && (
         <main className="main">

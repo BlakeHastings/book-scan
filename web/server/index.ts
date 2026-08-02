@@ -11,6 +11,7 @@ import { openDatabase } from './db'
 
 import { lookupIsbn, searchTitle } from './lookup'
 import { CaptureQueue } from './queue'
+import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 
@@ -40,6 +41,23 @@ mkdirSync(COVER_DIR, { recursive: true })
 
 const db = openDatabase(DB_PATH)
 const store = new Store(db)
+const shelves = new Shelves(db)
+
+/**
+ * Moves are a to-do list a person works through, so they name books rather
+ * than row ids, and each group reports whether it is over its capacity.
+ */
+function describeMoves(range: 'fiction' | 'nonfiction', moves: { id: number; from: string; to: string }[]) {
+  const titles = new Map(shelves.layout(range).map((p) => [p.book.id, p.book.title]))
+  return moves.map((move) => ({ ...move, title: titles.get(move.id) ?? '' }))
+}
+
+function shelfGroups(range: 'fiction' | 'nonfiction') {
+  return shelves.groups(range).map((group) => ({
+    ...group,
+    over: group.capacity !== null && group.books.length > group.capacity,
+  }))
+}
 
 const queue = new CaptureQueue(
   db,
@@ -292,6 +310,52 @@ app.post('/api/books', (req, res) => {
 app.get('/api/books', (req, res) => {
   const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
   res.json({ books: store.listRange(range), counts: store.counts() })
+})
+
+app.get('/api/shelves', (req, res) => {
+  const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+  res.json({
+    groups: shelfGroups(range),
+    separators: shelves.list(range),
+    loads: shelves.loads(range),
+  })
+})
+
+/**
+ * Mark the shelf holding this book as full at that point. The stored value is
+ * the resulting capacity, so later inserts push books along rather than
+ * letting the shelf grow past what it physically holds.
+ */
+app.post('/api/shelves/full-after', (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+  const kind = body.kind === 'area' ? 'area' : 'shelf'
+  const bookId = Number(body.bookId ?? 0)
+
+  const before = shelves.layout(range)
+  const result = shelves.markFullAfter(range, bookId, kind, String(body.note ?? ''))
+  if (!result.ok) {
+    res.status(400).json({ error: result.error })
+    return
+  }
+
+  res.status(201).json({
+    separator: result.separator,
+    // Closing a shelf pushes everything after it along, and each of those is
+    // a book somebody has to physically pick up.
+    moves: describeMoves(range, shelves.movesSince(range, before)),
+    groups: shelfGroups(range),
+  })
+})
+
+app.delete('/api/shelves/:id', (req, res) => {
+  const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+  const before = shelves.layout(range)
+  shelves.remove(Number(req.params.id))
+  res.json({
+    moves: describeMoves(range, shelves.movesSince(range, before)),
+    groups: shelfGroups(range),
+  })
 })
 
 app.get('/api/books/:id', (req, res) => {

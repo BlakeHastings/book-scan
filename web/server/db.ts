@@ -114,6 +114,28 @@ CREATE TABLE IF NOT EXISTS captures (
 );
 
 CREATE INDEX IF NOT EXISTS idx_captures_status ON captures (status, id);
+
+-- Where the furniture runs out.
+--
+-- A separator records how many books a shelf holds, not which book it sits
+-- after. You know a shelf is full; the software cannot see it. Recording a
+-- capacity means inserting a book earlier in the alphabet pushes the last one
+-- onto the next shelf, the way it does in the room. Anchoring to a book
+-- instead would let that shelf quietly hold one more than it physically can.
+CREATE TABLE IF NOT EXISTS separators (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    shelf_range TEXT    NOT NULL,
+    -- 'shelf' ends a shelf; 'area' ends the whole bookcase and resets to
+    -- shelf 1 of the next one.
+    kind        TEXT    NOT NULL DEFAULT 'shelf',
+    capacity    INTEGER NOT NULL,
+    -- Ordinal within its range: the first separator closes the first shelf.
+    position    INTEGER NOT NULL,
+    note        TEXT    DEFAULT '',
+    created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_separators ON separators (shelf_range, position);
 `
 
 export interface BookRow {

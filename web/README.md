@@ -110,6 +110,28 @@ The phone only ever talks to Vite over HTTPS. Vite proxies `/api` to the
 Express process server-side, which is what keeps the page free of the
 mixed-content errors Safari would otherwise block.
 
+## Shelf boundaries
+
+You can see that a shelf is full; the software cannot. So you tell it once,
+from the Library tab: **End of shelf** or **End of area** on the last shelf.
+
+**A separator records a capacity, not a bookmark.** That distinction is the
+whole design, and the obvious implementation gets it wrong. Anchoring a
+separator to the book it was added after means inserting anything earlier
+leaves that shelf holding one more book than when you declared it full, which
+is exactly what a real shelf cannot do. Storing "this shelf holds 37" instead
+means the 38th is pushed onto the next shelf, and that displacement cascades
+the way it does in the room.
+
+Locations are therefore **derived, not typed in**. Books flow: `A1`, `A2`,
+then `B1` when a bookcase runs out. Every boundary change reports the books
+that physically have to move, because a catalogue that quietly stops matching
+the shelves is worse than no catalogue.
+
+Only the last, open-ended shelf can be closed. Closing an earlier one would
+mean renumbering every capacity after it, and removing the existing marker
+first is the honest way to do that.
+
 ## The queue, and two people scanning at once
 
 Photographing a book takes seconds; reading it takes longer. So **each photo

@@ -734,3 +734,43 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .thumb { width: 100%; height: 100%; object-fit: cover; }
 .thumb--edge { object-position: center top; }
 .thumb--front, .thumb--back { object-position: center center; }
+
+/* --- Shelves as furniture ---------------------------------------------- */
+
+.shelfgroup { margin-bottom: 18px; }
+.shelfgroup__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.shelfgroup__label { font-size: 16px; font-weight: 700; color: var(--accent); }
+.shelfgroup__count { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+/* A closed shelf gets a solid rule; the open one gets the controls. */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--good);
+}
+.divider--open { border-style: dashed; border-color: var(--line); }
+.divider__label { flex: 1; font-size: 13px; color: var(--muted); }
+.divider .btn { min-height: 36px; padding: 0 10px; font-size: 13px; }
+
+/* The physical to-do list that a boundary change creates. */
+.moves {
+  background: rgba(224, 175, 104, 0.12);
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.moves ul { margin: 6px 0; padding-left: 18px; }
+.moves .hint { margin: 0; }

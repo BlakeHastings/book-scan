@@ -86,6 +86,25 @@ export interface BookRow {
   edge_image: string
 }
 
+export interface Move {
+  id: number
+  from: string
+  to: string
+  /** Filled in by the server so the list reads as books, not row ids. */
+  title?: string
+}
+
+export interface ShelfGroupDto {
+  area: number
+  shelf: number
+  label: string
+  books: { book: BookRow }[]
+  capacity: number | null
+  separatorId: number | null
+  kind: 'shelf' | 'area' | null
+  over?: boolean
+}
+
 export interface Misfile {
   book: { id: number; title: string; location: string }
   previous: { id: number; title: string; location: string }
@@ -245,6 +264,21 @@ export const api = {
 
   deleteBook: (id: number) =>
     request<{ ok: true; counts: Counts }>(`/api/books/${id}`, { method: 'DELETE' }),
+
+  shelves: (range: ShelfRange) =>
+    request<{ groups: ShelfGroupDto[] }>(`/api/shelves?range=${range}`),
+
+  /** Tell the software a shelf is physically full at this book. */
+  markShelfFull: (range: ShelfRange, bookId: number, kind: 'shelf' | 'area') =>
+    request<{ groups: ShelfGroupDto[]; moves: Move[] }>('/api/shelves/full-after', {
+      method: 'POST',
+      body: JSON.stringify({ range, bookId, kind }),
+    }),
+
+  removeSeparator: (id: number, range: ShelfRange) =>
+    request<{ groups: ShelfGroupDto[]; moves: Move[] }>(
+      `/api/shelves/${id}?range=${range}`, { method: 'DELETE' },
+    ),
 
   misfiles: () => request<{ misfiles: Misfile[] }>('/api/misfiles'),
 

@@ -1,0 +1,167 @@
+import { useCallback, useEffect, useState } from 'react'
+import { api, type BookRow, type Move, type ShelfGroupDto } from '../lib/api'
+import { coverUrl } from './PlacementCard'
+import type { ShelfRange } from '../../shared/shelving'
+
+interface Props {
+  onOpen: (id: number) => void
+}
+
+/**
+ * The shelves as they physically are, rather than one flat list.
+ *
+ * Each group is a real shelf. The button at the end of the last one is how the
+ * software learns something it cannot see: that the shelf is full. From then
+ * on a book inserted earlier in the alphabet pushes the last one along, and
+ * the moves that causes are reported rather than left for you to discover at
+ * the shelf.
+ */
+export function ShelfView({ onOpen }: Props) {
+  const [range, setRange] = useState<ShelfRange>('fiction')
+  const [groups, setGroups] = useState<ShelfGroupDto[]>([])
+  const [moves, setMoves] = useState<Move[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.shelves(range)
+      .then((result) => setGroups(result.groups))
+      .catch((caught) => setError((caught as Error).message))
+      .finally(() => setLoading(false))
+  }, [range])
+
+  useEffect(() => { load() }, [load])
+
+  const markFull = async (bookId: number, kind: 'shelf' | 'area') => {
+    setError('')
+    try {
+      const result = await api.markShelfFull(range, bookId, kind)
+      setGroups(result.groups)
+      setMoves(result.moves)
+    } catch (caught) {
+      setError((caught as Error).message)
+    }
+  }
+
+  const removeSeparator = async (id: number) => {
+    setError('')
+    try {
+      const result = await api.removeSeparator(id, range)
+      setGroups(result.groups)
+      setMoves(result.moves)
+    } catch (caught) {
+      setError((caught as Error).message)
+    }
+  }
+
+  const title = (book: BookRow) => book.author_filing || book.authors || book.title
+
+  return (
+    <main className="main">
+      <div className="segmented">
+        <button
+          className={range === 'fiction' ? 'seg seg--on' : 'seg'}
+          onClick={() => { setMoves([]); setRange('fiction') }}
+        >
+          Fiction
+        </button>
+        <button
+          className={range === 'nonfiction' ? 'seg seg--on' : 'seg'}
+          onClick={() => { setMoves([]); setRange('nonfiction') }}
+        >
+          Non-fiction
+        </button>
+      </div>
+
+      {error && <div className="error" onClick={() => setError('')}>{error}</div>}
+
+      {/* The physical consequence of the change, which is the part that is
+          easy to lose track of. */}
+      {moves.length > 0 && (
+        <div className="moves" onClick={() => setMoves([])}>
+          <strong>{moves.length} book{moves.length === 1 ? '' : 's'} to move</strong>
+          <ul>
+            {moves.map((move) => (
+              <li key={move.id}>
+                {move.title ?? `#${move.id}`}: {move.from} to <strong>{move.to}</strong>
+              </li>
+            ))}
+          </ul>
+          <span className="hint">Tap to dismiss once they are moved.</span>
+        </div>
+      )}
+
+      {loading && <p className="hint">Loading...</p>}
+      {!loading && groups.length === 0 && (
+        <p className="hint">Nothing catalogued in this range yet.</p>
+      )}
+
+      {groups.map((group, index) => {
+        const isLast = index === groups.length - 1
+        const lastBook = group.books[group.books.length - 1]
+
+        return (
+          <section key={group.label} className="shelfgroup">
+            <header className="shelfgroup__head">
+              <span className="shelfgroup__label">{group.label}</span>
+              <span className="shelfgroup__count">
+                {group.books.length}
+                {group.capacity !== null ? ` of ${group.capacity}` : ''}
+                {group.over ? ' · over' : ''}
+              </span>
+            </header>
+
+            <ol className="shelf">
+              {group.books.map(({ book }) => (
+                <li key={book.id} className="shelf__row">
+                  <span className="shelf__photo">
+                    {(book.edge_image || book.front_image) && (
+                      <img
+                        className={book.edge_image ? 'thumb thumb--edge' : 'thumb thumb--front'}
+                        src={coverUrl(book.edge_image || book.front_image)}
+                        alt=""
+                        loading="lazy"
+                      />
+                    )}
+                  </span>
+                  <button className="shelf__body shelf__body--tap" onClick={() => onOpen(book.id)}>
+                    <span className="shelf__author">{title(book)}</span>
+                    <span className="shelf__title">{book.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+
+            {group.separatorId !== null ? (
+              <div className="divider">
+                <span className="divider__label">
+                  {group.kind === 'area' ? 'End of area' : 'End of shelf'}
+                  {' · holds '}{group.capacity}
+                </span>
+                <button
+                  className="btn btn--ghost"
+                  onClick={() => removeSeparator(group.separatorId!)}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : isLast && lastBook ? (
+              // Only the open-ended shelf can be closed: closing an earlier one
+              // would mean renumbering every capacity after it.
+              <div className="divider divider--open">
+                <span className="divider__label">Shelf full here?</span>
+                <button className="btn" onClick={() => markFull(lastBook.book.id, 'shelf')}>
+                  End of shelf
+                </button>
+                <button className="btn" onClick={() => markFull(lastBook.book.id, 'area')}>
+                  End of area
+                </button>
+              </div>
+            ) : null}
+          </section>
+        )
+      })}
+    </main>
+  )
+}
