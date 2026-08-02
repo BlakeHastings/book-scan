@@ -92,7 +92,7 @@ export function ShelveView({
           </p>
         ) : (
           <p>
-            Put the book in the gap above, on shelf <strong>{shelfLabel || '?'}</strong>.
+            Put the book in the gap above, at <strong>{shelfLabel || '?'}</strong>.
             Did it fit?
           </p>
         )}
@@ -104,11 +104,12 @@ export function ShelveView({
         </div>
 
         <div className="actions">
-          <button className="btn" onClick={() => notEnoughRoom('shelf')} disabled={busy}>
-            {busy ? '...' : 'No room, next shelf'}
-          </button>
+          {/* Area is the next plank down; shelf is a whole new bookcase. */}
           <button className="btn" onClick={() => notEnoughRoom('area')} disabled={busy}>
-            No room, next area
+            {busy ? '...' : 'No room, next area down'}
+          </button>
+          <button className="btn" onClick={() => notEnoughRoom('shelf')} disabled={busy}>
+            No room, next bookcase
           </button>
         </div>
 

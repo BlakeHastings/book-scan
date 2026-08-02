@@ -28,7 +28,7 @@ describe('before anything is marked full', () => {
   it('puts every book on the first shelf', () => {
     add('Ann Author')
     add('Bob Baker')
-    expect(labels()).toEqual(['A1', 'A1'])
+    expect(labels()).toEqual(['1A', '1A'])
   })
 })
 
@@ -36,42 +36,42 @@ describe('saying a shelf is full', () => {
   it('moves its last book to a new shelf and reports the step', () => {
     add('Ann Author')
     const bob = add('Bob Baker')
-    expect(labels()).toEqual(['A1', 'A1'])
+    expect(labels()).toEqual(['1A', '1A'])
 
-    const result = shelves.overflow('fiction', 'A1', 'shelf')
+    const result = shelves.overflow('fiction', '1A', 'area')
     expect(result.ok).toBe(true)
     expect(result.step?.moved.id).toBe(bob)
-    expect(result.step?.from).toBe('A1')
-    expect(result.step?.to).toBe('A2')
-    expect(labels()).toEqual(['A1', 'A2'])
-    expect(result.moves).toEqual([{ id: bob, from: 'A1', to: 'A2' }])
+    expect(result.step?.from).toBe('1A')
+    expect(result.step?.to).toBe('1B')
+    expect(labels()).toEqual(['1A', '1B'])
+    expect(result.moves).toEqual([{ id: bob, from: '1A', to: '1B' }])
   })
 
-  it('can push into a new area instead', () => {
+  it('can start a whole new bookcase instead', () => {
     add('Ann Author')
     add('Bob Baker')
-    shelves.overflow('fiction', 'A1', 'area')
-    expect(labels()).toEqual(['A1', 'B1'])
+    shelves.overflow('fiction', '1A', 'shelf')
+    expect(labels()).toEqual(['1A', '2A'])
   })
 
   it('refuses a shelf with only one book on it', () => {
     add('Ann Author')
-    const result = shelves.overflow('fiction', 'A1', 'shelf')
+    const result = shelves.overflow('fiction', '1A', 'area')
     expect(result.ok).toBe(false)
-    expect(result.error).toContain('nothing to give up')
+    expect(result.error).toContain('holds only one book')
   })
 
   it('walks the cascade one answer at a time', () => {
     add('Ann Author')
     const bob = add('Bob Baker')
     const cal = add('Cal Church')
-    shelves.overflow('fiction', 'A1', 'shelf')      // Cal to A2
-    expect(labels()).toEqual(['A1', 'A1', 'A2'])
+    shelves.overflow('fiction', '1A', 'area')      // Cal to A2
+    expect(labels()).toEqual(['1A', '1A', '1B'])
 
     // A1 still will not do; say so again.
-    const second = shelves.overflow('fiction', 'A1', 'shelf')
+    const second = shelves.overflow('fiction', '1A', 'area')
     expect(second.step?.moved.id).toBe(bob)
-    expect(labels()).toEqual(['A1', 'A2', 'A2'])
+    expect(labels()).toEqual(['1A', '1B', '1B'])
     expect(cal).toBeGreaterThan(0)
   })
 })
@@ -82,11 +82,11 @@ describe('a book inserted into a shelf', () => {
     // nothing moves on its own.
     add('Bob Baker')
     add('Cal Church')
-    shelves.overflow('fiction', 'A1', 'shelf')
+    shelves.overflow('fiction', '1A', 'area')
     const before = shelves.layout('fiction')
 
     add('Ann Author')
-    expect(labels()).toEqual(['A1', 'A1', 'A2'])
+    expect(labels()).toEqual(['1A', '1A', '1B'])
     expect(shelves.movesSince('fiction', before)).toEqual([])
   })
 })
@@ -95,15 +95,15 @@ describe('removing a boundary', () => {
   it('merges the shelves back and reports the books coming home', () => {
     add('Ann Author')
     const bob = add('Bob Baker')
-    const created = shelves.overflow('fiction', 'A1', 'shelf')
-    expect(labels()).toEqual(['A1', 'A2'])
+    const created = shelves.overflow('fiction', '1A', 'area')
+    expect(labels()).toEqual(['1A', '1B'])
 
     const before = shelves.layout('fiction')
     shelves.remove(shelves.list('fiction')[0]!.id)
 
-    expect(labels()).toEqual(['A1', 'A1'])
+    expect(labels()).toEqual(['1A', '1A'])
     expect(shelves.movesSince('fiction', before)).toEqual([
-      { id: bob, from: 'A2', to: 'A1' },
+      { id: bob, from: '1B', to: '1A' },
     ])
     expect(created.ok).toBe(true)
   })
@@ -115,7 +115,7 @@ describe('ranges are independent', () => {
     add('Bob Baker')
     store.addBook({ title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false })
 
-    shelves.overflow('fiction', 'A1', 'area')
-    expect(shelves.layout('nonfiction').map((p) => p.label)).toEqual(['A1'])
+    shelves.overflow('fiction', '1A', 'shelf')
+    expect(shelves.layout('nonfiction').map((p) => p.label)).toEqual(['1A'])
   })
 })

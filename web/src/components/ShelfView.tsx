@@ -93,8 +93,8 @@ export function ShelfView({ onOpen }: Props) {
             <header className="shelfgroup__head">
               {/* Spelled out rather than left as "A2": the shelf number is the
                   half people actually need when walking to the book. */}
-              <span className="shelfgroup__label">Area {areaLabel(group.area)}</span>
-              <span className="shelfgroup__shelf">Shelf {group.shelf}</span>
+              <span className="shelfgroup__label">Shelf {group.shelf}</span>
+              <span className="shelfgroup__shelf">Area {areaLabel(group.area)}</span>
               <span className="shelfgroup__count">{group.books.length} books</span>
             </header>
 
@@ -129,7 +129,7 @@ export function ShelfView({ onOpen }: Props) {
             {group.separatorId !== null && (
               <div className="divider">
                 <span className="divider__label">
-                  {group.kind === 'area' ? 'New area starts here' : 'New shelf starts here'}
+                  {group.kind === 'shelf' ? 'New bookcase starts here' : 'New area starts here'}
                 </span>
                 <button
                   className="btn btn--ghost"

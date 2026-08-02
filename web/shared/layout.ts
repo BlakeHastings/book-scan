@@ -20,10 +20,12 @@
 import type { ShelfRange } from './shelving'
 
 /**
- * Where one shelf, or one whole bookcase, stops.
+ * Which boundary this is.
  *
- * `area` implies `shelf`: running out of bookcase necessarily ends the shelf
- * you were on.
+ * Vocabulary, because getting it backwards caused real confusion: a SHELF is
+ * a whole bookcase, numbered 1, 2, 3. An AREA is one physical plank inside it,
+ * lettered A, B, C. So 1A is the top plank of the first bookcase, and running
+ * out of shelf necessarily ends the area you were on.
  */
 export type SeparatorKind = 'shelf' | 'area'
 
@@ -51,14 +53,15 @@ export interface LayoutInput {
 
 export interface Placed<T extends LayoutInput = LayoutInput> {
   book: T
-  /** 0-based. 0 is area A. */
-  area: number
-  /** 1-based within its area. */
+  /** Bookcase, 1-based. */
   shelf: number
+  /** Plank within that bookcase, 0-based. 0 is area A. */
+  area: number
+  /** Reads shelf then area: 1A, 1B, 2A. */
   label: string
 }
 
-/** A, B, ... Z, AA, AB. Enough for any wall of books. */
+/** A, B, ... Z, AA. The planks within one bookcase. */
 export function areaLabel(index: number): string {
   let n = index
   let label = ''
@@ -69,8 +72,9 @@ export function areaLabel(index: number): string {
   return label
 }
 
-export function locationLabel(area: number, shelf: number): string {
-  return `${areaLabel(area)}${shelf}`
+/** Shelf first, then area: 1A is the top plank of bookcase 1. */
+export function locationLabel(shelf: number, area: number): string {
+  return `${shelf}${areaLabel(area)}`
 }
 
 /**
@@ -87,8 +91,8 @@ export function layoutRange<T extends LayoutInput>(
   const ordered = [...separators]
     .sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : 0))
 
-  let area = 0
   let shelf = 1
+  let area = 0
   let next = 0
   const placed: Placed<T>[] = []
 
@@ -98,16 +102,17 @@ export function layoutRange<T extends LayoutInput>(
     // last of the old one, and it keeps a boundary meaningful when the book
     // it named has since been deleted.
     while (next < ordered.length && ordered[next]!.startsAt <= book.sortKey) {
-      if (ordered[next]!.kind === 'area') {
-        area += 1
-        shelf = 1
-      } else {
+      if (ordered[next]!.kind === 'shelf') {
+        // A whole bookcase ended, so we are back at its top plank.
         shelf += 1
+        area = 0
+      } else {
+        area += 1
       }
       next += 1
     }
 
-    placed.push({ book, area, shelf, label: locationLabel(area, shelf) })
+    placed.push({ book, shelf, area, label: locationLabel(shelf, area) })
   }
 
   return placed
@@ -144,8 +149,10 @@ export function diffLayout(before: Placed[], after: Placed[]): Move[] {
 }
 
 export interface ShelfGroup<T extends LayoutInput = LayoutInput> {
-  area: number
+  /** Bookcase, 1-based. */
   shelf: number
+  /** Plank within it, 0-based. */
+  area: number
   label: string
   books: Placed<T>[]
   /** The boundary that starts this shelf, if it is not the first. */
@@ -172,7 +179,7 @@ export function groupByShelf<T extends LayoutInput>(
     }
     const opener = byStart.get(item.book.sortKey)
     groups.push({
-      area: item.area, shelf: item.shelf, label: item.label, books: [item],
+      shelf: item.shelf, area: item.area, label: item.label, books: [item],
       separatorId: opener?.id ?? null, kind: opener?.kind ?? null,
     })
   }
@@ -222,7 +229,7 @@ export function overflow(
   placed: Placed[],
   separators: Separator[],
   label: string,
-  kindIfNew: SeparatorKind = 'shelf',
+  kindIfNew: SeparatorKind = 'area',
 ): Overflow | null {
   const groups = groupByShelf(placed, separators)
   const index = groups.findIndex((g) => g.label === label)
@@ -240,8 +247,8 @@ export function overflow(
       moved,
       from: label,
       to: locationLabel(
-        kindIfNew === 'area' ? group.area + 1 : group.area,
-        kindIfNew === 'area' ? 1 : group.shelf + 1,
+        kindIfNew === 'shelf' ? group.shelf + 1 : group.shelf,
+        kindIfNew === 'shelf' ? 0 : group.area + 1,
       ),
       create: { startsAt: moved.sortKey, kind: kindIfNew },
     }
