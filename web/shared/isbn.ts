@@ -72,7 +72,7 @@ export function isbn13To10(value: string): string {
  */
 const DIGIT_LOOKALIKES: Record<string, string> = {
   O: '0', o: '0', Q: '0', D: '0',
-  I: '1', l: '1', i: '1', '|': '1', '!': '1',
+  I: '1', l: '1', L: '1', i: '1', '|': '1', '!': '1',
   Z: '2', z: '2',
   E: '3',
   A: '4',
@@ -118,16 +118,38 @@ export function extractIsbnCandidates(text: string): IsbnCandidate[] {
     found.push({ ...pair, labelled })
   }
 
-  // 1. Labelled. Take the run of digit-ish characters after the label; the
-  //    separators books use (hyphen, space, dot) are stripped by repair.
-  const labelled = /ISBN(?:[-\s]*1[03])?\s*[:.]?\s*([0-9OoQDIlLiZzEASsbGTBgqXx|!.\s-]{9,25})/gi
+  // 1. Labelled. Take the run of digit-ish characters after the label.
+  //
+  // The character class is deliberately wide. OCR on a worn label emits stray
+  // marks between the digits ("ISBN D-b?71-52543-3"), and a narrow class stops
+  // the match dead at the first one, throwing away the rest of the number.
+  // Anything that is not a digit is dropped straight afterwards.
+  const labelled =
+    /ISBN(?:[-\s]*1[03])?\s*[:.]?\s*([0-9OoQDIlLiZzEASsbGTBgqXx|!?*"'.,;:_+\s-]{9,30})/gi
+
   for (const match of source.matchAll(labelled)) {
-    const run = match[1] ?? ''
-    // Try the longest sensible prefix first: a 13-digit ISBN with separators
-    // can be up to ~17 characters, a 10-digit one up to ~13.
-    const cleaned = repairDigits(run).replace(/[^0-9Xx]/g, '')
-    if (cleaned.length >= 13) push(cleaned.slice(0, 13), true)
-    if (cleaned.length >= 10) push(cleaned.slice(0, 10), true)
+    const cleaned = repairDigits(match[1] ?? '').replace(/[^0-9Xx]/g, '')
+
+    // Slide a little: OCR often prepends a spurious character to the run
+    // ("D0-b71-..." for "0-671-..."), so the real number starts an index or
+    // two in.
+    //
+    // The two lengths get different licence, because they carry different
+    // risk. A 13-digit window still has to pass the Bookland prefix test, so
+    // extra offsets cost nothing. A 10-digit window has only its check digit,
+    // which one run in eleven satisfies by chance, so it gets fewer offsets
+    // and is skipped entirely when the run is longer than a single ISBN could
+    // be. Without that guard, a label followed by digit soup reliably invents
+    // a plausible ISBN.
+    for (let start = 0; start <= 2 && start + 13 <= cleaned.length; start += 1) {
+      push(cleaned.substr(start, 13), true)
+    }
+
+    if (cleaned.length <= 13) {
+      for (let start = 0; start <= 1 && start + 10 <= cleaned.length; start += 1) {
+        push(cleaned.substr(start, 10), true)
+      }
+    }
   }
 
   // 2. Bookland prefixed, label or not.

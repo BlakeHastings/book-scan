@@ -265,6 +265,12 @@ export async function shutdownOcr(): Promise<void> {
 interface OcrVariant {
   name: string
   build: () => Promise<Buffer>
+  /**
+   * Page segmentation mode. Not one setting fits all: on a worn label AUTO
+   * reads the blurb and skips the ISBN, while SINGLE_BLOCK reads the ISBN.
+   * Measured, not guessed.
+   */
+  psm: PSM
 }
 
 /** Generous region around the barcode: the printed ISBN sits right by it. */
@@ -273,8 +279,11 @@ function regionAroundBarcode(
   box: { left: number; top: number; width: number; height: number },
   meta: { width: number; height: number },
 ): Promise<Buffer> {
-  const padX = box.width * 0.6
-  const padY = box.height * 1.2
+  // Wide on purpose. The ISBN line runs wider than the barcode above it, and
+  // clipping its last character costs the check digit, which makes the whole
+  // number unusable.
+  const padX = box.width * 1.4
+  const padY = box.height * 1.6
 
   const left = Math.max(0, Math.round(box.left - padX))
   const top = Math.max(0, Math.round(box.top - padY))
@@ -300,14 +309,20 @@ async function ocrVariants(
   const variants: OcrVariant[] = []
 
   if (barcodeBox && width && height) {
+    const region = () => regionAroundBarcode(input, barcodeBox, { width, height })
     variants.push({
-      name: 'barcode-region',
-      build: () => regionAroundBarcode(input, barcodeBox, { width, height }),
+      // Hard threshold plus SINGLE_BLOCK is what reads a label carrying a
+      // ghosted second impression of the same text, which defeats AUTO.
+      name: 'barcode-region-block',
+      psm: PSM.SINGLE_BLOCK,
+      build: async () => sharp(await region()).threshold(160).png().toBuffer(),
     })
+    variants.push({ name: 'barcode-region', psm: PSM.SPARSE_TEXT, build: region })
   }
 
   variants.push({
     name: 'wide-normalised',
+    psm: PSM.AUTO,
     build: () => sharp(input).grayscale()
       .resize({ width: 2200, withoutEnlargement: false, fit: 'inside' })
       .normalise().png().toBuffer(),
@@ -317,6 +332,7 @@ async function ocrVariants(
     // Publishers put the ISBN block low on the back cover.
     variants.push({
       name: 'lower-third',
+      psm: PSM.SPARSE_TEXT,
       build: () => sharp(input)
         .extract({ left: 0, top: Math.round(height * 0.55), width, height: Math.round(height * 0.44) })
         .grayscale()
@@ -327,6 +343,7 @@ async function ocrVariants(
 
   variants.push({
     name: 'clahe',
+    psm: PSM.AUTO,
     build: () => sharp(input).grayscale()
       .resize({ width: 1800, withoutEnlargement: false, fit: 'inside' })
       .clahe({ width: 8, height: 8, maxSlope: 3 }).png().toBuffer(),
@@ -346,9 +363,12 @@ interface OcrOutput {
   lines: OcrLine[]
 }
 
-async function runOcr(prepared: Buffer): Promise<OcrOutput> {
+async function runOcr(prepared: Buffer, psm: PSM = PSM.AUTO): Promise<OcrOutput> {
   try {
     const worker = await getGeneralWorker()
+    // Setting this per call is only safe because identify() is serialised;
+    // two overlapping callers would otherwise fight over the mode.
+    await worker.setParameters({ tessedit_pageseg_mode: psm })
     const { data } = await worker.recognize(prepared, {}, { text: true, blocks: true })
 
     const lines: OcrLine[] = []
@@ -499,7 +519,7 @@ async function identifyNow(
   for (const variant of variants) {
     let ocr: OcrOutput
     try {
-      ocr = await runOcr(await variant.build())
+      ocr = await runOcr(await variant.build(), variant.psm)
     } catch {
       continue
     }

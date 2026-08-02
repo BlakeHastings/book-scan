@@ -233,7 +233,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-126 tests. The ones worth knowing about:
+130 tests. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real zbar and tesseract pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on

@@ -276,8 +276,21 @@ app.post('/api/books', (req, res) => {
     return
   }
 
+  const captureId = Number(body.captureId ?? 0)
+
+  // A book promoted from the queue already has its photos on disk. The client
+  // does not re-upload them, so carry the filenames across here or the book
+  // silently loses every image it was scanned with.
+  const capture = captureId ? queue.get(captureId) : undefined
+  if (capture) {
+    draft.frontImage = capture.front_image
+    draft.backImage = capture.back_image
+    draft.edgeImage = capture.edge_image
+  }
+
   // Photos arrive as data URLs and are written beside the database rather than
-  // into it, so the SQLite file stays small enough to copy around.
+  // into it, so the SQLite file stays small enough to copy around. Anything
+  // uploaded here wins over the capture's copy.
   const images = (body.images ?? {}) as Record<string, unknown>
   for (const slot of ['front', 'back', 'edge'] as const) {
     const buffer = decodeDataUrl(String(images[slot] ?? ''))
@@ -295,7 +308,6 @@ app.post('/api/books', (req, res) => {
 
   const { id, placement } = store.addBook(draft)
 
-  const captureId = Number(body.captureId ?? 0)
   if (captureId) queue.markDone(captureId, id)
 
   res.status(201).json({

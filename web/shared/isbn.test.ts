@@ -147,3 +147,32 @@ describe('extractIsbnCandidates, from real OCR output', () => {
     expect(extractIsbnsFromText('0 76714 00450 4')).toHaveLength(0)
   })
 })
+
+describe('extraction against verbatim OCR of a worn label', () => {
+  const DARK_ANGEL = '9780671525439'
+
+  it('does not force a reading when a letter is genuinely ambiguous', () => {
+    // Tesseract returned "0-L71-" for "0-671-": here L is a misread 6, but L
+    // resembles 1 far more often, so repair maps it to 1 and the check digit
+    // then fails. That is the correct outcome. Another rung of the OCR ladder
+    // reads the same label cleanly, which is why the real photo still works.
+    expect(extractIsbnsFromText('ISBN 0-L71-52543-3')).toHaveLength(0)
+  })
+
+  it('reads through stray marks between the digits', () => {
+    // A narrow character class stopped at the "?" and threw away the rest.
+    expect(extractIsbnsFromText('ISBN D-b?71-52543-3')).toContain(DARK_ANGEL)
+  })
+
+  it('tolerates one spurious leading digit', () => {
+    // OCR reads the label edge as an extra character before the number.
+    expect(extractIsbnsFromText('ISBN D0-b71-52543-3')).toContain(DARK_ANGEL)
+  })
+
+  it('does not slide its way into inventing an ISBN', () => {
+    // A label followed by digit soup. Ten-digit windows are skipped once the
+    // run is longer than a single ISBN could be, or one of them eventually
+    // satisfies its check digit and produces a confident, wrong book.
+    expect(extractIsbnsFromText('ISBN 999999 5176714485')).toHaveLength(0)
+  })
+})
