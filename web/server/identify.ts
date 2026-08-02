@@ -22,7 +22,8 @@ import sharp, { type Sharp } from 'sharp'
 import { scanGrayBuffer } from '@undecaf/zbar-wasm'
 import { createWorker, PSM, type Worker } from 'tesseract.js'
 import {
-  extractIsbnsFromText, isbn13To10, resolveIsbnPair, type IsbnPair,
+  extractIsbnCandidates, resolveIsbnPair,
+  type IsbnCandidate, type IsbnPair,
 } from '../shared/isbn'
 
 export type IsbnSource = 'barcode' | 'ocr' | ''
@@ -76,7 +77,14 @@ async function toGray(pipeline: Sharp): Promise<GrayImage> {
  * around the symbol, and a barcode photographed right to the edge of frame
  * will not decode without one.
  */
-function barcodeVariants(input: Buffer): { name: string; build: () => Promise<GrayImage> }[] {
+interface BarcodeVariant {
+  name: string
+  /** Rotated variants cannot map a symbol box back to source axes. */
+  rotated?: boolean
+  build: () => Promise<GrayImage>
+}
+
+function barcodeVariants(input: Buffer): BarcodeVariant[] {
   const framed = (pipeline: Sharp) =>
     pipeline.extend({
       top: 24, bottom: 24, left: 24, right: 24, background: '#ffffff',
@@ -113,12 +121,14 @@ function barcodeVariants(input: Buffer): { name: string; build: () => Promise<Gr
     {
       // A book photographed sideways still has a readable barcode once turned.
       name: 'rotated-90',
+      rotated: true,
       build: () => toGray(framed(sharp(input)
         .resize({ width: 2000, withoutEnlargement: true, fit: 'inside' })
         .rotate(90))),
     },
     {
       name: 'rotated-270',
+      rotated: true,
       build: () => toGray(framed(sharp(input)
         .resize({ width: 2000, withoutEnlargement: true, fit: 'inside' })
         .rotate(270))),
@@ -126,7 +136,38 @@ function barcodeVariants(input: Buffer): { name: string; build: () => Promise<Gr
   ]
 }
 
-export async function decodeBarcodes(input: Buffer): Promise<string[]> {
+export interface DecodedBarcode {
+  value: string
+  /** Bounding box in source pixels, when zbar reported symbol geometry. */
+  box: { left: number; top: number; width: number; height: number } | null
+}
+
+/**
+ * Where the barcode sits is worth as much as what it says. On an older book
+ * the barcode is a retail UPC and the real ISBN is printed as text directly
+ * beside it, so knowing the box lets OCR look in the right place instead of
+ * at the whole photo.
+ */
+const BORDER = 24
+
+function boxFromPoints(points: unknown, scale: number) {
+  if (!Array.isArray(points) || points.length < 2) return null
+  const xs = points.map((p) => (p as { x: number }).x)
+  const ys = points.map((p) => (p as { y: number }).y)
+
+  // Undo the quiet-zone border, then the resize, to get back to source pixels.
+  const toSource = (v: number) => (v - BORDER) / scale
+  return {
+    left: toSource(Math.min(...xs)),
+    top: toSource(Math.min(...ys)),
+    width: (Math.max(...xs) - Math.min(...xs)) / scale,
+    height: (Math.max(...ys) - Math.min(...ys)) / scale,
+  }
+}
+
+export async function decodeBarcodesDetailed(input: Buffer): Promise<DecodedBarcode[]> {
+  const sourceWidth = (await sharp(input).metadata()).width ?? 0
+
   for (const variant of barcodeVariants(input)) {
     let image: GrayImage
     try {
@@ -142,12 +183,21 @@ export async function decodeBarcodes(input: Buffer): Promise<string[]> {
       continue
     }
 
-    const found: string[] = []
+    const found: DecodedBarcode[] = []
     for (const symbol of symbols) {
       const value = symbol.decode()?.trim() ?? ''
-      // EAN-2 and EAN-5 are the price add-on strips, not the ISBN.
+      // EAN-2 and EAN-5 are the add-on strips, not the ISBN itself.
       if (value.length < 8) continue
-      if (!found.includes(value)) found.push(value)
+      if (found.some((f) => f.value === value)) continue
+      // Scale back out of the variant's coordinate space. Skip rotated
+      // variants: their axes no longer match the source.
+      const scale = sourceWidth ? (image.width - BORDER * 2) / sourceWidth : 0
+      found.push({
+        value,
+        box: variant.rotated || !scale
+          ? null
+          : boxFromPoints((symbol as { points?: unknown }).points, scale),
+      })
     }
     if (found.length) return found
   }
@@ -155,12 +205,15 @@ export async function decodeBarcodes(input: Buffer): Promise<string[]> {
   return []
 }
 
+export async function decodeBarcodes(input: Buffer): Promise<string[]> {
+  return (await decodeBarcodesDetailed(input)).map((b) => b.value)
+}
+
 // ---------------------------------------------------------------------------
 // OCR
 // ---------------------------------------------------------------------------
 
 let generalWorker: Promise<Worker> | null = null
-let digitsWorker: Promise<Worker> | null = null
 
 /**
  * Where tesseract.js caches its language data. Left to itself it drops a 15 MB
@@ -189,38 +242,97 @@ function getGeneralWorker(): Promise<Worker> {
   }))
 }
 
-/** A second worker restricted to digits. Changing parameters on a shared
- *  worker is stateful and leaks between calls, so this stays separate. */
-function getDigitsWorker(): Promise<Worker> {
-  return (digitsWorker ??= createWorker('eng', undefined, workerOptions()).then(async (worker) => {
-    await worker.setParameters({ tessedit_char_whitelist: '0123456789Xx- ' })
-    return worker
-  }))
-}
-
 export async function shutdownOcr(): Promise<void> {
-  const workers = [generalWorker, digitsWorker]
+  const worker = generalWorker
   generalWorker = null
-  digitsWorker = null
-  await Promise.all(workers.map((w) => w?.then((worker) => worker.terminate())))
+  await worker?.then((w) => w.terminate())
 }
 
 /**
- * CLAHE evens out lighting across a glossy cover far better than a plain
- * histogram stretch, which is exactly the choice recognize.py made.
+ * OCR preprocessing variants, tried until one yields an ISBN.
+ *
+ * Chosen by testing against a real failing photo (a 1986 paperback, dark
+ * cover, shot on a dark table). Results on that image:
+ *
+ *   1600 wide + CLAHE   read nothing at all
+ *   2200 wide + normalise   read the ISBN
+ *   crop near the barcode, upscaled   read it most clearly
+ *
+ * CLAHE is kept last rather than dropped: it is what rescues a glossy cover
+ * with uneven lighting, which normalise handles badly. Neither is universal,
+ * which is exactly why this is a ladder and not a single choice.
  */
-async function preprocessForOcr(input: Buffer): Promise<Buffer> {
-  const metadata = await sharp(input).metadata()
-  const width = metadata.width ?? 0
+interface OcrVariant {
+  name: string
+  build: () => Promise<Buffer>
+}
 
-  let pipeline = sharp(input).flatten({ background: '#ffffff' }).grayscale()
-  if (width > 1600) {
-    pipeline = pipeline.resize({ width: 1600, fit: 'inside' })
-  } else if (width > 0 && width < 900) {
-    pipeline = pipeline.resize({ width: width * 2, fit: 'inside' })
+/** Generous region around the barcode: the printed ISBN sits right by it. */
+function regionAroundBarcode(
+  input: Buffer,
+  box: { left: number; top: number; width: number; height: number },
+  meta: { width: number; height: number },
+): Promise<Buffer> {
+  const padX = box.width * 0.6
+  const padY = box.height * 1.2
+
+  const left = Math.max(0, Math.round(box.left - padX))
+  const top = Math.max(0, Math.round(box.top - padY))
+  const right = Math.min(meta.width, Math.round(box.left + box.width + padX))
+  const bottom = Math.min(meta.height, Math.round(box.top + box.height + padY))
+
+  return sharp(input)
+    .extract({ left, top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) })
+    .grayscale()
+    .resize({ width: 2000, withoutEnlargement: false, fit: 'inside' })
+    .normalise()
+    .png()
+    .toBuffer()
+}
+
+async function ocrVariants(
+  input: Buffer,
+  barcodeBox: { left: number; top: number; width: number; height: number } | null,
+): Promise<OcrVariant[]> {
+  const meta = await sharp(input).metadata()
+  const width = meta.width ?? 0
+  const height = meta.height ?? 0
+  const variants: OcrVariant[] = []
+
+  if (barcodeBox && width && height) {
+    variants.push({
+      name: 'barcode-region',
+      build: () => regionAroundBarcode(input, barcodeBox, { width, height }),
+    })
   }
 
-  return pipeline.clahe({ width: 8, height: 8, maxSlope: 3 }).png().toBuffer()
+  variants.push({
+    name: 'wide-normalised',
+    build: () => sharp(input).grayscale()
+      .resize({ width: 2200, withoutEnlargement: false, fit: 'inside' })
+      .normalise().png().toBuffer(),
+  })
+
+  if (height) {
+    // Publishers put the ISBN block low on the back cover.
+    variants.push({
+      name: 'lower-third',
+      build: () => sharp(input)
+        .extract({ left: 0, top: Math.round(height * 0.55), width, height: Math.round(height * 0.44) })
+        .grayscale()
+        .resize({ width: 2400, withoutEnlargement: false, fit: 'inside' })
+        .normalise().png().toBuffer(),
+    })
+  }
+
+  variants.push({
+    name: 'clahe',
+    build: () => sharp(input).grayscale()
+      .resize({ width: 1800, withoutEnlargement: false, fit: 'inside' })
+      .clahe({ width: 8, height: 8, maxSlope: 3 }).png().toBuffer(),
+  })
+
+  return variants
 }
 
 interface OcrLine {
@@ -234,10 +346,9 @@ interface OcrOutput {
   lines: OcrLine[]
 }
 
-async function runOcr(input: Buffer, digitsOnly = false): Promise<OcrOutput> {
+async function runOcr(prepared: Buffer): Promise<OcrOutput> {
   try {
-    const prepared = await preprocessForOcr(input)
-    const worker = await (digitsOnly ? getDigitsWorker() : getGeneralWorker())
+    const worker = await getGeneralWorker()
     const { data } = await worker.recognize(prepared, {}, { text: true, blocks: true })
 
     const lines: OcrLine[] = []
@@ -361,7 +472,9 @@ async function identifyNow(
     notes: [],
   }
 
-  result.barcodes = await decodeBarcodes(input)
+  const decoded = await decodeBarcodesDetailed(input)
+  result.barcodes = decoded.map((b) => b.value)
+  const barcodeBox = decoded.find((b) => b.box)?.box ?? null
   const fromBarcode = fromBarcodes(result.barcodes)
   if (fromBarcode) {
     result.isbn13 = fromBarcode.isbn13
@@ -371,34 +484,50 @@ async function identifyNow(
     if (!options.wantTitle) return result
   } else if (result.barcodes.length) {
     result.notes.push(
-      'A barcode was found but it is not an ISBN. It is probably the price code.',
+      'A barcode was found but it is not an ISBN. Older paperbacks carry a ' +
+        'retail UPC instead, with the ISBN printed as text beside it.',
     )
   }
 
   if (options.ocrEnabled === false) return result
 
-  const ocr = await runOcr(input)
-  result.text = ocr.text
-  if (options.wantTitle) result.titleGuess = pickTitle(ocr.lines)
+  // Work down the preprocessing ladder until something yields an ISBN. Each
+  // rung is a full OCR pass, so stopping early matters.
+  const variants = await ocrVariants(input, barcodeBox)
+  let candidates: IsbnCandidate[] = []
 
-  if (!result.isbn13) {
-    let candidates = extractIsbnsFromText(ocr.text)
-
-    if (!candidates.length) {
-      // Second pass restricted to digits. Much better on a printed ISBN,
-      // useless for anything else, so it only runs when the first pass failed.
-      const digits = await runOcr(input, true)
-      candidates = extractIsbnsFromText(digits.text)
-      if (candidates.length) result.notes.push('ISBN read on a digits-only pass.')
+  for (const variant of variants) {
+    let ocr: OcrOutput
+    try {
+      ocr = await runOcr(await variant.build())
+    } catch {
+      continue
     }
 
-    const isbn13 = candidates[0]
-    if (isbn13) {
-      result.isbn13 = isbn13
-      result.isbn10 = isbn13To10(isbn13)
-      result.source = 'ocr'
-      result.notes.push('No usable barcode, ISBN read by OCR.')
+    result.text = result.text ? `${result.text}
+${ocr.text}` : ocr.text
+    if (options.wantTitle && !result.titleGuess) {
+      result.titleGuess = pickTitle(ocr.lines)
     }
+
+    if (!result.isbn13) {
+      candidates = extractIsbnCandidates(ocr.text)
+      if (candidates.length) {
+        const best = candidates[0]!
+        result.isbn13 = best.isbn13
+        result.isbn10 = best.isbn10
+        result.source = 'ocr'
+        result.notes.push(
+          best.labelled
+            ? `ISBN read from the printed label (${variant.name}).`
+            : `ISBN read by OCR (${variant.name}).`,
+        )
+      }
+    }
+
+    // Stop once we have what we came for. The title guess only needs the
+    // first readable pass.
+    if (result.isbn13 && (!options.wantTitle || result.titleGuess)) break
   }
 
   if (!result.isbn13) {

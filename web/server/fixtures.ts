@@ -24,6 +24,14 @@ export async function barcodePng(isbn: string, scale = 3): Promise<Buffer> {
 }
 
 export interface BackCoverOptions {
+  /**
+   * Use a retail UPC-A instead of a Bookland EAN, with the ISBN printed only
+   * as text. This is how US mass-market paperbacks looked before ISBN-13,
+   * and it is the case that defeats barcode-only identification.
+   */
+  upc?: string
+  /** Print the ISBN-10 form rather than the 13. */
+  printIsbn10?: string
   /** Print "ISBN 978-..." as text as well as the barcode. */
   printedIsbn?: boolean
   /** Include the barcode itself. */
@@ -38,7 +46,10 @@ export async function backCover(
   isbn: string,
   options: BackCoverOptions = {},
 ): Promise<Buffer> {
-  const { printedIsbn = true, barcode = true, priceAddOn = false, rotate = 0 } = options
+  const {
+    printedIsbn = true, barcode = true, priceAddOn = false, rotate = 0,
+    upc, printIsbn10,
+  } = options
 
   const hyphenated = `${isbn.slice(0, 3)}-${isbn.slice(3, 4)}-${isbn.slice(4, 7)}-${isbn.slice(7, 12)}-${isbn.slice(12)}`
 
@@ -47,11 +58,21 @@ export async function backCover(
     <text x="60" y="120" font-family="Georgia" font-size="44" fill="#111">A NOVEL</text>
     <text x="60" y="210" font-family="Georgia" font-size="30" fill="#333">Praise for this remarkable book from the author.</text>
     <text x="60" y="280" font-family="Georgia" font-size="30" fill="#333">A sweeping story of sand, spice and succession.</text>
-    ${printedIsbn ? `<text x="60" y="880" font-family="Helvetica" font-size="32" fill="#111">ISBN ${hyphenated}</text>` : ''}
+    ${printedIsbn ? `<text x="60" y="880" font-family="Helvetica" font-size="32" fill="#111">ISBN ${printIsbn10 ? printIsbn10.replace(/^(.)(...)(.....)(.)$/, '$1-$2-$3-$4') : hyphenated}</text>` : ''}
   </svg>`
 
   const composites: OverlayOptions[] = []
-  if (barcode) {
+  if (upc) {
+    // A retail UPC-A, which is what a pre-ISBN-13 paperback carries. It has a
+    // valid checksum and is not a book identifier.
+    composites.push({
+      input: await bwipjs.toBuffer({
+        bcid: 'upca', text: upc, scale: 3, height: 18, includetext: true,
+        paddingwidth: 10, paddingheight: 10, backgroundcolor: 'FFFFFF',
+      }),
+      top: 920, left: 60,
+    })
+  } else if (barcode) {
     composites.push({ input: await barcodePng(isbn), top: 920, left: 60 })
   }
   if (priceAddOn) {

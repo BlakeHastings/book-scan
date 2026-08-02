@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isValidIsbn10, isValidIsbn13, isbn10To13, isbn13To10, isBooklandIsbn,
-  pickIsbn, resolveIsbnPair,
+  pickIsbn, resolveIsbnPair, extractIsbnCandidates, extractIsbnsFromText,
 } from './isbn'
 
 describe('resolveIsbnPair', () => {
@@ -96,5 +96,54 @@ describe('pickIsbn', () => {
 
   it('upgrades a bare ISBN-10 to 13', () => {
     expect(pickIsbn(['0441013597'])).toBe('9780441013593')
+  })
+})
+
+describe('extractIsbnCandidates, from real OCR output', () => {
+  const DARK_ANGEL = '9780671525439' // ISBN 0-671-52543-3
+
+  it('rejects an unlabelled 10-digit run', () => {
+    // This is the bug that shipped a wrong book. Roughly one in eleven random
+    // 10-digit runs passes the ISBN-10 check digit, and a back cover is full
+    // of long numbers. 5176714485 is a real false positive taken from a photo
+    // of a UPC barcode; it validates, and it is not an ISBN.
+    expect(isValidIsbn10('5176714485')).toBe(true)
+    expect(extractIsbnsFromText('0 76714 00450 52543 5176714485')).toHaveLength(0)
+  })
+
+  it('reads a labelled ISBN-10 through OCR letter confusions', () => {
+    // Verbatim from tesseract on the failing photo: O for 0, b for 6, l for 1.
+    expect(extractIsbnsFromText('ISBN O-b7l-52543-3')).toContain(DARK_ANGEL)
+  })
+
+  it('reads the same label when OCR gets it right', () => {
+    expect(extractIsbnsFromText('ISBN 0-671-52543-3')).toContain(DARK_ANGEL)
+  })
+
+  it('still accepts an unlabelled Bookland run, which is self-identifying', () => {
+    expect(extractIsbnsFromText('junk 9780441013593 junk')).toContain('9780441013593')
+  })
+
+  it('prefers a labelled ISBN over an unlabelled Bookland one', () => {
+    const found = extractIsbnCandidates('9780441013593 ... ISBN 0-671-52543-3')
+    expect(found[0]!.isbn13).toBe(DARK_ANGEL)
+    expect(found[0]!.labelled).toBe(true)
+  })
+
+  it('does not repair its way into a wrong answer', () => {
+    // Letter substitution is only safe because the check digit still has to
+    // pass afterwards. Garbage after a label must not produce an ISBN.
+    expect(extractIsbnsFromText('ISBN 1-234-56789-0')).toHaveLength(0)
+  })
+
+  it('rejects a run of one repeated digit', () => {
+    // 0000000000 satisfies the ISBN-10 check digit (zero is divisible by 11),
+    // and OCR on a blank patch produces exactly that.
+    expect(extractIsbnsFromText('ISBN OOOO-OOO-OOOOO-O')).toHaveLength(0)
+    expect(resolveIsbnPair('0000000000')).toEqual({ isbn13: '', isbn10: '' })
+  })
+
+  it('ignores the digits printed under a UPC barcode', () => {
+    expect(extractIsbnsFromText('0 76714 00450 4')).toHaveLength(0)
   })
 })

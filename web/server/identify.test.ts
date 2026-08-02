@@ -90,7 +90,7 @@ describe('barcode category', () => {
     const result = await identify(png, { ocrEnabled: false })
     expect(result.isbn13).toBe('')
     expect(result.source).toBe('')
-    expect(result.notes.join(' ')).toContain('price code')
+    expect(result.notes.join(' ')).toContain('not an ISBN')
   }, 30_000)
 
   it('still accepts a 979 Bookland ISBN', async () => {
@@ -173,4 +173,33 @@ describe('concurrent identification', () => {
     expect(dune.isbn13).toBe(ISBN)
     expect(none.isbn13).toBe('')
   }, 60_000)
+})
+
+describe('pre-ISBN-13 paperback: UPC barcode, ISBN only in print', () => {
+  // Modelled on a real failure: V.C. Andrews, Dark Angel (1986). The back
+  // cover carries a retail UPC-A, not a Bookland EAN, and the only ISBN on
+  // the book is the printed line. Barcode-only identification cannot work.
+  const ISBN10 = '0671525433'
+  const ISBN13 = '9780671525439'
+  const UPC = '076714004504'
+
+  it('does not mistake the retail UPC for the book', async () => {
+    const cover = await backCover(ISBN13, { upc: UPC, printedIsbn: false })
+    const result = await identify(cover, { ocrEnabled: false })
+    // zbar promotes UPC-A to EAN-13 by prefixing a zero, so the decoded value
+    // is 0076714004504. It has a valid checksum and is still not a book.
+    expect(result.barcodes.some((b) => b.endsWith(UPC))).toBe(true)
+    expect(result.isbn13).toBe('')
+    expect(result.notes.join(' ')).toContain('not an ISBN')
+  }, 60_000)
+
+  it('reads the printed ISBN-10 instead, and reports both forms', async () => {
+    const cover = await backCover(ISBN13, {
+      upc: UPC, printedIsbn: true, printIsbn10: ISBN10,
+    })
+    const result = await identify(cover)
+    expect(result.isbn13).toBe(ISBN13)
+    expect(result.isbn10).toBe(ISBN10)
+    expect(result.source).toBe('ocr')
+  }, 120_000)
 })

@@ -154,11 +154,36 @@ are stored, both are searched:
 - **979 ISBNs have no 10-digit form.** That field is correctly left empty
   rather than filled with something derived and wrong.
 
-**Every OCR'd ISBN candidate is check-digit validated.** The extraction
-patterns are deliberately loose, tolerating a hyphen or an OCR-inserted space
-after any digit. That is only safe because nothing survives without a valid
-check digit; without it the patterns would match half the numbers on a
-copyright page.
+**Only two kinds of OCR'd number are trusted.** A check digit alone is not
+enough evidence, which a real book proved:
+
+- **Digits following an explicit `ISBN` label.** Books print one, and the label
+  is the only thing that makes a bare 10-digit run interpretable.
+- **A 978/979 prefixed run anywhere.** Bookland prefixes are self-identifying.
+
+An **unlabelled 10-digit run is refused**, even with a valid check digit.
+Roughly one in eleven random 10-digit sequences satisfies the ISBN-10
+checksum, and a back cover is covered in long numbers: UPC digits, price
+add-ons, order codes. Trusting them read `5176714485` off a photo of a UPC
+barcode and confidently filed the wrong book.
+
+**Letter-for-digit repair is applied inside a labelled run**, because OCR
+returns `ISBN O-b7l-52543-3` for `ISBN 0-671-52543-3`. It is safe only because
+the check digit still has to pass afterwards, so a wrong substitution is
+discarded rather than believed. A run of one repeated digit is refused
+outright: `0000000000` passes the checksum and is what OCR returns for a blank
+patch.
+
+**Pre-ISBN-13 paperbacks need all of this.** They carry a retail **UPC-A**, not
+a Bookland EAN, so the barcode is not the book and the only ISBN present is the
+printed line. zbar promotes UPC-A to EAN-13 with a leading zero, which has a
+valid checksum and is still not an ISBN.
+
+**OCR preprocessing is a ladder, not a choice.** Measured on a real failing
+photo (1986 paperback, dark cover, dark table): 1600px + CLAHE read *nothing*;
+2200px + normalise read the ISBN; cropping to the region zbar reported the
+barcode in read it most clearly. CLAHE is kept last because it is what rescues
+a glossy cover, which normalise handles badly. Neither wins everywhere.
 
 **Canvas stills rather than `ImageCapture`.** Safari does not implement
 `ImageCapture`, so a still is a canvas draw of the video frame. That makes the
@@ -197,7 +222,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-110 tests. The ones worth knowing about:
+120 tests. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real zbar and tesseract pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on

@@ -61,32 +61,87 @@ export function isbn13To10(value: string): string {
 }
 
 /**
+ * Letters OCR commonly returns in place of digits.
+ *
+ * Only ever applied inside a run that already looks like an ISBN, and the
+ * result is always check-digit validated afterwards, so a wrong substitution
+ * is discarded rather than believed. A real example from a 1986 paperback:
+ * tesseract read "ISBN O-b7l-52543-3" for "ISBN 0-671-52543-3".
+ *
+ * X is deliberately absent: it is a legitimate ISBN-10 check character.
+ */
+const DIGIT_LOOKALIKES: Record<string, string> = {
+  O: '0', o: '0', Q: '0', D: '0',
+  I: '1', l: '1', i: '1', '|': '1', '!': '1',
+  Z: '2', z: '2',
+  E: '3',
+  A: '4',
+  S: '5', s: '5',
+  b: '6', G: '6',
+  T: '7',
+  B: '8',
+  g: '9', q: '9',
+}
+
+function repairDigits(value: string): string {
+  return value.replace(/[^0-9Xx]/g, (char) => DIGIT_LOOKALIKES[char] ?? char)
+}
+
+export interface IsbnCandidate extends IsbnPair {
+  /** True when the digits followed an explicit "ISBN" label on the page. */
+  labelled: boolean
+}
+
+/**
  * Pull ISBNs out of OCR'd text.
  *
- * Printed ISBNs carry hyphens and OCR sprinkles in spaces, so the patterns
- * tolerate a separator after every digit. That is deliberately loose, which
- * is safe only because every candidate is then check-digit validated. Without
- * that validation this would match half the numbers on a copyright page.
+ * Two sources are trusted, and nothing else:
+ *
+ *   1. Digits following an explicit ISBN label. Books print one, and the
+ *      label is what makes a bare 10-digit run interpretable at all.
+ *   2. A 978/979 prefixed run anywhere in the text. Bookland prefixes are
+ *      self-identifying, so these need no label.
+ *
+ * An unlabelled 10-digit run is deliberately NOT accepted. Roughly one in
+ * eleven random 10-digit sequences satisfies the ISBN-10 check digit, and a
+ * back cover is covered in long numbers: UPC digits, price add-ons, order
+ * codes. Trusting those produced a confident, wrong ISBN on a real book.
  */
+export function extractIsbnCandidates(text: string): IsbnCandidate[] {
+  const source = (text ?? '').replace(/\s+/g, ' ')
+  const found: IsbnCandidate[] = []
+
+  const push = (raw: string, labelled: boolean) => {
+    const pair = resolveIsbnPair(repairDigits(raw))
+    if (!pair.isbn13) return
+    if (found.some((c) => c.isbn13 === pair.isbn13)) return
+    found.push({ ...pair, labelled })
+  }
+
+  // 1. Labelled. Take the run of digit-ish characters after the label; the
+  //    separators books use (hyphen, space, dot) are stripped by repair.
+  const labelled = /ISBN(?:[-\s]*1[03])?\s*[:.]?\s*([0-9OoQDIlLiZzEASsbGTBgqXx|!.\s-]{9,25})/gi
+  for (const match of source.matchAll(labelled)) {
+    const run = match[1] ?? ''
+    // Try the longest sensible prefix first: a 13-digit ISBN with separators
+    // can be up to ~17 characters, a 10-digit one up to ~13.
+    const cleaned = repairDigits(run).replace(/[^0-9Xx]/g, '')
+    if (cleaned.length >= 13) push(cleaned.slice(0, 13), true)
+    if (cleaned.length >= 10) push(cleaned.slice(0, 10), true)
+  }
+
+  // 2. Bookland prefixed, label or not.
+  for (const match of source.matchAll(/(97[89][\s-]?(?:\d[\s-]?){10})/g)) {
+    push(match[1] ?? '', false)
+  }
+
+  // Labelled first: a label is far stronger evidence than a bare match.
+  return [...found.filter((c) => c.labelled), ...found.filter((c) => !c.labelled)]
+}
+
+/** Convenience wrapper returning just the 13-digit forms, best first. */
 export function extractIsbnsFromText(text: string): string[] {
-  const found: string[] = []
-  const push = (value: string) => {
-    if (value && !found.includes(value)) found.push(value)
-  }
-
-  const isbn13 = /(97[89][\s-]?(?:\d[\s-]?){10})/g
-  for (const match of (text ?? '').matchAll(isbn13)) {
-    const candidate = normaliseIsbn(match[1] ?? '')
-    if (isValidIsbn13(candidate)) push(candidate)
-  }
-
-  const isbn10 = /(?<!\d)((?:\d[\s-]?){9}[\dXx])(?!\d)/g
-  for (const match of (text ?? '').matchAll(isbn10)) {
-    const candidate = normaliseIsbn(match[1] ?? '')
-    if (isValidIsbn10(candidate)) push(isbn10To13(candidate))
-  }
-
-  return found
+  return extractIsbnCandidates(text).map((candidate) => candidate.isbn13)
 }
 
 /**
@@ -128,8 +183,18 @@ const NO_ISBN: IsbnPair = { isbn13: '', isbn10: '' }
  * value: catalogues index editions under whichever ISBN the edition was
  * issued with, so both are worth carrying and worth searching.
  */
+/**
+ * A run of one repeated digit is never a real ISBN, but some of them do
+ * satisfy the check digit: 0000000000 sums to zero, which is divisible by 11.
+ * OCR on a blank or noisy patch produces exactly this.
+ */
+function isDegenerate(digits: string): boolean {
+  return digits.length > 0 && /^(.)\1*$/.test(digits.slice(0, -1))
+}
+
 export function resolveIsbnPair(value: string): IsbnPair {
   const digits = normaliseIsbn(value)
+  if (isDegenerate(digits)) return NO_ISBN
 
   if (digits.length === 13) {
     if (!isBooklandIsbn(digits)) return NO_ISBN
