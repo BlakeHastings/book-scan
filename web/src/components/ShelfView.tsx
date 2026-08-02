@@ -24,6 +24,7 @@ export function ShelfView({ onOpen }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [counts, setCounts] = useState<Counts | null>(null)
+  const [off, setOff] = useState<BookRow[]>([])
 
   /*
    * Both tallies, not just this tab's. A non-fiction book saved while the
@@ -32,6 +33,9 @@ export function ShelfView({ onOpen }: Props) {
    */
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
+    // Books off the shelf are in neither range's layout, so without a list of
+    // their own they would exist only as a number nobody can act on.
+    api.checkedOut().then((r) => setOff(r.books)).catch(() => {})
   }, [groups])
 
   const load = useCallback(() => {
@@ -75,6 +79,24 @@ export function ShelfView({ onOpen }: Props) {
       </div>
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
+
+      {off.length > 0 && (
+        <section className="offshelf">
+          <h3 className="offshelf__head">
+            Off the shelf ({off.length})
+          </h3>
+          <p className="hint">
+            Held out of the layout, so nothing is filed next to them. Open one
+            to put it back.
+          </p>
+          {off.map((book) => (
+            <button key={book.id} className="offshelf__row" onClick={() => onOpen(book.id)}>
+              <span className="offshelf__title">{book.title}</span>
+              <span className="offshelf__author">{title(book)}</span>
+            </button>
+          ))}
+        </section>
+      )}
 
       {/* The physical consequence of the change, which is the part that is
           easy to lose track of. */}

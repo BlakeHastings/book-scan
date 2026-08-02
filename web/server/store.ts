@@ -150,10 +150,13 @@ export class Store {
   ): { predecessor: Neighbour | null; successor: Neighbour | null } {
     const exclude = excludeId ?? -1
 
+    // checked_out_at IS NULL is the whole point of the column here: a book in
+    // a box on the floor is not something to put another book beside.
     const predecessor = this.db
       .prepare(
         `SELECT * FROM books
           WHERE shelf_range = ? AND sort_key < ? AND id != ?
+            AND checked_out_at IS NULL
           ORDER BY sort_key DESC LIMIT 1`,
       )
       .get(range, sortKey, exclude) as BookRow | undefined
@@ -162,6 +165,7 @@ export class Store {
       .prepare(
         `SELECT * FROM books
           WHERE shelf_range = ? AND sort_key > ? AND id != ?
+            AND checked_out_at IS NULL
           ORDER BY sort_key ASC LIMIT 1`,
       )
       .get(range, sortKey, exclude) as BookRow | undefined
@@ -400,21 +404,50 @@ export class Store {
    * A book that is genuinely not filed yet is still a capture in the queue,
    * and the queue counts those.
    */
-  counts(): { total: number; fiction: number; nonfiction: number } {
+  /**
+   * Take a book off the shelf, or put it back.
+   *
+   * Off the shelf it keeps its catalogue entry and its photos and loses only
+   * its position, which is what makes it useful for fixing a shelf by hand: a
+   * book that will not physically fit can be removed from the model, and the
+   * layout closes up behind it exactly as the shelf does.
+   */
+  setCheckedOut(id: number, out: boolean): void {
+    this.db
+      .prepare('UPDATE books SET checked_out_at = ? WHERE id = ?')
+      .run(out ? new Date().toISOString() : null, id)
+  }
+
+  /** Books off the shelf, oldest first, so nothing is quietly forgotten. */
+  checkedOut(): BookRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM books WHERE checked_out_at IS NOT NULL
+          ORDER BY checked_out_at ASC`,
+      )
+      .all() as BookRow[]
+  }
+
+  counts(): { total: number; fiction: number; nonfiction: number; checkedOut: number } {
     const row = this.db
       .prepare(
         `SELECT
            COUNT(*)                                                   AS total,
            SUM(CASE WHEN shelf_range = 'fiction'    THEN 1 ELSE 0 END) AS fiction,
-           SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END) AS nonfiction
+           SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END) AS nonfiction,
+           SUM(CASE WHEN checked_out_at IS NOT NULL THEN 1 ELSE 0 END) AS checkedOut
          FROM books`,
       )
-      .get() as { total: number; fiction: number | null; nonfiction: number | null }
+      .get() as {
+        total: number; fiction: number | null
+        nonfiction: number | null; checkedOut: number | null
+      }
 
     return {
       total: row.total ?? 0,
       fiction: row.fiction ?? 0,
       nonfiction: row.nonfiction ?? 0,
+      checkedOut: row.checkedOut ?? 0,
     }
   }
 

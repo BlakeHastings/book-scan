@@ -83,6 +83,8 @@ export interface Counts {
   total: number
   fiction: number
   nonfiction: number
+  /** Catalogued but physically off the shelf. */
+  checkedOut: number
 }
 
 export interface BookRow {
@@ -109,6 +111,8 @@ export interface BookRow {
   front_image: string
   back_image: string
   edge_image: string
+  /** Set while the book is off the shelf; null while it is on one. */
+  checked_out_at: string | null
 }
 
 export interface Move {
@@ -288,6 +292,15 @@ export const api = {
     ),
 
   getBook: (id: number) => request<{ book: BookRow }>(`/api/books/${id}`),
+
+  /** Take a book off the shelf, or put it back. Nothing is deleted either way. */
+  setCheckedOut: (id: number, out: boolean) =>
+    request<{ book: BookRow; counts: Counts }>(`/api/books/${id}/checkout`, {
+      method: 'POST',
+      body: JSON.stringify({ out }),
+    }),
+
+  checkedOut: () => request<{ books: BookRow[] }>('/api/checked-out'),
 
   updateBook: (id: number, draft: Draft) =>
     request<{ id: number; placement: PlacementResponse; counts: Counts }>(

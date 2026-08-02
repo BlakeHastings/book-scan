@@ -56,9 +56,18 @@ export class Shelves {
     return { shelf: row?.start_shelf ?? 1, area: row?.start_area ?? 0 }
   }
 
+  /**
+   * A checked-out book holds no position, so it is absent here. The layout
+   * then closes up behind it the way the shelf does, which is what lets a
+   * book be pulled out and refiled without the boundaries pretending it is
+   * still taking up room.
+   */
   private booksIn(range: ShelfRange, excludeId = 0): BookRow[] {
     const rows = this.db
-      .prepare('SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC')
+      .prepare(
+        `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NULL
+          ORDER BY sort_key ASC`,
+      )
       .all(range) as BookRow[]
     return excludeId ? rows.filter((row) => row.id !== excludeId) : rows
   }

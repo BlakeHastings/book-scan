@@ -48,7 +48,11 @@ CREATE TABLE IF NOT EXISTS books (
     ocr_text                  TEXT    DEFAULT '',
 
     scanned_at                TEXT    NOT NULL,
-    shelved_at                TEXT
+    shelved_at                TEXT,
+    -- Set while the book is physically off the shelf. A checked-out book is
+    -- still catalogued but holds no position, so it neither appears as a
+    -- neighbour nor takes up room in the layout.
+    checked_out_at            TEXT
 );
 
 -- The index that makes predecessor/successor two seeks rather than a scan.
@@ -172,6 +176,8 @@ export interface BookRow {
   ocr_text: string
   scanned_at: string
   shelved_at: string | null
+  /** ISO timestamp while the book is off the shelf, null while it is on one. */
+  checked_out_at: string | null
 }
 
 /**
@@ -191,6 +197,7 @@ function addMissingColumns(db: Database.Database): void {
       ['isbn_source', "TEXT DEFAULT ''"],
       ['ocr_text', "TEXT DEFAULT ''"],
       ['subtitle', "TEXT DEFAULT ''"],
+      ['checked_out_at', 'TEXT'],
     ],
     captures: [
       ['cover_text', "TEXT DEFAULT ''"],

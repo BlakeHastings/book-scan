@@ -149,3 +149,57 @@ describe('every catalogued book has a shelf', () => {
     expect(store.getBook(id)?.location).toBe('')
   })
 })
+
+describe('a book taken off the shelf', () => {
+  it('stops taking up room, so the shelf closes up behind it', () => {
+    const ids = ['Jane Austen', 'Emily Bronte', 'Angela Carter'].map((a) => add(a))
+    expect(labels()).toEqual(['1A', '1A', '1A'])
+
+    store.setCheckedOut(ids[1]!, true)
+    expect(shelves.layout('fiction').map((p) => p.book.id)).toEqual([ids[0], ids[2]])
+  })
+
+  it('is never offered as a neighbour to file against', () => {
+    // The reason the column exists. A book in a pile on the table is not
+    // something to put another book beside.
+    add('Jane Austen')
+    const middle = add('Emily Bronte')
+    add('Angela Carter')
+
+    const before = store.placementFor({
+      title: 'X', authors: ['Ann Baxter'], isFiction: true,
+    } as never)
+    expect(before.successor?.id).toBe(middle)
+
+    store.setCheckedOut(middle, true)
+    const after = store.placementFor({
+      title: 'X', authors: ['Ann Baxter'], isFiction: true,
+    } as never)
+    expect(after.successor?.id).not.toBe(middle)
+  })
+
+  it('comes back to the position its filing gives it, not the one it left', () => {
+    const ids = ['Jane Austen', 'Emily Bronte', 'Angela Carter'].map((a) => add(a))
+    store.setCheckedOut(ids[1]!, true)
+    store.setCheckedOut(ids[1]!, false)
+    expect(shelves.layout('fiction').map((p) => p.book.id)).toEqual(ids)
+  })
+
+  it('leaves the catalogue entry and its photos alone', () => {
+    const id = add('Jane Austen', 'Persuasion')
+    store.setCheckedOut(id, true)
+    const book = store.getBook(id)
+    expect(book?.title).toBe('Persuasion')
+    expect(book?.checked_out_at).toBeTruthy()
+    expect(store.checkedOut().map((b) => b.id)).toEqual([id])
+  })
+
+  it('counts as off the shelf without leaving its range tally', () => {
+    add('Jane Austen')
+    const id = add('Emily Bronte')
+    store.setCheckedOut(id, true)
+    expect(store.counts()).toEqual({
+      total: 2, fiction: 2, nonfiction: 0, checkedOut: 1,
+    })
+  })
+})

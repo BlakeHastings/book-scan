@@ -582,6 +582,34 @@ app.delete('/api/books/:id', (req, res) => {
   res.json({ ok: true, counts: store.counts(), photosRemoved: removed.length })
 })
 
+/**
+ * Take a book off the shelf, or put it back.
+ *
+ * The point is that the model can be corrected by hand. A book that will not
+ * physically fit where the layout says it goes can be pulled out; the shelf
+ * closes up behind it here exactly as it does in the room, and nothing is
+ * told to file itself next to a book that is sitting on the table.
+ *
+ * Nothing is deleted. The entry, its photos and its filing all survive, and
+ * putting it back is the same flow as shelving it the first time.
+ */
+app.post('/api/books/:id/checkout', (req, res) => {
+  const id = Number(req.params.id)
+  const book = store.getBook(id)
+  if (!book) {
+    res.status(404).json({ error: 'No such book.' })
+    return
+  }
+
+  const out = (req.body ?? {}).out !== false
+  store.setCheckedOut(id, out)
+  res.json({ book: store.getBook(id), counts: store.counts() })
+})
+
+app.get('/api/checked-out', (_req, res) => {
+  res.json({ books: store.checkedOut() })
+})
+
 app.get('/api/misfiles', (_req, res) => {
   res.json({ misfiles: store.misfiles() })
 })

@@ -27,6 +27,11 @@ interface Props {
   doneLabel?: string
   /** The shelf drawing. Rendered under the actions, as context not as a task. */
   placement?: ReactNode
+  /** Null while the book is on a shelf, a timestamp while it is off one. */
+  checkedOutAt?: string | null
+  /** Take it off the shelf, or put it back. Saved books only. */
+  onCheckOut?: (out: boolean) => void
+  checkingOut?: boolean
   /** Present only for a book already on the shelves. */
   onDelete?: () => void
   deleting?: boolean
@@ -51,6 +56,7 @@ export function BookDetail({
   relookupBusy, relookupError, saved,
   onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
   onDelete, deleting = false, shelfLabel = '', doneLabel = 'Done', placement,
+  checkedOutAt = null, onCheckOut, checkingOut = false,
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
   // because correcting it is the whole reason it is on screen.
@@ -71,6 +77,18 @@ export function BookDetail({
           {draft.subtitle && <p className="detail__subtitle">{draft.subtitle}</p>}
           <p className="detail__author">{draft.authors || 'no author'}</p>
         </header>
+      )}
+
+      {/* Stated plainly and near the top: everything below, the strip
+          especially, means something different for a book in a pile. */}
+      {checkedOutAt && (
+        <div className="checkedout">
+          <strong>Off the shelf</strong>
+          <span>
+            Taken down {new Date(checkedOutAt).toLocaleDateString()}. Nothing is
+            filed next to it, and the shelf has closed up behind it.
+          </span>
+        </div>
       )}
 
       <div className="actions actions--top">
@@ -105,6 +123,15 @@ export function BookDetail({
               Cancel
             </button>
           </>
+        ) : checkedOutAt ? (
+          <>
+            {/* Back on through the same guided shuffle as a new book, which is
+                the point: it is how a shelf gets rearranged by hand. */}
+            <button className="btn btn--primary" onClick={onShelve}>
+              Put it back on the shelf
+            </button>
+            <button className="btn" onClick={onDiscard}>{doneLabel}</button>
+          </>
         ) : (
           <>
             <button className="btn btn--primary" onClick={() => setEditing(true)}>
@@ -114,6 +141,18 @@ export function BookDetail({
           </>
         )}
       </div>
+
+      {!editing && onCheckOut && !checkedOutAt && (
+        <div className="actions">
+          <button
+            className="btn btn--ghost"
+            onClick={() => onCheckOut(true)}
+            disabled={checkingOut}
+          >
+            {checkingOut ? 'Taking it off...' : 'Take it off the shelf'}
+          </button>
+        </div>
+      )}
 
       {placement}
 

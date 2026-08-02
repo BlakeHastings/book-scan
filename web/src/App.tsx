@@ -58,6 +58,8 @@ export default function App() {
   const [captureId, setCaptureId] = useState<number | null>(null)
   const [bookId, setBookId] = useState<number | null>(null)
   const [deletingBook, setDeletingBook] = useState(false)
+  const [checkedOutAt, setCheckedOutAt] = useState<string | null>(null)
+  const [checkingOut, setCheckingOut] = useState(false)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
@@ -371,6 +373,12 @@ export default function App() {
       // it at save time, but you have just come through the shelving step
       // with the book in your hand, so repeating the instruction over the
       // next book's viewfinder tells you nothing you did not act on.
+      // Coming out of the shelving step with a book that was off the shelf
+      // means it is back on one. Done here rather than in the view, so it
+      // cannot be missed by a route that skips the shelving step.
+      if (bookId !== null && checkedOutAt) {
+        await api.setCheckedOut(bookId, false).catch(() => {})
+      }
       if (stay) await refreshPlacement()
       else reset()
       return true
@@ -379,6 +387,23 @@ export default function App() {
       return false
     } finally {
       setSaving(false)
+    }
+  }
+
+  const checkOut = async (out: boolean) => {
+    if (bookId === null) return
+    setCheckingOut(true)
+    setError('')
+    try {
+      const result = await api.setCheckedOut(bookId, out)
+      setCheckedOutAt(result.book.checked_out_at)
+      setCounts(result.counts)
+      // The shelf has closed up behind it, so the drawing is stale.
+      await refreshPlacement()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setCheckingOut(false)
     }
   }
 
@@ -417,6 +442,7 @@ export default function App() {
           book.author_filing && book.author_filing !== derived ? book.author_filing : '',
       })
       setBookId(id)
+      setCheckedOutAt(book.checked_out_at)
       setCaptureId(null)
       setLookup(null)
       setIdentified(Boolean(book.isbn13))
@@ -466,6 +492,7 @@ export default function App() {
   /** Leave a catalogued book the way you came in. */
   const backToLibrary = () => {
     setBookId(null)
+    setCheckedOutAt(null)
     setDraft(emptyDraft)
     setPlacement(null)
     setMode('library')
@@ -483,6 +510,7 @@ export default function App() {
     setPlacement(null)
     setCaptureId(null)
     setBookId(null)
+    setCheckedOutAt(null)
     setMode('capture')
   }
 
@@ -745,6 +773,9 @@ export default function App() {
             shelfLabel={placement?.derivedLocation ?? ''}
             onDelete={bookId !== null ? deleteBook : undefined}
             deleting={deletingBook}
+            checkedOutAt={checkedOutAt}
+            onCheckOut={bookId !== null ? checkOut : undefined}
+            checkingOut={checkingOut}
           />
 
           {/* Only for a book still being scanned. A catalogued book came

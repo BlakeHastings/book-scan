@@ -143,7 +143,7 @@ describe('bookkeeping', () => {
     store.addBook(draft({ title: 'B', authors: ['X Z'] }))
     store.addBook(draft({ title: 'C', authors: ['Q R'], isFiction: false }))
 
-    expect(store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1 })
+    expect(store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0 })
   })
 
   it('flags a book recorded at a location that contradicts its order', () => {

@@ -1224,3 +1224,42 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   letter-spacing: 0.02em;
   color: var(--accent);
 }
+
+/* --- Off the shelf ----------------------------------------------------- */
+
+/* Stated where the book itself is, because every other reading of the page
+   assumes the book is somewhere on a shelf. */
+.checkedout {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: rgba(224, 175, 104, 0.12);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.checkedout strong { color: var(--warn); }
+
+.offshelf {
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.offshelf__head { margin: 0; font-size: 15px; color: var(--warn); }
+.offshelf__row {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  padding: 10px 2px;
+  min-height: 48px;
+  font-size: 15px;
+}
+.offshelf__title { font-weight: 500; }
+.offshelf__author { color: var(--muted); font-size: 13px; }
