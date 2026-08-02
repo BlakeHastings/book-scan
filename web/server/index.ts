@@ -365,9 +365,11 @@ app.post('/api/identify/isbn', async (req, res) => {
 
   try {
     const result = await identify(buffer, { wantTitle: false })
+    const settled = await settleAmbiguity(result)
+
     res.json({
-      isbn13: result.isbn13,
-      isbn10: result.isbn10,
+      isbn13: settled.isbn13,
+      isbn10: settled.isbn10,
       source: result.source,
       candidates: result.isbnCandidates,
       barcodes: result.barcodes,
@@ -376,6 +378,37 @@ app.post('/api/identify/isbn', async (req, res) => {
     res.status(500).json({ error: (caught as Error).message })
   }
 })
+
+/**
+ * Choose between barcode readings that cannot be told apart by arithmetic.
+ *
+ * One photo can decode as several EAN-13s and more than one can survive both
+ * its own check digit and the Bookland test. Mary Barton's back cover reads
+ * as 9781240286898 and 9781840226898; only the second is a book, and taking
+ * whichever came back first filled the dialog with the wrong number.
+ *
+ * At the shelf the catalogue settles this, because the book is already in it.
+ * Here it usually is not, so the question goes to the same source the dialog
+ * is about to consult anyway: the one that resolves to a real title wins.
+ *
+ * Only runs when there is genuine ambiguity, so the ordinary single-barcode
+ * read pays nothing.
+ */
+async function settleAmbiguity(
+  result: { isbn13: string; isbn10: string; barcodes: string[] },
+): Promise<{ isbn13: string; isbn10: string }> {
+  const readings = [...new Set(
+    result.barcodes.map((code) => resolveIsbnPair(code).isbn13).filter(Boolean),
+  )]
+  if (readings.length < 2) return result
+
+  for (const isbn of readings) {
+    const found = await lookupIsbn(isbn, { googleApiKey: GOOGLE_API_KEY })
+      .catch(() => null)
+    if (found?.found) return resolveIsbnPair(isbn)
+  }
+  return result
+}
 
 app.get('/api/lookup/isbn/:isbn', async (req, res) => {
   const raw = normaliseIsbn(req.params.isbn)
