@@ -726,13 +726,20 @@ export default function App() {
             onRelookup={relookup}
             onClearRelookupError={() => setRelookupError('')}
             saved={bookId !== null}
-            placement={
+            /*
+             * Only for a book that is actually on a shelf, where the drawing
+             * says where it is. For one still being scanned it would be
+             * answering a question nobody has asked yet, on a page already
+             * asking them to check a dozen fields. The shelving step puts it
+             * back when they say they are ready to place it.
+             */
+            placement={bookId !== null ? (
               <PlacementView
                 placement={placement}
                 pending={placementStale}
                 instruction={false}
               />
-            }
+            ) : undefined}
             doneLabel={bookId !== null ? 'Back to library' : 'Done'}
             onShelve={() => setMode('shelve')}
             onSaveEdits={saveEdits}
