@@ -16,6 +16,7 @@ import { PlacementView } from './components/ShelfStrip'
 import { ShelfView } from './components/ShelfView'
 import { ShelveView } from './components/ShelveView'
 import { QueuePane } from './components/QueuePane'
+import { ShelfCamera } from './components/ShelfCamera'
 
 type Mode = 'capture' | 'review' | 'shelve' | 'library' | 'queue'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
@@ -60,6 +61,7 @@ export default function App() {
   const [deletingBook, setDeletingBook] = useState(false)
   const [checkedOutAt, setCheckedOutAt] = useState<string | null>(null)
   const [checkingOut, setCheckingOut] = useState(false)
+  const [scanMode, setScanMode] = useState<'out' | 'in' | null>(null)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
@@ -407,6 +409,13 @@ export default function App() {
     }
   }
 
+  /** A book handed back by the scanner: load it and go straight to shelving. */
+  const shelveScanned = async (id: number) => {
+    setScanMode(null)
+    await openBook(id)
+    setMode('shelve')
+  }
+
   // Named wrappers rather than passing persist straight to a handler: onClick
   // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
   /** Finish a new book and hand the screen back to the camera. */
@@ -517,6 +526,18 @@ export default function App() {
   // -----------------------------------------------------------------------
   // Full-screen camera
   // -----------------------------------------------------------------------
+
+  // Above everything else: it is a full-screen camera, and whatever page
+  // opened it is still behind waiting to be returned to.
+  if (scanMode) {
+    return (
+      <ShelfCamera
+        mode={scanMode}
+        onShelve={(book) => void shelveScanned(book.id)}
+        onClose={() => setScanMode(null)}
+      />
+    )
+  }
 
   if (fullScreenCamera) {
     return (
@@ -736,7 +757,12 @@ export default function App() {
         <QueuePane onOpen={openCapture} onCounts={setQueueCounts} />
       )}
 
-      {mode === 'library' && <ShelfView onOpen={openBook} />}
+      {mode === 'library' && (
+        <ShelfView
+          onOpen={openBook}
+          onScan={(which) => setScanMode(which)}
+        />
+      )}
 
       {mode === 'review' && (
         <main className="main">

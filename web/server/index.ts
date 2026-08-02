@@ -621,6 +621,65 @@ app.get('/api/checked-out', (_req, res) => {
   res.json({ books: store.checkedOut() })
 })
 
+/**
+ * Hold a book up to the camera and take it off the shelf, or bring it back.
+ *
+ * One round trip from photo to decision, because the alternative is three and
+ * the person is stood there holding the book. It reads the ISBN, finds the
+ * catalogue entry and applies the change, and the reply says which of the
+ * several ways this can go actually happened so the screen can say something
+ * true rather than just "no".
+ *
+ * Checking in only clears the flag here. Where the book physically goes is
+ * the shelving step's business, and the client takes them there.
+ */
+app.post('/api/books/scan-checkout', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const out = body.out !== false
+
+  const buffer = decodeDataUrl(String(body.image ?? ''))
+  if (!buffer) {
+    res.status(400).json({ error: 'Send an image as a data URL.' })
+    return
+  }
+
+  try {
+    const read = await identify(buffer, { wantTitle: false })
+    if (!read.isbn13) {
+      res.json({ outcome: 'no-isbn', barcodes: read.barcodes })
+      return
+    }
+
+    const book = store.findByIsbn(read.isbn13)
+    if (!book) {
+      res.json({ outcome: 'not-catalogued', isbn13: read.isbn13 })
+      return
+    }
+
+    // Already in the state being asked for. Worth its own answer: telling
+    // someone a book is off the shelf when they just took it off reads as a
+    // failure, and telling them nothing is worse.
+    const alreadyOut = book.checked_out_at !== null
+    if (alreadyOut === out) {
+      res.json({
+        outcome: out ? 'already-out' : 'already-in',
+        book,
+        counts: store.counts(),
+      })
+      return
+    }
+
+    store.setCheckedOut(book.id, out)
+    res.json({
+      outcome: out ? 'checked-out' : 'checked-in',
+      book: store.getBook(book.id),
+      counts: store.counts(),
+    })
+  } catch (caught) {
+    res.status(500).json({ error: (caught as Error).message })
+  }
+})
+
 app.get('/api/misfiles', (_req, res) => {
   res.json({ misfiles: store.misfiles() })
 })

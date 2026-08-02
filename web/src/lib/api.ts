@@ -134,6 +134,20 @@ export interface ShelfGroupDto {
   kind: 'shelf' | 'area' | null
 }
 
+/**
+ * What happened when a book was held up to the camera.
+ *
+ * Every way this can go has its own outcome, because the useful thing to say
+ * next differs: an unreadable barcode wants you to move the book, a book that
+ * is not in the catalogue wants scanning properly, and one already in the
+ * state you asked for is not an error at all.
+ */
+export type ScanCheckout =
+  | { outcome: 'no-isbn'; barcodes: string[] }
+  | { outcome: 'not-catalogued'; isbn13: string }
+  | { outcome: 'already-out' | 'already-in'; book: BookRow; counts: Counts }
+  | { outcome: 'checked-out' | 'checked-in'; book: BookRow; counts: Counts }
+
 /** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
   book: BookRow
@@ -309,6 +323,13 @@ export const api = {
     }),
 
   checkedOut: () => request<{ books: BookRow[] }>('/api/checked-out'),
+
+  /** Photo in, decision out. See ScanCheckout for what each outcome means. */
+  scanCheckout: (image: string, out: boolean) =>
+    request<ScanCheckout>('/api/books/scan-checkout', {
+      method: 'POST',
+      body: JSON.stringify({ image, out }),
+    }),
 
   updateBook: (id: number, draft: Draft) =>
     request<{ id: number; placement: PlacementResponse; counts: Counts }>(

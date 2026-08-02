@@ -8,6 +8,8 @@ import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
   onOpen: (id: number) => void
+  /** Open the camera to work through a stack of books. */
+  onScan: (mode: 'out' | 'in') => void
 }
 
 /**
@@ -19,7 +21,7 @@ interface Props {
  * the moves that causes are reported rather than left for you to discover at
  * the shelf.
  */
-export function ShelfView({ onOpen }: Props) {
+export function ShelfView({ onOpen, onScan }: Props) {
   const [range, setRange] = useState<ShelfRange>('fiction')
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
   const [moves, setMoves] = useState<Move[]>([])
@@ -83,6 +85,17 @@ export function ShelfView({ onOpen }: Props) {
 
   return (
     <main className="main">
+      {/* Working through a physical stack, which is what the camera is for.
+          Above the range tabs because it applies to both. */}
+      <div className="actions">
+        <button className="btn" onClick={() => onScan('out')}>
+          Take books off by camera
+        </button>
+        <button className="btn" onClick={() => onScan('in')}>
+          Put one back by camera
+        </button>
+      </div>
+
       <div className="segmented">
         <button
           className={range === 'fiction' ? 'seg seg--on' : 'seg'}

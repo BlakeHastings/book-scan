@@ -1275,3 +1275,51 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   font-size: 11px;
 }
 .shelfrow--off .shelfrow__n { color: var(--warn); }
+
+/* Scanning a stack. Sits over the camera used for check-out and check-in. */
+.isbncam__top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) 14px 20px;
+  background: linear-gradient(rgba(0, 0, 0, 0.75), transparent);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.isbncam__mode { flex: 1; }
+.isbncam__tally {
+  background: var(--good);
+  color: #0b1a10;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* Confirmation that survives the next shot, so a run of books can be checked
+   against the pile in your hand rather than trusted. */
+.isbncam__done {
+  position: absolute;
+  left: 14px; right: 14px;
+  top: calc(64px + env(safe-area-inset-top));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  pointer-events: none;
+}
+.isbncam__done li {
+  background: rgba(0, 0, 0, 0.6);
+  border-left: 3px solid var(--good);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.isbncam__hint--good { color: var(--good); }
