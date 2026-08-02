@@ -66,6 +66,7 @@ export function LibraryPane({ onOpen }: { onOpen: (id: number) => void }) {
             <span className="shelf__photo">
               {(book.edge_image || book.front_image) && (
                 <img
+                  className={book.edge_image ? 'thumb thumb--edge' : 'thumb thumb--front'}
                   src={coverUrl(book.edge_image || book.front_image)}
                   alt=""
                   loading="lazy"

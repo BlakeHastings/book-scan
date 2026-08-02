@@ -78,6 +78,17 @@ still needs a title, which is what forces the expensive full OCR pass.
 Tap any slot to make it the shutter's target and retake it. A photo is kept
 whether or not an ISBN is found.
 
+**Every slot has an on-screen guide, but only the spine's is a crop.** The
+spine guide is solid, and what it frames is exactly what is saved. The front
+and back guides are dashed and alignment-only: the full frame is always kept
+there, because the printed ISBN often sits close to an edge and a crop that
+clips its last character costs the check digit. That failure has already
+happened here once.
+
+Library thumbnails frame a spine and a cover differently, since the useful
+part of each is somewhere else: a spine carries its title at the top, a cover
+reads from the middle.
+
 **Correcting a book happens in the detail view, not at the camera.** Opening a
 queued book shows its photos, every editable field, and the ISBN it was matched
 on. **Change ISBN** prompts for the right digits, validates them before
@@ -244,7 +255,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-140 tests. The ones worth knowing about:
+143 tests. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real zbar and tesseract pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on

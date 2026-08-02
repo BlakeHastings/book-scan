@@ -5,8 +5,9 @@ import {
   type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import {
-  captureStill, describeStream, openCamera, SLOT_CROP, SLOTS, SLOT_HINT,
-  SLOT_LABEL, SLOT_SHORT, stopStream, thumbnail, type Slot,
+  captureStill, describeStream, openCamera, SLOT_CROP, SLOT_GUIDE,
+  SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL, SLOT_SHORT, stopStream,
+  thumbnail, type Slot,
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
 import { PlacementCard } from './components/PlacementCard'
@@ -390,17 +391,17 @@ export default function App() {
       <div className="cam">
         <video ref={videoRef} className="cam__video" playsInline muted autoPlay />
 
-        {cameraOn && SLOT_CROP[activeSlot] && (
+        {cameraOn && (
           <div
-            className="cam__guide"
+            className={SLOT_CROP[activeSlot] ? 'cam__guide cam__guide--crop' : 'cam__guide'}
             style={{
-              left: `${SLOT_CROP[activeSlot]!.x * 100}%`,
-              top: `${SLOT_CROP[activeSlot]!.y * 100}%`,
-              width: `${SLOT_CROP[activeSlot]!.width * 100}%`,
-              height: `${SLOT_CROP[activeSlot]!.height * 100}%`,
+              left: `${SLOT_GUIDE[activeSlot].x * 100}%`,
+              top: `${SLOT_GUIDE[activeSlot].y * 100}%`,
+              width: `${SLOT_GUIDE[activeSlot].width * 100}%`,
+              height: `${SLOT_GUIDE[activeSlot].height * 100}%`,
             }}
           >
-            <span className="cam__guide-label">Fit the spine in here</span>
+            <span className="cam__guide-label">{SLOT_GUIDE_LABEL[activeSlot]}</span>
           </div>
         )}
 

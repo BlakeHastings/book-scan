@@ -219,6 +219,21 @@ export function shelfPhoto(neighbour: Neighbour | null): string {
   return neighbour.images.edge || neighbour.images.front || neighbour.images.back || ''
 }
 
+/**
+ * Which slot shelfPhoto picked, so a thumbnail can be framed accordingly.
+ *
+ * A spine and a cover want opposite crops at thumbnail size: the useful part
+ * of a spine is its top, where the title starts, while a cover reads best from
+ * its middle.
+ */
+export function shelfPhotoSlot(neighbour: Neighbour | null): 'edge' | 'front' | 'back' | '' {
+  if (!neighbour) return ''
+  if (neighbour.images.edge) return 'edge'
+  if (neighbour.images.front) return 'front'
+  if (neighbour.images.back) return 'back'
+  return ''
+}
+
 export type PlacementKind =
   | 'between-same-location'
   | 'between-different-locations'

@@ -1,4 +1,4 @@
-import { shelfPhoto, type Neighbour } from '../../shared/shelving'
+import { shelfPhoto, shelfPhotoSlot, type Neighbour } from '../../shared/shelving'
 import type { PlacementResponse } from '../lib/api'
 
 /** Photos are served by the API, not bundled, so they need the /api prefix. */
@@ -14,6 +14,7 @@ function NeighbourRow({
   emptyText: string
 }) {
   const photo = coverUrl(shelfPhoto(neighbour))
+  const slot = shelfPhotoSlot(neighbour)
 
   return (
     <div className="neighbour">
@@ -22,7 +23,12 @@ function NeighbourRow({
         <>
           <span className="neighbour__photo">
             {photo
-              ? <img src={photo} alt={`Spine of ${neighbour.title}`} loading="lazy" />
+              ? <img
+                  className={`thumb thumb--${slot}`}
+                  src={photo}
+                  alt={`${neighbour.title}`}
+                  loading="lazy"
+                />
               : <span className="neighbour__nophoto">no photo</span>}
           </span>
           <span className="neighbour__text">

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPlacement, buildSortKey, compareLocations, filingName, findMisfiles,
-  normalise, parseLocation, shelfPhoto, titleFiling, type Neighbour, type ShelvedBook,
+  normalise, parseLocation, shelfPhoto, shelfPhotoSlot, titleFiling,
+  type Neighbour, type ShelvedBook,
 } from './shelving'
 
 describe('normalise', () => {
@@ -208,5 +209,28 @@ describe('findMisfiles', () => {
   it('ignores books that have no location yet', () => {
     // Unshelved is not misfiled.
     expect(findMisfiles([book(1, '2A'), book(2, ''), book(3, '2B')])).toHaveLength(0)
+  })
+})
+
+describe('shelfPhotoSlot', () => {
+  const withImages = (images: { front: string; back: string; edge: string }): Neighbour => ({
+    id: 1, title: 'T', authorFiling: 'A', location: '1A', sortKey: '1', images,
+  })
+
+  it('reports which photo shelfPhoto chose, so it can be framed for that side', () => {
+    expect(shelfPhotoSlot(withImages({ front: 'f', back: 'b', edge: 'e' }))).toBe('edge')
+    expect(shelfPhotoSlot(withImages({ front: 'f', back: 'b', edge: '' }))).toBe('front')
+    expect(shelfPhotoSlot(withImages({ front: '', back: 'b', edge: '' }))).toBe('back')
+  })
+
+  it('agrees with shelfPhoto about which file it picked', () => {
+    const n = withImages({ front: 'f', back: 'b', edge: '' })
+    expect(shelfPhoto(n)).toBe('f')
+    expect(shelfPhotoSlot(n)).toBe('front')
+  })
+
+  it('returns nothing when there are no photos', () => {
+    expect(shelfPhotoSlot(withImages({ front: '', back: '', edge: '' }))).toBe('')
+    expect(shelfPhotoSlot(null)).toBe('')
   })
 })

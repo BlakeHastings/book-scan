@@ -106,8 +106,50 @@ export const SPINE_CROP: CropFraction = {
   y: (1 - 0.80) / 2,
 }
 
+/**
+ * Which slots are actually cropped on capture.
+ *
+ * Only the spine. Cropping a front or back cover would be actively harmful:
+ * the printed ISBN often sits close to an edge, and a crop that clips its last
+ * character costs the check digit and makes the whole number unusable. That
+ * exact failure has already happened here once. The full frame is kept for
+ * front and back, and their guides are alignment aids only.
+ */
 export const SLOT_CROP: Partial<Record<Slot, CropFraction>> = {
   edge: SPINE_CROP,
+}
+
+/**
+ * Roughly the proportions of a paperback held up to a phone in portrait.
+ *
+ * Sat above centre on purpose: the controls occupy the lower fifth of the
+ * screen, and a vertically centred rectangle runs underneath them. Safe to
+ * position for legibility precisely because this one does not crop anything.
+ */
+const BOOK_GUIDE: CropFraction = {
+  width: 0.82,
+  height: 0.60,
+  x: (1 - 0.82) / 2,
+  y: 0.11,
+}
+
+/**
+ * The rectangle drawn on the live preview for each slot.
+ *
+ * For the spine this is the crop, so what is framed is exactly what is saved.
+ * For front and back it is guidance only: line the book up the same way every
+ * time and the library thumbnails stay comparable, without risking the ISBN.
+ */
+export const SLOT_GUIDE: Record<Slot, CropFraction> = {
+  back: BOOK_GUIDE,
+  front: BOOK_GUIDE,
+  edge: SPINE_CROP,
+}
+
+export const SLOT_GUIDE_LABEL: Record<Slot, string> = {
+  back: 'Line the book up here',
+  front: 'Line the book up here',
+  edge: 'Fit the spine in here',
 }
 
 /**
