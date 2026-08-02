@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS books (
     -- When a cover was last looked for. Set whether or not one was found, so
     -- a book with no cover anywhere is not re-fetched on every backfill.
     cover_checked_at          TEXT,
+    -- Difference hashes of the front photo and the catalogue cover, for
+    -- shortlisting a book held up to the camera. See imagehash.ts.
+    front_hash                TEXT    DEFAULT '',
+    cover_hash                TEXT    DEFAULT '',
     isbn_source               TEXT    DEFAULT '',
     ocr_text                  TEXT    DEFAULT '',
 
@@ -189,6 +193,9 @@ export interface BookRow {
   cover_image: string
   /** When a cover was last looked for, found or not. */
   cover_checked_at: string | null
+  /** Difference hashes, for matching a book held up to the camera. */
+  front_hash: string
+  cover_hash: string
 }
 
 /**
@@ -211,6 +218,8 @@ function addMissingColumns(db: Database.Database): void {
       ['checked_out_at', 'TEXT'],
       ['cover_image', "TEXT DEFAULT ''"],
       ['cover_checked_at', 'TEXT'],
+      ['front_hash', "TEXT DEFAULT ''"],
+      ['cover_hash', "TEXT DEFAULT ''"],
     ],
     captures: [
       ['cover_text', "TEXT DEFAULT ''"],

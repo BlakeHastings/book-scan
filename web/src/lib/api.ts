@@ -144,8 +144,21 @@ export interface ShelfGroupDto {
  * is not in the catalogue wants scanning properly, and one already in the
  * state you asked for is not an error at all.
  */
+/** A book that looks like the one held up. Never acted on without a tap. */
+export interface CoverMatch {
+  id: number
+  title: string
+  authorFiling: string
+  /** Filename under /api/covers: the publisher cover, or the photo of it. */
+  cover: string
+  checkedOut: boolean
+  /** Differing bits out of 64. Lower is more alike. */
+  distance: number
+}
+
 export type ScanCheckout =
-  | { outcome: 'no-isbn'; barcodes: string[] }
+  | { outcome: 'no-isbn'; barcodes: string[]; candidates: CoverMatch[] }
+  | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'not-catalogued'; isbn13: string }
   | { outcome: 'already-out' | 'already-in'; book: BookRow; counts: Counts }
   | { outcome: 'checked-out' | 'checked-in'; book: BookRow; counts: Counts }

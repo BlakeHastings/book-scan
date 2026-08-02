@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type BookRow } from '../lib/api'
+import { api, type BookRow, type CoverMatch } from '../lib/api'
+import { coverUrl } from './PlacementCard'
 import {
   applyFocusHints, captureStill, listLenses, openCamera, preferredLens,
   rememberedLens, rememberLens, stopStream,
@@ -37,6 +38,7 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
   const [message, setMessage] = useState('')
   const [good, setGood] = useState(false)
   const [done, setDone] = useState<Done[]>([])
+  const [choices, setChoices] = useState<CoverMatch[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -90,10 +92,18 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
     setReading(true)
     setMessage('')
     setGood(false)
+    setChoices([])
     try {
       const result = await api.scanCheckout(image, mode === 'out')
 
       switch (result.outcome) {
+        case 'candidates':
+          // Recognised by its cover, which is a good guess and not a fact, so
+          // it is offered rather than applied.
+          setChoices(result.candidates)
+          setMessage('No barcode. Is it one of these?')
+          break
+
         case 'no-isbn':
           setMessage(
             result.barcodes.length
@@ -136,6 +146,26 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
     }
   }
 
+  /** The person picked one of the look-alikes, so now it is a fact. */
+  const choose = async (match: CoverMatch) => {
+    setChoices([])
+    setReading(true)
+    try {
+      const result = await api.setCheckedOut(match.id, mode === 'out')
+      if (mode === 'in') {
+        onShelve(result.book)
+        return
+      }
+      setGood(true)
+      setMessage(`${match.title} is off the shelf.`)
+      setDone((list) => [{ title: match.title, note: match.authorFiling }, ...list])
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setReading(false)
+    }
+  }
+
   const taking = mode === 'out'
 
   return (
@@ -166,12 +196,37 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
         </ul>
       )}
 
+      {choices.length > 0 && (
+        <div className="isbncam__choices">
+          {choices.map((match) => (
+            <button
+              key={match.id}
+              className="choice"
+              onClick={() => choose(match)}
+              disabled={reading}
+            >
+              {match.cover
+                ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
+                : <span className="choice__nocover">no cover</span>}
+              <span className="choice__text">
+                <span className="choice__title">{match.title}</span>
+                <span className="choice__author">{match.authorFiling}</span>
+                {match.checkedOut && <span className="choice__state">already off the shelf</span>}
+              </span>
+            </button>
+          ))}
+          <button className="btn btn--ghost" onClick={() => setChoices([])}>
+            None of these
+          </button>
+        </div>
+      )}
+
       <div className="isbncam__bar">
         <p className={good ? 'isbncam__hint isbncam__hint--good' : 'isbncam__hint'}>
           {error || message
             || (taking
-              ? 'Hold the barcode up, then shoot. Keep going for as many as you like.'
-              : 'Hold the barcode up. Putting it back leads to the shelving step.')}
+              ? 'Show the barcode, or just the front. Keep going for as many as you like.'
+              : 'Show the barcode, or just the front. Putting it back leads to shelving.')}
         </p>
         <div className="isbncam__controls">
           <button className="btn" onClick={onClose} disabled={reading}>Done</button>

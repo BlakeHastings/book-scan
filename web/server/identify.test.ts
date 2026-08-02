@@ -8,6 +8,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { backCover, barcodePng, frontCover, glossy } from './fixtures'
 import sharp from 'sharp'
+import { coverHash, distance } from './imagehash'
 import {
   decodeBarcodes, identify, pickCoverLines, pickTitle, regionAroundBarcode,
   shutdownOcr,
@@ -295,5 +296,42 @@ describe('barcode region, the crop handed to OCR', () => {
       meta,
     )
     expect(region).toBeNull()
+  })
+})
+
+describe('cover hashing, for recognising a book held up to the camera', () => {
+  it('gives the same hash for the same image', async () => {
+    const image = await frontCover('Dune', 'Frank Herbert')
+    expect(await coverHash(image)).toBe(await coverHash(image))
+  })
+
+  it('keeps a re-photographed cover nearer than a different book', async () => {
+    // The property the shortlist rests on. Not an absolute threshold, which
+    // would only ever encode one fixture: what matters is that the same book
+    // photographed twice beats a different book, by a margin.
+    const dune = await frontCover('Dune', 'Frank Herbert')
+    const other = await frontCover('The Dispossessed', 'Ursula Le Guin')
+
+    // Held a little crooked, brighter, slightly out of focus: the everyday
+    // difference between two photographs of one book.
+    const reshot = await sharp(dune)
+      .rotate(4, { background: '#111' })
+      .modulate({ brightness: 1.2 })
+      .blur(1.3)
+      .jpeg()
+      .toBuffer()
+
+    const same = distance(await coverHash(dune), await coverHash(reshot))
+    const different = distance(await coverHash(dune), await coverHash(other))
+
+    expect(same).toBeLessThan(different)
+    // And inside the cutoff the matcher uses, or it would never be offered.
+    expect(same).toBeLessThanOrEqual(24)
+  }, 20_000)
+
+  it('reports the maximum distance rather than throwing on a missing hash', async () => {
+    // An unhashed book must never accidentally look like a perfect match.
+    expect(distance('', 'ffffffffffffffff')).toBe(64)
+    expect(distance('abc', 'ffffffffffffffff')).toBe(64)
   })
 })

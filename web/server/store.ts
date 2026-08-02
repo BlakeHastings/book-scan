@@ -445,6 +445,47 @@ export class Store {
         { id: number; isbn13: string; isbn10: string }[]
   }
 
+  setHashes(id: number, front: string, cover: string): void {
+    this.db
+      .prepare('UPDATE books SET front_hash = ?, cover_hash = ? WHERE id = ?')
+      .run(front, cover, id)
+  }
+
+  /**
+   * Everything a held-up book can be matched against.
+   *
+   * Small enough to scan in full: sixty-four bits per image and a few thousand
+   * books is nothing, and an index that let us skip comparisons would have to
+   * approximate the very thing being measured.
+   */
+  hashIndex(): {
+    id: number; title: string; author_filing: string
+    cover_image: string; front_image: string
+    checked_out_at: string | null
+    front_hash: string; cover_hash: string
+  }[] {
+    return this.db
+      .prepare(
+        `SELECT id, title, author_filing, cover_image, front_image, checked_out_at,
+                front_hash, cover_hash
+           FROM books
+          WHERE front_hash != '' OR cover_hash != ''`,
+      )
+      .all() as never
+  }
+
+  /** Books whose images have not been hashed yet. */
+  missingHashes(limit: number): { id: number; front_image: string; cover_image: string }[] {
+    return this.db
+      .prepare(
+        `SELECT id, front_image, cover_image FROM books
+          WHERE (front_image != '' AND front_hash = '')
+             OR (cover_image != '' AND cover_hash = '')
+          ORDER BY id LIMIT ?`,
+      )
+      .all(limit) as never
+  }
+
   /** Books off the shelf, oldest first, so nothing is quietly forgotten. */
   checkedOut(): BookRow[] {
     return this.db
