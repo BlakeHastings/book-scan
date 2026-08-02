@@ -11,6 +11,7 @@ import { openDatabase } from './db'
 
 import { lookupIsbn, searchTitle } from './lookup'
 import { identify } from './identify'
+import { warmPaddle } from './paddle'
 import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
 import { CaptureQueue } from './queue'
@@ -964,7 +965,8 @@ queue.resumeOnStartup()
 // After the port is open, so a slow or unreachable cover service never
 // delays the server being usable.
 setTimeout(() => {
-  void hashInBackground()
+  void warmPaddle()
+    .then(() => hashInBackground())
     .then(() => backfillCoversInBackground())
     .catch((caught) => {
       console.error('[covers] backfill stopped:', (caught as Error).message)

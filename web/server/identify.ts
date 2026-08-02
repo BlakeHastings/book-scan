@@ -22,6 +22,7 @@ import { join, resolve } from 'node:path'
 import sharp, { type Sharp } from 'sharp'
 import { scanGrayBuffer } from '@undecaf/zbar-wasm'
 import { prepareZXingModule, readBarcodesFromImageFile } from 'zxing-wasm/reader'
+import { paddleOcr, shutdownPaddle } from './paddle'
 import { createWorker, PSM, type Worker } from 'tesseract.js'
 import {
   extractIsbnCandidates, resolveIsbnPair,
@@ -458,6 +459,7 @@ async function withWorker<T>(fn: (worker: Worker) => Promise<T>): Promise<T> {
 }
 
 export async function shutdownOcr(): Promise<void> {
+  await shutdownPaddle()
   const workers = pool
   pool = []
   poolReady = null
@@ -629,6 +631,50 @@ async function ocrVariants(
   })
 
   return variants
+}
+
+/** Fold one pass's text and lines into the result being built. */
+function absorb(
+  result: IdentifyResult,
+  ocr: OcrOutput,
+  options: IdentifyOptions,
+): void {
+  result.text = result.text ? `${result.text}
+${ocr.text}` : ocr.text
+  if (options.wantTitle && !result.coverLines.length) {
+    result.coverLines = pickCoverLines(ocr.lines)
+    result.titleGuess = result.coverLines[0] ?? ''
+  }
+}
+
+/**
+ * Collect the ISBNs these passes read, best first, and say whether any turned
+ * up.
+ *
+ * Ranked by which pass saw a reading first, NOT by how many passes agree.
+ * Agreement looked like the obvious signal and is a trap here: the passes are
+ * ordered best-first, and on a worn label two weaker ones will happily agree
+ * with each other on the same misreading and outvote the one that read it
+ * correctly. Order beat votes on a real book.
+ */
+function harvest(result: IdentifyResult, passes: OcrOutput[]): boolean {
+  const seen = new Set(result.isbnCandidates)
+  for (const ocr of passes) {
+    for (const candidate of extractIsbnCandidates(ocr.text)) {
+      if (seen.has(candidate.isbn13)) continue
+      seen.add(candidate.isbn13)
+      result.isbnCandidates.push(candidate.isbn13)
+    }
+  }
+
+  const best = result.isbnCandidates[0]
+  if (!best) return false
+
+  const pair = resolveIsbnPair(best)
+  result.isbn13 = pair.isbn13
+  result.isbn10 = pair.isbn10
+  result.source = 'ocr'
+  return true
 }
 
 /** Run a set of rungs at once, each on its own worker. */
@@ -871,10 +917,15 @@ async function identifyNow(
 
   let decoded = await decodeWithZXing(input)
   let generalPasses: Promise<OcrOutput[]> | null = null
+  let paddlePass: Promise<OcrOutput | null> | null = null
 
   if (!decoded.length && effort === 'thorough') {
+    // Paddle answers in about a second and reads more than the ladder does in
+    // five, so it runs alongside both the slow decoder and tesseract, and its
+    // answer is usually back before either of them.
+    paddlePass = wantOcr ? paddleOcr(input) : null
+    paddlePass?.catch(() => {})
     generalPasses = wantOcr ? ocrVariants(input, options.wantTitle).then(runAll) : null
-    // Nothing may reject unobserved: an early return below abandons this.
     generalPasses?.catch(() => {})
     decoded = await decodeWithZBar(input)
   }
@@ -911,58 +962,50 @@ async function identifyNow(
    * came from is what decides between two disagreeing readings, and that has
    * to stay a property of the ladder, not of which worker finished first.
    */
+  /*
+   * Paddle first, and often alone.
+   *
+   * It is the most accurate reader here, so its reading outranks the others
+   * when they disagree. And when it produces an ISBN there is nothing to gain
+   * by waiting several more seconds for a ladder that, on every image
+   * measured, found either the same number or none: the rest is abandoned
+   * mid-flight and the answer goes back straight away.
+   */
+  const fromPaddle = await (paddlePass ?? paddleOcr(input))
+  if (fromPaddle) {
+    absorb(result, fromPaddle, options)
+    if (harvest(result, [fromPaddle])) {
+      noteReading(result)
+      return result
+    }
+  }
+
   // Ladder order: the region rungs read a label the decoder has already
   // located, so they come first and settle any disagreement.
   const passes = [
     ...await runAll(await regionVariants(input, barcodeBox)),
     ...await (generalPasses ?? ocrVariants(input, options.wantTitle).then(runAll)),
   ]
+  for (const ocr of passes) absorb(result, ocr, options)
 
   // How many passes produced each reading. Agreement is the only cheap signal
   // that a number came off the page rather than out of OCR noise.
-  const votes = new Map<string, number>()
-  const order: string[] = []
+  harvest(result, passes)
+  noteReading(result)
+  return result
+}
 
-  for (const ocr of passes) {
-    result.text = result.text ? `${result.text}
-${ocr.text}` : ocr.text
-    if (options.wantTitle && !result.coverLines.length) {
-      result.coverLines = pickCoverLines(ocr.lines)
-      result.titleGuess = result.coverLines[0] ?? ''
-    }
-
-    for (const candidate of extractIsbnCandidates(ocr.text)) {
-      if (!votes.has(candidate.isbn13)) order.push(candidate.isbn13)
-      votes.set(candidate.isbn13, (votes.get(candidate.isbn13) ?? 0) + 1)
-    }
-  }
-
-  // Ranked by which pass saw it first, NOT by how many passes agree.
-  //
-  // Agreement looked like the obvious signal and is a trap here. The rungs
-  // are ordered best-first, and on a worn label two weaker passes will
-  // happily agree with each other on the same misreading, outvoting the one
-  // pass that read it correctly. Order beat votes on a real book.
-  result.isbnCandidates = order
-
-  const best = result.isbnCandidates[0]
-  if (best) {
-    const pair = resolveIsbnPair(best)
-    result.isbn13 = pair.isbn13
-    result.isbn10 = pair.isbn10
-    result.source = 'ocr'
-    result.notes.push(
-      result.isbnCandidates.length > 1
-        ? `ISBN read from the printed label. ${result.isbnCandidates.length} readings differed; the catalogue decides.`
-        : 'ISBN read from the printed label.',
-    )
-  }
-
+/** Say where the number came from, and how sure that is. */
+function noteReading(result: IdentifyResult): void {
   if (!result.isbn13) {
     result.notes.push('No ISBN found in this photo.')
+    return
   }
-
-  return result
+  result.notes.push(
+    result.isbnCandidates.length > 1
+      ? `ISBN read from the printed label. ${result.isbnCandidates.length} readings differed; the catalogue decides.`
+      : 'ISBN read from the printed label.',
+  )
 }
 
 /** Merge results from several photos, preferring a barcode over OCR. */
