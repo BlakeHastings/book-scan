@@ -686,7 +686,6 @@ export default function App() {
         {counts && (
           <span className="counts">
             {counts.total} books · {counts.fiction} fiction · {counts.nonfiction} non-fiction
-            {counts.unshelved > 0 ? ` · ${counts.unshelved} unshelved` : ''}
           </span>
         )}
       </header>

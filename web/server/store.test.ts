@@ -135,14 +135,15 @@ describe('bookkeeping', () => {
     expect(row?.authors).toBe('Terry Pratchett, Neil Gaiman')
   })
 
-  it('counts shelved and unshelved separately', () => {
+  it('counts by range, and does not pretend a book can be unshelved', () => {
+    // Every catalogued book has a derived shelf, whether or not the vestigial
+    // location column was ever filled in, so there is nothing to count as
+    // unshelved. Two of these carry no location and still count normally.
     store.addBook(draft({ title: 'A', authors: ['X Y'], location: '1A' }))
     store.addBook(draft({ title: 'B', authors: ['X Z'] }))
-    store.addBook(draft({ title: 'C', authors: ['Q R'], isFiction: false, location: 'S4' }))
+    store.addBook(draft({ title: 'C', authors: ['Q R'], isFiction: false }))
 
-    expect(store.counts()).toEqual({
-      total: 3, fiction: 2, nonfiction: 1, unshelved: 1,
-    })
+    expect(store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1 })
   })
 
   it('flags a book recorded at a location that contradicts its order', () => {

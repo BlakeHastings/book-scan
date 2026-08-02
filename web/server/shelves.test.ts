@@ -119,3 +119,33 @@ describe('ranges are independent', () => {
     expect(shelves.layout('nonfiction').map((p) => p.label)).toEqual(['4A'])
   })
 })
+
+describe('every catalogued book has a shelf', () => {
+  /**
+   * The property behind dropping the "unshelved" count. A shelf is derived,
+   * so being in the catalogue and being on a shelf are the same fact. If this
+   * ever fails, an unshelved state exists again and needs reporting somewhere.
+   */
+  it('places every book exactly once, whatever the boundaries', () => {
+    const ids = ['Austen, Jane', 'Brontë, Emily', 'Carter, Angela', 'Dickens, Charles',
+      'Eliot, George', 'Forster, E M'].map((a) => add(a))
+
+    for (const label of ['1A', '1A', '1B']) {
+      shelves.overflow('fiction', label, 'area')
+    }
+
+    const placed = shelves.layout('fiction')
+    expect(placed).toHaveLength(ids.length)
+    expect(new Set(placed.map((p) => p.book.id))).toEqual(new Set(ids))
+    // And every one of them names a real shelf.
+    expect(placed.every((p) => /^\d+[A-Z]+$/.test(p.label))).toBe(true)
+  })
+
+  it('places a book saved without ever touching the location column', () => {
+    // Which is every book saved since locations became derived.
+    const id = add('Zola, Émile')
+    const placed = shelves.layout('fiction')
+    expect(placed.find((p) => p.book.id === id)?.label).toBe('1A')
+    expect(store.getBook(id)?.location).toBe('')
+  })
+})

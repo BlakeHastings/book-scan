@@ -389,24 +389,32 @@ export class Store {
       .all(range) as BookRow[]
   }
 
-  counts(): { total: number; fiction: number; nonfiction: number; unshelved: number } {
+  /**
+   * There is no unshelved count any more, because there is no such state.
+   *
+   * A shelf is derived from the separators, so every catalogued book has a
+   * position by construction; the layout places all of them or none. The old
+   * count read the `location` column, which stopped being written when
+   * locations became derived, so it reported almost the whole library as
+   * unshelved while the library was busy showing exactly where each book sat.
+   * A book that is genuinely not filed yet is still a capture in the queue,
+   * and the queue counts those.
+   */
+  counts(): { total: number; fiction: number; nonfiction: number } {
     const row = this.db
       .prepare(
         `SELECT
            COUNT(*)                                                   AS total,
            SUM(CASE WHEN shelf_range = 'fiction'    THEN 1 ELSE 0 END) AS fiction,
-           SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END) AS nonfiction,
-           SUM(CASE WHEN location = '' OR location IS NULL THEN 1 ELSE 0 END)
-                                                                       AS unshelved
+           SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END) AS nonfiction
          FROM books`,
       )
-      .get() as { total: number; fiction: number | null; nonfiction: number | null; unshelved: number | null }
+      .get() as { total: number; fiction: number | null; nonfiction: number | null }
 
     return {
       total: row.total ?? 0,
       fiction: row.fiction ?? 0,
       nonfiction: row.nonfiction ?? 0,
-      unshelved: row.unshelved ?? 0,
     }
   }
 

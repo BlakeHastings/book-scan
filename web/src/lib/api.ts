@@ -83,7 +83,6 @@ export interface Counts {
   total: number
   fiction: number
   nonfiction: number
-  unshelved: number
 }
 
 export interface BookRow {
