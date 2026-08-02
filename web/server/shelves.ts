@@ -8,7 +8,7 @@
 import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
-  diffLayout, groupByShelf, layoutRange, overflow, shelfLoads,
+  diffLayout, groupByShelf, layoutRange, locationLabel, overflow, shelfLoads,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
   type ShelfGroup,
 } from '../shared/layout'
@@ -68,6 +68,23 @@ export class Shelves {
     return shelfLoads(this.layout(range), this.list(range))
   }
 
+  /**
+   * Which shelf a book with this sort key would land on.
+   *
+   * Works for a book that is not saved yet, which is the case that matters:
+   * the shelving step has to name a real shelf before the book exists. Done by
+   * laying the run out with the newcomer slotted in, so boundaries are honoured
+   * rather than approximated from a neighbour.
+   */
+  shelfForSortKey(range: ShelfRange, sortKey: string): string {
+    const books = this.booksIn(range).map((row) => ({ ...row, sortKey: row.sort_key }))
+    const merged = [...books, { id: -1, sortKey } as ShelvedBook]
+      .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
+
+    return layoutRange(merged, this.list(range))
+      .find((p) => p.book.id === -1)?.label ?? locationLabel(0, 1)
+  }
+
   /** Where one book sits now, or '' if it is not shelved in this range. */
   labelFor(range: ShelfRange, bookId: number): string {
     return this.layout(range).find((p) => p.book.id === bookId)?.label ?? ''
@@ -87,12 +104,25 @@ export class Shelves {
     kindIfNew: SeparatorKind = 'shelf',
   ): { ok: boolean; error?: string; step?: Overflow; moves?: Move[] } {
     const before = this.layout(range)
-    const step = overflow(before, this.list(range), label, kindIfNew)
+    const known = groupByShelf(before, this.list(range)).map((g) => g.label)
 
+    // Two different failures used to share one message, which sent you looking
+    // at the shelf when the real problem was that the label never existed.
+    if (!known.includes(label)) {
+      return {
+        ok: false,
+        error: known.length
+          ? `There is no shelf ${label}. Shelves here are ${known.join(', ')}.`
+          : `There is no shelf ${label} yet; nothing has been shelved in this range.`,
+      }
+    }
+
+    const step = overflow(before, this.list(range), label, kindIfNew)
     if (!step) {
       return {
         ok: false,
-        error: `${label} has nothing to give up. Start a new shelf instead.`,
+        error: `${label} holds only one book, so moving it along would just ` +
+          'empty the shelf. Put the new book on the next shelf instead.',
       }
     }
 

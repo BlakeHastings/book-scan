@@ -285,7 +285,15 @@ app.post('/api/placement/preview', (req, res) => {
   }
   // When editing a saved book, it must not turn up as its own neighbour.
   const excludeId = Number(body.excludeId ?? 0) || undefined
-  res.json(store.placementFor(draft, excludeId))
+  const placement = store.placementFor(draft, excludeId)
+
+  res.json({
+    ...placement,
+    // The shelf this book would actually land on, in the derived scheme.
+    // suggestedLocation is the old per-book scheme and names shelves that no
+    // longer exist, which is what made the shelving step ask about "1A".
+    derivedLocation: shelves.shelfForSortKey(placement.range, placement.sortKey),
+  })
 })
 
 // ---------------------------------------------------------------------------

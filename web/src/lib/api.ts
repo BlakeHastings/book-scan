@@ -51,6 +51,8 @@ export interface Draft {
 export interface PlacementResponse extends Placement {
   authorFiling: string
   sortKey: string
+  /** Shelf in the derived scheme (A1, B2). What the shelving step asks about. */
+  derivedLocation?: string
 }
 
 export interface Counts {

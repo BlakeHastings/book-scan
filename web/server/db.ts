@@ -211,6 +211,70 @@ function addMissingColumns(db: Database.Database): void {
   }
 }
 
+/**
+ * Rebuild a separators table left over from the capacity model.
+ *
+ * Adding starts_at was not enough: the old capacity column is NOT NULL, so
+ * every insert against an existing database failed. The old rows are still
+ * meaningful though, and thrown away silently would lose the boundaries
+ * somebody walked their shelves to set. A capacity of N on the first shelf
+ * means the second shelf began at book N+1, so each row converts into the
+ * sort key of the book it used to start before.
+ */
+function migrateSeparators(db: Database.Database): void {
+  const columns = (db.pragma('table_info(separators)') as { name: string }[])
+    .map((c) => c.name)
+  if (columns.length === 0 || !columns.includes('capacity')) return
+
+  const legacy = db
+    .prepare('SELECT * FROM separators ORDER BY shelf_range, position')
+    .all() as { id: number; shelf_range: string; kind: string; capacity: number; position: number; note: string; created_at: string }[]
+
+  const rebuild = db.transaction(() => {
+    db.exec('ALTER TABLE separators RENAME TO separators_legacy')
+    db.exec(`
+      CREATE TABLE separators (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          shelf_range TEXT    NOT NULL,
+          kind        TEXT    NOT NULL DEFAULT 'shelf',
+          starts_at   TEXT    NOT NULL,
+          position    INTEGER NOT NULL,
+          note        TEXT    DEFAULT '',
+          created_at  TEXT    NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_separators ON separators (shelf_range, position);
+    `)
+
+    const bookAt = db.prepare(
+      `SELECT sort_key FROM books WHERE shelf_range = ?
+        ORDER BY sort_key ASC LIMIT 1 OFFSET ?`,
+    )
+    const insert = db.prepare(
+      `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+
+    // Capacities were cumulative down a range: the nth boundary began after
+    // the sum of every capacity before it.
+    const consumed = new Map<string, number>()
+    for (const row of legacy) {
+      const before = consumed.get(row.shelf_range) ?? 0
+      const offset = before + row.capacity
+      const next = bookAt.get(row.shelf_range, offset) as { sort_key: string } | undefined
+      consumed.set(row.shelf_range, offset)
+
+      // A boundary past the end of the range no longer describes anywhere.
+      if (!next) continue
+      insert.run(row.shelf_range, row.kind, next.sort_key, before === 0 ? 0 : consumed.size,
+                 row.note ?? '', row.created_at)
+    }
+
+    db.exec('DROP TABLE separators_legacy')
+  })
+
+  rebuild()
+}
+
 export function openDatabase(path: string): Database.Database {
   mkdirSync(dirname(path), { recursive: true })
 
@@ -223,6 +287,7 @@ export function openDatabase(path: string): Database.Database {
   db.pragma('busy_timeout = 5000')
   db.exec(SCHEMA)
   addMissingColumns(db)
+  migrateSeparators(db)
 
   const version = db.pragma('user_version', { simple: true }) as number
   if (version < SCHEMA_VERSION) {

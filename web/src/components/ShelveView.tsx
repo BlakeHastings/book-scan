@@ -37,7 +37,9 @@ export function ShelveView({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const shelfLabel = current?.to ?? placement?.suggestedLocation ?? ''
+  // The derived shelf, not suggestedLocation: that belongs to the old
+  // per-book scheme and names shelves the layout has never heard of.
+  const shelfLabel = current?.to ?? placement?.derivedLocation ?? ''
 
   const notEnoughRoom = async (kind: 'shelf' | 'area') => {
     if (!shelfLabel) return
@@ -89,7 +91,10 @@ export function ShelveView({
             Did it fit?
           </p>
         ) : (
-          <p>Put the book in the gap above. Did it fit?</p>
+          <p>
+            Put the book in the gap above, on shelf <strong>{shelfLabel || '?'}</strong>.
+            Did it fit?
+          </p>
         )}
 
         <div className="actions">
