@@ -108,8 +108,15 @@ app.post('/api/identify', async (req, res) => {
     return
   }
 
-  // Only the front cover needs a title guess, and it is the expensive part.
-  const result = await identify(image, { wantTitle: slot === 'front' })
+  // The title guess is the expensive part: it forces a full OCR pass even
+  // when the barcode already answered. The client asks for it only when it
+  // still has no title, so once a book is identified the remaining photos
+  // come back fast.
+  const wantTitle = body.wantTitle === undefined
+    ? slot === 'front'
+    : Boolean(body.wantTitle)
+
+  const result = await identify(image, { wantTitle })
 
   const lookup = result.isbn13
     ? await lookupIsbn(result.isbn13, { googleApiKey: GOOGLE_API_KEY })

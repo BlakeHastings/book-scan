@@ -57,17 +57,32 @@ shared/         pure logic used by both sides
 
 ## Capture flow
 
-Three photos per book, taken manually with a shutter button:
+Three photos per book, taken manually with a shutter button, in this order:
 
-| Slot | What it is for |
-| --- | --- |
-| Front cover | The record, and an OCR title guess if no ISBN turns up |
-| Back cover | The barcode and the printed ISBN. This is the one that matters |
-| Spine | How the book looks on the shelf |
+| Order | Slot | What it is for |
+| --- | --- | --- |
+| 1 | Back cover | The barcode and printed ISBN. Shot first so identification starts immediately |
+| 2 | Front cover | The record, and an OCR title guess if no ISBN turns up |
+| 3 | Spine | How the book looks on the shelf |
 
-Each photo is sent to `/api/identify` as it is taken. Tap any slot to make it
-the shutter's target and retake it. A photo is kept whether or not an ISBN is
-found, and manual ISBN or title entry is always available.
+**The back cover goes first on purpose.** It carries the identifier, so the
+lookup runs while the other two photos are being taken instead of the user
+waiting at the end.
+
+**Once the book is identified, the remaining photos skip the round trip
+entirely.** Re-running barcode decoding and OCR on the front and spine costs
+seconds and cannot improve an answer we already have, so those shots are kept
+and stored without being analysed. The client also tells the server whether it
+still needs a title, which is what forces the expensive full OCR pass.
+
+Tap any slot to make it the shutter's target and retake it. A photo is kept
+whether or not an ISBN is found.
+
+**When identification fails there is always a way forward.** A typed ISBN or
+title sits in the camera view whenever the book is still unknown. If a barcode
+scans but no catalogue has it, the digits are pre-filled into that box so they
+can be corrected and searched again, and a successful manual lookup fills the
+record exactly as a scan would, without leaving the camera.
 
 The phone only ever talks to Vite over HTTPS. Vite proxies `/api` to the
 Express process server-side, which is what keeps the page free of the

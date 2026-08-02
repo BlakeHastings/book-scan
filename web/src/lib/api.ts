@@ -119,11 +119,15 @@ function draftBody(draft: Draft) {
 }
 
 export const api = {
-  /** Read an ISBN off one photo, and look the book up if one is found. */
-  identify: (image: string, slot: 'front' | 'back' | 'edge') =>
+  /**
+   * Read an ISBN off one photo, and look the book up if one is found.
+   * `wantTitle` drives the expensive OCR pass, so pass false once the book
+   * already has a title.
+   */
+  identify: (image: string, slot: 'front' | 'back' | 'edge', wantTitle: boolean) =>
     request<IdentifyResponse>('/api/identify', {
       method: 'POST',
-      body: JSON.stringify({ image, slot }),
+      body: JSON.stringify({ image, slot, wantTitle }),
     }),
 
   lookupIsbn: (isbn: string) =>

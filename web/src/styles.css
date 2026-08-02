@@ -494,3 +494,24 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   display: block;
 }
 .shelf__photo img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Manual ISBN entry inside the camera view. Present whenever the book is
+   still unknown, so a failed scan has somewhere to go. */
+.cam__manual { display: flex; gap: 8px; margin-bottom: 10px; }
+.cam__manual input {
+  flex: 1;
+  min-height: 44px;
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.cam__manual .btn { flex: 0 0 auto; }
+
+/* Once there is something worth reviewing, stop looking like a ghost button. */
+.cam__review--ready {
+  background: var(--good);
+  border-color: var(--good);
+  color: #0b0b12;
+  font-weight: 600;
+}
+.cam__review--ready .cam__count { color: rgba(0, 0, 0, 0.6); }

@@ -13,7 +13,7 @@ import { ReviewPane } from './components/ReviewPane'
 import { LibraryPane } from './components/LibraryPane'
 
 type Mode = 'capture' | 'review' | 'library'
-type SlotStatus = 'empty' | 'busy' | 'found' | 'none'
+type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
 
 /** Next slot with no photo in it, so the shutter advances by itself. */
 function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
@@ -34,7 +34,7 @@ export default function App() {
   const [shots, setShots] = useState<Partial<Record<Slot, string>>>({})
   const [thumbs, setThumbs] = useState<Partial<Record<Slot, string>>>({})
   const [status, setStatus] = useState<Partial<Record<Slot, SlotStatus>>>({})
-  const [activeSlot, setActiveSlot] = useState<Slot>('front')
+  const [activeSlot, setActiveSlot] = useState<Slot>('back')
 
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [lookup, setLookup] = useState<LookupResponse | null>(null)
@@ -44,6 +44,7 @@ export default function App() {
   const [savedPlacement, setSavedPlacement] = useState<PlacementResponse | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [manualEntry, setManualEntry] = useState('')
+  const [lookingUp, setLookingUp] = useState(false)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
@@ -128,11 +129,20 @@ export default function App() {
     void thumbnail(full).then((small) =>
       setThumbs((current) => ({ ...current, [slot]: small })),
     )
-    setStatus((current) => ({ ...current, [slot]: 'busy' }))
     setActiveSlot((current) => nextEmpty({ ...shots, [slot]: full }, current))
 
+    // Once the book is identified the remaining photos are just record
+    // keeping. Re-running barcode and OCR on them costs seconds and cannot
+    // improve the answer, so keep the photo and skip the round trip.
+    if (identified) {
+      setStatus((current) => ({ ...current, [slot]: 'kept' }))
+      return
+    }
+
+    setStatus((current) => ({ ...current, [slot]: 'busy' }))
+
     try {
-      const response = await api.identify(full, slot)
+      const response = await api.identify(full, slot, !draft.title.trim())
       const found = Boolean(response.identify.isbn13)
       setStatus((current) => ({ ...current, [slot]: found ? 'found' : 'none' }))
 
@@ -145,10 +155,15 @@ export default function App() {
       if (response.lookup?.found && !identified) {
         applyLookup(response.lookup)
       } else if (found && !identified) {
+        // The ISBN read fine but no catalogue has it. Put it in the manual
+        // box so it can be corrected and retried, rather than leaving the
+        // user with a message and nowhere to act on it.
         setDraft((current) => ({ ...current, isbn13: response.identify.isbn13 }))
+        setManualEntry(response.identify.isbn13)
         setError(
-          `Found ISBN ${response.identify.isbn13} but no catalogue entry. ` +
-            'Enter the details by hand.',
+          `Read ISBN ${response.identify.isbn13}, but no catalogue has it. ` +
+            'Check the digits below and search again, or open Review to type ' +
+            'the details in.',
         )
       } else if (!found && response.identify.titleGuess && !identified) {
         setDraft((current) =>
@@ -192,25 +207,42 @@ export default function App() {
   // Actions
   // -----------------------------------------------------------------------
 
+  /**
+   * Manual ISBN or title entry. Takes the same path as a successful scan:
+   * on a hit it fills the draft and stays on the camera, so the remaining
+   * photos can still be taken. Only a miss sends the user to the form.
+   */
   const lookupManual = async () => {
     const value = manualEntry.trim()
     if (!value) return
+
     setError('')
+    setLookingUp(true)
     try {
-      const result = /^[\d\s-]{9,}[\dXx]?$/.test(value)
+      // Ten or thirteen digits, allowing separators and a trailing X, is an
+      // ISBN. Anything else is treated as a title.
+      const digits = value.replace(/[^0-9Xx]/g, '')
+      const result = digits.length === 10 || digits.length === 13
         ? await api.lookupIsbn(value)
         : await api.searchTitle(value)
+
       if (result.found) {
         applyLookup(result)
+        setManualEntry('')
       } else {
-        setDraft((current) => ({ ...current, title: value }))
-        setError(`Nothing found for "${value}". Enter the details by hand.`)
+        setDraft((current) => ({
+          ...current,
+          ...(digits.length ? { isbn13: digits } : { title: value }),
+        }))
+        setError(
+          `Nothing found for "${value}". Open Review to type the details in.`,
+        )
       }
-      setMode('review')
     } catch (caught) {
       setError((caught as Error).message)
+    } finally {
+      setLookingUp(false)
     }
-    setManualEntry('')
   }
 
   const save = async () => {
@@ -235,7 +267,7 @@ export default function App() {
     setShots({})
     setThumbs({})
     setStatus({})
-    setActiveSlot('front')
+    setActiveSlot('back')
     setPlacement(null)
     setMode('capture')
   }
@@ -280,23 +312,37 @@ export default function App() {
             <button className="btn btn--primary btn--big" onClick={startCamera}>
               Start camera
             </button>
-            <div className="manual manual--dark">
-              <input
-                value={manualEntry}
-                onChange={(event) => setManualEntry(event.target.value)}
-                onKeyDown={(event) => { if (event.key === 'Enter') void lookupManual() }}
-                placeholder="Or type an ISBN or title"
-              />
-              <button className="btn" onClick={lookupManual}>Look up</button>
-            </div>
           </div>
         )}
 
         <div className="cam__bottom">
-          {identified && (
+          {identified ? (
             <div className="cam__found">
               <strong>{draft.title}</strong>
               {draft.authors ? ` · ${draft.authors}` : ''}
+            </div>
+          ) : (
+            /* Always available while the book is still unknown, and
+               pre-filled with a scanned-but-unmatched ISBN so it can be
+               corrected and retried in place. */
+            <div className="cam__manual">
+              <input
+                value={manualEntry}
+                onChange={(event) => setManualEntry(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') void lookupManual() }}
+                placeholder="Type the ISBN or a title"
+                enterKeyHint="search"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <button
+                className="btn btn--primary"
+                onClick={lookupManual}
+                disabled={lookingUp || !manualEntry.trim()}
+              >
+                {lookingUp ? '...' : 'Find'}
+              </button>
             </div>
           )}
 
@@ -317,7 +363,7 @@ export default function App() {
                   {SLOT_SHORT[slot]}
                   {state === 'busy' && <span className="cam__dot cam__dot--busy" />}
                   {state === 'found' && <span className="cam__dot cam__dot--found" />}
-                  {state === 'none' && shots[slot] && <span className="cam__dot" />}
+                  {(state === 'kept' || (state === 'none' && shots[slot])) && <span className="cam__dot" />}
                 </button>
               )
             })}
@@ -346,7 +392,7 @@ export default function App() {
             </button>
 
             <button
-              className="cam__review"
+              className={`cam__review ${identified || draft.isbn13 ? 'cam__review--ready' : ''}`}
               onClick={() => { stopCamera(); setMode('review') }}
               disabled={busy || (!identified && shotCount === 0 && !draft.title)}
             >

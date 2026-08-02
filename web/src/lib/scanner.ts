@@ -19,26 +19,31 @@
 
 export type Slot = 'front' | 'back' | 'edge'
 
-/** Shooting order: front, spine, back. The back comes last because it is the
- *  natural way to turn a book over in your hands. */
-export const SLOTS: Slot[] = ['front', 'edge', 'back']
+/**
+ * Shooting order: back first.
+ *
+ * The back cover carries the barcode and the printed ISBN, so shooting it
+ * first means identification starts on shot one and the lookup runs while the
+ * remaining photos are being taken, instead of the user waiting at the end.
+ */
+export const SLOTS: Slot[] = ['back', 'front', 'edge']
 
 export const SLOT_LABEL: Record<Slot, string> = {
+  back: 'Back cover',
   front: 'Front cover',
   edge: 'Spine',
-  back: 'Back cover',
 }
 
 export const SLOT_SHORT: Record<Slot, string> = {
+  back: 'Back',
   front: 'Front',
   edge: 'Spine',
-  back: 'Back',
 }
 
 export const SLOT_HINT: Record<Slot, string> = {
+  back: 'The barcode and printed ISBN. Shot first so the lookup starts now.',
   front: 'The cover. Used for the title if no ISBN turns up.',
   edge: 'The spine, as it will look on the shelf.',
-  back: 'The barcode and printed ISBN. This is the one that identifies the book.',
 }
 
 /**
