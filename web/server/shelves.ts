@@ -8,8 +8,9 @@
 import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
-  diffLayout, groupByShelf, layoutRange, shelfLoads,
-  type Move, type Placed, type Separator, type SeparatorKind, type ShelfGroup,
+  diffLayout, groupByShelf, layoutRange, overflow, shelfLoads,
+  type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
+  type ShelfGroup,
 } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
 
@@ -17,7 +18,7 @@ interface SeparatorRow {
   id: number
   shelf_range: ShelfRange
   kind: SeparatorKind
-  capacity: number
+  starts_at: string
   position: number
   note: string
   created_at: string
@@ -30,7 +31,7 @@ const toSeparator = (row: SeparatorRow): Separator => ({
   id: row.id,
   range: row.shelf_range,
   kind: row.kind,
-  capacity: row.capacity,
+  startsAt: row.starts_at,
   position: row.position,
 })
 
@@ -73,61 +74,43 @@ export class Shelves {
   }
 
   /**
-   * Mark a shelf full after a given book.
+   * The person says a shelf will not take another book.
    *
-   * The click happens between two books in the list, but what gets stored is
-   * the resulting capacity: how many books sit on that shelf up to and
-   * including the one clicked. From then on the number is a fact about the
-   * furniture, and which book happens to be last is free to change.
+   * Moves its last book to the front of the next shelf, creating that shelf
+   * if it does not exist, and returns the single physical step to perform.
+   * Nothing here decides whether the next shelf can cope: that is the next
+   * question to ask, and the caller walks the chain one answer at a time.
    */
-  markFullAfter(
+  overflow(
     range: ShelfRange,
-    bookId: number,
-    kind: SeparatorKind,
-    note = '',
-  ): { ok: boolean; error?: string; separator?: Separator } {
-    const placed = this.layout(range)
-    const index = placed.findIndex((p) => p.book.id === bookId)
-    if (index === -1) {
-      return { ok: false, error: 'That book is not on these shelves.' }
-    }
+    label: string,
+    kindIfNew: SeparatorKind = 'shelf',
+  ): { ok: boolean; error?: string; step?: Overflow; moves?: Move[] } {
+    const before = this.layout(range)
+    const step = overflow(before, this.list(range), label, kindIfNew)
 
-    const target = placed[index]!
-    const existing = this.list(range)
-
-    // Only the last, open-ended shelf can be closed. Closing one that already
-    // has a separator would need every later capacity renumbered, and the
-    // honest fix is to remove the existing separator first.
-    const isFinalShelf = placed
-      .slice(index + 1)
-      .every((p) => p.label === target.label) || index === placed.length - 1
-    const closedShelves = existing.length
-    const targetIsClosed = groupByShelf(placed, existing)
-      .findIndex((g) => g.label === target.label) < closedShelves
-
-    if (targetIsClosed) {
+    if (!step) {
       return {
         ok: false,
-        error: `${target.label} is already marked full. Remove that marker first.`,
+        error: `${label} has nothing to give up. Start a new shelf instead.`,
       }
     }
-    if (!isFinalShelf) {
-      return { ok: false, error: 'Only the last shelf can be marked full.' }
+
+    if (step.create) {
+      this.db
+        .prepare(
+          `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
+           VALUES (?, ?, ?, ?, '', ?)`,
+        )
+        .run(range, step.create.kind, step.create.startsAt,
+             this.list(range).length, new Date().toISOString())
+    } else if (step.shift) {
+      this.db
+        .prepare('UPDATE separators SET starts_at = ? WHERE id = ?')
+        .run(step.shift.startsAt, step.shift.id)
     }
 
-    // Books on this shelf up to and including the one clicked.
-    const start = placed.findIndex((p) => p.label === target.label)
-    const capacity = index - start + 1
-
-    const result = this.db
-      .prepare(
-        `INSERT INTO separators (shelf_range, kind, capacity, position, note, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(range, kind, capacity, existing.length, note, new Date().toISOString())
-
-    const separator = this.list(range).find((s) => s.id === Number(result.lastInsertRowid))
-    return { ok: true, separator }
+    return { ok: true, step, moves: this.movesSince(range, before) }
   }
 
   /** Remove a boundary and renumber the rest so positions stay contiguous. */

@@ -53,10 +53,7 @@ function describeMoves(range: 'fiction' | 'nonfiction', moves: { id: number; fro
 }
 
 function shelfGroups(range: 'fiction' | 'nonfiction') {
-  return shelves.groups(range).map((group) => ({
-    ...group,
-    over: group.capacity !== null && group.books.length > group.capacity,
-  }))
+  return shelves.groups(range)
 }
 
 const queue = new CaptureQueue(
@@ -363,28 +360,29 @@ app.get('/api/shelves', (req, res) => {
 })
 
 /**
- * Mark the shelf holding this book as full at that point. The stored value is
- * the resulting capacity, so later inserts push books along rather than
- * letting the shelf grow past what it physically holds.
+ * The person at the shelf says it will not take another book.
+ *
+ * Returns the one physical step to perform. Whether the shelf it moves onto
+ * can cope is not knowable here, so the client asks and calls again if not.
  */
-app.post('/api/shelves/full-after', (req, res) => {
+app.post('/api/shelves/overflow', (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>
   const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
   const kind = body.kind === 'area' ? 'area' : 'shelf'
-  const bookId = Number(body.bookId ?? 0)
+  const label = String(body.label ?? '')
 
-  const before = shelves.layout(range)
-  const result = shelves.markFullAfter(range, bookId, kind, String(body.note ?? ''))
+  const result = shelves.overflow(range, label, kind)
   if (!result.ok) {
     res.status(400).json({ error: result.error })
     return
   }
 
-  res.status(201).json({
-    separator: result.separator,
-    // Closing a shelf pushes everything after it along, and each of those is
-    // a book somebody has to physically pick up.
-    moves: describeMoves(range, shelves.movesSince(range, before)),
+  res.json({
+    step: result.step
+      ? { ...result.step, title: shelves.layout(range)
+            .find((p) => p.book.id === result.step!.moved.id)?.book.title ?? '' }
+      : null,
+    moves: describeMoves(range, result.moves ?? []),
     groups: shelfGroups(range),
   })
 })

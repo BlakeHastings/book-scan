@@ -34,17 +34,6 @@ export function ShelfView({ onOpen }: Props) {
 
   useEffect(() => { load() }, [load])
 
-  const markFull = async (bookId: number, kind: 'shelf' | 'area') => {
-    setError('')
-    try {
-      const result = await api.markShelfFull(range, bookId, kind)
-      setGroups(result.groups)
-      setMoves(result.moves)
-    } catch (caught) {
-      setError((caught as Error).message)
-    }
-  }
-
   const removeSeparator = async (id: number) => {
     setError('')
     try {
@@ -98,10 +87,7 @@ export function ShelfView({ onOpen }: Props) {
         <p className="hint">Nothing catalogued in this range yet.</p>
       )}
 
-      {groups.map((group, index) => {
-        const isLast = index === groups.length - 1
-        const lastBook = group.books[group.books.length - 1]
-
+      {groups.map((group) => {
         return (
           <section key={group.label} className="shelfgroup">
             <header className="shelfgroup__head">
@@ -109,11 +95,7 @@ export function ShelfView({ onOpen }: Props) {
                   half people actually need when walking to the book. */}
               <span className="shelfgroup__label">Area {areaLabel(group.area)}</span>
               <span className="shelfgroup__shelf">Shelf {group.shelf}</span>
-              <span className="shelfgroup__count">
-                {group.books.length}
-                {group.capacity !== null ? ` of ${group.capacity}` : ''}
-                {group.over ? ' · over' : ''}
-              </span>
+              <span className="shelfgroup__count">{group.books.length} books</span>
             </header>
 
             <ol className="shelf">
@@ -144,11 +126,10 @@ export function ShelfView({ onOpen }: Props) {
               ))}
             </ol>
 
-            {group.separatorId !== null ? (
+            {group.separatorId !== null && (
               <div className="divider">
                 <span className="divider__label">
-                  {group.kind === 'area' ? 'End of area' : 'End of shelf'}
-                  {' · holds '}{group.capacity}
+                  {group.kind === 'area' ? 'New area starts here' : 'New shelf starts here'}
                 </span>
                 <button
                   className="btn btn--ghost"
@@ -157,19 +138,7 @@ export function ShelfView({ onOpen }: Props) {
                   Remove
                 </button>
               </div>
-            ) : isLast && lastBook ? (
-              // Only the open-ended shelf can be closed: closing an earlier one
-              // would mean renumbering every capacity after it.
-              <div className="divider divider--open">
-                <span className="divider__label">Shelf full here?</span>
-                <button className="btn" onClick={() => markFull(lastBook.book.id, 'shelf')}>
-                  End of shelf
-                </button>
-                <button className="btn" onClick={() => markFull(lastBook.book.id, 'area')}>
-                  End of area
-                </button>
-              </div>
-            ) : null}
+            )}
           </section>
         )
       })}

@@ -99,10 +99,8 @@ export interface ShelfGroupDto {
   shelf: number
   label: string
   books: { book: BookRow }[]
-  capacity: number | null
   separatorId: number | null
   kind: 'shelf' | 'area' | null
-  over?: boolean
 }
 
 export interface Misfile {
@@ -270,11 +268,18 @@ export const api = {
   shelves: (range: ShelfRange) =>
     request<{ groups: ShelfGroupDto[] }>(`/api/shelves?range=${range}`),
 
-  /** Tell the software a shelf is physically full at this book. */
-  markShelfFull: (range: ShelfRange, bookId: number, kind: 'shelf' | 'area') =>
-    request<{ groups: ShelfGroupDto[]; moves: Move[] }>('/api/shelves/full-after', {
+  /**
+   * The person at the shelf says it will not take another book. Returns the
+   * single step to perform; ask again if the shelf it lands on is full too.
+   */
+  overflowShelf: (range: ShelfRange, label: string, kind: 'shelf' | 'area') =>
+    request<{
+      step: { title: string; from: string; to: string } | null
+      groups: ShelfGroupDto[]
+      moves: Move[]
+    }>('/api/shelves/overflow', {
       method: 'POST',
-      body: JSON.stringify({ range, bookId, kind }),
+      body: JSON.stringify({ range, label, kind }),
     }),
 
   removeSeparator: (id: number, range: ShelfRange) =>

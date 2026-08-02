@@ -32,134 +32,90 @@ describe('before anything is marked full', () => {
   })
 })
 
-describe('marking a shelf full', () => {
-  it('records the capacity, not the book it was clicked after', () => {
+describe('saying a shelf is full', () => {
+  it('moves its last book to a new shelf and reports the step', () => {
     add('Ann Author')
     const bob = add('Bob Baker')
-    add('Cal Church')
+    expect(labels()).toEqual(['A1', 'A1'])
 
-    const result = shelves.markFullAfter('fiction', bob, 'shelf')
+    const result = shelves.overflow('fiction', 'A1', 'shelf')
     expect(result.ok).toBe(true)
-    // Two books sat on that shelf up to and including Bob.
-    expect(result.separator?.capacity).toBe(2)
-    expect(labels()).toEqual(['A1', 'A1', 'A2'])
+    expect(result.step?.moved.id).toBe(bob)
+    expect(result.step?.from).toBe('A1')
+    expect(result.step?.to).toBe('A2')
+    expect(labels()).toEqual(['A1', 'A2'])
+    expect(result.moves).toEqual([{ id: bob, from: 'A1', to: 'A2' }])
   })
 
-  it('starts a new area when the bookcase runs out', () => {
+  it('can push into a new area instead', () => {
+    add('Ann Author')
+    add('Bob Baker')
+    shelves.overflow('fiction', 'A1', 'area')
+    expect(labels()).toEqual(['A1', 'B1'])
+  })
+
+  it('refuses a shelf with only one book on it', () => {
+    add('Ann Author')
+    const result = shelves.overflow('fiction', 'A1', 'shelf')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('nothing to give up')
+  })
+
+  it('walks the cascade one answer at a time', () => {
     add('Ann Author')
     const bob = add('Bob Baker')
-    add('Cal Church')
+    const cal = add('Cal Church')
+    shelves.overflow('fiction', 'A1', 'shelf')      // Cal to A2
+    expect(labels()).toEqual(['A1', 'A1', 'A2'])
 
-    shelves.markFullAfter('fiction', bob, 'area')
-    expect(labels()).toEqual(['A1', 'A1', 'B1'])
-  })
-
-  it('refuses to close a shelf that is already closed', () => {
-    const ann = add('Ann Author')
-    add('Bob Baker')
-    shelves.markFullAfter('fiction', ann, 'shelf')
-
-    const again = shelves.markFullAfter('fiction', ann, 'shelf')
-    expect(again.ok).toBe(false)
-    expect(again.error).toContain('already marked full')
-  })
-
-  it('refuses a book that is not on these shelves', () => {
-    expect(shelves.markFullAfter('fiction', 999, 'shelf').ok).toBe(false)
+    // A1 still will not do; say so again.
+    const second = shelves.overflow('fiction', 'A1', 'shelf')
+    expect(second.step?.moved.id).toBe(bob)
+    expect(labels()).toEqual(['A1', 'A2', 'A2'])
+    expect(cal).toBeGreaterThan(0)
   })
 })
 
-describe('a book arriving on a shelf that is already full', () => {
-  it('pushes the last book onto the next shelf and says so', () => {
+describe('a book inserted into a shelf', () => {
+  it('is allowed to simply fit, without displacing anyone', () => {
+    // A thin book may well fit, and only a person can say otherwise, so
+    // nothing moves on its own.
     add('Bob Baker')
-    const cal = add('Cal Church')
-    shelves.markFullAfter('fiction', cal, 'shelf') // A1 holds two, and is full
-    expect(labels()).toEqual(['A1', 'A1'])
-
+    add('Cal Church')
+    shelves.overflow('fiction', 'A1', 'shelf')
     const before = shelves.layout('fiction')
 
-    // Ann sorts ahead of both, so Cal no longer fits and has to move.
     add('Ann Author')
-
     expect(labels()).toEqual(['A1', 'A1', 'A2'])
-    expect(shelves.movesSince('fiction', before)).toEqual([
-      { id: cal, from: 'A1', to: 'A2' },
-    ])
-  })
-
-  it('cascades the displacement across every full shelf', () => {
-    add('Bob Baker')
-    const cal = add('Cal Church')
-    shelves.markFullAfter('fiction', cal, 'shelf')
-    add('Dan Dover')
-    const eve = add('Eve Ellis')
-    shelves.markFullAfter('fiction', eve, 'area')
-    add('Fay Foster')
-
-    expect(labels()).toEqual(['A1', 'A1', 'A2', 'A2', 'B1'])
-    const before = shelves.layout('fiction')
-
-    add('Ann Author')
-
-    // One insert shunts a book off each full shelf in turn.
-    expect(labels()).toEqual(['A1', 'A1', 'A2', 'A2', 'B1', 'B1'])
-    const moves = shelves.movesSince('fiction', before)
-    expect(moves).toEqual([
-      { id: expect.any(Number), from: 'A1', to: 'A2' },
-      { id: expect.any(Number), from: 'A2', to: 'B1' },
-    ])
-  })
-
-  it('reports no moves when the new book lands at the end', () => {
-    const ann = add('Ann Author')
-    shelves.markFullAfter('fiction', ann, 'shelf')
-    const before = shelves.layout('fiction')
-
-    add('Zed Zulu')
     expect(shelves.movesSince('fiction', before)).toEqual([])
   })
 })
 
-describe('removing a separator', () => {
+describe('removing a boundary', () => {
   it('merges the shelves back and reports the books coming home', () => {
-    const ann = add('Ann Author')
-    add('Bob Baker')
-    const created = shelves.markFullAfter('fiction', ann, 'shelf')
+    add('Ann Author')
+    const bob = add('Bob Baker')
+    const created = shelves.overflow('fiction', 'A1', 'shelf')
     expect(labels()).toEqual(['A1', 'A2'])
 
     const before = shelves.layout('fiction')
-    shelves.remove(created.separator!.id)
+    shelves.remove(shelves.list('fiction')[0]!.id)
 
     expect(labels()).toEqual(['A1', 'A1'])
     expect(shelves.movesSince('fiction', before)).toEqual([
-      { id: expect.any(Number), from: 'A2', to: 'A1' },
+      { id: bob, from: 'A2', to: 'A1' },
     ])
-  })
-
-  it('keeps the remaining positions contiguous', () => {
-    const ann = add('Ann Author')
-    add('Bob Baker')
-    add('Cal Church')
-    const first = shelves.markFullAfter('fiction', ann, 'shelf')
-    const second = shelves.markFullAfter(
-      'fiction', shelves.layout('fiction')[1]!.book.id, 'shelf',
-    )
-
-    shelves.remove(first.separator!.id)
-    const left = shelves.list('fiction')
-    expect(left).toHaveLength(1)
-    expect(left[0]!.id).toBe(second.separator!.id)
-    // Position renumbered, so it now closes the first shelf.
-    expect(left[0]!.position).toBe(0)
+    expect(created.ok).toBe(true)
   })
 })
 
 describe('ranges are independent', () => {
   it('does not let a fiction boundary move non-fiction books', () => {
-    const ann = add('Ann Author')
+    add('Ann Author')
+    add('Bob Baker')
     store.addBook({ title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false })
 
-    shelves.markFullAfter('fiction', ann, 'area')
+    shelves.overflow('fiction', 'A1', 'area')
     expect(shelves.layout('nonfiction').map((p) => p.label)).toEqual(['A1'])
   })
 })

@@ -846,3 +846,12 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   display: grid;
 }
 .danger-zone .btn { color: var(--bad); border-color: rgba(247, 118, 142, 0.4); }
+
+.shelve__ask {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.shelve__ask p { margin: 0 0 10px; }

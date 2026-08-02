@@ -115,20 +115,21 @@ CREATE TABLE IF NOT EXISTS captures (
 
 CREATE INDEX IF NOT EXISTS idx_captures_status ON captures (status, id);
 
--- Where the furniture runs out.
+-- Where each shelf begins.
 --
--- A separator records how many books a shelf holds, not which book it sits
--- after. You know a shelf is full; the software cannot see it. Recording a
--- capacity means inserting a book earlier in the alphabet pushes the last one
--- onto the next shelf, the way it does in the room. Anchoring to a book
--- instead would let that shelf quietly hold one more than it physically can.
+-- A boundary says WHERE a shelf starts and nothing about how much it holds.
+-- An earlier version stored a capacity, which is not a fact about the
+-- furniture: swap a paperback for a hardback and the same shelf holds one
+-- fewer. Nothing here predicts capacity. A person says when a shelf is full
+-- and the boundary moves.
 CREATE TABLE IF NOT EXISTS separators (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     shelf_range TEXT    NOT NULL,
     -- 'shelf' ends a shelf; 'area' ends the whole bookcase and resets to
     -- shelf 1 of the next one.
     kind        TEXT    NOT NULL DEFAULT 'shelf',
-    capacity    INTEGER NOT NULL,
+    -- Sort key of the first book on this shelf.
+    starts_at   TEXT    NOT NULL,
     -- Ordinal within its range: the first separator closes the first shelf.
     position    INTEGER NOT NULL,
     note        TEXT    DEFAULT '',
@@ -190,6 +191,9 @@ function addMissingColumns(db: Database.Database): void {
     captures: [
       ['cover_text', "TEXT DEFAULT ''"],
       ['analysed', "TEXT DEFAULT ''"],
+    ],
+    separators: [
+      ['starts_at', "TEXT DEFAULT ''"],
     ],
   }
 

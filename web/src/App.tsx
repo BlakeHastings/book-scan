@@ -13,9 +13,10 @@ import { filingName } from '../shared/shelving'
 import { PlacementCard } from './components/PlacementCard'
 import { BookDetail } from './components/BookDetail'
 import { ShelfView } from './components/ShelfView'
+import { ShelveView } from './components/ShelveView'
 import { QueuePane } from './components/QueuePane'
 
-type Mode = 'capture' | 'review' | 'library' | 'queue'
+type Mode = 'capture' | 'review' | 'shelve' | 'library' | 'queue'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
 
 /** Next slot with no photo in it, so the shutter advances by itself. */
@@ -203,7 +204,7 @@ export default function App() {
   // -----------------------------------------------------------------------
 
   useEffect(() => {
-    if (mode !== 'review' || !draft.title.trim()) {
+    if ((mode !== 'review' && mode !== 'shelve') || !draft.title.trim()) {
       setPlacement(null)
       return
     }
@@ -568,6 +569,17 @@ export default function App() {
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
 
+      {mode === 'shelve' && (
+        <ShelveView
+          placement={placement}
+          range={draft.isFiction ? 'fiction' : 'nonfiction'}
+          title={draft.title || 'this book'}
+          saving={saving}
+          onShelved={save}
+          onBack={() => setMode('review')}
+        />
+      )}
+
       {mode === 'queue' && (
         <QueuePane onOpen={openCapture} onCounts={setQueueCounts} />
       )}
@@ -589,7 +601,7 @@ export default function App() {
             onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
             onRelookup={relookup}
             onClearRelookupError={() => setRelookupError('')}
-            onSave={save}
+            onSave={() => setMode('shelve')}
             onDiscard={reset}
             onDelete={bookId !== null ? deleteBook : undefined}
             deleting={deletingBook}

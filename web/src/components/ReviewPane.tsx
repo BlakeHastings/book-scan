@@ -121,7 +121,7 @@ export function ReviewPane({
 
       <div className="actions">
         <button className="btn btn--primary" onClick={onSave} disabled={saving || !draft.title}>
-          {saving ? 'Saving...' : 'Save and shelve'}
+          {saving ? 'Saving...' : 'Looks right, shelve it'}
         </button>
         <button className="btn" onClick={onDiscard} disabled={saving}>
           Cancel
