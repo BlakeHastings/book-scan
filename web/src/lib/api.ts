@@ -236,6 +236,19 @@ export const api = {
       body: JSON.stringify({ image, slot, captureId }),
     }),
 
+  /** One-shot read of an ISBN from a photo, for the Change ISBN dialog. */
+  identifyIsbn: (image: string) =>
+    request<{
+      isbn13: string
+      isbn10: string
+      source: 'barcode' | 'ocr' | ''
+      candidates: string[]
+      barcodes: string[]
+    }>('/api/identify/isbn', {
+      method: 'POST',
+      body: JSON.stringify({ image }),
+    }),
+
   getCapture: (id: number) =>
     request<{ capture: Capture; counts: QueueCounts }>(`/api/captures/${id}`),
 

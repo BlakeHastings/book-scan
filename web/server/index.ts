@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path'
 import { openDatabase } from './db'
 
 import { lookupIsbn, searchTitle } from './lookup'
+import { identify } from './identify'
 import { CaptureQueue } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
@@ -340,6 +341,37 @@ app.delete('/api/captures/:id', (req, res) => {
 // ---------------------------------------------------------------------------
 // Lookup
 // ---------------------------------------------------------------------------
+
+/**
+ * Read an ISBN out of one photo and answer straight away.
+ *
+ * Deliberately synchronous, which the capture path is not. There the queue
+ * owns the work so the person can keep shooting; here they are sat in front of
+ * a dialog waiting for the number, and handing them a job id to poll would be
+ * a worse version of waiting. Nothing is stored: this reads the image, returns
+ * what it found, and forgets it.
+ */
+app.post('/api/identify/isbn', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const buffer = decodeDataUrl(String(body.image ?? ''))
+  if (!buffer) {
+    res.status(400).json({ error: 'Send an image as a data URL.' })
+    return
+  }
+
+  try {
+    const result = await identify(buffer, { wantTitle: false })
+    res.json({
+      isbn13: result.isbn13,
+      isbn10: result.isbn10,
+      source: result.source,
+      candidates: result.isbnCandidates,
+      barcodes: result.barcodes,
+    })
+  } catch (caught) {
+    res.status(500).json({ error: (caught as Error).message })
+  }
+})
 
 app.get('/api/lookup/isbn/:isbn', async (req, res) => {
   const raw = normaliseIsbn(req.params.isbn)
