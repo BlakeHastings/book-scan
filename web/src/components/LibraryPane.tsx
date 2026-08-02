@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type BookRow, type Misfile } from '../lib/api'
+import { coverUrl } from './PlacementCard'
 import type { ShelfRange } from '../../shared/shelving'
 
 /**
@@ -62,6 +63,15 @@ export function LibraryPane() {
         {books.map((book) => (
           <li key={book.id} className={misfiledIds.has(book.id) ? 'shelf__row shelf__row--flag' : 'shelf__row'}>
             <span className="shelf__loc">{book.location || '??'}</span>
+            <span className="shelf__photo">
+              {(book.edge_image || book.front_image) && (
+                <img
+                  src={coverUrl(book.edge_image || book.front_image)}
+                  alt=""
+                  loading="lazy"
+                />
+              )}
+            </span>
             <span className="shelf__body">
               <span className="shelf__author">{book.author_filing || book.authors}</span>
               <span className="shelf__title">

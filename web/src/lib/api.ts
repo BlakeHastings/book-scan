@@ -70,6 +70,9 @@ export interface BookRow {
   location: string
   shelf_range: ShelfRange
   isbn13: string
+  front_image: string
+  back_image: string
+  edge_image: string
 }
 
 export interface Misfile {

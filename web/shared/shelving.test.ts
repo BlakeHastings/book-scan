@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPlacement, buildSortKey, compareLocations, filingName, findMisfiles,
-  normalise, parseLocation, titleFiling, type Neighbour, type ShelvedBook,
+  normalise, parseLocation, shelfPhoto, titleFiling, type Neighbour, type ShelvedBook,
 } from './shelving'
 
 describe('normalise', () => {
@@ -132,6 +132,7 @@ describe('parseLocation and compareLocations', () => {
 describe('buildPlacement', () => {
   const neighbour = (id: number, title: string, location: string): Neighbour => ({
     id, title, authorFiling: `Author ${id}`, location, sortKey: String(id),
+    images: { front: '', back: '', edge: '' },
   })
 
   it('reports one location when both neighbours share it', () => {
@@ -164,6 +165,27 @@ describe('buildPlacement', () => {
       .toBe('start-of-range')
     expect(buildPlacement('fiction', neighbour(1, 'A', '3B'), null, '1A').kind)
       .toBe('end-of-range')
+  })
+})
+
+describe('shelfPhoto', () => {
+  const withImages = (images: { front: string; back: string; edge: string }): Neighbour => ({
+    id: 1, title: 'T', authorFiling: 'A', location: '1A', sortKey: '1', images,
+  })
+
+  it('prefers the spine, which is what you see on a shelf', () => {
+    expect(shelfPhoto(withImages({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })))
+      .toBe('e.jpg')
+  })
+
+  it('falls back to the front cover when there is no spine photo', () => {
+    expect(shelfPhoto(withImages({ front: 'f.jpg', back: 'b.jpg', edge: '' })))
+      .toBe('f.jpg')
+  })
+
+  it('returns nothing for a book with no photos, rather than a broken src', () => {
+    expect(shelfPhoto(withImages({ front: '', back: '', edge: '' }))).toBe('')
+    expect(shelfPhoto(null)).toBe('')
   })
 })
 

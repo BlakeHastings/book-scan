@@ -127,6 +127,11 @@ export class Store {
       authorFiling: row.author_filing,
       location: row.location,
       sortKey: row.sort_key,
+      images: {
+        front: row.front_image ?? '',
+        back: row.back_image ?? '',
+        edge: row.edge_image ?? '',
+      },
     }
   }
 

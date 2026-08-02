@@ -203,6 +203,20 @@ export interface Neighbour {
   authorFiling: string
   location: string
   sortKey: string
+  /**
+   * Filenames of this book's photos, served from /api/covers.
+   *
+   * The spine is the one that matters when placing a book: it is what you
+   * actually see looking at a shelf. Front and back are there as fallbacks
+   * for books photographed before the spine slot was filled.
+   */
+  images: { front: string; back: string; edge: string }
+}
+
+/** Best photo for recognising a book on a shelf. Spine first, by a mile. */
+export function shelfPhoto(neighbour: Neighbour | null): string {
+  if (!neighbour) return ''
+  return neighbour.images.edge || neighbour.images.front || neighbour.images.back || ''
 }
 
 export type PlacementKind =
@@ -263,7 +277,7 @@ export function buildPlacement(
         successor,
         suggestedLocation: predecessor.location,
         instruction:
-          `${predecessor.location} — between ${describe(predecessor)} ` +
+          `${predecessor.location}: between ${describe(predecessor)} ` +
           `and ${describe(successor)}`,
       }
     }

@@ -43,6 +43,18 @@ const store = new Store(db)
 const app = express()
 app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
 
+// Captured photos. Immutable once written (the filename carries a timestamp),
+// so they can be cached hard: the placement card renders neighbour spines on
+// every scan and should not refetch them.
+app.use(
+  '/api/covers',
+  express.static(COVER_DIR, {
+    immutable: true,
+    maxAge: '30d',
+    fallthrough: false,
+  }),
+)
+
 function asDraft(body: Record<string, unknown>): DraftBook {
   const authors = Array.isArray(body.authors)
     ? (body.authors as unknown[]).map(String)

@@ -1,10 +1,48 @@
+import { shelfPhoto, type Neighbour } from '../../shared/shelving'
 import type { PlacementResponse } from '../lib/api'
+
+/** Photos are served by the API, not bundled, so they need the /api prefix. */
+export function coverUrl(filename: string): string {
+  return filename ? `/api/covers/${encodeURIComponent(filename)}` : ''
+}
+
+function NeighbourRow({
+  label, neighbour, emptyText,
+}: {
+  label: string
+  neighbour: Neighbour | null
+  emptyText: string
+}) {
+  const photo = coverUrl(shelfPhoto(neighbour))
+
+  return (
+    <div className="neighbour">
+      <span className="neighbour__label">{label}</span>
+      {neighbour ? (
+        <>
+          <span className="neighbour__photo">
+            {photo
+              ? <img src={photo} alt={`Spine of ${neighbour.title}`} loading="lazy" />
+              : <span className="neighbour__nophoto">no photo</span>}
+          </span>
+          <span className="neighbour__text">
+            <span className="neighbour__title">{neighbour.title}</span>
+            <span className="neighbour__author">{neighbour.authorFiling}</span>
+          </span>
+          <span className="neighbour__loc">{neighbour.location || 'no location'}</span>
+        </>
+      ) : (
+        <span className="neighbour__none">{emptyText}</span>
+      )}
+    </div>
+  )
+}
 
 /**
  * The instruction the user reads while standing at the shelf with a book in
  * hand. It is deliberately the largest thing on screen, names both neighbours
- * by author as well as title (you scan spines for an author block first), and
- * stays put after saving so it survives the walk to the shelf.
+ * by author as well as title, and shows each neighbour's spine so they can be
+ * found by eye rather than by reading every label on the shelf.
  */
 export function PlacementCard({
   placement,
@@ -36,36 +74,26 @@ export function PlacementCard({
 
       {(predecessor || successor) && (
         <div className="placement__neighbours">
-          <div className="neighbour">
-            <span className="neighbour__label">After</span>
-            {predecessor ? (
-              <>
-                <span className="neighbour__title">{predecessor.title}</span>
-                <span className="neighbour__author">{predecessor.authorFiling}</span>
-                <span className="neighbour__loc">{predecessor.location || 'no location'}</span>
-              </>
-            ) : (
-              <span className="neighbour__none">nothing, this is the start</span>
-            )}
-          </div>
+          <NeighbourRow
+            label="After"
+            neighbour={predecessor}
+            emptyText="nothing, this is the start"
+          />
 
           <div className="neighbour neighbour--target">
-            <span className="neighbour__label">This book</span>
-            <span className="neighbour__title">{placement.authorFiling || '...'}</span>
+            <span className="neighbour__label">This one</span>
+            <span className="neighbour__text">
+              <span className="neighbour__title">
+                {placement.authorFiling || 'this book'}
+              </span>
+            </span>
           </div>
 
-          <div className="neighbour">
-            <span className="neighbour__label">Before</span>
-            {successor ? (
-              <>
-                <span className="neighbour__title">{successor.title}</span>
-                <span className="neighbour__author">{successor.authorFiling}</span>
-                <span className="neighbour__loc">{successor.location || 'no location'}</span>
-              </>
-            ) : (
-              <span className="neighbour__none">nothing, this is the end</span>
-            )}
-          </div>
+          <NeighbourRow
+            label="Before"
+            neighbour={successor}
+            emptyText="nothing, this is the end"
+          />
         </div>
       )}
     </div>
