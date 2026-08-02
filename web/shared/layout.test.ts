@@ -208,3 +208,114 @@ describe('stripAt', () => {
     expect(stripAt(layoutRange(run('ABC'), []), 99)).toBeNull()
   })
 })
+
+describe('a cascade across several shelves', () => {
+  /**
+   * Apply one overflow the way the server does, returning the new separators.
+   *
+   * The point of doing it properly rather than asserting on a single step:
+   * a shimmy down a full bookcase is a chain of these, and each one has to
+   * leave the run in a state the next one can act on.
+   */
+  const apply = (
+    books: { id: number; sortKey: string }[],
+    separators: Separator[],
+    label: string,
+    kind: 'shelf' | 'area' = 'area',
+  ) => {
+    const step = overflow(layoutRange(books, separators), separators, label, kind)
+    if (!step) return { step: null, separators }
+    if (step.create) {
+      return {
+        step,
+        separators: [...separators, {
+          id: Math.max(0, ...separators.map((s) => s.id)) + 1,
+          range: 'fiction' as const,
+          kind: step.create.kind,
+          startsAt: step.create.startsAt,
+          position: separators.length,
+        }],
+      }
+    }
+    return {
+      step,
+      separators: separators.map((s) =>
+        s.id === step.shift?.id ? { ...s, startsAt: step.shift.startsAt } : s),
+    }
+  }
+
+  it('shimmies one book along each of three full shelves', () => {
+    const books = run('ABCDEFGHI')
+    // Three shelves of three: ABC / DEF / GHI.
+    let separators: Separator[] = [sep(1, 'D'), sep(2, 'G')]
+    expect(labels(books, separators)).toEqual(
+      ['1A', '1A', '1A', '1B', '1B', '1B', '1C', '1C', '1C'])
+
+    // 1A is full, so C goes to 1B.
+    const first = apply(books, separators, '1A')
+    expect(first.step!.moved.sortKey).toBe('C')
+    expect(first.step!.to).toBe('1B')
+    separators = first.separators
+
+    // 1B was full too, so its last book, F, goes on to 1C.
+    const second = apply(books, separators, '1B')
+    expect(second.step!.moved.sortKey).toBe('F')
+    expect(second.step!.to).toBe('1C')
+    separators = second.separators
+
+    // 1C in turn pushes I onto a shelf that does not exist yet.
+    const third = apply(books, separators, '1C')
+    expect(third.step!.moved.sortKey).toBe('I')
+    expect(third.step!.to).toBe('1D')
+    expect(third.step!.create).toEqual({ startsAt: 'I', kind: 'area' })
+    separators = third.separators
+
+    // Every book still present, still in order, one per shelf as expected.
+    expect(labels(books, separators)).toEqual(
+      ['1A', '1A', '1B', '1B', '1B', '1C', '1C', '1C', '1D'])
+  })
+
+  it('loses nothing and reorders nothing however deep the chain goes', () => {
+    const books = run('ABCDEFGHIJKL')
+    let separators: Separator[] = [sep(1, 'D'), sep(2, 'G'), sep(3, 'J')]
+
+    for (const label of ['1A', '1B', '1C', '1D']) {
+      separators = apply(books, separators, label).separators
+    }
+
+    const placed = layoutRange(books, separators)
+    // The invariant that matters: a shimmy moves boundaries, never books.
+    expect(placed.map((p) => p.book.sortKey).join('')).toBe('ABCDEFGHIJKL')
+    expect(placed).toHaveLength(12)
+    // And each shelf is still a contiguous run, which is what makes the
+    // alphabet findable on a real shelf.
+    const byLabel = new Map<string, string[]>()
+    for (const p of placed) {
+      byLabel.set(p.label, [...(byLabel.get(p.label) ?? []), p.book.sortKey])
+    }
+    for (const [, keys] of byLabel) {
+      expect([...keys].sort()).toEqual(keys)
+    }
+  })
+
+  it('stops rather than emptying a shelf that is down to one book', () => {
+    // The end of a cascade: nothing left to give, so the chain has to stop
+    // and the person is told to start a new shelf instead.
+    const books = run('ABC')
+    const separators: Separator[] = [sep(1, 'B'), sep(2, 'C')]
+    expect(labels(books, separators)).toEqual(['1A', '1B', '1C'])
+    expect(apply(books, separators, '1B').step).toBeNull()
+  })
+
+  it('carries a chain into a new bookcase when asked', () => {
+    const books = run('ABCDEF')
+    let separators: Separator[] = [sep(1, 'D')]
+
+    const step = apply(books, separators, '1A', 'shelf')
+    expect(step.step!.to).toBe('2A')
+    separators = step.separators
+    // The plank break that followed now divides the new bookcase, so the run
+    // past it comes along rather than being stranded in bookcase one.
+    expect(labels(books, separators)).toEqual(['1A', '1A', '2A', '2B', '2B', '2B'])
+  })
+})
