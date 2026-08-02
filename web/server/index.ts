@@ -825,18 +825,34 @@ app.post('/api/books/scan-checkout', async (req, res) => {
   }
 
   try {
-    const read = await identify(buffer, { wantTitle: false })
+    /*
+     * Barcode only to begin with, and no OCR.
+     *
+     * Someone is stood at a shelf holding a book, so the order of the fallbacks
+     * is the order of their cost. Reading a barcode takes about a fifth of a
+     * second when it works. Hashing the cover to shortlist books takes about
+     * fifty milliseconds. A full OCR pass takes five to ten seconds and, for a
+     * book being held front-out, almost always returns nothing: it used to run
+     * every single time, before the cover match that actually answers.
+     *
+     * So OCR is last, and only runs when the cover is not recognised either.
+     */
+    const read = await identify(buffer, { wantTitle: false, ocrEnabled: false })
+
     if (!read.isbn13) {
-      // No barcode to go on, so fall back to what the book looks like. The
-      // person is holding it up to the camera; the front is what they are
-      // showing us whether or not there is a barcode on it.
       const candidates = await looksLike(buffer)
-      res.json({
-        outcome: candidates.length ? 'candidates' : 'no-isbn',
-        barcodes: read.barcodes,
-        candidates,
-      })
-      return
+      if (candidates.length) {
+        res.json({ outcome: 'candidates', barcodes: read.barcodes, candidates })
+        return
+      }
+
+      // Nothing recognised the book, so now it is worth reading the page.
+      const slow = await identify(buffer, { wantTitle: false })
+      if (!slow.isbn13) {
+        res.json({ outcome: 'no-isbn', barcodes: slow.barcodes, candidates: [] })
+        return
+      }
+      read.isbn13 = slow.isbn13
     }
 
     const book = store.findByIsbn(read.isbn13)
