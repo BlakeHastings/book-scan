@@ -101,11 +101,22 @@ mixed-content errors Safari would otherwise block.
 
 ## The queue, and two people scanning at once
 
-Photographing a book takes seconds; reading it takes longer. So a capture is
-accepted the moment the photos exist and read afterwards. **Next book** hands
-the three photos to `/api/captures` and clears the camera immediately, and the
-Queue tab is where books are confirmed and shelved. Three books enqueue in
-under 100 ms; the reading happens behind them.
+Photographing a book takes seconds; reading it takes longer. So **each photo
+goes to the queue the moment it is taken** and is read in the background. The
+shutter returns in single-digit milliseconds. **Next book** just clears the
+camera, since the photos are already with the queue, and the Queue tab is
+where books are confirmed and shelved.
+
+The queue is the only thing that reads a photo. An earlier version identified
+each shot synchronously for on-screen feedback and then let the queue read the
+same image again, so every book paid for the expensive pass twice. The camera's
+feedback is now a view of the queue's progress rather than separate work.
+
+Reading is per slot and incremental. The back is read first because it carries
+the identifier, and **the front and spine are usually never read at all**: once
+the barcode has answered there is nothing they can add. They are only opened
+when the book is still unidentified, and then only the front, for its cover
+text.
 
 The queue lives in the database, not the browser, so it survives a refresh and
 both people see the same list.
@@ -233,7 +244,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-130 tests. The ones worth knowing about:
+140 tests. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real zbar and tesseract pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on

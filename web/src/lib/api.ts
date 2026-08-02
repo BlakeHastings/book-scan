@@ -121,6 +121,7 @@ export interface Capture {
   isbn_source: string
   title_guess: string
   cover_text: string
+  analysed: string
   draft_json: string
   note: string
   claimed_by: string
@@ -169,17 +170,6 @@ function draftBody(draft: Draft) {
 }
 
 export const api = {
-  /**
-   * Read an ISBN off one photo, and look the book up if one is found.
-   * `wantTitle` drives the expensive OCR pass, so pass false once the book
-   * already has a title.
-   */
-  identify: (image: string, slot: 'front' | 'back' | 'edge', wantTitle: boolean) =>
-    request<IdentifyResponse>('/api/identify', {
-      method: 'POST',
-      body: JSON.stringify({ image, slot, wantTitle }),
-    }),
-
   lookupIsbn: (isbn: string) =>
     request<LookupResponse>(`/api/lookup/isbn/${encodeURIComponent(isbn)}`),
 
@@ -193,12 +183,18 @@ export const api = {
       body: JSON.stringify({ ...draftBody(draft), excludeId }),
     }),
 
-  /** Hand three photos to the queue and return at once. */
-  enqueue: (images: Partial<Record<'front' | 'back' | 'edge', string>>) =>
+  /**
+   * Hand one photo to the queue as it is taken and return at once. The queue
+   * reads it in the background; poll getCapture for the outcome.
+   */
+  addPhoto: (image: string, slot: 'front' | 'back' | 'edge', captureId: number | null) =>
     request<{ capture: Capture; counts: QueueCounts }>('/api/captures', {
       method: 'POST',
-      body: JSON.stringify({ images }),
+      body: JSON.stringify({ image, slot, captureId }),
     }),
+
+  getCapture: (id: number) =>
+    request<{ capture: Capture; counts: QueueCounts }>(`/api/captures/${id}`),
 
   listCaptures: () =>
     request<{ captures: Capture[]; counts: QueueCounts }>('/api/captures'),

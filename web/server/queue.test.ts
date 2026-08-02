@@ -104,3 +104,44 @@ describe('claiming, with two people on the same queue', () => {
     expect(queue.claim(capture.id, 'alice').ok).toBe(false)
   })
 })
+
+describe('photos arriving one at a time', () => {
+  it('creates the capture on the first photo', () => {
+    const capture = queue.attach(null, 'back', 'b.jpg')
+    expect(capture.back_image).toBe('b.jpg')
+    expect(capture.status).toBe('pending')
+  })
+
+  it('attaches later photos to the same capture', () => {
+    const first = queue.attach(null, 'back', 'b.jpg')
+    const second = queue.attach(first.id, 'front', 'f.jpg')
+    const third = queue.attach(first.id, 'edge', 'e.jpg')
+
+    expect(second.id).toBe(first.id)
+    expect(third.id).toBe(first.id)
+    expect(queue.counts().pending).toBe(1)
+
+    const row = queue.get(first.id)!
+    expect(row.back_image).toBe('b.jpg')
+    expect(row.front_image).toBe('f.jpg')
+    expect(row.edge_image).toBe('e.jpg')
+  })
+
+  it('marks a re-taken slot as needing another read', () => {
+    const capture = queue.attach(null, 'back', 'b.jpg')
+    db.prepare("UPDATE captures SET analysed = 'back,front', status = 'failed' WHERE id = ?")
+      .run(capture.id)
+
+    const again = queue.attach(capture.id, 'back', 'b2.jpg')
+    expect(again.back_image).toBe('b2.jpg')
+    // Back drops out of analysed; front, which did not change, stays.
+    expect(again.analysed.split(',').filter(Boolean)).toEqual(['front'])
+    expect(again.status).toBe('pending')
+  })
+
+  it('leaves a shelved capture alone', () => {
+    const capture = queue.attach(null, 'back', 'b.jpg')
+    queue.markDone(capture.id, addBook())
+    expect(queue.attach(capture.id, 'front', 'f.jpg').status).toBe('done')
+  })
+})

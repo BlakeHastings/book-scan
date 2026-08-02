@@ -99,6 +99,9 @@ CREATE TABLE IF NOT EXISTS captures (
     title_guess  TEXT    DEFAULT '',
     -- Largest readable lines off the front cover, newline separated.
     cover_text   TEXT    DEFAULT '',
+    -- Which slots the worker has already read, comma separated. Photos arrive
+    -- one at a time, so the worker needs to know what is new.
+    analysed     TEXT    DEFAULT '',
     -- The looked-up metadata, as a draft the review pane can load directly.
     draft_json   TEXT    DEFAULT '',
     note         TEXT    DEFAULT '',
@@ -164,6 +167,7 @@ function addMissingColumns(db: Database.Database): void {
     ],
     captures: [
       ['cover_text', "TEXT DEFAULT ''"],
+      ['analysed', "TEXT DEFAULT ''"],
     ],
   }
 

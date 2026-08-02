@@ -16,6 +16,11 @@ import type { Database } from 'better-sqlite3'
 import { identify } from './identify'
 import { lookupIsbn, type LookupOptions } from './lookup'
 
+export type Slot = 'front' | 'back' | 'edge'
+
+/** Read in this order: the back carries the identifier. */
+const SLOT_ORDER: Slot[] = ['back', 'front', 'edge']
+
 export type CaptureStatus = 'pending' | 'ready' | 'failed' | 'done'
 
 export interface CaptureRow {
@@ -29,6 +34,7 @@ export interface CaptureRow {
   isbn_source: string
   title_guess: string
   cover_text: string
+  analysed: string
   draft_json: string
   note: string
   claimed_by: string
@@ -63,6 +69,41 @@ export class CaptureQueue {
       .run(images.front ?? '', images.back ?? '', images.edge ?? '', new Date().toISOString())
 
     return this.get(Number(result.lastInsertRowid))!
+  }
+
+  /**
+   * Attach one photo to a capture, creating the capture on the first shot.
+   *
+   * Photos arrive one at a time as they are taken, and each one is queued for
+   * reading the moment it exists. That is what removes the duplicated work:
+   * previously the camera identified a photo synchronously for feedback and
+   * the queue then identified the very same image all over again.
+   */
+  attach(captureId: number | null, slot: Slot, filename: string): CaptureRow {
+    const column = `${slot}_image`
+    const now = new Date().toISOString()
+
+    if (captureId && this.get(captureId)) {
+      this.db
+        .prepare(
+          `UPDATE captures
+              SET ${column} = @filename,
+                  status = CASE WHEN status = 'done' THEN status ELSE 'pending' END,
+                  -- Re-taking a slot means it needs reading again.
+                  analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
+            WHERE id = @id`,
+        )
+        .run({ id: captureId, filename, slot })
+      return this.get(captureId)!
+    }
+
+    const created = this.db
+      .prepare(
+        `INSERT INTO captures (status, ${column}, created_at)
+         VALUES ('pending', ?, ?)`,
+      )
+      .run(filename, now)
+    return this.get(Number(created.lastInsertRowid))!
   }
 
   get(id: number): CaptureRow | undefined {
@@ -167,92 +208,89 @@ export class CaptureQueue {
   }
 
   private async process(capture: CaptureRow): Promise<void> {
+    const analysed = new Set(capture.analysed.split(',').filter(Boolean))
+
     try {
-      // The back cover carries the barcode, so it is read first. The front is
-      // only opened if the back gave us nothing, and only then for a title.
-      const back = this.readImage(capture.back_image)
-      let result = back
-        ? await identify(back, { wantTitle: false })
+      // Only slots that have arrived and have not been read yet, back first
+      // because that is where the identifier lives. A photo taken while an
+      // earlier one was being read gets picked up on the next pass.
+      const todo = SLOT_ORDER.filter((slot) => {
+        const filename = capture[`${slot}_image` as const] as string
+        return filename && !analysed.has(slot)
+      })
+
+      if (!todo.length) {
+        // Nothing new. Settle the status so it stops looking pending.
+        this.db
+          .prepare("UPDATE captures SET status = CASE WHEN isbn13 != '' THEN 'ready' ELSE 'failed' END WHERE id = ? AND status = 'pending'")
+          .run(capture.id)
+        return
+      }
+
+      let isbn13 = capture.isbn13
+      let lookup = capture.draft_json
+        ? (JSON.parse(capture.draft_json) as Awaited<ReturnType<typeof lookupIsbn>>)
         : null
+      let coverLines = capture.cover_text.split(String.fromCharCode(10)).filter(Boolean)
+      let isbnSource = capture.isbn_source
+      let titleGuess = capture.title_guess
+      const notes: string[] = []
 
-      // Let the catalogue settle which OCR reading is real.
-      //
-      // A garbled digit inside a labelled ISBN can still satisfy the check
-      // digit, so a reading that validates is not necessarily the book. Trying
-      // each candidate and keeping the one that actually exists costs a couple
-      // of lookups and removes a whole class of confident wrong answer. A
-      // barcode reading needs none of this: it is self-validating.
-      const candidates = result?.source === 'barcode'
-        ? [result.isbn13]
-        : (result?.isbnCandidates ?? [])
+      for (const slot of todo) {
+        const image = this.readImage(capture[`${slot}_image` as const] as string)
+        analysed.add(slot)
+        if (!image) continue
 
-      let isbn13 = result?.isbn13 ?? ''
-      let coverLines: string[] = result?.coverLines ?? []
-      let lookup = null as Awaited<ReturnType<typeof lookupIsbn>> | null
+        // The front is the only one worth a title pass, and only while the
+        // book is still unidentified.
+        const wantTitle = slot === 'front' && !lookup?.found
+        const read = await identify(image, { wantTitle })
 
-      for (const candidate of candidates.filter(Boolean)) {
-        const found = await lookupIsbn(candidate, this.lookupOptions)
-        if (found.found) {
-          isbn13 = candidate
-          lookup = found
-          break
+        if (wantTitle && read.coverLines.length) {
+          coverLines = read.coverLines
+          titleGuess = read.titleGuess
         }
-        lookup ??= found
-      }
+        if (lookup?.found) continue
 
-      const notes: string[] = [...(result?.notes ?? [])]
+        // A barcode is self-validating. An OCR reading is not: a garbled digit
+        // can still satisfy the check digit, so the catalogue decides which of
+        // the readings is real, and an unconfirmed one is discarded rather
+        // than stored as fact.
+        const candidates = read.source === 'barcode'
+          ? [read.isbn13]
+          : read.isbnCandidates
 
-      // An OCR reading that no catalogue recognises is not evidence of
-      // anything. A garbled digit can still satisfy the check digit, so
-      // storing it would attach a confident wrong ISBN to the book and, worse,
-      // look identified. Report what was read and leave the field empty for
-      // Change ISBN to fill. A barcode reading is kept regardless: it is
-      // self-validating and a catalogue simply may not carry the book.
-      if (result?.source === 'ocr' && !lookup?.found) {
-        notes.push(
-          candidates.length
-            ? `Could not confirm an ISBN. OCR read ${candidates.join(' or ')}, ` +
-              'but no catalogue has either. Use Change ISBN with the number ' +
-              'printed on the book.'
-            : 'No ISBN could be read from these photos.',
-        )
-        isbn13 = ''
-        lookup = null
-      }
-
-      // Nothing confirmed, so read the front cover for whatever text it can
-      // offer. Done here rather than earlier because an unconfirmed reading
-      // off the back is no reason to skip it, which is what the old order did.
-      if (!lookup?.found) {
-        const front = this.readImage(capture.front_image)
-        if (front) {
-          const fromFront = await identify(front, { wantTitle: true })
-          coverLines = fromFront.coverLines
-
-          for (const candidate of fromFront.isbnCandidates) {
-            const found = await lookupIsbn(candidate, this.lookupOptions)
-            if (found.found) {
-              isbn13 = candidate
-              lookup = found
-              notes.push('ISBN found on the front cover.')
-              break
-            }
+        for (const candidate of candidates.filter(Boolean)) {
+          const found = await lookupIsbn(candidate, this.lookupOptions)
+          if (found.found) {
+            isbn13 = candidate
+            lookup = found
+            isbnSource = read.source
+            break
           }
         }
+
+        if (!lookup?.found) {
+          if (read.source === 'barcode' && read.isbn13) {
+            // Kept: the barcode is trustworthy even if no catalogue has it.
+            isbn13 = read.isbn13
+            isbnSource = 'barcode'
+            notes.push(`Barcode on the ${slot} reads ${read.isbn13}, but no catalogue has it.`)
+          } else if (candidates.length) {
+            notes.push(
+              `Could not confirm an ISBN from the ${slot}. OCR read ` +
+              `${candidates.join(' or ')}, which no catalogue has. Use Change ISBN.`,
+            )
+          }
+        }
+        notes.push(...read.notes.filter((n) => !notes.includes(n)))
       }
 
-      if (candidates.length > 1 && lookup?.found) {
-        notes.push(`Read ${candidates.length} possible ISBNs; used the one the catalogue has.`)
-      }
-      if (isbn13 && !lookup?.found) {
-        notes.push('ISBN read, but no catalogue has it. Fill the details in by hand.')
-      }
-      if (!isbn13) {
-        const lines = coverLines
+      if (!isbn13 && !lookup?.found) {
         notes.push(
-          lines.length
-            ? `No ISBN found. Read from the cover: ${lines.join(' / ')}.`
-            : 'No ISBN found in these photos, and the cover was not readable.',
+          coverLines.length
+            ? `No ISBN confirmed. Cover reads: ${coverLines.join(' / ')}.`
+            : 'No ISBN could be read from these photos.',
         )
       }
 
@@ -261,7 +299,7 @@ export class CaptureQueue {
           `UPDATE captures SET
              status = @status, isbn13 = @isbn13, isbn10 = @isbn10,
              isbn_source = @source, title_guess = @titleGuess,
-             cover_text = @coverText,
+             cover_text = @coverText, analysed = @analysed,
              draft_json = @draft, note = @note, processed_at = @now
            WHERE id = @id`,
         )
@@ -269,21 +307,42 @@ export class CaptureQueue {
           id: capture.id,
           status: lookup?.found ? 'ready' : 'failed',
           isbn13,
-          isbn10: result?.isbn10 ?? '',
-          source: result?.source ?? '',
-          titleGuess: result?.titleGuess ?? '',
-          coverText: coverLines.join('\n'),
+          isbn10: lookup?.isbn10 ?? '',
+          source: isbnSource,
+          titleGuess,
+          coverText: coverLines.join(String.fromCharCode(10)),
+          analysed: [...analysed].join(','),
           draft: lookup ? JSON.stringify(lookup) : '',
           note: notes.join(' '),
           now: new Date().toISOString(),
         })
+
+      // A photo taken while this pass was running set the row back to pending,
+      // and the write above has just overwritten that. Without this the newly
+      // arrived slot is never read: harmless when the book is already
+      // identified, but it loses the front cover exactly when the back failed
+      // and the cover is all there is.
+      const fresh = this.get(capture.id)
+      if (fresh && fresh.status !== 'done') {
+        const read = new Set(fresh.analysed.split(',').filter(Boolean))
+        const outstanding = SLOT_ORDER.some((slot) => {
+          const filename = fresh[`${slot}_image` as const] as string
+          return filename && !read.has(slot)
+        })
+        if (outstanding) {
+          this.db
+            .prepare("UPDATE captures SET status = 'pending' WHERE id = ?")
+            .run(capture.id)
+        }
+      }
     } catch (error) {
       this.db
         .prepare(
-          `UPDATE captures SET status = 'failed', note = ?, processed_at = ?
+          `UPDATE captures SET status = 'failed', analysed = ?, note = ?, processed_at = ?
             WHERE id = ?`,
         )
         .run(
+          [...analysed].join(','),
           `Could not process these photos: ${(error as Error).message}`,
           new Date().toISOString(),
           capture.id,

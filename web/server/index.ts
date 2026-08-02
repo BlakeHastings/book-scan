@@ -8,7 +8,7 @@ import express from 'express'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { openDatabase } from './db'
-import { identify } from './identify'
+
 import { lookupIsbn, searchTitle } from './lookup'
 import { CaptureQueue } from './queue'
 import { Store, type DraftBook } from './store'
@@ -113,24 +113,29 @@ function asDraft(body: Record<string, unknown>): DraftBook {
  */
 app.post('/api/captures', (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>
-  const images = (body.images ?? {}) as Record<string, unknown>
+  const slot: Slot = body.slot === 'front' || body.slot === 'edge' ? body.slot : 'back'
+  const captureId = Number(body.captureId ?? 0) || null
 
-  const saved: { front?: string; back?: string; edge?: string } = {}
-  for (const slot of ['front', 'back', 'edge'] as const) {
-    const buffer = decodeDataUrl(String(images[slot] ?? ''))
-    if (buffer) saved[slot] = saveImage(buffer, '', slot)
-  }
-
-  if (!saved.front && !saved.back && !saved.edge) {
-    res.status(400).json({ error: 'At least one photo is required.' })
+  const buffer = decodeDataUrl(String(body.image ?? ''))
+  if (!buffer) {
+    res.status(400).json({ error: 'Expected an image data URL.' })
     return
   }
 
-  const capture = queue.add(saved)
-  // Not awaited: the whole point is that the response does not wait for OCR.
+  const capture = queue.attach(captureId, slot, saveImage(buffer, '', slot))
+  // Not awaited: the shutter must not wait on OCR.
   void queue.drain()
 
   res.status(201).json({ capture, counts: queue.counts() })
+})
+
+app.get('/api/captures/:id', (req, res) => {
+  const capture = queue.get(Number(req.params.id))
+  if (!capture) {
+    res.status(404).json({ error: 'No such capture.' })
+    return
+  }
+  res.json({ capture, counts: queue.counts() })
 })
 
 app.get('/api/captures', (_req, res) => {
@@ -157,55 +162,6 @@ app.post('/api/captures/:id/release', (req, res) => {
 app.delete('/api/captures/:id', (req, res) => {
   queue.remove(Number(req.params.id))
   res.json({ ok: true, counts: queue.counts() })
-})
-
-// ---------------------------------------------------------------------------
-// Identify
-// ---------------------------------------------------------------------------
-
-/**
- * Read an ISBN off one captured photo, and look the book up if one is found.
- *
- * Both steps happen in a single round trip because the caller is a phone on
- * wifi: two sequential requests is a visibly slower shutter-to-answer time.
- */
-app.post('/api/identify', async (req, res) => {
-  const body = (req.body ?? {}) as Record<string, unknown>
-  const slot: Slot = body.slot === 'front' || body.slot === 'edge' ? body.slot : 'back'
-
-  const image = decodeDataUrl(String(body.image ?? ''))
-  if (!image) {
-    res.status(400).json({ error: 'Expected an image data URL.' })
-    return
-  }
-
-  // The title guess is the expensive part: it forces a full OCR pass even
-  // when the barcode already answered. The client asks for it only when it
-  // still has no title, so once a book is identified the remaining photos
-  // come back fast.
-  const wantTitle = body.wantTitle === undefined
-    ? slot === 'front'
-    : Boolean(body.wantTitle)
-
-  const result = await identify(image, { wantTitle })
-
-  const lookup = result.isbn13
-    ? await lookupIsbn(result.isbn13, { googleApiKey: GOOGLE_API_KEY })
-    : null
-
-  const existing = result.isbn13 ? store.findByIsbn(result.isbn13) : undefined
-
-  res.json({
-    identify: result,
-    lookup: lookup
-      ? {
-          ...lookup,
-          duplicateOf: existing
-            ? { id: existing.id, title: existing.title, location: existing.location }
-            : null,
-        }
-      : null,
-  })
 })
 
 // ---------------------------------------------------------------------------

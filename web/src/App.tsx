@@ -50,7 +50,6 @@ export default function App() {
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [captureId, setCaptureId] = useState<number | null>(null)
   const [bookId, setBookId] = useState<number | null>(null)
-  const [enqueuing, setEnqueuing] = useState(false)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
@@ -120,6 +119,15 @@ export default function App() {
    * or not an ISBN comes back: all three images are wanted regardless, and a
    * failed read is no reason to throw a photo away.
    */
+  /**
+   * Take the shot and hand it straight to the queue.
+   *
+   * Nothing is identified inline any more. The camera used to call a
+   * synchronous identify endpoint for feedback and the queue then read the
+   * very same image again, so every book paid for the expensive pass twice.
+   * Now the queue is the only thing that reads a photo, and the feedback here
+   * is a view of its progress.
+   */
   const shoot = async () => {
     const video = videoRef.current
     if (!video) return
@@ -131,62 +139,62 @@ export default function App() {
       return
     }
 
-    setShots((current) => ({ ...current, [slot]: full }))
     setThumbs((current) => ({ ...current, [slot]: full }))
     void thumbnail(full).then((small) =>
       setThumbs((current) => ({ ...current, [slot]: small })),
     )
+    setStatus((current) => ({ ...current, [slot]: 'busy' }))
+    setShots((current) => ({ ...current, [slot]: full }))
     setActiveSlot((current) => nextEmpty({ ...shots, [slot]: full }, current))
 
-    // Once the book is identified the remaining photos are just record
-    // keeping. Re-running barcode and OCR on them costs seconds and cannot
-    // improve the answer, so keep the photo and skip the round trip.
-    if (identified) {
-      setStatus((current) => ({ ...current, [slot]: 'kept' }))
-      return
-    }
-
-    setStatus((current) => ({ ...current, [slot]: 'busy' }))
-
     try {
-      const response = await api.identify(full, slot, !draft.title.trim())
-      const found = Boolean(response.identify.isbn13)
-      setStatus((current) => ({ ...current, [slot]: found ? 'found' : 'none' }))
-
-      setDraft((current) => ({
-        ...current,
-        isbnSource: response.identify.source || current.isbnSource,
-        ocrText: response.identify.text || current.ocrText,
-      }))
-
-      if (response.lookup?.found && !identified) {
-        applyLookup(response.lookup)
-      } else if (found && !identified) {
-        // Read fine, but no catalogue has it. Carry the digits forward; the
-        // detail view is where they can be corrected and looked up again.
-        setDraft((current) => ({ ...current, isbn13: response.identify.isbn13 }))
-        setError(
-          `Read ISBN ${response.identify.isbn13}, but no catalogue has it. ` +
-            'Open Review to correct it or fill the details in.',
-        )
-      } else if (!found && !identified) {
-        // Deliberately not filled into the title. The largest line on a cover
-        // is as often the author as the title, and writing a person's name
-        // into the title field is worse than leaving it blank.
-        const lines = response.identify.coverLines ?? []
-        setError(
-          lines.length
-            ? `No ISBN found. Read from the cover: ${lines.join(' / ')}. ` +
-              'Open Review to set the ISBN or type the details in.'
-            : 'No ISBN found, and the cover was not readable. Open Review to ' +
-              'enter the book by hand.',
-        )
-      }
+      const { capture, counts } = await api.addPhoto(full, slot, captureId)
+      setCaptureId(capture.id)
+      setQueueCounts(counts)
     } catch (caught) {
       setStatus((current) => ({ ...current, [slot]: 'none' }))
       setError((caught as Error).message)
     }
   }
+
+  /**
+   * Watch the capture the camera is filling, so the chips and the banner
+   * reflect what the queue has actually read. Stops once it settles.
+   */
+  useEffect(() => {
+    if (mode !== 'capture' || captureId === null) return
+
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const { capture } = await api.getCapture(captureId)
+        if (cancelled) return
+
+        const read = new Set(capture.analysed.split(',').filter(Boolean))
+        setStatus((current) => {
+          const next = { ...current }
+          for (const slot of SLOTS) {
+            if (!read.has(slot)) continue
+            next[slot] = capture.isbn13 && slot === 'back' ? 'found' : 'kept'
+          }
+          return next
+        })
+
+        if (capture.status === 'ready' && capture.draft_json) {
+          const looked = JSON.parse(capture.draft_json) as LookupResponse
+          if (looked.found && !identified) applyLookup(looked)
+        } else if (capture.status === 'failed' && capture.note) {
+          setError(capture.note)
+        }
+      } catch {
+        // A poll failing is not worth interrupting the person scanning.
+      }
+    }
+
+    void tick()
+    const timer = setInterval(tick, 1500)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [mode, captureId, identified])
 
   // -----------------------------------------------------------------------
   // Live placement preview
@@ -286,23 +294,12 @@ export default function App() {
   }
 
   /**
-   * Hand the photos to the queue and immediately clear for the next book.
-   * Identification happens server-side afterwards, so the person holding the
-   * books never waits on OCR.
+   * Move on. The photos are already with the queue, so this only clears the
+   * camera; whatever the queue makes of them shows up in the Queue tab.
    */
-  const nextBook = async () => {
-    if (shotCount === 0) return
-    setError('')
-    setEnqueuing(true)
-    try {
-      const result = await api.enqueue(shots)
-      setQueueCounts(result.counts)
-      reset()
-    } catch (caught) {
-      setError((caught as Error).message)
-    } finally {
-      setEnqueuing(false)
-    }
+  const nextBook = () => {
+    if (shotCount === 0 && !captureId) return
+    reset()
   }
 
   /**
@@ -489,10 +486,10 @@ export default function App() {
             <button
               className="cam__next"
               onClick={nextBook}
-              disabled={enqueuing || shotCount === 0}
+              disabled={shotCount === 0}
               title="Send these photos to the queue and start the next book"
             >
-              {enqueuing ? '...' : 'Next book'}
+              Next book
               {shotCount > 0 && <span className="cam__count">{shotCount}/3</span>}
             </button>
 
