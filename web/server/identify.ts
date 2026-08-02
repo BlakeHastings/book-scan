@@ -345,7 +345,32 @@ export async function decodeBarcodes(
 // OCR
 // ---------------------------------------------------------------------------
 
-let generalWorker: Promise<Worker> | null = null
+/**
+ * A pool of OCR workers, so the preprocessing ladder runs at once.
+ *
+ * tesseract.js workers handle exactly one job at a time and have no queue of
+ * their own, which is documented and is why every OCR call used to be
+ * serialised. A pool is the supported answer: each job takes a worker for
+ * itself, sets the page segmentation mode it needs on that worker alone, and
+ * gives it back.
+ *
+ * Four, which is what the tesseract.js docs suggest, and roughly the number
+ * of rungs that matter. Each worker carries its own WASM heap, and that heap
+ * only ever grows, so they are recycled after a while rather than left to
+ * accumulate one large image's worth of memory forever.
+ */
+const POOL_SIZE = 4
+const JOBS_BEFORE_RECYCLE = 400
+
+interface PooledWorker {
+  worker: Worker
+  busy: boolean
+  jobs: number
+}
+
+let pool: PooledWorker[] = []
+let poolReady: Promise<void> | null = null
+const waiting: (() => void)[] = []
 
 /**
  * Where tesseract.js caches its language data. Left to itself it drops a 15 MB
@@ -367,8 +392,8 @@ function workerOptions() {
  * silently drops the title, which is the one line we actually want. AUTO finds
  * text at mixed sizes and costs nothing here.
  */
-function getGeneralWorker(): Promise<Worker> {
-  return (generalWorker ??= createWorker('eng', undefined, {
+function newWorker(): Promise<Worker> {
+  return createWorker('eng', undefined, {
     ...workerOptions(),
     /*
      * Not optional. Without a handler here tesseract.js rethrows the failure
@@ -379,20 +404,59 @@ function getGeneralWorker(): Promise<Worker> {
      */
     errorHandler: (data: unknown) => {
       console.error('[ocr] worker error:', data)
-      // The worker is not to be trusted after this, and the cached promise
-      // would hand the same broken one to every later book.
-      generalWorker = null
     },
-  }).then(async (worker) => {
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO })
-    return worker
-  }))
+  })
+}
+
+function startPool(): Promise<void> {
+  return (poolReady ??= (async () => {
+    const workers = await Promise.all(
+      Array.from({ length: POOL_SIZE }, () => newWorker()),
+    )
+    pool = workers.map((worker) => ({ worker, busy: false, jobs: 0 }))
+  })())
+}
+
+/** Take a worker, use it alone, give it back. */
+async function withWorker<T>(fn: (worker: Worker) => Promise<T>): Promise<T> {
+  await startPool()
+
+  let slot = pool.find((entry) => !entry.busy)
+  while (!slot) {
+    await new Promise<void>((resume) => waiting.push(resume))
+    slot = pool.find((entry) => !entry.busy)
+  }
+
+  slot.busy = true
+  try {
+    return await fn(slot.worker)
+  } finally {
+    slot.jobs += 1
+
+    // A worker's WASM heap grows with the largest image it has seen and never
+    // shrinks, so a server left running for days would keep the high-water
+    // mark of every one of them.
+    if (slot.jobs >= JOBS_BEFORE_RECYCLE) {
+      const old = slot.worker
+      slot.jobs = 0
+      try {
+        slot.worker = await newWorker()
+        void old.terminate()
+      } catch {
+        // Keep the old one rather than losing the slot entirely.
+      }
+    }
+
+    slot.busy = false
+    waiting.shift()?.()
+  }
 }
 
 export async function shutdownOcr(): Promise<void> {
-  const worker = generalWorker
-  generalWorker = null
-  await worker?.then((w) => w.terminate())
+  const workers = pool
+  pool = []
+  poolReady = null
+  await Promise.all(workers.map((entry) => entry.worker.terminate().catch(() => {})))
 }
 
 /**
@@ -556,9 +620,9 @@ interface OcrOutput {
 
 async function runOcr(prepared: Buffer, psm: PSM = PSM.AUTO): Promise<OcrOutput> {
   try {
-    const worker = await getGeneralWorker()
-    // Setting this per call is only safe because identify() is serialised;
-    // two overlapping callers would otherwise fight over the mode.
+    return await withWorker(async (worker) => {
+    // Safe to set per call now: this worker is ours until we hand it back, so
+    // no other pass can change the mode underneath this one.
     await worker.setParameters({ tessedit_pageseg_mode: psm })
     const { data } = await worker.recognize(prepared, {}, { text: true, blocks: true })
 
@@ -577,7 +641,8 @@ async function runOcr(prepared: Buffer, psm: PSM = PSM.AUTO): Promise<OcrOutput>
       }
     }
 
-    return { text: data.text ?? '', lines }
+      return { text: data.text ?? '', lines }
+    })
   } catch {
     return { text: '', lines: [] }
   }
@@ -769,23 +834,38 @@ async function identifyNow(
 
   if (options.ocrEnabled === false) return result
 
-  // Work down the preprocessing ladder until something yields an ISBN. Each
-  // rung is a full OCR pass, so stopping early matters.
+  /*
+   * Every rung at once.
+   *
+   * These used to run in turn and stop early, which was the right trade when
+   * one worker meant one pass at a time: a photo whose first rung read cleanly
+   * paid for one pass, and only a hopeless one paid for all seven. With a pool
+   * the ladder is no longer a queue, and the wall clock is the slowest rung
+   * rather than the sum of them. Running rungs that turn out not to be needed
+   * costs CPU nobody is waiting on.
+   *
+   * The results are still read in ladder order below. Which rung a reading
+   * came from is what decides between two disagreeing readings, and that has
+   * to stay a property of the ladder, not of which worker finished first.
+   */
   const variants = await ocrVariants(input, barcodeBox, options.wantTitle)
+
+  const passes = await Promise.all(
+    variants.map(async (variant) => {
+      try {
+        return await runOcr(await variant.build(), variant.psm)
+      } catch {
+        return { text: '', lines: [] } as OcrOutput
+      }
+    }),
+  )
 
   // How many passes produced each reading. Agreement is the only cheap signal
   // that a number came off the page rather than out of OCR noise.
   const votes = new Map<string, number>()
   const order: string[] = []
 
-  for (const variant of variants) {
-    let ocr: OcrOutput
-    try {
-      ocr = await runOcr(await variant.build(), variant.psm)
-    } catch {
-      continue
-    }
-
+  for (const ocr of passes) {
     result.text = result.text ? `${result.text}
 ${ocr.text}` : ocr.text
     if (options.wantTitle && !result.coverLines.length) {
@@ -797,11 +877,6 @@ ${ocr.text}` : ocr.text
       if (!votes.has(candidate.isbn13)) order.push(candidate.isbn13)
       votes.set(candidate.isbn13, (votes.get(candidate.isbn13) ?? 0) + 1)
     }
-
-    // Keep going even after a hit: a later pass may read the same label
-    // differently, and the caller can ask a catalogue which reading is real.
-    // Bounded so a photo with no ISBN does not run every rung twice.
-    if (order.length >= 3) break
   }
 
   // Ranked by which pass saw it first, NOT by how many passes agree.
