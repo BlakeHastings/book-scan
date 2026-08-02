@@ -292,3 +292,47 @@ export function overflow(
       : undefined,
   }
 }
+
+/**
+ * The id used for a book that does not exist yet.
+ *
+ * Placement has to name a real shelf before the book is saved, so the
+ * newcomer is slotted into the run under this id and picked back out again.
+ */
+export const NEWCOMER_ID = -1
+
+export interface Strip<T extends LayoutInput> {
+  /** The shelf the newcomer lands on. */
+  label: string
+  /** Everything already on that shelf, left to right. */
+  books: Placed<T>[]
+  /** How many of those books sit to the left of the gap. */
+  gapIndex: number
+}
+
+/**
+ * One physical shelf, seen end on, with the space the new book goes in.
+ *
+ * A neighbour pair tells you what to look for but not what you are looking
+ * at: five books to the left and two to the right is a different search from
+ * the other way round, and the pair alone cannot say which. This returns the
+ * whole row so the gap can be drawn in place.
+ *
+ * Takes a layout that already contains the newcomer under NEWCOMER_ID.
+ */
+export function stripAround<T extends LayoutInput>(
+  placed: Placed<T>[],
+): Strip<T> | null {
+  const at = placed.findIndex((p) => p.book.id === NEWCOMER_ID)
+  if (at === -1) return null
+
+  const label = placed[at]!.label
+  const row = placed.filter((p) => p.label === label)
+
+  return {
+    label,
+    books: row.filter((p) => p.book.id !== NEWCOMER_ID),
+    // Its index within the row, which is exactly the count to its left.
+    gapIndex: row.findIndex((p) => p.book.id === NEWCOMER_ID),
+  }
+}

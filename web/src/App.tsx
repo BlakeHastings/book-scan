@@ -257,25 +257,35 @@ export default function App() {
   // Live placement preview
   // -----------------------------------------------------------------------
 
+  const loadPlacement = useCallback(() => {
+    api.previewPlacement(draft, bookId ?? undefined)
+      .then((result) => {
+        setPlacement(result)
+        setPlacementStale(false)
+      })
+      .catch((caught) => setError((caught as Error).message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the same fields
+    // the debounced effect below watches; draft as a whole changes on keystroke.
+  }, [
+    draft.title, draft.authors, draft.isFiction, draft.seriesName,
+    draft.seriesIndex, draft.authorFilingOverride, bookId,
+  ])
+
+  /** After books have physically moved, so the drawn shelf matches the shelf. */
+  const refreshPlacement = useCallback(() => {
+    setPlacementStale(true)
+    loadPlacement()
+  }, [loadPlacement])
+
   useEffect(() => {
     if ((mode !== 'review' && mode !== 'shelve') || !draft.title.trim()) {
       setPlacement(null)
       return
     }
     setPlacementStale(true)
-    const timer = setTimeout(() => {
-      api.previewPlacement(draft, bookId ?? undefined)
-        .then((result) => {
-          setPlacement(result)
-          setPlacementStale(false)
-        })
-        .catch((caught) => setError((caught as Error).message))
-    }, 250)
+    const timer = setTimeout(loadPlacement, 250)
     return () => clearTimeout(timer)
-  }, [
-    mode, draft.title, draft.authors, draft.isFiction, draft.seriesName,
-    draft.seriesIndex, draft.authorFilingOverride, bookId,
-  ])
+  }, [mode, draft.title, loadPlacement])
 
   // -----------------------------------------------------------------------
   // Actions
@@ -667,6 +677,7 @@ export default function App() {
           saving={saving}
           onShelved={save}
           onBack={() => setMode('review')}
+          onRefresh={refreshPlacement}
         />
       )}
 

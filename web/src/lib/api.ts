@@ -48,11 +48,30 @@ export interface Draft {
   authorFilingOverride: string
 }
 
+/** One book already on the shelf, as drawn in the placing strip. */
+export interface StripBook {
+  id: number
+  title: string
+  authorFiling: string
+  /** Filename, and only for the two books either side of the gap. */
+  spine: string
+  spineSlot: 'edge' | 'front'
+}
+
+/** A single shelf seen end on, with the space the new book goes in. */
+export interface PlacementStrip {
+  label: string
+  books: StripBook[]
+  /** How many books sit to the left of the gap. */
+  gapIndex: number
+}
+
 export interface PlacementResponse extends Placement {
   authorFiling: string
   sortKey: string
   /** Shelf in the derived scheme (A1, B2). What the shelving step asks about. */
   derivedLocation?: string
+  strip?: PlacementStrip | null
 }
 
 export interface Counts {

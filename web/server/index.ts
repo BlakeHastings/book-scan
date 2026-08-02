@@ -65,6 +65,8 @@ function describeMoves(range: 'fiction' | 'nonfiction', moves: { id: number; fro
 function inDerivedScheme<T extends ReturnType<typeof store.placementFor>>(
   range: 'fiction' | 'nonfiction',
   placement: T,
+  /** The book being edited, which must not appear as its own neighbour. */
+  excludeId?: number,
 ) {
   const layout = shelves.layout(range)
   const labelOf = (id: number | undefined) =>
@@ -88,6 +90,44 @@ function inDerivedScheme<T extends ReturnType<typeof store.placementFor>>(
     ...restated,
     suggestedLocation: derivedLocation,
     derivedLocation,
+    strip: stripFor(range, placement.sortKey, excludeId),
+  }
+}
+
+/**
+ * The shelf drawn end on, for the placing view.
+ *
+ * Only the two books either side of the gap carry a photo. They are the ones
+ * you actually look for on the shelf; sending thirty spine filenames so the
+ * client can render thirty thumbnails it will not look at costs a request
+ * each and tells you nothing extra.
+ */
+function stripFor(
+  range: 'fiction' | 'nonfiction',
+  sortKey: string,
+  excludeId?: number,
+) {
+  const strip = shelves.strip(range, sortKey, excludeId)
+  if (!strip) return null
+
+  return {
+    label: strip.label,
+    gapIndex: strip.gapIndex,
+    books: strip.books.map((placed, i) => {
+      const adjacent = i === strip.gapIndex - 1 || i === strip.gapIndex
+      const row = placed.book
+      return {
+        id: row.id,
+        title: row.title,
+        authorFiling: row.author_filing,
+        // Same precedence as a neighbour thumbnail: the spine is what you see
+        // looking at a shelf, and a cover is only a fallback.
+        spine: adjacent
+          ? row.edge_image || row.front_image || row.back_image || ''
+          : '',
+        spineSlot: adjacent && !row.edge_image ? 'front' : 'edge',
+      }
+    }),
   }
 }
 
@@ -325,7 +365,7 @@ app.post('/api/placement/preview', (req, res) => {
   // When editing a saved book, it must not turn up as its own neighbour.
   const excludeId = Number(body.excludeId ?? 0) || undefined
   const placement = store.placementFor(draft, excludeId)
-  res.json(inDerivedScheme(placement.range, placement))
+  res.json(inDerivedScheme(placement.range, placement, excludeId))
 })
 
 // ---------------------------------------------------------------------------

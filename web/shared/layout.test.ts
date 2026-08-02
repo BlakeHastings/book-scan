@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  areaLabel, groupByShelf, layoutRange, locationLabel, overflow, shelfLoads,
+  areaLabel, groupByShelf, layoutRange, locationLabel, NEWCOMER_ID, overflow,
+  shelfLoads, stripAround,
   type Separator,
 } from './layout'
 
@@ -137,5 +138,51 @@ describe('groupByShelf', () => {
       { label: '1A', count: 2 },
       { label: '1B', count: 2 },
     ])
+  })
+})
+
+describe('stripAround', () => {
+  /** Lay a run out with the newcomer slotted in by sort key, as the server does. */
+  const withNewcomer = (letters: string, key: string, separators: Separator[] = []) =>
+    layoutRange(
+      [...run(letters), book(NEWCOMER_ID, key)]
+        .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0)),
+      separators,
+    )
+
+  it('returns the whole shelf the newcomer lands on', () => {
+    const strip = stripAround(withNewcomer('ABDE', 'C'))!
+    expect(strip.label).toBe('1A')
+    expect(strip.books.map((p) => p.book.sortKey)).toEqual(['A', 'B', 'D', 'E'])
+    expect(strip.gapIndex).toBe(2)
+  })
+
+  it('counts only the books on the same shelf, not the whole range', () => {
+    // The point of the thing: five to the left across the range is not five
+    // to the left on the shelf you are standing at.
+    const strip = stripAround(withNewcomer('ABCDEF', 'DA', [sep(1, 'D')]))!
+    expect(strip.label).toBe('1B')
+    expect(strip.books.map((p) => p.book.sortKey)).toEqual(['D', 'E', 'F'])
+    expect(strip.gapIndex).toBe(1)
+  })
+
+  it('reports a gap at the very start of a shelf', () => {
+    const strip = stripAround(withNewcomer('BCD', 'A'))!
+    expect(strip.gapIndex).toBe(0)
+  })
+
+  it('reports a gap at the very end of a shelf', () => {
+    const strip = stripAround(withNewcomer('ABC', 'D'))!
+    expect(strip.gapIndex).toBe(3)
+  })
+
+  it('copes with the first book in an empty range', () => {
+    const strip = stripAround(withNewcomer('', 'A'))!
+    expect(strip.books).toEqual([])
+    expect(strip.gapIndex).toBe(0)
+  })
+
+  it('returns nothing when the newcomer was never laid out', () => {
+    expect(stripAround(layoutRange(run('ABC'), []))).toBeNull()
   })
 })

@@ -8,10 +8,11 @@
 import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
-  diffLayout, groupByShelf, layoutRange, locationLabel, overflow, shelfLoads,
+  diffLayout, groupByShelf, layoutRange, locationLabel, NEWCOMER_ID, overflow,
+  shelfLoads, stripAround,
   type RangeStart,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
-  type ShelfGroup,
+  type ShelfGroup, type Strip,
 } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
 
@@ -55,10 +56,11 @@ export class Shelves {
     return { shelf: row?.start_shelf ?? 1, area: row?.start_area ?? 0 }
   }
 
-  private booksIn(range: ShelfRange): BookRow[] {
-    return this.db
+  private booksIn(range: ShelfRange, excludeId = 0): BookRow[] {
+    const rows = this.db
       .prepare('SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC')
       .all(range) as BookRow[]
+    return excludeId ? rows.filter((row) => row.id !== excludeId) : rows
   }
 
   /** Every book in a range, with the shelf it lands on. */
@@ -87,13 +89,28 @@ export class Shelves {
    * rather than approximated from a neighbour.
    */
   shelfForSortKey(range: ShelfRange, sortKey: string): string {
-    const books = this.booksIn(range).map((row) => ({ ...row, sortKey: row.sort_key }))
-    const merged = [...books, { id: -1, sortKey } as ShelvedBook]
-      .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
-
     const start = this.startOf(range)
-    return layoutRange(merged, this.list(range), start)
-      .find((p) => p.book.id === -1)?.label ?? locationLabel(start.shelf, start.area)
+    return this.layoutWith(range, sortKey)
+      .find((p) => p.book.id === NEWCOMER_ID)?.label
+      ?? locationLabel(start.shelf, start.area)
+  }
+
+  /** The run laid out as though a book with this sort key were already in it. */
+  private layoutWith(
+    range: ShelfRange,
+    sortKey: string,
+    excludeId = 0,
+  ): Placed<ShelvedBook>[] {
+    const books = this.booksIn(range, excludeId)
+      .map((row) => ({ ...row, sortKey: row.sort_key }))
+    const merged = [...books, { id: NEWCOMER_ID, sortKey } as ShelvedBook]
+      .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
+    return layoutRange(merged, this.list(range), this.startOf(range))
+  }
+
+  /** The shelf this book lands on, end on, with the gap it goes in. */
+  strip(range: ShelfRange, sortKey: string, excludeId = 0): Strip<ShelvedBook> | null {
+    return stripAround(this.layoutWith(range, sortKey, excludeId))
   }
 
   /** Where one book sits now, or '' if it is not shelved in this range. */

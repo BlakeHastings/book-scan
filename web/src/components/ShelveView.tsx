@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, type Move, type PlacementResponse } from '../lib/api'
 import { PlacementCard } from './PlacementCard'
+import { ShelfStrip } from './ShelfStrip'
 import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   saving: boolean
   onShelved: () => void
   onBack: () => void
+  /** Re-read placement after a move, so the strip shows the shelf as it is now. */
+  onRefresh: () => void
 }
 
 interface Step {
@@ -30,7 +33,7 @@ interface Step {
  * about the shelf it lands on, until somebody says it fits.
  */
 export function ShelveView({
-  placement, range, title, saving, onShelved, onBack,
+  placement, range, title, saving, onShelved, onBack, onRefresh,
 }: Props) {
   const [steps, setSteps] = useState<Step[]>([])
   const [current, setCurrent] = useState<Step | null>(null)
@@ -54,6 +57,9 @@ export function ShelveView({
       }
       setSteps((done) => [...done, step])
       setCurrent(step)
+      // Books have physically moved, so the drawn shelf is now a lie until
+      // placement is asked again.
+      onRefresh()
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -69,7 +75,14 @@ export function ShelveView({
 
       {/* Where the new book goes. Unchanged by the cascade: the gap it belongs
           in is decided by the alphabet, not by how full the shelf is. */}
-      <PlacementCard placement={placement} pending={false} saved={false} />
+      {placement?.strip ? (
+        <>
+          <p className="shelve__instruction">{placement.instruction}</p>
+          <ShelfStrip strip={placement.strip} authorFiling={placement.authorFiling} />
+        </>
+      ) : (
+        <PlacementCard placement={placement} pending={false} saved={false} />
+      )}
 
       {steps.length > 0 && (
         <div className="moves">
