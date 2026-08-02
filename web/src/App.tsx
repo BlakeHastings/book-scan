@@ -258,7 +258,7 @@ export default function App() {
   // -----------------------------------------------------------------------
 
   const loadPlacement = useCallback(() => {
-    api.previewPlacement(draft, bookId ?? undefined)
+    return api.previewPlacement(draft, bookId ?? undefined)
       .then((result) => {
         setPlacement(result)
         setPlacementStale(false)
@@ -274,7 +274,7 @@ export default function App() {
   /** After books have physically moved, so the drawn shelf matches the shelf. */
   const refreshPlacement = useCallback(() => {
     setPlacementStale(true)
-    loadPlacement()
+    return loadPlacement()
   }, [loadPlacement])
 
   useEffect(() => {
@@ -371,10 +371,9 @@ export default function App() {
       // it at save time, but you have just come through the shelving step
       // with the book in your hand, so repeating the instruction over the
       // next book's viewfinder tells you nothing you did not act on.
-      if (stay) refreshPlacement()
+      if (stay) await refreshPlacement()
       else reset()
       return true
-      return false
     } catch (caught) {
       setError((caught as Error).message)
       return false

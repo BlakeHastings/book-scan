@@ -11,7 +11,7 @@ interface Props {
   onShelved: () => void
   onBack: () => void
   /** Re-read placement after a move, so the strip shows the shelf as it is now. */
-  onRefresh: () => void
+  onRefresh: () => Promise<unknown>
 }
 
 interface Step {
@@ -25,40 +25,47 @@ interface Step {
  * is. They are different jobs: one happens looking at a screen, the other
  * standing at the shelf with a book in your hand.
  *
- * The important control is "It does not fit". Nothing here predicts whether a
- * shelf has room, because nothing can: capacity depends on the thickness of
- * whatever is already there. So the person is the sensor. Each time they say
- * it will not go, one book comes off the end and the question is asked again
- * about the shelf it lands on, until somebody says it fits.
+ * Nothing here predicts whether a shelf has room, because nothing can:
+ * capacity depends on the thickness of whatever is already on it. So the
+ * person is the sensor, and the question they are asked is always the same
+ * one: does the book in your hand go in yet? Each "no" takes one more book off
+ * the end of that shelf and asks again. One book coming off is often not
+ * enough, and the loop is what makes that recoverable.
+ *
+ * The shelf being asked about is read fresh from the placement every time
+ * rather than remembered. Moving a book off the end moves the boundary too, so
+ * a book that sorts near the end can legitimately change shelves partway
+ * through, and a remembered label would go on naming the wrong one.
  */
 export function ShelveView({
   placement, range, title, saving, onShelved, onBack, onRefresh,
 }: Props) {
   const [steps, setSteps] = useState<Step[]>([])
-  const [current, setCurrent] = useState<Step | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   // The derived shelf, not suggestedLocation: that belongs to the old
   // per-book scheme and names shelves the layout has never heard of.
-  const shelfLabel = current?.to ?? placement?.derivedLocation ?? ''
+  const shelfLabel = placement?.derivedLocation ?? ''
+  const last = steps[steps.length - 1]
+  // Somewhere books have been pushed into, that is not where this book goes.
+  const pushedInto = last && last.to !== shelfLabel ? last.to : ''
 
-  const notEnoughRoom = async (kind: 'shelf' | 'area') => {
-    if (!shelfLabel) return
+  const overflowFrom = async (label: string, kind: 'shelf' | 'area') => {
+    if (!label || busy) return
     setBusy(true)
     setError('')
     try {
-      const result = await api.overflowShelf(range, shelfLabel, kind)
-      const step: Step = {
+      const result = await api.overflowShelf(range, label, kind)
+      setSteps((done) => [...done, {
         title: result.step?.title || 'the last book',
-        from: result.step?.from ?? shelfLabel,
+        from: result.step?.from ?? label,
         to: result.step?.to ?? '',
-      }
-      setSteps((done) => [...done, step])
-      setCurrent(step)
-      // Books have physically moved, so the drawn shelf is now a lie until
-      // placement is asked again.
-      onRefresh()
+      }])
+      // Books have physically moved, so the drawn shelf is a lie until
+      // placement is asked again. Awaited, or the next tap acts on the old
+      // shelf label and moves a book nobody asked about.
+      await onRefresh()
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -72,35 +79,29 @@ export function ShelveView({
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
 
-      {/* Where the new book goes. Unchanged by the cascade: the gap it belongs
-          in is decided by the alphabet, not by how full the shelf is. */}
-      <PlacementView placement={placement} pending={false} />
+      <PlacementView placement={placement} pending={busy} />
 
       {steps.length > 0 && (
         <div className="moves">
-          <strong>Moves so far</strong>
-          <ul>
+          <strong>Take these off the shelf, in this order</strong>
+          <ol>
             {steps.map((step, i) => (
               <li key={i}>
-                Take <strong>{step.title}</strong> from {step.from} to <strong>{step.to}</strong>
+                <strong>{step.title}</strong> from {step.from} to <strong>{step.to}</strong>
               </li>
             ))}
-          </ul>
+          </ol>
         </div>
       )}
 
       <div className="shelve__ask">
-        {current ? (
-          <p>
-            Move <strong>{current.title}</strong> to <strong>{current.to}</strong>.
-            Did it fit?
-          </p>
-        ) : (
-          <p>
-            Put the book in the gap above, at <strong>{shelfLabel || '?'}</strong>.
-            Did it fit?
-          </p>
-        )}
+        {/* Always about the book in hand. Asking whether the book you just
+            displaced fits somewhere else loses track of the one you actually
+            came here to shelve. */}
+        <p>
+          Put <strong>{title}</strong> in the gap at <strong>{shelfLabel || '?'}</strong>.
+          Does it fit{steps.length > 0 ? ' now' : ''}?
+        </p>
 
         <div className="actions">
           <button className="btn btn--primary" onClick={onShelved} disabled={saving || busy}>
@@ -110,19 +111,34 @@ export function ShelveView({
 
         <div className="actions">
           {/* Area is the next plank down; shelf is a whole new bookcase. */}
-          <button className="btn" onClick={() => notEnoughRoom('area')} disabled={busy}>
-            {busy ? '...' : 'No room, next area down'}
+          <button className="btn" onClick={() => overflowFrom(shelfLabel, 'area')} disabled={busy || saving}>
+            {busy ? '...' : steps.length > 0 ? 'Still no room, move another' : 'No room, move one along'}
           </button>
-          <button className="btn" onClick={() => notEnoughRoom('shelf')} disabled={busy}>
-            No room, next bookcase
+          <button className="btn" onClick={() => overflowFrom(shelfLabel, 'shelf')} disabled={busy || saving}>
+            No room, start a new bookcase
           </button>
         </div>
 
         <p className="hint">
-          Each time you say there is no room, the last book on that shelf moves
-          along and the question is asked again about the shelf it lands on.
+          Each time you say there is no room, one more book comes off the end of
+          {' '}{shelfLabel || 'the shelf'} and the same question is asked again.
         </p>
       </div>
+
+      {/* The knock-on. Books pushed onto the next shelf can overfill that one,
+          and it is the only shelf here that is not the one being asked about. */}
+      {pushedInto && (
+        <div className="shelve__knockon">
+          <p>
+            Did everything you moved fit on <strong>{pushedInto}</strong>?
+          </p>
+          <div className="actions">
+            <button className="btn" onClick={() => overflowFrom(pushedInto, 'area')} disabled={busy || saving}>
+              No, push {pushedInto}&apos;s last book along too
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="actions">
         <button className="btn btn--ghost" onClick={onBack} disabled={saving || busy}>

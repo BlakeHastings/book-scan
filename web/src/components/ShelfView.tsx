@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type BookRow, type Move, type ShelfGroupDto } from '../lib/api'
+import { api, type BookRow, type Counts, type Move, type ShelfGroupDto } from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { areaLabel } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
@@ -23,6 +23,16 @@ export function ShelfView({ onOpen }: Props) {
   const [moves, setMoves] = useState<Move[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [counts, setCounts] = useState<Counts | null>(null)
+
+  /*
+   * Both tallies, not just this tab's. A non-fiction book saved while the
+   * library sits on Fiction is invisible with no hint it exists, which reads
+   * as the save having silently failed rather than as a tab being unopened.
+   */
+  useEffect(() => {
+    api.health().then((h) => setCounts(h.counts)).catch(() => {})
+  }, [groups])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -54,13 +64,13 @@ export function ShelfView({ onOpen }: Props) {
           className={range === 'fiction' ? 'seg seg--on' : 'seg'}
           onClick={() => { setMoves([]); setRange('fiction') }}
         >
-          Fiction
+          Fiction{counts ? ` (${counts.fiction})` : ''}
         </button>
         <button
           className={range === 'nonfiction' ? 'seg seg--on' : 'seg'}
           onClick={() => { setMoves([]); setRange('nonfiction') }}
         >
-          Non-fiction
+          Non-fiction{counts ? ` (${counts.nonfiction})` : ''}
         </button>
       </div>
 
