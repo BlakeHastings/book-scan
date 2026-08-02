@@ -160,12 +160,19 @@ export interface CropFraction {
   height: number
 }
 
-/** Tall, narrow, centred: the shape of a book spine held up to the camera. */
+/**
+ * Tall, narrow, centred: the shape of a book spine held up to the camera.
+ *
+ * Height is 0.68 rather than the full frame so the whole rectangle sits in
+ * clear screen between the top bar and the shutter row. This one really does
+ * discard what falls outside it, so a boundary you cannot see is a boundary
+ * you will get wrong.
+ */
 export const SPINE_CROP: CropFraction = {
   width: 0.24,
-  height: 0.80,
+  height: 0.68,
   x: (1 - 0.24) / 2,
-  y: (1 - 0.80) / 2,
+  y: 0.10,
 }
 
 /**
@@ -208,10 +215,14 @@ export const SLOT_GUIDE: Record<Slot, CropFraction> = {
   edge: SPINE_CROP,
 }
 
+/**
+ * A word, not a sentence. It sits inside the frame, where a spine guide is
+ * only a couple of centimetres wide, and the toast already explains the slot.
+ */
 export const SLOT_GUIDE_LABEL: Record<Slot, string> = {
-  back: 'Line the book up here',
-  front: 'Line the book up here',
-  edge: 'Fit the spine in here',
+  back: 'Back',
+  front: 'Front',
+  edge: 'Spine',
 }
 
 /**

@@ -249,21 +249,29 @@ html, body {
 .cam__idle h2 { margin: 0; font-size: 20px; }
 .cam__idle p { color: var(--muted); margin: 0; max-width: 30ch; }
 
+/* Two rows only: which side you are shooting, and the shutter. Anything that
+   is read once and then ignored belongs in the sheet or the toast, not here.
+   The scrim starts late and stays soft so the viewfinder keeps the screen. */
 .cam__bottom {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  padding: 20px 12px calc(12px + env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85) 35%);
+  padding: 28px 12px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.8));
 }
 
+/* One line, always. A long title used to wrap to three and push the shutter
+   row down the screen mid-session. */
 .cam__found {
   background: rgba(134, 209, 154, 0.16);
   border: 1px solid var(--good);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   font-size: 13px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cam__chips { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; }
@@ -296,12 +304,28 @@ html, body {
 .cam__dot--busy { background: var(--warn); }
 .cam__dot--found { background: var(--good); }
 
-.cam__hint {
-  text-align: center;
+/* Shows what the slot wants for a couple of seconds, then leaves. Pointer
+   events off so it can never swallow a tap meant for the shutter. */
+.cam__toast {
+  position: absolute;
+  left: 50%;
+  bottom: 150px;
+  transform: translateX(-50%);
+  z-index: 2;
+  max-width: min(30ch, calc(100% - 32px));
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: rgba(255, 255, 255, 0.92);
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.75);
-  margin: 0 0 12px;
-  min-height: 2.6em;
+  text-align: center;
+  pointer-events: none;
+  animation: toast-in 220ms ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 .cam__controls {
@@ -520,21 +544,42 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 /* Positioned from the same fractions the crop uses, so what you frame is
    exactly what gets saved. */
+/* Corner brackets rather than a full outline. A rectangle drawn all the way
+   round competes with the book inside it; four corners say the same thing and
+   leave the subject alone. Eight gradients: two short bars per corner. */
 .cam__guide {
   position: absolute;
-  border: 2px solid var(--accent);
-  border-radius: 6px;
-  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
   pointer-events: none;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+  --bracket: linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-image:
+    var(--bracket), var(--bracket), var(--bracket), var(--bracket),
+    var(--bracket), var(--bracket), var(--bracket), var(--bracket);
+  background-size:
+    20px 2px, 2px 20px,   /* top left */
+    20px 2px, 2px 20px,   /* top right */
+    20px 2px, 2px 20px,   /* bottom left */
+    20px 2px, 2px 20px;   /* bottom right */
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom;
 }
+/* Inside the frame, not above it. Above collides with the top bar once the
+   guide is positioned high enough to clear the shutter row. */
 .cam__guide-label {
   position: absolute;
   left: 50%;
-  top: -26px;
+  top: 8px;
   transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 12px;
-  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.65);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
 .cam__badge {
@@ -725,8 +770,21 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 /* A solid guide means the frame is the crop (the spine). A dashed one is
    alignment only: the whole frame is kept, so nothing can clip the ISBN. */
-.cam__guide { border-style: dashed; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.28); }
-.cam__guide--crop { border-style: solid; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45); }
+/* A cover just needs rough alignment, so barely dim outside it. The spine is
+   an actual crop, so what falls outside really is discarded: dim it harder
+   and lengthen the brackets to make the boundary unmistakable. */
+.cam__guide { box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.22); }
+.cam__guide--crop {
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
+  /* Faint but continuous. On a spine the side edges are the thing being
+     judged, and four corners alone leave the long sides unmarked. */
+  outline: 1px solid rgba(122, 162, 255, 0.4);
+  background-size:
+    16px 2px, 2px 32px,
+    16px 2px, 2px 32px,
+    16px 2px, 2px 32px,
+    16px 2px, 2px 32px;
+}
 
 /* Thumbnails frame a spine and a cover differently, because the useful part
    of each is in a different place. A spine carries its title at the top; a
@@ -868,6 +926,35 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   color: var(--accent);
 }
 
+/* Camera settings. Reachable in one tap, invisible the rest of the time. */
+.cam__chip-btn--icon { padding: 0; width: 36px; font-size: 16px; }
+
+.cam__sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.5);
+}
+.cam__sheet-body {
+  width: 100%;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  background: #14141c;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cam__sheet-body h3 { margin: 0; font-size: 16px; }
+.cam__sheet-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.cam__sheet-meta {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Pick a physical lens. Only shown when the phone names more than one. */
 .cam__lenses { display: flex; gap: 6px; justify-content: center; margin-bottom: 8px; flex-wrap: wrap; }
 .cam__lens {
@@ -880,4 +967,3 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   font-size: 12px;
 }
 .cam__lens--on { background: var(--accent); border-color: var(--accent); color: #0b0b12; font-weight: 600; }
-.cam__tip { color: var(--warn); }

@@ -36,6 +36,8 @@ export default function App() {
   const [lenses, setLenses] = useState<Lens[]>([])
   const [lensId, setLensId] = useState(rememberedLens())
   const [focusNote, setFocusNote] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [toast, setToast] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -142,6 +144,18 @@ export default function App() {
     if (!cameraOn) return
     void applyFocusHints(streamRef.current, activeSlot === 'edge')
       .then((applied) => setFocusNote(applied.join(', ')))
+  }, [activeSlot, cameraOn])
+
+  // Say what this slot wants, then get out of the way. A hint that lives on
+  // screen permanently stops being read and only costs you viewfinder.
+  useEffect(() => {
+    if (!cameraOn) {
+      setToast('')
+      return
+    }
+    setToast(SLOT_HINT[activeSlot])
+    const timer = setTimeout(() => setToast(''), 2600)
+    return () => clearTimeout(timer)
   }, [activeSlot, cameraOn])
 
   // -----------------------------------------------------------------------
@@ -474,15 +488,62 @@ export default function App() {
               </span>
             )}
           </button>
-          <span className="cam__meta">
-            {counts ? `${counts.total} shelved` : ''}
-            {resolution ? ` · ${resolution}` : ''}
-            {focusNote ? ` · ${focusNote}` : ''}
-          </span>
+          <span className="cam__meta">{counts ? `${counts.total} shelved` : ''}</span>
           {(shotCount > 0 || identified) && (
             <button className="cam__chip-btn" onClick={reset}>Start over</button>
           )}
+          {/* Lens choice and diagnostics live behind this. They are set once
+              and then never touched, so they do not earn permanent space. */}
+          <button
+            className="cam__chip-btn cam__chip-btn--icon"
+            onClick={() => setSettingsOpen((open) => !open)}
+            aria-label="Camera settings"
+          >
+            ⚙
+          </button>
         </div>
+
+        {settingsOpen && (
+          <div className="cam__sheet" onClick={() => setSettingsOpen(false)}>
+            <div className="cam__sheet-body" onClick={(e) => e.stopPropagation()}>
+              <h3>Camera</h3>
+
+              {lenses.length > 1 ? (
+                <>
+                  <p className="cam__sheet-note">
+                    Pinned to one lens so the phone stops swapping mid-shot.
+                  </p>
+                  <div className="cam__lenses">
+                    {lenses.map((lens) => (
+                      <button
+                        key={lens.deviceId}
+                        className={lens.deviceId === lensId ? 'cam__lens cam__lens--on' : 'cam__lens'}
+                        onClick={() => { void switchLens(lens.deviceId); setSettingsOpen(false) }}
+                      >
+                        {lensName(lens.label)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="cam__sheet-note">This device reports one rear lens.</p>
+              )}
+
+              <p className="cam__sheet-note">
+                <strong>Spine will not focus?</strong> Move the book further
+                away, not closer. You are inside the lens minimum focus
+                distance, and the crop keeps the detail.
+              </p>
+
+              <p className="cam__sheet-meta">
+                {resolution || 'no stream'}
+                {focusNote ? ` · ${focusNote}` : ''}
+              </p>
+
+              <button className="btn" onClick={() => setSettingsOpen(false)}>Close</button>
+            </div>
+          </div>
+        )}
 
         {/* The instruction from the last saved book, so it survives the walk
             to the shelf and back for the next scan. */}
@@ -504,6 +565,10 @@ export default function App() {
             </button>
           </div>
         )}
+
+        {/* Transient, and above the bottom band rather than inside it, so it
+            costs nothing once it has faded. */}
+        {toast && <div className="cam__toast">{toast}</div>}
 
         <div className="cam__bottom">
           {identified && (
@@ -535,33 +600,6 @@ export default function App() {
               )
             })}
           </div>
-
-          <p className="cam__hint">
-            {cameraOn ? SLOT_HINT[activeSlot] : 'Tap start to use the camera.'}
-            {cameraOn && activeSlot === 'edge' && (
-              <>
-                {' '}
-                <span className="cam__tip">
-                  If it will not focus, move the book further away. The crop
-                  keeps the detail.
-                </span>
-              </>
-            )}
-          </p>
-
-          {cameraOn && lenses.length > 1 && (
-            <div className="cam__lenses">
-              {lenses.map((lens) => (
-                <button
-                  key={lens.deviceId}
-                  className={lens.deviceId === lensId ? 'cam__lens cam__lens--on' : 'cam__lens'}
-                  onClick={() => switchLens(lens.deviceId)}
-                >
-                  {lensName(lens.label)}
-                </button>
-              ))}
-            </div>
-          )}
 
           <div className="cam__controls">
 

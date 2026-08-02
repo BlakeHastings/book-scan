@@ -60,4 +60,15 @@ describe('cropToSource', () => {
     const centre = rect.sx + rect.sw / 2
     expect(Math.abs(centre - 1920 / 2)).toBeLessThan(1)
   })
+
+  it('leaves the whole spine guide in clear screen', () => {
+    // Measured on a 390x844 viewport: the top bar ends at 70px (0.083) and
+    // the shutter row begins at 682px (0.808). The guide is drawn at exactly
+    // these fractions, so a crop that runs past them hides its own boundary
+    // behind the controls, and this crop really does discard the outside.
+    const topBar = 70 / 844
+    const bottomBand = 682 / 844
+    expect(SPINE_CROP.y).toBeGreaterThan(topBar)
+    expect(SPINE_CROP.y + SPINE_CROP.height).toBeLessThan(bottomBand)
+  })
 })
