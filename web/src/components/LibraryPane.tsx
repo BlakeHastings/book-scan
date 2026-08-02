@@ -7,7 +7,7 @@ import type { ShelfRange } from '../../shared/shelving'
  * Browse a range in shelf order, and surface anything whose recorded location
  * disagrees with its sort position.
  */
-export function LibraryPane() {
+export function LibraryPane({ onOpen }: { onOpen: (id: number) => void }) {
   const [range, setRange] = useState<ShelfRange>('fiction')
   const [books, setBooks] = useState<BookRow[]>([])
   const [misfiles, setMisfiles] = useState<Misfile[]>([])
@@ -72,7 +72,10 @@ export function LibraryPane() {
                 />
               )}
             </span>
-            <span className="shelf__body">
+            <button
+              className="shelf__body shelf__body--tap"
+              onClick={() => onOpen(book.id)}
+            >
               <span className="shelf__author">{book.author_filing || book.authors}</span>
               <span className="shelf__title">
                 {book.title}
@@ -83,7 +86,7 @@ export function LibraryPane() {
                   </em>
                 )}
               </span>
-            </span>
+            </button>
             <button
               className="btn btn--ghost"
               onClick={() => api.deleteBook(book.id).then(load)}

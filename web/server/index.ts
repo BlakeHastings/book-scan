@@ -253,12 +253,15 @@ app.get('/api/lookup/title', async (req, res) => {
  * as the user edits the review fields.
  */
 app.post('/api/placement/preview', (req, res) => {
-  const draft = asDraft(req.body ?? {})
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const draft = asDraft(body)
   if (!draft.title) {
     res.status(400).json({ error: 'A title is required to work out placement.' })
     return
   }
-  res.json(store.placementFor(draft))
+  // When editing a saved book, it must not turn up as its own neighbour.
+  const excludeId = Number(body.excludeId ?? 0) || undefined
+  res.json(store.placementFor(draft, excludeId))
 })
 
 // ---------------------------------------------------------------------------
@@ -309,6 +312,32 @@ app.post('/api/books', (req, res) => {
 app.get('/api/books', (req, res) => {
   const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
   res.json({ books: store.listRange(range), counts: store.counts() })
+})
+
+app.get('/api/books/:id', (req, res) => {
+  const book = store.getBook(Number(req.params.id))
+  if (!book) {
+    res.status(404).json({ error: 'No such book.' })
+    return
+  }
+  res.json({ book })
+})
+
+app.put('/api/books/:id', (req, res) => {
+  const id = Number(req.params.id)
+  if (!store.getBook(id)) {
+    res.status(404).json({ error: 'No such book.' })
+    return
+  }
+
+  const draft = asDraft(req.body ?? {})
+  if (!draft.title) {
+    res.status(400).json({ error: 'A title is required.' })
+    return
+  }
+
+  const placement = store.updateBook(id, draft)
+  res.json({ id, placement, counts: store.counts() })
 })
 
 app.patch('/api/books/:id/location', (req, res) => {

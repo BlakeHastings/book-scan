@@ -83,6 +83,12 @@ queued book shows its photos, every editable field, and the ISBN it was matched
 on. **Change ISBN** prompts for the right digits, validates them before
 spending a request, then refetches the whole record from the catalogue.
 
+Tapping a book in the Library opens the same view, so a shelved book can be
+corrected later. Saving an existing book updates it in place and rebuilds
+everything derived from it, since changing a title, author or the fiction flag
+moves it on the shelf. It is also excluded from its own neighbour search, or
+it would be told to sit next to itself.
+
 That is deliberately the only place an ISBN can be typed. The ISBN is the key
 every other field hangs off, so correcting one means refetching rather than
 retyping metadata, and you need the photos on screen to read the digits off the
@@ -227,7 +233,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-120 tests. The ones worth knowing about:
+126 tests. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real zbar and tesseract pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on

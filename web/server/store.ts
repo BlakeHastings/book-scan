@@ -276,6 +276,83 @@ export class Store {
    * ISBN-10, or an edition the catalogue reports under only one of the two.
    * Both columns are populated on save, so both are worth searching.
    */
+  getBook(id: number): BookRow | undefined {
+    return this.db.prepare('SELECT * FROM books WHERE id = ?').get(id) as
+      BookRow | undefined
+  }
+
+  /**
+   * Update an existing book, recomputing everything derived from it.
+   *
+   * Editing a title, author or the fiction flag moves the book on the shelf,
+   * so the sort key and range have to be rebuilt or the row would keep its
+   * old position and quietly break the ordering.
+   */
+  updateBook(id: number, draft: DraftBook): Placement & ResolvedKey {
+    const resolved = this.resolveKey(draft)
+    const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
+    const location = draft.location?.trim() ?? ''
+
+    const apply = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE books SET
+             isbn13 = @isbn13, isbn10 = @isbn10, title = @title,
+             subtitle = @subtitle, authors = @authors, publisher = @publisher,
+             published = @published, pages = @pages, notes = @notes,
+             shelf_range = @shelf_range, is_fiction = @is_fiction,
+             classification_source = @classification_source,
+             classification_confidence = @classification_confidence,
+             author_filing = @author_filing, series_name = @series_name,
+             series_index = @series_index, title_filing = @title_filing,
+             sort_key = @sort_key, location = @location,
+             lookup_source = @lookup_source, isbn_source = @isbn_source,
+             shelved_at = COALESCE(shelved_at, @shelved_at)
+           WHERE id = @id`,
+        )
+        .run({
+          id,
+          isbn13: isbn.isbn13 || draft.isbn13 || '',
+          isbn10: isbn.isbn10 || draft.isbn10 || '',
+          title: draft.title,
+          subtitle: draft.subtitle ?? '',
+          authors: draft.authors.filter(Boolean).join(', '),
+          publisher: draft.publisher ?? '',
+          published: draft.published ?? '',
+          pages: draft.pages ?? '',
+          notes: draft.notes ?? '',
+          shelf_range: resolved.range,
+          is_fiction: draft.isFiction ? 1 : 0,
+          classification_source: draft.classificationSource ?? 'manual',
+          classification_confidence: draft.classificationConfidence ?? 'unknown',
+          author_filing: resolved.authorFiling,
+          series_name: draft.seriesName ?? '',
+          series_index: draft.seriesIndex ?? null,
+          title_filing: resolved.titleFilingValue,
+          sort_key: resolved.sortKey,
+          location,
+          lookup_source: draft.lookupSource ?? '',
+          isbn_source: draft.isbnSource ?? '',
+          shelved_at: location ? new Date().toISOString() : null,
+        })
+
+      this.db.prepare('DELETE FROM book_authors WHERE book_id = ?').run(id)
+      const insertAuthor = this.db.prepare(
+        'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
+      )
+      draft.authors
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .forEach((name, index) => insertAuthor.run(id, index + 1, name))
+    })
+
+    apply()
+
+    // Exclude the book from its own neighbour search, or it would be told to
+    // sit next to itself.
+    return this.placementFor(draft, id)
+  }
+
   findByIsbn(value: string): BookRow | undefined {
     const { isbn13, isbn10 } = resolveIsbnPair(value)
     if (!isbn13 && !isbn10) return undefined

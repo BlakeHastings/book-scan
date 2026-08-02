@@ -706,3 +706,16 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .modal__title { margin: 0 0 6px; font-size: 17px; }
 .modal__check { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
 .modal__check--bad { color: var(--bad); }
+
+/* Library rows open the detail view; Remove stays a separate target so a
+   mis-tap cannot delete a book. */
+.shelf__body--tap {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.shelf__body--tap:active { opacity: 0.6; }

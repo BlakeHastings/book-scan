@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  api, deviceName, draftFromLookup, emptyDraft,
+  api, deviceName, draftFromBook, draftFromLookup, emptyDraft,
   type Capture, type Counts, type Draft, type LookupResponse,
   type PlacementResponse, type QueueCounts,
 } from './lib/api'
@@ -49,6 +49,7 @@ export default function App() {
   const [relookupError, setRelookupError] = useState('')
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [captureId, setCaptureId] = useState<number | null>(null)
+  const [bookId, setBookId] = useState<number | null>(null)
   const [enqueuing, setEnqueuing] = useState(false)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
@@ -190,7 +191,7 @@ export default function App() {
     }
     setPlacementStale(true)
     const timer = setTimeout(() => {
-      api.previewPlacement(draft)
+      api.previewPlacement(draft, bookId ?? undefined)
         .then((result) => {
           setPlacement(result)
           setPlacementStale(false)
@@ -203,7 +204,7 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [
     mode, draft.title, draft.authors, draft.isFiction, draft.seriesName,
-    draft.seriesIndex, draft.authorFilingOverride,
+    draft.seriesIndex, draft.authorFilingOverride, bookId,
   ])
 
   // -----------------------------------------------------------------------
@@ -256,11 +257,14 @@ export default function App() {
     setSaving(true)
     setError('')
     try {
-      const result = await api.saveBook(
-        draft, shots, Boolean(draft.authorFilingOverride), captureId ?? undefined,
-      )
+      const result = bookId
+        ? await api.updateBook(bookId, draft)
+        : await api.saveBook(
+            draft, shots, Boolean(draft.authorFilingOverride), captureId ?? undefined,
+          )
       setCounts(result.counts)
-      setQueueCounts(result.queue)
+      // Only the insert path reports queue counts; an edit does not touch it.
+      if ('queue' in result) setQueueCounts(result.queue as QueueCounts)
       // The server recomputes placement at save time. With two people
       // scanning, a neighbour can land between preview and save, so the
       // preview we rendered may already be wrong.
@@ -293,6 +297,39 @@ export default function App() {
     }
   }
 
+  /**
+   * Open an already-shelved book for editing. Same detail view as a queued
+   * capture, so there is one place a book is edited rather than two.
+   */
+  const openBook = async (id: number) => {
+    setError('')
+    try {
+      const { book } = await api.getBook(id)
+      const loaded = draftFromBook(book)
+      // A stored filing name that the heuristic would not produce is an
+      // override, and must survive the round trip or the book moves on save.
+      const derived = filingName(loaded.authors.split(',')[0]?.trim() ?? '')
+      setDraft({
+        ...loaded,
+        authorFilingOverride:
+          book.author_filing && book.author_filing !== derived ? book.author_filing : '',
+      })
+      setBookId(id)
+      setCaptureId(null)
+      setLookup(null)
+      setIdentified(Boolean(book.isbn13))
+      setThumbs({
+        front: book.front_image ? `/api/covers/${book.front_image}` : undefined,
+        back: book.back_image ? `/api/covers/${book.back_image}` : undefined,
+        edge: book.edge_image ? `/api/covers/${book.edge_image}` : undefined,
+      })
+      setShots({})
+      setMode('review')
+    } catch (caught) {
+      setError((caught as Error).message)
+    }
+  }
+
   /** Open a queue item in the review pane, pre-filled from its lookup. */
   const openCapture = (capture: Capture) => {
     const looked = capture.draft_json
@@ -300,6 +337,7 @@ export default function App() {
       : null
 
     setCaptureId(capture.id)
+    setBookId(null)
     setLookup(looked)
     setIdentified(Boolean(looked?.found))
     setDraft(
@@ -334,6 +372,7 @@ export default function App() {
     setActiveSlot('back')
     setPlacement(null)
     setCaptureId(null)
+    setBookId(null)
     setMode('capture')
   }
 
@@ -509,7 +548,7 @@ export default function App() {
         <QueuePane onOpen={openCapture} onCounts={setQueueCounts} />
       )}
 
-      {mode === 'library' && <LibraryPane />}
+      {mode === 'library' && <LibraryPane onOpen={openBook} />}
 
       {mode === 'review' && (
         <main className="main">

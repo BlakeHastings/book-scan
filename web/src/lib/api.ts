@@ -63,13 +63,24 @@ export interface Counts {
 export interface BookRow {
   id: number
   title: string
+  subtitle: string
   authors: string
   author_filing: string
+  publisher: string
+  published: string
+  pages: string
+  notes: string
   series_name: string
   series_index: number | null
   location: string
   shelf_range: ShelfRange
+  is_fiction: number
+  classification_source: string
+  classification_confidence: string
   isbn13: string
+  isbn10: string
+  isbn_source: string
+  lookup_source: string
   front_image: string
   back_image: string
   edge_image: string
@@ -173,10 +184,11 @@ export const api = {
   searchTitle: (title: string) =>
     request<LookupResponse>(`/api/lookup/title?q=${encodeURIComponent(title)}`),
 
-  previewPlacement: (draft: Draft) =>
+  /** `excludeId` keeps a book being edited out of its own neighbour search. */
+  previewPlacement: (draft: Draft, excludeId?: number) =>
     request<PlacementResponse>('/api/placement/preview', {
       method: 'POST',
-      body: JSON.stringify(draftBody(draft)),
+      body: JSON.stringify({ ...draftBody(draft), excludeId }),
     }),
 
   /** Hand three photos to the queue and return at once. */
@@ -222,6 +234,14 @@ export const api = {
       },
     ),
 
+  getBook: (id: number) => request<{ book: BookRow }>(`/api/books/${id}`),
+
+  updateBook: (id: number, draft: Draft) =>
+    request<{ id: number; placement: PlacementResponse; counts: Counts }>(
+      `/api/books/${id}`,
+      { method: 'PUT', body: JSON.stringify(draftBody(draft)) },
+    ),
+
   listBooks: (range: ShelfRange) =>
     request<{ books: BookRow[]; counts: Counts }>(`/api/books?range=${range}`),
 
@@ -258,5 +278,32 @@ export function draftFromLookup(result: LookupResponse): Draft {
     seriesName: result.seriesName,
     seriesIndex: result.seriesIndex === null ? '' : String(result.seriesIndex),
     lookupSource: result.source,
+  }
+}
+
+/** Load a saved book back into the shape the detail view edits. */
+export function draftFromBook(book: BookRow): Draft {
+  return {
+    ...emptyDraft,
+    isbn13: book.isbn13 ?? '',
+    isbn10: book.isbn10 ?? '',
+    title: book.title ?? '',
+    subtitle: book.subtitle ?? '',
+    authors: book.authors ?? '',
+    publisher: book.publisher ?? '',
+    published: book.published ?? '',
+    pages: book.pages ?? '',
+    notes: book.notes ?? '',
+    isFiction: book.is_fiction === 1,
+    classificationSource: book.classification_source || 'manual',
+    classificationConfidence: book.classification_confidence || 'unknown',
+    seriesName: book.series_name ?? '',
+    seriesIndex: book.series_index === null ? '' : String(book.series_index),
+    location: book.location ?? '',
+    lookupSource: book.lookup_source ?? '',
+    isbnSource: book.isbn_source ?? '',
+    // The filing name is stored, but only counts as an override if it differs
+    // from what the heuristic would derive. App decides that.
+    authorFilingOverride: '',
   }
 }

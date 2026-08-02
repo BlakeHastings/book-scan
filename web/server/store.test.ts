@@ -162,3 +162,67 @@ describe('bookkeeping', () => {
     expect(store.misfiles()).toHaveLength(0)
   })
 })
+
+describe('editing a shelved book', () => {
+  it('updates in place rather than adding a second copy', () => {
+    const { id } = store.addBook(
+      draft({ title: 'Dark Angel', authors: ['V.C. Andrews'], location: '1A' }),
+    )
+    store.updateBook(id, draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
+
+    expect(store.counts().total).toBe(1)
+    expect(store.getBook(id)?.title).toBe('Dune')
+  })
+
+  it('moves the book when the author changes', () => {
+    // The sort key has to be rebuilt, or the row keeps its old shelf position
+    // and the ordering quietly breaks.
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Zoe Zulu'] }))
+    const before = store.getBook(id)!.sort_key
+
+    store.updateBook(id, draft({ title: 'X', authors: ['Ann Author'] }))
+    const after = store.getBook(id)!
+
+    expect(after.sort_key).not.toBe(before)
+    expect(after.author_filing).toBe('Author, Ann')
+  })
+
+  it('moves the book between ranges when the fiction flag flips', () => {
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    expect(store.getBook(id)?.shelf_range).toBe('fiction')
+
+    store.updateBook(id, draft({ title: 'X', authors: ['Ann Author'], isFiction: false }))
+    expect(store.getBook(id)?.shelf_range).toBe('nonfiction')
+    expect(store.listRange('fiction')).toHaveLength(0)
+    expect(store.listRange('nonfiction')).toHaveLength(1)
+  })
+
+  it('does not report the edited book as its own neighbour', () => {
+    store.addBook(draft({ title: 'Alpha', authors: ['Ann Author'], location: '1A' }))
+    const { id } = store.addBook(draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }))
+
+    const placement = store.updateBook(
+      id, draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }),
+    )
+    expect(placement.predecessor?.id).not.toBe(id)
+    expect(placement.successor?.id).not.toBe(id)
+    expect(placement.predecessor?.title).toBe('Alpha')
+  })
+
+  it('replaces the author list rather than appending to it', () => {
+    const { id } = store.addBook(
+      draft({ title: 'X', authors: ['Ann Author', 'Bob Baker'] }),
+    )
+    store.updateBook(id, draft({ title: 'X', authors: ['Cal Church'] }))
+    expect(store.getBook(id)?.authors).toBe('Cal Church')
+    expect(store.getBook(id)?.author_filing).toBe('Church, Cal')
+  })
+
+  it('fills in both ISBN forms on an edit, as on an insert', () => {
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    store.updateBook(id, draft({
+      title: 'Dune', authors: ['Frank Herbert'], isbn13: '9780441013593',
+    }))
+    expect(store.getBook(id)?.isbn10).toBe('0441013597')
+  })
+})
