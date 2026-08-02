@@ -201,14 +201,33 @@ function boxFromPoints(points: unknown, scale: number) {
 
 export async function decodeBarcodesDetailed(input: Buffer): Promise<DecodedBarcode[]> {
   const sourceWidth = (await sharp(input).metadata()).width ?? 0
+  const variants = barcodeVariants(input)
 
-  for (const variant of barcodeVariants(input)) {
-    let image: GrayImage
-    try {
-      image = await variant.build()
-    } catch {
-      continue
-    }
+  /*
+   * Prepare the next variant's image while zbar is busy with this one.
+   *
+   * The two halves use different machinery, sharp on libvips threads and zbar
+   * in WASM, and measured on a real back cover they cost about 1.4s and 2.4s
+   * respectively when every variant has to be tried. Run strictly in turn that
+   * is 3.8s; overlapped it is a little over the scanning alone.
+   *
+   * Only ever one variant ahead, so the common case where the first look
+   * succeeds still does almost no wasted work, and only one zbar call is ever
+   * in flight.
+   */
+  const prepare = (index: number) =>
+    index < variants.length
+      ? variants[index]!.build().catch(() => null)
+      : Promise.resolve(null)
+
+  let pending = prepare(0)
+
+  for (let i = 0; i < variants.length; i += 1) {
+    const variant = variants[i]!
+    const image = await pending
+    pending = prepare(i + 1)
+
+    if (!image) continue
 
     let symbols
     try {
