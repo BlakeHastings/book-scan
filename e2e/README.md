@@ -116,11 +116,16 @@ with a five second busy timeout.
 | `support/database.ts` | Reading and resetting the catalogue |
 | `global-setup.ts` | Wires all of the above together |
 
-## Known limitation
+## Running beside another checkout
 
-Two checkouts of this repository cannot run their AppHosts at the same time.
-`aspire.config.json` pins the dashboard and resource service to fixed ports, and
-`aspire start --isolated` does not randomise those, so a second checkout fails
-with "address already in use". The application's own ports are assigned
-dynamically and are not the problem. If a run fails to start, check
-`aspire ps` for another book-scan AppHost.
+Two checkouts of this repository can run their AppHosts at the same time, so a
+suite in one worktree does not have to wait for a suite in another. That was
+not true until #28: `aspire.config.json` pinned the dashboard, the OTLP endpoint
+and the resource service to fixed ports, `aspire start --isolated` did not
+randomise those, and a second checkout died with "address already in use". The
+profile is gone, and Aspire now picks free ports for all three.
+
+Keep it that way. If a run ever fails to start with "address already in use",
+the first thing to check is whether a `profiles` block has come back into
+`aspire.config.json`; the second is `aspire ps`, for an AppHost this checkout
+left behind.

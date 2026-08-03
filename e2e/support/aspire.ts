@@ -74,8 +74,10 @@ export interface AspireResource {
  * Start the AppHost in the background.
  *
  * `--isolated` because the suite may be running from a git worktree beside
- * other checkouts, and fixed ports are the one thing that makes two checkouts
- * collide.
+ * other checkouts, and it gives this run its own user secrets. It is not what
+ * keeps the ports apart: `--isolated` cannot override a launch profile, so the
+ * ports stay apart only because `aspire.config.json` declares no profile. See
+ * the note in AGENTS.md before adding one back.
  */
 export async function startAppHost(env: NodeJS.ProcessEnv): Promise<void> {
   await aspire(['start', '--isolated', '--format', 'Json'], {

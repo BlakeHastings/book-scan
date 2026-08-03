@@ -140,8 +140,8 @@ else about a checkout is affected.
 are lost. To add an integration, run `aspire add <package>`.
 
 Both checks must pass before a pull request is ready. As of 2026-08-03
-`npm run typecheck` is clean and `npm test` reports 283 tests passing across 15
-files in about 23 seconds. If the count drops, you removed a test.
+`npm run typecheck` is clean and `npm test` reports 298 tests passing across 15
+files in about 21 seconds. If the count drops, you removed a test.
 
 ## Layout
 
