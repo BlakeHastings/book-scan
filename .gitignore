@@ -14,3 +14,6 @@ books.csv
 captures/
 backups/
 settings.json
+node_modules/
+dist/
+.aspire/
