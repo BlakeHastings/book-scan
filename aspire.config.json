@@ -6,15 +6,6 @@
   "sdk": {
     "version": "13.4.2"
   },
-  "profiles": {
-    "https": {
-      "applicationUrl": "https://localhost:17117;http://localhost:15239",
-      "environmentVariables": {
-        "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21047",
-        "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22186"
-      }
-    }
-  },
   "packages": {
     "Aspire.Hosting.JavaScript": "13.4.6"
   }

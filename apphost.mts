@@ -6,7 +6,10 @@
 //   web  the Vite React client
 //
 // Ports are assigned by Aspire rather than hardcoded, which is what lets
-// several worktrees run at once.
+// several worktrees run at once. That covers Aspire's own ports too:
+// aspire.config.json deliberately has no "profiles" block, because a profile
+// pins the dashboard, the OTLP endpoint and the resource service to fixed
+// ports, and a second checkout then fails to bind them. Do not add one back.
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
