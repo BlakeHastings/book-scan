@@ -1264,6 +1264,39 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .offshelf__title { font-weight: 500; }
 .offshelf__author { color: var(--muted); font-size: 13px; }
 
+/* Books to physically move. Framed like the off-shelf list, which is the other
+   place the screen asks you to go and do something to the furniture. */
+.attention {
+  border: 1px solid var(--bad);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.attention__head { margin: 0; font-size: 15px; color: var(--bad); }
+.attention .hint { margin: 4px 0 0; }
+.attention__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.attention__body {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--text);
+  padding: 4px 2px;
+  min-height: 44px;
+  font-size: 15px;
+}
+.attention__title { font-weight: 500; }
+.attention__where { color: var(--muted); font-size: 13px; }
+.attention__where strong { color: var(--text); }
+
 /* Belongs on this shelf but is not on it. Dimmed and dashed so it reads as a
    gap in the run rather than as a book you could walk up and pull out. */
 .shelfrow--off { opacity: 0.6; }

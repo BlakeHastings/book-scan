@@ -2,10 +2,10 @@
 
 How a freshly scanned book turns into "put this one between X and Y".
 
-Status: implemented, with two exceptions. The placement algorithm, the sort
-key, author filing and the fiction guess are live in `web/shared/shelving.ts`.
-**Misfile detection** and **re-shelving**, described near the end of this
-document, are specified but not built.
+Status: implemented. The placement algorithm, the sort key, author filing and
+the fiction guess are live in `web/shared/shelving.ts`, and so, since #5, are
+**misfile detection** and **re-shelving**, described near the end of this
+document.
 
 Where this document and the code disagree, this document is the authority and
 the code is the bug, unless the owner has decided otherwise in an issue.
@@ -299,11 +299,41 @@ scan.
 This is worth building. It is the only thing standing between this system and
 slow silent drift, and it costs one query.
 
+### How it is actually checked
+
+`reviewShelving` in `web/shared/shelving.ts` does not compare each book with
+the one before it. It compares each book's **recorded** location, which is
+whatever a person last confirmed, against its **derived** location, which is
+recomputed from sort order and the shelf boundaries every time it is asked.
+
+That is a strictly stronger form of the same invariant, and a kinder one:
+
+- It cannot miss anything the rank check catches. Derived locations are
+  non-decreasing by construction, so an inversion among recorded locations is
+  impossible unless one of them already disagrees with its derived one.
+- It blames the right book. A pairwise rank check flags the second book of an
+  inverted pair, so one book on the wrong bookcase gets its innocent successor
+  reported instead of itself.
+- It names the destination, which is what a list of books to go and move
+  needs.
+
+Three cases are excluded rather than reported, and returned separately so the
+exclusion is visible instead of silent. A **checked-out** book is off the shelf
+and holds no position to disagree with. A book with **no recorded location**
+was never confirmed onto a shelf, so there is nothing to compare. A label that
+**does not parse** as a location leaves the ranks incomparable.
+
+The check is read only. It never rewrites a location to make a disagreement go
+away: the recorded location is the record of where the book physically is, and
+a guess written into it is worse than nothing there at all. A location changes
+only when a person says the book moved.
+
 ### Location label format
 
 Accept `1A`, `S1A`, and `S4`, all parsing to `(shelf:int, section:str)` with
 section possibly empty. Sort by shelf number then section string. A bare `S4`
-sorts ahead of `S4A`.
+sorts ahead of `S4A`. Comparison is on the parsed rank, not the string, so
+`s4 b` and `S4B` are the same plank and not a book to go and move.
 
 ### Re-shelving
 
@@ -311,6 +341,12 @@ If a book's author, series, or fiction flag is edited after it was placed, its
 position changes and the physical book has to move. Recompute the key on edit,
 and if the neighbours changed, add it to the same "needs attention" list with
 the new instruction.
+
+This falls out of the check above rather than needing its own path. An edit
+recomputes the sort key, which changes the derived location, which no longer
+matches the recorded one. The same is true of the other way a book moves
+without being touched: marking a shelf full pushes a run of books along, and
+every one of them appears on the list until somebody says they were moved.
 
 ## Schema changes
 

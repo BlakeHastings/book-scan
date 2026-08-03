@@ -350,48 +350,156 @@ export function buildPlacement(
 // Misfile detection
 // ---------------------------------------------------------------------------
 
-export interface ShelvedBook {
+/**
+ * One book, seen from both sides of the disagreement this section exists to
+ * find.
+ */
+export interface FiledBook {
   id: number
   title: string
   authorFiling: string
+  /**
+   * Where a person last said this book physically is.
+   *
+   * Empty when nobody has ever said. That is not the same as the book being in
+   * the wrong place, and the difference is the whole reason this is a separate
+   * field rather than something derived.
+   */
   location: string
+  /**
+   * Where sort order and the shelf boundaries put it now.
+   *
+   * Recomputed from the catalogue every time, so editing an author, a series
+   * or the fiction flag moves this while `location` stays where it was. That
+   * is exactly the re-shelving case: the book has to physically move, and the
+   * gap between these two fields is what says so.
+   */
+  derivedLocation: string
   sortKey: string
+  /** Off the shelf entirely, so it holds no physical position at all. */
+  checkedOut: boolean
 }
 
+/** Why a book was left out of the list rather than reported in it. */
+export type ExcludedReason =
+  /** Physically off the shelf, so there is no position to disagree with. */
+  | 'checked-out'
+  /** Catalogued but never confirmed onto a shelf. Nothing to compare. */
+  | 'never-placed'
+  /** A label that does not parse as a location, so ranks are not comparable. */
+  | 'unreadable-location'
+
+export interface Excluded {
+  book: FiledBook
+  reason: ExcludedReason
+}
+
+/** A book whose physical position disagrees with where it now belongs. */
 export interface Misfile {
-  book: ShelvedBook
-  previous: ShelvedBook
-  reason: string
+  book: FiledBook
+  /** Canonical label for where it is. */
+  from: string
+  /** Canonical label for where it belongs. */
+  to: string
+  /** One line, ready to read standing in front of the shelves. */
+  instruction: string
+}
+
+export interface ShelvingReview {
+  /** Books to physically pick up and move. */
+  misfiles: Misfile[]
+  /** Books deliberately not judged, and why. Reported, never counted as errors. */
+  excluded: Excluded[]
 }
 
 /**
- * The invariant: within a range, when books are ordered by sort key their
- * location rank must never go backwards.
+ * Reconcile where books are with where they belong.
  *
- * An inversion means the book is physically in the wrong place or a location
- * was mistyped. Since locations are hand-entered, this check is the only thing
- * standing between this system and slow silent drift.
+ * Locations are descriptive, not prescriptive. Sort order is the truth about
+ * what sequence books should be in; the recorded location is the truth about
+ * where a book physically is. The two drift apart as books are shelved, and
+ * this is the only thing that notices.
  *
- * `books` must already be sorted by sortKey. Books with no location yet are
- * skipped, not reported: they are unshelved, not misfiled.
+ * A misfile is a book that is *on a shelf*, whose recorded location is
+ * readable, and which does not compare equal to the location its sort position
+ * now lands on. Nothing else. In particular this function never writes: a book
+ * reported here stays exactly where the catalogue says it is until a person
+ * says they moved it.
+ *
+ * ## Why this rather than the ordering invariant
+ *
+ * docs/shelving.md states the check as "location rank must be non-decreasing
+ * down the sort order". Comparing against the derived location is strictly
+ * stronger and strictly kinder:
+ *
+ *   - It cannot miss anything the rank check catches. Derived locations are
+ *     non-decreasing by construction, so an inversion among recorded locations
+ *     is impossible unless at least one of them already disagrees with its
+ *     derived one.
+ *   - It blames the right book. A rank check compares each book with its
+ *     neighbour and flags the second of the pair, so a single book put on the
+ *     wrong bookcase gets its innocent successor reported instead of itself.
+ *   - It names the destination. "Move this to 2A" is actionable; "this sorts
+ *     after that" leaves the person to work out where it goes.
+ *
+ * ## What is deliberately not reported
+ *
+ * False positives are expensive here: the output is a list somebody walks to
+ * the shelf and physically handles, so a list that is mostly wrong gets
+ * ignored and hides the real misfiles inside it. Three cases are therefore
+ * excluded rather than flagged, and returned under `excluded` so the exclusion
+ * is visible instead of silent.
+ *
+ * Call this once per range. Fiction and non-fiction are independent ordered
+ * lists that never interact, so their locations are not comparable and must
+ * never arrive in the same call.
+ *
+ * The input does not need to be sorted. Every judgement is per book.
  */
-export function findMisfiles(books: ShelvedBook[]): Misfile[] {
+export function reviewShelving(books: FiledBook[]): ShelvingReview {
   const misfiles: Misfile[] = []
-  let previous: ShelvedBook | null = null
+  const excluded: Excluded[] = []
 
   for (const book of books) {
-    if (!book.location) continue
-    if (previous && compareLocations(previous.location, book.location) > 0) {
-      misfiles.push({
-        book,
-        previous,
-        reason:
-          `${book.title} sorts after ${previous.title} but is shelved at ` +
-          `${book.location}, ahead of ${previous.location}.`,
-      })
+    if (book.checkedOut) {
+      excluded.push({ book, reason: 'checked-out' })
+      continue
     }
-    previous = book
+
+    const recorded = (book.location ?? '').trim()
+    if (!recorded) {
+      excluded.push({ book, reason: 'never-placed' })
+      continue
+    }
+
+    // Compare parsed ranks, not strings, or `s4 b` and `S4B` read as a book
+    // that needs carrying across the room.
+    const at = parseLocation(recorded)
+    const belongs = parseLocation(book.derivedLocation ?? '')
+    if (!at || !belongs) {
+      excluded.push({ book, reason: 'unreadable-location' })
+      continue
+    }
+
+    if (compareLocations(recorded, book.derivedLocation) === 0) continue
+
+    const from = formatLocation(at)
+    const to = formatLocation(belongs)
+    misfiles.push({
+      book,
+      from,
+      to,
+      instruction:
+        `${book.title} (${book.authorFiling || 'unknown author'}) is at ` +
+        `${from} and belongs at ${to}.`,
+    })
   }
 
-  return misfiles
+  // Ordered by where the book currently is, because that is the order somebody
+  // walks the shelves picking them up.
+  misfiles.sort((a, b) =>
+    compareLocations(a.from, b.from) ||
+    (a.book.sortKey < b.book.sortKey ? -1 : a.book.sortKey > b.book.sortKey ? 1 : 0))
+
+  return { misfiles, excluded }
 }

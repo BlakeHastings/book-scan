@@ -9,10 +9,8 @@ import {
   buildPlacement,
   buildSortKey,
   filingName,
-  findMisfiles,
   normalise,
   titleFiling,
-  type Misfile,
   type Neighbour,
   type Placement,
   type ShelfRange,
@@ -309,7 +307,12 @@ export class Store {
              classification_confidence = @classification_confidence,
              author_filing = @author_filing, series_name = @series_name,
              series_index = @series_index, title_filing = @title_filing,
-             sort_key = @sort_key, location = @location,
+             sort_key = @sort_key,
+             -- An edit that carries no location leaves the recorded one alone
+             -- rather than blanking it. Where the book physically is was
+             -- observed by a person and is not something a metadata edit knows
+             -- anything about; clearing it is what PATCH .../location is for.
+             location = COALESCE(NULLIF(@location, ''), location),
              lookup_source = @lookup_source, isbn_source = @isbn_source,
              shelved_at = COALESCE(shelved_at, @shelved_at)
            WHERE id = @id`,
@@ -563,21 +566,5 @@ export class Store {
       nonfiction: row.nonfiction ?? 0,
       checkedOut: row.checkedOut ?? 0,
     }
-  }
-
-  /** Books whose recorded location disagrees with their sort order. */
-  misfiles(): Misfile[] {
-    const ranges: ShelfRange[] = ['fiction', 'nonfiction']
-    return ranges.flatMap((range) =>
-      findMisfiles(
-        this.listRange(range).map((row) => ({
-          id: row.id,
-          title: row.title,
-          authorFiling: row.author_filing,
-          location: row.location,
-          sortKey: row.sort_key,
-        })),
-      ),
-    )
   }
 }

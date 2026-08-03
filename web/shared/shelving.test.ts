@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildPlacement, buildSortKey, compareLocations, filingName, findMisfiles,
-  normalise, parseLocation, shelfPhoto, shelfPhotoSlot, titleFiling,
-  type Neighbour, type ShelvedBook,
+  buildPlacement, buildSortKey, compareLocations, filingName, normalise,
+  parseLocation, reviewShelving, shelfPhoto, shelfPhotoSlot, titleFiling,
+  type FiledBook, type Neighbour,
 } from './shelving'
 
 describe('normalise', () => {
@@ -190,25 +190,101 @@ describe('shelfPhoto', () => {
   })
 })
 
-describe('findMisfiles', () => {
-  const book = (id: number, location: string): ShelvedBook => ({
-    id, title: `Book ${id}`, authorFiling: `A${id}`, location, sortKey: String(id),
+describe('reviewShelving', () => {
+  const book = (
+    id: number,
+    location: string,
+    derivedLocation: string,
+    over: Partial<FiledBook> = {},
+  ): FiledBook => ({
+    id,
+    title: `Book ${id}`,
+    authorFiling: `Author, A${id}`,
+    location,
+    derivedLocation,
+    sortKey: String(id).padStart(3, '0'),
+    checkedOut: false,
+    ...over,
   })
 
-  it('accepts a shelf whose locations never go backwards', () => {
-    expect(findMisfiles([book(1, '1A'), book(2, '1A'), book(3, '1B'), book(4, '2A')]))
-      .toHaveLength(0)
+  const ids = (review: ReturnType<typeof reviewShelving>) =>
+    review.misfiles.map((m) => m.book.id)
+
+  it('says nothing about a shelf that agrees with itself', () => {
+    expect(ids(reviewShelving([
+      book(1, '1A', '1A'), book(2, '1A', '1A'), book(3, '1B', '1B'),
+      book(4, '2A', '2A'),
+    ]))).toEqual([])
   })
 
-  it('catches a book shelved ahead of where it sorts', () => {
-    const found = findMisfiles([book(1, '1B'), book(2, '1A')])
-    expect(found).toHaveLength(1)
-    expect(found[0]!.book.id).toBe(2)
+  it('names the book that is in the wrong place, and where it goes', () => {
+    const review = reviewShelving([
+      book(1, '1A', '1A'), book(2, '3C', '1A'), book(3, '1B', '1B'),
+    ])
+    expect(ids(review)).toEqual([2])
+    expect(review.misfiles[0]).toMatchObject({ from: '3C', to: '1A' })
+    expect(review.misfiles[0]!.instruction).toContain('3C')
+    expect(review.misfiles[0]!.instruction).toContain('1A')
   })
 
-  it('ignores books that have no location yet', () => {
-    // Unshelved is not misfiled.
-    expect(findMisfiles([book(1, '2A'), book(2, ''), book(3, '2B')])).toHaveLength(0)
+  it('blames the stray book rather than its innocent neighbour', () => {
+    // The failure mode of the pairwise rank check this replaced. Book 2 is on
+    // the wrong bookcase; comparing each book with the one before it flags
+    // book 3, which is exactly where it should be, and lets book 2 off.
+    const review = reviewShelving([
+      book(1, '1A', '1A'), book(2, '3C', '1A'), book(3, '1B', '1B'),
+      book(4, '1B', '1B'), book(5, '1C', '1C'),
+    ])
+    expect(ids(review)).toEqual([2])
+  })
+
+  it('reports every book a moved boundary displaced, not just the first', () => {
+    // Marking a shelf full pushes a whole run along. All of them are physical
+    // jobs and none of them will happen if only one is listed.
+    expect(ids(reviewShelving([
+      book(1, '1A', '1A'), book(2, '1A', '1B'), book(3, '1A', '1B'),
+      book(4, '1B', '1C'),
+    ]))).toEqual([2, 3, 4])
+  })
+
+  it('does not call a book misfiled over the way its label was typed', () => {
+    // s4 b and S4B are the same plank. Comparing the strings would send
+    // somebody across the room for nothing.
+    expect(ids(reviewShelving([book(1, 's4 b', 'S4B')]))).toEqual([])
+    expect(ids(reviewShelving([book(1, '4B', '4B')]))).toEqual([])
+  })
+
+  it('leaves a book nobody has ever placed out of it', () => {
+    const review = reviewShelving([book(1, '', '1A'), book(2, '   ', '1B')])
+    expect(review.misfiles).toEqual([])
+    expect(review.excluded.map((e) => [e.book.id, e.reason]))
+      .toEqual([[1, 'never-placed'], [2, 'never-placed']])
+  })
+
+  it('leaves a checked-out book out of it, having no position to be wrong', () => {
+    // Off the shelf entirely. Its old location is not a claim about anywhere.
+    const review = reviewShelving([book(1, '1A', '', { checkedOut: true })])
+    expect(review.misfiles).toEqual([])
+    expect(review.excluded[0]!.reason).toBe('checked-out')
+  })
+
+  it('sets aside a label it cannot read instead of guessing at it', () => {
+    const review = reviewShelving([book(1, 'in the box', '1A')])
+    expect(review.misfiles).toEqual([])
+    expect(review.excluded[0]!.reason).toBe('unreadable-location')
+  })
+
+  it('orders the list by where the books are, since that is the walk', () => {
+    const review = reviewShelving([
+      book(1, '2B', '1A'), book(2, '1A', '2C'), book(3, '2A', '1B'),
+    ])
+    expect(review.misfiles.map((m) => m.from)).toEqual(['1A', '2A', '2B'])
+  })
+
+  it('does not need its input sorted', () => {
+    // Every judgement is per book, so there is no precondition to violate.
+    const shuffled = [book(3, '1B', '1B'), book(1, '2A', '1A'), book(2, '1A', '1A')]
+    expect(ids(reviewShelving(shuffled))).toEqual([1])
   })
 })
 

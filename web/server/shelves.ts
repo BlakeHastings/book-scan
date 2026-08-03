@@ -14,7 +14,10 @@ import {
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
   type ShelfGroup, type Strip,
 } from '../shared/layout'
-import type { ShelfRange } from '../shared/shelving'
+import {
+  reviewShelving,
+  type FiledBook, type ShelfRange, type ShelvingReview,
+} from '../shared/shelving'
 
 interface SeparatorRow {
   id: number
@@ -35,6 +38,17 @@ const toSeparator = (row: SeparatorRow): Separator => ({
   kind: row.kind,
   startsAt: row.starts_at,
   position: row.position,
+})
+
+/** A row as the misfile check sees it: where it is, and where it belongs. */
+const toFiled = (row: BookRow, derived: string, checkedOut: boolean): FiledBook => ({
+  id: row.id,
+  title: row.title,
+  authorFiling: row.author_filing,
+  location: row.location ?? '',
+  derivedLocation: derived,
+  sortKey: row.sort_key,
+  checkedOut,
 })
 
 export class Shelves {
@@ -183,6 +197,40 @@ export class Shelves {
     }
 
     return { ok: true, step, moves: this.movesSince(range, before) }
+  }
+
+  /**
+   * Which books in this range are not where the catalogue says they belong.
+   *
+   * The two halves of the comparison come from different places on purpose.
+   * The recorded location is whatever a person last confirmed, read straight
+   * off the row. The derived location is recomputed here from sort order and
+   * the shelf boundaries, so inserting a book earlier in the alphabet, moving
+   * a boundary, or editing an author all shift it while the recorded one
+   * stays put.
+   *
+   * Strictly read only. Detection that quietly rewrote a location to make the
+   * disagreement go away would destroy the record of where the book actually
+   * is, which is the one thing that column is for.
+   *
+   * Checked-out books are pulled in explicitly. They are absent from the
+   * layout, having no position, and dropping them silently would leave the
+   * caller unable to tell "not misfiled" from "not considered".
+   */
+  review(range: ShelfRange): ShelvingReview {
+    const onShelf = this.layout(range)
+      .map((placed) => toFiled(placed.book, placed.label, false))
+
+    const off = (
+      this.db
+        .prepare(
+          `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NOT NULL
+            ORDER BY sort_key ASC`,
+        )
+        .all(range) as BookRow[]
+    ).map((row) => toFiled(row, '', true))
+
+    return reviewShelving([...onShelf, ...off])
   }
 
   /** Remove a boundary and renumber the rest so positions stay contiguous. */

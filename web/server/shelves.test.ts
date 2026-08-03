@@ -203,3 +203,118 @@ describe('a book taken off the shelf', () => {
     })
   })
 })
+
+describe('misfile detection', () => {
+  /** Add a book and record the shelf it actually landed on, as saving does. */
+  const shelve = (author: string, title = 'Book') => {
+    const id = add(author, title)
+    store.setLocation(id, shelves.labelFor('fiction', id))
+    return id
+  }
+
+  const flagged = (range: 'fiction' | 'nonfiction' = 'fiction') =>
+    shelves.review(range).misfiles.map((m) => [m.book.id, m.from, m.to])
+
+  it('says nothing while the shelves and the catalogue agree', () => {
+    shelve('Ann Author')
+    shelve('Bob Baker')
+    expect(flagged()).toEqual([])
+  })
+
+  it('reports the book a full shelf pushed along, and where it goes', () => {
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+
+    // The person says 1A will not take another. Bob physically moves to 1B,
+    // but nobody has said so yet, so the catalogue still has him at 1A.
+    shelves.overflow('fiction', '1A', 'area')
+
+    expect(flagged()).toEqual([[bob, '1A', '1B']])
+  })
+
+  it('drops a book off the list once a person says they moved it', () => {
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    shelves.overflow('fiction', '1A', 'area')
+    expect(flagged()).toHaveLength(1)
+
+    store.setLocation(bob, '1B')
+    expect(flagged()).toEqual([])
+  })
+
+  it('never rewrites a location to make the disagreement go away', () => {
+    // The whole constraint in one assertion. Running the check twice must
+    // leave the row exactly as it was, or the record of where the book really
+    // is has been destroyed by the thing that only meant to notice.
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    shelves.overflow('fiction', '1A', 'area')
+
+    const before = store.getBook(bob)
+    shelves.review('fiction')
+    shelves.review('fiction')
+    expect(store.getBook(bob)).toEqual(before)
+    expect(store.getBook(bob)?.location).toBe('1A')
+  })
+
+  it('reports the book an edit moved, which is the re-shelving case', () => {
+    // Zola sits last. Renaming the author to Adams moves the book to the front
+    // of the range, and the physical book has to follow it.
+    shelve('Ann Author')
+    shelve('Mary Mills')
+    const id = shelve('Zoe Zola')
+    shelves.overflow('fiction', '1A', 'area')       // Zola alone on 1B
+    store.setLocation(id, '1B')
+    expect(flagged()).toEqual([])
+
+    store.updateBook(id, { title: 'Book', authors: ['Al Adams'], isFiction: true })
+    expect(flagged()).toEqual([[id, '1B', '1A']])
+  })
+
+  it('leaves a book nobody ever placed out of it', () => {
+    add('Ann Author')                                // saved, never confirmed
+    shelve('Bob Baker')
+
+    expect(flagged()).toEqual([])
+    expect(shelves.review('fiction').excluded.map((e) => e.reason))
+      .toEqual(['never-placed'])
+  })
+
+  it('leaves a checked-out book out of it, and says that it did', () => {
+    const ann = shelve('Ann Author')
+    shelve('Bob Baker')
+    store.setCheckedOut(ann, true)
+
+    const review = shelves.review('fiction')
+    expect(review.misfiles).toEqual([])
+    // Absent from the layout, so it has to be pulled in deliberately or the
+    // caller cannot tell "fine" from "not looked at".
+    expect(review.excluded.map((e) => [e.book.id, e.reason])).toEqual([
+      [ann, 'checked-out'],
+    ])
+  })
+
+  it('never compares fiction against non-fiction', () => {
+    // Bookcase 4 is non-fiction's own. A non-fiction book at 4A is not ahead
+    // of or behind a fiction book at 1A; the two runs never interact.
+    shelve('Ann Author')
+    const harari = store.addBook({
+      title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false,
+    }).id
+    store.setLocation(harari, shelves.labelFor('nonfiction', harari))
+
+    expect(shelves.review('fiction').misfiles).toEqual([])
+    expect(shelves.review('nonfiction').misfiles).toEqual([])
+    // And each range only ever reports its own books.
+    expect(shelves.review('nonfiction').excluded.map((e) => e.book.id)).toEqual([])
+  })
+
+  it('sets a label it cannot read aside rather than guessing', () => {
+    const id = shelve('Ann Author')
+    store.setLocation(id, 'in the loft')
+
+    const review = shelves.review('fiction')
+    expect(review.misfiles).toEqual([])
+    expect(review.excluded.map((e) => e.reason)).toEqual(['unreadable-location'])
+  })
+})
