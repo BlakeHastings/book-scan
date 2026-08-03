@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# A second push to a PR makes the first run irrelevant. Cancel it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web (typecheck + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Tests open :memory: databases and generate their own barcode and
+      # cover fixtures, so this never reaches real scan data.
+      - name: Tests
+        run: npm test
+
+  no-production-data:
+    name: no production data committed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Detection, not prevention. web/.gitignore already excludes data/,
+      # but an ignore rule is silent when someone forces past it. This
+      # runs on the result, which a bypass cannot avoid producing.
+      - name: Refuse databases and scan images in the tree
+        run: |
+          hits=$(git ls-files \
+            | grep -Ei '\.(db|db-wal|db-shm|sqlite|sqlite3)$|(^|/)(covers|captures)/' \
+            || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Scan data must never be committed. Found:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No databases or scan images tracked."

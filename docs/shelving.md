@@ -2,7 +2,18 @@
 
 How a freshly scanned book turns into "put this one between X and Y".
 
-Status: design only. Nothing here is implemented yet.
+Status: implemented, with two exceptions. The placement algorithm, the sort
+key, author filing and the fiction guess are live in `web/shared/shelving.ts`.
+**Misfile detection** and **re-shelving**, described near the end of this
+document, are specified but not built.
+
+Where this document and the code disagree, this document is the authority and
+the code is the bug, unless the owner has decided otherwise in an issue.
+
+Note that the implementation stores `shelf`, `area` and a derived location
+rather than the column set sketched under "Schema changes" below, and sorts in
+application code rather than through a flattened indexed key. That divergence
+was a deliberate simplification, not an oversight.
 
 ## Scope
 
