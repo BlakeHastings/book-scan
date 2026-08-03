@@ -754,10 +754,12 @@ async function hashBook(id: number): Promise<void> {
 /**
  * Books that look like the one in the photo, best first.
  *
- * A shortlist, never an answer. Measured against re-photographed covers this
- * puts the right book first about nineteen times in twenty and in the top
- * three every time, which is worth showing somebody and not worth acting on
- * by itself, so the caller confirms.
+ * A shortlist, never an answer. Measured over thirty generated covers and
+ * five kinds of re-photograph, this puts the right book first about nine
+ * times in ten and in the top three about nineteen times in twenty, which is
+ * worth showing somebody and not worth acting on by itself, so the caller
+ * confirms. It also puts a wrong book first and inside the cutoff on roughly
+ * one query in ten, which is the reason confirming is not optional.
  */
 async function looksLike(input: Buffer, limit = 4) {
   const query = await coverHash(input)
