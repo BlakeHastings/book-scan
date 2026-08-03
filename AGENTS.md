@@ -95,15 +95,22 @@ aspire wait api                  # block until healthy, do not poll by hand
 aspire wait web
 aspire ps                        # resources, ports, dashboard URL
 aspire logs api                  # console output
-aspire otel traces               # spans, for proving a change did something
+aspire otel traces               # spans, but see the note below: none arrive
 aspire stop
 ```
 
 Aspire assigns the ports, so nothing is fixed at 3001 or 5173. It also injects
-`OTEL_EXPORTER_OTLP_ENDPOINT`, which `web/instrumentation.ts` picks up to send
-traces and metrics to the dashboard.
+`OTEL_EXPORTER_OTLP_ENDPOINT`, which `web/instrumentation.ts` picks up and logs
+as `[otel] exporting to ...` on startup.
 
-Prove your change works by driving the running app and reading its telemetry,
+Nothing arrives at the far end of that today. `aspire otel traces`, `spans` and
+`logs` all answer `No traces found` or `Resource 'api' not found` after real
+requests have been served. Checked on 2026-08-03 both with and without the
+launch profile described below, so it is not a consequence of removing it, and
+it is not fixed here. Until it is, do not plan to prove a change with
+`aspire otel`: use `aspire logs <resource>` and a test.
+
+Prove your change works by driving the running app and reading what it says,
 then turn what you did by hand into a test. A change nobody watched run is not
 verified.
 
@@ -132,9 +139,9 @@ else about a checkout is affected.
 `.aspire/modules/`**: it is generated and regenerated on every start, so edits
 are lost. To add an integration, run `aspire add <package>`.
 
-Both checks must pass before a pull request is ready. As of this writing
-`npm run typecheck` is clean and `npm test` reports 203 tests passing across 10
-files in about 18 seconds. If the count drops, you removed a test.
+Both checks must pass before a pull request is ready. As of 2026-08-03
+`npm run typecheck` is clean and `npm test` reports 283 tests passing across 15
+files in about 23 seconds. If the count drops, you removed a test.
 
 ## Layout
 
