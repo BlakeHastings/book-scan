@@ -2,12 +2,105 @@
  * Synthetic book covers for tests. Generating them beats checking in binaries
  * and lets a test state exactly which condition it is exercising (glossy,
  * rotated, price add-on beside the ISBN, and so on).
+ *
+ * Cover text is rendered with an embedded font (see fixtureText below)
+ * instead of a system font name in SVG markup. A font named in SVG is
+ * resolved by whatever fontconfig/DirectWrite finds installed on the machine
+ * running the test, so "Georgia" is Georgia on a box that has it and some
+ * unrelated substitute, at different metrics, on one that does not. That
+ * silently changes what a fixture actually draws depending on which platform
+ * ran the test, which is exactly what made a real bug (#1) hard to diagnose:
+ * the images two platforms were asserting against were not the same images.
  */
+
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 // The bare "bwip-js" specifier resolves to the browser build under bundler
 // module resolution, which has no Buffer-returning toBuffer. Ask for node.
 import bwipjs from 'bwip-js/node'
 import sharp, { type OverlayOptions } from 'sharp'
+
+// Gelasio, metric-compatible with Georgia, SIL Open Font License 1.1 (see
+// fixtures-assets/OFL.txt). Subset to ASCII, Latin-1 Supplement and a
+// handful of typographic punctuation marks, which is everything the fixture
+// text below needs. Passing this file straight to sharp's `fontfile` bypasses
+// system font lookup entirely, so the same glyphs at the same metrics render
+// on Windows and Linux alike, whatever fonts either machine happens to have.
+const FONT_FAMILY = 'Gelasio'
+const FONT_FILE = fileURLToPath(new URL('./fixtures-assets/Gelasio-Regular.ttf', import.meta.url))
+
+// Fail loudly, at import time, if the embedded font is not where it should
+// be. A fixture that quietly fell back to a system font would be exactly the
+// silent-substitution bug this file exists to avoid, just moved one level
+// up, so this check does not try to be clever about it: no file, no tests.
+if (!fs.existsSync(FONT_FILE)) {
+  throw new Error(
+    `Test fixture font is missing: ${FONT_FILE}\n` +
+    'Cover fixtures render title, author and blurb text with an embedded ' +
+    `font (${FONT_FAMILY}) so they look identical on every platform. ` +
+    'Without the font file, sharp would silently fall back to whatever ' +
+    'font the host happens to have installed, which is the exact bug this ' +
+    'is here to prevent. Restore server/fixtures-assets/Gelasio-Regular.ttf.',
+  )
+}
+
+interface RenderedText {
+  input: Buffer
+  width: number
+  height: number
+}
+
+/**
+ * Render text with the embedded font, auto-fit to a pixel box.
+ *
+ * Passing both `width` and `height` makes sharp choose the largest point
+ * size that fits the text inside that box, wrapping to more lines only if a
+ * single line will not fit. That is what keeps a long title such as "The
+ * Dispossessed" on the canvas: rather than a fixed point size that happens
+ * to fit one font's metrics and overflow another's, the box is fixed and the
+ * size adapts to whatever the (now single, embedded) font actually measures.
+ */
+async function fixtureText(
+  text: string,
+  box: { width: number, height: number },
+): Promise<RenderedText> {
+  const png = await sharp({
+    text: {
+      text: escapePangoMarkup(text),
+      font: FONT_FAMILY,
+      fontfile: FONT_FILE,
+      rgba: true,
+      align: 'centre',
+      width: box.width,
+      height: box.height,
+    },
+  }).png().toBuffer()
+
+  const { width, height } = await sharp(png).metadata()
+  return { input: png, width: width!, height: height! }
+}
+
+// sharp's text input accepts Pango markup, so a literal "&" or "<" in a
+// title or author string would otherwise be parsed as markup rather than
+// drawn as a character.
+function escapePangoMarkup(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Centre a rendered text image horizontally, anchored on a vertical centre. */
+function centred(rendered: RenderedText, canvasWidth: number, centreY: number): OverlayOptions {
+  return {
+    input: rendered.input,
+    left: Math.max(0, Math.round((canvasWidth - rendered.width) / 2)),
+    top: Math.max(0, Math.round(centreY - rendered.height / 2)),
+  }
+}
+
+/** Left-align a rendered text image at a fixed position. */
+function positioned(rendered: RenderedText, left: number, top: number): OverlayOptions {
+  return { input: rendered.input, left, top }
+}
 
 export async function barcodePng(isbn: string, scale = 3): Promise<Buffer> {
   return bwipjs.toBuffer({
@@ -53,15 +146,17 @@ export async function backCover(
 
   const hyphenated = `${isbn.slice(0, 3)}-${isbn.slice(3, 4)}-${isbn.slice(4, 7)}-${isbn.slice(7, 12)}-${isbn.slice(12)}`
 
-  const svg = `<svg width="900" height="1250" xmlns="http://www.w3.org/2000/svg">
-    <rect width="900" height="1250" fill="#ffffff"/>
-    <text x="60" y="120" font-family="Georgia" font-size="44" fill="#111">A NOVEL</text>
-    <text x="60" y="210" font-family="Georgia" font-size="30" fill="#333">Praise for this remarkable book from the author.</text>
-    <text x="60" y="280" font-family="Georgia" font-size="30" fill="#333">A sweeping story of sand, spice and succession.</text>
-    ${printedIsbn ? `<text x="60" y="880" font-family="Helvetica" font-size="32" fill="#111">ISBN ${printIsbn10 ? printIsbn10.replace(/^(.)(...)(.....)(.)$/, '$1-$2-$3-$4') : hyphenated}</text>` : ''}
-  </svg>`
-
-  const composites: OverlayOptions[] = []
+  const composites: OverlayOptions[] = [
+    positioned(await fixtureText('A NOVEL', { width: 780, height: 60 }), 60, 70),
+    positioned(
+      await fixtureText('Praise for this remarkable book from the author.', { width: 780, height: 45 }),
+      60, 170,
+    ),
+    positioned(
+      await fixtureText('A sweeping story of sand, spice and succession.', { width: 780, height: 45 }),
+      60, 240,
+    ),
+  ]
   if (upc) {
     // A retail UPC-A, which is what a pre-ISBN-13 paperback carries. It has a
     // valid checksum and is not a book identifier.
@@ -83,11 +178,19 @@ export async function backCover(
     })
     composites.push({ input: addOn, top: 920, left: 520 })
   }
+  if (printedIsbn) {
+    const printed = printIsbn10
+      ? printIsbn10.replace(/^(.)(...)(.....)(.)$/, '$1-$2-$3-$4')
+      : hyphenated
+    composites.push(positioned(await fixtureText(`ISBN ${printed}`, { width: 780, height: 45 }), 60, 855))
+  }
 
   // Render fully before rotating. sharp applies rotate BEFORE composite within
   // a single pipeline no matter which order you call them, so rotating inline
   // here silently pushed the barcode off the canvas.
-  const composed = await sharp(Buffer.from(svg)).composite(composites).png().toBuffer()
+  const composed = await sharp({
+    create: { width: 900, height: 1250, channels: 3, background: '#ffffff' },
+  }).composite(composites).png().toBuffer()
   if (!rotate) return composed
 
   return sharp(composed).rotate(rotate, { background: '#ffffff' }).png().toBuffer()
@@ -95,14 +198,24 @@ export async function backCover(
 
 /** A front cover: big title, smaller author and cover noise. */
 export async function frontCover(title: string, author: string): Promise<Buffer> {
-  const svg = `<svg width="900" height="1350" xmlns="http://www.w3.org/2000/svg">
-    <rect width="900" height="1350" fill="#ffffff"/>
-    <text x="450" y="200" text-anchor="middle" font-family="Georgia" font-size="34" fill="#444">NEW YORK TIMES BESTSELLER</text>
-    <text x="450" y="620" text-anchor="middle" font-family="Georgia" font-size="120" fill="#000">${title}</text>
-    <text x="450" y="820" text-anchor="middle" font-family="Georgia" font-size="52" fill="#222">${author}</text>
-    <text x="450" y="1250" text-anchor="middle" font-family="Georgia" font-size="30" fill="#555">A NOVEL</text>
-  </svg>`
-  return sharp(Buffer.from(svg)).png().toBuffer()
+  const width = 900
+  const height = 1350
+
+  const composites = [
+    centred(await fixtureText('NEW YORK TIMES BESTSELLER', { width: 780, height: 50 }), width, 175),
+    // Fixed width and height, not a fixed point size: the title auto-fits
+    // whatever this box can hold, so a long title shrinks to stay on one
+    // line instead of overflowing the canvas the way it would at a font
+    // size tuned for one platform's metrics.
+    centred(await fixtureText(title, { width: 820, height: 220 }), width, 620),
+    centred(await fixtureText(author, { width: 780, height: 90 }), width, 820),
+    centred(await fixtureText('A NOVEL', { width: 700, height: 50 }), width, 1250),
+  ]
+
+  return sharp({ create: { width, height, channels: 3, background: '#ffffff' } })
+    .composite(composites)
+    .png()
+    .toBuffer()
 }
 
 /** Simulate a glossy cover: low contrast plus a bright diagonal highlight. */
