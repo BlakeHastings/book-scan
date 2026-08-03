@@ -642,6 +642,16 @@ app.delete('/api/books/:id', (req, res) => {
 })
 
 /**
+ * Turn what `Store.setCheckedOut` actually did into the same outcome
+ * vocabulary both checkout routes report, so a client cannot tell which one
+ * it called from the shape of the answer.
+ */
+function checkoutOutcome(out: boolean, changed: boolean): 'checked-out' | 'already-out' | 'checked-in' | 'already-in' {
+  if (out) return changed ? 'checked-out' : 'already-out'
+  return changed ? 'checked-in' : 'already-in'
+}
+
+/**
  * Take a book off the shelf, or put it back.
  *
  * The point is that the model can be corrected by hand. A book that will not
@@ -661,8 +671,12 @@ app.post('/api/books/:id/checkout', (req, res) => {
   }
 
   const out = (req.body ?? {}).out !== false
-  store.setCheckedOut(id, out)
-  res.json({ book: store.getBook(id), counts: store.counts() })
+  const result = store.setCheckedOut(id, out)
+  res.json({
+    outcome: checkoutOutcome(out, result.changed),
+    book: store.getBook(id),
+    counts: store.counts(),
+  })
 })
 
 /**
@@ -930,22 +944,14 @@ app.post('/api/books/scan-checkout', async (req, res) => {
       return
     }
 
-    // Already in the state being asked for. Worth its own answer: telling
+    // Already in the state being asked for is worth its own answer: telling
     // someone a book is off the shelf when they just took it off reads as a
-    // failure, and telling them nothing is worse.
-    const alreadyOut = book.checked_out_at !== null
-    if (alreadyOut === out) {
-      res.json({
-        outcome: out ? 'already-out' : 'already-in',
-        book,
-        counts: store.counts(),
-      })
-      return
-    }
-
-    store.setCheckedOut(book.id, out)
+    // failure, and telling them nothing is worse. `Store.setCheckedOut` is
+    // the one place that decides whether anything actually changed, so that
+    // decision is not repeated here.
+    const result = store.setCheckedOut(book.id, out)
     res.json({
-      outcome: out ? 'checked-out' : 'checked-in',
+      outcome: checkoutOutcome(out, result.changed),
       book: store.getBook(book.id),
       counts: store.counts(),
     })

@@ -4,7 +4,7 @@
  * Runs against a real in-memory SQLite database, not a mock.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
 import { Store, type DraftBook } from './store'
 
@@ -225,5 +225,62 @@ describe('editing a shelved book', () => {
       title: 'Dune', authors: ['Frank Herbert'], isbn13: '9780441013593',
     }))
     expect(store.getBook(id)?.isbn10).toBe('0441013597')
+  })
+})
+
+describe('checking a book out and back in', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('records the moment a book comes off the shelf', () => {
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+
+    const result = store.setCheckedOut(id, true)
+
+    expect(result.changed).toBe(true)
+    expect(result.checkedOutAt).not.toBeNull()
+    expect(store.getBook(id)?.checked_out_at).toBe(result.checkedOutAt)
+  })
+
+  it('does not overwrite the original time when an already-out book is checked out again', () => {
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const first = store.setCheckedOut(id, true)
+
+    // A minute later, someone taps the same book a second time. Without the
+    // guard this would replace `first.checkedOutAt` with the later time.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(Date.parse(first.checkedOutAt!) + 60_000))
+    const second = store.setCheckedOut(id, true)
+
+    expect(second.changed).toBe(false)
+    expect(second.checkedOutAt).toBe(first.checkedOutAt)
+    expect(store.getBook(id)?.checked_out_at).toBe(first.checkedOutAt)
+  })
+
+  it('checks a book back in, clearing the timestamp', () => {
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    store.setCheckedOut(id, true)
+
+    const result = store.setCheckedOut(id, false)
+
+    expect(result.changed).toBe(true)
+    expect(result.checkedOutAt).toBeNull()
+    expect(store.getBook(id)?.checked_out_at).toBeNull()
+  })
+
+  it('treats checking in a book that is already on the shelf as a no-op', () => {
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+
+    const result = store.setCheckedOut(id, false)
+
+    expect(result.changed).toBe(false)
+    expect(result.checkedOutAt).toBeNull()
+    expect(store.getBook(id)?.checked_out_at).toBeNull()
+  })
+
+  it('reports no change for a book that does not exist, rather than throwing', () => {
+    const result = store.setCheckedOut(999, true)
+    expect(result).toEqual({ changed: false, checkedOutAt: null })
   })
 })

@@ -158,12 +158,21 @@ export interface CoverMatch {
   distance: number
 }
 
+/**
+ * What actually happened to a book's checked-out state.
+ *
+ * Asking to check out a book that is already out, or in one that is already
+ * in, does not touch its timestamp, so both routes that can change this state
+ * report it with the same four words rather than pretending a no-op is a
+ * fresh action.
+ */
+export type CheckoutOutcome = 'checked-out' | 'already-out' | 'checked-in' | 'already-in'
+
 export type ScanCheckout =
   | { outcome: 'no-isbn'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'not-catalogued'; isbn13: string }
-  | { outcome: 'already-out' | 'already-in'; book: BookRow; counts: Counts }
-  | { outcome: 'checked-out' | 'checked-in'; book: BookRow; counts: Counts }
+  | { outcome: CheckoutOutcome; book: BookRow; counts: Counts }
 
 /** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
@@ -332,12 +341,17 @@ export const api = {
 
   getBook: (id: number) => request<{ book: BookRow }>(`/api/books/${id}`),
 
-  /** Take a book off the shelf, or put it back. Nothing is deleted either way. */
+  /**
+   * Take a book off the shelf, or put it back. Nothing is deleted either way.
+   *
+   * Asking for the state it is already in is a no-op: `outcome` says whether
+   * anything changed, and `book` always carries the real, unmodified value.
+   */
   setCheckedOut: (id: number, out: boolean) =>
-    request<{ book: BookRow; counts: Counts }>(`/api/books/${id}/checkout`, {
-      method: 'POST',
-      body: JSON.stringify({ out }),
-    }),
+    request<{ outcome: CheckoutOutcome; book: BookRow; counts: Counts }>(
+      `/api/books/${id}/checkout`,
+      { method: 'POST', body: JSON.stringify({ out }) },
+    ),
 
   checkedOut: () => request<{ books: BookRow[] }>('/api/checked-out'),
 
