@@ -776,7 +776,16 @@ async function hashBook(id: number): Promise<void> {
  * one query in ten, which is the reason confirming is not optional.
  */
 async function looksLike(input: Buffer, limit = 4) {
-  const query = await coverHash(input)
+  let query: string
+  try {
+    query = await coverHash(input)
+  } catch {
+    // A frame with nothing in it, or bytes that are not an image at all.
+    // Either way there is nothing to compare, and an empty shortlist is the
+    // honest answer. The caller falls through to reading the page, which is
+    // what happens when no book is recognised.
+    return []
+  }
 
   const scored = store.hashIndex().map((row) => ({
     row,

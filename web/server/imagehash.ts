@@ -22,6 +22,9 @@
  * are scarcest, the difference hash was at 48 to 52 percent, a coin toss, and
  * this is at 70 to 78.
  *
+ * A frame with no detail in it is refused rather than hashed, because there
+ * the bits would be decided by rounding rather than by a book. See DETAIL.
+ *
  * It is still not scale or rotation invariant and it never will be, so this
  * is a shortlist generator, not an identification. Everything it produces is
  * put in front of a person to confirm.
@@ -56,6 +59,47 @@ const FORMAT = 'p1'
  * matching, so the two are always comparing like with like.
  */
 const CENTRE = 0.7
+
+/**
+ * The gain a single cosine basis picks up in the unnormalised transform.
+ *
+ * Dividing a coefficient by this puts it back into grey levels, which is the
+ * only unit a threshold can honestly be argued about.
+ */
+const GAIN = (GRID * GRID) / 4
+
+/**
+ * How far the strongest kept frequency has to sit from the median before the
+ * bits mean anything, in grey levels out of 255.
+ *
+ * Every bit is the sign of one coefficient against the median of the block.
+ * Point the camera at a wall, a shadowed desk or a solid cover and, once the
+ * crop is shrunk to 32x32, every pixel is the same value: the transform then
+ * returns the average brightness and sixty three coefficients that are pure
+ * floating point residue, and so is the median between them. The bits are
+ * then decided by rounding, and rounding is not random. It repeats. Measured
+ * over ten solid colours and three grain patterns that survive the shrink,
+ * every one of them lands within 24 bits of some other flat frame and six
+ * pairs land at zero, which is an exact match on nothing at all.
+ *
+ * 0.01 was picked from the two ends of the measurement, not guessed:
+ *
+ *   flat frames        solid colours from black to white, plain colours,
+ *                      the same re-encoded as JPEG, and per pixel grain that
+ *                      averages out: strongest deviation 0 to 9.6e-14
+ *   near black grain   0.0039
+ *   plainest real      one small line of low contrast type on a plain
+ *                      ground, then darkened to a third: 0.0816
+ *   a plain cover      0.21 to 0.70
+ *   an ordinary cover  4.6 to 79
+ *
+ * So the cut sits eight times below the plainest cover that could be
+ * generated while still being legible, and eleven orders of magnitude above
+ * anything a genuinely blank frame produces. There is no useful precision to
+ * be had between those two, which is the point: a frame either has detail in
+ * it or it has none.
+ */
+const DETAIL = 0.01
 
 /**
  * cos((2x + 1) u pi / 2N), the only trigonometry the transform needs.
@@ -137,6 +181,21 @@ export async function coverHash(input: Buffer): Promise<string> {
 
   const sorted = [...kept].sort((a, b) => a - b)
   const median = (sorted[30]! + sorted[31]!) / 2
+
+  // Nothing in the frame, so nothing to say about it.
+  //
+  // Refusing costs a caller one branch. Answering costs the catalogue: a hash
+  // of a blank surface is the same width, the same format and the same shape
+  // as a hash of a book, so it goes on to be compared, to land inside the
+  // shortlist cutoff, and to be offered to somebody as the book they are
+  // holding while they are in fact holding nothing. This is the same failing
+  // closed the format tag does, one step earlier.
+  const strongest = Math.max(...kept.map((value) => Math.abs(value - median)))
+  if (strongest / GAIN < DETAIL) {
+    throw new Error(
+      'This frame carries no detail to hash: it is a flat surface, not a cover.',
+    )
+  }
 
   // The dropped average takes the leading bit's place, so the string is still
   // 64 bits and still 16 hex characters.
