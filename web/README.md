@@ -1,7 +1,10 @@
 # book-scan web
 
-A phone-first version of the scanner. Photograph a book's cover, back and
-spine, and it reads the ISBN and tells you which two books to put it between.
+A phone-first app for cataloguing a physical book collection. Photograph a
+book's cover, back and spine and it reads the ISBN, tells you which two books
+to put it between, and walks you through the shelf-by-shelf shuffle if there
+is no room. Once a book is catalogued, holding it back up to the camera checks
+it out or back in.
 
 The shelving rules it implements are specified in [`../docs/shelving.md`](../docs/shelving.md).
 
@@ -40,20 +43,46 @@ warning permanently.
 ## How it fits together
 
 ```
-src/            React UI (phone-first, dark, 44px tap targets)
-  lib/scanner   getUserMedia and manual still capture. No decoding.
-  lib/api       typed fetch wrapper
-server/         Express API on loopback only
-  identify      zbar barcode + tesseract OCR, ported from recognize.py
-  fixtures      synthetic covers for tests
-  db            SQLite schema
-  store         all SQL, including the neighbour lookup
-  lookup        Open Library primary, Google Books top-up
-  classify      fiction vs non-fiction ladder
-shared/         pure logic used by both sides
-  shelving      sort keys, filing names, placement, misfile detection
-  isbn          validation, ISBN-10 to 13, OCR extraction, add-on rejection
+src/                    React UI (phone-first, dark, 44px tap targets)
+  App.tsx                 top-level state machine: home, capture, review, shelve, library, queue
+  components/
+    HomePane              the home screen: Add, Check out, Shelve, Library, plus the queue
+    ShelfCamera            full-screen camera for checking books in and out by cover or barcode
+    IsbnCamera             point-and-read ISBN capture
+    IsbnPrompt              the "Change ISBN" dialog that wraps IsbnCamera
+    BookDetail             record view and edit form, shared by a new book and a shelved one
+    ShelfView              the library, grouped by physical shelf
+    ShelveView             the guided placement shuffle
+    ShelfStrip              the neighbours drawn end on, as a shelf
+    QueuePane               the capture queue
+  lib/
+    scanner.ts             getUserMedia, manual still capture, lens pinning. No decoding.
+    api.ts                 typed fetch wrapper, the only client-to-server path
+server/                 Express API on loopback only
+  index.ts                routes, data directory resolution
+  identify.ts             barcode decoding, then OCR of the printed ISBN
+  paddle.ts               PaddleOCR, the primary OCR engine
+  covers.ts                fetches and stores the publisher's cover
+  imagehash.ts            perceptual hashing, for recognising a book by its cover
+  queue.ts                 the capture queue and its background worker
+  lookup.ts               Open Library primary, Google Books top-up
+  classify.ts             fiction vs non-fiction ladder
+  store.ts                 all SQL for books
+  shelves.ts               separators, and the shelf geography derived from them
+  db.ts                    schema, and migrations for an existing database
+shared/                 pure logic used by both sides
+  shelving.ts              sort keys, filing names, placement, misfile detection
+  layout.ts                turns separators into physical shelf/area labels
+  isbn.ts                  validation, ISBN-10 to 13, OCR extraction, add-on rejection
 ```
+
+## The home screen
+
+The app opens on a home screen, not the camera. There are four jobs, and which
+one you are doing is decided before you pick up a book: **Add** a new one,
+**Check out** a stack by holding each up to the camera, **Shelve** a book that
+came back, or browse the **Library**. A queue banner appears underneath,
+badged with a count, only when something is waiting to be confirmed.
 
 ## Capture flow
 
@@ -91,8 +120,9 @@ reads from the middle.
 
 **Correcting a book happens in the detail view, not at the camera.** Opening a
 queued book shows its photos, every editable field, and the ISBN it was matched
-on. **Change ISBN** prompts for the right digits, validates them before
-spending a request, then refetches the whole record from the catalogue.
+on. **Change ISBN** prompts for the right digits, either typed or read with the
+camera (see [In-app ISBN capture](#in-app-isbn-capture) below), validates them
+before spending a request, then refetches the whole record from the catalogue.
 
 Tapping a book in the Library opens the same view, so a shelved book can be
 corrected later. Saving an existing book updates it in place and rebuilds
@@ -110,26 +140,90 @@ The phone only ever talks to Vite over HTTPS. Vite proxies `/api` to the
 Express process server-side, which is what keeps the page free of the
 mixed-content errors Safari would otherwise block.
 
+## Checking books in and out with the camera
+
+Once a book is catalogued, `ShelfCamera` lets you work through a stack with the
+camera instead of the keyboard: hold each one up, and it is marked off the
+shelf. Checking a pile out never leaves the screen; checking one back in hands
+straight over to the shelving step, because a book coming back has to go
+somewhere and only the person holding it knows whether it fits.
+
+Identification here is ordered by cost, cheapest first, because someone is
+standing at a shelf holding the book:
+
+1. **Barcode only**, and the fast decoder alone (see
+   [Reading a barcode](#reading-a-barcode-then-ocr) below): a fifth of a second
+   when it works.
+2. If there is no barcode, the photo is **hashed and compared against every
+   book's stored cover**. Matching by cover, not identifier, is what makes
+   holding up a book front-out work at all, and it costs about fifty
+   milliseconds. Candidates are a shortlist, never an answer: they are shown
+   with their own photo where one exists, and a person taps to confirm.
+3. Only if neither of those finds anything does it fall back to a **full OCR
+   pass**, which used to run on every single scan and cost five to ten
+   seconds, almost always for nothing, since a book held front-out to the
+   camera has no barcode to read.
+
+The matching is a **difference hash** (`server/imagehash.ts`): shrink the
+photo to an 8x8 grid and record whether each pixel is brighter than the one to
+its right, which survives changes in lighting, distance and angle far better
+than the pixels themselves. It is deliberately not scale- or rotation-invariant
+and is not meant to be; it exists to produce a short, ranked list of
+candidates, and a person always makes the final call. The hash is taken from
+the middle 80% of the frame, so table, hands and wall around the edges do not
+count against a match.
+
+Two images are hashed and stored per book: the front cover photo taken while
+scanning it in, and the publisher's cover fetched afterwards from Open Library
+or Google Books (`server/covers.ts`). A held-up book is compared against
+whichever of the two is the better likeness, and the candidate list shows your
+own photo of the book in preference to the catalogue's, since an unfamiliar
+publisher cover design reads as a wrong match rather than a different
+printing.
+
+## In-app ISBN capture
+
+`IsbnCamera` points the phone at a barcode or a printed ISBN and reads it,
+rather than requiring it to be typed digit by digit. It is reached from the
+**Change ISBN** dialog (`IsbnPrompt`), which is the one place an ISBN can be
+entered at all. A result fills the field rather than submitting it
+immediately: OCR can misread a digit, and a wrong ISBN silently fetches a
+different book, so a barcode read is marked as trustworthy while a text read
+is flagged for a second look before it is used.
+
 ## Shelf boundaries
 
-You can see that a shelf is full; the software cannot. So you tell it once,
-from the Library tab: **End of shelf** or **End of area** on the last shelf.
+You can see that a shelf is full; the software cannot. So you tell it, from
+the shelving step, the first time a book will not fit.
 
-**A separator records a capacity, not a bookmark.** That distinction is the
-whole design, and the obvious implementation gets it wrong. Anchoring a
-separator to the book it was added after means inserting anything earlier
-leaves that shelf holding one more book than when you declared it full, which
-is exactly what a real shelf cannot do. Storing "this shelf holds 37" instead
-means the 38th is pushed onto the next shelf, and that displacement cascades
-the way it does in the room.
+**The vocabulary is furniture, not geometry.** A **shelf** is a whole
+bookcase, numbered `1`, `2`, `3`. An **area** is one physical plank inside it,
+lettered `A`, `B`, `C`. So `1A` is the top plank of the first bookcase, `1B` the
+plank below it, `2A` the top plank of the second bookcase. Saying "no room" on
+that plank offers two different steps: **move one along**, which starts a new
+plank in the same bookcase, or **start a new bookcase**, which resets the
+letter. Fiction starts at `1A`; non-fiction has its own bookcase and starts at
+`4A`.
 
-Locations are therefore **derived, not typed in**. Books flow: `A1`, `A2`,
-then `B1` when a bookcase runs out. Every boundary change reports the books
-that physically have to move, because a catalogue that quietly stops matching
-the shelves is worse than no catalogue.
+**A boundary records where a shelf starts, not a bookmark or a capacity.**
+That distinction is the whole design, and the obvious implementation gets it
+wrong. Anchoring a boundary to the book it was added after means inserting
+anything earlier leaves that shelf holding one more book than when you
+declared it full, which is exactly what a real shelf cannot do. Recording
+which book starts the next one instead means an insertion earlier in the
+alphabet pushes the last book off the end and onto the front of that one, and
+that displacement cascades the way it does in the room.
+
+Locations are therefore **derived, not typed in**. Every boundary change
+reports the books that physically have to move, because a catalogue that
+quietly stops matching the shelves is worse than no catalogue. An earlier
+version of the schema stored a capacity number per shelf instead; an existing
+database with that table is migrated automatically the first time the server
+opens it, converting each stored capacity into the sort key of the book that
+used to start the next shelf.
 
 Only the last, open-ended shelf can be closed. Closing an earlier one would
-mean renumbering every capacity after it, and removing the existing marker
+mean renumbering every boundary after it, and removing the existing marker
 first is the honest way to do that.
 
 ## The queue, and two people scanning at once
@@ -175,20 +269,80 @@ rather than preventing it, which for a home shelf is the right trade.
 **Identification happens on the server, not the phone.** The first version
 decoded live video in the browser with ZXing and could not read real books.
 Video frames are motion-blurred and well below sensor resolution, and Safari
-has no `BarcodeDetector` to fall back on. The server now does what
-`recognize.py` does, and it works for the same four reasons:
+has no `BarcodeDetector` to fall back on. The server decodes a full-resolution
+still instead, and it works for reasons a video frame cannot match:
 
 1. It decodes a **full-resolution still**, not a video frame.
-2. It retries with **preprocessed variants** rather than giving up on the first
-   look: normalise, 2x upscale, threshold, rotate 90 and 270. Threshold is what
-   rescues glossy laminate; upscale is what rescues a small or distant barcode.
-3. It uses **zbar** (via `@undecaf/zbar-wasm`), the same engine `pyzbar` wraps,
-   which is materially better than ZXing on real EAN-13.
-4. It **falls back to OCR** of the printed ISBN when there is no readable
-   barcode, which is the case ZXing could never handle at all.
+2. It reads a barcode through **two decoders**, not one (see below), and
+   **falls back to OCR** of the printed ISBN when neither finds one, which is
+   the case the original browser version could never handle at all.
+3. Its OCR **retries with preprocessed variants** rather than giving up on the
+   first look, and runs a dedicated model ahead of that ladder (see
+   [Reading the ISBN by text](#reading-the-isbn-by-text) below).
 
 It also keeps several megabytes of WASM off the phone. The client bundle no
 longer contains a barcode library at all.
+
+### Reading a barcode
+
+Two decoders run in a deliberate order, not one:
+
+1. **zxing-cpp, compiled to WASM, goes first.** It does in one call what a
+   preprocessing ladder does in several passes: rotation, inversion,
+   downscaling and a harder search are all its own options, and it decodes the
+   JPEG itself, so nothing has to be prepared for it first. Measured over the
+   back covers in the library at the resolution the phone sends, it answers in
+   about 160ms and reads roughly three in five of them.
+2. **zbar runs underneath it, only when zxing finds nothing.** zbar is handed
+   several preprocessed variants in turn: normalised, upscaled, thresholded,
+   and rotated 90 and 270 degrees, each built while the previous one is being
+   scanned so the wall-clock cost is close to the slowest single pass rather
+   than the sum of all of them. It finds barcodes zxing does not, at a cost of
+   about 2.6 seconds to discover it has found nothing on a cover with no
+   barcode at all, which is why it only runs second.
+
+Whichever decoder answers, the reading still has to pass the Bookland test
+described below before it is trusted as an ISBN.
+
+### Reading the ISBN by text
+
+When there is no barcode, OCR is tried in a similarly deliberate order:
+
+1. **PaddleOCR runs first, and often alone.** Detection and recognition are
+   separate models, so unlike a preprocessing ladder it finds the text regions
+   itself rather than being handed a fixed crop and asked to assume a layout;
+   one pass does the work several tesseract passes exist to approximate.
+   Measured against the back covers in the library whose barcode could not be
+   read, it finds the printed ISBN in roughly a second each and reads more of
+   them than the ladder below does, so when it produces a reading nothing else
+   is worth waiting for.
+2. **A pool of tesseract workers runs the preprocessing ladder behind it**,
+   started in parallel and used only if Paddle's pass does not settle the
+   answer. Multiple preprocessed variants (a wide normalised crop, the lower
+   third of the cover, a CLAHE pass for glossy covers, and a crop around
+   wherever the barcode decoder located a symbol, if it found one) are read at
+   once, one per worker, rather than tried one at a time and stopped at the
+   first success, which is what made the ladder slow before there was a pool.
+
+Only two kinds of OCR'd number are trusted, regardless of which engine read
+them:
+
+- **Digits following an explicit `ISBN` label.** Books print one, and the label
+  is the only thing that makes a bare 10-digit run interpretable.
+- **A 978/979 prefixed run anywhere.** Bookland prefixes are self-identifying.
+
+An **unlabelled 10-digit run is refused**, even with a valid check digit.
+Roughly one in eleven random 10-digit sequences satisfies the ISBN-10
+checksum, and a back cover is covered in long numbers: UPC digits, price
+add-ons, order codes. Trusting them read `5176714485` off a photo of a UPC
+barcode and confidently filed the wrong book.
+
+**Letter-for-digit repair is applied inside a labelled run**, because OCR
+returns `ISBN O-b7l-52543-3` for `ISBN 0-671-52543-3`. It is safe only because
+the check digit still has to pass afterwards, so a wrong substitution is
+discarded rather than believed. A run of one repeated digit is refused
+outright: `0000000000` passes the checksum and is what OCR returns for a blank
+patch.
 
 **ISBN-10 and ISBN-13 are two data points, not one.** `resolveIsbnPair` is the
 single place that decides whether something is a book identifier, so barcode
@@ -209,42 +363,16 @@ are stored, both are searched:
 - **979 ISBNs have no 10-digit form.** That field is correctly left empty
   rather than filled with something derived and wrong.
 
-**Only two kinds of OCR'd number are trusted.** A check digit alone is not
-enough evidence, which a real book proved:
-
-- **Digits following an explicit `ISBN` label.** Books print one, and the label
-  is the only thing that makes a bare 10-digit run interpretable.
-- **A 978/979 prefixed run anywhere.** Bookland prefixes are self-identifying.
-
-An **unlabelled 10-digit run is refused**, even with a valid check digit.
-Roughly one in eleven random 10-digit sequences satisfies the ISBN-10
-checksum, and a back cover is covered in long numbers: UPC digits, price
-add-ons, order codes. Trusting them read `5176714485` off a photo of a UPC
-barcode and confidently filed the wrong book.
-
-**Letter-for-digit repair is applied inside a labelled run**, because OCR
-returns `ISBN O-b7l-52543-3` for `ISBN 0-671-52543-3`. It is safe only because
-the check digit still has to pass afterwards, so a wrong substitution is
-discarded rather than believed. A run of one repeated digit is refused
-outright: `0000000000` passes the checksum and is what OCR returns for a blank
-patch.
-
 **Pre-ISBN-13 paperbacks need all of this.** They carry a retail **UPC-A**, not
 a Bookland EAN, so the barcode is not the book and the only ISBN present is the
-printed line. zbar promotes UPC-A to EAN-13 with a leading zero, which has a
-valid checksum and is still not an ISBN.
-
-**OCR preprocessing is a ladder, not a choice.** Measured on a real failing
-photo (1986 paperback, dark cover, dark table): 1600px + CLAHE read *nothing*;
-2200px + normalise read the ISBN; cropping to the region zbar reported the
-barcode in read it most clearly. CLAHE is kept last because it is what rescues
-a glossy cover, which normalise handles badly. Neither wins everywhere.
+printed line. zbar and zxing both promote UPC-A to EAN-13 with a leading zero,
+which has a valid checksum and is still not an ISBN.
 
 **Canvas stills rather than `ImageCapture`.** Safari does not implement
 `ImageCapture`, so a still is a canvas draw of the video frame. That makes the
 requested track resolution the only real lever on quality, so the app asks for
 4K, captures at up to 2400px wide at JPEG 0.92, and shows the resolution it
-actually got in the camera HUD. Both the barcode decoder and OCR lose accuracy
+actually got in the camera HUD. Both barcode decoding and OCR lose accuracy
 quickly on a downscaled or blocky source.
 
 **Location is recorded, not allocated.** The app never claims a book must go in
@@ -264,8 +392,13 @@ author permanently.
 Written to `web/data/` by default, override with `BOOKSCAN_DATA`:
 
 - `books.db`, SQLite
-- `covers/`, three captured stills per book as JPEGs
-- `tessdata/`, cached OCR language data (about 15 MB, downloaded once)
+- `covers/`, captured photos as JPEGs, plus a re-encoded publisher cover per
+  book where one was found
+- `tessdata/`, cached tesseract language data (about 15 MB, downloaded once)
+
+PaddleOCR's own models are cached separately, under `~/.cache/ppu-paddle-ocr`
+(the library's default, not `BOOKSCAN_DATA`), and are also downloaded once on
+first use.
 
 Set `GOOGLE_BOOKS_API_KEY` to raise the Google Books quota. It is optional;
 Open Library does the real work and Google anonymous requests start returning
@@ -277,16 +410,18 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-143 tests. The ones worth knowing about:
+203 tests across 10 files. The ones worth knowing about:
 
-- `server/identify.test.ts` runs the real zbar and tesseract pipelines against
+- `server/identify.test.ts` runs the real barcode and OCR pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on
   beside the ISBN, and with no barcode at all. This exists because the browser
   scanner passed all its unit tests and still could not read a book, having
   never been tested against an actual image.
-- `shared/shelving.test.ts` covers the filing-name edge cases, including the
-  two the heuristic is knowingly wrong about.
-- `server/store.test.ts` runs the full insert-and-place path against a real
+- `shared/shelving.test.ts` and `shared/layout.test.ts` cover the filing-name
+  edge cases and the shelf/area boundary arithmetic, including the two filing
+  cases the heuristic is knowingly wrong about.
+- `server/store.test.ts`, `server/shelves.test.ts` and `server/queue.test.ts`
+  run the placement, boundary and capture-queue logic against a real
   in-memory SQLite database.
 
 Fixtures are generated rather than checked in, so a test can state exactly
@@ -300,7 +435,12 @@ which condition it exercises.
   manual entry is the primary path.
 - OCR is English only. A book whose ISBN is printed only in another script will
   need typing in.
-- The OCR fallback takes roughly one to two seconds per photo. Barcode decoding
-  is far quicker, so a readable barcode still gives the fastest path.
+- OCR only gets a turn when there is no barcode. PaddleOCR alone takes roughly
+  a second; if it does not settle the answer, the tesseract ladder behind it
+  adds several seconds more. A readable barcode still gives the fastest path
+  by far.
+- Cover matching is a shortlist, not an identification. It is not scale- or
+  rotation-invariant, and never claims to be; a person always confirms the
+  match.
 - Non-fiction is ordered by author last name, matching fiction. If browsing by
   subject turns out to matter more, that is a change to the sort key tuple.
