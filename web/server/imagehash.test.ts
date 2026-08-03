@@ -12,6 +12,7 @@
  * a database.
  */
 
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
 import { frontCover } from './fixtures'
@@ -127,6 +128,104 @@ describe('what it deliberately ignores', () => {
     // nothing quietly written to the catalogue.
     await expect(coverHash(Buffer.from('not an image'))).rejects.toThrow()
   })
+})
+
+describe('a frame with nothing in it', () => {
+  /** A solid colour, the size a phone sends. */
+  const flat = (colour: string) =>
+    sharp({ create: { width: 900, height: 1350, channels: 3, background: colour } })
+      .png().toBuffer()
+
+  /**
+   * A plain ground with one line of type on it, which is the plainest thing
+   * that is still a book. `size` is the fraction of the width the type gets.
+   */
+  async function plainCover(ground: string, ink: string, size: number): Promise<Buffer> {
+    const width = 900
+    const height = 1350
+    const label = await sharp({
+      text: {
+        text: `<span foreground="${ink}">MEDITATIONS</span>`,
+        font: 'Gelasio',
+        fontfile: fileURLToPath(new URL('./fixtures-assets/Gelasio-Regular.ttf', import.meta.url)),
+        rgba: true,
+        align: 'centre',
+        width: Math.round(width * size),
+        height: Math.round(height * size * 0.2),
+      },
+    }).png().toBuffer()
+
+    return sharp({ create: { width, height, channels: 3, background: ground } })
+      .composite([{ input: label, gravity: 'centre' }])
+      .png()
+      .toBuffer()
+  }
+
+  it('refuses a solid colour instead of hashing it', async () => {
+    // Every bit is the sign of one coefficient against the median of the
+    // block. Shrink a flat surface to 32x32 and every coefficient except the
+    // discarded average is floating point residue, and so is the median
+    // between them, so every bit is decided by rounding. Rounding repeats:
+    // measured across ten solid colours, every one landed within the 24 bit
+    // shortlist cutoff of some other flat frame and six pairs landed at
+    // zero, an exact match on nothing at all. The camera cannot tell it is
+    // looking at a desk, so the hash has to.
+    for (const colour of ['#000000', '#0a0a0a', '#303030', '#808080', '#c8c8c8', '#ffffff', '#3a5f8a', '#8a1f1f']) {
+      await expect(coverHash(await flat(colour))).rejects.toThrow(/no detail/)
+    }
+  }, 30_000)
+
+  it('refuses grain that averages away to nothing', async () => {
+    // A wall in poor light is not perfectly flat, but the shrink to 32x32
+    // averages faint grain out entirely, and what reaches the transform is
+    // as blank as a painted rectangle.
+    const size = 900
+    const raw = Buffer.alloc(size * size * 3)
+    let seed = 7
+    for (let i = 0; i < size * size; i += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff
+      const value = 128 + ((seed % 3) - 1)
+      raw[i * 3] = value
+      raw[i * 3 + 1] = value
+      raw[i * 3 + 2] = value
+    }
+    const grainy = await sharp(raw, { raw: { width: size, height: size, channels: 3 } })
+      .png().toBuffer()
+
+    await expect(coverHash(grainy)).rejects.toThrow(/no detail/)
+  }, 20_000)
+
+  it('still hashes a cover that is only a line of type on a plain ground', async () => {
+    // The reason the threshold is where it is. Some real books are this
+    // plain, and refusing one of those would be a worse bug than the one
+    // this prevents. The strongest kept frequency of the last of these
+    // measures 0.08 grey levels against a cutoff of 0.01, and of the first
+    // 0.70, while a blank frame measures 1e-14.
+    const plain = [
+      await plainCover('#9a9a90', '#4a4a44', 0.22),
+      await plainCover('#6a6a6a', '#8a8a8a', 0.22),
+      await sharp(await plainCover('#6a6a6a', '#8a8a8a', 0.22)).linear(0.3, 0).png().toBuffer(),
+    ]
+
+    for (const cover of plain) {
+      expect(await coverHash(cover)).toMatch(/^p1[0-9a-f]{16}$/)
+    }
+  }, 30_000)
+
+  it('still hashes an ordinary cover taken in poor light', async () => {
+    // Refusing has to cost nothing on a real photograph, however badly it
+    // was taken. Dimmed to a tenth, washed out, and out of focus.
+    const image = await dune()
+    const awful = [
+      await sharp(image).linear(0.12, 0).png().toBuffer(),
+      await sharp(image).linear(0.15, 110).png().toBuffer(),
+      await sharp(image).blur(25).png().toBuffer(),
+    ]
+
+    for (const bad of awful) {
+      expect(await coverHash(bad)).toMatch(/^p1[0-9a-f]{16}$/)
+    }
+  }, 30_000)
 })
 
 describe('what it has to tell apart', () => {
