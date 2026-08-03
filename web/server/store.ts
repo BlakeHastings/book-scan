@@ -475,6 +475,32 @@ export class Store {
       .all() as never
   }
 
+  /**
+   * Every row that carries an image or a hash, oldest first.
+   *
+   * Neither of the two queries either side of this one can answer the
+   * question a rehash asks. missingHashes finds rows with no hash and
+   * hashIndex finds rows with one, and a hash written by a superseded
+   * algorithm looks hashed to the first and usable to the second while being
+   * neither. This makes no judgement about the hashes at all and lets the
+   * caller decide what is stale.
+   */
+  imageHashes(): {
+    id: number; title: string
+    front_image: string; cover_image: string
+    front_hash: string; cover_hash: string
+  }[] {
+    return this.db
+      .prepare(
+        `SELECT id, title, front_image, cover_image, front_hash, cover_hash
+           FROM books
+          WHERE front_image != '' OR cover_image != ''
+             OR front_hash != ''  OR cover_hash != ''
+          ORDER BY id`,
+      )
+      .all() as never
+  }
+
   /** Books whose images have not been hashed yet. */
   missingHashes(limit: number): { id: number; front_image: string; cover_image: string }[] {
     return this.db

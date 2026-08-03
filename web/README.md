@@ -400,6 +400,28 @@ PaddleOCR's own models are cached separately, under `~/.cache/ppu-paddle-ocr`
 (the library's default, not `BOOKSCAN_DATA`), and are also downloaded once on
 first use.
 
+### Rehashing the stored covers
+
+Cover hashes are derived from the images, so they can be recomputed whenever
+the algorithm changes. It has changed once, and a hash the matcher no longer
+recognises reports no likeness to anything rather than guessing, so until a
+catalogue is rehashed, holding an already-scanned book up to the camera
+matches nothing.
+
+```bash
+npx tsx server/rehash-covers.ts            # dry run, writes nothing
+npx tsx server/rehash-covers.ts --apply    # write the new hashes
+```
+
+It reads `BOOKSCAN_DATA` the same way the server does and prints the directory
+it resolved before doing anything. A dry run is the default, re-running it is
+harmless, and it can be interrupted and started again. Add `--force` to
+recompute hashes that are already current. A cover file that is missing or
+unreadable is counted, named and stepped over, leaving the hash it had rather
+than blanking it, and the run finishes the rest.
+
+Back up `books.db` before a run with `--apply`.
+
 Set `GOOGLE_BOOKS_API_KEY` to raise the Google Books quota. It is optional;
 Open Library does the real work and Google anonymous requests start returning
 429 partway through a shelf.
@@ -410,7 +432,7 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-203 tests across 10 files. The ones worth knowing about:
+215 tests across 11 files. The ones worth knowing about:
 
 - `server/identify.test.ts` runs the real barcode and OCR pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on
@@ -423,6 +445,9 @@ npm test
 - `server/store.test.ts`, `server/shelves.test.ts` and `server/queue.test.ts`
   run the placement, boundary and capture-queue logic against a real
   in-memory SQLite database.
+- `server/rehash.test.ts` covers the cover rehash: that a dry run writes
+  nothing, that a second run finds nothing to do, and that a missing image is
+  counted rather than thrown.
 
 Fixtures are generated rather than checked in, so a test can state exactly
 which condition it exercises.
