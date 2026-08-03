@@ -334,4 +334,15 @@ describe('cover hashing, for recognising a book held up to the camera', () => {
     expect(distance('', 'ffffffffffffffff')).toBe(64)
     expect(distance('abc', 'ffffffffffffffff')).toBe(64)
   })
+
+  it('refuses to compare a hash written by an earlier algorithm', async () => {
+    // A hash left behind by the difference hash this replaced is the same
+    // width and drawn from the same alphabet, so comparing the two yields a
+    // plausible looking number rather than an error. Recognising a cover
+    // decides which book gets checked in or out, so a stale hash has to come
+    // back as no likeness at all.
+    const current = await coverHash(await frontCover('Dune', 'Frank Herbert'))
+    expect(distance(current, '90006869d8680000')).toBe(64)
+    expect(distance('90006869d8680000', '90006869d8680000')).toBe(64)
+  })
 })
