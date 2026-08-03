@@ -11,6 +11,7 @@ import csv
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import Sequence
 
 from .migrations import MigrationError, backup_database, migrate
 
@@ -19,14 +20,17 @@ from .migrations import MigrationError, backup_database, migrate
 INSERT_COLUMNS = (
     "isbn13", "isbn10", "title", "authors", "publisher", "published",
     "pages", "notes", "isbn_source", "lookup_source", "front_image",
-    "back_image", "ocr_title", "ocr_back_text", "ocr_front_text",
-    "raw_barcodes",
+    "back_image", "spine_image", "ocr_title", "ocr_back_text",
+    "ocr_front_text", "raw_barcodes", "shelf", "area", "placed_at",
+    "series", "series_number", "is_fiction", "sort_author", "subjects",
 )
 
 CSV_COLUMNS = [
-    "id", "isbn13", "isbn10", "title", "authors", "publisher", "published",
-    "pages", "notes", "isbn_source", "lookup_source", "raw_barcodes",
-    "front_image", "back_image", "scanned_at", "deleted_at",
+    "id", "sort_author", "authors", "title", "series", "series_number",
+    "shelf", "area", "is_fiction", "isbn13", "isbn10", "publisher",
+    "published", "pages", "notes", "subjects", "isbn_source",
+    "lookup_source", "raw_barcodes", "front_image", "back_image",
+    "spine_image", "scanned_at", "placed_at", "deleted_at",
 ]
 
 
@@ -106,6 +110,32 @@ class Store:
             "ORDER BY id LIMIT 1",
             (isbn13,),
         ).fetchone()
+
+    def placed_books(self, shelves: Sequence[str] = ()) -> list[sqlite3.Row]:
+        """Books that are physically on a shelf, so can serve as landmarks.
+
+        A book with no shelf or no area has been catalogued but not yet
+        shelved, so telling someone to file next to it would be useless.
+        """
+        sql = (
+            "SELECT * FROM books WHERE deleted_at IS NULL "
+            "AND shelf IS NOT NULL AND TRIM(shelf) <> '' "
+            "AND area IS NOT NULL AND TRIM(area) <> ''"
+        )
+        params: list = []
+        if shelves:
+            sql += " AND shelf IN (" + ",".join("?" * len(shelves)) + ")"
+            params.extend(shelves)
+        return list(self._conn.execute(sql, params).fetchall())
+
+    def shelf_summary(self) -> list[tuple[str, str, int]]:
+        """(shelf, area, count) for everything shelved, for a quick overview."""
+        rows = self._conn.execute(
+            "SELECT shelf, area, COUNT(*) AS n FROM books "
+            "WHERE deleted_at IS NULL AND TRIM(COALESCE(shelf,'')) <> '' "
+            "GROUP BY shelf, area ORDER BY shelf, area"
+        ).fetchall()
+        return [(r["shelf"], r["area"] or "", int(r["n"])) for r in rows]
 
     def get(self, book_id: int) -> sqlite3.Row | None:
         return self._conn.execute(

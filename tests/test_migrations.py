@@ -62,6 +62,10 @@ check("no backup taken for an empty new db", s.backup is None, s.backup)
 cols = {r["name"] for r in s._conn.execute("PRAGMA table_info(books)")}
 check("v2 columns present",
       {"raw_barcodes", "ocr_front_text", "deleted_at"} <= cols)
+check("v3 columns present",
+      {"spine_image", "shelf", "area", "placed_at", "series",
+       "series_number", "is_fiction", "sort_author", "subjects"} <= cols,
+      sorted(cols))
 s.close()
 
 # reopening must be a no-op
@@ -113,7 +117,12 @@ check("row 1 image path intact", got[0]["front_image"] == "c:/x/front1.jpg")
 check("row 1 scanned_at intact", got[0]["scanned_at"] == "2026-07-30T10:00:00")
 check("row 2 title intact", got[1]["title"] == "The Fellowship of the Ring")
 check("new columns default to NULL, not garbage",
-      got[0]["raw_barcodes"] is None and got[0]["deleted_at"] is None)
+      got[0]["raw_barcodes"] is None and got[0]["deleted_at"] is None
+      and got[0]["shelf"] is None and got[0]["spine_image"] is None
+      and got[0]["is_fiction"] is None)
+check("a legacy book survives all the way to the current schema",
+      s.schema_version == mig.latest_version() and s.count() == 2,
+      f"v{s.schema_version}, {s.count()} books")
 
 # the backup must be a real, readable database holding the pre-migration data
 b = sqlite3.connect(str(s.backup))

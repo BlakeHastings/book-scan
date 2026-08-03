@@ -74,6 +74,9 @@ class CameraStream:
         self._thread: threading.Thread | None = None
         self.error: str | None = None
         self.backend: str = ""
+        # What the camera actually gave us, which is often not what we asked
+        # for. Worth surfacing, because ISBN OCR depends on it.
+        self.actual_size: tuple[int, int] = (0, 0)
 
     @property
     def is_open(self) -> bool:
@@ -114,6 +117,7 @@ class CameraStream:
 
         self._capture = capture
         self._frame = frame
+        self.actual_size = (frame.shape[1], frame.shape[0])
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()

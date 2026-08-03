@@ -23,38 +23,17 @@ SETTINGS_PATH = PROJECT_ROOT / "settings.json"
 class Settings:
     # --- Camera ---------------------------------------------------------
     camera_index: int = 0
-    frame_width: int = 1280
-    frame_height: int = 720
+    # ISBN print is small. At 720p the digits on a back cover land around ten
+    # pixels tall, which is below what Tesseract can read, so ask for as much
+    # resolution as the camera will give. It falls back on its own if the
+    # camera cannot do this.
+    frame_width: int = 1920
+    frame_height: int = 1080
 
-    # --- Detection ------------------------------------------------------
-    # Detection runs on a downscaled copy of each frame for speed.
-    detect_width: int = 640
-
-    # A candidate must fill at least this fraction of the frame to count as
-    # a book held up, and no more than this much (that is a hand over the
-    # lens, not a book).
-    min_area_ratio: float = 0.10
-    max_area_ratio: float = 0.92
-
-    # Width divided by height, permissive enough for a tilted paperback and
-    # for a landscape coffee-table book.
-    min_aspect: float = 0.35
-    max_aspect: float = 1.70
-
-    # Variance of the Laplacian. Below this the frame is too blurry to keep,
-    # which is what stops us saving a photo mid-flip.
+    # --- Capture --------------------------------------------------------
+    # Variance of the Laplacian. Below this the preview warns that the shot
+    # is too soft to read an ISBN from. It never blocks a capture.
     min_sharpness: float = 45.0
-
-    # How still, and for how long, before the shutter fires.
-    stable_frames: int = 14
-    center_tolerance: float = 0.030  # as a fraction of frame width
-    area_tolerance: float = 0.10  # as a fraction of the running mean area
-
-    # After a capture, stay disarmed until the scene has visibly changed, so
-    # one steady book cannot be photographed twice in a row.
-    rearm_frames: int = 8
-    rearm_diff: float = 18.0
-    cooldown_seconds: float = 1.2
 
     # --- Recognition ----------------------------------------------------
     # Leave blank to use whatever tesseract.exe is on PATH.
@@ -69,9 +48,14 @@ class Settings:
     # never required.
     google_api_key: str = ""
 
+    # --- Shelving -------------------------------------------------------
+    # Fiction fills these in order; non-fiction lives on its own shelf.
+    fiction_shelves: tuple = ("S1", "S2", "S3")
+    nonfiction_shelves: tuple = ("S4",)
+
     # --- Interface ------------------------------------------------------
-    preview_width: int = 820
-    thumb_width: int = 330
+    preview_width: int = 760
+    thumb_width: int = 208
     beep_on_capture: bool = True
     jpeg_quality: int = 92
 
@@ -85,8 +69,12 @@ class Settings:
                 return settings
             known = {f.name for f in fields(cls)}
             for key, value in raw.items():
-                if key in known:
-                    setattr(settings, key, value)
+                if key not in known:
+                    continue
+                # JSON has no tuples, so shelf lists come back as lists.
+                if isinstance(getattr(settings, key), tuple):
+                    value = tuple(value)
+                setattr(settings, key, value)
         return settings
 
     def save(self) -> None:

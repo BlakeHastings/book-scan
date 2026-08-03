@@ -10,6 +10,7 @@ Set google_api_key in settings.json to raise that quota if you want to.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import requests
@@ -33,6 +34,11 @@ class BookRecord:
     isbn13: str = ""
     isbn10: str = ""
     source: str = ""
+    # Subject terms, kept verbatim. Used to guess fiction vs non-fiction and
+    # retained so that guess can be audited later.
+    subjects: str = ""
+    series: str = ""
+    series_number: str = ""
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -91,7 +97,11 @@ def _from_open_library(isbn: str, timeout: float) -> BookRecord | None:
     entry = data[key]
 
     identifiers = entry.get("identifiers", {}) or {}
+    subjects = ", ".join(
+        s.get("name", "") for s in entry.get("subjects", []) or []
+    )
     return BookRecord(
+        subjects=subjects,
         title=" ".join(
             part for part in
             (entry.get("title", ""), entry.get("subtitle", "")) if part
@@ -110,6 +120,39 @@ def _from_open_library(isbn: str, timeout: float) -> BookRecord | None:
     )
 
 
+def _from_open_library_edition(isbn: str, timeout: float) -> dict:
+    """The edition record, which is where Open Library keeps series data.
+
+    The books API used above does not return it, so this is a second, small
+    request made only when we still need a series name.
+    """
+    try:
+        data = _get(f"https://openlibrary.org/isbn/{isbn}.json", {}, timeout)
+    except RateLimited:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    series = data.get("series") or []
+    subjects = data.get("subjects") or []
+    return {
+        "series": series[0] if isinstance(series, list) and series else "",
+        "subjects": ", ".join(s for s in subjects if isinstance(s, str)),
+    }
+
+
+def _split_series(value: str) -> tuple[str, str]:
+    """Open Library writes series as "The Lord of the Rings, 2" or "... #2"."""
+    value = (value or "").strip()
+    if not value:
+        return "", ""
+    match = re.search(r"^(.*?)[,;]?\s*(?:#|no\.?|book|vol\.?|volume)?\s*"
+                      r"(\d+(?:\.\d+)?)\s*$", value, re.IGNORECASE)
+    if match and match.group(1).strip():
+        return match.group(1).strip(" ,;#"), match.group(2)
+    return value, ""
+
+
 def _from_google_volume(volume: dict) -> BookRecord:
     info = volume.get("volumeInfo", {}) or {}
     isbn13 = isbn10 = ""
@@ -119,7 +162,10 @@ def _from_google_volume(volume: dict) -> BookRecord:
         elif ident.get("type") == "ISBN_10":
             isbn10 = ident.get("identifier", "")
 
+    series_info = info.get("seriesInfo") or {}
     return BookRecord(
+        subjects=", ".join(info.get("categories", []) or []),
+        series_number=str(series_info.get("bookDisplayNumber", "") or ""),
         title=" ".join(
             part for part in
             (info.get("title", ""), info.get("subtitle", "")) if part
@@ -183,14 +229,27 @@ def lookup_isbn(isbn: str, timeout: float = 8.0) -> BookRecord:
 
     record = _from_open_library(isbn, timeout)
     if record and record.found:
-        # Google often has the page count and publisher that Open Library
-        # leaves blank, so top up cheaply rather than accepting a sparse row.
-        if not record.publisher or not record.pages:
+        # Series lives on the edition record rather than the books API.
+        edition = _from_open_library_edition(isbn, timeout)
+        if edition.get("series"):
+            record.series, record.series_number = _split_series(
+                edition["series"]
+            )
+        if not record.subjects:
+            record.subjects = edition.get("subjects", "")
+
+        # Google often has the page count, publisher and subject categories
+        # that Open Library leaves blank, so top up cheaply rather than
+        # accepting a sparse row.
+        if not record.publisher or not record.pages or not record.subjects:
             extra = _from_google_isbn(isbn, timeout)
             if extra and extra.found:
                 record.publisher = record.publisher or extra.publisher
                 record.pages = record.pages or extra.pages
                 record.published = record.published or extra.published
+                record.subjects = record.subjects or extra.subjects
+                record.series_number = (record.series_number
+                                        or extra.series_number)
                 record.source = "Open Library + Google Books"
         return record
 

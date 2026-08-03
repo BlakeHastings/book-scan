@@ -29,10 +29,11 @@ Other useful commands:
 | --- | --- |
 | `uv sync` | Install or repair the environment without running anything |
 | `uv sync --upgrade` | Re-resolve dependencies to their newest allowed versions |
-| `uv run tests/test_core.py` | ISBN maths, detection, shutter, database |
+| `uv run tests/test_core.py` | ISBN maths, OCR text parsing, database, live lookups |
 | `uv run tests/test_recognition.py` | OCR, barcode decoding, online lookups |
 | `uv run tests/test_app_flow.py` | The whole capture to save flow, headless |
-| `uv run tests/test_layout.py` | Window sizing, guards against the preview growing |
+| `uv run tests/test_shelving.py` | Filing surnames, fiction guess, ordering, placement |
+| `uv run tests/test_layout.py` | Window sizing, guards against panes growing |
 | `uv run tests/test_migrations.py` | Schema upgrades, backups, rollback, data retention |
 | `uv add <package>` | Add a dependency and update the lockfile |
 | `uv export -o requirements.txt` | Produce a pip-style requirements file if you ever need one |
@@ -55,25 +56,56 @@ barcode scanning still works, but titles will not be read from covers.
 ## How a scan goes
 
 1. Pick your camera from the dropdown at the top.
-2. Hold the **front** cover up. When the outline turns green and holds for
-   about a second, it captures and beeps.
-3. Turn the book over. It re-arms as soon as the picture changes, then
-   captures the **back**.
-4. It decodes the barcode, falls back to OCR if there is no barcode, and
-   confirms against Open Library.
-5. Check the fields, correct anything wrong, press the **right arrow**.
+2. Hold the **front** cover up and press **space**.
+3. Turn the book over and press **space** again for the **back**.
+4. Show the **spine** and press **space** once more. Press **S** to skip it
+   if the spine is unreadable.
+5. It decodes the barcode, falls back to OCR if there is no barcode, and
+   confirms the result against Open Library.
+6. The right hand panel says which two books it goes between and shows
+   their spines. Put the book there.
+7. Type the **area** you put it in, then press the **right arrow**.
+
+Capture is manual on purpose. Automatic detection was tried and thrown out:
+it fired on the wrong thing often enough to be slower than just pressing a
+key.
+
+The preview warns when the shot is too soft to read fine print. Focus is the
+single biggest factor in whether the ISBN comes out, so it is worth waiting
+for that warning to clear before pressing space.
+
+### When no ISBN is found
+
+Press **I** to jump to the ISBN box, type the number, and press **Enter**.
+The lookup runs again and fills in the rest.
+
+This is also where your **USB barcode scanner** earns its keep. A scanner is
+just a keyboard: it types the digits and presses Enter for you. Press I,
+scan the back of the book, and the record fills itself in. That path is far
+more reliable than reading a barcode through a webcam, so if the camera is
+struggling on a particular book, reach for the scanner rather than fighting
+it.
+
+If OCR saw something that looked like an ISBN but could not confirm it, it
+is offered as a suggestion in the warning line rather than filled in. Check
+it against the book before typing it.
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
+| Space | Capture the front, then the back, then the spine |
+| S | Skip the spine while capturing, retake it while reviewing |
 | Right arrow | Save and move to the next book |
 | Ctrl + Right | Save, even while the caret is in a text field |
-| R | Retake both covers |
+| I | Jump to the ISBN box, ready to type or to scan into |
+| A | Jump to the area box, after you have shelved the book |
+| Ctrl + L | Look up whatever is in the ISBN or title box |
+| U | Recompute where the book goes |
+| R | Retake all three photographs |
 | F | Retake the front only |
 | B | Retake the back only |
 | D | Discard this book |
-| Space | Capture now, without waiting for auto-detect |
 | E | Export the catalogue to CSV |
 | Ctrl + Q | Quit |
 
@@ -83,7 +115,8 @@ shortcuts are ignored while you are typing, so they will not fire mid-edit.
 ## What gets saved
 
 - `books.db` is the catalogue, a SQLite database. This is the real record.
-- `captures/` holds the front and back JPEGs, named by timestamp and ISBN.
+- `captures/` holds the front, back and spine JPEGs, named by timestamp,
+  ISBN and which face they show.
 - `backups/` holds automatic pre-migration copies of the database.
 - `books.csv` is written on demand with the Export CSV button or the E key.
 
@@ -91,6 +124,58 @@ Images are only written when you accept a book, so discarded scans leave
 nothing behind. Re-scanning an ISBN you already have raises a warning and
 asks before saving a second copy, so you can stop and skip it or record it
 deliberately as a duplicate.
+
+## Shelving
+
+Four shelves. **S1, S2 and S3 hold fiction**, filling in that order.
+**S4 holds non-fiction.** Each shelf is divided into lettered areas, which
+you label however suits the furniture.
+
+Books are filed by **author surname**, then by **series**, then by
+**position within the series**, then by title. An author's standalone books
+come before their series, so a run of standalones is followed by each series
+in order.
+
+The app never guesses the area, because it cannot see how wide the books
+are. What it does instead is tell you the **two books yours belongs
+between**, show you **their spines**, and tell you **where they currently
+are**. You walk to that spot, slide the book in, and type the area you used.
+That area is stored on the book and is what makes it findable later.
+
+### What the panel tells you
+
+- **Which two books it goes between**, with title, author, and their current
+  shelf and area.
+- **Their spine photographs**, so you can spot them on the shelf without
+  pulling books out to read covers. If a book has no spine photo, its front
+  cover is shown instead.
+- **The suggested shelf**, inherited from its neighbours. When the two
+  neighbours sit on different shelves, that is called out explicitly so you
+  can decide whether to start the next shelf.
+- **Its position**, as in "book 34 of 51 in this section".
+
+### Things worth knowing
+
+**Only shelved books are used as landmarks.** A book saved without a shelf
+and area has been catalogued but not placed, so it cannot be a signpost. If
+you save without an area the app asks first, since it quietly weakens the
+guidance for every later book.
+
+**Surnames are worked out for you, and you can correct them.** "Ursula K.
+Le Guin" files under LE GUIN, "Ludwig van Beethoven" under VAN BEETHOVEN,
+"Martin Luther King Jr." under KING, and a credit already written as
+"Tolkien, J.R.R." is understood as such. Multiple authors file under the
+first. When it gets one wrong, edit the **Sort as** field and press Enter.
+
+**Fiction is guessed from the catalogue's subject terms** and shown as a
+checkbox. Ticking or clearing it immediately re-plans the placement, which
+is how a book moves between S1-S3 and S4. When there is nothing to go on it
+assumes fiction, since that is the larger part of most collections.
+
+**Series data is filled in when the catalogues have it**, which is often
+enough to be worth having and rarely enough that you should expect to type
+it. Both the series name and the number are editable, and changing either
+re-files the book.
 
 ## Data safety
 
@@ -129,11 +214,12 @@ number:
 
 ```python
 Migration(
-    version=3,
-    name="add_shelf_location",
+    version=4,
+    name="add_condition",
     statements=(
-        "ALTER TABLE books ADD COLUMN shelf TEXT",
-        "CREATE INDEX IF NOT EXISTS idx_books_shelf ON books (shelf)",
+        "ALTER TABLE books ADD COLUMN condition TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_books_condition "
+        "ON books (condition)",
     ),
 ),
 ```
@@ -181,18 +267,16 @@ reaching for first:
 
 | Setting | Effect |
 | --- | --- |
-| `stable_frames` | How long the book must hold still. Lower is snappier, higher is steadier. |
-| `min_area_ratio` | How much of the frame the book must fill. Lower it if you hold books further back. |
-| `min_sharpness` | Blur rejection. Raise it if you get soft captures, lower it in dim rooms. |
-| `rearm_diff` | How much the picture must change before the next capture arms. Raise it if flipping a book triggers a double capture. |
+| `frame_width` / `frame_height` | Capture resolution, 1920x1080 by default. The single most important setting for whether OCR can read an ISBN. Do not lower it. |
+| `min_sharpness` | When the preview warns about soft focus. Raise it to be fussier, lower it in a dim room. It never blocks a capture. |
 | `lookup_enabled` | Set false to work entirely offline. |
+| `beep_on_capture` | Turn the shutter beep off. |
 
 Example `settings.json`:
 
 ```json
 {
-  "stable_frames": 10,
-  "min_area_ratio": 0.08,
+  "min_sharpness": 60,
   "beep_on_capture": false
 }
 ```
@@ -206,17 +290,37 @@ run.py                 entry point
 tests/                 three runnable suites, no camera needed
 bookscan/config.py     all tunable settings
 bookscan/camera.py     device enumeration, background frame grabber
-bookscan/detect.py     book detection and the auto-capture shutter
 bookscan/recognize.py  barcode decoding, OCR, ISBN validation
+bookscan/shelving.py   filing surnames, fiction guess, placement
 bookscan/lookup.py     Open Library and Google Books
 bookscan/migrations.py schema versions, backups, the additive-only guard
 bookscan/store.py      SQLite catalogue and CSV export
 bookscan/app.py        the Tk interface
 ```
 
-## Notes
+## Why the ISBN sometimes will not read
 
-Lighting matters more than resolution. A book against a plain, contrasting
-background detects far more reliably than one against a bookshelf, because
-detection works on edges. If auto-detect struggles on a particular book, just
-press space.
+ISBN print is small. In a 1080p frame, at a comfortable arm's length, the
+digits land around ten to fourteen pixels tall, which is right at the edge of
+what Tesseract can do. So:
+
+- **Fill the frame with the book.** Closer is better than further. This
+  matters more than lighting.
+- **Wait for the soft-focus warning to clear.** Most webcams hunt for focus
+  for a moment after you move.
+- **Avoid glare.** A glossy cover under a ceiling light washes out the exact
+  strip the digits sit in.
+
+Recognition only trusts a number printed next to the word ISBN. An
+unlabelled run of digits is reported as a suggestion but never saved. This is
+deliberate and was set by measurement: on degraded frames, accepting
+unlabelled numbers produced ISBNs that were plainly wrong yet still passed
+their check digit, and a silently wrong ISBN is worse than a blank field you
+can fill in yourself. Books with no printed ISBN label almost always carry a
+barcode, which is decoded before OCR is ever reached.
+
+If you press **Diagnostics** in the top bar you get the whole story for the
+last book: whether Tesseract and the barcode library loaded, the camera
+resolution actually in use, every OCR pass that was attempted and how much
+text it read, and the raw text off both covers. That is the fastest way to
+tell whether OCR is failing or simply finding nothing.

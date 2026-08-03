@@ -125,6 +125,36 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ON books (deleted_at)",
         ),
     ),
+    Migration(
+        version=3,
+        name="shelving_spine_and_series",
+        statements=(
+            # A photograph of the spine, so a book can be recognised on the
+            # shelf without pulling it out.
+            "ALTER TABLE books ADD COLUMN spine_image TEXT",
+            # Where it physically lives. Shelf is S1 to S4; area is the
+            # lettered zone within that shelf, filled in after shelving.
+            "ALTER TABLE books ADD COLUMN shelf TEXT",
+            "ALTER TABLE books ADD COLUMN area TEXT",
+            "ALTER TABLE books ADD COLUMN placed_at TEXT",
+            # Series ordering, which overrides title order within an author.
+            "ALTER TABLE books ADD COLUMN series TEXT",
+            "ALTER TABLE books ADD COLUMN series_number TEXT",
+            # 1 fiction, 0 non-fiction. Decides shelf group; S4 is
+            # non-fiction.
+            "ALTER TABLE books ADD COLUMN is_fiction INTEGER",
+            # The surname the book files under, editable when the automatic
+            # guess gets a name like "Ursula K. Le Guin" wrong.
+            "ALTER TABLE books ADD COLUMN sort_author TEXT",
+            # Raw subject terms from the catalogue, kept so a fiction guess
+            # can be audited later.
+            "ALTER TABLE books ADD COLUMN subjects TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_books_shelf "
+            "ON books (shelf, area)",
+            "CREATE INDEX IF NOT EXISTS idx_books_sort "
+            "ON books (sort_author, series, series_number)",
+        ),
+    ),
 )
 
 
