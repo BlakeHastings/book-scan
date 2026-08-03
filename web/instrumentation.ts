@@ -20,24 +20,43 @@ import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
 
+/**
+ * True only when the endpoint's actual host is loopback.
+ *
+ * Parsed rather than pattern matched. A regex over the whole URL is fooled by
+ * userinfo: `https://127.0.0.1:80@evil.example/` reads as local and is not.
+ * URL.hostname is the host the request will really go to.
+ */
+function isLoopback(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url)
+    if (protocol !== 'https:') return false
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
 if (!endpoint) {
   // Not under Aspire. Do nothing at all: a dev server started by hand should
   // not spend its time retrying an exporter that was never going to connect.
   console.log('[otel] no OTEL_EXPORTER_OTLP_ENDPOINT, telemetry disabled')
 } else {
   // The Aspire dashboard serves OTLP over HTTPS with a local development
-  // certificate, which Node rejects by default. Only relax that for a
-  // loopback endpoint, so this can never silently weaken TLS against a real
-  // remote collector.
-  const isLoopback = /^https:\/\/(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(endpoint)
-  if (isLoopback && !process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-  }
+  // certificate that Node will not trust.
+  //
+  // Relaxing verification is scoped to these two exporters through their own
+  // agent. Setting NODE_TLS_REJECT_UNAUTHORIZED would apply process-wide and
+  // per-connection, so the server's real outbound calls to openlibrary.org and
+  // googleapis.com would also stop verifying certificates. That is a genuine
+  // downgrade of production behaviour to make a local dashboard work.
+  const insecureLocal = isLoopback(endpoint)
+  const agent = insecureLocal ? { rejectUnauthorized: false } : undefined
 
   const sdk = new NodeSDK({
-    traceExporter: new OTLPTraceExporter(),
+    traceExporter: new OTLPTraceExporter({ httpAgentOptions: agent }),
     metricReader: new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter(),
+      exporter: new OTLPMetricExporter({ httpAgentOptions: agent }),
     }),
     instrumentations: [
       getNodeAutoInstrumentations({
@@ -50,12 +69,18 @@ if (!endpoint) {
   sdk.start()
   console.log(`[otel] exporting to ${endpoint}`)
 
-  const shutdown = () => {
+  // Flush pending spans on the way out, but preserve the exit code. Forcing
+  // process.exit(0) here would turn a crashed server into a clean one and hide
+  // the failure from Aspire.
+  const shutdown = (signal: NodeJS.Signals) => {
     sdk
       .shutdown()
       .catch((err: unknown) => console.error('[otel] shutdown failed', err))
-      .finally(() => process.exit(0))
+      .finally(() => {
+        process.removeAllListeners(signal)
+        process.kill(process.pid, signal)
+      })
   }
-  process.on('SIGTERM', shutdown)
-  process.on('SIGINT', shutdown)
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
 }

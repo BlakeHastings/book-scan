@@ -15,7 +15,13 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 // what lets several worktrees run at once instead of fighting over 5173 and
 // 3001. The fallbacks are the old fixed values, so `npm run dev` on its own
 // still behaves exactly as it did before Aspire existed.
-const port = Number(process.env.PORT ?? 5173)
+//
+// VITE_PORT rather than PORT, deliberately. server/index.ts already reads
+// PORT, and `npm run dev` starts both through concurrently in one shell, so
+// reading PORT here would point the API and Vite at the same port whenever a
+// developer happened to have it set. strictPort would then turn that into a
+// hard failure that did not exist before.
+const port = Number(process.env.VITE_PORT ?? 5173)
 const apiTarget = process.env.API_URL ?? 'http://127.0.0.1:3001'
 
 export default defineConfig({

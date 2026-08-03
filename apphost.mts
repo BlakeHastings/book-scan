@@ -37,6 +37,9 @@ const api = await builder
 
 const web = await builder
   .addViteApp('web', './web', { runScriptName: 'dev:client' })
+  // VITE_PORT, not PORT: the api reads PORT, and `npm run dev` runs both
+  // through concurrently in one shell, so a shared name would collide.
+  .withHttpEndpoint({ env: 'VITE_PORT' })
   // The client is served to a phone on the LAN, so the browser resolves
   // /api against its own origin and Vite proxies it. The proxy target comes
   // from here rather than a literal in vite.config.ts.
