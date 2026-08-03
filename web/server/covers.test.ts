@@ -110,9 +110,25 @@ describe('storing a cover that is really there', () => {
 
     const name = await downloadCover(openLibraryCover(ISBN), ISBN, dir, asFetch(fetchImpl))
 
-    expect(name).toMatch(new RegExp(`^\\d+_${ISBN}_cover\\.jpg$`))
+    expect(name).toMatch(new RegExp(`^\\d+_${ISBN}_[0-9a-f]{8}_cover\\.jpg$`))
     expect(files()).toEqual([name])
     expect((await sharp(join(dir, name)).metadata()).format).toBe('jpeg')
+  })
+
+  it('names two covers for the same ISBN differently, even fetched together', async () => {
+    // The bug this guards against: Date.now() alone collides when two saves
+    // land in the same millisecond, and writeFileSync overwrites in
+    // silence. Fetching them concurrently is the most direct way to try to
+    // provoke that collision.
+    const fetchImpl = serve(async () => new Response(await image(600, 900)))
+
+    const [first, second] = await Promise.all([
+      downloadCover(openLibraryCover(ISBN), ISBN, dir, asFetch(fetchImpl)),
+      downloadCover(openLibraryCover(ISBN), ISBN, dir, asFetch(fetchImpl)),
+    ])
+
+    expect(first).not.toBe(second)
+    expect(files().sort()).toEqual([first, second].sort())
   })
 
   it('follows redirects and gives up rather than hanging', async () => {
@@ -149,7 +165,17 @@ describe('storing a cover that is really there', () => {
     const fetchImpl = serve(async () => new Response(await image(600, 900)))
 
     const name = await downloadCover('https://example.test/cover.jpg', '', dir, asFetch(fetchImpl))
-    expect(name).toMatch(/^\d+_noisbn_cover\.jpg$/)
+    expect(name).toMatch(/^\d+_noisbn_[0-9a-f]{8}_cover\.jpg$/)
+  })
+
+  it('names two ISBN-less covers differently rather than sharing the noisbn literal', async () => {
+    const fetchImpl = serve(async () => new Response(await image(600, 900)))
+
+    const first = await downloadCover('https://example.test/a.jpg', '', dir, asFetch(fetchImpl))
+    const second = await downloadCover('https://example.test/b.jpg', '', dir, asFetch(fetchImpl))
+
+    expect(first).not.toBe(second)
+    expect(files().sort()).toEqual([first, second].sort())
   })
 })
 

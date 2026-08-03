@@ -10,6 +10,7 @@
 
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
 import sharp from 'sharp'
 
 /**
@@ -69,7 +70,16 @@ export async function downloadCover(
       .jpeg({ quality: 82 })
       .toBuffer()
 
-    const name = `${Date.now()}_${isbn || 'noisbn'}_cover.jpg`
+    // A timestamp alone collides when two covers save in the same
+    // millisecond, and a book with no ISBN would collide with every other
+    // ISBN-less book on the 'noisbn' literal. The random suffix makes the
+    // name unique regardless of timing, without hashing the image content:
+    // a content hash would also deduplicate identical covers, which is a
+    // storage-behaviour change this fix is not making. The timestamp and
+    // ISBN stay in the name because nothing reads them back out of it, but a
+    // directory listing sorted by name is still roughly chronological and
+    // still groups a book's covers together, which is worth keeping.
+    const name = `${Date.now()}_${isbn || 'noisbn'}_${randomBytes(4).toString('hex')}_cover.jpg`
     writeFileSync(join(dir, name), jpeg)
     return name
   } catch {
