@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 
+# Agent scratch space. Holds local git worktrees, so staging it would
+# pull another checkout's files into this one.
+.claude/
+
 # Scan output: the catalogue, the cover photos, and local overrides.
 books.db
 books.db-wal
