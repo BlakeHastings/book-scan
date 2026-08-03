@@ -204,13 +204,6 @@ export class Shelves {
     drop()
   }
 
-  /** Adjust a capacity directly, for when a shelf turns out to hold one more. */
-  setCapacity(id: number, capacity: number): void {
-    this.db
-      .prepare('UPDATE separators SET capacity = ? WHERE id = ?')
-      .run(Math.max(0, Math.trunc(capacity)), id)
-  }
-
   /**
    * What physically has to move if this run of books becomes the new one.
    *
