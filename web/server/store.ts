@@ -411,11 +411,30 @@ export class Store {
    * its position, which is what makes it useful for fixing a shelf by hand: a
    * book that will not physically fit can be removed from the model, and the
    * layout closes up behind it exactly as the shelf does.
+   *
+   * Asking for a state the book is already in is a no-op, not a write. A book
+   * already off the shelf that gets checked out again must keep the moment it
+   * actually left, not the moment someone tapped it a second time, and there
+   * is no history table to recover that moment from once it is overwritten.
+   * The caller still learns the truth either way: `changed` says whether
+   * anything happened, and `checkedOutAt` is always the row's real value
+   * afterward, so a no-op cannot be mistaken for a fresh checkout.
    */
-  setCheckedOut(id: number, out: boolean): void {
+  setCheckedOut(id: number, out: boolean): { changed: boolean; checkedOutAt: string | null } {
+    const row = this.db
+      .prepare('SELECT checked_out_at FROM books WHERE id = ?')
+      .get(id) as { checked_out_at: string | null } | undefined
+
+    if (!row) return { changed: false, checkedOutAt: null }
+
+    const alreadyOut = row.checked_out_at !== null
+    if (alreadyOut === out) return { changed: false, checkedOutAt: row.checked_out_at }
+
+    const checkedOutAt = out ? new Date().toISOString() : null
     this.db
       .prepare('UPDATE books SET checked_out_at = ? WHERE id = ?')
-      .run(out ? new Date().toISOString() : null, id)
+      .run(checkedOutAt, id)
+    return { changed: true, checkedOutAt }
   }
 
   /**

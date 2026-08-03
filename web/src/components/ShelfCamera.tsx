@@ -156,9 +156,19 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
         onShelve(result.book)
         return
       }
-      setGood(true)
-      setMessage(`${match.title} is off the shelf.`)
-      setDone((list) => [{ title: match.title, note: match.authorFiling }, ...list])
+      // A tap on a candidate that is already off the shelf is a no-op at the
+      // store: the tally only grows, and the message only claims success, for
+      // a checkout that actually happened just now.
+      const justCheckedOut = result.outcome === 'checked-out'
+      setGood(justCheckedOut)
+      setMessage(
+        justCheckedOut
+          ? `${match.title} is off the shelf.`
+          : `${match.title} was already off the shelf.`,
+      )
+      if (justCheckedOut) {
+        setDone((list) => [{ title: match.title, note: match.authorFiling }, ...list])
+      }
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
