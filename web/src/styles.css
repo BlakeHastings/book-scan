@@ -1,0 +1,1500 @@
+/* Phone-first. Everything is sized to be readable at arm's length while
+   holding a book, and tap targets stay at 44px which is the iOS minimum. */
+
+:root {
+  --bg: #12121a;
+  --panel: #1c1c27;
+  --panel-2: #24242f;
+  --line: #33333f;
+  --text: #ecebf1;
+  --muted: #9b9aac;
+  --accent: #7aa2f7;
+  --good: #86d19a;
+  --warn: #e0af68;
+  --bad: #f7768e;
+  --radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: env(safe-area-inset-top) 12px calc(24px + env(safe-area-inset-bottom));
+}
+
+/* --- Top bar ---------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+}
+.topbar h1 { font-size: 18px; margin: 0; flex: 1; }
+.topbar nav { display: flex; gap: 4px; }
+.counts { flex-basis: 100%; color: var(--muted); font-size: 13px; }
+
+.tab {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  min-height: 40px;
+}
+.tab--on { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
+
+/* --- Placement card, the main event ----------------------------------- */
+
+.placement {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.placement--saved { border-left-color: var(--good); }
+.placement--stale { opacity: 0.55; transition: opacity 120ms; }
+.placement--empty { border-left-color: var(--line); color: var(--muted); }
+.placement--empty p { margin: 0; font-size: 14px; }
+
+.placement__range {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.placement__instruction {
+  font-size: 21px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.placement__neighbours {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+.neighbour {
+  display: grid;
+  grid-template-columns: 54px 44px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.neighbour--target {
+  grid-template-columns: 54px 1fr;
+  border: 1px dashed var(--accent);
+  background: transparent;
+}
+.neighbour__label { color: var(--muted); font-size: 12px; }
+
+.neighbour__photo {
+  width: 44px;
+  height: 58px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+}
+.neighbour__photo img { width: 100%; height: 100%; object-fit: cover; }
+.neighbour__nophoto {
+  font-size: 9px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.1;
+}
+
+.neighbour__text { display: grid; gap: 1px; min-width: 0; }
+.neighbour__title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.neighbour__author { color: var(--muted); font-size: 13px; }
+.neighbour__loc {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--accent);
+}
+.neighbour__none { color: var(--muted); font-style: italic; grid-column: 2 / -1; }
+
+/* --- Full-screen camera ----------------------------------------------- */
+
+/* The camera is a fixed overlay rather than a block in the document. In normal
+   flow on iOS the controls below the feed end up under the URL bar and off
+   screen, because the layout viewport is taller than the visible one. */
+
+.body--locked {
+  overflow: hidden;
+  overscroll-behavior: none;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+}
+
+.cam {
+  position: fixed;
+  inset: 0;
+  /* dvh tracks the visible viewport as the URL bar shows and hides. The vh
+     line is the fallback for browsers without dvh. */
+  height: 100vh;
+  height: 100dvh;
+  background: #000;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.cam__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cam__top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top)) 12px 24px;
+  background: linear-gradient(rgba(0, 0, 0, 0.75), transparent);
+  /* Above .cam__idle, which is an opaque full-bleed overlay and would
+     otherwise bury the only route to the library on first load. */
+  z-index: 3;
+}
+.cam__meta {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  font-variant-numeric: tabular-nums;
+}
+.cam__chip-btn {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 12px;
+  min-height: 36px;
+  font-size: 13px;
+}
+
+.cam__error {
+  position: absolute;
+  top: calc(58px + env(safe-area-inset-top));
+  left: 12px; right: 12px;
+  background: rgba(60, 18, 26, 0.94);
+  border: 1px solid var(--bad);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  z-index: 4;
+}
+
+.cam__idle {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+  background: var(--bg);
+  z-index: 1;
+}
+.cam__idle h2 { margin: 0; font-size: 20px; }
+.cam__idle p { color: var(--muted); margin: 0; max-width: 30ch; }
+
+/* Two rows only: which side you are shooting, and the shutter. Anything that
+   is read once and then ignored belongs in the sheet or the toast, not here.
+   The scrim starts late and stays soft so the viewfinder keeps the screen. */
+.cam__bottom {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 28px 12px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.8));
+}
+
+/* One line, always. A long title used to wrap to three and push the shutter
+   row down the screen mid-session. */
+.cam__found {
+  background: rgba(134, 209, 154, 0.16);
+  border: 1px solid var(--good);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cam__chips { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; }
+.cam__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+}
+.cam__chip--filled { color: #fff; }
+.cam__chip--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0b12;
+  font-weight: 600;
+}
+.cam__chip--found { border-color: var(--good); }
+
+.cam__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+.cam__dot--busy { background: var(--warn); }
+.cam__dot--found { background: var(--good); }
+
+/* Shows what the slot wants for a couple of seconds, then leaves. Pointer
+   events off so it can never swallow a tap meant for the shutter. */
+.cam__toast {
+  position: absolute;
+  left: 50%;
+  bottom: 150px;
+  transform: translateX(-50%);
+  z-index: 2;
+  max-width: min(30ch, calc(100% - 32px));
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  animation: toast-in 220ms ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.cam__controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.cam__thumbs { display: flex; gap: 4px; }
+.cam__thumb {
+  width: 30px; height: 40px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  display: block;
+}
+.cam__thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+.cam__review {
+  justify-self: end;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 14px;
+}
+.cam__review:disabled { opacity: 0.4; }
+.cam__count { font-size: 11px; color: rgba(255, 255, 255, 0.7); }
+
+.manual--dark { width: 100%; max-width: 380px; }
+
+/* --- Shutter ---------------------------------------------------------- */
+
+.shutter {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--line);
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.shutter:active { transform: scale(0.94); }
+.shutter__ring {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2px solid #1a1a24;
+  background: #fff;
+}
+
+.found {
+  background: rgba(134, 209, 154, 0.14);
+  border: 1px solid var(--good);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.hint--center { text-align: center; margin: 8px 0; }
+
+/* --- Review thumbnails ------------------------------------------------ */
+
+.deck--review { grid-template-columns: repeat(3, 1fr); }
+.shot { margin: 0; display: grid; gap: 4px; }
+.shot img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.shot figcaption { font-size: 11px; color: var(--muted); text-align: center; }
+
+/* --- Forms ------------------------------------------------------------ */
+
+.manual { display: flex; gap: 8px; margin-top: 12px; }
+.manual input { flex: 1; }
+
+.field { display: block; margin-bottom: 12px; }
+.field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+
+input {
+  width: 100%;
+  /* 16px minimum, or iOS zooms the page when the field takes focus. */
+  font-size: 16px;
+  padding: 11px 12px;
+  min-height: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+}
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hint { color: var(--muted); font-size: 13px; margin: -6px 0 14px; }
+.hint code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+
+/* --- Classification toggle -------------------------------------------- */
+
+.classify {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.classify--attention { border-color: var(--warn); }
+.classify__row, .segmented { display: flex; gap: 8px; }
+.classify__why { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+.seg {
+  flex: 1;
+  min-height: 48px;
+  font-size: 15px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 8px;
+}
+.seg--on { background: var(--accent); color: #0b0b12; border-color: var(--accent); font-weight: 600; }
+.segmented { margin-bottom: 16px; }
+
+/* --- Buttons ---------------------------------------------------------- */
+
+.btn {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 15px;
+}
+.btn--primary { background: var(--accent); color: #0b0b12; border-color: var(--accent); font-weight: 600; }
+.btn--big { min-height: 52px; font-size: 17px; }
+.btn--ghost { background: transparent; }
+.btn:disabled { opacity: 0.45; }
+
+.actions { display: flex; gap: 10px; margin-top: 20px; }
+.actions .btn { flex: 1; }
+
+/* --- Messages --------------------------------------------------------- */
+
+.error, .warn {
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.error { background: rgba(247, 118, 142, 0.15); border: 1px solid var(--bad); }
+.warn { background: rgba(224, 175, 104, 0.12); border: 1px solid var(--warn); }
+.warn--soft { border-color: var(--line); background: var(--panel-2); color: var(--muted); }
+.warn ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* --- Library ---------------------------------------------------------- */
+
+.shelf { list-style: none; margin: 0; padding: 0; }
+.shelf__row {
+  display: grid;
+  grid-template-columns: 46px 34px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.shelf__row--flag { background: rgba(224, 175, 104, 0.1); }
+.shelf__loc { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.shelf__body { display: grid; }
+.shelf__author { font-size: 13px; color: var(--muted); }
+.shelf__title { font-size: 15px; }
+.shelf__series { color: var(--muted); font-size: 13px; }
+
+.shelf__photo {
+  width: 34px;
+  height: 46px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-2);
+  display: block;
+}
+.shelf__photo img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Manual ISBN entry inside the camera view. Present whenever the book is
+   still unknown, so a failed scan has somewhere to go. */
+.cam__manual { display: flex; gap: 8px; margin-bottom: 10px; }
+.cam__manual input {
+  flex: 1;
+  min-height: 44px;
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.cam__manual .btn { flex: 0 0 auto; }
+
+/* Once there is something worth reviewing, stop looking like a ghost button. */
+.cam__review--ready {
+  background: var(--good);
+  border-color: var(--good);
+  color: #0b0b12;
+  font-weight: 600;
+}
+.cam__review--ready .cam__count { color: rgba(0, 0, 0, 0.6); }
+
+/* --- Spine crop guide -------------------------------------------------- */
+
+/* Positioned from the same fractions the crop uses, so what you frame is
+   exactly what gets saved. */
+/* Corner brackets rather than a full outline. A rectangle drawn all the way
+   round competes with the book inside it; four corners say the same thing and
+   leave the subject alone. Eight gradients: two short bars per corner. */
+.cam__guide {
+  position: absolute;
+  pointer-events: none;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+  --bracket: linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-image:
+    var(--bracket), var(--bracket), var(--bracket), var(--bracket),
+    var(--bracket), var(--bracket), var(--bracket), var(--bracket);
+  background-size:
+    20px 2px, 2px 20px,   /* top left */
+    20px 2px, 2px 20px,   /* top right */
+    20px 2px, 2px 20px,   /* bottom left */
+    20px 2px, 2px 20px;   /* bottom right */
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom;
+}
+/* Inside the frame, not above it. Above collides with the top bar once the
+   guide is positioned high enough to clear the shutter row. */
+.cam__guide-label {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.65);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.cam__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warn);
+  color: #0b0b12;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cam__next {
+  justify-self: start;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 14px;
+}
+.cam__next:disabled { opacity: 0.4; }
+
+/* Controls are exactly three: next book | shutter | review. */
+.cam__controls { grid-template-columns: 1fr auto 1fr; }
+
+/* --- Queue ------------------------------------------------------------- */
+
+.pane-title { font-size: 16px; margin: 4px 0 12px; }
+
+.queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.queue__row {
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 10px;
+}
+.queue__row--ready { border-left-color: var(--good); }
+.queue__row--failed { border-left-color: var(--warn); }
+.queue__row--pending { border-left-color: var(--accent); }
+
+.queue__photo {
+  width: 46px; height: 62px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-2);
+  display: block;
+}
+.queue__photo img { width: 100%; height: 100%; object-fit: cover; }
+
+.queue__body { display: grid; gap: 2px; min-width: 0; }
+.queue__title {
+  font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.queue__meta { color: var(--muted); font-size: 13px; }
+.queue__status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.queue__status--ready { color: var(--good); }
+.queue__status--failed { color: var(--warn); }
+.queue__status--pending { color: var(--accent); }
+.queue__note { font-size: 12px; color: var(--muted); }
+
+.queue__actions { display: grid; gap: 6px; }
+.queue__actions .btn { min-height: 36px; padding: 0 12px; font-size: 13px; }
+
+/* --- Book detail: photos ---------------------------------------------- */
+
+.photos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.photo { margin: 0; display: grid; gap: 4px; }
+.photo img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.photo figcaption { font-size: 11px; color: var(--muted); text-align: center; }
+
+/* Tap a photo to read the small print on it, which is the whole reason the
+   detail view exists: you copy the ISBN off the cover by eye. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.94);
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+.lightbox img { max-width: 100%; max-height: 92vh; object-fit: contain; }
+.lightbox__hint {
+  position: absolute;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* --- Book detail: the ISBN, which everything else hangs off ------------ */
+
+.isbn-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+}
+.isbn-block__values { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.isbn-block__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.isbn-block__number {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.isbn-block__alt, .isbn-block__source { font-size: 12px; color: var(--muted); }
+.isbn-block .btn { flex: 0 0 auto; }
+
+/* --- Modal ------------------------------------------------------------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.65);
+  display: grid;
+  align-items: end;
+  padding: 12px;
+}
+@media (min-height: 620px) {
+  .modal { align-items: center; }
+}
+.modal__card {
+  width: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.modal__title { margin: 0 0 6px; font-size: 17px; }
+.modal__check { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.modal__check--bad { color: var(--bad); }
+
+/* Library rows open the detail view; Remove stays a separate target so a
+   mis-tap cannot delete a book. */
+.shelf__body--tap {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.shelf__body--tap:active { opacity: 0.6; }
+
+/* What OCR could read off the cover, shown rather than assumed to be a title. */
+.queue__cover { font-size: 12px; color: var(--accent); }
+
+/* A solid guide means the frame is the crop (the spine). A dashed one is
+   alignment only: the whole frame is kept, so nothing can clip the ISBN. */
+/* A cover just needs rough alignment, so barely dim outside it. The spine is
+   an actual crop, so what falls outside really is discarded: dim it harder
+   and lengthen the brackets to make the boundary unmistakable. */
+.cam__guide { box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.22); }
+.cam__guide--crop {
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
+  /* Faint but continuous. On a spine the side edges are the thing being
+     judged, and four corners alone leave the long sides unmarked. */
+  outline: 1px solid rgba(122, 162, 255, 0.4);
+  background-size:
+    16px 2px, 2px 32px,
+    16px 2px, 2px 32px,
+    16px 2px, 2px 32px,
+    16px 2px, 2px 32px;
+}
+
+/* Thumbnails frame a spine and a cover differently, because the useful part
+   of each is in a different place. A spine carries its title at the top; a
+   cover reads best from the middle. */
+.thumb { width: 100%; height: 100%; object-fit: cover; }
+.thumb--edge { object-position: center top; }
+.thumb--front, .thumb--back { object-position: center center; }
+
+/* --- Shelves as furniture ---------------------------------------------- */
+
+.shelfgroup { margin-bottom: 18px; }
+.shelfgroup__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.shelfgroup__label { font-size: 16px; font-weight: 700; color: var(--accent); }
+.shelfgroup__count { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+/* A closed shelf gets a solid rule; the open one gets the controls. */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--good);
+}
+.divider--open { border-style: dashed; border-color: var(--line); }
+.divider__label { flex: 1; font-size: 13px; color: var(--muted); }
+.divider .btn { min-height: 36px; padding: 0 10px; font-size: 13px; }
+
+/* The physical to-do list that a boundary change creates. */
+.moves {
+  background: rgba(224, 175, 104, 0.12);
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.moves ul { margin: 6px 0; padding-left: 18px; }
+.moves .hint { margin: 0; }
+
+/* --- Shelf rows -------------------------------------------------------- */
+
+/* Its own grid. Reusing .shelf__row inherited a four-column layout built for
+   a different row shape, so two children landed in the two narrow columns and
+   the rest of the width sat empty. */
+.shelfrow {
+  display: grid;
+  grid-template-columns: 26px 34px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.shelfrow__n {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+}
+.shelfrow__photo {
+  width: 34px;
+  height: 46px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-2);
+  display: block;
+}
+.shelfrow__body {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.shelfrow__body:active { opacity: 0.6; }
+.shelfrow__author { font-size: 13px; color: var(--muted); }
+.shelfrow__title {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shelfrow__loc {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.shelfgroup__shelf { font-size: 13px; color: var(--text); }
+
+/* Destructive actions read as destructive, and never as the primary button. */
+.btn--danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #1a0d10;
+  font-weight: 600;
+}
+
+/* Set apart from Save and Cancel so it cannot be hit by accident. */
+.danger-zone {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: grid;
+}
+.danger-zone .btn { color: var(--bad); border-color: rgba(247, 118, 142, 0.4); }
+
+.shelve__ask {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.shelve__ask p { margin: 0 0 10px; }
+
+/* Derived, so shown rather than offered for editing. */
+.readonly {
+  margin: 0;
+  padding: 11px 12px;
+  min-height: 44px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Camera settings. Reachable in one tap, invisible the rest of the time. */
+.cam__chip-btn--icon { padding: 0; width: 36px; font-size: 16px; }
+
+.cam__sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.5);
+}
+.cam__sheet-body {
+  width: 100%;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  background: #14141c;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cam__sheet-body h3 { margin: 0; font-size: 16px; }
+.cam__sheet-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.cam__sheet-meta {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pick a physical lens. Only shown when the phone names more than one. */
+.cam__lenses { display: flex; gap: 6px; justify-content: center; margin-bottom: 8px; flex-wrap: wrap; }
+.cam__lens {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+}
+.cam__lens--on { background: var(--accent); border-color: var(--accent); color: #0b0b12; font-weight: 600; }
+
+/* --- The shelf, drawn end on ------------------------------------------- */
+
+.strip { margin-bottom: 16px; }
+
+.strip__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.strip__label {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--accent);
+}
+.strip__counts { font-size: 13px; color: var(--muted); }
+
+/* A full shelf is wider than a phone. Scroll it rather than shrinking the
+   spines to the point where nothing on them can be read. */
+.strip__scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  /* The gap is scrolled into view on open, so on a long shelf books at both
+     ends are off screen. Fading the edges says so without a scrollbar, which
+     iOS does not show anyway. */
+  mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+
+/* Row 1 the shelf, row 2 the plank it stands on, row 3 the book in hand.
+   One grid, so the gap and the book below it cannot drift apart. */
+.strip__grid {
+  display: grid;
+  /* The third row is auto so it collapses to nothing for a book that is
+     already shelved, where there is no book hanging below the plank. */
+  grid-template-rows: 132px 0 auto;
+  grid-auto-columns: 34px;
+  align-items: end;
+  gap: 0 3px;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 2px;
+}
+
+.spine {
+  grid-row: 1;
+  position: relative;
+  height: 100%;
+  border-radius: 3px 3px 2px 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* The two books touching the gap, which are the ones to find by eye. */
+.spine--known { border-color: rgba(255, 255, 255, 0.45); }
+
+.spine__photo { width: 100%; height: 100%; object-fit: cover; }
+.spine__photo--edge { object-position: center top; }
+.spine__photo--front { object-position: center center; }
+
+/* Down the spine, the way it is printed. */
+.spine__author {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  color: var(--muted);
+  max-height: 96px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding-top: 6px;
+}
+
+.spine__no {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  text-align: center;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(0, 0, 0, 0.55);
+  line-height: 13px;
+}
+
+/* The space to open up. Red, because it is the one thing to act on. */
+.strip__gap {
+  grid-row: 1;
+  height: 100%;
+  border: 2px dashed var(--bad);
+  border-radius: 3px;
+  background: rgba(247, 118, 142, 0.1);
+}
+
+.strip__shelf {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  border-top: 3px solid var(--line);
+  margin: 0 -2px;
+}
+
+/* Hanging below the plank, directly under its gap. */
+.strip__new {
+  grid-row: 3;
+  align-self: start;
+  margin-top: 8px;
+  height: 84px;
+  border-radius: 2px 2px 3px 3px;
+  border: 2px solid var(--bad);
+  background: rgba(247, 118, 142, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.strip__new-author {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  max-height: 76px;
+}
+
+.placement-view__instruction {
+  font-size: 19px;
+  line-height: 1.3;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+/* Already on the shelf, and in the right place. Green because there is
+   nothing to do, unlike the red gap which is an instruction. */
+.spine--here {
+  border: 2px solid var(--good);
+  box-shadow: 0 0 0 2px rgba(134, 209, 154, 0.25);
+}
+.spine--here .spine__no { background: var(--good); color: #0b1a10; font-weight: 700; }
+
+/* --- Book detail, read-only state ------------------------------------- */
+
+.detail__head { margin-bottom: 14px; }
+.detail__title { margin: 0; font-size: 22px; line-height: 1.25; }
+.detail__subtitle { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+.detail__author { margin: 6px 0 0; font-size: 16px; }
+
+/* The reason you opened the page, so it does not sit under a form you did
+   not come to fill in. */
+.actions--top { margin-bottom: 16px; }
+
+/* Facts as a record, not as a row of inputs pretending to be one. */
+.facts {
+  margin: 0 0 18px;
+  border-top: 1px solid var(--line);
+}
+.facts__row {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.facts__row dt { color: var(--muted); font-size: 14px; }
+.facts__row dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Collapsed by default. Everything in here came from the catalogue and is
+   almost never the thing you opened the book to change. */
+.more {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.more > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 6px 2px;
+  min-height: 32px;
+}
+
+/* --- ISBN by camera ---------------------------------------------------- */
+
+/* The button sits inside the field, so the input keeps its own padding clear
+   of the icon rather than having text run underneath it. */
+.isbn-input { position: relative; display: block; }
+.isbn-input input { width: 100%; padding-right: 48px; }
+.isbn-input__cam {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+}
+.isbn-input__cam:active { background: var(--panel-2); }
+.isbn-input__cam:disabled { color: var(--muted); }
+
+.modal__read { margin: 6px 0 0; font-size: 13px; color: var(--good); }
+.modal__read--soft { color: var(--warn); }
+
+/* Full screen, like the main camera and for the same reason: on iOS a video
+   in normal flow puts its controls under the URL bar. */
+.isbncam {
+  position: fixed;
+  inset: 0;
+  height: 100vh;
+  height: 100dvh;
+  background: #000;
+  z-index: 40;
+  overflow: hidden;
+}
+.isbncam__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* An aiming aid, not a crop. The whole frame is sent for reading, and the
+   whole-image OCR passes are what rescue a book whose barcode will not scan,
+   so dimming the outside would promise a discard that does not happen. */
+.isbncam__frame {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 34%;
+  height: 22%;
+  border: 2px dashed rgba(122, 162, 255, 0.7);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.isbncam__bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 24px 14px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8) 40%);
+}
+.isbncam__hint {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  min-height: 2.4em;
+}
+.isbncam__controls { display: flex; gap: 10px; }
+.isbncam__controls .btn { flex: 1; }
+
+.moves ol { margin: 8px 0 0; padding-left: 22px; }
+.moves li { margin-bottom: 5px; }
+/* Confirmed steps recede; the one being asked about does not. */
+.moves__done { color: var(--muted); }
+.moves__now { color: var(--text); }
+.moves__now::marker { color: var(--accent); font-weight: 700; }
+
+/* How far the shimmy has spread, which is the thing that is hard to hold in
+   your head once it is more than one shelf. */
+.moves__spread {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* --- Off the shelf ----------------------------------------------------- */
+
+/* Stated where the book itself is, because every other reading of the page
+   assumes the book is somewhere on a shelf. */
+.checkedout {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: rgba(224, 175, 104, 0.12);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.checkedout strong { color: var(--warn); }
+
+.offshelf {
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.offshelf__head { margin: 0; font-size: 15px; color: var(--warn); }
+.offshelf__row {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  padding: 10px 2px;
+  min-height: 48px;
+  font-size: 15px;
+}
+.offshelf__title { font-weight: 500; }
+.offshelf__author { color: var(--muted); font-size: 13px; }
+
+/* Belongs on this shelf but is not on it. Dimmed and dashed so it reads as a
+   gap in the run rather than as a book you could walk up and pull out. */
+.shelfrow--off { opacity: 0.6; }
+.shelfrow--off .shelfrow__photo { filter: grayscale(1); }
+.shelfrow--off .shelfrow__title { text-decoration: line-through; }
+.shelfrow--off .shelfrow__loc {
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 11px;
+}
+.shelfrow--off .shelfrow__n { color: var(--warn); }
+
+/* Scanning a stack. Sits over the camera used for check-out and check-in. */
+.isbncam__top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) 14px 20px;
+  background: linear-gradient(rgba(0, 0, 0, 0.75), transparent);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.isbncam__mode { flex: 1; }
+.isbncam__tally {
+  background: var(--good);
+  color: #0b1a10;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* Confirmation that survives the next shot, so a run of books can be checked
+   against the pile in your hand rather than trusted. */
+.isbncam__done {
+  position: absolute;
+  left: 14px; right: 14px;
+  top: calc(64px + env(safe-area-inset-top));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  pointer-events: none;
+}
+.isbncam__done li {
+  background: rgba(0, 0, 0, 0.6);
+  border-left: 3px solid var(--good);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.isbncam__hint--good { color: var(--good); }
+
+/* --- Home ------------------------------------------------------------- */
+
+/* The title doubles as the way back, so every flow has an exit that is
+   always in the same place. */
+.topbar__home {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+
+.home {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0 14px;
+}
+
+.tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 112px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+}
+.tile:active { background: var(--panel-2); }
+/* Adding books is the job most sessions are, so it leads. */
+.tile--primary { border-color: var(--accent); border-width: 2px; }
+
+.tile__title { font-size: 18px; font-weight: 600; }
+.tile__body { font-size: 13px; color: var(--muted); line-height: 1.35; }
+
+/* A to-do list rather than a job you set out to do, so it sits apart and
+   disappears when there is nothing in it. */
+.home__queue {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.home__queue-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.home__queue-badge {
+  background: var(--warn);
+  color: #221803;
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.home__queue-body { font-size: 13px; color: var(--muted); }
+
+.home__off {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* --- Is this the same book? -------------------------------------------- */
+
+.compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.compare__side {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+.compare__side img {
+  width: 100%;
+  height: 190px;
+  object-fit: contain;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.compare__side figcaption { font-size: 12px; color: var(--muted); }
+.compare__none {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 190px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* --- Which of these is it? --------------------------------------------- */
+
+/* A cover match is a good guess, so the covers are large enough to tell
+   apart at arm's length and nothing happens until one is tapped. */
+.isbncam__choices {
+  position: absolute;
+  left: 10px; right: 10px;
+  bottom: 150px;
+  display: grid;
+  gap: 6px;
+  max-height: 58%;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: rgba(10, 10, 16, 0.92);
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  min-height: 62px;
+}
+.choice:active { border-color: var(--accent); }
+.choice img {
+  width: 46px;
+  height: 62px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--panel-2);
+}
+.choice__nocover {
+  display: grid;
+  place-items: center;
+  width: 46px; height: 62px;
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  font-size: 9px;
+  color: var(--muted);
+  text-align: center;
+}
+.choice__text { display: grid; gap: 1px; min-width: 0; }
+.choice__title {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.choice__author { font-size: 12px; color: var(--muted); }
+.choice__state { font-size: 11px; color: var(--warn); }
+.choice__note { font-size: 11px; color: var(--muted); font-style: italic; }
