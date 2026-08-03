@@ -43,12 +43,23 @@ The safety here is structural, not just a request:
   `process.env.BOOKSCAN_DATA ?? 'data'` (`web/server/index.ts:40`). With no env
   var set, it uses `web/data/` inside your checkout, never the live path.
 - **Do not set `BOOKSCAN_DATA`.** It is the only thing standing between a dev
-  server and the real catalogue.
+  server and the real catalogue. Under Aspire you do not need to: the AppHost
+  sets it explicitly to this checkout's own directory, which overrides anything
+  inherited from your shell.
 - Every server test opens an in-memory database (`:memory:`) and generates its
-  own barcode and cover fixtures. `npm test` cannot reach real data.
+  own barcode and cover fixtures, so **no test reads or writes the catalogue.**
 - `web/.gitignore` excludes `data/`, so a database or cover photo cannot be
   committed. CI re-checks this on the result, because an ignore rule is silent
   when someone forces past it.
+
+**One real exception, and it is not theoretical.** `web/server/identify.ts:385`
+builds its tesseract cache path from `BOOKSCAN_DATA` too, and `workerOptions()`
+creates that directory. The OCR tests reach it. So running `npm test` in a
+shell where `BOOKSCAN_DATA` points at the live catalogue writes a `tessdata`
+directory into it. That only adds a cache folder and never touches `books.db`
+or `covers/`, but it means "tests cannot reach real data" is not true today.
+Tracked as an issue. Until it is fixed, do not run the test suite from a shell
+that has `BOOKSCAN_DATA` set.
 
 If you add a test that needs a database, open `:memory:` like the existing ones
 do (see `web/server/store.test.ts`). Never write a test that touches a path
@@ -69,6 +80,36 @@ npm run build      # typecheck then vite build
 `npm run dev` binds `0.0.0.0:5173` with a self-signed certificate. That is
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
 LAN address, so the phone needs HTTPS.
+
+### Running it under Aspire
+
+Aspire is the local orchestrator. Use it when you need the app running rather
+than just the tests, and **always** when working in a git worktree, because
+fixed ports are what make two worktrees collide.
+
+From the repo root:
+
+```
+aspire start --non-interactive   # never `npm run dev` in a worktree
+aspire wait api                  # block until healthy, do not poll by hand
+aspire wait web
+aspire ps                        # resources, ports, dashboard URL
+aspire logs api                  # console output
+aspire otel traces               # spans, for proving a change did something
+aspire stop
+```
+
+Aspire assigns the ports, so nothing is fixed at 3001 or 5173 and several
+checkouts can run at once. It also injects `OTEL_EXPORTER_OTLP_ENDPOINT`, which
+`web/instrumentation.ts` picks up to send traces and metrics to the dashboard.
+
+Prove your change works by driving the running app and reading its telemetry,
+then turn what you did by hand into a test. A change nobody watched run is not
+verified.
+
+`apphost.mts` is the only AppHost file to hand-edit. **Never edit
+`.aspire/modules/`**: it is generated and regenerated on every start, so edits
+are lost. To add an integration, run `aspire add <package>`.
 
 Both checks must pass before a pull request is ready. As of this writing
 `npm run typecheck` is clean and `npm test` reports 203 tests passing across 10

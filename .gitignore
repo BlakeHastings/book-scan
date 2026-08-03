@@ -14,3 +14,12 @@ books.csv
 captures/
 backups/
 settings.json
+node_modules/
+dist/
+.aspire/
+
+# Aspire installs project-local copies of its agent skills here. They are
+# byte-identical to the plugin copies and pinned to one Aspire version, so
+# committing them means carrying 6000 lines that go stale. Recreate with
+# `aspire agent init`.
+.agents/
