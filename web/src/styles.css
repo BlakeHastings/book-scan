@@ -1470,6 +1470,49 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   min-height: 62px;
 }
 .choice:active { border-color: var(--accent); }
+
+/* The user's own shot, pinned above the list it is being compared against.
+   Same 46x62 box as a candidate cover, because two thumbnails of different
+   sizes are harder to tell apart than two of the same. */
+.choices__head {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  align-items: center;
+  gap: 10px;
+  /* Negative margins cancel the panel's own padding so the strip runs edge
+     to edge, and the padding puts it back inside. */
+  margin: -10px -10px 4px;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(10, 10, 16, 0.96);
+}
+.choices__shot {
+  width: 46px;
+  height: 62px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--accent);
+  background: var(--panel-2);
+}
+
+/* How alike, in words. The distance itself is a Hamming distance over 64
+   bits and is deliberately never shown: it reads as precision it does not
+   have. Colour repeats what the words say, so it is not the only carrier. */
+.choice__confidence { font-size: 11px; }
+.choice__confidence--close { color: var(--good); }
+.choice__confidence--similar { color: var(--muted); }
+.choice__confidence--loose { color: var(--warn); }
+
+/* A weak candidate is still offered, and still a plain unselected button.
+   It just stops looking as solid as a good one. */
+.choice--loose {
+  border-style: dashed;
+  background: transparent;
+}
+.choice--loose img, .choice--loose .choice__title { opacity: 0.75; }
 .choice img {
   width: 46px;
   height: 62px;

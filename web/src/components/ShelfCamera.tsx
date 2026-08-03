@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type BookRow, type CoverMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
+import { matchConfidence, shortlistPrompt } from '../lib/confidence'
 import {
   applyFocusHints, captureStill, listLenses, openCamera, preferredLens,
-  rememberedLens, rememberLens, stopStream,
+  rememberedLens, rememberLens, stopStream, thumbnail,
 } from '../lib/scanner'
 
 interface Props {
@@ -39,6 +40,22 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
   const [good, setGood] = useState(false)
   const [done, setDone] = useState<Done[]>([])
   const [choices, setChoices] = useState<CoverMatch[]>([])
+  /**
+   * The shot the shortlist is answering, shrunk to a thumbnail.
+   *
+   * One frame, never a history. Comparing a candidate against the live
+   * viewfinder means comparing it against memory, because the panel covers
+   * most of the picture and the book has moved by then. So the frame that
+   * was actually hashed stays on screen beside the candidates, and goes the
+   * moment the panel does.
+   */
+  const [shot, setShot] = useState('')
+
+  /** Drop the shortlist and the frame together. Neither outlives the other. */
+  const clearChoices = () => {
+    setChoices([])
+    setShot('')
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -89,10 +106,14 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
       return
     }
 
+    // Started now, kept only if a shortlist comes back. Every other outcome
+    // lets it fall on the floor, so the full frame is never held twice.
+    const shrunk = thumbnail(image)
+
     setReading(true)
     setMessage('')
     setGood(false)
-    setChoices([])
+    clearChoices()
     try {
       const result = await api.scanCheckout(image, mode === 'out')
 
@@ -101,7 +122,8 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
           // Recognised by its cover, which is a good guess and not a fact, so
           // it is offered rather than applied.
           setChoices(result.candidates)
-          setMessage('No barcode. Is it one of these?')
+          setShot(await shrunk)
+          setMessage(shortlistPrompt(result.candidates))
           break
 
         case 'no-isbn':
@@ -148,7 +170,7 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
 
   /** The person picked one of the look-alikes, so now it is a fact. */
   const choose = async (match: CoverMatch) => {
-    setChoices([])
+    clearChoices()
     setReading(true)
     try {
       const result = await api.setCheckedOut(match.id, mode === 'out')
@@ -208,29 +230,52 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
 
       {choices.length > 0 && (
         <div className="isbncam__choices">
-          {choices.map((match) => (
-            <button
-              key={match.id}
-              className="choice"
-              onClick={() => choose(match)}
-              disabled={reading}
-            >
-              {match.cover
-                ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
-                : <span className="choice__nocover">no photo</span>}
-              <span className="choice__text">
-                <span className="choice__title">{match.title}</span>
-                <span className="choice__author">{match.authorFiling}</span>
-                {/* Said out loud, so an unfamiliar cover design reads as a
-                    different printing rather than as a wrong match. */}
-                {match.fromCatalogue && (
-                  <span className="choice__note">catalogue image, not your photo</span>
-                )}
-                {match.checkedOut && <span className="choice__state">already off the shelf</span>}
+          {/* Stays put while the list scrolls, so every candidate can be held
+              against the same picture rather than against a recollection. */}
+          <div className="choices__head">
+            {shot
+              ? <img className="choices__shot" src={shot} alt="The shot these are answering" />
+              : <span className="choice__nocover">your shot</span>}
+            <span className="choice__text">
+              <span className="choice__title">Your shot</span>
+              <span className="choice__author">
+                Closest first. Nothing is picked until you tap it.
               </span>
-            </button>
-          ))}
-          <button className="btn btn--ghost" onClick={() => setChoices([])}>
+            </span>
+          </div>
+
+          {choices.map((match) => {
+            // Words and weight, never the number. A distance of 2 and one of
+            // 24 both mean "in the shortlist"; only this says which is which.
+            const confidence = matchConfidence(match.distance)
+            return (
+              <button
+                key={match.id}
+                className={`choice choice--${confidence.strength}`}
+                onClick={() => choose(match)}
+                disabled={reading}
+                aria-label={`${match.title} by ${match.authorFiling}, ${confidence.label}`}
+              >
+                {match.cover
+                  ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
+                  : <span className="choice__nocover">no photo</span>}
+                <span className="choice__text">
+                  <span className="choice__title">{match.title}</span>
+                  <span className="choice__author">{match.authorFiling}</span>
+                  <span className={`choice__confidence choice__confidence--${confidence.strength}`}>
+                    {confidence.label}
+                  </span>
+                  {/* Said out loud, so an unfamiliar cover design reads as a
+                      different printing rather than as a wrong match. */}
+                  {match.fromCatalogue && (
+                    <span className="choice__note">catalogue image, not your photo</span>
+                  )}
+                  {match.checkedOut && <span className="choice__state">already off the shelf</span>}
+                </span>
+              </button>
+            )
+          })}
+          <button className="btn btn--ghost" onClick={clearChoices}>
             None of these
           </button>
         </div>
