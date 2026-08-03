@@ -4,22 +4,27 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node", "vite/client"],
+    "types": ["node"],
 
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
 
-    "jsx": "react-jsx",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
 
     "noEmit": true
   },
-  "include": ["src", "server", "shared", "scripts", "vite.config.ts", "instrumentation.ts"]
+  "include": [
+    "features",
+    "steps",
+    "support",
+    "global-setup.ts",
+    "playwright.config.ts"
+  ],
+  "exclude": [".features-gen", "node_modules"]
 }

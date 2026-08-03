@@ -1,0 +1,73 @@
+name: End to end
+
+# Deliberately NOT on every pull request.
+#
+# This job installs the Aspire CLI, downloads a browser, installs two npm
+# trees and starts the whole application. That is minutes, against the fast
+# job's seconds, and it would be paid on every push whether or not anything it
+# covers changed. It runs on demand and once a night instead, which is the
+# right shape for a suite whose job is to catch the integration-level breakage
+# that unit tests structurally cannot see.
+#
+# Promote it to `pull_request` when it has been green on this runner for a
+# while and the wall clock is understood.
+on:
+  workflow_dispatch:
+  schedule:
+    # 04:00 UTC, so a broken journey is waiting in the morning.
+    - cron: '0 4 * * *'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  journeys:
+    name: browser journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the Aspire CLI
+        run: |
+          curl -sSL https://aspire.dev/install.sh | bash
+          echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
+
+      - name: Install the app
+        working-directory: web
+        run: npm ci
+
+      - name: Install the AppHost
+        run: npm ci
+
+      - name: Install the suite
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      # The camera is a generated video file and the catalogue lookups are
+      # answered by a stub the suite starts itself, so this needs no network
+      # beyond the installs above and never reaches real scan data: the
+      # AppHost puts the database in web/data/e2e/<run id>.
+      - name: Run the journeys
+        working-directory: e2e
+        run: npm test
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7

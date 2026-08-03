@@ -19,8 +19,13 @@ import sharp from 'sharp'
  * placeholder image, which would otherwise be stored as though it were a real
  * cover.
  */
+// Overridable for the same reason as the metadata origins in lookup.ts: this
+// fetch happens in the server process, so a test run can only take it off the
+// network by being told where to go instead. Unset in normal use.
+const COVERS_ORIGIN = process.env.BOOKSCAN_COVERS_URL || 'https://covers.openlibrary.org'
+
 export function openLibraryCover(isbn: string): string {
-  return `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbn)}-L.jpg?default=false`
+  return `${COVERS_ORIGIN}/b/isbn/${encodeURIComponent(isbn)}-L.jpg?default=false`
 }
 
 /**
