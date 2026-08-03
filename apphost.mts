@@ -36,7 +36,7 @@ const api = await builder
   .withEnvironment('BOOKSCAN_DATA', dataDir);
 
 const web = await builder
-  .addViteApp('web', './web', 'dev:client')
+  .addViteApp('web', './web', { runScriptName: 'dev:client' })
   // The client is served to a phone on the LAN, so the browser resolves
   // /api against its own origin and Vite proxies it. The proxy target comes
   // from here rather than a literal in vite.config.ts.
