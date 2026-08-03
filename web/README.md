@@ -51,7 +51,7 @@ src/                    React UI (phone-first, dark, 44px tap targets)
     IsbnCamera             point-and-read ISBN capture
     IsbnPrompt              the "Change ISBN" dialog that wraps IsbnCamera
     BookDetail             record view and edit form, shared by a new book and a shelved one
-    ShelfView              the library, grouped by physical shelf
+    ShelfView              the library, grouped by physical shelf, with the books to move
     ShelveView             the guided placement shuffle
     ShelfStrip              the neighbours drawn end on, as a shelf
     QueuePane               the capture queue
@@ -68,7 +68,7 @@ server/                 Express API on loopback only
   lookup.ts               Open Library primary, Google Books top-up
   classify.ts             fiction vs non-fiction ladder
   store.ts                 all SQL for books
-  shelves.ts               separators, and the shelf geography derived from them
+  shelves.ts               separators, the shelf geography derived from them, misfile review
   db.ts                    schema, and migrations for an existing database
 shared/                 pure logic used by both sides
   shelving.ts              sort keys, filing names, placement, misfile detection

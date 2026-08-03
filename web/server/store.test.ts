@@ -146,21 +146,15 @@ describe('bookkeeping', () => {
     expect(store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0 })
   })
 
-  it('flags a book recorded at a location that contradicts its order', () => {
-    store.addBook(draft({ title: 'Alpha', authors: ['Ann Author'], location: '2A' }))
-    store.addBook(draft({ title: 'Beta', authors: ['Zoe Zulu'], location: '1A' }))
-
-    const misfiles = store.misfiles()
-    expect(misfiles).toHaveLength(1)
-    expect(misfiles[0]!.book.title).toBe('Beta')
-  })
-
-  it('does not treat an unshelved book as misfiled', () => {
-    store.addBook(draft({ title: 'Alpha', authors: ['Ann Author'], location: '1A' }))
-    store.addBook(draft({ title: 'Beta', authors: ['Bob Baker'] }))
-    store.addBook(draft({ title: 'Gamma', authors: ['Cal Church'], location: '1B' }))
-
-    expect(store.misfiles()).toHaveLength(0)
+  it('keeps a recorded location through an edit that does not mention one', () => {
+    // Where the book physically is was observed by a person. A metadata edit
+    // knows nothing about it, so blanking the column would throw that away and
+    // leave misfile detection with nothing to reconcile.
+    const { id } = store.addBook(
+      draft({ title: 'Alpha', authors: ['Ann Author'], location: '2C' }),
+    )
+    store.updateBook(id, draft({ title: 'Alpha', authors: ['Ann Author'] }))
+    expect(store.getBook(id)?.location).toBe('2C')
   })
 })
 

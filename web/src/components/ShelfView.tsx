@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  api, type BookRow, type CheckedOutAt, type Counts, type Move, type ShelfGroupDto,
+  api, type BookRow, type CheckedOutAt, type Counts, type Misfile, type Move,
+  type ShelfGroupDto, type ShelvingReview,
 } from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { areaLabel } from '../../shared/layout'
@@ -27,6 +28,8 @@ export function ShelfView({ onOpen }: Props) {
   const [error, setError] = useState('')
   const [counts, setCounts] = useState<Counts | null>(null)
   const [off, setOff] = useState<CheckedOutAt[]>([])
+  const [review, setReview] = useState<ShelvingReview | null>(null)
+  const [moving, setMoving] = useState(0)
 
   /*
    * Both tallies, not just this tab's. A non-fiction book saved while the
@@ -39,16 +42,42 @@ export function ShelfView({ onOpen }: Props) {
 
   const load = useCallback(() => {
     setLoading(true)
-    api.shelves(range)
-      .then((result) => {
-        setGroups(result.groups)
-        setOff(result.checkedOut)
+    Promise.all([api.shelves(range), api.misfiles(range)])
+      .then(([shelves, flagged]) => {
+        setGroups(shelves.groups)
+        setOff(shelves.checkedOut)
+        setReview(flagged)
       })
       .catch((caught) => setError((caught as Error).message))
       .finally(() => setLoading(false))
   }, [range])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * The person says they have carried this book to where it belongs.
+   *
+   * Nothing here decides that on their behalf. The list is a report, and a
+   * book stays on it until somebody has actually been to the shelf, because
+   * writing the answer we would like to be true would destroy the only record
+   * of where the book really is.
+   */
+  const confirmMoved = async (misfile: Misfile) => {
+    setMoving(misfile.book.id)
+    setError('')
+    try {
+      await api.setLocation(misfile.book.id, misfile.to)
+      load()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setMoving(0)
+    }
+  }
+
+  const misfiles = review?.misfiles ?? []
+  const unplaced = (review?.excluded ?? [])
+    .filter((entry) => entry.reason === 'never-placed').length
 
   const removeSeparator = async (id: number) => {
     setError('')
@@ -99,6 +128,51 @@ export function ShelfView({ onOpen }: Props) {
       </div>
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
+
+      {/* The re-shelving list. Locations are descriptive, so the catalogue can
+          only report the disagreement; closing it is a walk to the shelf. */}
+      {misfiles.length > 0 && (
+        <section className="attention">
+          <h3 className="attention__head">Needs attention ({misfiles.length})</h3>
+          <p className="hint">
+            Where each book was last seen, against where the order now puts it.
+            Nothing has been changed for you. Tap "Moved it" once the book is
+            actually there.
+          </p>
+          {misfiles.map((misfile) => (
+            <div key={misfile.book.id} className="attention__row">
+              <button
+                className="attention__body"
+                onClick={() => onOpen(misfile.book.id)}
+              >
+                <span className="attention__title">{misfile.book.title}</span>
+                <span className="attention__where">
+                  {misfile.book.authorFiling || 'unknown author'}
+                  {' · '}
+                  {misfile.from} → <strong>{misfile.to}</strong>
+                </span>
+              </button>
+              <button
+                className="btn btn--ghost"
+                disabled={moving === misfile.book.id}
+                onClick={() => confirmMoved(misfile)}
+              >
+                {moving === misfile.book.id ? '...' : 'Moved it'}
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Said out loud rather than left as a silent exclusion: a book nobody
+          has ever confirmed onto a shelf cannot be in the wrong place. */}
+      {!loading && unplaced > 0 && (
+        <p className="hint">
+          {unplaced} book{unplaced === 1 ? ' has' : 's have'} never been confirmed
+          onto a shelf, so {unplaced === 1 ? 'it is' : 'they are'} left out of the
+          list above.
+        </p>
+      )}
 
       {off.length > 0 && (
         <section className="offshelf">

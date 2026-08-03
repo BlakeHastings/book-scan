@@ -18,7 +18,7 @@ import { CaptureQueue } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
-import { buildPlacement } from '../shared/shelving'
+import { buildPlacement, formatLocation, parseLocation } from '../shared/shelving'
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -514,6 +514,22 @@ app.post('/api/books', (req, res) => {
 
   const { id, placement } = store.addBook(draft)
 
+  /*
+   * Record where the book physically went.
+   *
+   * Saving happens at the end of the shelving step, with the person standing
+   * at the shelf having just answered "it fits" about this exact label. That
+   * answer is an observation and it is the only one anybody will ever make
+   * about this book unless it moves, so losing it leaves the catalogue with no
+   * idea where the book is and misfile detection with nothing to reconcile.
+   *
+   * A location sent by the client wins, since that came from a person too.
+   */
+  if (!draft.location?.trim()) {
+    const landed = shelves.labelFor(placement.range, id)
+    if (landed) store.setLocation(id, landed)
+  }
+
   if (captureId) queue.markDone(captureId, id)
 
   // Deliberately not awaited. The person is waiting to be told where the book
@@ -620,10 +636,31 @@ app.put('/api/books/:id', (req, res) => {
   res.json({ id, placement: inDerivedScheme(placement.range, placement), counts: store.counts() })
 })
 
+/**
+ * A person says where this book physically is now.
+ *
+ * The only way a recorded location ever changes. Misfile detection reports and
+ * never corrects: a book stays recorded where it was last seen until somebody
+ * has actually walked to the shelf and moved it, because that column is the
+ * record of where the book really is and a guess written into it is worse than
+ * an empty one.
+ */
 app.patch('/api/books/:id/location', (req, res) => {
   const id = Number(req.params.id)
-  store.setLocation(id, String((req.body ?? {}).location ?? ''))
-  res.json({ ok: true })
+  if (!store.getBook(id)) {
+    res.status(404).json({ error: 'No such book.' })
+    return
+  }
+
+  const label = String((req.body ?? {}).location ?? '').trim()
+  // An empty label is meaningful: it takes the book back to never-placed.
+  if (label && !parseLocation(label)) {
+    res.status(400).json({ error: `${label} is not a location, e.g. 1A or 4B.` })
+    return
+  }
+
+  store.setLocation(id, label ? formatLocation(parseLocation(label)!) : '')
+  res.json({ book: store.getBook(id) })
 })
 
 app.delete('/api/books/:id', (req, res) => {
@@ -969,8 +1006,19 @@ app.post('/api/books/scan-checkout', async (req, res) => {
   }
 })
 
-app.get('/api/misfiles', (_req, res) => {
-  res.json({ misfiles: store.misfiles() })
+/**
+ * The books to physically move, for one range.
+ *
+ * Per range because fiction and non-fiction are independent ordered lists:
+ * a fiction book on bookcase 1 and a non-fiction book on bookcase 4 are not
+ * out of order with respect to each other and never can be.
+ *
+ * Read only. Nothing on this path writes a location. A location changes only
+ * when a person says the book moved, which is the PATCH below.
+ */
+app.get('/api/misfiles', (req, res) => {
+  const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+  res.json(shelves.review(range))
 })
 
 app.get('/api/health', (_req, res) => {

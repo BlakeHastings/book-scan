@@ -1,4 +1,6 @@
-import type { Placement, ShelfRange } from '../../shared/shelving'
+import type {
+  Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelvingReview,
+} from '../../shared/shelving'
 
 export interface Classification {
   isFiction: boolean
@@ -180,11 +182,7 @@ export interface CheckedOutAt {
   label: string
 }
 
-export interface Misfile {
-  book: { id: number; title: string; location: string }
-  previous: { id: number; title: string; location: string }
-  reason: string
-}
+export type { Misfile, Excluded, ExcludedReason, ShelvingReview }
 
 export interface IdentifyResult {
   isbn13: string
@@ -406,7 +404,22 @@ export const api = {
       `/api/shelves/${id}?range=${range}`, { method: 'DELETE' },
     ),
 
-  misfiles: () => request<{ misfiles: Misfile[] }>('/api/misfiles'),
+  /** Books in this range that are not where they now belong. Read only. */
+  misfiles: (range: ShelfRange) =>
+    request<ShelvingReview>(`/api/misfiles?range=${range}`),
+
+  /**
+   * Say where a book physically is now.
+   *
+   * The only call that changes a recorded location, and it exists so that a
+   * person who has actually walked to the shelf can say so. Nothing derives
+   * this and nothing writes it on their behalf.
+   */
+  setLocation: (id: number, location: string) =>
+    request<{ book: BookRow }>(`/api/books/${id}/location`, {
+      method: 'PATCH',
+      body: JSON.stringify({ location }),
+    }),
 
   health: () => request<{ ok: boolean; counts: Counts; db: string }>('/api/health'),
 }
