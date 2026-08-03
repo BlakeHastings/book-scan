@@ -383,11 +383,43 @@ CREATE TABLE shelf_range (
   classification, key building, neighbour lookup, consistency check. All pure
   functions over data, no UI and no network, so it is directly unit-testable.
 
-## Open questions
+## Decisions on the questions this document used to leave open
 
-1. **Is a "shelf" a bookcase or a single plank?** `1A` reads as shelf 1
-   section A, but `S4` dedicated to all of non-fiction suggests `S` is a whole
-   unit. This does not change the algorithm, since capacity is not modelled,
-   but it does change what the label format should validate.
-2. **Foreign-language articles** in title filing: needed or not?
-3. **Pseudonyms:** file as printed, or collapse to one canonical author?
+Settled by the owner on 2026-08-03. Recorded here so they are not relitigated.
+
+### A "shelf" is a bookcase
+
+Not a single plank. `S1` to `S3` are bookcases holding fiction, `S4` is the
+bookcase holding non-fiction. The plank within a bookcase is the **area**, which
+is what you type after physically placing the book.
+
+The vocabulary is acknowledged to be confusing, since "shelf" in ordinary speech
+is the plank rather than the whole unit. Changing the user-facing wording is
+under consideration separately and does not change the model described here.
+
+### Foreign-language articles are not dropped
+
+Only the English articles `THE`, `A` and `AN` are stripped for title filing
+(`LEADING_ARTICLES` in `web/shared/shelving.ts`). *Les Misérables* files under
+L, *Der Steppenwolf* under D.
+
+This is deliberate, not an oversight. Extending the list is not free: `Los`,
+`La`, `El` and `Die` are also ordinary words, so dropping them would misfile
+*Los Alamos* under "Alamos" and mangle any English title beginning "Die". In a
+collection that is close to entirely English, that trades a rare correct filing
+for a class of silent wrong ones.
+
+Revisit if foreign-language titles ever become common enough to be worth the
+false positives.
+
+### Pseudonyms file as printed on the book
+
+No collapsing to a canonical author. What is printed on the spine is what it
+files under, because that is what you are holding when you go looking for it.
+
+The accepted cost: an author who changes name between genres sits in two places.
+*Iain Banks* and *Iain M. Banks* will not be adjacent. This was seen and
+accepted rather than overlooked.
+
+This matches the current implementation, which takes the first listed author and
+inverts it without any canonicalisation.
