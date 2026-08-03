@@ -14,9 +14,22 @@
 import { classify, type Classification } from './classify'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 
-const OPEN_LIBRARY_URL = 'https://openlibrary.org/api/books'
-const OPEN_LIBRARY_SEARCH_URL = 'https://openlibrary.org/search.json'
-const GOOGLE_BOOKS_URL = 'https://www.googleapis.com/books/v1/volumes'
+/*
+ * Where the catalogues live.
+ *
+ * The origins are read from the environment so a test run can point them at a
+ * local stub. Nothing sets them in normal use, and the fallbacks are the real
+ * services, so a developer or a phone on the shelf is unaffected. This exists
+ * because the lookups happen in this process, not the browser: an end to end
+ * run cannot intercept them from the page, and a suite that really talks to
+ * Open Library fails whenever Open Library is slow or down.
+ */
+const OPEN_LIBRARY_ORIGIN = process.env.BOOKSCAN_OPENLIBRARY_URL || 'https://openlibrary.org'
+const GOOGLE_BOOKS_ORIGIN = process.env.BOOKSCAN_GOOGLE_BOOKS_URL || 'https://www.googleapis.com'
+
+const OPEN_LIBRARY_URL = `${OPEN_LIBRARY_ORIGIN}/api/books`
+const OPEN_LIBRARY_SEARCH_URL = `${OPEN_LIBRARY_ORIGIN}/search.json`
+const GOOGLE_BOOKS_URL = `${GOOGLE_BOOKS_ORIGIN}/books/v1/volumes`
 const USER_AGENT = 'book-scan-web/0.1 (personal library cataloguing)'
 
 export interface LookupResult {
@@ -165,7 +178,7 @@ interface OpenLibraryEdition {
 /** Second request, for the fields jscmd=data does not carry. */
 async function fromOpenLibraryEdition(isbn: string, timeoutMs: number) {
   const data = (await getJson(
-    `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`,
+    `${OPEN_LIBRARY_ORIGIN}/isbn/${encodeURIComponent(isbn)}.json`,
     {},
     timeoutMs,
   )) as OpenLibraryEdition | null

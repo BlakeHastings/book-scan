@@ -31,6 +31,7 @@ setup, including why the certificate warning appears and how to get rid of it.
 | --- | --- |
 | [`web/README.md`](web/README.md) | Setup, architecture, how the pieces fit |
 | [`docs/shelving.md`](docs/shelving.md) | The shelving specification, and the authority on filing rules |
+| [`e2e/README.md`](e2e/README.md) | The browser end to end suite, and how the camera is faked |
 | [`AGENTS.md`](AGENTS.md) | Instructions for coding agents, including data safety |
 
 ## Your catalogue is not in this repository
@@ -59,6 +60,26 @@ npm test            # vitest
 ```
 
 Both run in CI on every pull request.
+
+### End to end
+
+A separate suite in [`e2e/`](e2e/) describes the product's journeys in Gherkin
+and runs them in a real browser against the app started by Aspire, then checks
+what landed in the database.
+
+```bash
+cd web && npm ci     # once: the camera fixtures use this package's toolchain
+cd ../e2e
+npm ci
+npx playwright install chromium
+npm test
+```
+
+It starts and stops the AppHost itself, so nothing needs to be running first.
+The camera is a generated video file rather than hardware, and the Open Library
+and Google Books lookups are answered by a local stub, so a run does not depend
+on the network or on what a webcam can see. See
+[`e2e/README.md`](e2e/README.md).
 
 ## History
 
