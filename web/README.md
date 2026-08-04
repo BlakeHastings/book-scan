@@ -65,6 +65,8 @@ server/                 Express API on loopback only
   paddle.ts               PaddleOCR, the primary OCR engine
   covers.ts                fetches and stores the publisher's cover
   imagehash.ts            perceptual hashing, for recognising a book by its cover
+  bookcrop.ts              finds the book in a photograph, or declines to
+  crop.ts                  stores a crop beside the photograph it came from
   queue.ts                 the capture queue and its background worker
   lookup.ts               Open Library primary, Google Books top-up
   classify.ts             fiction vs non-fiction ladder
@@ -502,6 +504,49 @@ than blanking it, and the run finishes the rest.
 
 Back up `books.db` before a run with `--apply`.
 
+### Cropping the photographs to the book
+
+A photograph taken with a book held up to a phone has a room in it. Each of
+the three photos is therefore cut down to the book itself and the crop saved
+as a second file, so the gallery, the spine row and the detail view can show
+the book while the photograph somebody actually took stays exactly as it was.
+
+It runs on the server, unawaited, straight after a book is saved. The phone is
+the wrong place for it: the shutter path already takes a burst and scores it
+for sharpness on a device somebody is straining to hold steady, sharp is
+already a dependency here, and the photograph has to reach the disk whole
+before anything crops from it.
+
+**Nothing is cropped in place, ever.** `front_crop`, `back_crop` and
+`edge_crop` name new files beside the originals; `cropped` lists the slots the
+detector has been shown. A slot listed there with an empty crop column was
+looked at and declined, and the detail view captions that photo as shown
+whole. That is a different state from a photo taken before any of this
+existed, which is captioned as nothing at all.
+
+`server/bookcrop.ts` would rather find nothing than find the wrong rectangle,
+because a crop that cuts a cover in half is worse than the room being in
+shot. It insists on four straight edges that each stand out from their
+surroundings and step the same way in brightness, which is what tells a book
+lying on a rug from the rug's own pattern. Measured against generated scenes
+whose true rectangle is known (`server/bookcrop.test.ts`): the book is found
+in 23 of 24, and none of the crops cut into it.
+
+Photographs taken before this shipped are left alone. There is a tool, and
+running it is the owner's decision:
+
+```bash
+npx tsx server/crop-books.ts                 # dry run, writes nothing
+npx tsx server/crop-books.ts --apply
+npx tsx server/crop-books.ts --apply --limit 20
+```
+
+Same shape as the rehash above: it reads `BOOKSCAN_DATA` the way the server
+does, prints the directory before touching it, waits five seconds before a
+write, and is resumable because a slot it finished is recorded. `--force`
+re-examines slots already looked at, which is what to use after a change to
+the detector.
+
 Set `GOOGLE_BOOKS_API_KEY` to raise the Google Books quota. It is optional;
 Open Library does the real work and Google anonymous requests start returning
 429 partway through a shelf.
@@ -512,7 +557,9 @@ Open Library does the real work and Google anonymous requests start returning
 npm test
 ```
 
-215 tests across 11 files. The ones worth knowing about:
+The run prints the count, which is why one is not written here: it moved on
+almost every merge and this line was three times out of date before anybody
+noticed. The suites worth knowing about:
 
 - `server/identify.test.ts` runs the real barcode and OCR pipelines against
   generated covers: clean, glossy, rotated 90 degrees, with a price add-on
@@ -528,6 +575,11 @@ npm test
 - `server/rehash.test.ts` covers the cover rehash: that a dry run writes
   nothing, that a second run finds nothing to do, and that a missing image is
   counted rather than thrown.
+- `server/bookcrop.test.ts` measures the crop detector against generated
+  scenes whose true rectangle is known, and prints the figures. The assertion
+  that matters is that no crop cut into the book, since that is the failure
+  nobody can undo. `server/crop.test.ts` covers the storage half, including
+  that the photograph is byte for byte what it was afterwards.
 
 Fixtures are generated rather than checked in, so a test can state exactly
 which condition it exercises.

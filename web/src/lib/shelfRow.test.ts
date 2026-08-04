@@ -42,6 +42,10 @@ function book(overrides: Partial<BookRow> = {}): BookRow {
     edge_image: '',
     checked_out_at: null,
     cover_image: '',
+    front_crop: '',
+    back_crop: '',
+    edge_crop: '',
+    cropped: '',
     sort_key: 'herbert frank|dune',
     ...overrides,
   }
@@ -138,6 +142,23 @@ describe('coverOf', () => {
     expect(tile.cover).toBe('')
     expect(tile.coverSlot).toBe('')
     expect(tile.authorFiling).toBe('Herbert, Frank')
+  })
+
+  it('shows the crop, which is the whole point of the gallery', () => {
+    // The owner's complaint was this view: "in the background is, like, my
+    // feet, still in the photo".
+    const tile = coverOf(book({
+      front_image: 'f.jpg', front_crop: 'f_crop.jpg', cropped: 'front',
+    }))
+    expect(tile.cover).toBe('f_crop.jpg')
+    expect(tile.coverSlot).toBe('front')
+    expect(tile.cropped).toBe(true)
+  })
+
+  it('falls back to the whole photo where the book could not be found', () => {
+    const tile = coverOf(book({ front_image: 'f.jpg', cropped: 'front' }))
+    expect(tile.cover).toBe('f.jpg')
+    expect(tile.cropped).toBe(false)
   })
 })
 

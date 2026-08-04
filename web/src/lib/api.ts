@@ -142,6 +142,15 @@ export interface BookRow {
   checked_out_at: string | null
   /** Publisher cover from the catalogue, for comparing against the real book. */
   cover_image: string
+  /**
+   * The three photos cut to the book, so a view can leave the room out. Empty
+   * where the detector has not looked or could not find the book.
+   */
+  front_crop: string
+  back_crop: string
+  edge_crop: string
+  /** Slots the detector has looked at, comma separated. Empty means none. */
+  cropped: string
   /** Flattened filing key. What the whole ordering hangs off. */
   sort_key: string
 }

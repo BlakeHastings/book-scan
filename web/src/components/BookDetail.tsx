@@ -11,6 +11,10 @@ interface Props {
   draft: Draft
   lookup: LookupResponse | null
   photos: Partial<Record<Slot, string>>
+  /** The same photos cut to the book, where the detector found one. */
+  crops?: Partial<Record<Slot, string>>
+  /** Slots the detector has been shown, whether or not it found a book. */
+  examined?: Slot[]
   derivedFiling: string
   saving: boolean
   relookupBusy: boolean
@@ -75,7 +79,7 @@ const HUNTING_FOR_IT = [
  * past twelve fields to reach the one button you wanted.
  */
 export function BookDetail({
-  draft, lookup, photos, derivedFiling, saving,
+  draft, lookup, photos, crops, examined, derivedFiling, saving,
   relookupBusy, relookupError, saved,
   onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
   onDelete, deleting = false, shelfLabel = '', doneLabel = 'Done', placement,
@@ -248,14 +252,25 @@ export function BookDetail({
           front: photos.front,
           back: photos.back,
           edge: photos.edge,
+          crops,
+          examined,
         }}
         onZoom={setZoomed}
       />
 
+      {/* Full screen shows the whole photograph, not the crop the gallery
+          drew. Cropping exists so the gallery is a wall of books rather than a
+          wall of carpet; nothing about that means the photograph somebody took
+          should become unreachable, and this is where the owner's "the full
+          versus the cropped" choice actually lives. */}
       {zoomed && (
         <div className="lightbox" onClick={() => setZoomed(null)}>
-          <img src={zoomed.src} alt={zoomed.label} />
-          <span className="lightbox__hint">Tap to close</span>
+          <img src={zoomed.full || zoomed.src} alt={zoomed.label} />
+          <span className="lightbox__hint">
+            {zoomed.full && zoomed.full !== zoomed.src
+              ? 'The whole photo. Tap to close'
+              : 'Tap to close'}
+          </span>
         </div>
       )}
 

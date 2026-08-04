@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   bookCover, buildPlacement, buildSortKey, compareLocations, filingName,
-  normalise, parseLocation, reviewShelving, shelfPhoto, shelfPhotoSlot,
+  normalise, parseLocation, reviewShelving, shelfImage, shelfPhoto, shelfPhotoSlot,
   titleFiling, type FiledBook, type Neighbour,
 } from './shelving'
 
@@ -188,6 +188,26 @@ describe('shelfPhoto', () => {
     expect(shelfPhoto(withImages({ front: '', back: '', edge: '' }))).toBe('')
     expect(shelfPhoto(null)).toBe('')
   })
+
+  it('draws the cropped spine, and names the whole photo alongside it', () => {
+    const picked = shelfImage({
+      front: '', back: '', edge: 'e.jpg', crops: { edge: 'e_crop.jpg' },
+    })
+    expect(picked.name).toBe('e_crop.jpg')
+    expect(picked.slot).toBe('edge')
+    expect(picked.whole).toBe('e.jpg')
+  })
+
+  it('picks the slot before it looks at the crops, exactly as bookCover does', () => {
+    // A cropped front does not promote the front over an uncropped spine. The
+    // spine wins on a shelf whatever happened to crop, or two books on the
+    // same shelf would be drawn showing different faces.
+    const picked = shelfImage({
+      front: 'f.jpg', back: '', edge: 'e.jpg', crops: { front: 'f_crop.jpg' },
+    })
+    expect(picked.slot).toBe('edge')
+    expect(picked.name).toBe('e.jpg')
+  })
 })
 
 describe('bookCover', () => {
@@ -229,6 +249,49 @@ describe('bookCover', () => {
     expect(picked.name).toBe('')
     expect(picked.slot).toBe('')
     expect(picked.fromCatalogue).toBe(false)
+  })
+
+  it('shows the crop of the chosen photo, and still names the whole one', () => {
+    const picked = bookCover({
+      ...images({ front: 'f.jpg' }),
+      crops: { front: 'f_crop.jpg' },
+    })
+    expect(picked.name).toBe('f_crop.jpg')
+    expect(picked.whole).toBe('f.jpg')
+    expect(picked.cropped).toBe(true)
+  })
+
+  it('shows the whole photo where the book could not be found in it', () => {
+    const picked = bookCover({ ...images({ front: 'f.jpg' }), crops: {} })
+    expect(picked.name).toBe('f.jpg')
+    expect(picked.whole).toBe('f.jpg')
+    expect(picked.cropped).toBe(false)
+  })
+
+  it('picks the slot before it looks at the crops', () => {
+    // The front photo has no crop and the spine does. The front still wins:
+    // otherwise a grid would show a spine for one book and a cover for the
+    // next because of which photo happened to crop, which is a worse rule
+    // than either "always the front" or "always the spine".
+    const picked = bookCover({
+      ...images({ front: 'f.jpg', edge: 'e.jpg' }),
+      crops: { edge: 'e_crop.jpg' },
+    })
+    expect(picked.slot).toBe('front')
+    expect(picked.name).toBe('f.jpg')
+    expect(picked.cropped).toBe(false)
+  })
+
+  it('does not pretend a publisher picture was cropped', () => {
+    // There is no room around a catalogue image to cut away, so it is never
+    // marked as cut down to the book.
+    const picked = bookCover({
+      ...images({ catalogue: 'c.jpg' }),
+      crops: { front: 'f_crop.jpg' },
+    })
+    expect(picked.name).toBe('c.jpg')
+    expect(picked.cropped).toBe(false)
+    expect(picked.whole).toBe('c.jpg')
   })
 })
 

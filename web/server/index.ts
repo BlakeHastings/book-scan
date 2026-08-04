@@ -30,6 +30,7 @@ import { identify } from './identify'
 import { warmPaddle } from './paddle'
 import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
+import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
@@ -776,7 +777,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     // Deliberately not awaited. The person is waiting to be told where the
     // book goes, and a cover that arrives a second later costs them
     // nothing.
-    void fetchCoverFor(id).then(() => hashBook(id))
+    void fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
 
     res.status(201).json({
       id,
@@ -984,7 +985,12 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    const images = [book.front_image, book.back_image, book.edge_image, book.cover_image]
+    const images = [
+      book.front_image, book.back_image, book.edge_image, book.cover_image,
+      // Derived, but still files on disk, and nothing else will ever name
+      // them once this row is gone.
+      book.front_crop, book.back_crop, book.edge_crop,
+    ]
     store.deleteBook(id)
     const removed = deleteOrphanedImages(images)
 
@@ -1079,6 +1085,36 @@ export function createApp(options: CreateAppOptions): express.Express {
       withoutCover: store.missingCovers(1000, true).length,
     })
   }))
+
+  /**
+   * Cut a freshly saved book's photographs down to the book itself.
+   *
+   * Server side, after the save, and not awaited. The phone is the wrong place
+   * for this: the shutter path already takes a burst and scores it for
+   * sharpness (#92) on a device somebody is straining to hold steady, sharp is
+   * already available here and does the pixel work in a fraction of a second,
+   * and cropping before upload would mean the only copy that reached the disk
+   * was the cropped one. The photograph has to land first, whole, and then be
+   * cropped from.
+   *
+   * Failure is silent on purpose: a crop is derived data, a book with none is
+   * a book shown whole, and nothing about the save it followed should be
+   * disturbed by it.
+   */
+  async function cropBookPhotos(id: number): Promise<void> {
+    const book = store.getBook(id)
+    if (!book) return
+    try {
+      await cropPhotos(store, book, cropIo, { apply: true })
+    } catch {
+      // Left uncropped, which is a state the views already draw.
+    }
+  }
+
+  const cropIo = {
+    read: (name: string) => readFileSync(join(coverDir, name)),
+    write: (name: string, data: Buffer) => { writeFileSync(join(coverDir, name), data) },
+  }
 
   /** Hash whatever images a book has, so it can be recognised by its cover. */
   async function hashBook(id: number): Promise<void> {

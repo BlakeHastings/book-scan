@@ -117,6 +117,15 @@ export default function App() {
 
   const [shots, setShots] = useState<Partial<Record<Slot, string>>>({})
   const [thumbs, setThumbs] = useState<Partial<Record<Slot, string>>>({})
+  /**
+   * The same photos cut to the book, and which slots have been looked at.
+   *
+   * Only ever set from a saved book. Cropping happens on the server after a
+   * save, so a capture still on the queue and a shot taken thirty seconds ago
+   * have neither, and showing them whole is correct rather than a fallback.
+   */
+  const [crops, setCrops] = useState<Partial<Record<Slot, string>>>({})
+  const [examined, setExamined] = useState<Slot[]>([])
   const [status, setStatus] = useState<Partial<Record<Slot, SlotStatus>>>({})
   const [activeSlot, setActiveSlot] = useState<Slot>('back')
 
@@ -325,6 +334,10 @@ export default function App() {
     setBurstNote(describeBurst(scores, chosen, elapsedMs))
 
     setThumbs((current) => ({ ...current, [slot]: full }))
+    // A fresh photo makes any crop of the one it replaced meaningless, and a
+    // stale crop shown beside a new photo is worse than no crop.
+    setCrops((current) => ({ ...current, [slot]: undefined }))
+    setExamined((current) => current.filter((seen) => seen !== slot))
     void thumbnail(full).then((small) =>
       setThumbs((current) => ({ ...current, [slot]: small })),
     )
@@ -765,6 +778,12 @@ export default function App() {
         back: book.back_image ? `/api/covers/${book.back_image}` : undefined,
         edge: book.edge_image ? `/api/covers/${book.edge_image}` : undefined,
       })
+      setCrops({
+        front: book.front_crop ? `/api/covers/${book.front_crop}` : undefined,
+        back: book.back_crop ? `/api/covers/${book.back_crop}` : undefined,
+        edge: book.edge_crop ? `/api/covers/${book.edge_crop}` : undefined,
+      })
+      setExamined((book.cropped ?? '').split(',').filter(Boolean) as Slot[])
       setShots({})
       // Reached from the shelves, not the queue: the anchor a previous book
       // left behind is not where this one goes back to. `from` above already
@@ -834,6 +853,10 @@ export default function App() {
       back: capture.back_image ? `/api/covers/${capture.back_image}` : undefined,
       edge: capture.edge_image ? `/api/covers/${capture.edge_image}` : undefined,
     })
+    // A capture is not cropped: the photo is being looked at to decide what
+    // the book is, and that is the moment to see all of it.
+    setCrops({})
+    setExamined([])
     // The photos already live on the server; do not re-upload them on save.
     setShots({})
     // Came from the queue, so finishing or abandoning shelving lands back
@@ -874,6 +897,8 @@ export default function App() {
     setIdentified(false)
     setShots({})
     setThumbs({})
+    setCrops({})
+    setExamined([])
     setStatus({})
     setActiveSlot('back')
     setPlacement(null)
@@ -1262,6 +1287,8 @@ export default function App() {
             draft={draft}
             lookup={lookup}
             photos={thumbs}
+            crops={crops}
+            examined={examined}
             derivedFiling={derivedFiling}
             saving={saving}
             relookupBusy={relookupBusy}

@@ -282,9 +282,68 @@ describe('checking a book out and back in', () => {
   })
 })
 
+describe('setCrop', () => {
+  it('records the crop without disturbing the photograph', () => {
+    const { id } = store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], frontImage: 'front.jpg' }),
+    )
+
+    store.setCrop(id, 'front', 'front_crop.jpg')
+
+    const book = store.getBook(id)!
+    expect(book.front_image).toBe('front.jpg')
+    expect(book.front_crop).toBe('front_crop.jpg')
+  })
+
+  it('marks a slot examined even when no book was found in it', () => {
+    const { id } = store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], frontImage: 'front.jpg' }),
+    )
+
+    store.setCrop(id, 'front', '')
+
+    expect(store.getBook(id)!.front_crop).toBe('')
+    // The distinction the detail view's caption rests on: looked at and found
+    // nothing, rather than never looked at.
+    expect(store.getBook(id)!.cropped).toBe('front')
+  })
+
+  it('adds each slot to the list rather than replacing it', () => {
+    const { id } = store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+
+    store.setCrop(id, 'front', 'a.jpg')
+    store.setCrop(id, 'edge', 'b.jpg')
+    store.setCrop(id, 'front', 'a.jpg')
+
+    expect(store.getBook(id)!.cropped).toBe('front,edge')
+  })
+})
+
+describe('photographed', () => {
+  it('lists only the books that have a photo to crop', () => {
+    store.addBook(draft({ title: 'No Photos', authors: ['Ann Author'] }))
+    const { id } = store.addBook(
+      draft({ title: 'Has One', authors: ['Ann Author'], edgeImage: 'edge.jpg' }),
+    )
+
+    const rows = store.photographed()
+    expect(rows.map((row) => row.id)).toEqual([id])
+    expect(rows[0]!.edge_image).toBe('edge.jpg')
+  })
+})
+
 describe('imageInUse', () => {
   it('reports false for a name nothing on file references', () => {
     expect(store.imageInUse('ghost.jpg')).toBe(false)
+  })
+
+  it('counts a crop as in use, so tidying orphans cannot delete one', () => {
+    const { id } = store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], frontImage: 'front.jpg' }),
+    )
+    store.setCrop(id, 'front', 'front_crop.jpg')
+
+    expect(store.imageInUse('front_crop.jpg')).toBe(true)
   })
 
   it("checks all four of a book's image columns, not just the front photo", () => {
