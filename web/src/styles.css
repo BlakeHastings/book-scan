@@ -702,6 +702,33 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .isbn-block__alt, .isbn-block__source { font-size: 12px; color: var(--muted); }
 .isbn-block .btn { flex: 0 0 auto; }
+.isbn-block__number--busy { font-weight: 400; font-variant-numeric: normal; color: var(--muted); }
+.isbn-block__error { cursor: pointer; }
+
+/* Stands in for the Change ISBN button while a lookup is running, so there is
+   nothing left to click: the button is gone, not just disabled. The dot
+   pulses gently rather than spins, in keeping with the rest of the app's busy
+   states, which are all a colour change rather than motion. */
+.isbn-block__busy {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  min-height: 40px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.isbn-block__busy-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: isbn-busy-pulse 1.1s ease-in-out infinite;
+}
+@keyframes isbn-busy-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
 
 /* --- Modal ------------------------------------------------------------- */
 

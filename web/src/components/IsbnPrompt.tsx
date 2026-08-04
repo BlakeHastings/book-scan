@@ -4,8 +4,6 @@ import { IsbnCamera } from './IsbnCamera'
 
 interface Props {
   initial: string
-  busy: boolean
-  error: string
   onCancel: () => void
   onSubmit: (isbn: string) => void
 }
@@ -16,8 +14,14 @@ interface Props {
  * The photos stay visible behind it: the whole point is to read the digits off
  * the cover on screen and type them in, so a full-screen dialog would hide the
  * thing being copied.
+ *
+ * The lookup itself happens after this closes, not while it is open: submit
+ * hands the ISBN off and this unmounts immediately, so the search plays out on
+ * the detail view underneath rather than inside a busy modal. That is also
+ * why there is no busy or error state here; both belong to the screen the
+ * answer actually lands on.
  */
-export function IsbnPrompt({ initial, busy, error, onCancel, onSubmit }: Props) {
+export function IsbnPrompt({ initial, onCancel, onSubmit }: Props) {
   const [value, setValue] = useState(initial)
   const [scanning, setScanning] = useState(false)
   const [readFrom, setReadFrom] = useState<'barcode' | 'ocr' | ''>('')
@@ -62,7 +66,7 @@ export function IsbnPrompt({ initial, busy, error, onCancel, onSubmit }: Props) 
             value={value}
             onChange={(event) => { setValue(event.target.value); setReadFrom('') }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && valid && !busy) onSubmit(value)
+              if (event.key === 'Enter' && valid) onSubmit(value)
               if (event.key === 'Escape') onCancel()
             }}
             placeholder="978-0-441-01359-3"
@@ -76,7 +80,6 @@ export function IsbnPrompt({ initial, busy, error, onCancel, onSubmit }: Props) 
             type="button"
             className="isbn-input__cam"
             onClick={() => setScanning(true)}
-            disabled={busy}
             aria-label="Photograph the ISBN"
             title="Photograph the ISBN"
           >
@@ -102,17 +105,15 @@ export function IsbnPrompt({ initial, busy, error, onCancel, onSubmit }: Props) 
           </p>
         )}
 
-        {error && <div className="warn">{error}</div>}
-
         <div className="actions">
           <button
             className="btn btn--primary"
             onClick={() => onSubmit(value)}
-            disabled={!valid || busy}
+            disabled={!valid}
           >
-            {busy ? 'Looking up...' : 'Look up and replace'}
+            Look up and replace
           </button>
-          <button className="btn" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button className="btn" onClick={onCancel}>Cancel</button>
         </div>
       </div>
     </div>
