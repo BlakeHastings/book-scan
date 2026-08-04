@@ -246,8 +246,8 @@ export function createApp(options: CreateAppOptions): express.Express {
    * Moves are a to-do list a person works through, so they name books rather
    * than row ids, and each group reports whether it is over its capacity.
    */
-  function describeMoves(range: 'fiction' | 'nonfiction', moves: { id: number; from: string; to: string }[]) {
-    const titles = new Map(shelves.layout(range).map((p) => [p.book.id, p.book.title]))
+  async function describeMoves(range: 'fiction' | 'nonfiction', moves: { id: number; from: string; to: string }[]) {
+    const titles = new Map((await shelves.layout(range)).map((p) => [p.book.id, p.book.title]))
     return moves.map((move) => ({ ...move, title: titles.get(move.id) ?? '' }))
   }
 
@@ -260,13 +260,13 @@ export function createApp(options: CreateAppOptions): express.Express {
    * layout, or the card tells them to put a book on a shelf the app cannot
    * find, which is what "1A" was.
    */
-  function inDerivedScheme<T extends ReturnType<typeof store.placementFor>>(
+  async function inDerivedScheme<T extends Awaited<ReturnType<typeof store.placementFor>>>(
     range: 'fiction' | 'nonfiction',
     placement: T,
     /** The book being edited, which must not appear as its own neighbour. */
     excludeId?: number,
   ) {
-    const layout = shelves.layout(range)
+    const layout = await shelves.layout(range)
     const labelOf = (id: number | undefined) =>
       id === undefined ? '' : layout.find((p) => p.book.id === id)?.label ?? ''
 
@@ -277,7 +277,7 @@ export function createApp(options: CreateAppOptions): express.Express {
       ? { ...placement.successor, location: labelOf(placement.successor.id) }
       : null
 
-    const derivedLocation = shelves.shelfForSortKey(range, placement.sortKey)
+    const derivedLocation = await shelves.shelfForSortKey(range, placement.sortKey)
 
     // Rebuilt rather than patched: the instruction has the old labels baked
     // into its wording.
@@ -288,7 +288,7 @@ export function createApp(options: CreateAppOptions): express.Express {
       ...restated,
       suggestedLocation: derivedLocation,
       derivedLocation,
-      strip: stripFor(range, placement.sortKey, excludeId),
+      strip: await stripFor(range, placement.sortKey, excludeId),
     }
   }
 
@@ -306,7 +306,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    * The photo files are immutable, their names carry a timestamp, and they
    * are served with a long cache, so a row costs its requests once.
    */
-  function stripFor(
+  async function stripFor(
     range: 'fiction' | 'nonfiction',
     sortKey: string,
     excludeId?: number,
@@ -315,10 +315,10 @@ export function createApp(options: CreateAppOptions): express.Express {
     // row, not as a hole in it. Only when its filing has actually changed
     // does it become something that has to move, and then it wants a gap
     // again.
-    const settled = excludeId ? settledRow(range, sortKey, excludeId) : null
+    const settled = excludeId ? await settledRow(range, sortKey, excludeId) : null
     if (settled) return settled
 
-    const strip = shelves.strip(range, sortKey, excludeId)
+    const strip = await shelves.strip(range, sortKey, excludeId)
     if (!strip) return null
 
     return {
@@ -357,11 +357,11 @@ export function createApp(options: CreateAppOptions): express.Express {
    * disagreement to draw a gap over, so those still settle here exactly as
    * they did before this book had a recorded location at all.
    */
-  function settledRow(range: 'fiction' | 'nonfiction', sortKey: string, id: number) {
-    const row = store.getBook(id)
+  async function settledRow(range: 'fiction' | 'nonfiction', sortKey: string, id: number) {
+    const row = await store.getBook(id)
     if (!row || row.shelf_range !== range || row.sort_key !== sortKey) return null
 
-    const strip = shelves.stripOf(range, id)
+    const strip = await shelves.stripOf(range, id)
     if (!strip) return null
 
     const recorded = (row.location ?? '').trim()
@@ -383,11 +383,11 @@ export function createApp(options: CreateAppOptions): express.Express {
        * (#96): the detail view reads this to decide whether to show the
        * button at all, and the write route re-checks it regardless.
        */
-      boundary: shelves.boundaryOptions(range, id),
+      boundary: await shelves.boundaryOptions(range, id),
     }
   }
 
-  function shelfGroups(range: 'fiction' | 'nonfiction') {
+  async function shelfGroups(range: 'fiction' | 'nonfiction') {
     return shelves.groups(range)
   }
 
@@ -414,10 +414,10 @@ export function createApp(options: CreateAppOptions): express.Express {
    * files on disk. Deleting a capture's photos without checking would take
    * the book's photos with them, and there is no getting those back.
    */
-  function deleteOrphanedImages(names: string[]): string[] {
+  async function deleteOrphanedImages(names: string[]): Promise<string[]> {
     const removed: string[] = []
     for (const name of names.filter(Boolean)) {
-      if (store.imageInUse(name)) continue
+      if (await store.imageInUse(name)) continue
       try {
         rmSync(join(coverDir, name), { force: true })
         removed.push(name)
@@ -499,7 +499,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    * background, so the person holding the books can move straight to the
    * next one instead of waiting on OCR.
    */
-  app.post('/api/captures', (req, res) => {
+  app.post('/api/captures', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     // The client knows which side it just photographed, so the slot is
     // required rather than inferred or defaulted. Quietly falling back to
@@ -522,29 +522,29 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    const capture = queue.attach(captureId, slot, saveImage(buffer, '', slot))
+    const capture = await queue.attach(captureId, slot, saveImage(buffer, '', slot))
     // Not awaited: the shutter must not wait on OCR.
     void queue.drain()
 
-    res.status(201).json({ capture, counts: queue.counts() })
-  })
+    res.status(201).json({ capture, counts: await queue.counts() })
+  }))
 
-  app.get('/api/captures/:id', (req, res) => {
-    const capture = queue.get(Number(req.params.id))
+  app.get('/api/captures/:id', asyncRoute(async (req, res) => {
+    const capture = await queue.get(Number(req.params.id))
     if (!capture) {
       res.status(404).json({ error: 'No such capture.' })
       return
     }
-    res.json({ capture, counts: queue.counts() })
-  })
+    res.json({ capture, counts: await queue.counts() })
+  }))
 
-  app.get('/api/captures', (_req, res) => {
-    res.json({ captures: queue.list(), counts: queue.counts() })
-  })
+  app.get('/api/captures', asyncRoute(async (_req, res) => {
+    res.json({ captures: await queue.list(), counts: await queue.counts() })
+  }))
 
-  app.post('/api/captures/:id/claim', (req, res) => {
+  app.post('/api/captures/:id/claim', asyncRoute(async (req, res) => {
     const who = String((req.body ?? {}).who ?? '').trim() || 'unknown'
-    const result = queue.claim(Number(req.params.id), who)
+    const result = await queue.claim(Number(req.params.id), who)
     if (!result.ok) {
       res.status(409).json({
         error: `That book is being worked on by ${result.heldBy}.`,
@@ -552,7 +552,7 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
     res.json({ capture: result.row })
-  })
+  }))
 
   /**
    * Persist what somebody worked out about a capture that is still queued.
@@ -592,28 +592,28 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    res.json({ capture: result.row, lookup: result.lookup, counts: queue.counts() })
+    res.json({ capture: result.row, lookup: result.lookup, counts: await queue.counts() })
   }))
 
-  app.post('/api/captures/:id/release', (req, res) => {
-    queue.release(Number(req.params.id), String((req.body ?? {}).who ?? ''))
+  app.post('/api/captures/:id/release', asyncRoute(async (req, res) => {
+    await queue.release(Number(req.params.id), String((req.body ?? {}).who ?? ''))
     res.json({ ok: true })
-  })
+  }))
 
-  app.delete('/api/captures/:id', (req, res) => {
+  app.delete('/api/captures/:id', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
-    const capture = queue.get(id)
+    const capture = await queue.get(id)
     if (!capture) {
       res.status(404).json({ error: 'No such capture.' })
       return
     }
 
     const images = [capture.front_image, capture.back_image, capture.edge_image]
-    queue.remove(id)
-    const removed = deleteOrphanedImages(images)
+    await queue.remove(id)
+    const removed = await deleteOrphanedImages(images)
 
-    res.json({ ok: true, counts: queue.counts(), photosRemoved: removed.length })
-  })
+    res.json({ ok: true, counts: await queue.counts(), photosRemoved: removed.length })
+  }))
 
   // ---------------------------------------------------------------------------
   // Lookup
@@ -707,7 +707,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
 
     const result = await lookupIsbn(raw, { googleApiKey })
-    const existing = store.findByIsbn(result.isbn13 || pair.isbn13)
+    const existing = await store.findByIsbn(result.isbn13 || pair.isbn13)
 
     res.json({
       ...result,
@@ -730,7 +730,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    * Where would this book go, without saving it? Drives the live placement
    * card as the user edits the review fields.
    */
-  app.post('/api/placement/preview', (req, res) => {
+  app.post('/api/placement/preview', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const draft = asDraft(body)
     if (!draft.title) {
@@ -739,15 +739,15 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
     // When editing a saved book, it must not turn up as its own neighbour.
     const excludeId = Number(body.excludeId ?? 0) || undefined
-    const placement = store.placementFor(draft, excludeId)
-    res.json(inDerivedScheme(placement.range, placement, excludeId))
-  })
+    const placement = await store.placementFor(draft, excludeId)
+    res.json(await inDerivedScheme(placement.range, placement, excludeId))
+  }))
 
   // ---------------------------------------------------------------------------
   // Books
   // ---------------------------------------------------------------------------
 
-  app.post('/api/books', (req, res) => {
+  app.post('/api/books', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const draft = asDraft(body)
     if (!draft.title) {
@@ -760,7 +760,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     // A book promoted from the queue already has its photos on disk. The
     // client does not re-upload them, so carry the filenames across here or
     // the book silently loses every image it was scanned with.
-    const capture = captureId ? queue.get(captureId) : undefined
+    const capture = captureId ? await queue.get(captureId) : undefined
     if (capture) {
       draft.frontImage = capture.front_image
       draft.backImage = capture.back_image
@@ -782,10 +782,10 @@ export function createApp(options: CreateAppOptions): express.Express {
 
     if (body.saveFilingOverride && draft.authorFilingOverride) {
       const primary = draft.authors[0] ?? ''
-      if (primary) store.saveFilingOverride(primary, draft.authorFilingOverride)
+      if (primary) await store.saveFilingOverride(primary, draft.authorFilingOverride)
     }
 
-    const { id, placement } = store.addBook(draft)
+    const { id, placement } = await store.addBook(draft)
 
     /*
      * Record where the book physically went.
@@ -800,11 +800,11 @@ export function createApp(options: CreateAppOptions): express.Express {
      * A location sent by the client wins, since that came from a person too.
      */
     if (!draft.location?.trim()) {
-      const landed = shelves.labelFor(placement.range, id)
-      if (landed) store.setLocation(id, landed)
+      const landed = await shelves.labelFor(placement.range, id)
+      if (landed) await store.setLocation(id, landed)
     }
 
-    if (captureId) queue.markDone(captureId, id)
+    if (captureId) await queue.markDone(captureId, id)
 
     // Deliberately not awaited. The person is waiting to be told where the
     // book goes, and a cover that arrives a second later costs them
@@ -816,23 +816,26 @@ export function createApp(options: CreateAppOptions): express.Express {
       // The freshly computed placement, not whatever the client previewed.
       // With two people scanning, a neighbour can appear between preview
       // and save, and the stale one would send the book to the wrong gap.
-      placement: inDerivedScheme(placement.range, { ...placement, ...store.resolveKey(draft) }),
-      counts: store.counts(),
-      queue: queue.counts(),
+      placement: await inDerivedScheme(
+        placement.range,
+        { ...placement, ...(await store.resolveKey(draft)) },
+      ),
+      counts: await store.counts(),
+      queue: await queue.counts(),
     })
-  })
+  }))
 
-  app.get('/api/books', (req, res) => {
+  app.get('/api/books', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
-    res.json({ books: store.listRange(range), counts: store.counts() })
-  })
+    res.json({ books: await store.listRange(range), counts: await store.counts() })
+  }))
 
-  app.get('/api/shelves', (req, res) => {
+  app.get('/api/shelves', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     res.json({
-      groups: shelfGroups(range),
-      separators: shelves.list(range),
-      loads: shelves.loads(range),
+      groups: await shelfGroups(range),
+      separators: await shelves.list(range),
+      loads: await shelves.loads(range),
       /*
        * Books off the shelf, each with the shelf it would land on.
        *
@@ -842,11 +845,16 @@ export function createApp(options: CreateAppOptions): express.Express {
        * instead of making an absent book invisible from the shelf it came
        * off.
        */
-      checkedOut: store.checkedOut()
-        .filter((book) => book.shelf_range === range)
-        .map((book) => ({ book, label: shelves.shelfForSortKey(range, book.sort_key) })),
+      checkedOut: await Promise.all(
+        (await store.checkedOut())
+          .filter((book) => book.shelf_range === range)
+          .map(async (book) => ({
+            book,
+            label: await shelves.shelfForSortKey(range, book.sort_key),
+          })),
+      ),
     })
-  })
+  }))
 
   /**
    * The person at the shelf says it will not take another book.
@@ -863,14 +871,14 @@ export function createApp(options: CreateAppOptions): express.Express {
    * and it is what makes the first answer visible at all: a book that is not
    * saved yet appears in no layout the database can produce.
    */
-  app.post('/api/shelves/overflow', (req, res) => {
+  app.post('/api/shelves/overflow', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const kind = body.kind === 'area' ? 'area' : 'shelf'
     const label = String(body.label ?? '')
     const placing = String(body.sortKey ?? '')
 
-    const result = shelves.overflow(range, label, kind, placing)
+    const result = await shelves.overflow(range, label, kind, placing)
     if (!result.ok) {
       res.status(400).json({ error: result.error })
       return
@@ -900,14 +908,14 @@ export function createApp(options: CreateAppOptions): express.Express {
             id: result.step.moved.id,
             from: result.step.from,
             to: result.step.to,
-            title: shelves.layout(range)
+            title: (await shelves.layout(range))
               .find((p) => p.book.id === result.step!.moved.id)?.book.title ?? '',
           }
         : null,
-      moves: describeMoves(range, result.moves ?? []),
-      groups: shelfGroups(range),
+      moves: await describeMoves(range, result.moves ?? []),
+      groups: await shelfGroups(range),
     })
-  })
+  }))
 
   /**
    * Bounce the first or last book of an area onto the plank next door.
@@ -922,14 +930,16 @@ export function createApp(options: CreateAppOptions): express.Express {
    * the book is on the new plank through PATCH /api/books/:id/location, which
    * is still the only route that changes where the catalogue thinks a book is.
    */
-  app.post('/api/shelves/move', (req, res) => {
+  app.post('/api/shelves/move', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const direction = body.direction === 'previous' ? 'previous' : 'next'
     const id = Number(body.id ?? 0)
 
-    const title = shelves.layout(range).find((p) => p.book.id === id)?.book.title ?? ''
-    const result = shelves.moveAcrossBoundary(range, id, direction)
+    // Read before the move, as it always was: afterwards the book may have
+    // left this layout, and the title is what the person is told to carry.
+    const title = (await shelves.layout(range)).find((p) => p.book.id === id)?.book.title ?? ''
+    const result = await shelves.moveAcrossBoundary(range, id, direction)
     if (!result.ok) {
       res.status(400).json({ error: result.error })
       return
@@ -941,33 +951,33 @@ export function createApp(options: CreateAppOptions): express.Express {
       move: result.move
         ? { id, title, from: result.move.from, to: result.move.to }
         : null,
-      moves: describeMoves(range, result.moves ?? []),
-      groups: shelfGroups(range),
+      moves: await describeMoves(range, result.moves ?? []),
+      groups: await shelfGroups(range),
     })
-  })
+  }))
 
-  app.delete('/api/shelves/:id', (req, res) => {
+  app.delete('/api/shelves/:id', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
-    const before = shelves.layout(range)
-    shelves.remove(Number(req.params.id))
+    const before = await shelves.layout(range)
+    await shelves.remove(Number(req.params.id))
     res.json({
-      moves: describeMoves(range, shelves.movesSince(range, before)),
-      groups: shelfGroups(range),
+      moves: await describeMoves(range, await shelves.movesSince(range, before)),
+      groups: await shelfGroups(range),
     })
-  })
+  }))
 
-  app.get('/api/books/:id', (req, res) => {
-    const book = store.getBook(Number(req.params.id))
+  app.get('/api/books/:id', asyncRoute(async (req, res) => {
+    const book = await store.getBook(Number(req.params.id))
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
     res.json({ book })
-  })
+  }))
 
-  app.put('/api/books/:id', (req, res) => {
+  app.put('/api/books/:id', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
-    if (!store.getBook(id)) {
+    if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
@@ -978,9 +988,13 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    const placement = store.updateBook(id, draft)
-    res.json({ id, placement: inDerivedScheme(placement.range, placement), counts: store.counts() })
-  })
+    const placement = await store.updateBook(id, draft)
+    res.json({
+      id,
+      placement: await inDerivedScheme(placement.range, placement),
+      counts: await store.counts(),
+    })
+  }))
 
   /**
    * A person says where this book physically is now.
@@ -991,9 +1005,9 @@ export function createApp(options: CreateAppOptions): express.Express {
    * column is the record of where the book really is and a guess written
    * into it is worse than an empty one.
    */
-  app.patch('/api/books/:id/location', (req, res) => {
+  app.patch('/api/books/:id/location', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
-    if (!store.getBook(id)) {
+    if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
@@ -1005,13 +1019,13 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    store.setLocation(id, label ? formatLocation(parseLocation(label)!) : '')
-    res.json({ book: store.getBook(id) })
-  })
+    await store.setLocation(id, label ? formatLocation(parseLocation(label)!) : '')
+    res.json({ book: await store.getBook(id) })
+  }))
 
-  app.delete('/api/books/:id', (req, res) => {
+  app.delete('/api/books/:id', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
-    const book = store.getBook(id)
+    const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -1023,11 +1037,11 @@ export function createApp(options: CreateAppOptions): express.Express {
       // them once this row is gone.
       book.front_crop, book.back_crop, book.edge_crop,
     ]
-    store.deleteBook(id)
-    const removed = deleteOrphanedImages(images)
+    await store.deleteBook(id)
+    const removed = await deleteOrphanedImages(images)
 
-    res.json({ ok: true, counts: store.counts(), photosRemoved: removed.length })
-  })
+    res.json({ ok: true, counts: await store.counts(), photosRemoved: removed.length })
+  }))
 
   /**
    * Take a book off the shelf, or put it back.
@@ -1041,22 +1055,22 @@ export function createApp(options: CreateAppOptions): express.Express {
    * Nothing is deleted. The entry, its photos and its filing all survive,
    * and putting it back is the same flow as shelving it the first time.
    */
-  app.post('/api/books/:id/checkout', (req, res) => {
+  app.post('/api/books/:id/checkout', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
-    const book = store.getBook(id)
+    const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
 
     const out = (req.body ?? {}).out !== false
-    const result = store.setCheckedOut(id, out)
+    const result = await store.setCheckedOut(id, out)
     res.json({
       outcome: checkoutOutcome(out, result.changed),
-      book: store.getBook(id),
-      counts: store.counts(),
+      book: await store.getBook(id),
+      counts: await store.counts(),
     })
-  })
+  }))
 
   /**
    * Fetch and store the publisher cover for one book.
@@ -1066,7 +1080,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    * see whether Google has one.
    */
   async function fetchCoverFor(id: number): Promise<string> {
-    const book = store.getBook(id)
+    const book = await store.getBook(id)
     if (!book || book.cover_image) return book?.cover_image ?? ''
 
     const isbn = book.isbn13 || book.isbn10
@@ -1084,7 +1098,7 @@ export function createApp(options: CreateAppOptions): express.Express {
 
     // Stamped either way, so a book with no cover anywhere is asked about
     // once.
-    store.setCoverImage(id, name)
+    await store.setCoverImage(id, name)
     return name
   }
 
@@ -1103,7 +1117,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     // Ask again about the ones that came up empty, for when a cover has
     // since been added upstream or a lookup was simply down at the time.
     const retry = body.retry === true
-    const todo = store.missingCovers(limit, retry)
+    const todo = await store.missingCovers(limit, retry)
 
     let fetched = 0
     for (const book of todo) {
@@ -1113,8 +1127,8 @@ export function createApp(options: CreateAppOptions): express.Express {
     res.json({
       tried: todo.length,
       fetched,
-      remaining: store.missingCovers(1000).length,
-      withoutCover: store.missingCovers(1000, true).length,
+      remaining: (await store.missingCovers(1000)).length,
+      withoutCover: (await store.missingCovers(1000, true)).length,
     })
   }))
 
@@ -1134,7 +1148,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    * disturbed by it.
    */
   async function cropBookPhotos(id: number): Promise<void> {
-    const book = store.getBook(id)
+    const book = await store.getBook(id)
     if (!book) return
     try {
       await cropPhotos(store, book, cropIo, { apply: true })
@@ -1150,7 +1164,7 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   /** Hash whatever images a book has, so it can be recognised by its cover. */
   async function hashBook(id: number): Promise<void> {
-    const book = store.getBook(id)
+    const book = await store.getBook(id)
     if (!book) return
 
     const read = async (name: string) => {
@@ -1162,7 +1176,7 @@ export function createApp(options: CreateAppOptions): express.Express {
       }
     }
 
-    store.setHashes(
+    await store.setHashes(
       id,
       book.front_hash || (await read(book.front_image)),
       book.cover_hash || (await read(book.cover_image)),
@@ -1192,7 +1206,7 @@ export function createApp(options: CreateAppOptions): express.Express {
       return []
     }
 
-    const scored = store.hashIndex().map((row) => ({
+    const scored = (await store.hashIndex()).map((row) => ({
       row,
       // Whichever of the two stored images is the better likeness. A photo
       // of a book usually resembles another photo of it more than it
@@ -1233,7 +1247,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    */
   async function backfillCoversInBackground(): Promise<void> {
     for (;;) {
-      const todo = store.missingCovers(5)
+      const todo = await store.missingCovers(5)
       if (!todo.length) return
 
       for (const book of todo) {
@@ -1247,15 +1261,15 @@ export function createApp(options: CreateAppOptions): express.Express {
   /** Hashing is local and cheap, so it runs flat out until it is done. */
   async function hashInBackground(): Promise<void> {
     for (;;) {
-      const todo = store.missingHashes(25)
+      const todo = await store.missingHashes(25)
       if (!todo.length) return
       for (const book of todo) await hashBook(book.id)
     }
   }
 
-  app.get('/api/checked-out', (_req, res) => {
-    res.json({ books: store.checkedOut() })
-  })
+  app.get('/api/checked-out', asyncRoute(async (_req, res) => {
+    res.json({ books: await store.checkedOut() })
+  }))
 
   /**
    * Hold a book up to the camera and find out which book it is.
@@ -1377,13 +1391,17 @@ export function createApp(options: CreateAppOptions): express.Express {
      * the library, so the reading that names one is the reading that is
      * right, whatever order zbar happened to return them in.
      */
-    const book =
+    // Every reading looked up, then the first that named a row taken, exactly
+    // as before. Promise.all keeps them in reading order, which is what the
+    // choice between them rests on.
+    const fromBarcodes = await Promise.all(
       read.barcodes
         .map((code) => resolveIsbnPair(code).isbn13)
         .filter(Boolean)
-        .map((isbn) => store.findByIsbn(isbn))
-        .find(Boolean)
-      ?? store.findByIsbn(read.isbn13)
+        .map((isbn) => store.findByIsbn(isbn)),
+    )
+
+    const book = fromBarcodes.find(Boolean) ?? await store.findByIsbn(read.isbn13)
 
     if (!book) {
       res.json({ outcome: 'not-catalogued', isbn13: read.isbn13 })
@@ -1406,14 +1424,14 @@ export function createApp(options: CreateAppOptions): express.Express {
    * Read only. Nothing on this path writes a location. A location changes
    * only when a person says the book moved, which is the PATCH below.
    */
-  app.get('/api/misfiles', (req, res) => {
+  app.get('/api/misfiles', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
-    res.json(shelves.review(range))
-  })
+    res.json(await shelves.review(range))
+  }))
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, counts: store.counts(), db: options.dbLabel ?? '' })
-  })
+  app.get('/api/health', asyncRoute(async (_req, res) => {
+    res.json({ ok: true, counts: await store.counts(), db: options.dbLabel ?? '' })
+  }))
 
   // Express identifies error-handling middleware solely by arity: a function
   // of exactly four parameters. Dropping the unused `next` here would

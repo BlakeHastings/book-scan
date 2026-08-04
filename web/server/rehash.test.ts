@@ -34,23 +34,23 @@ async function addBook(
   names: { front?: string; cover?: string },
   hashes: { front?: string; cover?: string } = {},
 ): Promise<number> {
-  const { id } = store.addBook({
+  const { id } = await store.addBook({
     title,
     authors: [author],
     isFiction: true,
     frontImage: names.front ?? '',
   })
-  if (names.cover) store.setCoverImage(id, names.cover)
+  if (names.cover) await store.setCoverImage(id, names.cover)
   if (hashes.front || hashes.cover) {
-    store.setHashes(id, hashes.front ?? '', hashes.cover ?? '')
+    await store.setHashes(id, hashes.front ?? '', hashes.cover ?? '')
   }
   if (names.front) images.set(names.front, await frontCover(title, author))
   if (names.cover) images.set(names.cover, await frontCover(title, author))
   return id
 }
 
-function hashesOf(id: number): { front: string; cover: string } {
-  const row = store.getBook(id)!
+async function hashesOf(id: number): Promise<{ front: string; cover: string }> {
+  const row = (await store.getBook(id))!
   return { front: row.front_hash, cover: row.cover_hash }
 }
 
@@ -61,7 +61,7 @@ beforeEach(() => {
 })
 
 describe('telling a stale hash from a current one', () => {
-  it('rejects everything the old algorithm wrote', () => {
+  it('rejects everything the old algorithm wrote', async () => {
     expect(isCurrentFormat(OLD_FRONT)).toBe(false)
     // Which is the same answer the matcher gives, and the reason for the tool.
     expect(distance(OLD_FRONT, OLD_FRONT)).toBe(64)
@@ -93,7 +93,7 @@ describe('a dry run', () => {
     expect(report.changed).toBe(1)
 
     // The point of the flag: the catalogue is exactly as it was.
-    expect(hashesOf(id)).toEqual({ front: OLD_FRONT, cover: OLD_COVER })
+    expect(await hashesOf(id)).toEqual({ front: OLD_FRONT, cover: OLD_COVER })
   })
 })
 
@@ -109,7 +109,7 @@ describe('applying', () => {
     expect(report.rehashed).toBe(1)
     expect(report.changed).toBe(1)
 
-    const { front } = hashesOf(id)
+    const { front } = await hashesOf(id)
     expect(front).not.toBe(OLD_FRONT)
     expect(isCurrentFormat(front)).toBe(true)
 
@@ -158,8 +158,8 @@ describe('applying', () => {
     const report = await rehashCovers(store, { read, apply: true })
     expect(report.skipped).toBe(1)
     expect(report.rehashed).toBe(1)
-    expect(isCurrentFormat(hashesOf(done).front)).toBe(true)
-    expect(isCurrentFormat(hashesOf(todo).front)).toBe(true)
+    expect(isCurrentFormat((await hashesOf(done)).front)).toBe(true)
+    expect(isCurrentFormat((await hashesOf(todo)).front)).toBe(true)
   })
 
   it('redoes current hashes when forced', async () => {
@@ -181,7 +181,7 @@ describe('applying', () => {
 
     const report = await rehashCovers(store, { read, apply: true })
     expect(report.rehashed).toBe(1)
-    expect(isCurrentFormat(hashesOf(id).front)).toBe(true)
+    expect(isCurrentFormat((await hashesOf(id)).front)).toBe(true)
   })
 })
 
@@ -210,9 +210,9 @@ describe('images that cannot be read', () => {
 
     // Progress is not lost to one bad row.
     expect(report.rehashed).toBe(1)
-    expect(isCurrentFormat(hashesOf(fine).front)).toBe(true)
+    expect(isCurrentFormat((await hashesOf(fine)).front)).toBe(true)
     // And the unreadable one keeps the hash it had rather than being blanked.
-    expect(hashesOf(gone).front).toBe(OLD_FRONT)
+    expect((await hashesOf(gone)).front).toBe(OLD_FRONT)
   })
 
   it('does not blank the other image on the same book', async () => {
@@ -226,7 +226,7 @@ describe('images that cannot be read', () => {
     const report = await rehashCovers(store, { read, apply: true })
     expect(report.failed).toBe(1)
 
-    const { front, cover } = hashesOf(id)
+    const { front, cover } = await hashesOf(id)
     expect(isCurrentFormat(front)).toBe(true)
     expect(cover).toBe(OLD_COVER)
   })
@@ -240,6 +240,6 @@ describe('images that cannot be read', () => {
     expect(report.failed).toBe(1)
     expect(report.failures[0]!.image).toBe('')
     expect(report.failures[0]!.reason).toContain('no cover image')
-    expect(hashesOf(id).cover).toBe(OLD_COVER)
+    expect((await hashesOf(id)).cover).toBe(OLD_COVER)
   })
 })

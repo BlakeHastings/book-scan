@@ -245,10 +245,10 @@ function draftFor(book: BookSeed, isbn13: string, photos: Photos): DraftBook {
  * POST /api/books does when nobody sends an explicit location. Returns the
  * new row's id.
  */
-function shelveBook(store: Store, shelves: Shelves, draft: DraftBook): number {
-  const { id, placement } = store.addBook(draft)
-  const landed = shelves.labelFor(placement.range, id)
-  if (landed) store.setLocation(id, landed)
+async function shelveBook(store: Store, shelves: Shelves, draft: DraftBook): Promise<number> {
+  const { id, placement } = await store.addBook(draft)
+  const landed = await shelves.labelFor(placement.range, id)
+  if (landed) await store.setLocation(id, landed)
   return id
 }
 
@@ -263,14 +263,14 @@ function shelveBook(store: Store, shelves: Shelves, draft: DraftBook): number {
  * either it is already the "alone in an area" case this is sometimes called
  * to create, or there simply is not enough there yet to split.
  */
-function progressShelf(store: Store, shelves: Shelves, range: ShelfRange, kind: 'area' | 'shelf'): void {
-  const groups = shelves.groups(range)
+async function progressShelf(store: Store, shelves: Shelves, range: ShelfRange, kind: 'area' | 'shelf'): Promise<void> {
+  const groups = await shelves.groups(range)
   const last = groups.at(-1)
   if (!last) return
 
-  const result = shelves.overflow(range, last.label, kind)
+  const result = await shelves.overflow(range, last.label, kind)
   if (result.ok && result.step) {
-    store.setLocation(result.step.moved.id, result.step.to)
+    await store.setLocation(result.step.moved.id, result.step.to)
   }
 }
 
@@ -279,8 +279,8 @@ function progressShelf(store: Store, shelves: Shelves, range: ShelfRange, kind: 
  * an area" case the seeded world is asked to contain. Call this once, after
  * every other book in the range has already been shelved.
  */
-function isolateTail(store: Store, shelves: Shelves, range: ShelfRange): void {
-  progressShelf(store, shelves, range, 'area')
+async function isolateTail(store: Store, shelves: Shelves, range: ShelfRange): Promise<void> {
+  await progressShelf(store, shelves, range, 'area')
 }
 
 // ---------------------------------------------------------------------------
@@ -401,36 +401,36 @@ async function main(): Promise<void> {
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
     const draft = draftFor(book, isbn13, photos)
-    const id = shelveBook(store, shelves, draft)
-    if (!book.noCover) store.setCoverImage(id, photos.cover)
-    else store.setCoverImage(id, '') // looked for, found nothing: matches a real backfill result
+    const id = await shelveBook(store, shelves, draft)
+    if (!book.noCover) await store.setCoverImage(id, photos.cover)
+    else await store.setCoverImage(id, '') // looked for, found nothing: matches a real backfill result
     fictionIds.push(id)
 
-    if (fictionIds.length === 4) progressShelf(store, shelves, 'fiction', 'area')
-    if (fictionIds.length === 8) progressShelf(store, shelves, 'fiction', 'shelf') // second bookcase
-    if (fictionIds.length === 11) progressShelf(store, shelves, 'fiction', 'area')
+    if (fictionIds.length === 4) await progressShelf(store, shelves, 'fiction', 'area')
+    if (fictionIds.length === 8) await progressShelf(store, shelves, 'fiction', 'shelf') // second bookcase
+    if (fictionIds.length === 11) await progressShelf(store, shelves, 'fiction', 'area')
   }
-  isolateTail(store, shelves, 'fiction')
+  await isolateTail(store, shelves, 'fiction')
 
   const nonfictionIds: number[] = []
   for (const book of shelvedNonfiction) {
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
     const draft = draftFor(book, isbn13, photos)
-    const id = shelveBook(store, shelves, draft)
-    if (!book.noCover) store.setCoverImage(id, photos.cover)
-    else store.setCoverImage(id, '')
+    const id = await shelveBook(store, shelves, draft)
+    if (!book.noCover) await store.setCoverImage(id, photos.cover)
+    else await store.setCoverImage(id, '')
     nonfictionIds.push(id)
 
-    if (nonfictionIds.length === 3) progressShelf(store, shelves, 'nonfiction', 'area')
-    if (nonfictionIds.length === 6) progressShelf(store, shelves, 'nonfiction', 'area')
+    if (nonfictionIds.length === 3) await progressShelf(store, shelves, 'nonfiction', 'area')
+    if (nonfictionIds.length === 6) await progressShelf(store, shelves, 'nonfiction', 'area')
   }
-  isolateTail(store, shelves, 'nonfiction')
+  await isolateTail(store, shelves, 'nonfiction')
 
   // A couple of books off the shelf entirely: catalogued, photographed, but
   // not currently on a plank.
   const checkedOut = [fictionIds[2], nonfictionIds[1]].filter((id): id is number => id !== undefined)
-  for (const id of checkedOut) store.setCheckedOut(id, true)
+  for (const id of checkedOut) await store.setCheckedOut(id, true)
 
   // -------------------------------------------------------------------------
   // Capture queue: 18 captures at various stages, drawn from the books not

@@ -72,112 +72,112 @@ beforeEach(() => {
   queue = new CaptureQueue(db, () => null)
 })
 
-function add() {
-  return queue.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })
+async function add() {
+  return await queue.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })
 }
 
 /** A real book, because captures.book_id is a foreign key. */
-function addBook() {
-  return store.addBook({ title: 'A Book', authors: ['Ann Author'], isFiction: true }).id
+async function addBook() {
+  return (await store.addBook({ title: 'A Book', authors: ['Ann Author'], isFiction: true })).id
 }
 
 describe('queueing', () => {
-  it('accepts a capture as pending so the camera never waits', () => {
-    const capture = add()
+  it('accepts a capture as pending so the camera never waits', async () => {
+    const capture = await add()
     expect(capture.status).toBe('pending')
     expect(capture.back_image).toBe('b.jpg')
   })
 
-  it('counts by status', () => {
-    add()
-    add()
-    expect(queue.counts().pending).toBe(2)
-    expect(queue.counts().ready).toBe(0)
+  it('counts by status', async () => {
+    await add()
+    await add()
+    expect((await queue.counts()).pending).toBe(2)
+    expect((await queue.counts()).ready).toBe(0)
   })
 
-  it('keeps done captures out of the working list', () => {
-    const capture = add()
-    const bookId = addBook()
-    queue.markDone(capture.id, bookId)
-    expect(queue.list()).toHaveLength(0)
-    expect(queue.get(capture.id)?.book_id).toBe(bookId)
+  it('keeps done captures out of the working list', async () => {
+    const capture = await add()
+    const bookId = await addBook()
+    await queue.markDone(capture.id, bookId)
+    expect(await queue.list()).toHaveLength(0)
+    expect((await queue.get(capture.id))?.book_id).toBe(bookId)
   })
 
-  it('lists oldest first, the order the worker drains them in', () => {
+  it('lists oldest first, the order the worker drains them in', async () => {
     // The web UI shows newest first, matching the physical stack, but that is
     // a display choice made on top of this list. What the worker claims next
     // must stay oldest first regardless of how anything displays the queue.
-    const first = add()
-    const second = add()
-    const third = add()
-    expect(queue.list().map((c) => c.id)).toEqual([first.id, second.id, third.id])
+    const first = await add()
+    const second = await add()
+    const third = await add()
+    expect((await queue.list()).map((c) => c.id)).toEqual([first.id, second.id, third.id])
   })
 })
 
 describe('claiming, with two people on the same queue', () => {
-  it('lets the first person claim', () => {
-    const capture = add()
-    expect(queue.claim(capture.id, 'alice').ok).toBe(true)
+  it('lets the first person claim', async () => {
+    const capture = await add()
+    expect((await queue.claim(capture.id, 'alice')).ok).toBe(true)
   })
 
-  it('refuses a second person and names who holds it', () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
+  it('refuses a second person and names who holds it', async () => {
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
 
-    const second = queue.claim(capture.id, 'bob')
+    const second = await queue.claim(capture.id, 'bob')
     expect(second.ok).toBe(false)
     expect(second.heldBy).toBe('alice')
   })
 
-  it('lets the same person reclaim after a refresh', () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
-    expect(queue.claim(capture.id, 'alice').ok).toBe(true)
+  it('lets the same person reclaim after a refresh', async () => {
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
+    expect((await queue.claim(capture.id, 'alice')).ok).toBe(true)
   })
 
-  it('frees the capture when released', () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
-    queue.release(capture.id, 'alice')
-    expect(queue.claim(capture.id, 'bob').ok).toBe(true)
+  it('frees the capture when released', async () => {
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
+    await queue.release(capture.id, 'alice')
+    expect((await queue.claim(capture.id, 'bob')).ok).toBe(true)
   })
 
-  it('ignores a release from someone who does not hold it', () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
-    queue.release(capture.id, 'bob')
-    expect(queue.claim(capture.id, 'bob').ok).toBe(false)
+  it('ignores a release from someone who does not hold it', async () => {
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
+    await queue.release(capture.id, 'bob')
+    expect((await queue.claim(capture.id, 'bob')).ok).toBe(false)
   })
 
-  it('expires a stale claim so a walked-away lease cannot block forever', () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
+  it('expires a stale claim so a walked-away lease cannot block forever', async () => {
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
 
     // Backdate the claim past the lease window.
     db.prepare('UPDATE captures SET claimed_at = ? WHERE id = ?')
       .run(new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id)
 
-    expect(queue.claim(capture.id, 'bob').ok).toBe(true)
+    expect((await queue.claim(capture.id, 'bob')).ok).toBe(true)
   })
 
-  it('will not claim a capture that is already shelved', () => {
-    const capture = add()
-    queue.markDone(capture.id, addBook())
-    expect(queue.claim(capture.id, 'alice').ok).toBe(false)
+  it('will not claim a capture that is already shelved', async () => {
+    const capture = await add()
+    await queue.markDone(capture.id, await addBook())
+    expect((await queue.claim(capture.id, 'alice')).ok).toBe(false)
   })
 })
 
 describe('editing a capture while it is still in the queue', () => {
   it('persists what a person stated, so the next person opens their work', async () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
 
     const result = await queue.edit(capture.id, 'alice', { title: 'Dune' })
     expect(result.ok).toBe(true)
 
     // Read back through a fresh handle: the point of the feature is that the
     // work survives the browser it was typed into.
-    const reopened = new CaptureQueue(db, () => null).get(capture.id)!
+    const reopened = (await new CaptureQueue(db, () => null).get(capture.id))!
     expect(editsOn(reopened).title).toBe('Dune')
     expect(reopened.title_guess).toBe('Dune')
     expect(reopened.edited_by).toBe('alice')
@@ -187,14 +187,14 @@ describe('editing a capture while it is still in the queue', () => {
   it('accumulates edits across a handoff instead of the second wiping the first', async () => {
     // The three-person workflow in one test: alice gets partway, puts the
     // book down, bob picks it up and adds to what she did.
-    const capture = add()
+    const capture = await add()
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
-    queue.release(capture.id, 'alice')
+    await queue.release(capture.id, 'alice')
 
     const second = await queue.edit(capture.id, 'bob', { publisher: 'Ace Books' })
     expect(second.ok).toBe(true)
 
-    const stated = editsOn(queue.get(capture.id)!)
+    const stated = editsOn((await queue.get(capture.id))!)
     expect(stated.title).toBe('Dune')
     expect(stated.publisher).toBe('Ace Books')
   })
@@ -205,11 +205,11 @@ describe('editing a capture while it is still in the queue', () => {
     // the third under either of the first two claims a provenance it has not
     // got.
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
-    const capture = add()
+    const capture = await add()
 
     await queue.edit(capture.id, 'alice', { isbn13: DUNE })
 
-    const row = queue.get(capture.id)!
+    const row = (await queue.get(capture.id))!
     expect(row.isbn_source).toBe('manual')
     expect(editsOn(row).isbnSource).toBe('manual')
   })
@@ -218,7 +218,7 @@ describe('editing a capture while it is still in the queue', () => {
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
     // The case this actually happens in: the photographs failed, so somebody
     // is typing the number off the back of the book.
-    const capture = add()
+    const capture = await add()
     db.prepare("UPDATE captures SET status = 'failed' WHERE id = ?").run(capture.id)
 
     const result = await queue.edit(capture.id, 'alice', { isbn13: DUNE })
@@ -228,73 +228,73 @@ describe('editing a capture while it is still in the queue', () => {
     // And the refetched record is on the capture, not only in the response:
     // correcting the key without refetching leaves the right number beside
     // the wrong book.
-    const stated = editsOn(queue.get(capture.id)!)
+    const stated = editsOn((await queue.get(capture.id))!)
     expect(stated.title).toBe('Dune')
     expect(stated.authors).toEqual(['Frank Herbert'])
-    expect(queue.get(capture.id)!.status).toBe('ready')
+    expect((await queue.get(capture.id))!.status).toBe('ready')
   })
 
   it('keeps the digits even when no catalogue has them', async () => {
     vi.mocked(lookupIsbn).mockResolvedValue(nothingFound())
-    const capture = add()
+    const capture = await add()
 
     await queue.edit(capture.id, 'alice', { isbn13: DUNE })
 
-    expect(queue.get(capture.id)!.isbn13).toBe(DUNE)
-    expect(editsOn(queue.get(capture.id)!).isbn13).toBe(DUNE)
+    expect((await queue.get(capture.id))!.isbn13).toBe(DUNE)
+    expect(editsOn((await queue.get(capture.id))!).isbn13).toBe(DUNE)
   })
 
   it('leaves the notes and location a person gave alone when the ISBN changes', async () => {
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
-    const capture = add()
+    const capture = await add()
 
     await queue.edit(capture.id, 'alice', { notes: 'Spine is cracked', location: '2B' })
     await queue.edit(capture.id, 'alice', { isbn13: DUNE })
 
-    const stated = editsOn(queue.get(capture.id)!)
+    const stated = editsOn((await queue.get(capture.id))!)
     expect(stated.notes).toBe('Spine is cracked')
     expect(stated.location).toBe('2B')
     expect(stated.title).toBe('Dune')
   })
 
   it('refuses an edit from someone who does not hold the claim', async () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
 
     const result = await queue.edit(capture.id, 'bob', { title: 'Not Dune' })
 
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.reason).toBe('claimed')
     expect(result.ok === false && result.reason === 'claimed' && result.heldBy).toBe('alice')
-    expect(editsOn(queue.get(capture.id)!)).toEqual({})
+    expect(editsOn((await queue.get(capture.id))!)).toEqual({})
   })
 
   it('lets an edit take a claim that has gone stale', async () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
     db.prepare('UPDATE captures SET claimed_at = ? WHERE id = ?')
       .run(new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id)
 
     const result = await queue.edit(capture.id, 'bob', { title: 'Dune' })
 
     expect(result.ok).toBe(true)
-    expect(queue.get(capture.id)!.claimed_by).toBe('bob')
+    expect((await queue.get(capture.id))!.claimed_by).toBe('bob')
   })
 
   it('renews the lease, so a long resolving session does not expire under it', async () => {
-    const capture = add()
-    queue.claim(capture.id, 'alice')
+    const capture = await add()
+    await queue.claim(capture.id, 'alice')
     const stale = new Date(Date.now() - 4 * 60 * 1000).toISOString()
     db.prepare('UPDATE captures SET claimed_at = ? WHERE id = ?').run(stale, capture.id)
 
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
 
-    expect(queue.get(capture.id)!.claimed_at! > stale).toBe(true)
+    expect((await queue.get(capture.id))!.claimed_at! > stale).toBe(true)
   })
 
   it('refuses to edit a capture that has already become a book', async () => {
-    const capture = add()
-    queue.markDone(capture.id, addBook())
+    const capture = await add()
+    await queue.markDone(capture.id, await addBook())
 
     const result = await queue.edit(capture.id, 'alice', { title: 'Dune' })
     expect(result.ok === false && result.reason).toBe('done')
@@ -309,25 +309,25 @@ describe('editing a capture while it is still in the queue', () => {
     // The queue's whole value is knowing what still wants attention, so a
     // person who read a capture and decided it was fine has to leave a mark.
     // An edit that states nothing is exactly that mark.
-    const untouched = add()
-    const checked = add()
+    const untouched = await add()
+    const checked = await add()
 
     await queue.edit(checked.id, 'alice', {})
 
-    expect(queue.get(untouched.id)!.edited_at).toBeNull()
-    expect(queue.get(checked.id)!.edited_at).not.toBeNull()
-    expect(queue.get(checked.id)!.edited_by).toBe('alice')
+    expect((await queue.get(untouched.id))!.edited_at).toBeNull()
+    expect((await queue.get(checked.id))!.edited_at).not.toBeNull()
+    expect((await queue.get(checked.id))!.edited_by).toBe('alice')
     // Looked at and left alone: nothing is claimed as a human decision.
-    expect(editsOn(queue.get(checked.id)!)).toEqual({})
+    expect(editsOn((await queue.get(checked.id))!)).toEqual({})
   })
 
   it('stops a resolved capture reading as failed', async () => {
-    const capture = add()
+    const capture = await add()
     db.prepare("UPDATE captures SET status = 'failed' WHERE id = ?").run(capture.id)
 
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
 
-    expect(queue.get(capture.id)!.status).toBe('ready')
+    expect((await queue.get(capture.id))!.status).toBe('ready')
   })
 })
 
@@ -351,9 +351,9 @@ describe('precedence between a person and the background worker', () => {
     vi.mocked(lookupIsbn).mockResolvedValue(found(RAMA, 'Rendezvous with Rama', ['Arthur C. Clarke']))
 
     const running = worker()
-    const capture = running.attach(null, 'back', 'b.jpg')
+    const capture = await running.attach(null, 'back', 'b.jpg')
     await running.drain()
-    expect(running.get(capture.id)!.isbn13).toBe(RAMA)
+    expect((await running.get(capture.id))!.isbn13).toBe(RAMA)
 
     // A person, holding the book, says it is something else.
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
@@ -362,10 +362,10 @@ describe('precedence between a person and the background worker', () => {
     // Another photograph arrives, so the whole capture is read again.
     vi.mocked(identify).mockResolvedValue(readBarcode(RAMA))
     vi.mocked(lookupIsbn).mockResolvedValue(found(RAMA, 'Rendezvous with Rama', ['Arthur C. Clarke']))
-    running.attach(capture.id, 'front', 'f.jpg')
+    await running.attach(capture.id, 'front', 'f.jpg')
     await running.drain()
 
-    const after = running.get(capture.id)!
+    const after = (await running.get(capture.id))!
     expect(after.isbn13).toBe(DUNE)
     expect(after.isbn_source).toBe('manual')
     expect(editsOn(after).title).toBe('Dune')
@@ -376,14 +376,14 @@ describe('precedence between a person and the background worker', () => {
     // Precedence is per field, not per capture: somebody fixing a title must
     // not freeze the worker out of an ISBN nobody has an opinion about.
     const running = worker()
-    const capture = running.attach(null, 'back', 'b.jpg')
+    const capture = await running.attach(null, 'back', 'b.jpg')
     await running.edit(capture.id, 'alice', { notes: 'Water damage to the spine' })
 
     vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
     await running.drain()
 
-    const after = running.get(capture.id)!
+    const after = (await running.get(capture.id))!
     expect(after.isbn13).toBe(DUNE)
     expect(after.isbn_source).toBe('barcode')
     // And the person's note is still there underneath it.
@@ -395,7 +395,7 @@ describe('precedence between a person and the background worker', () => {
     // draft_json and a person owns edit_json, so a better photograph improves
     // the base without ever reaching what was laid over it.
     const running = worker()
-    const capture = running.attach(null, 'back', 'b.jpg')
+    const capture = await running.attach(null, 'back', 'b.jpg')
 
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
     await running.edit(capture.id, 'alice', { isbn13: DUNE, title: 'Dune (Ace edition)' })
@@ -404,7 +404,7 @@ describe('precedence between a person and the background worker', () => {
     vi.mocked(lookupIsbn).mockResolvedValue(found(RAMA, 'Rendezvous with Rama', ['Arthur C. Clarke']))
     await running.drain()
 
-    const after = running.get(capture.id)!
+    const after = (await running.get(capture.id))!
     expect(JSON.parse(after.draft_json).title).toBe('Rendezvous with Rama')
     expect(editsOn(after).title).toBe('Dune (Ace edition)')
     // And what anybody is shown is the person's, because it goes on top.
@@ -413,59 +413,94 @@ describe('precedence between a person and the background worker', () => {
 
   it('drops a "use Change ISBN" note once somebody has', async () => {
     const running = worker()
-    const capture = running.attach(null, 'back', 'b.jpg')
+    const capture = await running.attach(null, 'back', 'b.jpg')
     vi.mocked(identify).mockResolvedValue(readNothing())
     await running.drain()
-    expect(running.get(capture.id)!.note).not.toBe('')
+    expect((await running.get(capture.id))!.note).not.toBe('')
 
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
     await running.edit(capture.id, 'alice', { isbn13: DUNE })
-    running.attach(capture.id, 'front', 'f.jpg')
+    await running.attach(capture.id, 'front', 'f.jpg')
     vi.mocked(identify).mockResolvedValue(readNothing())
     await running.drain()
 
-    expect(running.get(capture.id)!.note).toBe('')
-    expect(running.get(capture.id)!.status).toBe('ready')
+    expect((await running.get(capture.id))!.note).toBe('')
+    expect((await running.get(capture.id))!.status).toBe('ready')
   })
 })
 
 describe('photos arriving one at a time', () => {
-  it('creates the capture on the first photo', () => {
-    const capture = queue.attach(null, 'back', 'b.jpg')
+  it('creates the capture on the first photo', async () => {
+    const capture = await queue.attach(null, 'back', 'b.jpg')
     expect(capture.back_image).toBe('b.jpg')
     expect(capture.status).toBe('pending')
   })
 
-  it('attaches later photos to the same capture', () => {
-    const first = queue.attach(null, 'back', 'b.jpg')
-    const second = queue.attach(first.id, 'front', 'f.jpg')
-    const third = queue.attach(first.id, 'edge', 'e.jpg')
+  it('attaches later photos to the same capture', async () => {
+    const first = await queue.attach(null, 'back', 'b.jpg')
+    const second = await queue.attach(first.id, 'front', 'f.jpg')
+    const third = await queue.attach(first.id, 'edge', 'e.jpg')
 
     expect(second.id).toBe(first.id)
     expect(third.id).toBe(first.id)
-    expect(queue.counts().pending).toBe(1)
+    expect((await queue.counts()).pending).toBe(1)
 
-    const row = queue.get(first.id)!
+    const row = (await queue.get(first.id))!
     expect(row.back_image).toBe('b.jpg')
     expect(row.front_image).toBe('f.jpg')
     expect(row.edge_image).toBe('e.jpg')
   })
 
-  it('marks a re-taken slot as needing another read', () => {
-    const capture = queue.attach(null, 'back', 'b.jpg')
+  it('marks a re-taken slot as needing another read', async () => {
+    const capture = await queue.attach(null, 'back', 'b.jpg')
     db.prepare("UPDATE captures SET analysed = 'back,front', status = 'failed' WHERE id = ?")
       .run(capture.id)
 
-    const again = queue.attach(capture.id, 'back', 'b2.jpg')
+    const again = await queue.attach(capture.id, 'back', 'b2.jpg')
     expect(again.back_image).toBe('b2.jpg')
     // Back drops out of analysed; front, which did not change, stays.
     expect(again.analysed.split(',').filter(Boolean)).toEqual(['front'])
     expect(again.status).toBe('pending')
   })
 
-  it('leaves a shelved capture alone', () => {
-    const capture = queue.attach(null, 'back', 'b.jpg')
-    queue.markDone(capture.id, addBook())
-    expect(queue.attach(capture.id, 'front', 'f.jpg').status).toBe('done')
+  it('leaves a shelved capture alone', async () => {
+    const capture = await queue.attach(null, 'back', 'b.jpg')
+    await queue.markDone(capture.id, await addBook())
+    expect((await queue.attach(capture.id, 'front', 'f.jpg')).status).toBe('done')
+  })
+})
+
+describe('two drains at once', () => {
+  /**
+   * The guard `drain` puts on itself, watched rather than assumed.
+   *
+   * Every shutter fires `void drain()` and the server fires one more at boot,
+   * so overlapping calls are the normal case rather than an exotic one. If a
+   * second pass could start while the first is suspended, both would take the
+   * same row off the top of the pending queue and read the same photographs
+   * twice, which with two people scanning into one server is how a capture
+   * gets claimed by two workers at once.
+   *
+   * Asserting on the number of photographs read is what makes that visible: a
+   * second pass that duplicated the work would read three or four rather than
+   * one per capture, whatever the rows ended up saying afterwards.
+   */
+  it('reads each pending capture exactly once', async () => {
+    // Suspended mid-photograph, so the later calls genuinely arrive while the
+    // first pass is in flight rather than after it has finished.
+    vi.mocked(identify).mockImplementation(async () => {
+      await new Promise((done) => setTimeout(done, 5))
+      return readBarcode(DUNE)
+    })
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    await running.attach(null, 'back', 'b1.jpg')
+    await running.attach(null, 'back', 'b2.jpg')
+
+    await Promise.all([running.drain(), running.drain(), running.drain()])
+
+    expect(vi.mocked(identify)).toHaveBeenCalledTimes(2)
+    expect(await running.counts()).toMatchObject({ pending: 0, ready: 2 })
   })
 })

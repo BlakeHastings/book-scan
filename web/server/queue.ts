@@ -136,7 +136,7 @@ export class CaptureQueue {
   // Writes
   // -----------------------------------------------------------------------
 
-  add(images: { front?: string; back?: string; edge?: string }): CaptureRow {
+  async add(images: { front?: string; back?: string; edge?: string }): Promise<CaptureRow> {
     const result = this.db
       .prepare(
         `INSERT INTO captures (status, front_image, back_image, edge_image, created_at)
@@ -144,7 +144,7 @@ export class CaptureQueue {
       )
       .run(images.front ?? '', images.back ?? '', images.edge ?? '', new Date().toISOString())
 
-    return this.get(Number(result.lastInsertRowid))!
+    return (await this.get(Number(result.lastInsertRowid)))!
   }
 
   /**
@@ -155,11 +155,11 @@ export class CaptureQueue {
    * previously the camera identified a photo synchronously for feedback and
    * the queue then identified the very same image all over again.
    */
-  attach(captureId: number | null, slot: Slot, filename: string): CaptureRow {
+  async attach(captureId: number | null, slot: Slot, filename: string): Promise<CaptureRow> {
     const column = `${slot}_image`
     const now = new Date().toISOString()
 
-    if (captureId && this.get(captureId)) {
+    if (captureId && (await this.get(captureId))) {
       this.db
         .prepare(
           `UPDATE captures
@@ -170,7 +170,7 @@ export class CaptureQueue {
             WHERE id = @id`,
         )
         .run({ id: captureId, filename, slot })
-      return this.get(captureId)!
+      return (await this.get(captureId))!
     }
 
     const created = this.db
@@ -179,22 +179,24 @@ export class CaptureQueue {
          VALUES ('pending', ?, ?)`,
       )
       .run(filename, now)
-    return this.get(Number(created.lastInsertRowid))!
+    return (await this.get(Number(created.lastInsertRowid)))!
   }
 
-  get(id: number): CaptureRow | undefined {
+  async get(id: number): Promise<CaptureRow | undefined> {
     return this.db.prepare('SELECT * FROM captures WHERE id = ?').get(id) as
       CaptureRow | undefined
   }
 
-  list(statuses: CaptureStatus[] = ['pending', 'ready', 'failed']): CaptureRow[] {
+  async list(
+    statuses: CaptureStatus[] = ['pending', 'ready', 'failed'],
+  ): Promise<CaptureRow[]> {
     const placeholders = statuses.map(() => '?').join(', ')
     return this.db
       .prepare(`SELECT * FROM captures WHERE status IN (${placeholders}) ORDER BY id ASC`)
       .all(...statuses) as CaptureRow[]
   }
 
-  counts(): Record<CaptureStatus, number> {
+  async counts(): Promise<Record<CaptureStatus, number>> {
     const rows = this.db
       .prepare('SELECT status, COUNT(*) AS n FROM captures GROUP BY status')
       .all() as { status: CaptureStatus; n: number }[]
@@ -214,7 +216,10 @@ export class CaptureQueue {
    * capture claimed must not block it forever. Done as a single conditional
    * UPDATE so two simultaneous claims cannot both succeed.
    */
-  claim(id: number, who: string): { ok: boolean; row?: CaptureRow; heldBy?: string } {
+  async claim(
+    id: number,
+    who: string,
+  ): Promise<{ ok: boolean; row?: CaptureRow; heldBy?: string }> {
     const cutoff = new Date(Date.now() - CLAIM_LEASE_MS).toISOString()
 
     const result = this.db
@@ -229,10 +234,10 @@ export class CaptureQueue {
       .run({ id, who, now: new Date().toISOString(), cutoff })
 
     if (result.changes === 0) {
-      const row = this.get(id)
+      const row = await this.get(id)
       return { ok: false, heldBy: row?.claimed_by || 'someone else' }
     }
-    return { ok: true, row: this.get(id) }
+    return { ok: true, row: await this.get(id) }
   }
 
   /**
@@ -260,12 +265,12 @@ export class CaptureQueue {
    * that is closed a second later.
    */
   async edit(id: number, who: string, patch: CaptureEdit): Promise<EditOutcome> {
-    const before = this.get(id)
+    const before = await this.get(id)
     if (!before) return { ok: false, reason: 'missing' }
     // A shelved capture is history. Its book is the thing to edit now.
     if (before.status === 'done') return { ok: false, reason: 'done' }
 
-    const held = this.claim(id, who)
+    const held = await this.claim(id, who)
     if (!held.ok) return { ok: false, reason: 'claimed', heldBy: held.heldBy ?? 'someone else' }
 
     // Merged, not replaced, so successive edits accumulate rather than each
@@ -335,10 +340,10 @@ export class CaptureQueue {
         resolved: (merged.title ?? '') || (merged.isbn13 ?? '') ? 1 : 0,
       })
 
-    return { ok: true, row: this.get(id)!, lookup }
+    return { ok: true, row: (await this.get(id))!, lookup }
   }
 
-  release(id: number, who: string): void {
+  async release(id: number, who: string): Promise<void> {
     this.db
       .prepare(
         `UPDATE captures SET claimed_by = '', claimed_at = NULL
@@ -347,13 +352,13 @@ export class CaptureQueue {
       .run(id, who)
   }
 
-  markDone(id: number, bookId: number): void {
+  async markDone(id: number, bookId: number): Promise<void> {
     this.db
       .prepare("UPDATE captures SET status = 'done', book_id = ? WHERE id = ?")
       .run(bookId, id)
   }
 
-  remove(id: number): void {
+  async remove(id: number): Promise<void> {
     this.db.prepare('DELETE FROM captures WHERE id = ?').run(id)
   }
 
@@ -361,7 +366,7 @@ export class CaptureQueue {
   // Worker
   // -----------------------------------------------------------------------
 
-  private nextPending(): CaptureRow | undefined {
+  private async nextPending(): Promise<CaptureRow | undefined> {
     return this.db
       .prepare("SELECT * FROM captures WHERE status = 'pending' ORDER BY id ASC LIMIT 1")
       .get() as CaptureRow | undefined
@@ -371,13 +376,34 @@ export class CaptureQueue {
    * Process every pending capture, one at a time. Safe to call on every
    * enqueue: a second call while draining returns immediately and the running
    * loop picks up whatever was added.
+   *
+   * **Only one pass may be in flight, and the guard below is the whole of it.**
+   * Two overlapping passes would each take the same row off the top of the
+   * pending queue and identify the same photographs twice, which with two
+   * people scanning into one server is not a rare case. Every path into the
+   * worker goes through here: `POST /api/captures` fires `void drain()` on
+   * every shutter, and `resumeOnStartup` fires one more at boot.
+   *
+   * The guard survives this class becoming asynchronous, and that is worth
+   * being explicit about rather than assuming. An async function body runs
+   * synchronously until its first `await`, and there is no `await` between
+   * reading `this.draining` and setting it, so a second caller entering while
+   * the first is suspended still sees `true` and returns. Nothing between the
+   * two lines can yield, so nothing can interleave there.
+   *
+   * What is new is that the loop yields between iterations: `nextPending` is
+   * awaited now, where before it was a synchronous read. Nothing depends on it
+   * not yielding. The loop already awaited `process`, which does OCR and
+   * network lookups, so anything that could land mid-drain could land there
+   * already, and each iteration re-reads the top of the queue rather than
+   * working from a list taken at the start.
    */
   async drain(): Promise<void> {
     if (this.draining) return
     this.draining = true
     try {
       for (;;) {
-        const next = this.nextPending()
+        const next = await this.nextPending()
         if (!next) break
         await this.process(next)
       }
@@ -507,10 +533,10 @@ export class CaptureQueue {
       //
       // Read fresh rather than from `capture`: this pass has been away doing
       // OCR and lookups for seconds, which is ample time for somebody to have
-      // typed something. There is no await between this read and the write
-      // below, and better-sqlite3 is synchronous, so nothing can land between
-      // the two.
-      const stated = editsOn(this.get(capture.id) ?? capture)
+      // typed something. The read is as late as it can be and nothing is
+      // awaited between it resuming and the write below, so no other request
+      // can run in between; the row this decides from is the row it writes.
+      const stated = editsOn((await this.get(capture.id)) ?? capture)
       const statedIsbn = stated.isbn13 !== undefined
       const resolved = Boolean(lookup?.found) || Boolean(stated.title) || statedIsbn
 
@@ -549,7 +575,7 @@ export class CaptureQueue {
       // arrived slot is never read: harmless when the book is already
       // identified, but it loses the front cover exactly when the back failed
       // and the cover is all there is.
-      const fresh = this.get(capture.id)
+      const fresh = await this.get(capture.id)
       if (fresh && fresh.status !== 'done') {
         const read = new Set(fresh.analysed.split(',').filter(Boolean))
         const outstanding = SLOT_ORDER.some((slot) => {
@@ -582,6 +608,9 @@ export class CaptureQueue {
    * otherwise, since the worker only runs in memory.
    */
   resumeOnStartup(): void {
+    // Deliberately not awaited and deliberately not async: the server must
+    // finish starting whatever the queue is doing. `drain` guards itself
+    // against a second pass, so this cannot overlap a drain a shutter starts.
     void this.drain()
   }
 }
