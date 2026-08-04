@@ -1542,6 +1542,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .choice__confidence--close { color: var(--good); }
 .choice__confidence--similar { color: var(--muted); }
 .choice__confidence--loose { color: var(--warn); }
+/* The percentage is the same measurement restated, not a second opinion, so
+   it stays visually quieter than the word that carries the band. */
+.choice__percent { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* A weak candidate is still offered, and still a plain unselected button.
    It just stops looking as solid as a good one. */
