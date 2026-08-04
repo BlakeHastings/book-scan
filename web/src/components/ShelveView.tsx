@@ -5,6 +5,13 @@ import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
   placement: PlacementResponse | null
+  /**
+   * True while the placement on screen is known to be out of date: a reload
+   * is either in flight or about to be. An out of date placement names a real
+   * plank, so it cannot be told apart from a current one by looking at it,
+   * and every answer here is an answer about the plank it names.
+   */
+  stale: boolean
   range: ShelfRange
   title: string
   saving: boolean
@@ -56,7 +63,7 @@ interface Step {
  * physical to-do list in the order it has to happen.
  */
 export function ShelveView({
-  placement, range, title, saving, onShelved, onBack, onRefresh,
+  placement, stale, range, title, saving, onShelved, onBack, onRefresh,
 }: Props) {
   const [steps, setSteps] = useState<Step[]>([])
   /** The move awaiting a yes or no. Null means the question is about the book. */
@@ -81,8 +88,18 @@ export function ShelveView({
    * plank at all: the save carried an empty label, the location write was
    * skipped, and the book stayed recorded where it had been. That is the same
    * silent loss as #61, reached a different way.
+   *
+   * A stale placement is the same question with a worse answer, and it is
+   * #105: a boundary move changes the shelves, so the placement that was on
+   * screen a moment ago names the plank the book has just come from. Empty
+   * was caught and stale was not, and a stale label is indistinguishable from
+   * a current one here, so it has to be said from outside. Answering against
+   * it wrote the old plank into `location`, which is worse than answering
+   * about nothing: the catalogue ends up confidently wrong rather than
+   * silent, and nothing reports it, because the recorded location is exactly
+   * what misfile detection compares against.
    */
-  const known = Boolean(shelfLabel)
+  const known = Boolean(shelfLabel) && !stale
 
   /**
    * Nothing on this shelf sorts after the book in your hand.
@@ -180,7 +197,7 @@ export function ShelveView({
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
 
-      <PlacementView placement={placement} pending={busy} />
+      <PlacementView placement={placement} pending={busy || stale} />
 
       {steps.length > 0 && (
         <div className="moves">

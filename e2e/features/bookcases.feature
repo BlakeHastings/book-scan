@@ -36,7 +36,10 @@ Feature: Moving a book across a bookcase boundary
     Then the book should offer to move it:
       | Move it on to 2A |
 
-    When I open "Dune" from the library
+    # Back out to the library to reach the other book. A book's own page draws
+    # its own area and nothing else, so Dune's spine is not on Neuromancer's.
+    When I go to the library
+    And I open "Dune" from the library
     Then the book should offer to move it:
       | Move it back to 1A |
 
@@ -54,6 +57,32 @@ Feature: Moving a book across a bookcase boundary
     And the catalogue should hold "The Dispossessed" recorded as:
       | location | 2A |
     And the catalogue should hold "Rendezvous with Rama" recorded as:
+      | location | 1A |
+
+    And nothing should need attention
+
+    # And back across it, which is where a bookcase break is most easily got
+    # wrong: the same move in the other direction has to re-anchor the same
+    # break, not leave the book recorded on the furniture it started on. No
+    # wait on the instruction sentence here, so the tap lands while the app is
+    # still redrawing, which is the tap #105 answered with the old plank.
+    When I go to the library
+    And I open "Dune" from the library
+    Then the book should offer to move it:
+      | Move it on to 2A |
+
+    When I choose to move it on to "2A"
+    And I say it fits and finish the move
+    Then the library should show "Dune" on shelf "2A"
+    And the catalogue should hold "Dune" recorded as:
+      | location | 2A |
+
+    # Round trip closed: the bookcase break is back where the Background left
+    # it, and nobody else was asked to move in either direction.
+    And the library should show "Neuromancer" on shelf "1A"
+    And the catalogue should hold "The Dispossessed" recorded as:
+      | location | 2A |
+    And the catalogue should hold "Neuromancer" recorded as:
       | location | 1A |
 
     And nothing should need attention
