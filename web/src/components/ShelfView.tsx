@@ -79,6 +79,29 @@ export function ShelfView({ onOpen }: Props) {
   const unplaced = (review?.excluded ?? [])
     .filter((entry) => entry.reason === 'never-placed').length
 
+  /**
+   * The person says they have bounced a book onto the plank next door.
+   *
+   * Offered only on the first and last book of an area, because those are the
+   * only two that can move without putting the run out of order. That is not
+   * this component's rule to keep, though: the server refuses any other book
+   * whatever this screen chooses to draw.
+   */
+  const moveAcrossBoundary = async (id: number, direction: 'next' | 'previous') => {
+    setMoving(id)
+    setError('')
+    try {
+      await api.moveAcrossBoundary(range, id, direction)
+      // Reloaded rather than patched from the response, because the misfile
+      // list has to be asked again: the whole claim is that it stays empty.
+      load()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setMoving(0)
+    }
+  }
+
   const removeSeparator = async (id: number) => {
     setError('')
     try {
@@ -213,7 +236,17 @@ export function ShelfView({ onOpen }: Props) {
         <p className="hint">Nothing catalogued in this range yet.</p>
       )}
 
-      {groups.map((group) => {
+      {groups.map((group, index) => {
+        /*
+         * The two books that can leave this plank without disturbing anyone.
+         * On a plank holding one book they are the same book, which is
+         * honest: it really can go either way, and doing so empties the plank.
+         */
+        const first = group.books[0]?.book
+        const last = group.books[group.books.length - 1]?.book
+        const above = groups[index - 1]
+        const below = groups[index + 1]
+
         return (
           <section key={group.label} className="shelfgroup">
             <header className="shelfgroup__head">
@@ -228,6 +261,23 @@ export function ShelfView({ onOpen }: Props) {
                   : ''}
               </span>
             </header>
+
+            {/* Drawn at the top of the plank because that is where the book
+                it names physically is. */}
+            {above && first && (
+              <div className="boundary">
+                <span className="boundary__label">
+                  {first.title} is first here
+                </span>
+                <button
+                  className="btn btn--ghost"
+                  disabled={moving === first.id}
+                  onClick={() => moveAcrossBoundary(first.id, 'previous')}
+                >
+                  {moving === first.id ? '...' : `Moved it back to ${above.label}`}
+                </button>
+              </div>
+            )}
 
             <ol className="shelf">
               {rowsFor(group).map(({ book, n, here }) => (
@@ -258,6 +308,24 @@ export function ShelfView({ onOpen }: Props) {
                 </li>
               ))}
             </ol>
+
+            {/* And at the bottom, for the same reason. Nothing is offered on
+                the last plank of the range: there is no next one, and making
+                one is what saying a plank is full does. */}
+            {below && last && (
+              <div className="boundary">
+                <span className="boundary__label">
+                  {last.title} is last here
+                </span>
+                <button
+                  className="btn btn--ghost"
+                  disabled={moving === last.id}
+                  onClick={() => moveAcrossBoundary(last.id, 'next')}
+                >
+                  {moving === last.id ? '...' : `Moved it on to ${below.label}`}
+                </button>
+              </div>
+            )}
 
             {group.separatorId !== null && (
               <div className="divider">

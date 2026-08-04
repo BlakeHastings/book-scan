@@ -470,6 +470,38 @@ export const api = {
       body: JSON.stringify({ range, label, kind }),
     }),
 
+  /**
+   * Carry the first or last book of an area to the plank next door, and say
+   * it is there.
+   *
+   * Two calls, for the same reason `updateAndShelve` makes two. Moving the
+   * boundary is a change to the furniture; saying which plank the book is on
+   * is an observation about the room, and only one route is allowed to write
+   * that. Skipping the second call moves the area boundary and leaves the
+   * book recorded on the plank it came off, so the library turns round and
+   * reports the move as still outstanding, which is the exact failure #61 was
+   * about.
+   *
+   * The server refuses a book that is not at a boundary; the buttons that call
+   * this are only offered on ones that are. Both, deliberately.
+   */
+  moveAcrossBoundary: async (
+    range: ShelfRange,
+    id: number,
+    direction: 'next' | 'previous',
+  ) => {
+    const result = await request<{
+      move: { id: number; title: string; from: string; to: string } | null
+      groups: ShelfGroupDto[]
+      moves: Move[]
+    }>('/api/shelves/move', {
+      method: 'POST',
+      body: JSON.stringify({ range, id, direction }),
+    })
+    if (result.move?.to) await setLocation(id, result.move.to)
+    return result
+  },
+
   removeSeparator: (id: number, range: ShelfRange) =>
     request<{ groups: ShelfGroupDto[]; moves: Move[] }>(
       `/api/shelves/${id}?range=${range}`, { method: 'DELETE' },

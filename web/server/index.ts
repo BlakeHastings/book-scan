@@ -696,6 +696,43 @@ export function createApp(options: CreateAppOptions): express.Express {
     })
   })
 
+  /**
+   * Bounce the first or last book of an area onto the plank next door.
+   *
+   * Where a plank ends is decided by where somebody ran out of room, so it is
+   * the one thing in this model that needs adjusting by hand. Restricting it
+   * to the first or last book is not a guard bolted onto a general move: it is
+   * the complete set of moves that leave every neighbour in the sequence where
+   * it was, which is why the operation is shaped like the rule.
+   *
+   * Nothing here writes a location. The furniture moves; a person then says
+   * the book is on the new plank through PATCH /api/books/:id/location, which
+   * is still the only route that changes where the catalogue thinks a book is.
+   */
+  app.post('/api/shelves/move', (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+    const direction = body.direction === 'previous' ? 'previous' : 'next'
+    const id = Number(body.id ?? 0)
+
+    const title = shelves.layout(range).find((p) => p.book.id === id)?.book.title ?? ''
+    const result = shelves.moveAcrossBoundary(range, id, direction)
+    if (!result.ok) {
+      res.status(400).json({ error: result.error })
+      return
+    }
+
+    res.json({
+      // Named the same way the overflow step is, so the client records where
+      // the book landed through exactly the same call.
+      move: result.move
+        ? { id, title, from: result.move.from, to: result.move.to }
+        : null,
+      moves: describeMoves(range, result.moves ?? []),
+      groups: shelfGroups(range),
+    })
+  })
+
   app.delete('/api/shelves/:id', (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const before = shelves.layout(range)

@@ -8,9 +8,10 @@
 import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
-  diffLayout, groupByShelf, layoutRange, locationLabel, NEWCOMER_ID, overflow,
-  shelfLoads, stripAround, stripAt,
+  boundaryMove, diffLayout, groupByShelf, layoutRange, locationLabel,
+  NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt,
   type RangeStart,
+  type BoundaryDirection, type BoundaryMove, type BoundaryRefusal,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
   type ShelfGroup, type Strip,
 } from '../shared/layout'
@@ -50,6 +51,35 @@ const toFiled = (row: BookRow, derived: string, checkedOut: boolean): FiledBook 
   sortKey: row.sort_key,
   checkedOut,
 })
+
+/**
+ * Why a boundary move was refused, said to the person holding the book.
+ *
+ * Each reason gets its own sentence. Sharing one message between "that book is
+ * in the middle of the plank" and "there is no plank that way" sends somebody
+ * looking at the wrong thing, which is the mistake `overflow` above already
+ * had to be taught once.
+ */
+function refusal(
+  reason: BoundaryRefusal,
+  at: string,
+  direction: BoundaryDirection,
+): string {
+  if (reason === 'not-shelved') {
+    return 'That book is not on a bookcase in this range, so it has no area ' +
+      'to move out of.'
+  }
+
+  if (reason === 'not-at-boundary') {
+    return `Only the first or last book of ${at} can move across its boundary. ` +
+      'Any other book cannot move without putting the area out of order.'
+  }
+
+  return direction === 'next'
+    ? `There is no area after ${at}. Say ${at} is full when you are placing a ` +
+      'book, and the next one gets made then.'
+    : `There is no area before ${at}; it is where this range starts.`
+}
 
 export class Shelves {
   constructor(private readonly db: Database) {}
@@ -197,6 +227,56 @@ export class Shelves {
     }
 
     return { ok: true, step, moves: this.movesSince(range, before) }
+  }
+
+  /**
+   * The first or last book of an area, carried to the plank next door.
+   *
+   * The rule lives here and in `boundaryMove`, not in the screen that offers
+   * it. A button that only ever appears on the right book is one caller away
+   * from being lost, and the caller after that would be writing a book into
+   * the middle of another plank, which is precisely the state misfile
+   * detection exists to report.
+   *
+   * This does not touch the location column. Where a book physically is was
+   * observed by a person, and it is written through PATCH /api/books/:id/
+   * location like every other observation, by whoever just moved the book.
+   * What changes here is the furniture: an area boundary, re-anchored one
+   * book along.
+   */
+  moveAcrossBoundary(
+    range: ShelfRange,
+    bookId: number,
+    direction: BoundaryDirection,
+  ): { ok: boolean; error?: string; move?: BoundaryMove; moves?: Move[] } {
+    const before = this.layout(range)
+    const outcome = boundaryMove(before, this.list(range), bookId, direction)
+
+    if (!outcome.ok) {
+      return { ok: false, error: refusal(outcome.reason, outcome.at, direction) }
+    }
+
+    const apply = this.db.transaction(() => {
+      for (const shift of outcome.move.shift) {
+        this.db
+          .prepare('UPDATE separators SET starts_at = ? WHERE id = ?')
+          .run(shift.startsAt, shift.id)
+      }
+      for (const id of outcome.move.remove) this.remove(id)
+    })
+    apply()
+
+    return {
+      ok: true,
+      move: outcome.move,
+      /*
+       * Everything else that ended up somewhere new, which should be nothing.
+       * The moved book is deliberately absent: it is in somebody's hand, and
+       * where it landed is recorded through the location route rather than
+       * handed back as a job still to do.
+       */
+      moves: this.movesSince(range, before).filter((move) => move.id !== bookId),
+    }
   }
 
   /**

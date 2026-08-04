@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  areaLabel, groupByShelf, layoutRange, locationLabel, NEWCOMER_ID, overflow,
-  shelfLoads, stripAt, stripAround,
+  areaLabel, boundaryMove, groupByShelf, layoutRange, locationLabel,
+  NEWCOMER_ID, overflow, shelfLoads, stripAt, stripAround,
   type Separator,
 } from './layout'
 
@@ -317,5 +317,178 @@ describe('a cascade across several shelves', () => {
     // The plank break that followed now divides the new bookcase, so the run
     // past it comes along rather than being stranded in bookcase one.
     expect(labels(books, separators)).toEqual(['1A', '1A', '2A', '2B', '2B', '2B'])
+  })
+})
+
+describe('boundaryMove', () => {
+  /**
+   * Apply the planned move to a separator list, the way the store does, so a
+   * test can assert on the labels that come out rather than on the edit that
+   * was planned. The edit is a means; the run of labels is the claim.
+   */
+  const carry = (
+    books: { id: number; sortKey: string }[],
+    separators: Separator[],
+    id: number,
+    direction: 'next' | 'previous',
+  ) => {
+    const outcome = boundaryMove(layoutRange(books, separators), separators, id, direction)
+    if (!outcome.ok) return { outcome, separators }
+
+    const shifted = new Map(outcome.move.shift.map((s) => [s.id, s.startsAt]))
+    return {
+      outcome,
+      separators: separators
+        .filter((s) => !outcome.move.remove.includes(s.id))
+        .map((s) => (shifted.has(s.id) ? { ...s, startsAt: shifted.get(s.id)! } : s)),
+    }
+  }
+
+  const refusal = (
+    books: { id: number; sortKey: string }[],
+    separators: Separator[],
+    id: number,
+    direction: 'next' | 'previous',
+  ) => {
+    const outcome = boundaryMove(layoutRange(books, separators), separators, id, direction)
+    return outcome.ok ? '' : outcome.reason
+  }
+
+  it('sends the last book of an area to the front of the next one', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+    expect(labels(books, separators)).toEqual(['1A', '1A', '1B', '1B'])
+
+    const { outcome, separators: after } = carry(books, separators, 2, 'next')
+    expect(outcome.ok && outcome.move.from).toBe('1A')
+    expect(outcome.ok && outcome.move.to).toBe('1B')
+    expect(labels(books, after)).toEqual(['1A', '1B', '1B', '1B'])
+  })
+
+  it('sends the first book of an area to the end of the previous one', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+
+    const { outcome, separators: after } = carry(books, separators, 3, 'previous')
+    expect(outcome.ok && outcome.move.from).toBe('1B')
+    expect(outcome.ok && outcome.move.to).toBe('1A')
+    expect(labels(books, after)).toEqual(['1A', '1A', '1A', '1B'])
+  })
+
+  it('leaves every other book exactly where it was', () => {
+    // The property the whole restriction exists for. A move that shuffled the
+    // neighbours would be a general move with a guard on it, not this.
+    const books = run('ABCDEF')
+    const separators = [sep(1, 'C'), sep(2, 'E')]
+    const was = labels(books, separators)
+
+    const { separators: after } = carry(books, separators, 4, 'next')
+    expect(labels(books, after)).toEqual(was.map((label, i) => (i === 3 ? '1C' : label)))
+  })
+
+  it('refuses a book in the middle of its area, both ways', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+    expect(refusal(books, separators, 1, 'next')).toBe('not-at-boundary')
+    expect(refusal(books, separators, 4, 'previous')).toBe('not-at-boundary')
+  })
+
+  it('refuses the first book of the first area and the last of the last', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+    expect(refusal(books, separators, 1, 'previous')).toBe('no-adjacent-area')
+    expect(refusal(books, separators, 4, 'next')).toBe('no-adjacent-area')
+  })
+
+  it('refuses a book that is not in this run at all', () => {
+    expect(refusal(run('AB'), [], 99, 'next')).toBe('not-shelved')
+  })
+
+  it('empties an area when its only book moves on, and moves nothing else', () => {
+    // B has a plank to itself. Carrying it to the next one leaves that plank
+    // bare, which is exactly what happened in the room.
+    const books = run('ABC')
+    const separators = [sep(1, 'B'), sep(2, 'C')]
+    expect(labels(books, separators)).toEqual(['1A', '1B', '1C'])
+
+    const { separators: after } = carry(books, separators, 2, 'next')
+    expect(labels(books, after)).toEqual(['1A', '1C', '1C'])
+  })
+
+  it('empties an area when its only book moves back, and moves nothing else', () => {
+    const books = run('ABC')
+    const separators = [sep(1, 'B'), sep(2, 'C')]
+
+    const { separators: after } = carry(books, separators, 2, 'previous')
+    expect(labels(books, after)).toEqual(['1A', '1A', '1C'])
+  })
+
+  it('drops the boundary when the area it starts has nothing left after it', () => {
+    // C is alone on the last plank. Moved back, no book is left for that
+    // boundary to be anchored to, so it describes nowhere and goes.
+    const books = run('ABC')
+    const separators = [sep(1, 'C')]
+
+    const { outcome, separators: after } = carry(books, separators, 3, 'previous')
+    expect(outcome.ok && outcome.move.remove).toEqual([1])
+    expect(after).toEqual([])
+    expect(labels(books, after)).toEqual(['1A', '1A', '1A'])
+  })
+
+  it('carries the book one plank even when an emptied one is in the way', () => {
+    // Two boundaries anchored to the same book is what an emptied area looks
+    // like. Re-anchoring only one of them would carry the book two planks.
+    const books = run('ABC')
+    const separators = [sep(1, 'C'), sep(2, 'C')]
+    expect(labels(books, separators)).toEqual(['1A', '1A', '1C'])
+
+    const { outcome, separators: after } = carry(books, separators, 2, 'next')
+    expect(outcome.ok && outcome.move.to).toBe('1C')
+    expect(labels(books, after)).toEqual(['1A', '1C', '1C'])
+  })
+
+  it('leaves a bare plank a later overflow can fill, and name correctly', () => {
+    // The two features meeting. A boundary move can empty a plank, and an
+    // empty plank has no books to name it, so it is absent from the groups.
+    // An overflow that read its destination off "the next group" would then
+    // send a book to the plank after the bare one and record it there, which
+    // is a misfile the app manufactured on its own.
+    const books = run('ABC')
+    const separators = [sep(1, 'B'), sep(2, 'C')]
+    const { separators: after } = carry(books, separators, 2, 'previous')
+    expect(labels(books, after)).toEqual(['1A', '1A', '1C'])
+
+    const step = overflow(layoutRange(books, after), after, '1A', 'area')
+    const filled = after.map((s) =>
+      s.id === step?.shift?.id ? { ...s, startsAt: step.shift!.startsAt } : s)
+
+    expect(step?.to).toBe('1B')
+    expect(labels(books, filled)).toEqual(['1A', '1B', '1C'])
+    expect(step?.to).toBe(labels(books, filled)[1])
+  })
+
+  it('crosses a bookcase boundary the same way it crosses a plank', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C', 'shelf')]
+    expect(labels(books, separators)).toEqual(['1A', '1A', '2A', '2A'])
+
+    const { outcome, separators: after } = carry(books, separators, 2, 'next')
+    expect(outcome.ok && outcome.move.to).toBe('2A')
+    expect(labels(books, after)).toEqual(['1A', '2A', '2A', '2A'])
+  })
+
+  it('writes the same boundary an overflow of the same shelf would', () => {
+    // A manual bounce and an automatic shuffle answer the same physical
+    // question. If they wrote different things down, one would quietly undo
+    // the other every time both were used on one run.
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+
+    const step = overflow(layoutRange(books, separators), separators, '1A', 'area')
+    const shuffled = separators.map((s) =>
+      s.id === step?.shift?.id ? { ...s, startsAt: step.shift!.startsAt } : s)
+
+    expect(labels(books, carry(books, separators, 2, 'next').separators))
+      .toEqual(labels(books, shuffled))
   })
 })
