@@ -186,11 +186,20 @@ export interface CoverMatch {
  */
 export type CheckoutOutcome = 'checked-out' | 'already-out' | 'checked-in' | 'already-in'
 
-export type ScanCheckout =
+/**
+ * What the scanner made of a photograph.
+ *
+ * None of these is an action, and none of them changed anything. `identified`
+ * is a barcode that named a catalogued row, which settles what the book is and
+ * says nothing about what should happen to it; `candidates` is a shortlist to
+ * put in front of a person. Where the flow goes next is the client's decision,
+ * and what happens to the book is the person's.
+ */
+export type ScanResult =
   | { outcome: 'no-isbn'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'not-catalogued'; isbn13: string }
-  | { outcome: CheckoutOutcome; book: BookRow; counts: Counts }
+  | { outcome: 'identified'; book: BookRow }
 
 /** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
@@ -375,11 +384,17 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ limit }) },
     ),
 
-  /** Photo in, decision out. See ScanCheckout for what each outcome means. */
-  scanCheckout: (image: string, out: boolean) =>
-    request<ScanCheckout>('/api/books/scan-checkout', {
+  /**
+   * Photo in, an identity out. See ScanResult for what each outcome means.
+   *
+   * Deliberately has no direction argument and no way to gain one: the scanner
+   * finds out which book is being held up and nothing else. Changing a book's
+   * state is `setCheckedOut`, which takes an id.
+   */
+  scanBook: (image: string) =>
+    request<ScanResult>('/api/books/scan', {
       method: 'POST',
-      body: JSON.stringify({ image, out }),
+      body: JSON.stringify({ image }),
     }),
 
   updateBook: (id: number, draft: Draft) =>

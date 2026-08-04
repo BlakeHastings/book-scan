@@ -81,3 +81,31 @@ export function shortlistPrompt(candidates: readonly { distance: number }[]): st
     ? 'No barcode. Is it one of these?'
     : 'No barcode, and nothing looks close. Compare carefully, or shoot again.'
 }
+
+/**
+ * The one candidate the scanner may open a book for without being asked.
+ *
+ * Scanning lands on the book's detail view, which is a page to read, not an
+ * action. Nothing is written by getting there, so the cost of opening the
+ * wrong book is a glance at a cover and a tap back, and the detail view puts
+ * the title, the author and the cover in front of the person immediately. That
+ * is a different bargain from the one `looksLike` refuses to make, which is
+ * writing to the catalogue off the same signal.
+ *
+ * It is still the `close` band and nothing weaker, because that band already
+ * carries the meaning wanted here: near enough identical to trust on sight.
+ * Reusing it means there is one definition of confident in the app rather than
+ * two that can drift apart.
+ *
+ * Two close candidates return nothing. They cannot both be the book in your
+ * hands, and picking the nearer one would be exactly the relative grading the
+ * bands exist to refuse. Ambiguity goes back to the person as a shortlist.
+ */
+export function confidentPick<T extends { distance: number }>(
+  candidates: readonly T[],
+): T | null {
+  const close = candidates.filter(
+    (candidate) => matchConfidence(candidate.distance).strength === 'close',
+  )
+  return close.length === 1 ? close[0]! : null
+}

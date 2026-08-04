@@ -21,6 +21,63 @@ When('I open the app', async ({ page, webUrl }) => {
   await expect(page.locator('.tile__title', { hasText: 'Add' })).toBeVisible()
 })
 
+/**
+ * The one way in for a book the catalogue already has.
+ *
+ * Two taps: the tile, then the shutter. The wait between them is a wait on a
+ * frame arriving, same as the cataloguing camera, because a shutter pressed
+ * before the fake device has delivered anything photographs an empty canvas.
+ */
+When('I scan the book', async ({ page }) => {
+  await page.locator('button.tile', { hasText: 'Scan' }).click()
+  await expect
+    .poll(
+      () => page.locator('video.isbncam__video').evaluate(
+        (video) => (video as HTMLVideoElement).videoWidth,
+      ),
+      { message: 'the fake camera never produced a frame' },
+    )
+    .toBeGreaterThan(0)
+
+  await page.getByRole('button', { name: 'Scan', exact: true }).click()
+})
+
+Then('it should open the book {string}', async ({ page }, title: string) => {
+  await expect(page.locator('.detail__title')).toHaveText(title, { timeout: QUEUE_TIMEOUT })
+})
+
+/**
+ * What the book's page puts in front of you, in order.
+ *
+ * Exact and ordered, because the claim is not just that an action exists but
+ * that the page leads with the one the book's state calls for. A page that
+ * offered both directions, or neither, would still pass a looser check.
+ */
+Then('the book should offer:', async ({ page }, table: DataTable) => {
+  const wanted = table.raw().map((row) => row[0] ?? '')
+  await expect(page.locator('.actions--top .btn')).toHaveText(wanted)
+})
+
+When('I take it off the bookcase', async ({ page }) => {
+  await page.getByRole('button', { name: 'Take it off the bookcase' }).click()
+  await expect(page.locator('.checkedout')).toBeVisible()
+})
+
+When('I put it back on the bookcase', async ({ page }) => {
+  await page.getByRole('button', { name: 'Put it back on the bookcase' }).click()
+  await expect(page.locator('.shelve__ask')).toBeVisible()
+})
+
+/**
+ * The same guided shuffle a new book goes through, but a book that came back
+ * returns to the scanner rather than to the cataloguing camera, because that
+ * is where the next book off the pile is dealt with.
+ */
+When('I say it fits and put it back', async ({ page }) => {
+  await page.getByRole('button', { name: 'It fits, save' }).click()
+  await expect(page.locator('video.isbncam__video')).toBeVisible({ timeout: QUEUE_TIMEOUT })
+})
+
 When('I start the camera', async ({ page }) => {
   await page.locator('button.tile', { hasText: 'Add' }).click()
   await page.getByRole('button', { name: 'Start camera' }).click()

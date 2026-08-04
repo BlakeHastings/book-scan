@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CLOSE_LIMIT, MATCH_CUTOFF, SIMILAR_LIMIT,
-  hasCloseMatch, matchConfidence, shortlistPrompt,
+  confidentPick, hasCloseMatch, matchConfidence, shortlistPrompt,
 } from './confidence'
 
 describe('matchConfidence', () => {
@@ -87,5 +87,44 @@ describe('shortlistPrompt', () => {
     for (const list of [[{ distance: 0 }], [{ distance: 24 }], []]) {
       expect(shortlistPrompt(list)).not.toMatch(/select|chosen|picked for you/i)
     }
+  })
+})
+
+describe('confidentPick', () => {
+  it('picks nothing out of an empty shortlist', () => {
+    expect(confidentPick([])).toBeNull()
+  })
+
+  it('picks the single close candidate, even beside weaker ones', () => {
+    const close = { id: 1, distance: 3 }
+    expect(confidentPick([close, { id: 2, distance: 17 }, { id: 3, distance: 24 }]))
+      .toBe(close)
+  })
+
+  it('picks nothing when the best on offer is merely similar', () => {
+    // 9 is one bit past the close band. That is the whole gate: the band, not
+    // the ordering, decides whether anything opens by itself.
+    expect(confidentPick([{ distance: 9 }, { distance: 12 }])).toBeNull()
+    expect(confidentPick([{ distance: SIMILAR_LIMIT }])).toBeNull()
+    expect(confidentPick([{ distance: MATCH_CUTOFF }])).toBeNull()
+  })
+
+  it('picks nothing when two candidates are both close', () => {
+    // They cannot both be the book being held up, and preferring the nearer
+    // one is the relative grading the bands exist to refuse.
+    expect(confidentPick([{ distance: 1 }, { distance: 4 }])).toBeNull()
+    expect(confidentPick([{ distance: 0 }, { distance: CLOSE_LIMIT }])).toBeNull()
+  })
+
+  it('agrees with the band function on every distance it could be handed', () => {
+    for (let d = 0; d <= MATCH_CUTOFF; d += 1) {
+      const picked = confidentPick([{ distance: d }]) !== null
+      expect(picked).toBe(matchConfidence(d).strength === 'close')
+    }
+  })
+
+  it('picks nothing for a distance it cannot make sense of', () => {
+    expect(confidentPick([{ distance: Number.NaN }])).toBeNull()
+    expect(confidentPick([{ distance: undefined as unknown as number }])).toBeNull()
   })
 })

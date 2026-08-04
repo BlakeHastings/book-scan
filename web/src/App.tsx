@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, deviceName, draftFromBook, draftFromLookup, emptyDraft,
-  type Capture, type Counts, type Draft, type LookupResponse,
-  type PlacementResponse, type QueueCounts,
+  type Capture, type CheckoutOutcome, type Counts, type Draft,
+  type LookupResponse, type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import {
   applyFocusHints, captureStill, describeStream, listLenses, openCamera,
@@ -18,10 +18,24 @@ import { ShelfView } from './components/ShelfView'
 import { ShelveView } from './components/ShelveView'
 import { HomePane } from './components/HomePane'
 import { QueuePane, type QueueReturnAnchor } from './components/QueuePane'
-import { ShelfCamera } from './components/ShelfCamera'
+import { ScanCamera } from './components/ScanCamera'
 
 type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
+
+/**
+ * How a catalogued book came to be on screen, which decides only where the way
+ * out leads. What can be done to the book is decided by the book.
+ */
+type Origin = 'library' | 'scan'
+
+/** What actually happened when the shelf state was changed, in words. */
+const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
+  'checked-out': 'Taken off the bookcase.',
+  'already-out': 'It was already off the bookcase, so nothing changed.',
+  'checked-in': 'Back on the bookcase.',
+  'already-in': 'It was already on the bookcase, so nothing changed.',
+}
 
 /** Next slot with no photo in it, so the shutter advances by itself. */
 function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
@@ -69,7 +83,10 @@ export default function App() {
   const [checkedOutAt, setCheckedOutAt] = useState<string | null>(null)
   const [checkingOut, setCheckingOut] = useState(false)
   const [coverImage, setCoverImage] = useState('')
-  const [scanMode, setScanMode] = useState<'out' | 'in' | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [origin, setOrigin] = useState<Origin>('library')
+  /** What the last state change actually did, in the outcome's own words. */
+  const [notice, setNotice] = useState('')
   // Whether the book in hand was opened from the queue, so finishing (or
   // abandoning) shelving can return there instead of dropping the person
   // wherever the camera flow normally lands. queueReturn also carries where
@@ -423,8 +440,16 @@ export default function App() {
       if (bookId !== null && checkedOutAt) {
         await api.setCheckedOut(bookId, false).catch(() => {})
       }
-      if (stay) await refreshPlacement()
-      else reset()
+      if (stay) {
+        await refreshPlacement()
+      } else if (origin === 'scan') {
+        // A scanned book that has just been put back leaves the way it came,
+        // so the next one off the pile is one tap away. reset() would send it
+        // to the cataloguing camera or to the queue, and it came from neither.
+        leaveBook()
+      } else {
+        reset()
+      }
       return true
     } catch (caught) {
       setError((caught as Error).message)
@@ -434,6 +459,13 @@ export default function App() {
     }
   }
 
+  /**
+   * Change whether the book is on the bookcase.
+   *
+   * Only ever from a tap on this book's own page, and it takes the id and the
+   * direction the person asked for. Nothing derives the direction from the
+   * state, and no photograph reaches this call.
+   */
   const checkOut = async (out: boolean) => {
     if (bookId === null) return
     setCheckingOut(true)
@@ -442,6 +474,9 @@ export default function App() {
       const result = await api.setCheckedOut(bookId, out)
       setCheckedOutAt(result.book.checked_out_at)
       setCounts(result.counts)
+      // Said out loud, because two of the four outcomes change nothing at all
+      // and a page that redraws identically looks like a tap that missed.
+      setNotice(CHECKOUT_SAID[result.outcome])
       // The shelf has closed up behind it, so the drawing is stale.
       await refreshPlacement()
     } catch (caught) {
@@ -451,11 +486,19 @@ export default function App() {
     }
   }
 
-  /** A book handed back by the scanner: load it and go straight to shelving. */
-  const shelveScanned = async (id: number) => {
-    setScanMode(null)
-    await openBook(id)
-    setMode('shelve')
+  /**
+   * A book the scanner recognised. It gets opened and nothing else.
+   *
+   * This is the whole of what scanning does. The detail view reads the book's
+   * checked-out state and offers the actions that fit it, so the same landing
+   * works for a book on the shelf and one in a pile on the table, and the
+   * person picks. Starting a check-in here because the book happens to be out
+   * was the original idea and is deferred until identification is measurably
+   * better than it is (#49).
+   */
+  const openScanned = async (id: number) => {
+    setScanning(false)
+    await openBook(id, 'scan')
   }
 
   // Named wrappers rather than passing persist straight to a handler: onClick
@@ -476,14 +519,20 @@ export default function App() {
   }
 
   /**
-   * Open an already-shelved book for editing. Same detail view as a queued
-   * capture, so there is one place a book is edited rather than two.
+   * Open a catalogued book. Same detail view as a queued capture, so there is
+   * one place a book is looked at and edited rather than two.
+   *
+   * `from` changes the way out and nothing else: back to the library listing
+   * you were browsing, or back to the scanner for the next book off the pile.
+   * Everything the page offers to do comes from the book itself.
    */
-  const openBook = async (id: number) => {
+  const openBook = async (id: number, from: Origin = 'library') => {
     reviewSessionRef.current += 1
     setRelookupBusy(false)
     setRelookupError('')
     setError('')
+    setNotice('')
+    setOrigin(from)
     try {
       const { book } = await api.getBook(id)
       const loaded = draftFromBook(book)
@@ -549,14 +598,17 @@ export default function App() {
     // The photos already live on the server; do not re-upload them on save.
     setShots({})
     // Came from the queue, so finishing or abandoning shelving lands back
-    // there, near where this capture sat.
+    // there, near where this capture sat. The scanner is not where this book
+    // came from, whatever the last book on this screen arrived through.
+    setOrigin('library')
+    setNotice('')
     setFromQueue(true)
     setQueueReturn(anchor)
     setMode('review')
   }
 
   /** Leave a catalogued book the way you came in. */
-  const backToLibrary = () => {
+  const leaveBook = () => {
     reviewSessionRef.current += 1
     setRelookupBusy(false)
     setRelookupError('')
@@ -565,7 +617,15 @@ export default function App() {
     setCoverImage('')
     setDraft(emptyDraft)
     setPlacement(null)
-    setMode('library')
+    setNotice('')
+    // Straight back to the viewfinder when that is where you came from, so a
+    // pile of books is worked through without a detour past the home screen.
+    if (origin === 'scan') {
+      setMode('home')
+      setScanning(true)
+    } else {
+      setMode('library')
+    }
   }
 
   /**
@@ -595,6 +655,8 @@ export default function App() {
     setBookId(null)
     setCheckedOutAt(null)
     setCoverImage('')
+    setNotice('')
+    setOrigin('library')
     setFromQueue(false)
     setMode(backToQueue ? 'queue' : 'capture')
   }
@@ -605,12 +667,11 @@ export default function App() {
 
   // Above everything else: it is a full-screen camera, and whatever page
   // opened it is still behind waiting to be returned to.
-  if (scanMode) {
+  if (scanning) {
     return (
-      <ShelfCamera
-        mode={scanMode}
-        onShelve={(book) => void shelveScanned(book.id)}
-        onClose={() => { setScanMode(null); setMode('home') }}
+      <ScanCamera
+        onIdentified={(id) => void openScanned(id)}
+        onClose={() => { setScanning(false); setMode('home') }}
       />
     )
   }
@@ -854,8 +915,7 @@ export default function App() {
           counts={counts}
           queue={queueCounts}
           onAdd={() => setMode('capture')}
-          onCheckOut={() => setScanMode('out')}
-          onShelve={() => setScanMode('in')}
+          onScan={() => setScanning(true)}
           onLibrary={() => setMode('library')}
           onQueue={() => setMode('queue')}
         />
@@ -865,6 +925,10 @@ export default function App() {
 
       {mode === 'review' && (
         <main className="main">
+          {notice && (
+            <div className="warn warn--soft" onClick={() => setNotice('')}>{notice}</div>
+          )}
+
           <BookDetail
             draft={draft}
             lookup={lookup}
@@ -891,10 +955,13 @@ export default function App() {
                 instruction={false}
               />
             ) : undefined}
-            doneLabel={bookId !== null ? 'Back to library' : 'Done'}
+            doneLabel={
+              bookId === null ? 'Done'
+                : origin === 'scan' ? 'Scan another' : 'Back to library'
+            }
             onShelve={() => setMode('shelve')}
             onSaveEdits={saveEdits}
-            onDiscard={bookId !== null ? backToLibrary : reset}
+            onDiscard={bookId !== null ? leaveBook : reset}
             shelfLabel={placement?.derivedLocation ?? ''}
             onDelete={bookId !== null ? deleteBook : undefined}
             deleting={deletingBook}
