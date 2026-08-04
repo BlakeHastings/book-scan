@@ -46,7 +46,6 @@ export interface Draft {
   location: string
   lookupSource: string
   isbnSource: string
-  ocrText: string
   authorFilingOverride: string
 }
 
@@ -429,7 +428,7 @@ export const emptyDraft: Draft = {
   published: '', pages: '', notes: '', isFiction: true,
   classificationSource: 'auto', classificationConfidence: 'unknown',
   seriesName: '', seriesIndex: '', location: '', lookupSource: '',
-  isbnSource: '', ocrText: '', authorFilingOverride: '',
+  isbnSource: '', authorFilingOverride: '',
 }
 
 /**

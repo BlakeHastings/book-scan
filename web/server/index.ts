@@ -58,7 +58,6 @@ function asDraft(body: Record<string, unknown>): DraftBook {
     location: String(body.location ?? ''),
     lookupSource: String(body.lookupSource ?? ''),
     isbnSource: String(body.isbnSource ?? ''),
-    ocrText: String(body.ocrText ?? ''),
     authorFilingOverride: body.authorFilingOverride
       ? String(body.authorFilingOverride)
       : null,
