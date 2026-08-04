@@ -32,6 +32,7 @@ setup, including why the certificate warning appears and how to get rid of it.
 | [`web/README.md`](web/README.md) | Setup, architecture, how the pieces fit |
 | [`docs/shelving.md`](docs/shelving.md) | The shelving specification, and the authority on filing rules |
 | [`e2e/README.md`](e2e/README.md) | The browser end to end suite, and how the camera is faked |
+| [`docs/postgres-migration.md`](docs/postgres-migration.md) | The staged plan for moving off SQLite, and the decisions behind it |
 | [`AGENTS.md`](AGENTS.md) | Instructions for coding agents, including data safety |
 
 ## Your catalogue is not in this repository
