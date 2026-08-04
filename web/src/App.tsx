@@ -5,10 +5,10 @@ import {
   type LookupResponse, type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import {
-  applyFocusHints, captureStill, describeStream, listLenses, openCamera,
-  lensName, preferredLens, rememberedLens, rememberLens, SLOT_CROP, SLOT_GUIDE,
-  SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL, SLOT_SHORT, stopStream,
-  thumbnail, type Lens, type Slot,
+  applyFocusHints, captureStill, currentOrigin, describeStream, listLenses,
+  openCamera, lensName, preferredLens, rememberedLens, rememberLens,
+  SLOT_CROP, SLOT_GUIDE, SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL,
+  SLOT_SHORT, stopStream, thumbnail, type Lens, type Slot,
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
@@ -829,6 +829,12 @@ export default function App() {
             <button className="btn btn--primary btn--big" onClick={() => startCamera()}>
               Start camera
             </button>
+            {/* Vite prints eight addresses at startup and only some reach a
+                phone; the camera permission and the dev certificate exception
+                are both scoped to whichever one is actually loaded, so a
+                second device that once loaded a different address needs to
+                know which one it is on now (#60). */}
+            <p className="cam__idle-origin">On {currentOrigin()}</p>
           </div>
         )}
 
