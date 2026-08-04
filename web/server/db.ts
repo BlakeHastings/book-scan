@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS books (
     front_hash                TEXT    DEFAULT '',
     cover_hash                TEXT    DEFAULT '',
     isbn_source               TEXT    DEFAULT '',
+    -- Vestigial. Meant to hold the raw OCR text a capture read off a book, so
+    -- a misread ISBN could be explained later without re-photographing. No
+    -- client path ever wrote it (see #36), and the argument for wiring it up
+    -- did not hold: the photos themselves are kept indefinitely and are the
+    -- ground truth, while OCR text is a lossy, engine-version-dependent
+    -- reading of them. The schema is append only, so the column stays and is
+    -- always ''. Do not read or write it.
     ocr_text                  TEXT    DEFAULT '',
 
     scanned_at                TEXT    NOT NULL,
@@ -184,6 +191,7 @@ export interface BookRow {
   back_image: string
   edge_image: string
   isbn_source: string
+  /** Vestigial; always ''. See the comment on this column in SCHEMA above. */
   ocr_text: string
   scanned_at: string
   shelved_at: string | null
