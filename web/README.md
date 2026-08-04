@@ -56,7 +56,8 @@ src/                    React UI (phone-first, dark, 44px tap targets)
     ShelfStrip              the neighbours drawn end on, as a shelf
     QueuePane               the capture queue
   lib/
-    scanner.ts             getUserMedia, manual still capture, lens pinning. No decoding.
+    scanner.ts             getUserMedia, manual still capture, lens pinning, torch. No decoding.
+    steady.ts              burst capture and sharpest-frame selection, for shaky hands
     api.ts                 typed fetch wrapper, the only client-to-server path
 server/                 Express API on loopback only
   index.ts                routes, data directory resolution
@@ -124,6 +125,60 @@ happened here once.
 Library thumbnails frame a spine and a cover differently, since the useful
 part of each is somewhere else: a spine carries its title at the top, a cover
 reads from the middle.
+
+### Steadying the shot
+
+**The shutter takes a short burst and keeps the sharpest frame**, rather than
+whichever frame happened to be on screen at the tap. This is an accessibility
+feature, not a refinement: somebody with shaky hands could not reliably
+capture a spine, and the spine is the hardest shot, held on its side at arm's
+length by somebody already straining.
+
+Hand tremor is periodic, from about 4Hz up, and reverses direction twice a
+cycle, so a window of at least half the slowest period contains a moment where
+the hand is turning round and is briefly almost still. Five frames at 30fps
+spans about 165ms and clears that. Frames are scored by variance of the
+Laplacian on a 240px copy, and only the winner is JPEG encoded.
+
+**It costs a measured 199ms per shot** (Chromium, 2160x3840 stream, spine
+crop; 203ms for the full frame). Almost all of that is waiting for the camera
+rather than working, which is why the crop makes no difference to it. The old
+claim below that the shutter returns in single-digit milliseconds referred to
+not waiting for the *server*, and that is still true; the burst is local.
+
+**The resolution is not negotiable.** The spine crop is a narrow slice of an
+already-cropped frame and reaches the OCR only a few hundred source pixels
+across, which is why the spine is the shot blur ruins. Trading pixels for
+steadiness would cost the ISBN.
+
+**There is no steadiness gate.** A shutter that refuses to fire until the
+phone is still is a shutter that never fires for exactly the person this is
+for. Picking the best of what arrived cannot fail that way, and it needs no
+DeviceMotion permission prompt.
+
+**A torch is offered on the spine slot** where the phone has one, off by
+default and remembered. More light means a shorter exposure means less blur,
+and a video frame's exposure is capped by the frame interval, so light is the
+only physical lever available. It follows the slot rather than being a mode,
+so it costs no extra tap, and it goes out on the covers and on the way out.
+
+**The camera settings sheet reports what the camera actually granted**: the
+lens in use, the picture size and frame rate, whether a torch exists, the
+closest the lens can focus, and how many pixels wide the spine strip really
+is. Written to be read out loud, with a button that copies the lot. Most of
+what remains unknown about steadying a shot can only be settled on a real
+iPhone, and this is how that phone answers.
+
+**Lens pinning is deliberate and costs nothing in steadiness.** An iPhone
+offers a virtual "Back Dual/Triple Camera" that switches lens mid-shot and
+makes the framing jump while a book is being lined up, so a plain physical
+lens is pinned instead. WebKit's capture source never asks AVFoundation for
+video stabilisation on any device, and the multi-frame fusion a virtual device
+can do is a still-photo setting that a getUserMedia video track never reaches.
+Stabilisation on an iPhone is optical and lives on the wide lens, which is the
+one that gets pinned. Where no lens is labelled "Back Camera", the ultra wide
+is the last resort rather than an early guess: it has no optical stabilisation
+on a non-Pro model and puts a spine on far fewer pixels.
 
 **Correcting a book happens in the detail view, not at the camera.** Opening a
 queued book shows its photos, every editable field, and the ISBN it was matched
@@ -253,7 +308,8 @@ first is the honest way to do that.
 
 Photographing a book takes seconds; reading it takes longer. So **each photo
 goes to the queue the moment it is taken** and is read in the background. The
-shutter returns in single-digit milliseconds. **Next book** just clears the
+shutter never waits on the server, only on its own burst (see [Steadying the
+shot](#steadying-the-shot)). **Next book** just clears the
 camera, since the photos are already with the queue, and the Queue tab is
 where books are confirmed and shelved.
 
