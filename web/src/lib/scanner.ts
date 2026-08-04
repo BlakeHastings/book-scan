@@ -194,6 +194,10 @@ export function lensName(label: string): string {
   return short || 'Main'
 }
 
+const VIRTUAL_LENS = /dual|triple|combined/i
+const ULTRA_WIDE_LENS = /ultra.?wide/i
+const TELEPHOTO_LENS = /tele/i
+
 /**
  * Prefer a single physical lens over the combined one.
  *
@@ -201,13 +205,42 @@ export function lensName(label: string): string {
  * lenses, and that virtual device is what silently switches lens mid-shot as
  * the phone guesses at the subject distance. Asking for the plain back camera
  * pins it, so the framing stops jumping while you are lining a book up.
+ *
+ * That reason still holds, and it is now known to cost nothing in steadiness.
+ * WebKit's capture source never asks AVFoundation for video stabilisation on
+ * any device, and the multi-frame fusion the virtual device can do is a still
+ * photo setting that a getUserMedia video track never reaches. Stabilisation
+ * on an iPhone is optical, and it lives on the physical wide lens, which is
+ * precisely the one this pins. Pinning gives up lens switching, not steadiness.
+ *
+ * The order below matters, and only its tail changed (#92). "Back Camera" is
+ * the wide lens and has optical stabilisation on every iPhone that has any, so
+ * it wins outright. What follows is for phones that do not label a lens that
+ * way, and it used to be "the first thing that is not virtual", which on an
+ * iPhone can be the ultra wide. That is the worst rear lens for this job on
+ * two counts: no stabilisation at all on non-Pro models, and a field of view
+ * so wide that a spine lands on a fraction of the pixels it otherwise would,
+ * in a crop that is already down to a few hundred pixels across. So a virtual
+ * device now outranks it: a virtual device sits on the wide lens by default,
+ * and an occasional framing jump is a smaller price than a permanently softer,
+ * smaller subject. Ultra wide is the last resort rather than an early guess.
  */
 export function preferredLens(lenses: Lens[]): string {
-  const plain = lenses.find((l) => /back camera$/i.test(l.label.trim()))
-  if (plain) return plain.deviceId
+  const rank = (lens: Lens): number => {
+    const label = lens.label.trim()
+    if (/back camera$/i.test(label)) return 0
+    if (ULTRA_WIDE_LENS.test(label)) return 4
+    if (VIRTUAL_LENS.test(label)) return 2
+    if (TELEPHOTO_LENS.test(label)) return 3
+    return 1
+  }
 
-  const notVirtual = lenses.find((l) => !/dual|triple|combined/i.test(l.label))
-  return (notVirtual ?? lenses[0])?.deviceId ?? ''
+  // Strictly better only, so equal ranks keep the order the browser gave.
+  let best: Lens | undefined
+  for (const lens of lenses) {
+    if (!best || rank(lens) < rank(best)) best = lens
+  }
+  return best?.deviceId ?? ''
 }
 
 /**
