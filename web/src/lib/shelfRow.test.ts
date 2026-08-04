@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { missingFrom, rowOf, spineLabel, spineOf } from './shelfRow'
+import { listOf, missingFrom, rowOf, spineLabel, spineOf } from './shelfRow'
 import type { BookRow, CheckedOutAt, ShelfGroupDto } from './api'
 
 function book(overrides: Partial<BookRow> = {}): BookRow {
@@ -132,6 +132,52 @@ describe('rowOf', () => {
     // somebody counts along to find a book.
     const row = rowOf(group([book({ id: 1 }), book({ id: 2 })]))
     expect(row).toHaveLength(2)
+  })
+})
+
+describe('listOf', () => {
+  const off = (label: string, book: BookRow): CheckedOutAt => ({ book, label })
+
+  it('numbers the books on the bookcase in the order they stand', () => {
+    const rows = listOf(
+      group([
+        book({ id: 1, title: 'Amber', sort_key: 'a' }),
+        book({ id: 2, title: 'Bounty', sort_key: 'b' }),
+      ]),
+      [],
+    )
+    expect(rows.map((r) => [r.book.title, r.n])).toEqual([['Amber', 1], ['Bounty', 2]])
+  })
+
+  it('files an absent book into its alphabetical slot rather than at the end', () => {
+    const rows = listOf(
+      group([
+        book({ id: 1, title: 'Amber', sort_key: 'a' }),
+        book({ id: 3, title: 'Cider', sort_key: 'c' }),
+      ]),
+      [off('1A', book({ id: 2, title: 'Bounty', sort_key: 'b' }))],
+    )
+    expect(rows.map((r) => r.book.title)).toEqual(['Amber', 'Bounty', 'Cider'])
+  })
+
+  it('gives an absent book no position, because you cannot count to it', () => {
+    // This is the whole difference between the list and the two drawings of
+    // the furniture. The list can show the gap without lying about where the
+    // books either side of it are, because it never claimed to be a picture.
+    const rows = listOf(
+      group([book({ id: 1, title: 'Amber', sort_key: 'a' })]),
+      [off('1A', book({ id: 2, title: 'Bounty', sort_key: 'b' }))],
+    )
+    expect(rows.map((r) => [r.book.title, r.n, r.here]))
+      .toEqual([['Amber', 1, true], ['Bounty', 0, false]])
+  })
+
+  it('leaves books that are off a different plank out of this one', () => {
+    const rows = listOf(
+      group([book({ id: 1, sort_key: 'a' })], '1A'),
+      [off('1B', book({ id: 2, title: 'Elsewhere', sort_key: 'b' }))],
+    )
+    expect(rows).toHaveLength(1)
   })
 })
 

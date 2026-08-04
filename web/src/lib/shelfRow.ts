@@ -46,6 +46,40 @@ export function rowOf(group: ShelfGroupDto): StripBook[] {
   return group.books.map(({ book }) => spineOf(book))
 }
 
+/** One line of the vertical list: a book, its position, and whether it is there. */
+export interface ListRow {
+  book: BookRow
+  /** What you count along to. Zero for a book that is not on the bookcase. */
+  n: number
+  here: boolean
+}
+
+/**
+ * The books on a shelf plus, in their alphabetical slots, the ones that belong
+ * there but are currently off it.
+ *
+ * Lifted out of ShelfView unchanged when the list came back as one of three
+ * views (#82), so it can be tested without a DOM. The numbering deliberately
+ * counts only what is physically present, since that is what you use to find a
+ * book by counting along. An absent book gets a dash: it is in the list to
+ * explain a gap, not to be counted to.
+ *
+ * This is the one thing the list does that the spine row and the gallery do
+ * not. Those two draw the run as it physically stands, because a spine or a
+ * cover is a picture of furniture and a book that is out of the house is not
+ * in the picture. A line of text is not a picture, and the list has always
+ * used that to say where the gap is.
+ */
+export function listOf(group: ShelfGroupDto, checkedOut: CheckedOutAt[]): ListRow[] {
+  const present: ListRow[] = group.books.map(({ book }, i) => ({ book, n: i + 1, here: true }))
+  const absent: ListRow[] = checkedOut
+    .filter((entry) => entry.label === group.label)
+    .map((entry) => ({ book: entry.book, n: 0, here: false }))
+
+  return [...present, ...absent].sort((a, b) =>
+    a.book.sort_key < b.book.sort_key ? -1 : a.book.sort_key > b.book.sort_key ? 1 : 0)
+}
+
 /** How many books belonging in this area are off the bookcase right now. */
 export function missingFrom(label: string, checkedOut: CheckedOutAt[]): number {
   return checkedOut.filter((entry) => entry.label === label).length
