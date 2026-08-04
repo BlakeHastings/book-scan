@@ -88,8 +88,8 @@ Five cases. `Lp` and `Ls` are the predecessor's and successor's locations.
 | --- | --- |
 | pred and succ share a location | **1A** &mdash; between *Wizard of Earthsea* (Le Guin) and *Lathe of Heaven* (Le Guin) |
 | pred and succ differ | After *Snow Crash* (Stephenson, **2C**), before *Player of Games* (Banks, **2D**). Boundary of 2C/2D. |
-| no pred | First in fiction. Before *Adams, Douglas* at **1A**. Start of shelf 1. |
-| no succ | Last in fiction. After *Zusak, Markus* at **3B**. End of shelf 3. |
+| no pred | First in fiction. Before *Adams, Douglas* at **1A**. Start of bookcase 1. |
+| no succ | Last in fiction. After *Zusak, Markus* at **3B**. End of bookcase 3. |
 | neither | First book in this range. Start at **1A** (fiction) or **S4** (non-fiction). |
 
 Always name author and title for both neighbours, not just the title. On a
@@ -430,8 +430,19 @@ bookcase holding non-fiction. The plank within a bookcase is the **area**, which
 is what you type after physically placing the book.
 
 The vocabulary is acknowledged to be confusing, since "shelf" in ordinary speech
-is the plank rather than the whole unit. Changing the user-facing wording is
-under consideration separately and does not change the model described here.
+is the plank rather than the whole unit. Settled in #8: the user-facing word
+for this unit is **"Bookcase"**, not "shelf". This document, the code and the
+schema keep saying `shelf`, and that is deliberate, not a leftover: renaming
+the code and the database is a bigger job for less benefit than the UI wording
+change alone, and would touch real stored data. The area stays "Area" on both
+sides.
+
+That leaves exactly one place where the word a user reads differs from the
+word the code uses, in one direction: `shelf` in the code and the database
+means what "Bookcase" means on screen. See the comment at the top of
+`web/src/lib/api.ts`, the only client-to-server path, for where that is
+recorded next to the wire types. Nowhere in the UI does the word "shelf"
+appear meaning anything at all; if you find one, it is a bug.
 
 ### Foreign-language articles are not dropped
 

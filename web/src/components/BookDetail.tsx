@@ -89,10 +89,10 @@ export function BookDetail({
           especially, means something different for a book in a pile. */}
       {checkedOutAt && (
         <div className="checkedout">
-          <strong>Off the shelf</strong>
+          <strong>Off the bookcase</strong>
           <span>
             Taken down {new Date(checkedOutAt).toLocaleDateString()}. Nothing is
-            filed next to it, and the shelf has closed up behind it.
+            filed next to it, and the bookcase has closed up behind it.
           </span>
         </div>
       )}
@@ -134,7 +134,7 @@ export function BookDetail({
             {/* Back on through the same guided shuffle as a new book, which is
                 the point: it is how a shelf gets rearranged by hand. */}
             <button className="btn btn--primary" onClick={onShelve}>
-              Put it back on the shelf
+              Put it back on the bookcase
             </button>
             <button className="btn" onClick={onDiscard}>{doneLabel}</button>
           </>
@@ -155,7 +155,7 @@ export function BookDetail({
             onClick={() => onCheckOut(true)}
             disabled={checkingOut}
           >
-            {checkingOut ? 'Taking it off...' : 'Take it off the shelf'}
+            {checkingOut ? 'Taking it off...' : 'Take it off the bookcase'}
           </button>
         </div>
       )}
@@ -254,7 +254,7 @@ export function BookDetail({
         <dl className="facts">
           <Fact label="Category" value={category} />
           <Fact label="Files under" value={filing} />
-          <Fact label="Shelf" value={shelfLabel} />
+          <Fact label="Bookcase" value={shelfLabel} />
           <Fact label="Series" value={seriesText(draft)} />
           <Fact label="Publisher" value={draft.publisher} />
           <Fact label="Published" value={draft.published} />

@@ -2,6 +2,23 @@ import type {
   Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelvingReview,
 } from '../../shared/shelving'
 
+/**
+ * Naming boundary, recorded here because this file is the only client to
+ * server path.
+ *
+ * The wire and database field `shelf` (also `shelf_range`, `ShelfRange`,
+ * `ShelfGroupDto.shelf`, the `kind: 'shelf'` separator tag) names a whole
+ * bookcase. Nothing in the code or schema is being renamed, per issue #8.
+ * The UI, however, never shows the word "shelf": that same unit is displayed
+ * to the person holding a book as "Bookcase". The plank within it is `area`
+ * on both sides of this boundary, and reads as "Area" in the UI too.
+ *
+ * So exactly one term differs between what a user reads and what the code
+ * calls it, in one direction: server/DB `shelf` == UI "Bookcase". If you are
+ * reading a `shelf` value here and about to put it on screen, it needs that
+ * translation first.
+ */
+
 export interface Classification {
   isFiction: boolean
   confidence: 'high' | 'medium' | 'weak' | 'unknown'

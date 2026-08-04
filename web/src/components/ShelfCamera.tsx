@@ -139,16 +139,16 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
           break
 
         case 'already-out':
-          setMessage(`${result.book.title} was already off the shelf.`)
+          setMessage(`${result.book.title} was already off the bookcase.`)
           break
 
         case 'already-in':
-          setMessage(`${result.book.title} is already on the shelf.`)
+          setMessage(`${result.book.title} is already on the bookcase.`)
           break
 
         case 'checked-out':
           setGood(true)
-          setMessage(`${result.book.title} is off the shelf.`)
+          setMessage(`${result.book.title} is off the bookcase.`)
           setDone((list) => [
             { title: result.book.title, note: result.book.author_filing },
             ...list,
@@ -185,8 +185,8 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
       setGood(justCheckedOut)
       setMessage(
         justCheckedOut
-          ? `${match.title} is off the shelf.`
-          : `${match.title} was already off the shelf.`,
+          ? `${match.title} is off the bookcase.`
+          : `${match.title} was already off the bookcase.`,
       )
       if (justCheckedOut) {
         setDone((list) => [{ title: match.title, note: match.authorFiling }, ...list])
@@ -208,7 +208,7 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
 
       <div className="isbncam__top">
         <span className="isbncam__mode">
-          {taking ? 'Taking books off the shelf' : 'Putting a book back'}
+          {taking ? 'Taking books off the bookcase' : 'Putting a book back'}
         </span>
         {done.length > 0 && (
           <span className="isbncam__tally">{done.length} done</span>
@@ -270,7 +270,7 @@ export function ShelfCamera({ mode, onShelve, onClose }: Props) {
                   {match.fromCatalogue && (
                     <span className="choice__note">catalogue image, not your photo</span>
                   )}
-                  {match.checkedOut && <span className="choice__state">already off the shelf</span>}
+                  {match.checkedOut && <span className="choice__state">already off the bookcase</span>}
                 </span>
               </button>
             )
