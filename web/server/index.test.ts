@@ -647,6 +647,104 @@ describe('moving a book across an area boundary', () => {
     expect(status).toBe(400)
     expect(body.error).toContain('not on a bookcase')
   })
+
+  /**
+   * Two bookcases, the second holding the last two books.
+   *
+   * Reached the way the app reaches it, by somebody saying 1A is full and
+   * asking for a new bookcase twice, with each displaced book recorded where
+   * it was carried to. The misfile list starts empty.
+   */
+  const twoBookcases = async () => {
+    const ids = {
+      rama: await seed('Rendezvous with Rama', 'Arthur C. Clarke'),
+      gibson: await seed('Neuromancer', 'William Gibson'),
+      dune: await seed('Dune', 'Frank Herbert'),
+      dispossessed: await seed('The Dispossessed', 'Ursula K. Le Guin'),
+    }
+    for (let i = 0; i < 2; i += 1) {
+      const { body } = await post('/api/shelves/overflow', {
+        range: 'fiction', label: '1A', kind: 'shelf',
+      })
+      await patch(`/api/books/${body.step.id}/location`, { location: body.step.to })
+    }
+    expect((await misfiles()).misfiles).toEqual([])
+    return ids
+  }
+
+  it('sends the first book of 2A back to the last area of bookcase 1', async () => {
+    const { rama, gibson, dune, dispossessed } = await twoBookcases()
+    expect(running.store.getBook(dune)?.location).toBe('2A')
+
+    const { status, body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dune, direction: 'previous',
+    })
+
+    expect(status).toBe(200)
+    expect(body.move).toEqual({ id: dune, title: 'Dune', from: '2A', to: '1A' })
+    // The bookcase break moved, so the book past it stayed on bookcase 2.
+    expect(body.moves).toEqual([])
+    expect(running.store.getBook(rama)?.location).toBe('1A')
+    expect(running.store.getBook(gibson)?.location).toBe('1A')
+    expect(running.store.getBook(dispossessed)?.location).toBe('2A')
+  })
+
+  it('reports the move until it is confirmed, then nothing', async () => {
+    // The shape the cascade has always had, and now the move too: the app
+    // changes the furniture, and only a person says where a book physically
+    // is. Until they do, the book really is not where the catalogue has it.
+    const { dune } = await twoBookcases()
+    const { body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dune, direction: 'previous',
+    })
+
+    const during = await misfiles()
+    expect(during.misfiles).toHaveLength(1)
+    expect(during.misfiles[0].book.id).toBe(dune)
+    expect(during.misfiles[0].from).toBe('2A')
+    expect(during.misfiles[0].to).toBe('1A')
+
+    // "It fits, save" at the end of the shelving step, which is a PUT of the
+    // record followed by the one route that changes a location.
+    await put(`/api/books/${dune}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    await patch(`/api/books/${dune}/location`, { location: body.move.to })
+
+    expect(running.store.getBook(dune)?.location).toBe('1A')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('sends the last book of bookcase 1 on to the next bookcase', async () => {
+    const { rama, gibson, dune } = await twoBookcases()
+
+    const { body } = await post('/api/shelves/move', {
+      range: 'fiction', id: gibson, direction: 'next',
+    })
+    expect(body.move).toEqual({ id: gibson, title: 'Neuromancer', from: '1A', to: '2A' })
+    expect(body.moves).toEqual([])
+
+    await patch(`/api/books/${gibson}/location`, { location: body.move.to })
+    expect(running.store.getBook(rama)?.location).toBe('1A')
+    expect(running.store.getBook(dune)?.location).toBe('2A')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('keeps the refusals at the two ends of the range, not at a bookcase', async () => {
+    const { rama, dispossessed } = await twoBookcases()
+
+    const back = await post('/api/shelves/move', {
+      range: 'fiction', id: rama, direction: 'previous',
+    })
+    expect(back.status).toBe(400)
+    expect(back.body.error).toContain('no area before 1A')
+
+    const on = await post('/api/shelves/move', {
+      range: 'fiction', id: dispossessed, direction: 'next',
+    })
+    expect(on.status).toBe(400)
+    expect(on.body.error).toContain('no area after 2A')
+  })
 })
 
 // ---------------------------------------------------------------------------

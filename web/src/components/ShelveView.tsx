@@ -71,6 +71,20 @@ export function ShelveView({
   const shelfLabel = placement?.derivedLocation ?? ''
 
   /**
+   * Whether the app yet knows which plank it is talking about.
+   *
+   * Every answer on this screen is an answer about a named plank, so none of
+   * them can be given before there is one. Until #79 the placement was always
+   * already loaded by the time anybody got here, because you arrived from the
+   * review pane which had spent a while working it out. A boundary move opens
+   * this screen directly, and a fast tap then answered "it fits" about no
+   * plank at all: the save carried an empty label, the location write was
+   * skipped, and the book stayed recorded where it had been. That is the same
+   * silent loss as #61, reached a different way.
+   */
+  const known = Boolean(shelfLabel)
+
+  /**
    * Nothing on this shelf sorts after the book in your hand.
    *
    * Which makes it the one that moves when the shelf is full, so the button
@@ -238,17 +252,25 @@ export function ShelveView({
         ) : (
           <>
             <p>
-              Put <strong>{title}</strong> in the gap at <strong>{shelfLabel || '?'}</strong>.
-              Does it fit{steps.length > 0 ? ' now' : ''}?
+              {known ? (
+                <>
+                  Put <strong>{title}</strong> in the gap at <strong>{shelfLabel}</strong>.
+                  Does it fit{steps.length > 0 ? ' now' : ''}?
+                </>
+              ) : (
+                <>Working out where <strong>{title}</strong> goes...</>
+              )}
             </p>
 
             <div className="actions">
               {/* The label the sentence above just named, handed on so the
-                  answer to "does it fit here" is what gets recorded. */}
+                  answer to "does it fit here" is what gets recorded. Every
+                  answer here is about a named plank, so none of them can be
+                  given before there is one. */}
               <button
                 className="btn btn--primary"
                 onClick={() => onShelved(shelfLabel)}
-                disabled={saving || busy}
+                disabled={saving || busy || !known}
               >
                 {saving ? 'Saving...' : 'It fits, save'}
               </button>
@@ -259,7 +281,7 @@ export function ShelveView({
               <button
                 className="btn"
                 onClick={() => overflowFrom(shelfLabel, 'area')}
-                disabled={busy || saving}
+                disabled={busy || saving || !known}
               >
                 {busy
                   ? '...'
@@ -270,7 +292,7 @@ export function ShelveView({
               <button
                 className="btn"
                 onClick={() => overflowFrom(shelfLabel, 'shelf')}
-                disabled={busy || saving}
+                disabled={busy || saving || !known}
               >
                 No room, start a new bookcase
               </button>

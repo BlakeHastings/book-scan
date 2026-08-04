@@ -413,6 +413,16 @@ area immediately beside it:
 - the last book of an area becomes the first book of the next one;
 - the first book of an area becomes the last book of the previous one.
 
+"The area beside it" means the next area in the range, which is not always on
+the same bookcase. Within a range the areas are one continuous sequence and a
+bookcase boundary is only where that sequence breaks across furniture, so the
+first book of `2A` moves back to `1E` exactly as the first book of `1B` moves
+back to `1A`. What differs is which boundary gets re-anchored, and that falls
+out of the model rather than needing a case: the boundary between two books is
+whichever one sits between them, so crossing a bookcase break re-anchors the
+`shelf` separator and crossing a plank break re-anchors an `area` one. The
+books past the break keep the bookcase and area they were on.
+
 This is not a limited version of a general move. It is the complete set of
 moves that preserve the ordering this document makes the source of truth: in
 both cases the book keeps exactly the neighbours it had, and every other book
@@ -440,11 +450,26 @@ cascade creates a new area and this refuses (see below).
 
 Nothing here writes a location. Location is descriptive: it records where a
 book physically is because a person put it there, so it is written by whoever
-moved the book, through `PATCH /api/books/:id/location`, the same route the
-"Moved it" button and the shelving step use. The boundary move and the
-location write are two statements, and both are needed. Making only the first
-leaves the book recorded on the plank it came off, and the library then
-reports the move somebody has just made as still outstanding.
+moved the book, through `PATCH /api/books/:id/location`. The boundary move and
+the location write are two statements, and both are needed. Making only the
+first leaves the book recorded on the plank it came off.
+
+### A move is a placement, so it goes through the shelving step
+
+Picking a boundary book in the library does not finish the move. It moves the
+boundary and hands over to the shelving step, which names the plank and waits:
+the person walks to the shelves, puts the book down, and says it fits. That is
+the same screen, and the same `PATCH .../location` at the end of it, that a
+book coming back off the table goes through. There is one way to say where a
+book is, not two.
+
+The order is deliberate and matches the cascade. The furniture changes first,
+because the destination is a plank the layout does not put the book on until
+the boundary has moved; then a person confirms. Between the two the book is
+genuinely not where the catalogue has it, and
+[misfile detection](#misfile-detection) says so. Backing out of the shelving
+step therefore leaves the move outstanding rather than silently undone, which
+is the truth, and the same list offers the move back.
 
 ### The edge cases
 
@@ -463,6 +488,10 @@ different act: the person is not adjusting a boundary between two planks, they
 are saying a plank is full, which is what the overflow cascade is for and what
 creates the new area. So the refusal is not a dead end, and the message says
 where areas come from.
+
+This is the start and end of the **range**, not of each bookcase. A bookcase
+break inside the range has areas on both sides of it and is crossed like any
+other boundary; only the two outer edges have nowhere to go.
 
 **Moving into an area that is already full.** Allowed, because capacity is not
 modelled (decision 2) and never will be: how many books a plank holds is a

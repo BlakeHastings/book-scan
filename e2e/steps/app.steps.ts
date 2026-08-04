@@ -307,22 +307,36 @@ Then(
 )
 
 /**
- * Somebody says they have carried a book to the plank next door.
+ * Pick a boundary book to move, which starts a placement rather than finishing
+ * one.
  *
- * The wait is on the control for that book disappearing, which it does because
- * a book that has just moved on is no longer the last one on its plank. That
- * is a wait on the move having actually landed, not on a duration.
+ * The wait is on the shelving step appearing, because that is the whole claim:
+ * a move is told-walk-confirm like every other placement, not a button that
+ * quietly rewrites where a book is.
  */
-When('I say I moved {string} on to {string}', async ({ page }, title: string, label: string) => {
+When('I choose to move {string} on to {string}', async ({ page }, title: string, label: string) => {
   const control = page.locator('.boundary', { hasText: `${title} is last here` })
-  await control.getByRole('button', { name: `Moved it on to ${label}` }).click()
-  await expect(control).toHaveCount(0)
+  await control.getByRole('button', { name: `Move it on to ${label}` }).click()
+  await expect(page.locator('.shelve__ask')).toBeVisible()
 })
 
-When('I say I moved {string} back to {string}', async ({ page }, title: string, label: string) => {
+When('I choose to move {string} back to {string}', async ({ page }, title: string, label: string) => {
   const control = page.locator('.boundary', { hasText: `${title} is first here` })
-  await control.getByRole('button', { name: `Moved it back to ${label}` }).click()
-  await expect(control).toHaveCount(0)
+  await control.getByRole('button', { name: `Move it back to ${label}` }).click()
+  await expect(page.locator('.shelve__ask')).toBeVisible()
+})
+
+/**
+ * The end of a move, which is the end of any placement: the person says the
+ * book is on the plank they were sent to.
+ *
+ * Landing back in the library rather than at the cataloguing camera is part of
+ * the assertion. Somebody adjusting where a plank ends is working through the
+ * shelves, and the next adjustment is there.
+ */
+When('I say it fits and finish the move', async ({ page }) => {
+  await page.getByRole('button', { name: 'It fits, save' }).click()
+  await expect(page.locator('.shelfgroup').first()).toBeVisible()
 })
 
 /**
