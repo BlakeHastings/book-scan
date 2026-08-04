@@ -17,9 +17,12 @@ on the client, Express and better-sqlite3 on the server.
 
 **There is real production data, and it is not in this repository.**
 
-The catalogue is a live record of someone's actual book collection: 57 books
-and 286 cover photographs at the time of writing. Re-scanning it means
-physically handling every book again. Treat it as irreplaceable, because it is.
+The catalogue is a live record of someone's actual book collection, and it is
+added to most days. Re-scanning it means physically handling every book again,
+one at a time, in front of a camera. Treat it as irreplaceable, because it is.
+
+No count is given here on purpose. It grows, and a stale number invites the
+thought that this is a small toy database rather than somebody's afternoons.
 
 It lives outside this repo, at:
 
@@ -185,9 +188,14 @@ you fix a defect an e2e scenario covers, revert your fix, watch the scenario
 fail, then restore it. A test that only ever passed alongside a fix proves
 nothing about whether it would catch the fix being lost.
 
-Both checks must pass before a pull request is ready. Verified 2026-08-03:
-`npm run typecheck` is clean and `npm test` reports **338 tests passing across
-18 files** in about 26 seconds. If the count drops, you removed a test.
+Both checks must pass before a pull request is ready. `npm test` takes well
+under a minute, so there is no excuse for not having run it.
+
+**Note the test count before you change anything, and compare it at the end.**
+If it went down you removed a test, and that has to be deliberate and said out
+loud in the pull request. A number is deliberately not written here: it moves
+on almost every merge, so it would be wrong within the hour and would only
+teach people to skim past it.
 
 ## Layout
 
