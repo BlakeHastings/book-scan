@@ -394,11 +394,12 @@ Written to `web/data/` by default, override with `BOOKSCAN_DATA`:
 - `books.db`, SQLite
 - `covers/`, captured photos as JPEGs, plus a re-encoded publisher cover per
   book where one was found
-- `tessdata/`, cached tesseract language data (about 15 MB, downloaded once)
 
-PaddleOCR's own models are cached separately, under `~/.cache/ppu-paddle-ocr`
-(the library's default, not `BOOKSCAN_DATA`), and are also downloaded once on
-first use.
+Both OCR engines cache their downloaded models under the user's home
+directory instead, independent of `BOOKSCAN_DATA`, since a model download is
+not scan data: PaddleOCR under `~/.cache/ppu-paddle-ocr` (the library's
+default) and tesseract's language data under `~/.cache/bookscan/tessdata`
+(about 15 MB). Both are downloaded once on first use.
 
 ### Rehashing the stored covers
 

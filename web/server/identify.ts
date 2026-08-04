@@ -18,7 +18,8 @@
 
 import { mkdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import sharp, { type Sharp } from 'sharp'
 import { scanGrayBuffer } from '@undecaf/zbar-wasm'
 import { prepareZXingModule, readBarcodesFromImageFile } from 'zxing-wasm/reader'
@@ -381,8 +382,14 @@ const waiting: (() => void)[] = []
 /**
  * Where tesseract.js caches its language data. Left to itself it drops a 15 MB
  * eng.traineddata in the working directory, which is the repo root.
+ *
+ * Deliberately independent of BOOKSCAN_DATA: this is a downloadable artifact,
+ * not scan data, so it has no business living wherever the catalogue lives.
+ * It goes under the user's home directory instead, the same place
+ * ppu-paddle-ocr already caches its own models (see paddle.ts), so worktrees
+ * share one download rather than each fetching its own 15 MB copy.
  */
-const TESSDATA_CACHE = join(resolve(process.env.BOOKSCAN_DATA ?? 'data'), 'tessdata')
+const TESSDATA_CACHE = join(homedir(), '.cache', 'bookscan', 'tessdata')
 
 function workerOptions() {
   mkdirSync(TESSDATA_CACHE, { recursive: true })
