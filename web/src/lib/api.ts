@@ -239,13 +239,45 @@ export interface Capture {
   title_guess: string
   cover_text: string
   analysed: string
+  /** What the background worker read. Nobody but the worker writes this. */
   draft_json: string
+  /** What a person stated while it sat in the queue. The worker never writes it. */
+  edit_json: string
+  edited_by: string
+  /** Set the first time a person looked, whether or not they changed anything. */
+  edited_at: string | null
   note: string
   claimed_by: string
   claimed_at: string | null
   book_id: number | null
   created_at: string
   processed_at: string | null
+}
+
+/**
+ * The fields a person may state about a queued capture. Mirrors the server's
+ * `CaptureEdit`: only what somebody resolving details decides, and every field
+ * optional, because a request carries only what was actually stated.
+ */
+export interface CaptureEdit {
+  isbn13?: string
+  isbn10?: string
+  isbnSource?: string
+  title?: string
+  subtitle?: string
+  authors?: string[]
+  publisher?: string
+  published?: string
+  pages?: string
+  notes?: string
+  isFiction?: boolean
+  classificationSource?: string
+  classificationConfidence?: string
+  seriesName?: string
+  seriesIndex?: number | null
+  location?: string
+  lookupSource?: string
+  authorFilingOverride?: string | null
 }
 
 export type QueueCounts = Record<CaptureStatus, number>
@@ -353,6 +385,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ who }),
     }),
+
+  /**
+   * Persist what somebody has worked out about a capture still in the queue.
+   *
+   * Send only what was actually stated: on the server an absent key means
+   * "nobody has decided this" and leaves the background worker free to fill it
+   * in, while a present one means a person did and the worker must not touch
+   * it. An empty body is a legitimate call and records that somebody looked at
+   * this book and left it as it was.
+   *
+   * A changed `isbn13` re-runs the lookup server side and comes back in
+   * `lookup`, so the correction and everything that hangs off it land in one
+   * write rather than two the browser has to survive.
+   */
+  updateCapture: (id: number, who: string, edit: CaptureEdit = {}) =>
+    request<{ capture: Capture; lookup: LookupResponse | null; counts: QueueCounts }>(
+      `/api/captures/${id}`,
+      { method: 'PATCH', body: JSON.stringify({ who, ...edit }) },
+    ),
 
   releaseCapture: (id: number, who: string) =>
     request<{ ok: true }>(`/api/captures/${id}/release`, {
@@ -562,6 +613,110 @@ export function draftFromLookup(result: LookupResponse, isbnSource = ''): Draft 
     seriesIndex: result.seriesIndex === null ? '' : String(result.seriesIndex),
     lookupSource: result.source,
   }
+}
+
+/** Parse a capture's JSON column without letting a bad one break the page. */
+function parseJson<T>(raw: string): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+/** What the background worker made of a capture's photographs. */
+export function lookupOn(capture: Capture): LookupResponse | null {
+  return parseJson<LookupResponse>(capture.draft_json)
+}
+
+/** What a person stated about a capture while it sat in the queue. */
+export function editsOn(capture: Capture): CaptureEdit {
+  return parseJson<CaptureEdit>(capture.edit_json) ?? {}
+}
+
+/** A queued capture as the worker left it, with nothing a person said on top. */
+function machineDraft(capture: Capture): Draft {
+  const looked = lookupOn(capture)
+  return looked?.found
+    ? draftFromLookup(looked, capture.isbn_source)
+    : {
+        ...emptyDraft,
+        isbn13: capture.isbn13,
+        isbn10: capture.isbn10,
+        title: capture.title_guess,
+        isbnSource: capture.isbn_source,
+      }
+}
+
+/**
+ * A queued capture in the shape the review pane edits.
+ *
+ * The whole precedence rule, on the reading side: the worker's lookup is the
+ * base, and whatever a person stated goes on top of it, field by field. That
+ * is what makes the middle person's work durable across a handoff. The two
+ * live in separate columns, so a re-analysis can improve the base underneath
+ * without ever displacing a correction laid over it.
+ */
+export function draftFromCapture(capture: Capture): Draft {
+  const base = machineDraft(capture)
+  const stated = editsOn(capture)
+  const patch: Partial<Draft> = {}
+  for (const key of [
+    'isbn13', 'isbn10', 'isbnSource', 'title', 'subtitle', 'publisher',
+    'published', 'pages', 'notes', 'classificationSource',
+    'classificationConfidence', 'seriesName', 'location', 'lookupSource',
+  ] as const) {
+    if (stated[key] !== undefined) patch[key] = stated[key] as string
+  }
+  if (stated.authors !== undefined) patch.authors = stated.authors.join(', ')
+  if (stated.isFiction !== undefined) patch.isFiction = stated.isFiction
+  if (stated.seriesIndex !== undefined) {
+    patch.seriesIndex = stated.seriesIndex === null ? '' : String(stated.seriesIndex)
+  }
+  if (stated.authorFilingOverride !== undefined) {
+    patch.authorFilingOverride = stated.authorFilingOverride ?? ''
+  }
+
+  return { ...base, ...patch }
+}
+
+/**
+ * What changed between the capture as it was put in front of somebody and the
+ * draft they are looking at now.
+ *
+ * A difference, not the whole draft, and that is the point. On the server a
+ * key that is present means a person decided that field and the background
+ * worker must leave it alone, so sending every field would freeze the worker
+ * out of a capture because somebody fixed one word in the title. Fields the
+ * person did not touch are not claimed on their behalf.
+ *
+ * Returns an empty object when nothing changed, which is still worth sending:
+ * it records that somebody looked and left the book as it was.
+ */
+export function editFromDraft(draft: Draft, shown: Draft): CaptureEdit {
+  const edit: CaptureEdit = {}
+
+  for (const key of [
+    'isbn13', 'isbn10', 'isbnSource', 'title', 'subtitle', 'publisher',
+    'published', 'pages', 'notes', 'classificationSource',
+    'classificationConfidence', 'seriesName', 'location', 'lookupSource',
+  ] as const) {
+    if (draft[key] !== shown[key]) edit[key] = draft[key]
+  }
+
+  if (draft.authors !== shown.authors) {
+    edit.authors = draft.authors.split(',').map((a) => a.trim()).filter(Boolean)
+  }
+  if (draft.isFiction !== shown.isFiction) edit.isFiction = draft.isFiction
+  if (draft.seriesIndex !== shown.seriesIndex) {
+    edit.seriesIndex = draft.seriesIndex.trim() === '' ? null : Number(draft.seriesIndex)
+  }
+  if (draft.authorFilingOverride !== shown.authorFilingOverride) {
+    edit.authorFilingOverride = draft.authorFilingOverride.trim() || null
+  }
+
+  return edit
 }
 
 /** Load a saved book back into the shape the detail view edits. */

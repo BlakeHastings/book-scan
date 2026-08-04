@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, deviceName, type Capture, type QueueCounts } from '../lib/api'
+import {
+  api, deviceName, draftFromCapture, editsOn,
+  type Capture, type QueueCounts,
+} from '../lib/api'
 import { newestFirst } from '../lib/queueOrder'
 import { coverUrl } from './PlacementCard'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -153,10 +156,19 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
 
       <ul className="queue">
         {captures.map((capture) => {
-          const draft = capture.draft_json
-            ? (JSON.parse(capture.draft_json) as { title?: string; authors?: string[] })
-            : null
+          // What anybody has worked out about this book, over what the worker
+          // read off its photographs. The row has to show the corrected title,
+          // not the one the wrong ISBN produced, or the person coming to shelve
+          // it is looking for the wrong book.
+          const draft = draftFromCapture(capture)
           const heldByOther = capture.claimed_by && capture.claimed_by !== me
+          // Two different facts, and the queue's value is telling them apart:
+          // nobody has been near this book, or somebody has and this is where
+          // they got to.
+          const stated = Object.keys(editsOn(capture)).length > 0
+          const looked = capture.edited_at
+            ? `${stated ? 'worked on' : 'checked'} by ${capture.edited_by || 'someone'}`
+            : ''
           const thumb = capture.edge_image || capture.front_image || capture.back_image
 
           return (
@@ -174,10 +186,10 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
 
               <span className="queue__body">
                 <span className="queue__title">
-                  {draft?.title || capture.title_guess || `Book #${capture.id}`}
+                  {draft.title || `Book #${capture.id}`}
                 </span>
                 <span className="queue__meta">
-                  {draft?.authors?.join(', ') || capture.isbn13 || 'no ISBN yet'}
+                  {draft.authors || draft.isbn13 || 'no ISBN yet'}
                 </span>
                 {!capture.isbn13 && capture.cover_text && (
                   <span className="queue__cover">
@@ -187,6 +199,7 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
                 <span className={`queue__status queue__status--${capture.status}`}>
                   {STATUS_LABEL[capture.status]}
                   {heldByOther ? ` · with ${capture.claimed_by}` : ''}
+                  {looked ? ` · ${looked}` : ''}
                 </span>
                 {capture.note && capture.status === 'failed' && (
                   <span className="queue__note">{capture.note}</span>

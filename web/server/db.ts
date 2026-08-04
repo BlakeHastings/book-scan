@@ -129,7 +129,24 @@ CREATE TABLE IF NOT EXISTS captures (
     -- one at a time, so the worker needs to know what is new.
     analysed     TEXT    DEFAULT '',
     -- The looked-up metadata, as a draft the review pane can load directly.
+    -- Written only by the background worker. See edit_json below.
     draft_json   TEXT    DEFAULT '',
+    -- What a person stated about this book while it sat in the queue, as the
+    -- subset of draft fields they actually filled in.
+    --
+    -- Deliberately a second column rather than an edit of draft_json. The
+    -- worker owns draft_json and re-reads photographs whenever a new one
+    -- arrives, so a correction stored there is one re-analysis away from being
+    -- silently overwritten. Two columns means the person and the worker never
+    -- write the same cell, and a capture is read as draft_json with edit_json
+    -- laid over the top. See the precedence comment in queue.ts.
+    edit_json    TEXT    DEFAULT '',
+    -- When a person last looked at this capture, and who. Set even by a look
+    -- that changed nothing, because "nobody has been here yet" and "somebody
+    -- read it and left it alone" are different facts and the queue exists to
+    -- tell you which books still want attention.
+    edited_by    TEXT    DEFAULT '',
+    edited_at    TEXT,
     note         TEXT    DEFAULT '',
     -- Soft lease, so two people cannot work the same capture at once.
     claimed_by   TEXT    DEFAULT '',
@@ -232,6 +249,9 @@ function addMissingColumns(db: Database.Database): void {
     captures: [
       ['cover_text', "TEXT DEFAULT ''"],
       ['analysed', "TEXT DEFAULT ''"],
+      ['edit_json', "TEXT DEFAULT ''"],
+      ['edited_by', "TEXT DEFAULT ''"],
+      ['edited_at', 'TEXT'],
     ],
     separators: [
       ['starts_at', "TEXT DEFAULT ''"],

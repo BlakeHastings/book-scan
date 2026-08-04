@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  api, deviceName, draftFromBook, draftFromLookup, emptyDraft,
+  api, deviceName, draftFromBook, draftFromCapture, draftFromLookup,
+  editFromDraft, emptyDraft,
   type Capture, type CheckoutOutcome, type Counts, type Draft,
   type LookupResponse, type PlacementResponse, type QueueCounts,
 } from './lib/api'
@@ -56,6 +57,13 @@ export default function App() {
   // before the bump is still running against the old session, and its answer
   // must land nowhere once this has moved past it.
   const reviewSessionRef = useRef(0)
+  /**
+   * The queued capture as the server currently holds it, in draft form. What
+   * the autosave below diffs against, so only fields somebody actually changed
+   * are claimed as their decision. Null whenever the book on screen is not a
+   * queued capture.
+   */
+  const captureOnServerRef = useRef<Draft | null>(null)
 
   const [mode, setMode] = useState<Mode>('home')
   const [cameraOn, setCameraOn] = useState(false)
@@ -300,6 +308,45 @@ export default function App() {
     return () => { cancelled = true; clearInterval(timer) }
   }, [mode, captureId, identified])
 
+  /**
+   * Write what is being worked out back to the capture, while it is being
+   * worked out.
+   *
+   * The point of the whole thing (#65): one person photographs, another
+   * resolves details, a third shelves. That only works if the middle person's
+   * work is durable, so it goes to the database as they type rather than
+   * waiting for the book to be saved. Until this existed, corrections lived in
+   * one browser tab and navigating away lost them, which forced resolving and
+   * shelving to be one person in one sitting.
+   *
+   * Only for a queued capture. A catalogued book already has a Save, and a
+   * book on the camera screen has no capture worth writing to yet.
+   *
+   * A difference is sent, not the whole draft: see `editFromDraft`. Failures
+   * are swallowed on purpose, because the person is mid-sentence and an error
+   * banner over a keystroke is worse than the next keystroke retrying, which
+   * is what leaving the baseline untouched arranges.
+   */
+  useEffect(() => {
+    if (mode !== 'review' || captureId === null || bookId !== null) return
+    const onServer = captureOnServerRef.current
+    if (!onServer) return
+
+    const edit = editFromDraft(draft, onServer)
+    if (!Object.keys(edit).length) return
+
+    const timer = setTimeout(() => {
+      const session = reviewSessionRef.current
+      // Moved forward before the request so a second keystroke does not resend
+      // the same fields, and put back if the write did not land.
+      captureOnServerRef.current = draft
+      void api.updateCapture(captureId, me, edit).catch(() => {
+        if (reviewSessionRef.current === session) captureOnServerRef.current = onServer
+      })
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [mode, captureId, bookId, draft, me])
+
   // -----------------------------------------------------------------------
   // Live placement preview
   // -----------------------------------------------------------------------
@@ -368,15 +415,44 @@ export default function App() {
    * before the request goes out and checked again after it comes back; if
    * review has since moved on to a different book, the answer is dropped
    * rather than landing on whatever is on screen by then.
+   *
+   * For a book still in the queue the correction goes through the capture
+   * itself, which both persists it and runs the lookup in a single call. Two
+   * calls would mean a browser closed in between leaves a capture carrying a
+   * corrected ISBN and the old book's title. The ISBN is recorded as typed by
+   * a person rather than read from a barcode or guessed by OCR, because that
+   * is a third kind of fact and the record is worth less if it pretends
+   * otherwise (#29).
    */
   const relookup = async (isbn: string) => {
     const session = reviewSessionRef.current
+    const queued = captureId !== null && bookId === null
     setRelookupBusy(true)
     setRelookupError('')
     // Resolved up front so a failed request still has something valid to fall
     // back to: the digits the user typed, not whatever was there before.
     const typed = resolveIsbnPair(isbn)
     try {
+      if (queued) {
+        const { capture, lookup: found } = await api.updateCapture(
+          captureId!, me, { isbn13: isbn },
+        )
+        if (reviewSessionRef.current !== session) return
+        // The capture is now the authority: the server merged the lookup, the
+        // typed digits and everything already stated into one row.
+        const settled = draftFromCapture(capture)
+        captureOnServerRef.current = settled
+        setDraft(settled)
+        setLookup(found)
+        setIdentified(Boolean(found?.found))
+        if (found && !found.found) {
+          setError(
+            `No catalogue has ${isbn}. The ISBN has been saved; fill the rest in by hand.`,
+          )
+        }
+        return
+      }
+
       const result = await api.lookupIsbn(isbn)
       if (reviewSessionRef.current !== session) return
       if (result.found) {
@@ -626,28 +702,28 @@ export default function App() {
     }
   }
 
-  /** Open a queue item in the review pane, pre-filled from its lookup. */
+  /**
+   * Open a queue item in the review pane, pre-filled from its lookup and from
+   * whatever anybody has already worked out about it.
+   *
+   * This is the receiving half of the handoff: `draftFromCapture` lays what a
+   * person stated over what the worker read, so somebody picking a book up
+   * after somebody else put it down starts from their work rather than from
+   * the photographs again.
+   */
   const openCapture = (capture: Capture, anchor: QueueReturnAnchor) => {
     endReviewSession()
     const looked = capture.draft_json
       ? (JSON.parse(capture.draft_json) as LookupResponse)
       : null
+    const loaded = draftFromCapture(capture)
 
     setCaptureId(capture.id)
     setBookId(null)
     setLookup(looked)
-    setIdentified(Boolean(looked?.found))
-    setDraft(
-      looked?.found
-        ? draftFromLookup(looked, capture.isbn_source)
-        : {
-            ...emptyDraft,
-            isbn13: capture.isbn13,
-            isbn10: capture.isbn10,
-            title: capture.title_guess,
-            isbnSource: capture.isbn_source,
-          },
-    )
+    setIdentified(Boolean(loaded.title))
+    setDraft(loaded)
+    captureOnServerRef.current = loaded
     setThumbs({
       front: capture.front_image ? `/api/covers/${capture.front_image}` : undefined,
       back: capture.back_image ? `/api/covers/${capture.back_image}` : undefined,
@@ -694,7 +770,20 @@ export default function App() {
    */
   const clearBookInHand = () => {
     endReviewSession()
-    if (captureId) void api.releaseCapture(captureId, me).catch(() => {})
+    if (captureId) {
+      const id = captureId
+      // Mark it looked at before letting go of it, then release. An empty edit
+      // states nothing and changes no field; it records that a person read this
+      // book and left it as it was, which the queue needs to tell apart from a
+      // book nobody has opened yet. It runs before the release because editing
+      // requires the claim, and it is allowed to fail: a capture that has just
+      // become a book refuses the edit, and that refusal is correct.
+      void api.updateCapture(id, me)
+        .catch(() => {})
+        .then(() => api.releaseCapture(id, me))
+        .catch(() => {})
+    }
+    captureOnServerRef.current = null
     setDraft(emptyDraft)
     setLookup(null)
     setIdentified(false)

@@ -14,7 +14,8 @@
 
 import type { Database } from 'better-sqlite3'
 import { identify } from './identify'
-import { lookupIsbn, type LookupOptions } from './lookup'
+import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
+import { resolveIsbnPair } from '../shared/isbn'
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -36,6 +37,10 @@ export interface CaptureRow {
   cover_text: string
   analysed: string
   draft_json: string
+  /** What a person stated, as JSON. Never written by the worker. */
+  edit_json: string
+  edited_by: string
+  edited_at: string | null
   note: string
   claimed_by: string
   claimed_at: string | null
@@ -44,8 +49,79 @@ export interface CaptureRow {
   processed_at: string | null
 }
 
+/**
+ * The fields a person may state about a capture while it is still in the
+ * queue. A subset of the review pane's draft: only what somebody resolving
+ * details actually decides. Photographs, status and claims are not in here,
+ * because those are not statements about the book.
+ */
+export interface CaptureEdit {
+  isbn13?: string
+  isbn10?: string
+  isbnSource?: string
+  title?: string
+  subtitle?: string
+  authors?: string[]
+  publisher?: string
+  published?: string
+  pages?: string
+  notes?: string
+  isFiction?: boolean
+  classificationSource?: string
+  classificationConfidence?: string
+  seriesName?: string
+  seriesIndex?: number | null
+  location?: string
+  lookupSource?: string
+  authorFilingOverride?: string | null
+}
+
+/**
+ * How a person's ISBN got there. `barcode` and `ocr` are readings the worker
+ * made of a photograph; this third value is a person typing the digits off the
+ * book in their hands, which is a different kind of fact and is recorded as
+ * one rather than borrowing the credibility of either (#29).
+ */
+export const MANUAL_ISBN_SOURCE = 'manual'
+
+export type EditOutcome =
+  | { ok: true; row: CaptureRow; lookup: LookupResult | null }
+  | { ok: false; reason: 'missing' }
+  | { ok: false; reason: 'done' }
+  | { ok: false; reason: 'claimed'; heldBy: string }
+
 /** How long a claim holds before someone else may take the capture. */
 const CLAIM_LEASE_MS = 5 * 60 * 1000
+
+/** The catalogue's answer, in the shape the overlay stores. */
+function fromLookup(lookup: LookupResult): CaptureEdit {
+  return {
+    title: lookup.title,
+    subtitle: lookup.subtitle,
+    authors: lookup.authors,
+    publisher: lookup.publisher,
+    published: lookup.published,
+    pages: lookup.pages,
+    isFiction: lookup.classification.isFiction,
+    classificationSource: 'auto',
+    classificationConfidence: lookup.classification.confidence,
+    seriesName: lookup.seriesName,
+    seriesIndex: lookup.seriesIndex,
+    lookupSource: lookup.source,
+  }
+}
+
+/** What a person stated, or nothing when nobody has stated anything. */
+export function editsOn(capture: Pick<CaptureRow, 'edit_json'>): CaptureEdit {
+  if (!capture.edit_json) return {}
+  try {
+    return JSON.parse(capture.edit_json) as CaptureEdit
+  } catch {
+    // A corrupt overlay must not take the whole capture down with it. Losing
+    // the overlay is bad; refusing to show the book at all is worse.
+    return {}
+  }
+}
 
 export class CaptureQueue {
   private draining = false
@@ -159,6 +235,109 @@ export class CaptureQueue {
     return { ok: true, row: this.get(id) }
   }
 
+  /**
+   * Record what a person worked out about a capture that is still in the
+   * queue, so the next person to open it sees the work already done.
+   *
+   * This is what makes three people on one pile possible: one photographs, one
+   * resolves details, one shelves. Without a durable write here the middle
+   * person's work lives in their browser and reaches the database only when
+   * the book is finally saved, so resolving and shelving collapse into one
+   * sitting by one person.
+   *
+   * Editing goes through the existing claim rather than a second mechanism.
+   * Passing through `claim` means an edit both requires the claim and renews
+   * the lease, which is what a long resolving session needs: the person is
+   * demonstrably still working, so their five minutes should not run out under
+   * them. A claim that has gone stale falls to whoever is actually here, on
+   * exactly the same terms as opening the capture in the first place.
+   *
+   * A stated ISBN re-runs the lookup, because that is the whole value of the
+   * correction: the ISBN is the key every other field hangs off, so a corrected
+   * one that did not refetch would leave a book carrying the right number and
+   * the wrong title. Done here rather than left to the client so that the
+   * correction and its consequences land in one write, and survive a browser
+   * that is closed a second later.
+   */
+  async edit(id: number, who: string, patch: CaptureEdit): Promise<EditOutcome> {
+    const before = this.get(id)
+    if (!before) return { ok: false, reason: 'missing' }
+    // A shelved capture is history. Its book is the thing to edit now.
+    if (before.status === 'done') return { ok: false, reason: 'done' }
+
+    const held = this.claim(id, who)
+    if (!held.ok) return { ok: false, reason: 'claimed', heldBy: held.heldBy ?? 'someone else' }
+
+    // Merged, not replaced, so successive edits accumulate rather than each
+    // one wiping the fields the last stated.
+    const already = editsOn(before)
+    let merged: CaptureEdit = { ...already, ...patch }
+    let lookup: LookupResult | null = null
+
+    const typed = patch.isbn13 ? resolveIsbnPair(patch.isbn13) : null
+    if (typed && (typed.isbn13 || typed.isbn10) && typed.isbn13 !== before.isbn13) {
+      lookup = await lookupIsbn(patch.isbn13!, this.lookupOptions)
+      merged = {
+        ...already,
+        // The catalogue's answer beats what was on screen a moment ago,
+        // because those fields describe the book the wrong ISBN named. Notes,
+        // location and the filing override are the exceptions and are kept:
+        // they are what the person, not the catalogue, is the authority on.
+        ...(lookup.found ? fromLookup(lookup) : {}),
+        notes: already.notes,
+        location: already.location,
+        authorFilingOverride: already.authorFilingOverride,
+        // And anything stated in this same request beats the catalogue in
+        // turn. Somebody correcting the ISBN and the title together means
+        // both, not one of them silently discarded.
+        ...patch,
+        // Whatever the catalogue said, the digits the person typed are the
+        // ones recorded, and they are recorded even when nothing has them. A
+        // book left carrying an ISBN we know to be wrong helps nobody.
+        isbn13: lookup.isbn13 || typed.isbn13 || patch.isbn13!,
+        isbn10: lookup.isbn10 || typed.isbn10 || '',
+        isbnSource: MANUAL_ISBN_SOURCE,
+      }
+    }
+
+    const now = new Date().toISOString()
+
+    this.db
+      .prepare(
+        `UPDATE captures SET
+           edit_json = @edit, edited_by = @who, edited_at = @now,
+           -- Mirrored onto the row's own columns as well as into the overlay:
+           -- the queue listing and the worker both read these directly, and a
+           -- correction nobody can see in the list is half a correction.
+           isbn13 = COALESCE(@isbn13, isbn13),
+           isbn10 = COALESCE(@isbn10, isbn10),
+           isbn_source = COALESCE(@isbnSource, isbn_source),
+           title_guess = COALESCE(@title, title_guess),
+           -- A person who has stated a title or an ISBN has resolved this
+           -- book, whatever the photographs did or did not read. 'pending'
+           -- is left alone: the worker is mid-pass and settles it itself,
+           -- with this overlay applied.
+           status = CASE
+             WHEN status IN ('ready', 'failed') AND @resolved = 1 THEN 'ready'
+             ELSE status
+           END
+         WHERE id = @id`,
+      )
+      .run({
+        id,
+        who,
+        now,
+        edit: JSON.stringify(merged),
+        isbn13: merged.isbn13 ?? null,
+        isbn10: merged.isbn10 ?? null,
+        isbnSource: merged.isbnSource ?? null,
+        title: merged.title ?? null,
+        resolved: (merged.title ?? '') || (merged.isbn13 ?? '') ? 1 : 0,
+      })
+
+    return { ok: true, row: this.get(id)!, lookup }
+  }
+
   release(id: number, who: string): void {
     this.db
       .prepare(
@@ -220,10 +399,17 @@ export class CaptureQueue {
       })
 
       if (!todo.length) {
-        // Nothing new. Settle the status so it stops looking pending.
+        // Nothing new. Settle the status so it stops looking pending. A title
+        // somebody typed counts as much as an ISBN here: the book is resolved
+        // either way, and calling it 'failed' would send the next person to a
+        // book that no longer needs them.
         this.db
-          .prepare("UPDATE captures SET status = CASE WHEN isbn13 != '' THEN 'ready' ELSE 'failed' END WHERE id = ? AND status = 'pending'")
-          .run(capture.id)
+          .prepare(
+            `UPDATE captures
+                SET status = CASE WHEN isbn13 != '' OR @statedTitle != '' THEN 'ready' ELSE 'failed' END
+              WHERE id = @id AND status = 'pending'`,
+          )
+          .run({ id: capture.id, statedTitle: editsOn(capture).title ?? '' })
         return
       }
 
@@ -294,6 +480,40 @@ export class CaptureQueue {
         )
       }
 
+      // ---------------------------------------------------------------------
+      // PRECEDENCE: a person beats this worker, always.
+      //
+      // This is the sharp edge of the whole queue-editing feature (#65) and it
+      // is written down here because here is where the machine's reading gets
+      // written. Somebody corrects an ISBN, a photograph arrives or the server
+      // restarts, this pass re-reads the book and the correction disappears.
+      // That is precisely the scenario the feature exists to support, so
+      // losing it would make the feature worse than not having it.
+      //
+      // The rule:
+      //
+      //   1. The worker reads photographs. A person reads the book in their
+      //      hands. Where they disagree the person wins and the worker's
+      //      reading is discarded, not merged and not averaged.
+      //   2. It is decided per field, not per capture. `edit_json` holds
+      //      exactly the fields somebody stated, so a key being present is the
+      //      whole test. An edit that only fixed the title must not stop the
+      //      worker filling in an ISBN nobody has stated.
+      //   3. The two never share a cell. `draft_json` is the worker's channel
+      //      and no person writes it; `edit_json` is the person's and this
+      //      worker never writes it. So a re-analysis cannot lose a correction
+      //      even in principle, and a better photograph is still free to
+      //      improve what the machine knows underneath.
+      //
+      // Read fresh rather than from `capture`: this pass has been away doing
+      // OCR and lookups for seconds, which is ample time for somebody to have
+      // typed something. There is no await between this read and the write
+      // below, and better-sqlite3 is synchronous, so nothing can land between
+      // the two.
+      const stated = editsOn(this.get(capture.id) ?? capture)
+      const statedIsbn = stated.isbn13 !== undefined
+      const resolved = Boolean(lookup?.found) || Boolean(stated.title) || statedIsbn
+
       this.db
         .prepare(
           `UPDATE captures SET
@@ -305,15 +525,22 @@ export class CaptureQueue {
         )
         .run({
           id: capture.id,
-          status: lookup?.found ? 'ready' : 'failed',
-          isbn13,
-          isbn10: lookup?.isbn10 ?? '',
-          source: isbnSource,
-          titleGuess,
+          status: resolved ? 'ready' : 'failed',
+          isbn13: statedIsbn ? stated.isbn13! : isbn13,
+          isbn10: statedIsbn ? (stated.isbn10 ?? '') : (lookup?.isbn10 ?? ''),
+          source: statedIsbn ? (stated.isbnSource ?? MANUAL_ISBN_SOURCE) : isbnSource,
+          titleGuess: stated.title ?? titleGuess,
           coverText: coverLines.join(String.fromCharCode(10)),
           analysed: [...analysed].join(','),
+          // The worker's own channel. Written whatever a person has said,
+          // because it is not the thing shown to them: the capture is read as
+          // this with the overlay on top, so a fresher lookup underneath is
+          // an improvement rather than a conflict.
           draft: lookup ? JSON.stringify(lookup) : '',
-          note: notes.join(' '),
+          // "Could not confirm an ISBN, use Change ISBN" stops being true the
+          // moment somebody has. Leaving it would send the next person to a
+          // book that has already been dealt with.
+          note: statedIsbn ? '' : notes.join(' '),
           now: new Date().toISOString(),
         })
 

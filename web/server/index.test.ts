@@ -39,6 +39,7 @@ import { createApp } from './index'
 import { lookupIsbn } from './lookup'
 import { Store } from './store'
 import { coverHash } from './imagehash'
+import { CaptureQueue } from './queue'
 import { backCover, frontCover } from './fixtures'
 
 // Both routes that would otherwise reach the real catalogues. Saving a book
@@ -913,6 +914,104 @@ describe('scanning a book at the shelf', () => {
     expect(body.isbn13).toBe(DUNE)
     expect(running.store.counts().total).toBe(0)
   }, 20_000)
+})
+
+/**
+ * The route the queue was missing, and the workflow it exists for: one person
+ * photographs, another resolves details, a third shelves. Asserted through
+ * HTTP and read back out of SQLite, because "it stayed on screen" is exactly
+ * the thing that was already true before this route existed.
+ */
+describe('editing a capture that is still in the queue', () => {
+  /**
+   * A capture without going through the camera route, which would run the real
+   * OCR pipeline for no benefit here. The queue's own writer, against the same
+   * database the running app is serving from.
+   */
+  const queued = () =>
+    new CaptureQueue(running.db, () => null).add({ back: 'b.jpg', front: 'f.jpg' })
+
+  it('persists a correction so the next person picks it up', async () => {
+    const capture = queued()
+
+    const { status, body } = await patch(`/api/captures/${capture.id}`, {
+      who: 'alice', title: 'Dune', authors: ['Frank Herbert'],
+    })
+    expect(status).toBe(200)
+    expect(body.capture.edited_by).toBe('alice')
+
+    // The handoff itself: a second request, as somebody else, sees the work.
+    const seen = await call(`/api/captures/${capture.id}`)
+    const stated = JSON.parse(seen.body.capture.edit_json)
+    expect(stated.title).toBe('Dune')
+    expect(stated.authors).toEqual(['Frank Herbert'])
+  })
+
+  it('re-runs the lookup for a corrected ISBN and records it as manual', async () => {
+    vi.mocked(lookupIsbn).mockResolvedValueOnce({
+      found: true, title: 'Dune', subtitle: '', authors: ['Frank Herbert'],
+      publisher: 'Ace Books', published: '1965', pages: '412', isbn13: DUNE,
+      isbn10: '0441013597', seriesName: '', seriesIndex: null, coverUrl: '',
+      source: 'Open Library',
+      classification: { isFiction: true, confidence: 'high', reason: 'stub' },
+      notes: [],
+    })
+    const capture = queued()
+
+    const { body } = await patch(`/api/captures/${capture.id}`, {
+      who: 'alice', isbn13: DUNE,
+    })
+
+    expect(body.lookup.title).toBe('Dune')
+    expect(body.capture.isbn13).toBe(DUNE)
+    // Not 'barcode' and not 'ocr': a person reading digits off a book is a
+    // third kind of fact and says so (#29).
+    expect(body.capture.isbn_source).toBe('manual')
+  })
+
+  it('refuses an edit while somebody else holds the claim', async () => {
+    const capture = queued()
+    await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
+
+    const { status, body } = await patch(`/api/captures/${capture.id}`, {
+      who: 'bob', title: 'Not Dune',
+    })
+
+    expect(status).toBe(409)
+    expect(body.error).toContain('alice')
+    expect(new CaptureQueue(running.db, () => null).get(capture.id)!.edit_json).toBe('')
+  })
+
+  it('records that somebody looked, even having stated nothing', async () => {
+    const capture = queued()
+
+    const { status, body } = await patch(`/api/captures/${capture.id}`, { who: 'alice' })
+
+    expect(status).toBe(200)
+    expect(body.capture.edited_at).not.toBeNull()
+    // Looked at and left alone: nothing is claimed as a human decision, so
+    // the worker is still free to fill everything in.
+    expect(JSON.parse(body.capture.edit_json)).toEqual({})
+  })
+
+  it('404s on a capture that does not exist', async () => {
+    const { status } = await patch('/api/captures/999', { who: 'alice', title: 'Dune' })
+    expect(status).toBe(404)
+  })
+
+  it('409s on a capture that has already become a book', async () => {
+    const capture = queued()
+    const { id } = running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    new CaptureQueue(running.db, () => null).markDone(capture.id, id)
+
+    const { status, body } = await patch(`/api/captures/${capture.id}`, {
+      who: 'alice', title: 'Something Else',
+    })
+    expect(status).toBe(409)
+    expect(body.error).toContain('shelved')
+  })
 })
 
 // ---------------------------------------------------------------------------
