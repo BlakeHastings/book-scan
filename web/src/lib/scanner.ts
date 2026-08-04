@@ -63,6 +63,25 @@ export function rememberLens(deviceId: string): void {
   else localStorage.removeItem(LENS_KEY)
 }
 
+const TORCH_KEY = 'bookscan.torch'
+
+/**
+ * Whether the torch was left on for spines.
+ *
+ * Remembered rather than asked for again, because somebody who needs it needs
+ * it on every spine, and a toggle that resets is a tap per book. Off by
+ * default: a torch that came on by itself indoors, in somebody's hands, would
+ * be startling and would flare a glossy spine.
+ */
+export function rememberedTorch(): boolean {
+  return localStorage.getItem(TORCH_KEY) === 'on'
+}
+
+export function rememberTorch(on: boolean): void {
+  if (on) localStorage.setItem(TORCH_KEY, 'on')
+  else localStorage.removeItem(TORCH_KEY)
+}
+
 /**
  * The rear lenses this phone will name.
  *
@@ -518,7 +537,7 @@ export async function applyFocusHints(
 }
 
 // ---------------------------------------------------------------------------
-// What this camera actually is
+// Torch
 // ---------------------------------------------------------------------------
 
 /** Read a track's capabilities without caring that some browsers have none. */
@@ -531,6 +550,41 @@ function capabilitiesOf(stream: MediaStream | null): Record<string, unknown> {
     return {}
   }
 }
+
+/**
+ * Whether this phone will let the page turn the torch on.
+ *
+ * WebKit only reports the capability when the device actually has a torch, so
+ * this is the honest question rather than a guess from the user agent. Torch
+ * is worth more here than any lens choice: a video frame's exposure is capped
+ * by the frame interval, about 1/30s, and within that ceiling the only thing
+ * that shortens the exposure is more light. A shorter exposure is less motion
+ * blur, directly, on every frame of the burst rather than probabilistically.
+ */
+export function torchAvailable(stream: MediaStream | null): boolean {
+  return capabilitiesOf(stream).torch === true
+}
+
+/**
+ * Turn the torch on or off, reporting whether it took.
+ *
+ * Never throws: a phone that advertises the capability and then refuses the
+ * constraint must not break the shutter, it must just stay dark.
+ */
+export async function setTorch(stream: MediaStream | null, on: boolean): Promise<boolean> {
+  const track = stream?.getVideoTracks()[0]
+  if (!track || !torchAvailable(stream)) return false
+  try {
+    await track.applyConstraints({ advanced: [{ torch: on }] } as unknown as MediaTrackConstraints)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// What this camera actually is
+// ---------------------------------------------------------------------------
 
 export interface CameraFact {
   /** Plain enough to read down a telephone. */

@@ -1055,6 +1055,15 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .cam__lens--on { background: var(--accent); border-color: var(--accent); color: #0b0b12; font-weight: 600; }
 
+/* The torch chip, lit when it is. Same shape as its neighbours in the top row
+   so it reads as one of them rather than as an alert. */
+.cam__chip-btn--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0b12;
+  font-weight: 600;
+}
+
 /* What the camera reports, laid out so a label and its value stay on one line
    and can be read off a phone straight down a telephone. */
 .cam__sheet-subhead {

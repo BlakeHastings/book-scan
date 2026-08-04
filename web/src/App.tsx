@@ -8,6 +8,7 @@ import {
 import {
   applyFocusHints, cameraFacts, cameraFactsText, currentOrigin, describeStream,
   listLenses, openCamera, lensName, preferredLens, rememberedLens, rememberLens,
+  rememberedTorch, rememberTorch, setTorch, torchAvailable,
   SLOT_CROP, SLOT_GUIDE, SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL,
   SLOT_SHORT, stopStream, thumbnail, type CameraFact, type Lens, type Slot,
 } from './lib/scanner'
@@ -98,6 +99,14 @@ export default function App() {
   const [lensId, setLensId] = useState(rememberedLens())
   const [focusNote, setFocusNote] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  /**
+   * The torch, offered only where the phone actually has one and only on the
+   * spine, which is the shot that needs it. More light means a shorter
+   * exposure means less blur, which is the one lever on steadiness that is
+   * physical rather than statistical.
+   */
+  const [torchReady, setTorchReady] = useState(false)
+  const [torchOn, setTorchOn] = useState(rememberedTorch())
   /** What the last burst did, read off the phone to settle whether it is worth it. */
   const [burstNote, setBurstNote] = useState('')
   const [facts, setFacts] = useState<CameraFact[]>([])
@@ -206,6 +215,7 @@ export default function App() {
       }
 
       setFocusNote((await applyFocusHints(stream, activeSlot === 'edge')).join(', '))
+      setTorchReady(torchAvailable(stream))
     } catch (caught) {
       setError((caught as Error).message)
       stopCamera()
@@ -225,6 +235,23 @@ export default function App() {
     void applyFocusHints(streamRef.current, activeSlot === 'edge')
       .then((applied) => setFocusNote(applied.join(', ')))
   }, [activeSlot, cameraOn])
+
+  /**
+   * Light the spine, and only the spine.
+   *
+   * Following the slot rather than being a mode of its own means no extra tap:
+   * the person picks the spine as they already do, and the light is on when
+   * they get there. It goes out again on the covers, which are shot flat and
+   * do not need it, and where a torch would only bounce off the artwork.
+   */
+  useEffect(() => {
+    if (!cameraOn || !torchReady) return
+    const wanted = torchOn && activeSlot === 'edge'
+    void setTorch(streamRef.current, wanted)
+    // Off on the way out, so closing the camera never leaves a phone lit up in
+    // somebody's pocket.
+    return () => { void setTorch(streamRef.current, false) }
+  }, [activeSlot, cameraOn, torchOn, torchReady])
 
   // Read once the sheet is opened rather than on every render: getCapabilities
   // is a synchronous call into the capture device and this is a viewfinder.
@@ -945,6 +972,22 @@ export default function App() {
               </span>
             )}
           </button>
+          {/* Only where there is a torch to offer, and only on the shot that
+              wants it, so it is never a control somebody has to think past. */}
+          {cameraOn && torchReady && activeSlot === 'edge' && (
+            <button
+              className={torchOn ? 'cam__chip-btn cam__chip-btn--on' : 'cam__chip-btn'}
+              onClick={() => {
+                const next = !torchOn
+                setTorchOn(next)
+                rememberTorch(next)
+              }}
+              aria-pressed={torchOn}
+              title="More light means a shorter exposure, which means less blur"
+            >
+              {torchOn ? 'Light on' : 'Light'}
+            </button>
+          )}
           <span className="cam__meta">{counts ? `${counts.total} shelved` : ''}</span>
           {(shotCount > 0 || identified) && (
             <button className="cam__chip-btn" onClick={reset}>Start over</button>
