@@ -6,10 +6,10 @@ import {
   type LookupResponse, type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import {
-  applyFocusHints, currentOrigin, describeStream, listLenses,
-  openCamera, lensName, preferredLens, rememberedLens, rememberLens,
+  applyFocusHints, cameraFacts, cameraFactsText, currentOrigin, describeStream,
+  listLenses, openCamera, lensName, preferredLens, rememberedLens, rememberLens,
   SLOT_CROP, SLOT_GUIDE, SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL,
-  SLOT_SHORT, stopStream, thumbnail, type Lens, type Slot,
+  SLOT_SHORT, stopStream, thumbnail, type CameraFact, type Lens, type Slot,
 } from './lib/scanner'
 import { captureSteadiest, describeBurst } from './lib/steady'
 import { filingName, type ShelfRange } from '../shared/shelving'
@@ -100,6 +100,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   /** What the last burst did, read off the phone to settle whether it is worth it. */
   const [burstNote, setBurstNote] = useState('')
+  const [facts, setFacts] = useState<CameraFact[]>([])
+  const [factsCopied, setFactsCopied] = useState(false)
   const [toast, setToast] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -223,6 +225,14 @@ export default function App() {
     void applyFocusHints(streamRef.current, activeSlot === 'edge')
       .then((applied) => setFocusNote(applied.join(', ')))
   }, [activeSlot, cameraOn])
+
+  // Read once the sheet is opened rather than on every render: getCapabilities
+  // is a synchronous call into the capture device and this is a viewfinder.
+  useEffect(() => {
+    if (!settingsOpen) return
+    setFacts(cameraFacts(streamRef.current, videoRef.current))
+    setFactsCopied(false)
+  }, [settingsOpen])
 
   // Say what this slot wants, then get out of the way. A hint that lives on
   // screen permanently stops being read and only costs you viewfinder.
@@ -982,8 +992,33 @@ export default function App() {
                 distance, and the crop keeps the detail.
               </p>
 
+              {/* Written to be read out loud. Which lens, what it granted, and
+                  how many pixels a spine actually arrives with cannot be
+                  settled from here: nobody working on this owns the phone
+                  (#92). So the phone answers, in words rather than in a
+                  console. */}
+              <h4 className="cam__sheet-subhead">What this camera reports</h4>
+              <dl className="cam__facts">
+                {facts.map((fact) => (
+                  <div className="cam__fact" key={fact.label}>
+                    <dt>{fact.label}</dt>
+                    <dd>{fact.value}</dd>
+                  </div>
+                ))}
+              </dl>
 
               {burstNote && <p className="cam__sheet-meta">{burstNote}</p>}
+
+              <button
+                className="btn btn--ghost"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(cameraFactsText(facts))
+                    .then(() => setFactsCopied(true))
+                    .catch(() => setFactsCopied(false))
+                }}
+              >
+                {factsCopied ? 'Copied' : 'Copy these'}
+              </button>
 
               <p className="cam__sheet-meta">
                 {resolution || 'no stream'}

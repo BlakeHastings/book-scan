@@ -461,11 +461,16 @@ export function describeStream(stream: MediaStream | null): string {
  * Nudge the camera towards the subject in the middle of the frame.
  *
  * Everything here is feature-detected and optional, because the browser that
- * matters supports almost none of it. iOS Safari exposes no focus control at
- * all: there is no focusMode, no focusDistance, and no tap-to-focus hook. So
- * this helps on Android and is a no-op on an iPhone, and the honest fix for a
- * spine that will not come sharp is distance, not code. Returns what it
- * actually managed to apply, so the UI can say rather than imply.
+ * matters supports almost none of it. iOS Safari exposes no way to *set* focus:
+ * WebKit's capture source understands width, height, aspectRatio, frameRate,
+ * facingMode, deviceId, groupId, focusDistance, whiteBalanceMode, zoom and
+ * torch, and of those only whiteBalanceMode, zoom and torch are ever applied to
+ * the device. There is no focusMode and no tap-to-focus hook. focusDistance is
+ * reported but read only, as the lens minimum, which `cameraFacts` surfaces
+ * rather than sets. So this helps on Android and is nearly a no-op on an
+ * iPhone, and the honest fix for a spine that will not come sharp is distance,
+ * not code. Returns what it actually managed to apply, so the UI can say
+ * rather than imply.
  */
 export async function applyFocusHints(
   stream: MediaStream | null,
@@ -510,4 +515,103 @@ export async function applyFocusHints(
   } catch {
     return []
   }
+}
+
+// ---------------------------------------------------------------------------
+// What this camera actually is
+// ---------------------------------------------------------------------------
+
+/** Read a track's capabilities without caring that some browsers have none. */
+function capabilitiesOf(stream: MediaStream | null): Record<string, unknown> {
+  const track = stream?.getVideoTracks()[0]
+  if (!track?.getCapabilities) return {}
+  try {
+    return (track.getCapabilities() as unknown as Record<string, unknown>) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+export interface CameraFact {
+  /** Plain enough to read down a telephone. */
+  label: string
+  value: string
+}
+
+/**
+ * What the camera actually granted, in words a non-developer can report back.
+ *
+ * This exists because the remaining open questions about steadying a shot
+ * cannot be answered without the phone (#92), and the person holding that
+ * phone is not going to open a web inspector. Each line is one of those
+ * questions: whether the resolution we ask for is the resolution we get, how
+ * fast frames arrive (which sets the exposure ceiling and so the burst
+ * length), whether a torch is offered at all, and how close the pinned lens
+ * can focus, which is the difference between "hold the book further away" and
+ * "this lens cannot do it".
+ *
+ * The spine strip is the one that reframes the whole problem: the spine crop
+ * is a narrow slice of an already-cropped frame, so it arrives at the OCR only
+ * a few hundred pixels across. That is why the spine is the hardest shot. It
+ * is not that hands shake more on it, it is that it has the fewest pixels to
+ * lose, so it is worth being able to read the real number off the real phone.
+ */
+export function cameraFacts(
+  stream: MediaStream | null,
+  video?: HTMLVideoElement | null,
+): CameraFact[] {
+  const track = stream?.getVideoTracks()[0]
+  if (!track) return [{ label: 'Camera', value: 'not running' }]
+
+  const settings = (track.getSettings?.() ?? {}) as MediaTrackSettings
+  const capabilities = capabilitiesOf(stream)
+  const facts: CameraFact[] = []
+
+  facts.push({ label: 'Lens in use', value: track.label || 'unnamed' })
+
+  facts.push({
+    label: 'Picture size',
+    value: settings.width && settings.height
+      ? `${settings.width} by ${settings.height}`
+      : 'not reported',
+  })
+
+  facts.push({
+    label: 'Frames a second',
+    value: settings.frameRate ? `${Math.round(settings.frameRate)}` : 'not reported',
+  })
+
+  facts.push({
+    label: 'Torch',
+    value: capabilities.torch === true ? 'available' : 'not offered by this phone',
+  })
+
+  const focus = capabilities.focusDistance as { min?: number } | undefined
+  facts.push({
+    label: 'Closest it can focus',
+    value: typeof focus?.min === 'number'
+      // Reported in metres. Centimetres is what somebody holding a book thinks in.
+      ? `${Math.round(focus.min * 100)} cm`
+      : 'not reported',
+  })
+
+  const zoom = capabilities.zoom as { min?: number; max?: number } | undefined
+  facts.push({
+    label: 'Zoom range',
+    value: typeof zoom?.min === 'number' && typeof zoom?.max === 'number'
+      ? `${zoom.min}x to ${zoom.max}x`
+      : 'not adjustable',
+  })
+
+  if (video?.videoWidth) {
+    const { sw } = cropToSource(video, SPINE_CROP)
+    facts.push({ label: 'Spine strip', value: `${Math.round(sw)} pixels across` })
+  }
+
+  return facts
+}
+
+/** The same facts as one pasteable block, so they can be sent rather than read out. */
+export function cameraFactsText(facts: CameraFact[]): string {
+  return facts.map((fact) => `${fact.label}: ${fact.value}`).join('\n')
 }

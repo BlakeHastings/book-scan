@@ -1055,6 +1055,33 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .cam__lens--on { background: var(--accent); border-color: var(--accent); color: #0b0b12; font-weight: 600; }
 
+/* What the camera reports, laid out so a label and its value stay on one line
+   and can be read off a phone straight down a telephone. */
+.cam__sheet-subhead {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+}
+.cam__facts { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.cam__fact {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.cam__fact dt { color: var(--muted); flex: 0 0 auto; }
+.cam__fact dd {
+  margin: 0;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+  /* Long lens names wrap rather than pushing the label off the screen. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* --- The shelf, drawn end on ------------------------------------------- */
 
 .strip { margin-bottom: 16px; }
