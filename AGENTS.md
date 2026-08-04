@@ -95,25 +95,53 @@ aspire wait api                  # block until healthy, do not poll by hand
 aspire wait web
 aspire ps                        # resources, ports, dashboard URL
 aspire logs api                  # console output
-aspire otel traces               # spans, for proving a change did something
+aspire otel traces               # spans, but see the note below: none arrive
 aspire stop
 ```
 
-Aspire assigns the ports, so nothing is fixed at 3001 or 5173 and several
-checkouts can run at once. It also injects `OTEL_EXPORTER_OTLP_ENDPOINT`, which
-`web/instrumentation.ts` picks up to send traces and metrics to the dashboard.
+Aspire assigns the ports, so nothing is fixed at 3001 or 5173. It also injects
+`OTEL_EXPORTER_OTLP_ENDPOINT`, which `web/instrumentation.ts` picks up and logs
+as `[otel] exporting to ...` on startup.
 
-Prove your change works by driving the running app and reading its telemetry,
+Nothing arrives at the far end of that today. `aspire otel traces`, `spans` and
+`logs` all answer `No traces found` or `Resource 'api' not found` after real
+requests have been served. Checked on 2026-08-03 both with and without the
+launch profile described below, so it is not a consequence of removing it, and
+it is not fixed here. Until it is, do not plan to prove a change with
+`aspire otel`: use `aspire logs <resource>` and a test.
+
+Prove your change works by driving the running app and reading what it says,
 then turn what you did by hand into a test. A change nobody watched run is not
 verified.
+
+#### Several checkouts really can run at once
+
+This is verified, not assumed: two checkouts of this repo have been started
+side by side and both reported healthy `api` and `web` resources at the same
+time. It holds for the AppHost's own ports as well as the app's.
+
+It only holds because `aspire.config.json` has **no `profiles` block**. A launch
+profile pins Aspire's own three ports, the dashboard frontend
+(`applicationUrl`), `ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL` and
+`ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL`, and a second checkout then dies with
+`Failed to bind to address https://127.0.0.1:22186: address already in use`.
+Neither `aspire start --isolated` nor exporting those variables in your shell
+overrides a profile: the profile wins. With no profile, Aspire picks free ports
+for all three. **Do not add a `profiles` block back to `aspire.config.json`**,
+and check that `aspire update` or a template refresh has not reintroduced one.
+
+The cost, and it is deliberate: **there is no fixed dashboard URL in any
+checkout, including the main one.** It changes on every start. Read it from
+`aspire ps`, which prints the URL with the login token already in it. Nothing
+else about a checkout is affected.
 
 `apphost.mts` is the only AppHost file to hand-edit. **Never edit
 `.aspire/modules/`**: it is generated and regenerated on every start, so edits
 are lost. To add an integration, run `aspire add <package>`.
 
-Both checks must pass before a pull request is ready. As of this writing
-`npm run typecheck` is clean and `npm test` reports 203 tests passing across 10
-files in about 18 seconds. If the count drops, you removed a test.
+Both checks must pass before a pull request is ready. As of 2026-08-03
+`npm run typecheck` is clean and `npm test` reports 298 tests passing across 15
+files in about 21 seconds. If the count drops, you removed a test.
 
 ## Layout
 
