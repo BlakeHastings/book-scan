@@ -16,11 +16,20 @@ interface Props {
 }
 
 interface Step {
-  /** The displaced book, so where it lands can be recorded. */
+  /** The displaced book, so where it lands can be recorded. Zero in hand. */
   id: number
   title: string
   from: string
   to: string
+  /**
+   * The book being placed moved on, rather than a shelved one being displaced.
+   *
+   * Nothing to confirm and nothing to record here: the book is still in your
+   * hand, and where it lands is written when it is saved. It is listed anyway,
+   * because a screen that silently renamed the shelf in the question reads as
+   * a tap that did nothing.
+   */
+  inHand?: boolean
 }
 
 /**
@@ -61,12 +70,36 @@ export function ShelveView({
   // per-book scheme and names shelves the layout has never heard of.
   const shelfLabel = placement?.derivedLocation ?? ''
 
+  /**
+   * Nothing on this shelf sorts after the book in your hand.
+   *
+   * Which makes it the one that moves when the shelf is full, so the button
+   * says so. The server decides this for itself from the layout; this only
+   * chooses the wording, because a button offering to shuffle a book that is
+   * not going to be shuffled is the complaint in #77 restated on screen.
+   */
+  const atEndOfShelf =
+    !!placement?.strip && placement.strip.gapIndex === placement.strip.books.length
+
   const overflowFrom = async (label: string, kind: 'shelf' | 'area') => {
     if (!label || busy) return
     setBusy(true)
     setError('')
     try {
-      const result = await api.overflowShelf(range, label, kind)
+      const result = await api.overflowShelf(range, label, kind, placement?.sortKey)
+
+      // The book in your hand goes on instead, and nothing already shelved
+      // moves. No question follows: the placing question is re-asked against
+      // the shelf it now goes on, once the refresh below has landed.
+      if (result.carry) {
+        setSteps((done) => [...done, {
+          id: 0, title, from: result.carry!.from, to: result.carry!.to, inHand: true,
+        }])
+        setPending(null)
+        await onRefresh()
+        return
+      }
+
       const step: Step = {
         id: result.step?.id ?? 0,
         title: result.step?.title || 'the last book',
@@ -137,15 +170,30 @@ export function ShelveView({
 
       {steps.length > 0 && (
         <div className="moves">
-          <strong>Shuffle, in this order</strong>
+          {/* "Shuffle" is a lie when the only thing that moved is the book
+              still in your hand, and nothing on the bookcase was touched. */}
+          <strong>
+            {steps.every((step) => step.inHand)
+              ? 'Where it went instead'
+              : 'Shuffle, in this order'}
+          </strong>
           {spread.length > 2 && (
             <p className="moves__spread">{spread.join(' → ')}</p>
           )}
           <ol>
             {steps.map((step, i) => (
               <li key={i} className={step === pending ? 'moves__now' : 'moves__done'}>
-                <strong>{step.title}</strong>: end of {step.from} to start of{' '}
-                <strong>{step.to}</strong>
+                {step.inHand ? (
+                  <>
+                    <strong>{step.title}</strong>: {step.from} was full, so it goes
+                    on to <strong>{step.to}</strong>. Nothing else moves.
+                  </>
+                ) : (
+                  <>
+                    <strong>{step.title}</strong>: end of {step.from} to start of{' '}
+                    <strong>{step.to}</strong>
+                  </>
+                )}
               </li>
             ))}
           </ol>
@@ -213,7 +261,11 @@ export function ShelveView({
                 onClick={() => overflowFrom(shelfLabel, 'area')}
                 disabled={busy || saving}
               >
-                {busy ? '...' : steps.length > 0 ? 'Still no room' : 'No room, move one along'}
+                {busy
+                  ? '...'
+                  : atEndOfShelf
+                    ? 'No room, put it on the next area'
+                    : steps.length > 0 ? 'Still no room' : 'No room, move one along'}
               </button>
               <button
                 className="btn"
@@ -225,8 +277,13 @@ export function ShelveView({
             </div>
 
             <p className="hint">
-              Each time you say there is no room, one more book comes off the end
-              of {shelfLabel || 'the bookcase'} and the same question is asked again.
+              {atEndOfShelf
+                ? `Nothing on ${shelfLabel || 'this area'} goes after this book, so ` +
+                  'it is the one that moves. Everything already on the bookcase ' +
+                  'stays where it is.'
+                : `Each time you say there is no room, one more book comes off the ` +
+                  `end of ${shelfLabel || 'the bookcase'} and the same question is ` +
+                  'asked again.'}
             </p>
           </>
         )}

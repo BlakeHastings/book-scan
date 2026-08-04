@@ -315,6 +315,24 @@ export function overflow(
 // Moving a book across an area boundary
 // ---------------------------------------------------------------------------
 
+/**
+ * Boundaries lying strictly after one sort key and no later than another, in
+ * the order a book meets them.
+ *
+ * Usually one. Two when a boundary move emptied an area, which leaves its
+ * boundary sitting on the same anchor as the next one, so a caller that acts
+ * on only one of them carries a book two planks instead of one.
+ */
+function boundariesBetween(
+  separators: Separator[],
+  low: string,
+  high: string,
+): Separator[] {
+  return separators
+    .filter((s) => s.startsAt > low && s.startsAt <= high)
+    .sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : 0))
+}
+
 /** Which way along the run the book is being carried. */
 export type BoundaryDirection = 'next' | 'previous'
 
@@ -391,15 +409,7 @@ export function boundaryMove<T extends LayoutInput>(
   const before = placed[index - 1]
   const after = placed[index + 1]
 
-  /**
-   * Boundaries lying between two adjacent books.
-   *
-   * Usually one. Two when an earlier move emptied an area, which leaves its
-   * boundary sitting on the same anchor as the next one, and moving only one
-   * of them would carry the book two planks instead of one.
-   */
-  const between = (low: string, high: string) =>
-    separators.filter((s) => s.startsAt > low && s.startsAt <= high)
+  const between = (low: string, high: string) => boundariesBetween(separators, low, high)
 
   if (direction === 'next') {
     // Last on its plank: either nothing follows, or what follows is elsewhere.
@@ -444,6 +454,120 @@ export function boundaryMove<T extends LayoutInput>(
       shift: after ? crossed.map((s) => ({ id: s.id, startsAt: after.book.sortKey })) : [],
       remove: after ? [] : crossed.map((s) => s.id),
     },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Placing a book on a plank that is full
+// ---------------------------------------------------------------------------
+
+/**
+ * The book in your hand goes on the next plank, and nothing already shelved
+ * moves at all.
+ */
+export interface CarryOn {
+  /** The full plank the book was about to go on. */
+  from: string
+  /** The plank it goes on instead. */
+  to: string
+  /** Boundary to re-anchor to the book being placed. */
+  shift?: { id: number; startsAt: string }
+  /** Boundary to create, when the plank it goes on does not exist yet. */
+  create?: { startsAt: string; kind: SeparatorKind }
+}
+
+/**
+ * A sort key no real one can reach, for "everything from here on".
+ *
+ * Sort key components are normalised to `[A-Z0-9 ]` and joined with the unit
+ * separator, so a tilde is above every character one can contain.
+ */
+const END_OF_RUN = '~'
+
+/**
+ * The special case that has to be tried before the cascade.
+ *
+ * When the book being placed belongs at the END of a plank and that plank is
+ * full, the book itself is the one that moves. It goes to the start of the
+ * next plank and nothing already shelved is touched, because the book is
+ * already at the boundary: sliding it across passes no other book, so the
+ * sequence is unchanged.
+ *
+ * The cascade is what happens instead when the gap is in the MIDDLE of the
+ * plank, and it is right there: something genuinely has to come off the end to
+ * open a gap, and only a person can say the plank is full in the first place.
+ * Reaching the cascade for a book that belongs at the end asked somebody to
+ * pull a different book off the shelf and carry it next door, then put the new
+ * book down where it had been. That produced the same ordering with two books
+ * handled instead of one, and the one displaced went somewhere it did not need
+ * to go. Hence #77.
+ *
+ * Returns null when the book does not belong at the end of `label`, which is
+ * the caller's signal to fall through to `overflow`. That includes the case
+ * where the book is not on `label` at all, which is what makes it safe to pass
+ * the book in hand on every rung of the cascade: the special case fires only
+ * for the plank the book is actually about to go on.
+ *
+ * Unlike `boundaryMove`, this stops at the FIRST boundary rather than landing
+ * where the next book is. The two are answering different questions. A
+ * boundary move is offered against a named plank and must land on the plank it
+ * named; this is answering "then where does it go", and if the very next plank
+ * is bare then a bare plank is exactly where a book with nowhere to go should
+ * end up.
+ *
+ * `placed` must be the run laid out WITH the newcomer in it, under
+ * NEWCOMER_ID, as `layoutRange` returns it for a merged run.
+ */
+export function carryOn<T extends LayoutInput>(
+  placed: Placed<T>[],
+  separators: Separator[],
+  label: string,
+  kindIfNew: SeparatorKind = 'area',
+): CarryOn | null {
+  const index = placed.findIndex((p) => p.book.id === NEWCOMER_ID)
+  if (index === -1) return null
+
+  const here = placed[index]!
+  if (here.label !== label) return null
+
+  // Something on this plank sorts after the book, so a gap really does have to
+  // be opened and the cascade is the right answer.
+  const after = placed[index + 1]
+  if (after && after.label === here.label) return null
+
+  const crossed = boundariesBetween(
+    separators,
+    here.book.sortKey,
+    after ? after.book.sortKey : END_OF_RUN,
+  )
+  const next = crossed[0]
+
+  const step = (kind: SeparatorKind) => ({
+    from: label,
+    to: locationLabel(
+      kind === 'shelf' ? here.shelf + 1 : here.shelf,
+      kind === 'shelf' ? 0 : here.area + 1,
+    ),
+  })
+
+  /*
+   * No boundary to cross, or a new bookcase asked for where the next boundary
+   * is only a plank break. Either way the plank it goes on does not exist yet
+   * and gets made, which is the same answer `overflow` gives at the end of the
+   * run. Nothing is displaced by it: the new boundary is anchored to the book
+   * being placed, so every book already shelved stays exactly where it is.
+   */
+  if (!next || (kindIfNew === 'shelf' && next.kind !== 'shelf')) {
+    return {
+      ...step(kindIfNew),
+      create: { startsAt: here.book.sortKey, kind: kindIfNew },
+    }
+  }
+
+  return {
+    ...step(next.kind),
+    // The next plank now begins at this book rather than at the one after it.
+    shift: { id: next.id, startsAt: here.book.sortKey },
   }
 }
 

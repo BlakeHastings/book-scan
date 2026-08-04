@@ -29,7 +29,9 @@ Deliberately **not** in scope, per decisions below:
 - Computing shift cascades ("move these 6 books right"). This one has since
   been overtaken: a person saying a shelf is full moves one book along and is
   asked again, one answer at a time, and `POST /api/shelves/overflow` is that
-  step. Nothing is still *computed*, which is what the decision was about.
+  step. Nothing is still *computed*, which is what the decision was about. See
+  [Placing a book on a plank that is full](#placing-a-book-on-a-plank-that-is-full)
+  for when a book has to move at all.
 - Bulk layout planning for an already-owned collection.
 
 ## Decisions
@@ -352,6 +354,52 @@ recomputes the sort key, which changes the derived location, which no longer
 matches the recorded one. The same is true of the other way a book moves
 without being touched: marking a shelf full pushes a run of books along, and
 every one of them appears on the list until somebody says they were moved.
+
+## Placing a book on a plank that is full
+
+Capacity is not modelled and never will be (decision 2), so the only signal
+that a plank will not take another book is a person standing in front of it
+saying so. When they do, there are two answers, and which one is right depends
+on where in the plank the book belongs.
+
+**At the end of the plank, the book in your hand is the one that moves.** It
+goes to the start of the next plank and nothing already shelved is touched. The
+book is already at the boundary, so sliding it across passes no other book and
+the sequence is unchanged.
+
+**Anywhere else, a book has to come off the end.** The gap is in the middle, so
+something genuinely has to move to open it, and the last book on the plank goes
+to the start of the next one. That is the cascade: whether the next plank can
+cope is not computable, so the person is asked and the chain walks on one
+answer at a time.
+
+The end case used to fall through to the cascade, which produced the same
+ordering by handling two books instead of one and putting the displaced one
+somewhere it did not need to go. That was #77. It is a special case tried
+before the cascade, not a change to the cascade, which is correct where it
+applies.
+
+### At the start of a plank
+
+The mirror does not arise. A boundary is anchored to the sort key of the first
+book on its plank, so any book landing on that plank sorts at or after the
+anchor, which puts it at or after the book the anchor names. A book cannot land
+first on a plank whose anchor is a book still on it.
+
+It can land first when the anchor names a book that has since been deleted or
+taken off the bookcase, and after a carry, where the anchor is the book still
+in somebody's hand. Going back to the previous plank is not the answer in
+either case: it is a plank the person was not asked about, and in the second it
+would undo the hop just made and ask the same question forever. So the cascade
+runs, which is correct: what is needed is a gap on the plank the book belongs
+on, and the cascade opens one.
+
+### The end of the last plank
+
+There is no next plank, so one is made, anchored to the book being placed. Its
+first and only book is that book, and nothing is displaced to get it there.
+This is the same answer `overflow` gives at the end of the run, and it is why
+the last area of the last bookcase needs no special handling of its own.
 
 ## Moving a book across an area boundary
 

@@ -169,8 +169,22 @@ Then(
   },
 )
 
+/**
+ * The first of the two "no room" answers.
+ *
+ * Its wording depends on where in the plank the book belongs, because the two
+ * answers are different physical jobs: one moves a book off the shelf, the
+ * other moves the book already in your hand. Matched loosely here and asserted
+ * exactly by the step below, where a feature cares which one it is being
+ * offered.
+ */
 When('I say there is no room on the shelf', async ({ page }) => {
-  await page.getByRole('button', { name: 'No room, move one along' }).click()
+  await page.getByRole('button', { name: /^No room, (?!start a new bookcase)/ }).click()
+})
+
+Then('the first answer should read {string}', async ({ page }, label: string) => {
+  await expect(page.getByRole('button', { name: /^No room, (?!start a new bookcase)/ }))
+    .toHaveText(label)
 })
 
 Then(
@@ -181,6 +195,29 @@ Then(
     )
   },
 )
+
+/**
+ * The answer when the book belongs at the end of the full plank: it is the one
+ * that moves, and it is still in your hand, so there is nothing to confirm.
+ */
+Then('it should tell me the book itself goes on to {string}', async ({ page }, label: string) => {
+  await expect(page.locator('.moves li').last())
+    .toContainText(`goes on to ${label}`, { timeout: 30 * 1000 })
+})
+
+/**
+ * Asserted as the absence of the whole question, not as "does not mention this
+ * title". A shuffle offered at all here is the defect: the person is holding
+ * the book that has to move, so being asked whether a different one fitted
+ * somewhere means one was sent there for nothing.
+ */
+Then('it should not ask me to move any other book', async ({ page }) => {
+  // No book was sent anywhere, so there is nothing to confirm having carried.
+  await expect(page.locator('.shelve__ask')).not.toContainText('Did it fit there?')
+  await expect(page.getByRole('button', { name: 'Yes, it fit' })).toHaveCount(0)
+  // And one step happened, the one that named the book in hand.
+  await expect(page.locator('.moves li')).toHaveCount(1)
+})
 
 When('I say the moved book fitted', async ({ page }) => {
   await page.getByRole('button', { name: 'Yes, it fit' }).click()

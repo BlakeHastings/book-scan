@@ -458,16 +458,29 @@ export const api = {
   /**
    * The person at the shelf says it will not take another book. Returns the
    * single step to perform; ask again if the shelf it lands on is full too.
+   *
+   * `sortKey` is the book being placed, and passing it is what lets the server
+   * answer with `carry`: when the book belongs at the end of the full shelf it
+   * is the one that moves, and nothing already shelved is touched. Without it
+   * the server can only see the shelves, so it can only offer to displace a
+   * book that is on one, which is the extra handling #77 was about.
    */
-  overflowShelf: (range: ShelfRange, label: string, kind: 'shelf' | 'area') =>
+  overflowShelf: (
+    range: ShelfRange,
+    label: string,
+    kind: 'shelf' | 'area',
+    sortKey = '',
+  ) =>
     request<{
+      /** The book in your hand goes on instead. No id: it is not saved yet. */
+      carry: { from: string; to: string } | null
       /** `id` is the displaced book, so where it lands can be recorded. */
       step: { id: number; title: string; from: string; to: string } | null
       groups: ShelfGroupDto[]
       moves: Move[]
     }>('/api/shelves/overflow', {
       method: 'POST',
-      body: JSON.stringify({ range, label, kind }),
+      body: JSON.stringify({ range, label, kind, sortKey }),
     }),
 
   /**

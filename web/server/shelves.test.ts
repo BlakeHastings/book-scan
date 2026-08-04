@@ -76,6 +76,148 @@ describe('saying a shelf is full', () => {
   })
 })
 
+describe('placing a book on a shelf that is full', () => {
+  /** Add a book and record where it landed, as saving does. */
+  const shelve = (author: string, title = 'Book') => {
+    const id = add(author, title)
+    store.setLocation(id, shelves.labelFor('fiction', id))
+    return id
+  }
+
+  /** The sort key of a book that is not saved yet. */
+  const keyFor = (author: string, title = 'Book') =>
+    store.placementFor({ title, authors: [author], isFiction: true } as never).sortKey
+
+  it('sends the book in hand on when nothing on the shelf follows it', () => {
+    // The bug in #77. Ann and Bob fill 1A, Cal is on 1B, and the book being
+    // placed is Baxter, who sorts after Bob and before Cal. Saying 1A is full
+    // used to take Bob off the shelf and carry him to 1B for no reason.
+    const ann = shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(cal, '1B')
+    expect(labels()).toEqual(['1A', '1A', '1B'])
+
+    const result = shelves.overflow('fiction', '1A', 'area', keyFor('Bob Baxter'))
+    expect(result.ok).toBe(true)
+    expect(result.carry).toMatchObject({ from: '1A', to: '1B' })
+    // Nobody was displaced, and no book already on a shelf changed shelf.
+    expect(result.step).toBeUndefined()
+    expect(result.moves).toEqual([])
+    expect(labels()).toEqual(['1A', '1A', '1B'])
+    expect(store.getBook(ann)?.location).toBe('1A')
+    expect(store.getBook(bob)?.location).toBe('1A')
+  })
+
+  it('lands the book where it was told once it is saved', () => {
+    shelve('Ann Author')
+    shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(cal, '1B')
+
+    const carried = shelves.overflow('fiction', '1A', 'area', keyFor('Bob Baxter'))
+    const baxter = add('Bob Baxter')
+    expect(shelves.labelFor('fiction', baxter)).toBe(carried.carry?.to)
+    expect(labels()).toEqual(['1A', '1A', '1B', '1B'])
+  })
+
+  it('still displaces a book when the gap is in the middle', () => {
+    // The cascade is not weakened. Something genuinely has to move to open a
+    // gap here, and it is the last book on the shelf that moves.
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(cal, '1B')
+
+    // Bailey sorts between Author and Baker, so Baker is still to his right.
+    const result = shelves.overflow('fiction', '1A', 'area', keyFor('Ann Bailey'))
+    expect(result.carry).toBeUndefined()
+    expect(result.step?.moved.id).toBe(bob)
+    expect(result.step?.from).toBe('1A')
+    expect(result.step?.to).toBe('1B')
+  })
+
+  it('makes a shelf at the end of the run rather than displacing anything', () => {
+    // The last area of the last bookcase. Nothing follows the book anywhere,
+    // so there is nothing to displace and the plank it goes on gets made.
+    shelve('Ann Author')
+    shelve('Bob Baker')
+
+    const result = shelves.overflow('fiction', '1A', 'area', keyFor('Cal Church'))
+    expect(result.ok).toBe(true)
+    expect(result.carry).toMatchObject({ from: '1A', to: '1B' })
+    expect(result.moves).toEqual([])
+    expect(labels()).toEqual(['1A', '1A'])
+
+    const cal = add('Cal Church')
+    expect(shelves.labelFor('fiction', cal)).toBe('1B')
+  })
+
+  it('starts a new bookcase for the book in hand when asked', () => {
+    shelve('Ann Author')
+    shelve('Bob Baker')
+
+    const result = shelves.overflow('fiction', '1A', 'shelf', keyFor('Cal Church'))
+    expect(result.carry?.to).toBe('2A')
+    const cal = add('Cal Church')
+    expect(shelves.labelFor('fiction', cal)).toBe('2A')
+    expect(labels()).toEqual(['1A', '1A', '2A'])
+  })
+
+  it('answers for a shelf with one book on it, which the cascade cannot', () => {
+    // A shelf holding one book has nothing to give up, so the cascade refuses.
+    // That refusal was the only answer available, and it is the wrong one when
+    // the book in hand goes at the end: it moves, not the one on the shelf.
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(bob, '1B')
+    expect(labels()).toEqual(['1A', '1B'])
+
+    expect(shelves.overflow('fiction', '1A', 'area').ok).toBe(false)
+    // Bailey goes after Author and before Baker, so 1A is where he belongs and
+    // there is nothing on it to his right.
+    expect(shelves.overflow('fiction', '1A', 'area', keyFor('Ann Bailey')).carry)
+      .toMatchObject({ from: '1A', to: '1B' })
+  })
+
+  it('ignores the book in hand while the chain walks other shelves', () => {
+    // The key is passed on every rung, and the special case only fires for the
+    // shelf the book is actually going on. A rung about some other shelf still
+    // gets the cascade.
+    const ids = ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs'].map((a) => shelve(a))
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(ids[3]!, '1B')
+    expect(labels()).toEqual(['1A', '1A', '1A', '1B'])
+
+    const result = shelves.overflow('fiction', '1B', 'area', keyFor('Ann Baxter'))
+    expect(result.carry).toBeUndefined()
+    // 1B holds one book, so the cascade has nothing to give up and says so.
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('holds only one book')
+  })
+
+  it('leaves nothing needing attention once the book is saved', () => {
+    // It went where the app said, so the record and the room agree.
+    shelve('Ann Author')
+    shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(cal, '1B')
+    expect(shelves.review('fiction').misfiles).toEqual([])
+
+    const carried = shelves.overflow('fiction', '1A', 'area', keyFor('Bob Baxter'))
+    const baxter = add('Bob Baxter')
+    store.setLocation(baxter, carried.carry!.to)
+
+    expect(shelves.review('fiction').misfiles).toEqual([])
+    expect(store.getBook(baxter)?.location).toBe('1B')
+  })
+})
+
 describe('a book inserted into a shelf', () => {
   it('is allowed to simply fit, without displacing anyone', () => {
     // A thin book may well fit, and only a person can say otherwise, so

@@ -656,23 +656,41 @@ export function createApp(options: CreateAppOptions): express.Express {
   /**
    * The person at the shelf says it will not take another book.
    *
-   * Returns the one physical step to perform. Whether the shelf it moves
-   * onto can cope is not knowable here, so the client asks and calls again
-   * if not.
+   * Answers with the one physical step to perform, and there are two kinds.
+   * `carry` means the book in their hand is the one that moves, which is the
+   * answer whenever it belongs at the end of the full shelf: nothing already
+   * shelved is touched. `step` means a book has to come off the end to open a
+   * gap in the middle. Whether the shelf either lands on can cope is not
+   * knowable here, so the client asks and calls again if not.
+   *
+   * `sortKey` is the book being placed. It is optional because this route is
+   * also walked for a book that is already shelved and has no gap of its own,
+   * and it is what makes the first answer visible at all: a book that is not
+   * saved yet appears in no layout the database can produce.
    */
   app.post('/api/shelves/overflow', (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const kind = body.kind === 'area' ? 'area' : 'shelf'
     const label = String(body.label ?? '')
+    const placing = String(body.sortKey ?? '')
 
-    const result = shelves.overflow(range, label, kind)
+    const result = shelves.overflow(range, label, kind, placing)
     if (!result.ok) {
       res.status(400).json({ error: result.error })
       return
     }
 
     res.json({
+      /*
+       * The book being placed, moved on rather than put down here.
+       *
+       * No id, because it has none yet. Where it lands is recorded when it is
+       * saved, from the shelf the layout now puts it on, which is this label.
+       */
+      carry: result.carry
+        ? { from: result.carry.from, to: result.carry.to }
+        : null,
       /*
        * The one book to move, named by id as well as by title.
        *

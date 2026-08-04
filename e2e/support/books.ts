@@ -46,12 +46,17 @@ export const BOOK_IN_HAND: StubBook = {
 }
 
 /**
- * Two books that already sit on shelf 1A, chosen so the book in hand files
- * between them: Clarke, then Herbert, then Le Guin.
+ * Books that already sit on the shelves, chosen so the book in hand files
+ * between them: Clarke, then Gibson, then Herbert, then Le Guin.
  *
  * Le Guin is not decoration either. "Le Guin, Ursula K." is the case the
  * filing heuristic has to get right, and a test that only ever files "Smith,
  * John" would not notice if it stopped.
+ *
+ * Gibson earns his place by sitting immediately before the book in hand, which
+ * is what lets a scenario put the new book at the END of a plank with another
+ * book still on it. Without him the only arrangements available are the book
+ * in hand in the middle, or alone with nothing to its left.
  */
 export const SHELVED_BOOKS: StubBook[] = [
   {
@@ -63,6 +68,18 @@ export const SHELVED_BOOKS: StubBook[] = [
     publisher: 'Bantam',
     published: '1990',
     pages: '243',
+    categories: ['Fiction / Science Fiction / General'],
+    subjects: ['Science fiction', 'Fiction'],
+  },
+  {
+    isbn13: '9780441569595',
+    isbn10: '0441569595',
+    title: 'Neuromancer',
+    authors: ['William Gibson'],
+    filing: 'Gibson, William',
+    publisher: 'Ace Books',
+    published: '1984',
+    pages: '271',
     categories: ['Fiction / Science Fiction / General'],
     subjects: ['Science fiction', 'Fiction'],
   },
