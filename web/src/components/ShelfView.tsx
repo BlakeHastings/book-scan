@@ -10,6 +10,7 @@ import {
 } from '../lib/libraryView'
 import { SpineRow } from './ShelfStrip'
 import { ShelfList } from './ShelfList'
+import { CoverGrid } from './CoverGrid'
 import { areaLabel } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
@@ -50,13 +51,15 @@ interface Props {
 /**
  * The shelves as they physically are, rather than one flat list.
  *
- * Several drawings of the same books, in the same order, grouped the same way,
+ * Three drawings of the same books, in the same order, grouped the same way,
  * and the person picks (#82). Only the middle of each area changes:
  *
  *   - the spine row, one horizontal run per area, which is what you see
  *     standing in front of the bookcase, and which never wraps because a break
  *     in a run means "a new area" everywhere else here (#81);
- *   - the list, a line per book, which is what this was before the rows.
+ *   - the list, a line per book, which is what this was before the rows;
+ *   - the gallery, a grid of covers, which is allowed to wrap precisely
+ *     because it is not pretending to be a photograph of the furniture.
  *
  * Everything around them is shared: the misfiles, the books off the bookcase,
  * the boundary moves and the separators are facts about the shelves, not about
@@ -401,6 +404,15 @@ export function ShelfView({
 
             {view === 'list' && (
               <ShelfList group={group} checkedOut={off} onOpen={open} />
+            )}
+
+            {/* The same run, laid out face up and allowed to wrap. */}
+            {view === 'gallery' && (
+              <CoverGrid
+                books={group.books.map((entry) => entry.book)}
+                label={group.label}
+                onOpen={open}
+              />
             )}
 
             {/* And at the bottom, for the same reason. Nothing is offered on

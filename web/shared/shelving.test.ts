@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildPlacement, buildSortKey, compareLocations, filingName, normalise,
-  parseLocation, reviewShelving, shelfPhoto, shelfPhotoSlot, titleFiling,
-  type FiledBook, type Neighbour,
+  bookCover, buildPlacement, buildSortKey, compareLocations, filingName,
+  normalise, parseLocation, reviewShelving, shelfPhoto, shelfPhotoSlot,
+  titleFiling, type FiledBook, type Neighbour,
 } from './shelving'
 
 describe('normalise', () => {
@@ -187,6 +187,48 @@ describe('shelfPhoto', () => {
   it('returns nothing for a book with no photos, rather than a broken src', () => {
     expect(shelfPhoto(withImages({ front: '', back: '', edge: '' }))).toBe('')
     expect(shelfPhoto(null)).toBe('')
+  })
+})
+
+describe('bookCover', () => {
+  const images = (overrides: Partial<Record<'front' | 'back' | 'edge' | 'catalogue', string>>) =>
+    ({ front: '', back: '', edge: '', catalogue: '', ...overrides })
+
+  it('shows the front cover first, since the book is lying face up', () => {
+    // The opposite order from shelfImage, on purpose. A spine wins on a shelf
+    // because it is the only face you can see; a grid of covers is showing
+    // the face nobody can see from the shelf.
+    const picked = bookCover(images({ front: 'f.jpg', edge: 'e.jpg', back: 'b.jpg', catalogue: 'c.jpg' }))
+    expect(picked.name).toBe('f.jpg')
+    expect(picked.slot).toBe('front')
+    expect(picked.fromCatalogue).toBe(false)
+  })
+
+  it('would rather show a spine of this copy than a stock picture of some copy', () => {
+    const picked = bookCover(images({ edge: 'e.jpg', catalogue: 'c.jpg' }))
+    expect(picked.name).toBe('e.jpg')
+    expect(picked.slot).toBe('edge')
+    expect(picked.fromCatalogue).toBe(false)
+  })
+
+  it('falls back through the back cover before the catalogue', () => {
+    expect(bookCover(images({ back: 'b.jpg', catalogue: 'c.jpg' })).slot).toBe('back')
+  })
+
+  it('takes the publisher picture as a last resort, and says so', () => {
+    const picked = bookCover(images({ catalogue: 'c.jpg' }))
+    expect(picked.name).toBe('c.jpg')
+    expect(picked.slot).toBe('catalogue')
+    expect(picked.fromCatalogue).toBe(true)
+  })
+
+  it('admits to nothing at all rather than handing back a broken src', () => {
+    // Both halves can be missing: a book nobody has photographed, whose ISBN
+    // no catalogue has a cover for. The grid draws a name instead.
+    const picked = bookCover(images({}))
+    expect(picked.name).toBe('')
+    expect(picked.slot).toBe('')
+    expect(picked.fromCatalogue).toBe(false)
   })
 })
 

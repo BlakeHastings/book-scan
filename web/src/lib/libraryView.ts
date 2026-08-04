@@ -13,25 +13,27 @@
  * the same complaint with a longer gap.
  */
 
-export type LibraryView = 'shelf' | 'list'
+export type LibraryView = 'shelf' | 'list' | 'gallery'
 
 /**
  * In the order they are offered. Spines first because that is what the
  * library has looked like since #81 and what somebody who has never chosen
  * gets.
  */
-export const LIBRARY_VIEWS: readonly LibraryView[] = ['shelf', 'list']
+export const LIBRARY_VIEWS: readonly LibraryView[] = ['shelf', 'list', 'gallery']
 
 /** A word each, because the switcher is a thumb-sized pill. */
 export const VIEW_LABEL: Record<LibraryView, string> = {
   shelf: 'Shelf',
   list: 'List',
+  gallery: 'Covers',
 }
 
 /** Read out to somebody who cannot see which one is lit. */
 export const VIEW_DESCRIPTION: Record<LibraryView, string> = {
   shelf: 'Shelf: one run of spines per area',
   list: 'List: one book per line',
+  gallery: 'Covers: a grid of covers per area',
 }
 
 export const DEFAULT_VIEW: LibraryView = 'shelf'

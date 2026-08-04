@@ -239,6 +239,51 @@ export function shelfImage(images: { front: string; back: string; edge: string }
   return { name: '', slot: '' }
 }
 
+/** Which picture of a book is on screen, when the picture is the point. */
+export type CoverSlot = ShelfSlot | 'catalogue'
+
+export interface BookCover {
+  /** Filename under /api/covers. Empty when the book has no picture at all. */
+  name: string
+  slot: CoverSlot
+  /**
+   * True when this is the publisher's picture rather than a photograph of this
+   * copy. Whoever draws it has to say so.
+   */
+  fromCatalogue: boolean
+}
+
+/**
+ * The picture of a book, for a view whose whole content is pictures.
+ *
+ * The opposite question from `shelfImage`, and so the opposite order. There the
+ * spine wins because it is the only face you can see with the book shelved;
+ * here the book is lying face up on a screen, so the front comes first.
+ *
+ * A photograph of this copy beats the catalogue's picture every time. An ISBN
+ * often has several cover designs against it, and a design somebody has never
+ * seen looks like the wrong book. The catalogue's is the last resort and comes
+ * back labelled, so a grid can say whose picture it is instead of quietly
+ * passing it off. That precedence, and that honesty, is the one the scan view
+ * has always used; this is the same rule with the slot travelling alongside,
+ * moved next to `shelfImage` so the two views cannot drift apart.
+ */
+export function bookCover(images: {
+  front: string
+  back: string
+  edge: string
+  /** The publisher's cover for this ISBN. Not a photo of this copy. */
+  catalogue: string
+}): BookCover {
+  if (images.front) return { name: images.front, slot: 'front', fromCatalogue: false }
+  if (images.edge) return { name: images.edge, slot: 'edge', fromCatalogue: false }
+  if (images.back) return { name: images.back, slot: 'back', fromCatalogue: false }
+  if (images.catalogue) {
+    return { name: images.catalogue, slot: 'catalogue', fromCatalogue: true }
+  }
+  return { name: '', slot: '', fromCatalogue: false }
+}
+
 /** Best photo for recognising a book on a shelf. Spine first, by a mile. */
 export function shelfPhoto(neighbour: Neighbour | null): string {
   return neighbour ? shelfImage(neighbour.images).name : ''

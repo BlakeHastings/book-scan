@@ -1,5 +1,5 @@
 import type { BookRow, CheckedOutAt, ShelfGroupDto, StripBook } from './api'
-import { shelfImage, type ShelfSlot } from '../../shared/shelving'
+import { bookCover, shelfImage, type CoverSlot, type ShelfSlot } from '../../shared/shelving'
 
 /**
  * Turning what the catalogue stores into what a shelf looks like.
@@ -83,6 +83,63 @@ export function listOf(group: ShelfGroupDto, checkedOut: CheckedOutAt[]): ListRo
 /** How many books belonging in this area are off the bookcase right now. */
 export function missingFrom(label: string, checkedOut: CheckedOutAt[]): number {
   return checkedOut.filter((entry) => entry.label === label).length
+}
+
+/** One catalogued book as a tile in the gallery. */
+export interface GridBook {
+  id: number
+  title: string
+  /** Written across a tile that has no picture, the way a blank spine is. */
+  authorFiling: string
+  cover: string
+  coverSlot: CoverSlot
+  /** The publisher's picture rather than a photograph of this copy. */
+  fromCatalogue: boolean
+}
+
+/**
+ * One book as it is drawn lying face up in the gallery.
+ *
+ * The sibling of `spineOf`, asking the same question of the same book for a
+ * view that shows the other face of it, and going through the one shared rule
+ * for both reasons `spineOf` does: so the two views cannot disagree about a
+ * book, and so the answer arrives saying what it is rather than leaving the
+ * caller to assume.
+ */
+export function coverOf(book: BookRow): GridBook {
+  const picture = bookCover({
+    front: book.front_image ?? '',
+    back: book.back_image ?? '',
+    edge: book.edge_image ?? '',
+    catalogue: book.cover_image ?? '',
+  })
+
+  return {
+    id: book.id,
+    title: book.title,
+    authorFiling: book.author_filing || book.authors || book.title,
+    cover: picture.name,
+    coverSlot: picture.slot,
+    fromCatalogue: picture.fromCatalogue,
+  }
+}
+
+/**
+ * What a tile is showing, said plainly.
+ *
+ * Every case except a front cover is one somebody would otherwise get wrong:
+ * a spine or a back standing in reads as a badly cropped cover, and the
+ * publisher's picture reads as a photograph of the book on the shelf when it
+ * is a stock image of some edition of it.
+ */
+export function coverLabel(book: GridBook): string {
+  if (book.coverSlot === 'front') return `${book.title}, front cover`
+  if (book.coverSlot === 'edge') return `${book.title}, spine, no cover photo`
+  if (book.coverSlot === 'back') return `${book.title}, back cover, no front cover photo`
+  if (book.coverSlot === 'catalogue') {
+    return `${book.title}, the publisher's picture, not this copy`
+  }
+  return `${book.title}, no picture`
 }
 
 /** What a spine is showing, for the people who cannot see it. */
