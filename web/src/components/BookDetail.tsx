@@ -38,6 +38,17 @@ interface Props {
   /** Take it off the shelf, or put it back. Saved books only. */
   onCheckOut?: (out: boolean) => void
   checkingOut?: boolean
+  /**
+   * Which plank a boundary move would land this book on, in each direction.
+   * Null or absent everywhere it cannot go: not shelved, still being edited,
+   * or genuinely in the middle of its area, where the server would refuse the
+   * move anyway (#96). Read from the same placement preview the shelf drawing
+   * below already uses, so nothing extra is fetched to offer it.
+   */
+  boundaryMoves?: { next: string | null; previous: string | null } | null
+  /** Carry the first or last book of an area to the plank beside it. */
+  onBoundaryMove?: (direction: 'next' | 'previous') => void
+  boundaryMoving?: boolean
   /** Present only for a book already on the shelves. */
   onDelete?: () => void
   deleting?: boolean
@@ -84,6 +95,7 @@ export function BookDetail({
   onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
   onDelete, deleting = false, shelfLabel = '', doneLabel = 'Done', placement,
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
+  boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
   // because correcting it is the whole reason it is on screen.
@@ -221,6 +233,35 @@ export function BookDetail({
                 {checkingOut ? 'Taking it off...' : 'Take it off the bookcase'}
               </button>
             ) : null}
+
+            {/*
+              * Offered only when this book's own recorded position is the
+              * first or last of its area, and only in the direction that has
+              * somewhere to go (#96). The library used to draw this next to
+              * every area instead, which is cramped in a scrolling run of
+              * spines and one tap away from moving a book nobody meant to
+              * touch; here there is no ambiguity about which book it is.
+              * Starting the move hands off to the shelving step exactly the
+              * way it always has: named plank, walk over, confirm.
+              */}
+            {!checkedOutAt && onBoundaryMove && boundaryMoves?.next && (
+              <button
+                className="btn"
+                onClick={() => onBoundaryMove('next')}
+                disabled={boundaryMoving}
+              >
+                {boundaryMoving ? 'Moving...' : `Move it on to ${boundaryMoves.next}`}
+              </button>
+            )}
+            {!checkedOutAt && onBoundaryMove && boundaryMoves?.previous && (
+              <button
+                className="btn"
+                onClick={() => onBoundaryMove('previous')}
+                disabled={boundaryMoving}
+              >
+                {boundaryMoving ? 'Moving...' : `Move it back to ${boundaryMoves.previous}`}
+              </button>
+            )}
 
             {/* Available in either state, because correcting a record has
                 nothing to do with where the book physically is. */}

@@ -10,6 +10,9 @@ Feature: Moving a book across a bookcase boundary
   break has to move the bookcase break, or the books past it come along for the
   ride and end up on furniture nobody carried them to.
 
+  The move is started from the book's own page, not the library (#96), the
+  same as any other boundary adjustment.
+
   Background:
     Given the catalogue is empty
     And the catalogue already holds:
@@ -25,14 +28,19 @@ Feature: Moving a book across a bookcase boundary
     And I go to the library
     Then the library should show "Dune" on shelf "2A"
     And the library should show "Neuromancer" on shelf "1A"
+    And the library should offer no boundary moves
 
     # A bookcase break is crossable like any other boundary. The two outer
     # edges of the range are not, and are still not offered.
-    And the library should offer only these boundary moves:
-      | Neuromancer is last here | Move it on to 2A   |
-      | Dune is first here       | Move it back to 1A |
+    When I open "Neuromancer" from the library
+    Then the book should offer to move it:
+      | Move it on to 2A |
 
-    When I choose to move "Dune" back to "1A"
+    When I open "Dune" from the library
+    Then the book should offer to move it:
+      | Move it back to 1A |
+
+    When I choose to move it back to "1A"
     Then it should tell me to put "Dune" in the gap at "1A"
 
     When I say it fits and finish the move
