@@ -1140,8 +1140,30 @@ export function createApp(options: CreateAppOptions): express.Express {
   // `asyncRoute` forwarded here (a database error, a filesystem path, a
   // stack trace) is not something a stranger holding the app should see.
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // The `/api/covers` static mount runs with `fallthrough: false`, so a
+    // missing file arrives here as an error carrying `status: 404` (Express
+    // itself sets `statusCode` too, depending on where the error came from).
+    // That is not a server fault: books catalogued before a cover slot
+    // existed have no image for it, and a publisher cover can simply be
+    // absent. Answering 500 for a routine absence trains everyone to ignore
+    // 500s, which is exactly when a real one gets missed. A genuine fault
+    // (no status on the error at all) still answers 500 with the generic
+    // message below, never the underlying detail.
+    const carried = err as { status?: unknown; statusCode?: unknown } | null
+    const status = carried?.status ?? carried?.statusCode
+    const httpStatus = typeof status === 'number' && status >= 400 && status < 600 ? status : 500
+
+    if (httpStatus === 404) {
+      // A miss like this is routine, not exceptional, so it does not earn a
+      // stack trace or the absolute filesystem path ENOENT carries. A count
+      // is still useful if misses ever spike, so note that much and stop.
+      console.warn('[api] not found:', _req.path)
+      res.status(404).json({ error: 'Not found.' })
+      return
+    }
+
     console.error('[api] unhandled route error:', err)
-    res.status(500).json({ error: 'Something went wrong.' })
+    res.status(httpStatus).json({ error: 'Something went wrong.' })
   })
 
   if (startBackgroundWork) {
