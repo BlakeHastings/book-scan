@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, deviceName, type Capture, type QueueCounts } from '../lib/api'
 import { newestFirst } from '../lib/queueOrder'
 import { coverUrl } from './PlacementCard'
@@ -11,9 +11,22 @@ const STATUS_LABEL: Record<string, string> = {
   done: 'shelved',
 }
 
+/** Where in the displayed list a capture sat when the user opened it. */
+export interface QueueReturnAnchor {
+  id: number
+  index: number
+}
+
 interface Props {
-  onOpen: (capture: Capture) => void
+  onOpen: (capture: Capture, anchor: QueueReturnAnchor) => void
   onCounts: (counts: QueueCounts) => void
+  /**
+   * Set when this mount is a return trip: the user opened a capture from
+   * here to shelve it and has come back. Used once, to land the list near
+   * where they left off, then reported back as consumed.
+   */
+  returnAnchor?: QueueReturnAnchor | null
+  onReturnAnchorConsumed?: () => void
 }
 
 /**
@@ -21,13 +34,17 @@ interface Props {
  * read, so a capture stops saying "reading photos" without a manual refresh,
  * and so a second person's work appears here too.
  */
-export function QueuePane({ onOpen, onCounts }: Props) {
+export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsumed }: Props) {
   const [captures, setCaptures] = useState<Capture[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const me = deviceName()
   const [discarding, setDiscarding] = useState<Capture | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const rows = useRef(new Map<number, HTMLLIElement>())
+  // A fresh mount every time the pane is shown (App only renders it while
+  // mode === 'queue'), so this only needs to fire once per visit.
+  const restored = useRef(false)
 
   const load = useCallback(() => {
     api.listCaptures()
@@ -55,12 +72,32 @@ export function QueuePane({ onOpen, onCounts }: Props) {
     return () => clearInterval(timer)
   }, [anyPending, load])
 
+  useEffect(() => {
+    // Land back near the book just handled instead of leaving the person to
+    // scroll for it. Runs once per visit: if the opened capture is still
+    // here (shelving was cancelled) scroll to it; if it left the queue
+    // (shelving finished) scroll to whatever slid into its place.
+    if (restored.current || loading || !returnAnchor) return
+    restored.current = true
+
+    const stillThere = captures.some((c) => c.id === returnAnchor.id)
+    const targetId = stillThere
+      ? returnAnchor.id
+      : captures[Math.min(returnAnchor.index, captures.length - 1)]?.id
+
+    if (targetId !== undefined) {
+      rows.current.get(targetId)?.scrollIntoView({ block: 'center' })
+    }
+    onReturnAnchorConsumed?.()
+  }, [captures, loading, returnAnchor, onReturnAnchorConsumed])
+
   const open = async (capture: Capture) => {
     setError('')
     try {
+      const index = captures.findIndex((c) => c.id === capture.id)
       // Claiming is what stops two people filling in the same book.
       const { capture: claimed } = await api.claimCapture(capture.id, me)
-      onOpen(claimed)
+      onOpen(claimed, { id: capture.id, index })
     } catch (caught) {
       setError((caught as Error).message)
       load()
@@ -123,7 +160,14 @@ export function QueuePane({ onOpen, onCounts }: Props) {
           const thumb = capture.edge_image || capture.front_image || capture.back_image
 
           return (
-            <li key={capture.id} className={`queue__row queue__row--${capture.status}`}>
+            <li
+              key={capture.id}
+              ref={(el) => {
+                if (el) rows.current.set(capture.id, el)
+                else rows.current.delete(capture.id)
+              }}
+              className={`queue__row queue__row--${capture.status}`}
+            >
               <span className="queue__photo">
                 {thumb && <img src={coverUrl(thumb)} alt="" loading="lazy" />}
               </span>
