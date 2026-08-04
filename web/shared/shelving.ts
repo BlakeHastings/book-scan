@@ -216,6 +216,13 @@ export interface Neighbour {
 /** Which photo of a book is being shown in place of its spine. */
 export type ShelfSlot = 'edge' | 'front' | 'back' | ''
 
+/** Crops of the three photos, cut to the book. Absent where there is none. */
+export interface BookCrops {
+  front?: string
+  back?: string
+  edge?: string
+}
+
 /**
  * The best photo for recognising a book on a shelf, and which slot it is.
  *
@@ -229,14 +236,29 @@ export type ShelfSlot = 'edge' | 'front' | 'back' | ''
  * through it and the library draws its rows through it, and two copies of
  * this would be two rows of books that disagree about the same shelf.
  */
-export function shelfImage(images: { front: string; back: string; edge: string }): {
+export function shelfImage(images: {
+  front: string
+  back: string
+  edge: string
+  /**
+   * Crops cut to the book itself. As in `bookCover`, the slot is chosen first
+   * and the crop of that slot then stands in for the whole frame, so the three
+   * views agree about which face of a book they are drawing whether or not any
+   * of them cropped.
+   */
+  crops?: BookCrops
+}): {
   name: string
   slot: ShelfSlot
+  whole: string
 } {
-  if (images.edge) return { name: images.edge, slot: 'edge' }
-  if (images.front) return { name: images.front, slot: 'front' }
-  if (images.back) return { name: images.back, slot: 'back' }
-  return { name: '', slot: '' }
+  const pick = (name: string, slot: ShelfSlot, crop: string) =>
+    ({ name: crop || name, slot, whole: name })
+
+  if (images.edge) return pick(images.edge, 'edge', images.crops?.edge ?? '')
+  if (images.front) return pick(images.front, 'front', images.crops?.front ?? '')
+  if (images.back) return pick(images.back, 'back', images.crops?.back ?? '')
+  return { name: '', slot: '', whole: '' }
 }
 
 /** Which picture of a book is on screen, when the picture is the point. */
@@ -245,12 +267,16 @@ export type CoverSlot = ShelfSlot | 'catalogue'
 export interface BookCover {
   /** Filename under /api/covers. Empty when the book has no picture at all. */
   name: string
+  /** The whole photograph this was cut from, or the same file when it is one. */
+  whole: string
   slot: CoverSlot
   /**
    * True when this is the publisher's picture rather than a photograph of this
    * copy. Whoever draws it has to say so.
    */
   fromCatalogue: boolean
+  /** True when `name` is a crop cut to the book rather than the whole frame. */
+  cropped: boolean
 }
 
 /**
@@ -274,14 +300,37 @@ export function bookCover(images: {
   edge: string
   /** The publisher's cover for this ISBN. Not a photo of this copy. */
   catalogue: string
+  /**
+   * Crops of the three photos, cut to the book itself.
+   *
+   * Which slot wins is decided first and is unaffected by these: a front photo
+   * still beats a spine whether or not either has been cropped. Only once the
+   * slot is chosen does the crop of that slot stand in for the whole frame, so
+   * a view showing the surrounding room is never showing it because a
+   * different photo happened to crop better.
+   */
+  crops?: BookCrops
 }): BookCover {
-  if (images.front) return { name: images.front, slot: 'front', fromCatalogue: false }
-  if (images.edge) return { name: images.edge, slot: 'edge', fromCatalogue: false }
-  if (images.back) return { name: images.back, slot: 'back', fromCatalogue: false }
+  const pick = (name: string, slot: CoverSlot, crop: string): BookCover => ({
+    name: crop || name,
+    whole: name,
+    slot,
+    fromCatalogue: false,
+    cropped: Boolean(crop),
+  })
+
+  if (images.front) return pick(images.front, 'front', images.crops?.front ?? '')
+  if (images.edge) return pick(images.edge, 'edge', images.crops?.edge ?? '')
+  if (images.back) return pick(images.back, 'back', images.crops?.back ?? '')
   if (images.catalogue) {
-    return { name: images.catalogue, slot: 'catalogue', fromCatalogue: true }
+    // Already a picture of just the book: there is no room around a publisher's
+    // cover to cut away.
+    return {
+      name: images.catalogue, whole: images.catalogue,
+      slot: 'catalogue', fromCatalogue: true, cropped: false,
+    }
   }
-  return { name: '', slot: '', fromCatalogue: false }
+  return { name: '', whole: '', slot: '', fromCatalogue: false, cropped: false }
 }
 
 /** Best photo for recognising a book on a shelf. Spine first, by a mile. */

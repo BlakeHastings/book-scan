@@ -28,7 +28,7 @@
 
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Database } from 'better-sqlite3'
@@ -40,7 +40,7 @@ import { lookupIsbn } from './lookup'
 import { Store } from './store'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
-import { backCover, frontCover } from './fixtures'
+import { backCover, frontCover, photographedBook } from './fixtures'
 
 // Both routes that would otherwise reach the real catalogues. Saving a book
 // starts an un-awaited `fetchCoverFor`, which calls both.
@@ -216,6 +216,87 @@ describe('updating a book', () => {
     expect(status).toBe(400)
     expect(running.store.getBook(id)?.title).toBe('Keep Me')
   })
+})
+
+describe('cropping a saved book to the book', () => {
+  /** The crop runs after the response, so the test has to wait for it. */
+  async function untilCropped(id: number, within = 15_000): Promise<void> {
+    const deadline = Date.now() + within
+    for (;;) {
+      if ((running.store.getBook(id)?.cropped ?? '') !== '') return
+      if (Date.now() > deadline) throw new Error('the crop never ran')
+      await new Promise((done) => setTimeout(done, 50))
+    }
+  }
+
+  it('writes a crop beside the photo and leaves the photo alone', async () => {
+    const scene = await photographedBook(
+      await frontCover('The Dispossessed', 'Ursula K. Le Guin'),
+      { seed: 5, width: 800, height: 1100, fill: 0.5, background: 'carpet' },
+    )
+
+    const { body } = await post('/api/books', {
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      images: { front: `data:image/jpeg;base64,${scene.image.toString('base64')}` },
+    })
+
+    await untilCropped(body.id)
+    const book = running.store.getBook(body.id)!
+
+    expect(book.front_image).toBeTruthy()
+    expect(book.front_crop).toBe(`${book.front_image.replace(/\.jpg$/, '')}_crop.jpg`)
+
+    // Both files are on disk, and the photograph is exactly the bytes that
+    // were uploaded. Nothing in this path may ever rewrite that file.
+    const photo = readFileSync(join(running.coverDir, book.front_image))
+    const crop = readFileSync(join(running.coverDir, book.front_crop))
+    expect(photo.equals(scene.image)).toBe(true)
+    expect(crop.equals(photo)).toBe(false)
+
+    // Served by the same route the photos are, with no extra wiring.
+    const served = await fetch(`${running.baseUrl}/api/covers/${book.front_crop}`)
+    expect(served.status).toBe(200)
+  }, 30_000)
+
+  it('keeps the whole photo, and says it looked, when there is no book in it', async () => {
+    const flat = await sharp({
+      create: { width: 500, height: 700, channels: 3, background: '#6b6b6b' },
+    }).jpeg().toBuffer()
+
+    const { body } = await post('/api/books', {
+      title: 'Nothing There', authors: ['Ann Author'], isFiction: true,
+      images: { front: `data:image/jpeg;base64,${flat.toString('base64')}` },
+    })
+
+    await untilCropped(body.id)
+    const book = running.store.getBook(body.id)!
+
+    expect(book.front_image).toBeTruthy()
+    expect(book.front_crop).toBe('')
+    expect(book.cropped).toBe('front')
+  }, 30_000)
+
+  it('takes the crop with the book when the book is deleted', async () => {
+    const scene = await photographedBook(
+      await frontCover('Short Lived', 'Ann Author'),
+      { seed: 6, width: 800, height: 1100, fill: 0.5, background: 'carpet' },
+    )
+
+    const { body } = await post('/api/books', {
+      title: 'Short Lived', authors: ['Ann Author'], isFiction: true,
+      images: { front: `data:image/jpeg;base64,${scene.image.toString('base64')}` },
+    })
+
+    await untilCropped(body.id)
+    const book = running.store.getBook(body.id)!
+    expect(book.front_crop).toBeTruthy()
+
+    await del(`/api/books/${body.id}`)
+
+    expect(existsSync(join(running.coverDir, book.front_image))).toBe(false)
+    // Derived, but still a file, and nothing else will ever name it.
+    expect(existsSync(join(running.coverDir, book.front_crop))).toBe(false)
+  }, 30_000)
 })
 
 describe('deleting a book', () => {

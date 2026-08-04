@@ -55,6 +55,19 @@ CREATE TABLE IF NOT EXISTS books (
     -- shortlisting a book held up to the camera. See imagehash.ts.
     front_hash                TEXT    DEFAULT '',
     cover_hash                TEXT    DEFAULT '',
+    -- Versions of the three photos cut down to the book itself, so a view can
+    -- show the book without the room around it. Separate files and separate
+    -- columns, never a replacement: the photograph is the record and a crop is
+    -- derived from it, so a bad crop costs nothing and can be redone.
+    front_crop                TEXT    DEFAULT '',
+    back_crop                 TEXT    DEFAULT '',
+    edge_crop                 TEXT    DEFAULT '',
+    -- Which slots have been through the detector, comma separated, whether or
+    -- not it found a book. A slot named here with an empty crop column was
+    -- looked at and declined, which is what lets a view say "shown whole"
+    -- about that photo without saying it about every photo taken before any
+    -- of this existed.
+    cropped                   TEXT    DEFAULT '',
     isbn_source               TEXT    DEFAULT '',
     -- Vestigial. Meant to hold the raw OCR text a capture read off a book, so
     -- a misread ISBN could be explained later without re-photographing. No
@@ -221,6 +234,15 @@ export interface BookRow {
   /** Difference hashes, for matching a book held up to the camera. */
   front_hash: string
   cover_hash: string
+  /**
+   * The three photos cut to the book, as filenames under /api/covers. Empty
+   * where the detector was never run or could not find the book.
+   */
+  front_crop: string
+  back_crop: string
+  edge_crop: string
+  /** Slots the detector has looked at, comma separated. See SCHEMA above. */
+  cropped: string
 }
 
 /**
@@ -245,6 +267,10 @@ function addMissingColumns(db: Database.Database): void {
       ['cover_checked_at', 'TEXT'],
       ['front_hash', "TEXT DEFAULT ''"],
       ['cover_hash', "TEXT DEFAULT ''"],
+      ['front_crop', "TEXT DEFAULT ''"],
+      ['back_crop', "TEXT DEFAULT ''"],
+      ['edge_crop', "TEXT DEFAULT ''"],
+      ['cropped', "TEXT DEFAULT ''"],
     ],
     captures: [
       ['cover_text', "TEXT DEFAULT ''"],

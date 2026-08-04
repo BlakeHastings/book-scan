@@ -18,6 +18,15 @@ export function spineOf(book: BookRow): StripBook {
     front: book.front_image ?? '',
     back: book.back_image ?? '',
     edge: book.edge_image ?? '',
+    // A spine is drawn two centimetres wide, so the margin of room the capture
+    // guide left around it is a real part of the picture. Cropping it is the
+    // same decision the gallery makes, taken in the one place the precedence
+    // is written down so the two views cannot disagree.
+    crops: {
+      front: book.front_crop ?? '',
+      back: book.back_crop ?? '',
+      edge: book.edge_crop ?? '',
+    },
   })
 
   return {
@@ -95,6 +104,8 @@ export interface GridBook {
   coverSlot: CoverSlot
   /** The publisher's picture rather than a photograph of this copy. */
   fromCatalogue: boolean
+  /** Cut to the book, so the room it was photographed in is not in the tile. */
+  cropped: boolean
 }
 
 /**
@@ -112,6 +123,14 @@ export function coverOf(book: BookRow): GridBook {
     back: book.back_image ?? '',
     edge: book.edge_image ?? '',
     catalogue: book.cover_image ?? '',
+    // The gallery is the reason cropping exists: a wall of photographs with
+    // somebody's feet in the corner of half of them. Where a crop was found,
+    // this shows it.
+    crops: {
+      front: book.front_crop ?? '',
+      back: book.back_crop ?? '',
+      edge: book.edge_crop ?? '',
+    },
   })
 
   return {
@@ -121,6 +140,7 @@ export function coverOf(book: BookRow): GridBook {
     cover: picture.name,
     coverSlot: picture.slot,
     fromCatalogue: picture.fromCatalogue,
+    cropped: picture.cropped,
   }
 }
 

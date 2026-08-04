@@ -110,6 +110,73 @@ describe('spineShape', () => {
   })
 })
 
+describe('showing the crop but keeping the photograph', () => {
+  it('draws the crop and remembers the whole photo behind it', () => {
+    const { swipe } = gallery({
+      ...all,
+      crops: { front: '/api/covers/front_crop.jpg' },
+      examined: ['front', 'back', 'edge'],
+    }, 'strip')
+
+    const front = swipe.find((frame) => frame.kind === 'front')!
+    expect(front.src).toBe('/api/covers/front_crop.jpg')
+    // Tapping opens this, so the photograph somebody took is never out of
+    // reach just because a tighter version of it exists.
+    expect(front.full).toBe('/api/covers/front.jpg')
+  })
+
+  it('says so when the detector looked and could not find the book', () => {
+    const { swipe } = gallery({
+      ...all,
+      crops: { front: '/api/covers/front_crop.jpg' },
+      examined: ['front', 'back'],
+    }, 'strip')
+
+    const back = swipe.find((frame) => frame.kind === 'back')!
+    expect(back.src).toBe('/api/covers/back.jpg')
+    expect(back.note).toContain('could not be picked out')
+  })
+
+  it('says nothing about photos taken before any of this existed', () => {
+    // Which is every photo in the catalogue on the day this shipped. A
+    // failure notice under all of them would be noise, and it would be a
+    // claim about a detector that has never seen them.
+    const { swipe } = gallery(all, 'strip')
+    for (const frame of swipe) {
+      expect(frame.note).not.toContain('could not be picked out')
+    }
+  })
+
+  it('leaves the whole-spine caption alone rather than stacking a second one', () => {
+    const { swipe } = gallery({ ...all, examined: ['edge'] }, 'whole')
+    const spine = swipe.find((frame) => frame.kind === 'edge')!
+    expect(spine.note).toBe('Shot before spines were cropped, so shown whole')
+  })
+
+  it('crops the spine beside the swipe too', () => {
+    const { beside } = gallery({
+      ...all,
+      crops: { edge: '/api/covers/edge_crop.jpg' },
+      examined: ['edge'],
+    }, 'strip')
+
+    expect(beside?.src).toBe('/api/covers/edge_crop.jpg')
+    expect(beside?.full).toBe('/api/covers/edge.jpg')
+  })
+
+  it('never crops the catalogue picture, which has no room around it', () => {
+    const { swipe } = gallery({
+      ...all,
+      crops: { front: '/api/covers/front_crop.jpg' },
+      examined: ['front'],
+    }, 'strip')
+
+    const catalogue = swipe.find((frame) => frame.kind === 'catalogue')!
+    expect(catalogue.src).toBe('/api/covers/cat.jpg')
+    expect(catalogue.full).toBe('/api/covers/cat.jpg')
+  })
+})
+
 describe('frameAtScroll', () => {
   it('reports the frame a settled scroll is showing', () => {
     expect(frameAtScroll(0, 320, 3)).toBe(0)

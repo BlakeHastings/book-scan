@@ -397,9 +397,10 @@ export class Store {
       .prepare(
         `SELECT 1 FROM books
           WHERE front_image = ? OR back_image = ? OR edge_image = ? OR cover_image = ?
+             OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
           LIMIT 1`,
       )
-      .get(name, name, name, name)
+      .get(name, name, name, name, name, name, name)
     if (usedByBook) return true
 
     const usedByCapture = this.db
@@ -544,6 +545,55 @@ export class Store {
            FROM books
           WHERE front_image != '' OR cover_image != ''
              OR front_hash != ''  OR cover_hash != ''
+          ORDER BY id`,
+      )
+      .all() as never
+  }
+
+  /**
+   * Record what the crop detector made of one photo.
+   *
+   * `name` is the derived file, or '' when the book could not be found in the
+   * frame. Either way the slot joins `cropped`, because "looked at and found
+   * nothing" and "never looked at" are different states and only the first one
+   * is worth telling a reader about.
+   *
+   * The photo's own column is not touched here, and no statement in this class
+   * ever writes a crop filename into one. The original is the record.
+   */
+  setCrop(id: number, slot: 'front' | 'back' | 'edge', name: string): void {
+    const row = this.db.prepare('SELECT cropped FROM books WHERE id = ?').get(id) as
+      { cropped: string | null } | undefined
+    if (!row) return
+
+    const done = new Set((row.cropped ?? '').split(',').filter(Boolean))
+    done.add(slot)
+
+    this.db
+      .prepare(`UPDATE books SET ${slot}_crop = ?, cropped = ? WHERE id = ?`)
+      .run(name, [...done].join(','), id)
+  }
+
+  /**
+   * Every row that has a photograph, oldest first.
+   *
+   * Deliberately unfiltered. Whether a slot still needs cropping depends on
+   * `cropped`, on whether the caller is forcing a redo, and on whether the
+   * derived file is still on disk, and none of that belongs in SQL where a
+   * later change to the rule would have to be made twice.
+   */
+  photographed(): {
+    id: number; title: string
+    front_image: string; back_image: string; edge_image: string
+    front_crop: string; back_crop: string; edge_crop: string
+    cropped: string
+  }[] {
+    return this.db
+      .prepare(
+        `SELECT id, title, front_image, back_image, edge_image,
+                front_crop, back_crop, edge_crop, cropped
+           FROM books
+          WHERE front_image != '' OR back_image != '' OR edge_image != ''
           ORDER BY id`,
       )
       .all() as never

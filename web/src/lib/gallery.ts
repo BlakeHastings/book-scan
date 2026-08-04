@@ -17,6 +17,15 @@ export type FrameKind = 'catalogue' | 'front' | 'back' | 'edge'
 export interface Frame {
   kind: FrameKind
   src: string
+  /**
+   * The whole photograph `src` was cut from, which is what tapping opens.
+   *
+   * The same as `src` where nothing was cut. The point of keeping both is the
+   * owner's: "so that we can choose when to show these things, the full versus
+   * the cropped versus the catalogue". The gallery shows the book; the full
+   * screen shows the photograph that was actually taken.
+   */
+  full: string
   /** Caption. Short enough to sit under a thumbnail on a phone. */
   label: string
   /**
@@ -34,7 +43,23 @@ export interface GallerySources {
   front?: string
   back?: string
   edge?: string
+  /** Each photo cut to the book, where the detector found one. */
+  crops?: Partial<Record<PhotoKind, string>>
+  /**
+   * Slots the detector has been shown, whether or not it found a book.
+   *
+   * The distinction is the whole reason this is here rather than inferred from
+   * an absent crop. "Looked at and could not find the book" is worth saying,
+   * because a reader is entitled to wonder why one photo has the room in it
+   * and the next does not. "Never looked at" is not worth saying, and saying
+   * it would put a failure notice under every photograph taken before any of
+   * this existed, which is all of them.
+   */
+  examined?: PhotoKind[]
 }
+
+/** The kinds that are photographs of this copy, so the ones that get cropped. */
+export type PhotoKind = 'front' | 'back' | 'edge'
 
 /**
  * What shape the spine photo turned out to be.
@@ -70,7 +95,17 @@ export function spineShape(width: number, height: number): SpineShape {
   return width / height <= SPINE_MAX_ASPECT ? 'strip' : 'whole'
 }
 
-const CATALOGUE: Omit<Frame, 'src'> = {
+/**
+ * Said only where the detector was shown this photo and declined.
+ *
+ * The same honesty as the whole-spine caption: a photo that still has the room
+ * around it says why, rather than being quietly worse than the one next to it.
+ * A crop that cut a cover in half would be the expensive mistake here, so the
+ * detector refuses whenever it is unsure and this is what refusing looks like.
+ */
+const NOT_FOUND = 'The book could not be picked out, so this is the whole photo'
+
+const CATALOGUE: Omit<Frame, 'src' | 'full'> = {
   kind: 'catalogue',
   label: 'Catalogue cover',
   // The same honesty the scan view already applies to a catalogue image it
@@ -78,12 +113,12 @@ const CATALOGUE: Omit<Frame, 'src'> = {
   note: "The publisher's picture, not this copy",
 }
 
-const FRONT: Omit<Frame, 'src'> = { kind: 'front', label: 'Front cover', note: '' }
-const BACK: Omit<Frame, 'src'> = { kind: 'back', label: 'Back cover', note: '' }
+const FRONT: Omit<Frame, 'src' | 'full'> = { kind: 'front', label: 'Front cover', note: '' }
+const BACK: Omit<Frame, 'src' | 'full'> = { kind: 'back', label: 'Back cover', note: '' }
 
-const SPINE_STRIP: Omit<Frame, 'src'> = { kind: 'edge', label: 'Spine', note: '' }
+const SPINE_STRIP: Omit<Frame, 'src' | 'full'> = { kind: 'edge', label: 'Spine', note: '' }
 
-const SPINE_WHOLE: Omit<Frame, 'src'> = {
+const SPINE_WHOLE: Omit<Frame, 'src' | 'full'> = {
   kind: 'edge',
   label: 'Spine',
   note: 'Shot before spines were cropped, so shown whole',
@@ -108,21 +143,41 @@ export interface Gallery {
  * photo has one frame and no swipe that goes nowhere.
  */
 export function gallery(sources: GallerySources, shape: SpineShape = 'unknown'): Gallery {
+  /**
+   * One photograph, showing the crop where there is one and saying so where
+   * there was meant to be one and is not.
+   */
+  const photo = (base: Omit<Frame, 'src' | 'full'>, kind: PhotoKind, src: string): Frame => {
+    const crop = sources.crops?.[kind] ?? ''
+    const looked = sources.examined?.includes(kind) ?? false
+    return {
+      ...base,
+      src: crop || src,
+      full: src,
+      // A note the frame already carries wins. A spine shot before spines were
+      // cropped is explained by that, and stacking a second explanation on it
+      // helps nobody.
+      note: base.note || (looked && !crop ? NOT_FOUND : ''),
+    }
+  }
+
   const swipe: Frame[] = []
-  if (sources.catalogue) swipe.push({ ...CATALOGUE, src: sources.catalogue })
-  if (sources.front) swipe.push({ ...FRONT, src: sources.front })
-  if (sources.back) swipe.push({ ...BACK, src: sources.back })
+  if (sources.catalogue) {
+    swipe.push({ ...CATALOGUE, src: sources.catalogue, full: sources.catalogue })
+  }
+  if (sources.front) swipe.push(photo(FRONT, 'front', sources.front))
+  if (sources.back) swipe.push(photo(BACK, 'back', sources.back))
 
   if (!sources.edge) return { swipe, beside: null }
 
   // A whole-book spine photo is unreadable in a strip two centimetres wide,
   // so it goes in the swipe at full size instead of being squeezed beside it.
   if (shape === 'whole') {
-    swipe.push({ ...SPINE_WHOLE, src: sources.edge })
+    swipe.push(photo(SPINE_WHOLE, 'edge', sources.edge))
     return { swipe, beside: null }
   }
 
-  const beside: Frame = { ...SPINE_STRIP, src: sources.edge }
+  const beside: Frame = photo(SPINE_STRIP, 'edge', sources.edge)
 
   // Nothing to sit beside. A lone spine is the gallery, not a margin note.
   if (!swipe.length) return { swipe: [beside], beside: null }
