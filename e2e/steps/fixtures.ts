@@ -29,6 +29,8 @@ export interface Fixtures {
   apiUrl: string
   /** Base URL of the page under test. */
   webUrl: string
+  /** Base URL of the catalogue stub's own control plane, see catalogue-stub.ts. */
+  stubUrl: string
 }
 
 export const test = base.extend<Fixtures>({
@@ -44,6 +46,10 @@ export const test = base.extend<Fixtures>({
 
   webUrl: async ({}, use) => {
     await use(fromEnvironment('BOOKSCAN_E2E_WEB_URL'))
+  },
+
+  stubUrl: async ({}, use) => {
+    await use(fromEnvironment('BOOKSCAN_E2E_STUB_URL'))
   },
 })
 

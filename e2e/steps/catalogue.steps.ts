@@ -13,7 +13,7 @@ import type { DataTable } from 'playwright-bdd'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { Given, Then } from './fixtures.js'
+import { Given, Then, When } from './fixtures.js'
 import { BOOK_IN_HAND, stubBookByTitle } from '../support/books.js'
 import type { BookRow } from '../support/database.js'
 
@@ -33,6 +33,28 @@ Given('the catalogue is empty', async ({ catalogue }) => {
 Given('the catalogue service knows about {string}', async ({}, title: string) => {
   expect(stubBookByTitle(title).isbn13).not.toBe('')
 })
+
+/**
+ * Holds one lookup open, so a scenario can assert on what the app does while
+ * a relookup is genuinely still running rather than reasoning about a race it
+ * cannot see or control the timing of otherwise.
+ *
+ * Talks to the stub's own control endpoint (support/catalogue-stub.ts), not
+ * the app: the delay is armed before the ISBN change that triggers the
+ * lookup, so it has to already be in place when the request arrives.
+ */
+When(
+  'I arm a slow lookup of {string} taking {int}ms',
+  async ({ stubUrl }, title: string, ms: number) => {
+    const book = stubBookByTitle(title)
+    const response = await fetch(`${stubUrl}/__control/delay-next-lookup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isbn13: book.isbn13, ms }),
+    })
+    expect(response.ok, `arming the stub delay failed: ${response.status}`).toBe(true)
+  },
+)
 
 /**
  * Books already on the shelves.

@@ -103,6 +103,11 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
   process.env.BOOKSCAN_E2E_WEB_URL = webUrl
   process.env.BOOKSCAN_E2E_API_URL = apiUrl
   process.env.BOOKSCAN_E2E_DB = health.db
+  // The stub's own control endpoint, so a scenario can hold a lookup open for
+  // as long as it needs. Not one of the BOOKSCAN_*_URL variables: those tell
+  // the API where the catalogues live, this tells a test where the stub's
+  // control plane lives, and the app itself never touches it.
+  process.env.BOOKSCAN_E2E_STUB_URL = stub.url
 
   say(`web ${webUrl}`)
   say(`api ${apiUrl}`)

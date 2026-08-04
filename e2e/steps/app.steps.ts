@@ -12,6 +12,7 @@ import { expect, type Page } from '@playwright/test'
 import type { DataTable } from 'playwright-bdd'
 
 import { Then, When } from './fixtures.js'
+import { stubBookByTitle } from '../support/books.js'
 
 /** The queue decodes the barcode and looks it up. Seconds, not milliseconds. */
 const QUEUE_TIMEOUT = 90 * 1000
@@ -256,4 +257,59 @@ Then(
  */
 Then('nothing should need attention', async ({ page }) => {
   await expect(page.locator('.attention')).toHaveCount(0)
+})
+
+/**
+ * A catalogued book opened by tapping its row in the shelf listing, rather
+ * than the off-bookcase list `openLibrary` above already covers. Same
+ * destination, a different route in.
+ */
+When('I open {string} from the library', async ({ page }, title: string) => {
+  await page.locator('li.shelfrow', { hasText: title }).locator('.shelfrow__body').click()
+  await expect(page.locator('.detail__title')).toHaveText(title)
+})
+
+When('I start editing the details', async ({ page }) => {
+  await page.getByRole('button', { name: 'Edit details' }).click()
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible()
+})
+
+/**
+ * The Change ISBN flow: open the prompt, type the digits, submit. The lookup
+ * it starts is asynchronous and outlives this step; whether Save waits for it
+ * is what a scenario using this step is checking, not asserted here.
+ */
+When('I change the ISBN to that of {string}', async ({ page }, title: string) => {
+  const target = stubBookByTitle(title)
+  await page.getByRole('button', { name: 'Change ISBN' }).click()
+  await page.locator('.isbn-input input').fill(target.isbn13)
+  await page.getByRole('button', { name: 'Look up and replace' }).click()
+})
+
+Then('Save changes should be unavailable while the lookup runs', async ({ page }) => {
+  // Short and explicit rather than the suite's default 30s: this is either
+  // already true by the time "Look up and replace" has been clicked, or it
+  // never becomes true, and a regression should say so in seconds, not
+  // three quarters of a minute.
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled({ timeout: 2_000 })
+})
+
+/**
+ * The delay armed on the stub (see "I arm a slow lookup" in
+ * catalogue.steps.ts) is what makes this worth waiting for rather than
+ * asserting instantly: a fix that disabled Save but never re-enabled it would
+ * time out here instead of passing.
+ */
+Then(
+  'Save changes should be available again once the lookup answers',
+  async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Save changes' }))
+      .toBeEnabled({ timeout: 10_000 })
+  },
+)
+
+When('I save the changes', async ({ page }) => {
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  // Saving a catalogued book returns to its record view, not the camera.
+  await expect(page.getByRole('button', { name: 'Edit details' })).toBeVisible()
 })
