@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  CLOSE_LIMIT, MATCH_CUTOFF, SIMILAR_LIMIT,
-  confidentPick, hasCloseMatch, matchConfidence, shortlistPrompt,
+  CHANCE_DISTANCE, CLOSE_LIMIT, MATCH_CUTOFF, SIMILAR_LIMIT,
+  confidenceLine, confidentPick, hasCloseMatch, matchConfidence, shortlistPrompt,
 } from './confidence'
 
 describe('matchConfidence', () => {
@@ -46,9 +46,55 @@ describe('matchConfidence', () => {
   })
 
   it('says nothing about how many bits differ', () => {
+    // The word alone still carries no number. The number lives in `percent`,
+    // a separate field, so a caller that only reads `label` sees words only.
     for (let d = 0; d <= MATCH_CUTOFF; d += 1) {
       expect(matchConfidence(d).label).not.toMatch(/\d/)
     }
+  })
+})
+
+describe('matchConfidence percent', () => {
+  it('rescales so chance reads as 0%, not a misleading 50%', () => {
+    // The trap the issue calls out by name: (64 - distance) / 64 would put
+    // pure chance at 32 bits and 50%, which reads like a real signal.
+    expect(matchConfidence(CHANCE_DISTANCE).percent).toBe(0)
+  })
+
+  it('lands on the round numbers the rescaled formula promises', () => {
+    expect(matchConfidence(0).percent).toBe(100)
+    expect(matchConfidence(CLOSE_LIMIT).percent).toBe(75)
+    expect(matchConfidence(SIMILAR_LIMIT).percent).toBe(50)
+    // The acceptance cutoff reads as a plainly weak 25%, not the 62.5% a
+    // naive /64 scale would print beside the same distance.
+    expect(matchConfidence(MATCH_CUTOFF).percent).toBe(25)
+  })
+
+  it('never climbs back up as the images get further apart', () => {
+    for (let d = 1; d <= CHANCE_DISTANCE; d += 1) {
+      expect(matchConfidence(d).percent!).toBeLessThanOrEqual(matchConfidence(d - 1).percent!)
+    }
+  })
+
+  it('never goes negative past the point of chance', () => {
+    expect(matchConfidence(CHANCE_DISTANCE + 10).percent).toBe(0)
+    expect(matchConfidence(64).percent).toBe(0)
+  })
+
+  it('is null when there is nothing to measure, not a fabricated number', () => {
+    expect(matchConfidence(Number.NaN).percent).toBeNull()
+    expect(matchConfidence(undefined as unknown as number).percent).toBeNull()
+  })
+})
+
+describe('confidenceLine', () => {
+  it('pairs the word with the percentage', () => {
+    expect(confidenceLine(matchConfidence(2))).toBe('looks the same, 94%')
+    expect(confidenceLine(matchConfidence(MATCH_CUTOFF))).toBe('barely alike, 25%')
+  })
+
+  it('falls back to the word alone when there is no percentage to show', () => {
+    expect(confidenceLine(matchConfidence(Number.NaN))).toBe('barely alike')
   })
 })
 

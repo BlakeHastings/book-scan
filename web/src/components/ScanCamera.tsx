@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type CoverMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
-import { confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
+import { confidenceLine, confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
 import {
   applyFocusHints, captureStill, listLenses, openCamera, preferredLens,
   rememberedLens, rememberLens, stopStream, thumbnail,
@@ -180,8 +180,9 @@ export function ScanCamera({ onIdentified, onClose }: Props) {
           </div>
 
           {choices.map((match) => {
-            // Words and weight, never the number. A distance of 2 and one of
-            // 24 both mean "in the shortlist"; only this says which is which.
+            // Word, weight and percentage together. The word and colour carry
+            // the band at a glance; the percentage is scaled so chance itself
+            // reads as 0%, so it is honest rather than merely decorative.
             const confidence = matchConfidence(match.distance)
             return (
               <button
@@ -189,7 +190,7 @@ export function ScanCamera({ onIdentified, onClose }: Props) {
                 className={`choice choice--${confidence.strength}`}
                 onClick={() => onIdentified(match.id)}
                 disabled={reading}
-                aria-label={`${match.title} by ${match.authorFiling}, ${confidence.label}`}
+                aria-label={`${match.title} by ${match.authorFiling}, ${confidenceLine(confidence)}`}
               >
                 {match.cover
                   ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
@@ -199,6 +200,9 @@ export function ScanCamera({ onIdentified, onClose }: Props) {
                   <span className="choice__author">{match.authorFiling}</span>
                   <span className={`choice__confidence choice__confidence--${confidence.strength}`}>
                     {confidence.label}
+                    {confidence.percent !== null && (
+                      <span className="choice__percent"> · {confidence.percent}%</span>
+                    )}
                   </span>
                   {/* Said out loud, so an unfamiliar cover design reads as a
                       different printing rather than as a wrong match. */}

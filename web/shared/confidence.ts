@@ -1,14 +1,24 @@
 /**
- * How alike a cover match actually is, said in words rather than in bits.
+ * How alike a cover match actually is, said in words and in an honest
+ * percentage rather than in bits.
  *
  * The server returns a Hamming distance over a 64 bit perceptual hash. It is
  * a real measurement and it is the only signal there is about whether a
- * candidate is the book in your hands, but "16" tells a person nothing. Two
- * unrelated images sit around 32 differing bits by chance, so 16 is halfway
- * to noise, and nobody holding a book is going to work that out.
+ * candidate is the book in your hands, but "16" tells a person nothing on
+ * its own, and a naive `(64 - distance) / 64` is worse than nothing: two
+ * unrelated images sit around 32 differing bits by chance, so that formula
+ * reads a coin flip as 50% and the acceptance cutoff of 24 as 62.5%, a
+ * number that looks like a decent match.
  *
- * So the number is never printed. It picks one of three bands instead, and
- * the band drives both the wording and how strongly the candidate is drawn.
+ * The percentage here is rescaled so chance reads as 0%:
+ *
+ *   similarity = (32 - distance) / 32
+ *
+ * which puts the cutoff at a plainly weak 25% instead. It is still just a
+ * restatement of the same measurement, so it is printed beside a short word
+ * rather than instead of one, and the word still comes from one of three
+ * absolute bands, which drive both the wording and how strongly the
+ * candidate is drawn.
  *
  * The bands are absolute, not relative to the rest of the shortlist. A
  * relative scale would call the best of four bad guesses "close", which is
@@ -34,35 +44,69 @@ export const CLOSE_LIMIT = 8
 /** Above this a candidate is nearer to noise than to a likeness. */
 export const SIMILAR_LIMIT = 16
 
+/**
+ * Where two unrelated cover hashes land by chance. The percentage is scaled
+ * against this, not against the full 64 bits, so chance itself reads as 0%
+ * instead of a misleadingly respectable 50%.
+ */
+export const CHANCE_DISTANCE = 32
+
 export type MatchStrength = 'close' | 'similar' | 'loose'
 
 export interface MatchConfidence {
   strength: MatchStrength
   /**
-   * Printed under the title. Phrased as a claim about the likeness, never as
-   * a claim about the book, because only the person can settle that.
+   * How sure this reads, 0 to 100, scaled so chance is 0%. Null when there
+   * is nothing to measure, which is the weakest case there is.
+   */
+  percent: number | null
+  /**
+   * A short word for the band. Phrased as a claim about the likeness, never
+   * as a claim about the book, because only the person can settle that.
+   * Pair with `percent` for the line actually printed; see `confidenceLine`.
    */
   label: string
 }
 
-const BANDS: Record<MatchStrength, MatchConfidence> = {
-  close: { strength: 'close', label: 'looks the same' },
-  similar: { strength: 'similar', label: 'looks similar' },
-  loose: { strength: 'loose', label: 'only a little alike, look closely' },
+const BAND_WORDS: Record<MatchStrength, string> = {
+  close: 'looks the same',
+  similar: 'looks similar',
+  loose: 'barely alike',
 }
 
 /**
- * Which band a distance falls in.
+ * Which band a distance falls in, plus how sure that reads as a percentage.
  *
  * Anything unmeasurable, missing or past the cutoff lands in the weakest
  * band. Erring towards doubt costs a second look; erring towards confidence
  * costs a wrong write to the catalogue.
  */
 export function matchConfidence(distance: number): MatchConfidence {
-  if (!Number.isFinite(distance)) return BANDS.loose
-  if (distance <= CLOSE_LIMIT) return BANDS.close
-  if (distance <= SIMILAR_LIMIT) return BANDS.similar
-  return BANDS.loose
+  if (!Number.isFinite(distance)) {
+    return { strength: 'loose', percent: null, label: BAND_WORDS.loose }
+  }
+  const percent = Math.max(
+    0,
+    Math.min(100, Math.round(((CHANCE_DISTANCE - distance) / CHANCE_DISTANCE) * 100)),
+  )
+  const strength: MatchStrength = distance <= CLOSE_LIMIT
+    ? 'close'
+    : distance <= SIMILAR_LIMIT ? 'similar' : 'loose'
+  return { strength, percent, label: BAND_WORDS[strength] }
+}
+
+/**
+ * The line actually printed under a title: the word plus how sure it reads,
+ * e.g. "looks the same, 97%". A bare percentage was tried and rejected: 62%
+ * for a candidate at the acceptance cutoff reads as a decent match rather
+ * than the weak one it is, and a bare word loses the precision the owner
+ * asked for. The two together let a glance catch the band from the word and
+ * colour, while the number is there for anyone who wants it.
+ */
+export function confidenceLine(confidence: MatchConfidence): string {
+  return confidence.percent === null
+    ? confidence.label
+    : `${confidence.label}, ${confidence.percent}%`
 }
 
 /**
