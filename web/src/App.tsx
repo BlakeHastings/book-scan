@@ -11,6 +11,7 @@ import {
   thumbnail, type Lens, type Slot,
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
+import { resolveIsbnPair } from '../shared/isbn'
 import { BookDetail } from './components/BookDetail'
 import { PlacementView } from './components/ShelfStrip'
 import { ShelfView } from './components/ShelfView'
@@ -31,6 +32,11 @@ function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  // Bumped every time review moves on to a different book: a new capture, a
+  // different shelved book, or back out to the library. A relookup started
+  // before the bump is still running against the old session, and its answer
+  // must land nowhere once this has moved past it.
+  const reviewSessionRef = useRef(0)
 
   const [mode, setMode] = useState<Mode>('home')
   const [cameraOn, setCameraOn] = useState(false)
@@ -311,12 +317,23 @@ export default function App() {
    * every other field wrong. Correcting it refetches rather than asking the
    * user to retype the metadata. Location and notes are kept: they are the
    * fields the person, not the catalogue, is the authority on.
+   *
+   * This runs while the user is looking at the detail view, not a modal, so it
+   * can outlive the screen it was started from. The session token is read
+   * before the request goes out and checked again after it comes back; if
+   * review has since moved on to a different book, the answer is dropped
+   * rather than landing on whatever is on screen by then.
    */
   const relookup = async (isbn: string) => {
+    const session = reviewSessionRef.current
     setRelookupBusy(true)
     setRelookupError('')
+    // Resolved up front so a failed request still has something valid to fall
+    // back to: the digits the user typed, not whatever was there before.
+    const typed = resolveIsbnPair(isbn)
     try {
       const result = await api.lookupIsbn(isbn)
+      if (reviewSessionRef.current !== session) return
       if (result.found) {
         setLookup(result)
         setIdentified(true)
@@ -330,8 +347,8 @@ export default function App() {
         // is not left carrying an ISBN we know to be wrong.
         setDraft((current) => ({
           ...current,
-          isbn13: result.isbn13 || isbn.replace(/[^0-9Xx]/g, ''),
-          isbn10: result.isbn10 || '',
+          isbn13: result.isbn13 || typed.isbn13 || isbn.replace(/[^0-9Xx]/g, ''),
+          isbn10: result.isbn10 || typed.isbn10,
           isbnSource: 'manual',
         }))
         setError(
@@ -339,9 +356,20 @@ export default function App() {
         )
       }
     } catch (caught) {
+      if (reviewSessionRef.current !== session) return
+      // The request failing is not a reason to make the user retype digits
+      // they already got right, so what they typed is kept either way.
+      if (typed.isbn13) {
+        setDraft((current) => ({
+          ...current,
+          isbn13: typed.isbn13,
+          isbn10: typed.isbn10,
+          isbnSource: 'manual',
+        }))
+      }
       setRelookupError((caught as Error).message)
     } finally {
-      setRelookupBusy(false)
+      if (reviewSessionRef.current === session) setRelookupBusy(false)
     }
   }
 
@@ -446,6 +474,9 @@ export default function App() {
    * capture, so there is one place a book is edited rather than two.
    */
   const openBook = async (id: number) => {
+    reviewSessionRef.current += 1
+    setRelookupBusy(false)
+    setRelookupError('')
     setError('')
     try {
       const { book } = await api.getBook(id)
@@ -478,6 +509,9 @@ export default function App() {
 
   /** Open a queue item in the review pane, pre-filled from its lookup. */
   const openCapture = (capture: Capture) => {
+    reviewSessionRef.current += 1
+    setRelookupBusy(false)
+    setRelookupError('')
     const looked = capture.draft_json
       ? (JSON.parse(capture.draft_json) as LookupResponse)
       : null
@@ -509,6 +543,9 @@ export default function App() {
 
   /** Leave a catalogued book the way you came in. */
   const backToLibrary = () => {
+    reviewSessionRef.current += 1
+    setRelookupBusy(false)
+    setRelookupError('')
     setBookId(null)
     setCheckedOutAt(null)
     setCoverImage('')
@@ -518,6 +555,9 @@ export default function App() {
   }
 
   const reset = () => {
+    reviewSessionRef.current += 1
+    setRelookupBusy(false)
+    setRelookupError('')
     if (captureId) void api.releaseCapture(captureId, me).catch(() => {})
     setDraft(emptyDraft)
     setLookup(null)

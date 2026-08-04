@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Draft, LookupResponse } from '../lib/api'
 import { SLOTS, SLOT_LABEL, type Slot } from '../lib/scanner'
 import { BookFields } from './BookFields'
@@ -46,6 +46,21 @@ interface Props {
 }
 
 /**
+ * Shown in place of the ISBN while a relookup is in flight. Short, rotated
+ * rather than fixed, and dropped the moment an answer arrives: this is a flow
+ * used repeatedly in one sitting, and the same line every time stops reading
+ * as a joke by the third book.
+ */
+const HUNTING_FOR_IT = [
+  'Checking the card catalogue...',
+  'Trying the shelf it is definitely not on...',
+  'Asking a librarian for a withering look...',
+  'Following the trail of dog-eared pages...',
+  'Squinting at a spine from across the room...',
+  'Ruling out the large-print edition...',
+]
+
+/**
  * Everything known about one book.
  *
  * Two states, because there are two jobs. A book that is already catalogued is
@@ -70,6 +85,22 @@ export function BookDetail({
   const [asking, setAsking] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [zoomed, setZoomed] = useState<Slot | null>(null)
+  const [jokeIndex, setJokeIndex] = useState(0)
+  const wasBusy = useRef(false)
+
+  // Pick a new line each time a lookup starts, never repeating the one just
+  // shown, so back-to-back changes on different books do not echo each other.
+  useEffect(() => {
+    if (relookupBusy && !wasBusy.current) {
+      setJokeIndex((current) => {
+        if (HUNTING_FOR_IT.length <= 1) return 0
+        let next = Math.floor(Math.random() * HUNTING_FOR_IT.length)
+        while (next === current) next = Math.floor(Math.random() * HUNTING_FOR_IT.length)
+        return next
+      })
+    }
+    wasBusy.current = relookupBusy
+  }, [relookupBusy])
 
   const taken = SLOTS.filter((slot) => photos[slot])
   const category = draft.isFiction ? 'Fiction' : 'Non-fiction'
@@ -203,28 +234,52 @@ export function BookDetail({
       <div className="isbn-block">
         <div className="isbn-block__values">
           <span className="isbn-block__label">ISBN</span>
-          <span className="isbn-block__number">{draft.isbn13 || 'not set'}</span>
-          {draft.isbn10 && <span className="isbn-block__alt">also {draft.isbn10}</span>}
-          {draft.isbnSource && (
-            <span className="isbn-block__source">read from {draft.isbnSource}</span>
+          {relookupBusy ? (
+            <span className="isbn-block__number isbn-block__number--busy">
+              {HUNTING_FOR_IT[jokeIndex]}
+            </span>
+          ) : (
+            <>
+              <span className="isbn-block__number">{draft.isbn13 || 'not set'}</span>
+              {draft.isbn10 && <span className="isbn-block__alt">also {draft.isbn10}</span>}
+              {draft.isbnSource && (
+                <span className="isbn-block__source">read from {draft.isbnSource}</span>
+              )}
+            </>
           )}
         </div>
         {editing && (
-          <button
-            className="btn"
-            onClick={() => { onClearRelookupError(); setAsking(true) }}
-          >
-            Change ISBN
-          </button>
+          relookupBusy ? (
+            <span className="isbn-block__busy" role="status" aria-live="polite">
+              <span className="isbn-block__busy-dot" aria-hidden="true" />
+              Looking up
+            </span>
+          ) : (
+            <button
+              className="btn"
+              onClick={() => { onClearRelookupError(); setAsking(true) }}
+            >
+              Change ISBN
+            </button>
+          )
         )}
       </div>
+
+      {/* Surfaced here rather than only in the prompt, because a failure
+          arrives after the prompt has already closed: the user is back on
+          this view by the time the answer comes in. Tap to dismiss, same as
+          the banner above. */}
+      {!relookupBusy && relookupError && (
+        <div className="warn isbn-block__error" onClick={onClearRelookupError}>
+          Could not look that up: {relookupError.replace(/\.?$/, '')}. The
+          digits you typed are still saved; tap to dismiss and try again.
+        </div>
+      )}
 
       {asking && (
         <IsbnPrompt
           initial={draft.isbn13 || draft.isbn10}
-          busy={relookupBusy}
-          error={relookupError}
-          onCancel={() => { setAsking(false); onClearRelookupError() }}
+          onCancel={() => setAsking(false)}
           onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
         />
       )}
