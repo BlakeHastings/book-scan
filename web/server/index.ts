@@ -37,7 +37,7 @@ import { Store, type DraftBook } from './store'
 import { confidentPick } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
-  bookCover, buildPlacement, formatLocation, parseLocation, shelfImage,
+  bookCover, buildPlacement, compareLocations, formatLocation, parseLocation, shelfImage,
   type ShelfSlot,
 } from '../shared/shelving'
 
@@ -339,6 +339,23 @@ export function createApp(options: CreateAppOptions): express.Express {
    * (#81). A run of blank blocks with two photographs in it would be neither.
    * The files are immutable and served with a long cache, so a row scrolled
    * back to costs nothing the second time.
+   *
+   * "In the right place" means two things agree, not one. The sort key check
+   * only says the save landed; it says nothing about the shelf, because a
+   * save never touches `location` (#61, #5, both read-only about it). A book
+   * whose author or series just moved it in the sequence has not moved on the
+   * shelf, since nobody has carried it anywhere, so its recorded location is
+   * still the old area. That is exactly what `shelves.review` calls a misfile
+   * (`../shared/shelving`, `reviewShelving`), and this has to reach the same
+   * verdict the Library does (#90): drawing the book into the row here while
+   * "Needs attention" says it belongs elsewhere would be the same book shown
+   * settled in one place and unsettled in the other, and the detail view is
+   * where somebody decides whether there is anything left to do.
+   *
+   * Matches `reviewShelving`'s own carve-outs, not just its misfile test: a
+   * location nobody has ever recorded, or one that does not parse, is not a
+   * disagreement to draw a gap over, so those still settle here exactly as
+   * they did before this book had a recorded location at all.
    */
   function settledRow(range: 'fiction' | 'nonfiction', sortKey: string, id: number) {
     const row = store.getBook(id)
@@ -346,6 +363,13 @@ export function createApp(options: CreateAppOptions): express.Express {
 
     const strip = shelves.stripOf(range, id)
     if (!strip) return null
+
+    const recorded = (row.location ?? '').trim()
+    if (recorded) {
+      const at = parseLocation(recorded)
+      const belongs = parseLocation(strip.label)
+      if (at && belongs && compareLocations(recorded, strip.label) !== 0) return null
+    }
 
     return {
       label: strip.label,
