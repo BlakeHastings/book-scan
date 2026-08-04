@@ -659,6 +659,19 @@ describe('failure paths', () => {
     expect(body.error).toContain('not a valid ISBN')
   })
 
+  it('a missing cover: 404, not 500, and the body carries no filesystem path', async () => {
+    // The `/api/covers` mount runs with `fallthrough: false`, so a miss here
+    // is Express's own 404, not something an app route threw. A missing
+    // cover is routine (a book catalogued before a slot existed, or a
+    // publisher cover that is simply absent), so it must not be answered as
+    // a server fault.
+    const { status, body } = await call('/api/covers/does-not-exist.jpg')
+
+    expect(status).toBe(404)
+    expect(body.error).not.toContain(running.coverDir) // no filesystem path leaks
+    expect(body.error).not.toMatch(/[A-Za-z]:[\\/]|\/(home|Users)\//) // no absolute path at all
+  })
+
   it('a rejected async handler answers 500 instead of taking the server down', async () => {
     // lookupIsbn had no try/catch of its own before asyncRoute existed: a
     // rejection here would have been an unhandled promise rejection and
