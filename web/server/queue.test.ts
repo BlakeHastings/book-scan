@@ -50,6 +50,16 @@ describe('queueing', () => {
     expect(queue.list()).toHaveLength(0)
     expect(queue.get(capture.id)?.book_id).toBe(bookId)
   })
+
+  it('lists oldest first, the order the worker drains them in', () => {
+    // The web UI shows newest first, matching the physical stack, but that is
+    // a display choice made on top of this list. What the worker claims next
+    // must stay oldest first regardless of how anything displays the queue.
+    const first = add()
+    const second = add()
+    const third = add()
+    expect(queue.list().map((c) => c.id)).toEqual([first.id, second.id, third.id])
+  })
 })
 
 describe('claiming, with two people on the same queue', () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, deviceName, type Capture, type QueueCounts } from '../lib/api'
+import { newestFirst } from '../lib/queueOrder'
 import { coverUrl } from './PlacementCard'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -31,7 +32,10 @@ export function QueuePane({ onOpen, onCounts }: Props) {
   const load = useCallback(() => {
     api.listCaptures()
       .then((result) => {
-        setCaptures(result.captures)
+        // The server lists oldest first, the order the background worker
+        // reads them in. The stack is on top, not the bottom, so newest
+        // first is what the display shows.
+        setCaptures(newestFirst(result.captures))
         onCounts(result.counts)
       })
       .catch((caught) => setError((caught as Error).message))
