@@ -253,6 +253,14 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* Neutral rather than the green "good" state: nothing has been found, only
+   confirmed absent, and green there would read as a false all-clear. */
+.cam__found--empty {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--muted);
+}
+
 .cam__chips { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; }
 .cam__chip {
   display: inline-flex;

@@ -12,6 +12,7 @@ import {
 } from './lib/scanner'
 import { filingName } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
+import { bookStillInHand } from './lib/cameraReturn'
 import { BookDetail } from './components/BookDetail'
 import { PlacementView } from './components/ShelfStrip'
 import { ShelfView } from './components/ShelfView'
@@ -629,19 +630,17 @@ export default function App() {
   }
 
   /**
-   * Clear the book in hand and return to the screen the person started from.
-   *
-   * Shared by finishing shelving and by abandoning it (discarding a queued
-   * capture mid-review): both are "done with this book" moments, and both
-   * should land back in the queue when that is where the book came from.
-   * queueReturn stays set on the way out; QueuePane uses it once to land
-   * near the book just handled, then reports it consumed.
+   * Put down whatever book is on screen: release its capture lock, bump the
+   * review session so a relookup still in flight for it cannot land once it
+   * has been left, and clear every field that describes it. Callers decide
+   * where the screen goes next; `queueReturn` is deliberately not touched
+   * here, since `reset` wants it to survive and `backToCamera` clears it
+   * itself, see below.
    */
-  const reset = () => {
+  const clearBookInHand = () => {
     reviewSessionRef.current += 1
     setRelookupBusy(false)
     setRelookupError('')
-    const backToQueue = fromQueue
     if (captureId) void api.releaseCapture(captureId, me).catch(() => {})
     setDraft(emptyDraft)
     setLookup(null)
@@ -658,7 +657,38 @@ export default function App() {
     setNotice('')
     setOrigin('library')
     setFromQueue(false)
+  }
+
+  /**
+   * Clear the book in hand and return to the screen the person started from.
+   *
+   * Shared by finishing shelving and by abandoning it (discarding a queued
+   * capture mid-review): both are "done with this book" moments, and both
+   * should land back in the queue when that is where the book came from.
+   * queueReturn stays set on the way out; QueuePane uses it once to land
+   * near the book just handled, then reports it consumed.
+   */
+  const reset = () => {
+    const backToQueue = fromQueue
+    clearBookInHand()
     setMode(backToQueue ? 'queue' : 'capture')
+  }
+
+  /**
+   * Return to the camera, from either the "Back to camera" button in review
+   * or the Camera tab in the header nav.
+   *
+   * Whether the capture on screen survives the trip is `bookStillInHand`'s
+   * call, see `lib/cameraReturn.ts` for the reasoning (issue #62). When it is
+   * not still in hand, the capture is put down here the same way `reset`
+   * puts one down.
+   */
+  const backToCamera = () => {
+    if (!bookStillInHand(fromQueue, bookId)) {
+      clearBookInHand()
+      setQueueReturn(null)
+    }
+    setMode('capture')
   }
 
   // -----------------------------------------------------------------------
@@ -790,6 +820,16 @@ export default function App() {
               {draft.authors ? ` · ${draft.authors}` : ''}
             </div>
           )}
+          {/* The other half of fixing #62: whoever is holding the phone can
+              always read whether a book is in hand, not just infer it from
+              nothing being shown. This only shows for a genuinely empty
+              session; once a shot lands or the queue's read comes back, the
+              banner above takes over. */}
+          {!identified && shotCount === 0 && !captureId && (
+            <div className="cam__found cam__found--empty">
+              Nothing in hand. First shot starts a new book.
+            </div>
+          )}
 
           <div className="cam__chips">
             {SLOTS.map((slot) => {
@@ -865,7 +905,7 @@ export default function App() {
             with room to explain themselves. */}
         {mode !== 'home' && (
         <nav>
-          <button className="tab" onClick={() => setMode('capture')}>Camera</button>
+          <button className="tab" onClick={backToCamera}>Camera</button>
           <button
             className={mode === 'queue' ? 'tab tab--on' : 'tab'}
             onClick={() => setMode('queue')}
@@ -977,18 +1017,7 @@ export default function App() {
               from the library and goes back there. */}
           {bookId === null && (
             <div className="actions">
-              <button
-                className="btn"
-                onClick={() => {
-                  // An explicit choice of the camera overrides where this
-                  // book came from, so a later reset() must not reroute
-                  // back to the queue for a book the person has moved on
-                  // from.
-                  setFromQueue(false)
-                  setQueueReturn(null)
-                  setMode('capture')
-                }}
-              >
+              <button className="btn" onClick={backToCamera}>
                 Back to camera
               </button>
             </div>
