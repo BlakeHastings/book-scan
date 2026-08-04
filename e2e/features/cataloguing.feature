@@ -9,6 +9,12 @@ Feature: Cataloguing a book from its cover
   the database has the right ISBN, the right filing name and the right shelf,
   and that the photograph really is on disk.
 
+  How the ISBN was read is part of the record. A barcode is self-validating and
+  an OCR reading is a guess the catalogue happened to agree with, so a book that
+  cannot say which it was has lost something a catalogue meant to last should
+  keep. The camera opens on the back cover, which carries the barcode, so this
+  book is read from one.
+
   Background:
     Given the catalogue is empty
     And the catalogue service knows about "Dune"
@@ -25,6 +31,7 @@ Feature: Cataloguing a book from its cover
       | Title                     | Dune          |
       | Authors (comma separated) | Frank Herbert |
     And the ISBN should read "9780441013593"
+    And the ISBN should say it was read from "barcode"
 
     When I confirm the details and go to shelve it
     Then it should tell me to put "Dune" in the gap at "1A"
@@ -34,6 +41,7 @@ Feature: Cataloguing a book from its cover
     Then the catalogue should hold "Dune" recorded as:
       | isbn13        | 9780441013593                |
       | isbn10        | 0441013597                   |
+      | isbn_source   | barcode                      |
       | title         | Dune                         |
       | authors       | Frank Herbert                |
       | author_filing | Herbert, Frank               |

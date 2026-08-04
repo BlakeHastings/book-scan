@@ -72,6 +72,15 @@ Then('the ISBN should read {string}', async ({ page }, isbn: string) => {
   await expect(page.locator('.isbn-block__number')).toHaveText(isbn)
 })
 
+/**
+ * The provenance, on screen. It is drawn only when there is a source to draw,
+ * so an absent line and a wrong line fail the same way here, which is what is
+ * wanted: a book whose reading nobody recorded is the bug.
+ */
+Then('the ISBN should say it was read from {string}', async ({ page }, source: string) => {
+  await expect(page.locator('.isbn-block__source')).toHaveText(`read from ${source}`)
+})
+
 When('I confirm the details and go to shelve it', async ({ page }) => {
   await page.getByRole('button', { name: 'Looks right, shelve it' }).click()
   await expect(page.locator('.shelve__ask')).toBeVisible()

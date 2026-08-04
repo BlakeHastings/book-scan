@@ -168,11 +168,17 @@ export default function App() {
   // Capture and identify
   // -----------------------------------------------------------------------
 
-  const applyLookup = (result: LookupResponse) => {
+  /**
+   * `isbnSource` comes from the capture rather than the lookup, because the
+   * queue is the only thing that knows whether the digits were decoded from a
+   * barcode or read off the page. Losing it here is what left every book
+   * catalogued at the camera without a provenance.
+   */
+  const applyLookup = (result: LookupResponse, isbnSource: string) => {
     setLookup(result)
     setIdentified(true)
     setDraft((current) => ({
-      ...draftFromLookup(result),
+      ...draftFromLookup(result, isbnSource),
       location: current.location,
       notes: current.notes,
     }))
@@ -246,7 +252,7 @@ export default function App() {
 
         if (capture.status === 'ready' && capture.draft_json) {
           const looked = JSON.parse(capture.draft_json) as LookupResponse
-          if (looked.found && !identified) applyLookup(looked)
+          if (looked.found && !identified) applyLookup(looked, capture.isbn_source)
         } else if (capture.status === 'failed' && capture.note) {
           setError(capture.note)
         }
@@ -315,10 +321,9 @@ export default function App() {
         setLookup(result)
         setIdentified(true)
         setDraft((current) => ({
-          ...draftFromLookup(result),
+          ...draftFromLookup(result, 'manual'),
           location: current.location,
           notes: current.notes,
-          isbnSource: 'manual',
         }))
       } else {
         // Record the corrected digits even when nothing matches, so the book
@@ -483,7 +488,7 @@ export default function App() {
     setIdentified(Boolean(looked?.found))
     setDraft(
       looked?.found
-        ? draftFromLookup(looked)
+        ? draftFromLookup(looked, capture.isbn_source)
         : {
             ...emptyDraft,
             isbn13: capture.isbn13,
