@@ -90,20 +90,36 @@ aspire wait api                  # block until healthy, do not poll by hand
 aspire wait web
 aspire ps                        # resources, ports, dashboard URL
 aspire logs api                  # console output
-aspire otel traces               # spans, but see the note below: none arrive
+aspire otel traces               # spans from real requests
 aspire stop
 ```
 
 Aspire assigns the ports, so nothing is fixed at 3001 or 5173. It also injects
-`OTEL_EXPORTER_OTLP_ENDPOINT`, which `web/instrumentation.ts` picks up and logs
-as `[otel] exporting to ...` on startup.
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, which
+`web/instrumentation.ts` reads.
 
-Nothing arrives at the far end of that today. `aspire otel traces`, `spans` and
-`logs` all answer `No traces found` or `Resource 'api' not found` after real
-requests have been served. Checked on 2026-08-03 both with and without the
-launch profile described below, so it is not a consequence of removing it, and
-it is not fixed here. Until it is, do not plan to prove a change with
-`aspire otel`: use `aspire logs <resource>` and a test.
+Traces work. Verified 2026-08-03 by starting the AppHost, serving three
+requests, and running the command:
+
+```
+19:46:08.162  api: GET   1 span  6.98ms  OK
+19:46:08.212  api: GET   1 span  1.22ms  OK
+Showing 4 of 4 traces
+```
+
+**Check delivery before trusting an empty result.** `aspire logs api` prints
+`[otel] <endpoint> over <protocol> accepted the first batch of spans` once
+export succeeds, and a `REJECTED` line when it does not. That line exists
+because this pipeline previously logged a cheerful `exporting to ...` while
+every batch died and retried silently, so an empty trace list looked like "my
+change did nothing" rather than "telemetry is broken". `OTEL_LOG_LEVEL=debug`
+narrates the exporter if you need more.
+
+Honour the protocol Aspire injects. Its OTLP listener negotiates h2 only, so an
+HTTP/1.1 exporter is refused at the TLS layer. That was the original bug (#34).
+
+`aspire otel logs` stays empty: nothing exports OTLP log records. Use
+`aspire logs <resource>` for console output.
 
 Prove your change works by driving the running app and reading what it says,
 then turn what you did by hand into a test. A change nobody watched run is not
@@ -170,8 +186,8 @@ fail, then restore it. A test that only ever passed alongside a fix proves
 nothing about whether it would catch the fix being lost.
 
 Both checks must pass before a pull request is ready. Verified 2026-08-03:
-`npm run typecheck` is clean and `npm test` reports **302 tests passing across
-16 files** in about 24 seconds. If the count drops, you removed a test.
+`npm run typecheck` is clean and `npm test` reports **338 tests passing across
+18 files** in about 26 seconds. If the count drops, you removed a test.
 
 ## Layout
 
