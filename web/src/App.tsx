@@ -6,11 +6,12 @@ import {
   type LookupResponse, type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import {
-  applyFocusHints, captureStill, currentOrigin, describeStream, listLenses,
+  applyFocusHints, currentOrigin, describeStream, listLenses,
   openCamera, lensName, preferredLens, rememberedLens, rememberLens,
   SLOT_CROP, SLOT_GUIDE, SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL,
   SLOT_SHORT, stopStream, thumbnail, type Lens, type Slot,
 } from './lib/scanner'
+import { captureSteadiest, describeBurst } from './lib/steady'
 import { filingName, type ShelfRange } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
 import { bookStillInHand } from './lib/cameraReturn'
@@ -97,6 +98,8 @@ export default function App() {
   const [lensId, setLensId] = useState(rememberedLens())
   const [focusNote, setFocusNote] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  /** What the last burst did, read off the phone to settle whether it is worth it. */
+  const [burstNote, setBurstNote] = useState('')
   const [toast, setToast] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -272,11 +275,17 @@ export default function App() {
     if (!video) return
 
     const slot = activeSlot
-    const full = captureStill(video, { crop: SLOT_CROP[slot] })
+    // A short burst, sharpest frame kept, rather than whichever frame happened
+    // to be on screen at the tap. Costs about a fifth of a second and no extra
+    // tap; see web/src/lib/steady.ts for why that is the trade.
+    const { image: full, scores, chosen, elapsedMs } = await captureSteadiest(video, {
+      crop: SLOT_CROP[slot],
+    })
     if (!full) {
       setError('The camera has not produced a frame yet. Give it a moment.')
       return
     }
+    setBurstNote(describeBurst(scores, chosen, elapsedMs))
 
     setThumbs((current) => ({ ...current, [slot]: full }))
     void thumbnail(full).then((small) =>
@@ -972,6 +981,9 @@ export default function App() {
                 away, not closer. You are inside the lens minimum focus
                 distance, and the crop keeps the detail.
               </p>
+
+
+              {burstNote && <p className="cam__sheet-meta">{burstNote}</p>}
 
               <p className="cam__sheet-meta">
                 {resolution || 'no stream'}
