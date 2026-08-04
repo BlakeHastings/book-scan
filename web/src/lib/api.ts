@@ -286,6 +286,25 @@ function draftBody(draft: Draft) {
   }
 }
 
+const updateBook = (id: number, draft: Draft) =>
+  request<{ id: number; placement: PlacementResponse; counts: Counts }>(
+    `/api/books/${id}`,
+    { method: 'PUT', body: JSON.stringify(draftBody(draft)) },
+  )
+
+/**
+ * Say where a book physically is now.
+ *
+ * The only call that changes a recorded location, and it exists so that a
+ * person who has actually walked to the shelf can say so. Nothing derives
+ * this and nothing writes it on their behalf.
+ */
+const setLocation = (id: number, location: string) =>
+  request<{ book: BookRow }>(`/api/books/${id}/location`, {
+    method: 'PATCH',
+    body: JSON.stringify({ location }),
+  })
+
 export const api = {
   lookupIsbn: (isbn: string) =>
     request<LookupResponse>(`/api/lookup/isbn/${encodeURIComponent(isbn)}`),
@@ -397,11 +416,31 @@ export const api = {
       body: JSON.stringify({ image }),
     }),
 
-  updateBook: (id: number, draft: Draft) =>
-    request<{ id: number; placement: PlacementResponse; counts: Counts }>(
-      `/api/books/${id}`,
-      { method: 'PUT', body: JSON.stringify(draftBody(draft)) },
-    ),
+  updateBook,
+
+  /**
+   * Save a catalogued book and record the shelf it has just been put on.
+   *
+   * Two calls, because they are two different kinds of statement. The PUT
+   * carries what the catalogue says about the book, and the server
+   * deliberately will not let an edit change a position: where a book
+   * physically is was observed by a person, and a metadata edit knows nothing
+   * about it. The shelving step does know, having just told somebody where to
+   * put the book and been told it fits, so it says so through the one route
+   * that changes a position.
+   *
+   * `shelvedAt` empty means this is an ordinary edit and nobody observed
+   * anything, which leaves the recorded location exactly where it was.
+   *
+   * Without this the guidance the person had just followed was never written
+   * down, and misfile detection then reported that same book as needing to
+   * make the move they had already made.
+   */
+  updateAndShelve: async (id: number, draft: Draft, shelvedAt: string) => {
+    const result = await updateBook(id, draft)
+    if (shelvedAt.trim()) await setLocation(id, shelvedAt.trim())
+    return result
+  },
 
   listBooks: (range: ShelfRange) =>
     request<{ books: BookRow[]; counts: Counts }>(`/api/books?range=${range}`),
@@ -422,7 +461,8 @@ export const api = {
    */
   overflowShelf: (range: ShelfRange, label: string, kind: 'shelf' | 'area') =>
     request<{
-      step: { title: string; from: string; to: string } | null
+      /** `id` is the displaced book, so where it lands can be recorded. */
+      step: { id: number; title: string; from: string; to: string } | null
       groups: ShelfGroupDto[]
       moves: Move[]
     }>('/api/shelves/overflow', {
@@ -439,18 +479,7 @@ export const api = {
   misfiles: (range: ShelfRange) =>
     request<ShelvingReview>(`/api/misfiles?range=${range}`),
 
-  /**
-   * Say where a book physically is now.
-   *
-   * The only call that changes a recorded location, and it exists so that a
-   * person who has actually walked to the shelf can say so. Nothing derives
-   * this and nothing writes it on their behalf.
-   */
-  setLocation: (id: number, location: string) =>
-    request<{ book: BookRow }>(`/api/books/${id}/location`, {
-      method: 'PATCH',
-      body: JSON.stringify({ location }),
-    }),
+  setLocation,
 
   health: () => request<{ ok: boolean; counts: Counts; db: string }>('/api/health'),
 }

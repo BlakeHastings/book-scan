@@ -65,6 +65,36 @@ Given('the catalogue already holds:', async ({ apiUrl }, table: DataTable) => {
   }
 })
 
+/** The id of a seeded book, read back through the route the client reads. */
+async function bookIdByTitle(apiUrl: string, title: string): Promise<number> {
+  const response = await fetch(`${apiUrl}/api/books?range=fiction`)
+  expect(response.ok, `listing fiction failed: ${response.status}`).toBe(true)
+
+  const { books } = (await response.json()) as { books: { id: number; title: string }[] }
+  const found = books.find((book) => book.title === title)
+  expect(found, `no book called "${title}" is catalogued`).toBeTruthy()
+  return found!.id
+}
+
+/**
+ * Where the catalogue last saw a book, set through the one route that changes
+ * a position.
+ *
+ * A location and the order disagreeing is not an exotic state: it is what the
+ * library's "needs attention" list is for, and it is what a book is in the
+ * moment somebody moves it without saying so. Seeding it here gets a scenario
+ * to that state without acting out the move that caused it.
+ */
+Given('{string} was last recorded at {string}', async ({ apiUrl }, title: string, label: string) => {
+  const id = await bookIdByTitle(apiUrl, title)
+  const response = await fetch(`${apiUrl}/api/books/${id}/location`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ location: label }),
+  })
+  expect(response.ok, `recording ${title} at ${label} failed: ${response.status}`).toBe(true)
+})
+
 /**
  * A book already down off the shelf when the scenario starts.
  *

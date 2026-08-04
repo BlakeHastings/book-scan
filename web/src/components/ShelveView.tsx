@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api, type Move, type PlacementResponse } from '../lib/api'
 import { PlacementView } from './ShelfStrip'
 import type { ShelfRange } from '../../shared/shelving'
@@ -8,13 +8,16 @@ interface Props {
   range: ShelfRange
   title: string
   saving: boolean
-  onShelved: () => void
+  /** Called with the shelf the person has just said the book fits on. */
+  onShelved: (shelvedAt: string) => void
   onBack: () => void
   /** Re-read placement after a move, so the strip shows the shelf as it is now. */
   onRefresh: () => Promise<unknown>
 }
 
 interface Step {
+  /** The displaced book, so where it lands can be recorded. */
+  id: number
   title: string
   from: string
   to: string
@@ -51,6 +54,8 @@ export function ShelveView({
   const [pending, setPending] = useState<Step | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  /** How many steps have had their new location written down already. */
+  const recorded = useRef(0)
 
   // The derived shelf, not suggestedLocation: that belongs to the old
   // per-book scheme and names shelves the layout has never heard of.
@@ -63,6 +68,7 @@ export function ShelveView({
     try {
       const result = await api.overflowShelf(range, label, kind)
       const step: Step = {
+        id: result.step?.id ?? 0,
         title: result.step?.title || 'the last book',
         from: result.step?.from ?? label,
         to: result.step?.to ?? '',
@@ -73,6 +79,45 @@ export function ShelveView({
       // placement is asked again. Awaited, or the next tap acts on the old
       // shelf label and moves a book nobody asked about.
       await onRefresh()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * The person says the shuffle has come to rest.
+   *
+   * A yes at the deepest point of the chain settles every step above it too:
+   * each one was only waiting for room on the shelf below, and the question
+   * would not have come back to the book in hand otherwise. That answer is
+   * somebody saying where books physically are, which is the only thing
+   * allowed to change a recorded location, so it is written down here through
+   * the same route the "Moved it" button uses.
+   *
+   * Without this the shuffle moved the boundaries and left every book it had
+   * displaced recorded on the shelf it came off, so the library reported each
+   * of them as needing to make the move it had just walked somebody through.
+   */
+  const settle = async () => {
+    const outstanding = steps.slice(recorded.current)
+    if (!outstanding.length) {
+      setPending(null)
+      return
+    }
+
+    setBusy(true)
+    setError('')
+    try {
+      for (const step of outstanding) {
+        // A step the server could not name is one nothing can be recorded
+        // against. Counting it as done anyway keeps the chain moving rather
+        // than retrying it forever.
+        if (step.id && step.to) await api.setLocation(step.id, step.to)
+        recorded.current += 1
+      }
+      setPending(null)
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -120,10 +165,10 @@ export function ShelveView({
             <div className="actions">
               <button
                 className="btn btn--primary"
-                onClick={() => setPending(null)}
+                onClick={() => void settle()}
                 disabled={busy}
               >
-                Yes, it fit
+                {busy ? 'Saving...' : 'Yes, it fit'}
               </button>
             </div>
 
@@ -150,7 +195,13 @@ export function ShelveView({
             </p>
 
             <div className="actions">
-              <button className="btn btn--primary" onClick={onShelved} disabled={saving || busy}>
+              {/* The label the sentence above just named, handed on so the
+                  answer to "does it fit here" is what gets recorded. */}
+              <button
+                className="btn btn--primary"
+                onClick={() => onShelved(shelfLabel)}
+                disabled={saving || busy}
+              >
                 {saving ? 'Saving...' : 'It fits, save'}
               </button>
             </div>

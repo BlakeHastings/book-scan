@@ -5,8 +5,8 @@
  * say whether its ISBN was decoded from a barcode or guessed at by OCR.
  */
 
-import { describe, expect, it } from 'vitest'
-import { draftFromBook, draftFromLookup } from './api'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { api, draftFromBook, draftFromLookup, emptyDraft } from './api'
 import type { BookRow, LookupResponse } from './api'
 
 const found: LookupResponse = {
@@ -50,5 +50,61 @@ describe('draftFromBook', () => {
   it('reads the stored source back, so editing does not erase it', () => {
     const book = { isbn_source: 'barcode', title: 'Dune' } as BookRow
     expect(draftFromBook(book).isbnSource).toBe('barcode')
+  })
+})
+
+/**
+ * The seam #61 lived in.
+ *
+ * The shelving step walks somebody to a shelf, names it, and is told the book
+ * fits. That answer only reaches the catalogue if this call sends it: the PUT
+ * cannot carry it, because the server deliberately refuses to let a metadata
+ * edit move a book that a person placed by hand. Nothing else on the client
+ * knows the label, so a regression here is silent until the library starts
+ * reporting the move somebody has already made.
+ */
+describe('updateAndShelve', () => {
+  interface Sent { url: string; method: string; body: unknown }
+
+  /** Records what went out and answers every route with something plausible. */
+  function captureFetch(): Sent[] {
+    const sent: Sent[] = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      sent.push({
+        url,
+        method: init.method ?? 'GET',
+        body: init.body ? JSON.parse(String(init.body)) : null,
+      })
+      return new Response(JSON.stringify({ id: 7, book: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    return sent
+  }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('records the shelf the person confirmed, through the location route', async () => {
+    const sent = captureFetch()
+
+    // The draft still carries the location the book was loaded with, which is
+    // the stale one: it is where the book WAS, not where it has just been put.
+    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune', location: '1A' }, '1B')
+
+    expect(sent.map((call) => `${call.method} ${call.url}`)).toEqual([
+      'PUT /api/books/7',
+      'PATCH /api/books/7/location',
+    ])
+    expect((sent[1]?.body as { location: string }).location).toBe('1B')
+  })
+
+  it('says nothing about the location when no one has been to a shelf', async () => {
+    const sent = captureFetch()
+
+    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune', location: '1A' }, '')
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.method).toBe('PUT')
   })
 })
