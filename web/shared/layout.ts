@@ -285,11 +285,165 @@ export function overflow(
   return {
     moved,
     from: label,
-    to: nextGroup.label,
+    /*
+     * One boundary along from where the book is, not "the label of the next
+     * group".
+     *
+     * Those are the same thing on a run of occupied planks, and they part
+     * company as soon as one is bare: an area with nothing on it has no books
+     * to name it, so it is absent from the groups, and reading the
+     * destination off the next group named the plank after the empty one.
+     * The book then went to the plank the app could see and was recorded on
+     * the one it named, which is a misfile the app manufactured itself.
+     *
+     * Exactly one boundary comes to rest on this book, the one being shifted,
+     * so its kind decides the step. Deriving both from the same separator is
+     * what keeps the label and the layout in agreement.
+     */
+    to: locationLabel(
+      nextGroup.kind === 'shelf' ? group.shelf + 1 : group.shelf,
+      nextGroup.kind === 'shelf' ? 0 : group.area + 1,
+    ),
     // The next shelf now starts one book earlier.
     shift: nextGroup.separatorId !== null
       ? { id: nextGroup.separatorId, startsAt: moved.sortKey }
       : undefined,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Moving a book across an area boundary
+// ---------------------------------------------------------------------------
+
+/** Which way along the run the book is being carried. */
+export type BoundaryDirection = 'next' | 'previous'
+
+/** Why a book cannot be carried across a boundary. */
+export type BoundaryRefusal =
+  /** Not in this run at all: wrong range, or off the bookcase entirely. */
+  | 'not-shelved'
+  /**
+   * Somewhere in the middle of its area.
+   *
+   * The whole restriction in one word. Only the first and last book of an
+   * area have the property that moving them leaves every neighbour in the
+   * sequence untouched; any other book cannot move without breaking the
+   * ordering docs/shelving.md makes the source of truth.
+   */
+  | 'not-at-boundary'
+  /** First or last, but with no area on that side to move into. */
+  | 'no-adjacent-area'
+
+export interface BoundaryMove {
+  /** The book to pick up. */
+  moved: LayoutInput
+  from: string
+  to: string
+  /** Boundaries to re-anchor, and the sort key each one now starts at. */
+  shift: { id: number; startsAt: string }[]
+  /** Boundaries to drop, because nothing is left for them to start at. */
+  remove: number[]
+}
+
+export type BoundaryOutcome =
+  | { ok: true; move: BoundaryMove }
+  | { ok: false; reason: BoundaryRefusal; at: string }
+
+/**
+ * Take the first or last book of an area and put it on the plank next door.
+ *
+ * Where an area ends is the one arbitrary thing in this model. It is decided
+ * by where somebody ran out of room, not by the books, so it needs adjusting
+ * by hand. This is that adjustment, and the restriction to the first or last
+ * book is not a simplification of a general move: it is the complete set of
+ * moves that leave the sequence alone.
+ *
+ *   - the LAST book of an area becomes the FIRST of the next one. The book
+ *     before it and the book after it are unchanged.
+ *   - the FIRST book of an area becomes the LAST of the previous one. Same.
+ *
+ * Nothing else is offered because nothing else is physically real: a book
+ * plucked out of the middle of a plank and put on the next one is a book
+ * filed out of order, which is the state misfile detection exists to report.
+ *
+ * The boundary is what moves, not the book's key. A boundary is anchored to
+ * the sort key of the first book on the new plank, so carrying a book across
+ * one is exactly re-anchoring that boundary to the book on the other side of
+ * it. This is the same edit `overflow` makes when a shelf is declared full,
+ * which is deliberate: a manual move and an automatic shuffle are two ways of
+ * answering the same physical question, and they had better write the same
+ * thing down. The difference is at the ends of the run, where `overflow`
+ * creates a new area and this refuses, because moving a book *between* areas
+ * is not the same act as deciding a plank is full.
+ *
+ * `placed` must be the whole range in sort order, as `layoutRange` returns it.
+ */
+export function boundaryMove<T extends LayoutInput>(
+  placed: Placed<T>[],
+  separators: Separator[],
+  bookId: number,
+  direction: BoundaryDirection,
+): BoundaryOutcome {
+  const index = placed.findIndex((p) => p.book.id === bookId)
+  if (index === -1) return { ok: false, reason: 'not-shelved', at: '' }
+
+  const here = placed[index]!
+  const before = placed[index - 1]
+  const after = placed[index + 1]
+
+  /**
+   * Boundaries lying between two adjacent books.
+   *
+   * Usually one. Two when an earlier move emptied an area, which leaves its
+   * boundary sitting on the same anchor as the next one, and moving only one
+   * of them would carry the book two planks instead of one.
+   */
+  const between = (low: string, high: string) =>
+    separators.filter((s) => s.startsAt > low && s.startsAt <= high)
+
+  if (direction === 'next') {
+    // Last on its plank: either nothing follows, or what follows is elsewhere.
+    if (after && after.label === here.label) {
+      return { ok: false, reason: 'not-at-boundary', at: here.label }
+    }
+    if (!after) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+
+    const crossed = between(here.book.sortKey, after.book.sortKey)
+    if (!crossed.length) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+
+    return {
+      ok: true,
+      move: {
+        moved: here.book,
+        from: here.label,
+        to: after.label,
+        // The next area now begins one book earlier, at this one.
+        shift: crossed.map((s) => ({ id: s.id, startsAt: here.book.sortKey })),
+        remove: [],
+      },
+    }
+  }
+
+  if (before && before.label === here.label) {
+    return { ok: false, reason: 'not-at-boundary', at: here.label }
+  }
+  if (!before) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+
+  const crossed = between(before.book.sortKey, here.book.sortKey)
+  if (!crossed.length) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+
+  return {
+    ok: true,
+    move: {
+      moved: here.book,
+      from: here.label,
+      to: before.label,
+      // The area this book is leaving now begins at whatever follows it. With
+      // nothing following, it has no first book, so the boundary describes a
+      // place no book is on and goes.
+      shift: after ? crossed.map((s) => ({ id: s.id, startsAt: after.book.sortKey })) : [],
+      remove: after ? [] : crossed.map((s) => s.id),
+    },
   }
 }
 

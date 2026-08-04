@@ -5,7 +5,9 @@ How a freshly scanned book turns into "put this one between X and Y".
 Status: implemented. The placement algorithm, the sort key, author filing and
 the fiction guess are live in `web/shared/shelving.ts`, and so, since #5, are
 **misfile detection** and **re-shelving**, described near the end of this
-document.
+document. Since #72 an area boundary can also be adjusted by hand, by moving
+the first or last book of an area to the plank beside it; see
+[Moving a book across an area boundary](#moving-a-book-across-an-area-boundary).
 
 Where this document and the code disagree, this document is the authority and
 the code is the bug, unless the owner has decided otherwise in an issue.
@@ -24,7 +26,10 @@ shelves, and telling the user in one line.
 Deliberately **not** in scope, per decisions below:
 
 - Shelf capacity, spine widths, fill ratios.
-- Computing shift cascades ("move these 6 books right").
+- Computing shift cascades ("move these 6 books right"). This one has since
+  been overtaken: a person saying a shelf is full moves one book along and is
+  asked again, one answer at a time, and `POST /api/shelves/overflow` is that
+  step. Nothing is still *computed*, which is what the decision was about.
 - Bulk layout planning for an already-owned collection.
 
 ## Decisions
@@ -347,6 +352,77 @@ recomputes the sort key, which changes the derived location, which no longer
 matches the recorded one. The same is true of the other way a book moves
 without being touched: marking a shelf full pushes a run of books along, and
 every one of them appears on the list until somebody says they were moved.
+
+## Moving a book across an area boundary
+
+Where an area ends is the one arbitrary thing in this model. A plank stops
+where somebody ran out of room, not where the books say it should, so the
+boundary has to be adjustable by hand after the fact. That is what this is.
+
+Only the **first** and **last** book of an area can be moved, and only to the
+area immediately beside it:
+
+- the last book of an area becomes the first book of the next one;
+- the first book of an area becomes the last book of the previous one.
+
+This is not a limited version of a general move. It is the complete set of
+moves that preserve the ordering this document makes the source of truth: in
+both cases the book keeps exactly the neighbours it had, and every other book
+stays on the plank it was already on. Any other book cannot move without being
+filed out of order, which is the state [misfile detection](#misfile-detection)
+exists to report, so it is not offered and is refused if asked for.
+
+The rule is enforced where the move is applied (`boundaryMove` in
+`web/shared/layout.ts`, called by `Shelves.moveAcrossBoundary`), not in the
+screen that offers it. A restriction that lives in a component is one caller
+away from being lost.
+
+### What actually changes
+
+The book's sort key does not change, because its position in the sequence has
+not changed. What changes is the **boundary**, which is anchored to the sort
+key of the first book on the new plank. Carrying a book across a boundary is
+exactly re-anchoring that boundary to the book on the other side of it.
+
+This is the same edit the overflow cascade makes when somebody says a shelf is
+full, and deliberately so: a manual move and an automatic shuffle answer the
+same physical question, and if they wrote different things down one would
+quietly undo the other. The two differ only at the ends of the run, where the
+cascade creates a new area and this refuses (see below).
+
+Nothing here writes a location. Location is descriptive: it records where a
+book physically is because a person put it there, so it is written by whoever
+moved the book, through `PATCH /api/books/:id/location`, the same route the
+"Moved it" button and the shelving step use. The boundary move and the
+location write are two statements, and both are needed. Making only the first
+leaves the book recorded on the plank it came off, and the library then
+reports the move somebody has just made as still outstanding.
+
+### The edge cases
+
+**The only book in an area.** Allowed, in both directions. The plank it leaves
+is then empty, which is exactly what happened in the room. An area exists only
+as the space between two boundaries, so an empty one has no books to name and
+disappears from the layout until something lands on it again. Nothing else
+moves: the boundary that started the emptied area comes to rest on the same
+anchor as the next one, and the run past it is unaffected. Marking a
+neighbouring shelf full later pushes a book onto the bare plank and it
+reappears.
+
+**The first book of the first area, and the last book of the last area.**
+Refused, because there is no area on that side to move into. Making one is a
+different act: the person is not adjusting a boundary between two planks, they
+are saying a plank is full, which is what the overflow cascade is for and what
+creates the new area. So the refusal is not a dead end, and the message says
+where areas come from.
+
+**Moving into an area that is already full.** Allowed, because capacity is not
+modelled (decision 2) and never will be: how many books a plank holds is a
+fact about the particular mix of spines on it, not about the furniture. The
+target area simply grows by one. If the book will not physically fit, the
+person says so at that plank and the cascade takes its last book along, which
+does not undo the move: the cascade shifts the boundary at the *end* of the
+target area, and the move shifted the one at its *start*.
 
 ## Schema changes
 

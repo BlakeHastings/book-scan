@@ -204,6 +204,175 @@ describe('a book taken off the shelf', () => {
   })
 })
 
+describe('moving a book across an area boundary', () => {
+  /** Add a book and record the plank it landed on, as saving does. */
+  const shelve = (author: string, title = 'Book') => {
+    const id = add(author, title)
+    store.setLocation(id, shelves.labelFor('fiction', id))
+    return id
+  }
+
+  /** The move, followed by the person saying the book is on the new plank. */
+  const carry = (id: number, direction: 'next' | 'previous') => {
+    const result = shelves.moveAcrossBoundary('fiction', id, direction)
+    if (result.ok && result.move) store.setLocation(id, result.move.to)
+    return result
+  }
+
+  it('sends the last book of an area to the front of the next one', () => {
+    const ann = shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')       // Cal alone on 1B
+    store.setLocation(cal, '1B')
+    expect(labels()).toEqual(['1A', '1A', '1B'])
+
+    const result = carry(bob, 'next')
+    expect(result.ok).toBe(true)
+    expect(result.move?.from).toBe('1A')
+    expect(result.move?.to).toBe('1B')
+    expect(labels()).toEqual(['1A', '1B', '1B'])
+    expect(store.getBook(ann)?.location).toBe('1A')
+  })
+
+  it('sends the first book of an area back to the end of the previous one', () => {
+    shelve('Ann Author')
+    shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(cal, '1B')
+
+    expect(carry(cal, 'previous').ok).toBe(true)
+    expect(labels()).toEqual(['1A', '1A', '1A'])
+    // Nothing was left for that boundary to start at, so it went.
+    expect(shelves.list('fiction')).toEqual([])
+  })
+
+  it('refuses a book in the middle of its area', () => {
+    const ann = shelve('Ann Author')
+    shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(cal, '1B')
+
+    const result = shelves.moveAcrossBoundary('fiction', ann, 'next')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('first or last book of 1A')
+    expect(labels()).toEqual(['1A', '1A', '1B'])
+  })
+
+  it('refuses the first book of the first area', () => {
+    const ann = shelve('Ann Author')
+    shelve('Bob Baker')
+    shelves.overflow('fiction', '1A', 'area')
+
+    const result = shelves.moveAcrossBoundary('fiction', ann, 'previous')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('no area before 1A')
+  })
+
+  it('refuses the last book of the last area, and says where areas come from', () => {
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    shelves.overflow('fiction', '1A', 'area')
+
+    const result = shelves.moveAcrossBoundary('fiction', bob, 'next')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('no area after 1B')
+    expect(result.error).toContain('full')
+  })
+
+  it('lets the only book in an area leave it, and empties the area', () => {
+    // Capacity is not modelled, so nothing here says an area must hold a
+    // book. The plank is simply bare, and a bare plank has no books to name.
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')       // Cal to 1B
+    store.setLocation(cal, '1B')
+    shelves.overflow('fiction', '1A', 'area')       // Bob to 1B as well
+    store.setLocation(bob, '1B')
+    shelves.overflow('fiction', '1B', 'area')       // Cal on to 1C
+    store.setLocation(cal, '1C')
+    expect(labels()).toEqual(['1A', '1B', '1C'])
+
+    expect(carry(bob, 'next').ok).toBe(true)
+    expect(labels()).toEqual(['1A', '1C', '1C'])
+    expect(shelves.groups('fiction').map((g) => g.label)).toEqual(['1A', '1C'])
+  })
+
+  it('moves nothing but the book in your hand', () => {
+    const ids = ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs'].map((a) => shelve(a))
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(ids[3]!, '1B')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(ids[2]!, '1B')
+
+    const result = shelves.moveAcrossBoundary('fiction', ids[1]!, 'next')
+    expect(result.moves).toEqual([])
+  })
+
+  it('does not undo an overflow, and is not undone by one', () => {
+    // The manual bounce and the automatic shuffle solve the same physical
+    // problem two ways, so they must compose rather than fight.
+    const ids = ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs'].map((a) => shelve(a))
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(ids[3]!, '1B')
+    expect(labels()).toEqual(['1A', '1A', '1A', '1B'])
+
+    carry(ids[2]!, 'next')                          // Cal joins Dot on 1B
+    expect(labels()).toEqual(['1A', '1A', '1B', '1B'])
+
+    // 1B will not take the pair after all: its last book goes on to 1C.
+    const step = shelves.overflow('fiction', '1B', 'area')
+    expect(step.step?.moved.id).toBe(ids[3])
+    expect(labels()).toEqual(['1A', '1A', '1B', '1C'])
+  })
+
+  it('leaves the misfile list empty once the person has said the book moved', () => {
+    // The failure this is most likely to have: a legitimate move reported
+    // straight back as a book to go and move.
+    const ids = ['Ann Author', 'Bob Baker', 'Cal Church'].map((a) => shelve(a))
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(ids[2]!, '1B')
+    expect(shelves.review('fiction').misfiles).toEqual([])
+
+    carry(ids[1]!, 'next')
+    expect(shelves.review('fiction').misfiles).toEqual([])
+
+    carry(ids[1]!, 'previous')
+    expect(shelves.review('fiction').misfiles).toEqual([])
+  })
+
+  it('does not write a location itself', () => {
+    // The boundary is furniture; where a book physically is was observed by a
+    // person and is written through the one route that takes an observation.
+    shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')
+    store.setLocation(cal, '1B')
+
+    shelves.moveAcrossBoundary('fiction', bob, 'next')
+    expect(store.getBook(bob)?.location).toBe('1A')
+    // And so it now reads as a book to move, which is correct until somebody
+    // says otherwise.
+    expect(shelves.review('fiction').misfiles.map((m) => [m.from, m.to]))
+      .toEqual([['1A', '1B']])
+  })
+
+  it('never lets a fiction move touch non-fiction', () => {
+    shelve('Ann Author')
+    const harari = store.addBook({
+      title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false,
+    }).id
+
+    const result = shelves.moveAcrossBoundary('fiction', harari, 'next')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('not on a bookcase in this range')
+  })
+})
+
 describe('misfile detection', () => {
   /** Add a book and record the shelf it actually landed on, as saving does. */
   const shelve = (author: string, title = 'Book') => {

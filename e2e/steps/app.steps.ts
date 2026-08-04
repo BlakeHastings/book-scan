@@ -247,6 +247,47 @@ Then(
 )
 
 /**
+ * Every boundary adjustment the library is willing to offer, exactly.
+ *
+ * Asserted as a closed list rather than as "this button exists", because half
+ * the claim is about what is *not* offered: nothing before the first plank,
+ * nothing after the last, and nothing at all on a book in the middle of a run.
+ * A looser check would pass on a screen that offered every book both ways.
+ */
+Then(
+  'the library should offer only these boundary moves:',
+  async ({ page }, table: DataTable) => {
+    const rows = table.raw()
+    const controls = page.locator('.boundary')
+    await expect(controls).toHaveCount(rows.length)
+
+    for (const [i, row] of rows.entries()) {
+      await expect(controls.nth(i).locator('.boundary__label')).toHaveText(row[0] ?? '')
+      await expect(controls.nth(i).locator('.btn')).toHaveText(row[1] ?? '')
+    }
+  },
+)
+
+/**
+ * Somebody says they have carried a book to the plank next door.
+ *
+ * The wait is on the control for that book disappearing, which it does because
+ * a book that has just moved on is no longer the last one on its plank. That
+ * is a wait on the move having actually landed, not on a duration.
+ */
+When('I say I moved {string} on to {string}', async ({ page }, title: string, label: string) => {
+  const control = page.locator('.boundary', { hasText: `${title} is last here` })
+  await control.getByRole('button', { name: `Moved it on to ${label}` }).click()
+  await expect(control).toHaveCount(0)
+})
+
+When('I say I moved {string} back to {string}', async ({ page }, title: string, label: string) => {
+  const control = page.locator('.boundary', { hasText: `${title} is first here` })
+  await control.getByRole('button', { name: `Moved it back to ${label}` }).click()
+  await expect(control).toHaveCount(0)
+})
+
+/**
  * The list of books the catalogue thinks are in the wrong place.
  *
  * Asserted as absent rather than as "does not contain this title", because the

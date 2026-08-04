@@ -435,6 +435,123 @@ describe('shelving a book onto a bookcase', () => {
   })
 })
 
+/**
+ * Bouncing a book across an area boundary.
+ *
+ * Where a plank ends is the one arbitrary thing in the model, so it gets
+ * adjusted by hand. These end at /api/misfiles for the same reason the ones
+ * above do: a move made for a real reason, with the record updated to match,
+ * must not come straight back as a book to go and move.
+ */
+describe('moving a book across an area boundary', () => {
+  const seed = async (title: string, author: string): Promise<number> => {
+    const { status, body } = await post('/api/books', {
+      title, authors: [author], isFiction: true,
+    })
+    expect(status, `seeding ${title}`).toBe(201)
+    return body.id as number
+  }
+
+  const misfiles = async () => (await call('/api/misfiles?range=fiction')).body
+
+  /**
+   * Rama and Dune on 1A, The Dispossessed bounced onto 1B, everything
+   * recorded where it actually is. The misfile list starts empty, so anything
+   * that turns up in it later was put there by the move under test.
+   */
+  const threeOverTwoAreas = async () => {
+    const ids = {
+      rama: await seed('Rendezvous with Rama', 'Arthur C. Clarke'),
+      dune: await seed('Dune', 'Frank Herbert'),
+      dispossessed: await seed('The Dispossessed', 'Ursula K. Le Guin'),
+    }
+    const { body } = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area',
+    })
+    await patch(`/api/books/${body.step.id}/location`, { location: body.step.to })
+    expect((await misfiles()).misfiles).toEqual([])
+    return ids
+  }
+
+  it('names the book and where it went, so the move can be recorded', async () => {
+    const { dune } = await threeOverTwoAreas()
+
+    const { status, body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dune, direction: 'next',
+    })
+
+    expect(status).toBe(200)
+    expect(body.move).toEqual({ id: dune, title: 'Dune', from: '1A', to: '1B' })
+    // Nothing else was disturbed, which is the whole point of the restriction.
+    expect(body.moves).toEqual([])
+  })
+
+  it('leaves the misfile list empty once the person says the book is there', async () => {
+    const { dune } = await threeOverTwoAreas()
+
+    const { body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dune, direction: 'next',
+    })
+    await patch(`/api/books/${body.move.id}/location`, { location: body.move.to })
+
+    expect(running.store.getBook(dune)?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('sends a book back the other way, and stays clean', async () => {
+    const { dispossessed } = await threeOverTwoAreas()
+
+    const { body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dispossessed, direction: 'previous',
+    })
+    expect(body.move.from).toBe('1B')
+    expect(body.move.to).toBe('1A')
+
+    await patch(`/api/books/${body.move.id}/location`, { location: body.move.to })
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('refuses a book that is not at a boundary, whatever asked', async () => {
+    // The rule lives on this route, not in the screen that offers it. A
+    // client that forgot the restriction cannot get past here.
+    const { rama } = await threeOverTwoAreas()
+
+    const { status, body } = await post('/api/shelves/move', {
+      range: 'fiction', id: rama, direction: 'next',
+    })
+
+    expect(status).toBe(400)
+    expect(body.error).toContain('first or last book of 1A')
+    expect(running.store.getBook(rama)?.location).toBe('1A')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('refuses both ends of the run, and says why each way', async () => {
+    const { rama, dispossessed } = await threeOverTwoAreas()
+
+    const back = await post('/api/shelves/move', {
+      range: 'fiction', id: rama, direction: 'previous',
+    })
+    expect(back.status).toBe(400)
+    expect(back.body.error).toContain('no area before 1A')
+
+    const on = await post('/api/shelves/move', {
+      range: 'fiction', id: dispossessed, direction: 'next',
+    })
+    expect(on.status).toBe(400)
+    expect(on.body.error).toContain('no area after 1B')
+  })
+
+  it('refuses a book id that names nothing', async () => {
+    await threeOverTwoAreas()
+    const { status, body } = await post('/api/shelves/move', {
+      range: 'fiction', id: 9999, direction: 'next',
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('not on a bookcase')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // 2. Camera recognition: scanning identifies, and never writes
 // ---------------------------------------------------------------------------

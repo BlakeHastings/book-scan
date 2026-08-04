@@ -65,6 +65,41 @@ Given('the catalogue already holds:', async ({ apiUrl }, table: DataTable) => {
   }
 })
 
+/**
+ * A plank with a second one after it, arrived at the way the app arrives at
+ * one: somebody stood in front of it and said it would not take another book.
+ *
+ * Through the real overflow route, and then through the location route for the
+ * book it displaced, because those are two statements and the app makes both.
+ * Seeding only the first would leave the scenario starting with a book already
+ * reported as misfiled, and "nothing should need attention" later would then
+ * be testing the seed rather than the move.
+ */
+Given(
+  '{string} filled up, so its last book started a new area',
+  async ({ apiUrl }, label: string) => {
+    const response = await fetch(`${apiUrl}/api/shelves/overflow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ range: 'fiction', label, kind: 'area' }),
+    })
+    expect(response.ok, `filling ${label} failed: ${response.status}`).toBe(true)
+
+    const { step } = (await response.json()) as {
+      step: { id: number; to: string } | null
+    }
+    expect(step, `${label} had no book to give up`).toBeTruthy()
+
+    const recorded = await fetch(`${apiUrl}/api/books/${step!.id}/location`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location: step!.to }),
+    })
+    expect(recorded.ok, `recording the displaced book failed: ${recorded.status}`)
+      .toBe(true)
+  },
+)
+
 /** The id of a seeded book, read back through the route the client reads. */
 async function bookIdByTitle(apiUrl: string, title: string): Promise<number> {
   const response = await fetch(`${apiUrl}/api/books?range=fiction`)
