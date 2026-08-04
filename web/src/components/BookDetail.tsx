@@ -139,7 +139,8 @@ export function BookDetail({
                   // failure the edits must stay on screen to be retried.
                   if (await onSaveEdits()) setEditing(false)
                 }}
-                disabled={saving || !draft.title}
+                disabled={saving || relookupBusy || !draft.title}
+                title={relookupBusy ? 'Waiting for the ISBN lookup to finish' : undefined}
               >
                 {saving ? 'Saving...' : 'Save changes'}
               </button>
@@ -155,7 +156,15 @@ export function BookDetail({
             <button
               className="btn"
               onClick={() => (saved ? setEditing(false) : onDiscard())}
-              disabled={saving}
+              // Cancelling a catalogued book's edit drops back to the record
+              // view without going through App at all, so nothing else would
+              // stop a relookup's answer landing on it afterwards. Simplest
+              // to make it wait, the same as Save: leaving mid-lookup is a
+              // new book's edit unravelling entirely (onDiscard, already
+              // session-safe), not a record view still showing a field the
+              // lookup was about to change.
+              disabled={saving || (saved && relookupBusy)}
+              title={saved && relookupBusy ? 'Waiting for the ISBN lookup to finish' : undefined}
             >
               Cancel
             </button>
