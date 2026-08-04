@@ -29,13 +29,13 @@ export function HomePane({
       <div className="home">
         <Tile
           title="Add"
-          body="Photograph a new book and put it on a shelf."
+          body="Photograph a new book and put it on a bookcase."
           onClick={onAdd}
           primary
         />
         <Tile
           title="Check out"
-          body="Hold books up to take them off the shelf."
+          body="Hold books up to take them off the bookcase."
           onClick={onCheckOut}
         />
         <Tile
@@ -45,7 +45,7 @@ export function HomePane({
         />
         <Tile
           title="Library"
-          body={counts ? `Browse all ${counts.total} books.` : 'Browse the shelves.'}
+          body={counts ? `Browse all ${counts.total} books.` : 'Browse the bookcases.'}
           onClick={onLibrary}
         />
       </div>
@@ -68,7 +68,7 @@ export function HomePane({
 
       {counts && counts.checkedOut > 0 && (
         <button className="home__off" onClick={onLibrary}>
-          {counts.checkedOut} book{counts.checkedOut === 1 ? '' : 's'} off the shelf
+          {counts.checkedOut} book{counts.checkedOut === 1 ? '' : 's'} off the bookcase
         </button>
       )}
     </main>

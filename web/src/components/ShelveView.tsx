@@ -139,7 +139,7 @@ export function ShelveView({
 
             <p className="hint">
               Saying no takes the last book off {pending.to} as well, and asks
-              about the shelf after that. The chain can run as far as it needs to.
+              about the bookcase after that. The chain can run as far as it needs to.
             </p>
           </>
         ) : (
@@ -175,7 +175,7 @@ export function ShelveView({
 
             <p className="hint">
               Each time you say there is no room, one more book comes off the end
-              of {shelfLabel || 'the shelf'} and the same question is asked again.
+              of {shelfLabel || 'the bookcase'} and the same question is asked again.
             </p>
           </>
         )}

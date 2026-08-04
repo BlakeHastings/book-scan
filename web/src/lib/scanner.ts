@@ -43,7 +43,7 @@ export const SLOT_SHORT: Record<Slot, string> = {
 export const SLOT_HINT: Record<Slot, string> = {
   back: 'The barcode and printed ISBN. Shot first so the lookup starts now.',
   front: 'The cover. Used for the title if no ISBN turns up.',
-  edge: 'The spine, as it will look on the shelf.',
+  edge: 'The spine, as it will look on the bookcase.',
 }
 
 export interface Lens {

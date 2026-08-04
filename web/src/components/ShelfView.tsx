@@ -169,7 +169,7 @@ export function ShelfView({ onOpen }: Props) {
       {!loading && unplaced > 0 && (
         <p className="hint">
           {unplaced} book{unplaced === 1 ? ' has' : 's have'} never been confirmed
-          onto a shelf, so {unplaced === 1 ? 'it is' : 'they are'} left out of the
+          onto a bookcase, so {unplaced === 1 ? 'it is' : 'they are'} left out of the
           list above.
         </p>
       )}
@@ -177,7 +177,7 @@ export function ShelfView({ onOpen }: Props) {
       {off.length > 0 && (
         <section className="offshelf">
           <h3 className="offshelf__head">
-            Off the shelf ({off.length})
+            Off the bookcase ({off.length})
           </h3>
           <p className="hint">
             Held out of the layout, so nothing is filed next to them. Open one
@@ -217,9 +217,9 @@ export function ShelfView({ onOpen }: Props) {
         return (
           <section key={group.label} className="shelfgroup">
             <header className="shelfgroup__head">
-              {/* Spelled out rather than left as "A2": the shelf number is the
-                  half people actually need when walking to the book. */}
-              <span className="shelfgroup__label">Shelf {group.shelf}</span>
+              {/* Spelled out rather than left as "A2": the bookcase number is
+                  the half people actually need when walking to the book. */}
+              <span className="shelfgroup__label">Bookcase {group.shelf}</span>
               <span className="shelfgroup__shelf">Area {areaLabel(group.area)}</span>
               <span className="shelfgroup__count">
                 {group.books.length} books
@@ -253,7 +253,7 @@ export function ShelfView({ onOpen }: Props) {
                   {/* Repeated per row so a row still says where it is once the
                       header has scrolled away. */}
                   <span className="shelfrow__loc">
-                    {here ? group.label : 'off shelf'}
+                    {here ? group.label : 'off bookcase'}
                   </span>
                 </li>
               ))}
