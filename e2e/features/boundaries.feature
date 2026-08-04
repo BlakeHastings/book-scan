@@ -42,7 +42,8 @@ Feature: Adjusting where one area ends
 
     # Offered on exactly the two books at the edges, and in one direction
     # each: nothing before 1A, nothing after 1B.
-    When I open "Dune" from the library
+    When I go to the library
+    And I open "Dune" from the library
     Then the book should offer to move it:
       | Move it on to 1B |
 
@@ -70,9 +71,23 @@ Feature: Adjusting where one area ends
     Then the book should offer to move it:
       | Move it back to 1A |
 
+    # No wait on the instruction sentence in between, on purpose. Somebody who
+    # already knows where the book is going taps straight through, and the
+    # move has just changed the shelves the app is about to describe. #105 was
+    # that tap being answered against the plank the book had come from: the
+    # screen still said 1B, so 1B is what got written down.
     When I choose to move it back to "1A"
     And I say it fits and finish the move
     Then the library should show "Dune" on shelf "1A"
     And the catalogue should hold "Dune" recorded as:
       | location | 1A |
+
+    # The round trip closed. Everything is back where the Background put it,
+    # which is the whole claim: a move and its reverse leave no trace, in the
+    # drawing and in the database both.
+    And the library should show "The Dispossessed" on shelf "1B"
+    And the catalogue should hold "Rendezvous with Rama" recorded as:
+      | location | 1A |
+    And the catalogue should hold "The Dispossessed" recorded as:
+      | location | 1B |
     And nothing should need attention

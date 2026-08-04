@@ -444,7 +444,13 @@ export default function App() {
         setPlacement(result)
         setPlacementStale(false)
       })
-      .catch((caught) => setError((caught as Error).message))
+      .catch((caught) => {
+        // Nothing current to show, so nothing is shown. Leaving the last
+        // answer up would draw a shelf, and let the shelving step name a
+        // plank, that the app has no reason to believe is still true.
+        setPlacement(null)
+        setError((caught as Error).message)
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the same fields
     // the debounced effect below watches; draft as a whole changes on keystroke.
   }, [
@@ -724,7 +730,24 @@ export default function App() {
   ) => {
     await api.moveAcrossBoundary(range, id, direction)
     await openBook(id, 'move')
+
+    /*
+     * The placement in hand describes the shelves as they were a moment ago,
+     * and the move has just changed them. It names the plank the book is
+     * coming FROM, so handing it to the shelving step offers "It fits, save"
+     * against the wrong label: the instruction reads "put it back where it
+     * already was", and a tap answers it by writing that plank into
+     * `location`. That is #105, and it lost the move somebody had just made.
+     *
+     * Dropped rather than left to be overwritten, because the reload below is
+     * a round trip and the screen is on the shelving step before it lands.
+     * With nothing there, ShelveView says it is still working out where the
+     * book goes and refuses every answer, which is the same guard #79 put on
+     * a placement that had not arrived yet.
+     */
+    setPlacement(null)
     setMode('shelve')
+    await refreshPlacement()
   }
 
   /**
@@ -1264,6 +1287,7 @@ export default function App() {
       {mode === 'shelve' && (
         <ShelveView
           placement={placement}
+          stale={placementStale}
           range={draft.isFiction ? 'fiction' : 'nonfiction'}
           title={draft.title || 'this book'}
           saving={saving}
