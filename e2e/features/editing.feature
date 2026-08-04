@@ -57,7 +57,7 @@ Feature: Editing a book, catalogued or fresh off the camera
     When I open the app
     And I go to the library
     And I open "Rendezvous with Rama" from the library
-    And I take it off the bookcase
+    And I check it out
     And I start editing the details
     And I set "Notes" to "in the pile by the door"
     And I save the changes

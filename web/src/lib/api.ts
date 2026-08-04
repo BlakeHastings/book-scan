@@ -96,6 +96,14 @@ export interface PlacementStrip {
    * still filed correctly. Null when it has yet to be put anywhere.
    */
   placedIndex: number | null
+  /**
+   * Which plank a boundary move would land this book on, in each direction.
+   * Null in a direction this book cannot move that way; absent altogether
+   * when `placedIndex` is null, since only a book settled in its recorded
+   * position can be offered one (#96). The server refuses the move itself
+   * regardless of what this said a moment ago.
+   */
+  boundary?: { next: string | null; previous: string | null }
 }
 
 export interface PlacementResponse extends Placement {
@@ -356,7 +364,7 @@ const setLocation = (id: number, location: string) =>
   })
 
 /**
- * Take a book off the shelf, or put it back. Nothing is deleted either way.
+ * Check a book out, or check it in. Nothing is deleted either way.
  *
  * Asking for the state it is already in is a no-op: `outcome` says whether
  * anything changed, and `book` always carries the real, unmodified value.

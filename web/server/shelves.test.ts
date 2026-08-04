@@ -570,6 +570,34 @@ describe('moving a book across an area boundary', () => {
     expect(result.ok).toBe(false)
     expect(result.error).toContain('not on a bookcase in this range')
   })
+
+  /**
+   * `boundaryOptions` is the read-only half of this rule, read by the detail
+   * view to decide whether to offer the button at all (#96). It has to agree
+   * with `moveAcrossBoundary` exactly, or a book the preview says can move
+   * would hit a refusal on the tap, or one it says cannot would silently offer
+   * nothing where a move was actually possible.
+   */
+  it('previews exactly what the move itself would allow, book by book', () => {
+    const ann = shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'area')       // Cal alone on 1B
+    store.setLocation(cal, '1B')
+    expect(labels()).toEqual(['1A', '1A', '1B'])
+
+    // Ann: first on 1A, but nothing before it to carry it to; Bob follows her
+    // on the same plank, so she is not last either.
+    expect(shelves.boundaryOptions('fiction', ann)).toEqual({ next: null, previous: null })
+
+    // Bob: last on 1A with 1B to go to; Ann sits before him on the same
+    // plank, so the other direction is refused.
+    expect(shelves.boundaryOptions('fiction', bob)).toEqual({ next: '1B', previous: null })
+
+    // Cal: the only book on 1B, so both ends are his own, and 1A is there to
+    // go back to; there is nothing after 1B yet.
+    expect(shelves.boundaryOptions('fiction', cal)).toEqual({ next: null, previous: '1A' })
+  })
 })
 
 describe('misfile detection', () => {

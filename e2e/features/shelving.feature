@@ -76,7 +76,7 @@ Feature: Putting a book on a shelf that is already full
     When I open the app
     And I go to the library
     And I open "The Dispossessed" from the off-bookcase list
-    And I put it back on the bookcase
+    And I check it in
     Then it should tell me to put "The Dispossessed" in the gap at "1A"
 
     When I say it fits and finish putting it back

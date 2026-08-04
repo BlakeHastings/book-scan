@@ -59,13 +59,13 @@ Then('the book should offer:', async ({ page }, table: DataTable) => {
   await expect(page.locator('.actions--top .btn')).toHaveText(wanted)
 })
 
-When('I take it off the bookcase', async ({ page }) => {
-  await page.getByRole('button', { name: 'Take it off the bookcase' }).click()
+When('I check it out', async ({ page }) => {
+  await page.getByRole('button', { name: 'Check out' }).click()
   await expect(page.locator('.checkedout')).toBeVisible()
 })
 
-When('I put it back on the bookcase', async ({ page }) => {
-  await page.getByRole('button', { name: 'Put it back on the bookcase' }).click()
+When('I check it in', async ({ page }) => {
+  await page.getByRole('button', { name: 'Check in' }).click()
   await expect(page.locator('.shelve__ask')).toBeVisible()
 })
 
@@ -301,44 +301,55 @@ Then(
 )
 
 /**
- * Every boundary adjustment the library is willing to offer, exactly.
+ * No boundary control anywhere in the library, in whichever of the three
+ * drawings is on screen (#96, #82). The move is a book's own business now;
+ * a control drawn into a scrolling run of spines is what put the wrong book
+ * one mistap away in the first place.
+ */
+Then('the library should offer no boundary moves', async ({ page }) => {
+  await expect(page.locator('.boundary')).toHaveCount(0)
+})
+
+/**
+ * The boundary moves a book's own page offers, exactly.
  *
- * Asserted as a closed list rather than as "this button exists", because half
- * the claim is about what is *not* offered: nothing before the first plank,
- * nothing after the last, and nothing at all on a book in the middle of a run.
- * A looser check would pass on a screen that offered every book both ways.
+ * Asserted as a closed list rather than as "this button exists": half the
+ * claim is about what is *not* offered, and a book in the middle of a run
+ * offers neither direction. Filtered to just the "Move it..." buttons, since
+ * this scenario is checking one book's edges, not the whole action bar the
+ * way `the book should offer:` does for scanning.
  */
 Then(
-  'the library should offer only these boundary moves:',
+  'the book should offer to move it:',
   async ({ page }, table: DataTable) => {
-    const rows = table.raw()
-    const controls = page.locator('.boundary')
-    await expect(controls).toHaveCount(rows.length)
-
-    for (const [i, row] of rows.entries()) {
-      await expect(controls.nth(i).locator('.boundary__label')).toHaveText(row[0] ?? '')
-      await expect(controls.nth(i).locator('.btn')).toHaveText(row[1] ?? '')
-    }
+    const wanted = table.raw().map((row) => row[0] ?? '')
+    await expect(
+      page.locator('.actions--top .btn').filter({ hasText: /^Move it / }),
+    ).toHaveText(wanted)
   },
 )
 
+Then('the book should not offer to move it', async ({ page }) => {
+  await expect(
+    page.locator('.actions--top .btn').filter({ hasText: /^Move it / }),
+  ).toHaveCount(0)
+})
+
 /**
- * Pick a boundary book to move, which starts a placement rather than finishing
- * one.
+ * Start a boundary move from the book's own page, which starts a placement
+ * rather than finishing one.
  *
- * The wait is on the shelving step appearing, because that is the whole claim:
- * a move is told-walk-confirm like every other placement, not a button that
- * quietly rewrites where a book is.
+ * The wait is on the shelving step appearing, because that is the whole
+ * claim: a move is told-walk-confirm like every other placement, not a
+ * button that quietly rewrites where a book is.
  */
-When('I choose to move {string} on to {string}', async ({ page }, title: string, label: string) => {
-  const control = page.locator('.boundary', { hasText: `${title} is last here` })
-  await control.getByRole('button', { name: `Move it on to ${label}` }).click()
+When('I choose to move it on to {string}', async ({ page }, label: string) => {
+  await page.getByRole('button', { name: `Move it on to ${label}` }).click()
   await expect(page.locator('.shelve__ask')).toBeVisible()
 })
 
-When('I choose to move {string} back to {string}', async ({ page }, title: string, label: string) => {
-  const control = page.locator('.boundary', { hasText: `${title} is first here` })
-  await control.getByRole('button', { name: `Move it back to ${label}` }).click()
+When('I choose to move it back to {string}', async ({ page }, label: string) => {
+  await page.getByRole('button', { name: `Move it back to ${label}` }).click()
   await expect(page.locator('.shelve__ask')).toBeVisible()
 })
 

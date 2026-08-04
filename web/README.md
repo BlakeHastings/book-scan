@@ -209,10 +209,10 @@ mixed-content errors Safari would otherwise block.
 Once a book is catalogued, `ScanCamera` finds out which book you are holding
 and opens it. That is all it does. `POST /api/books/scan` takes a photograph
 and no direction, and writes nothing on any branch; the detail view it lands
-on reads the book's `checked_out_at` and offers **Take it off the bookcase**
-or **Put it back on the bookcase** accordingly. Putting one back goes through
-the same guided shuffle as a new book, because a book coming back has to go
-somewhere and only the person holding it knows whether it fits.
+on reads the book's `checked_out_at` and offers **Check out** or **Check in**
+accordingly. Checking one in goes through the same guided shuffle as a new
+book, because a book coming back has to go somewhere and only the person
+holding it knows whether it fits.
 
 **Nothing infers the action from the state.** A checked-out book held up to
 the camera does not check itself back in, tempting as that is. Cover matching

@@ -64,10 +64,10 @@ const RETURN_TO: Record<Origin, { mode: Mode; scanning?: boolean }> = {
 
 /** What actually happened when the shelf state was changed, in words. */
 const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
-  'checked-out': 'Taken off the bookcase.',
-  'already-out': 'It was already off the bookcase, so nothing changed.',
-  'checked-in': 'Back on the bookcase.',
-  'already-in': 'It was already on the bookcase, so nothing changed.',
+  'checked-out': 'Checked out.',
+  'already-out': 'It was already checked out, so nothing changed.',
+  'checked-in': 'Checked in.',
+  'already-in': 'It was already checked in, so nothing changed.',
 }
 
 /** Next slot with no photo in it, so the shutter advances by itself. */
@@ -143,6 +143,7 @@ export default function App() {
   const [deletingBook, setDeletingBook] = useState(false)
   const [checkedOutAt, setCheckedOutAt] = useState<string | null>(null)
   const [checkingOut, setCheckingOut] = useState(false)
+  const [boundaryMoving, setBoundaryMoving] = useState(false)
   const [coverImage, setCoverImage] = useState('')
   const [scanning, setScanning] = useState(false)
   const [origin, setOrigin] = useState<Origin>('capture')
@@ -726,6 +727,30 @@ export default function App() {
     setMode('shelve')
   }
 
+  /**
+   * Start a boundary move from the book's own page (#96).
+   *
+   * The library used to offer this next to every area instead, which had to
+   * make sense drawn three different ways (#82) and put a control next to
+   * every book in a scrolling row, one mistap from moving the wrong one. The
+   * detail view already derives its actions from the book's own state (#59),
+   * and this is exactly that: an action available because of where this book
+   * sits. `boundaryMoves` on the placement preview says which directions are
+   * genuinely open; the server checks again on the write regardless.
+   */
+  const startBoundaryMove = async (direction: 'next' | 'previous') => {
+    if (bookId === null) return
+    setBoundaryMoving(true)
+    setError('')
+    try {
+      await moveAcrossBoundary(draft.isFiction ? 'fiction' : 'nonfiction', bookId, direction)
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setBoundaryMoving(false)
+    }
+  }
+
   // Named wrappers rather than passing persist straight to a handler: onClick
   // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
   /** Finish shelving a book and hand the screen back to the camera. */
@@ -1271,7 +1296,6 @@ export default function App() {
       {mode === 'library' && (
         <ShelfView
           onOpen={openFromLibrary}
-          onMove={moveAcrossBoundary}
           returnAnchor={libraryReturn}
           onReturnAnchorConsumed={() => setLibraryReturn(null)}
         />
@@ -1328,6 +1352,9 @@ export default function App() {
             checkedOutAt={checkedOutAt}
             onCheckOut={bookId !== null ? checkOut : undefined}
             checkingOut={checkingOut}
+            boundaryMoves={placement?.strip?.boundary ?? null}
+            onBoundaryMove={bookId !== null ? startBoundaryMove : undefined}
+            boundaryMoving={boundaryMoving}
           />
 
           {/* Only for a book still being scanned. A catalogued book came

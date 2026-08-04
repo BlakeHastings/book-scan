@@ -10,6 +10,11 @@ Feature: Adjusting where one area ends
   of an area becomes the first of the next one without gaining or losing a
   single neighbour.
 
+  The move lives on the book's own page, offered only when that book is
+  genuinely at an edge (#96). The library draws the shelves; it does not offer
+  a control that can move the wrong book with one misplaced tap in a scrolling
+  run of spines.
+
   The assertions go to the database and to the "needs attention" list, because
   the way to get this wrong is to move the boundary and not record where the
   book went, which turns a move somebody just made into a move the app tells
@@ -28,17 +33,22 @@ Feature: Adjusting where one area ends
     When I open the app
     And I go to the library
     Then the library should show "Dune" on shelf "1A"
+    And the library should offer no boundary moves
 
-    # Offered on exactly two books out of three, and in one direction each.
-    # There is nothing before 1A and nothing after 1B, and a book in the middle
-    # of a plank cannot move at all without being filed out of order.
-    And the library should offer only these boundary moves:
-      | Dune is last here              | Move it on to 1B   |
-      | The Dispossessed is first here | Move it back to 1A |
+    # A book in the middle of a plank cannot move at all without being filed
+    # out of order, and its own page does not pretend otherwise.
+    When I open "Rendezvous with Rama" from the library
+    Then the book should not offer to move it
+
+    # Offered on exactly the two books at the edges, and in one direction
+    # each: nothing before 1A, nothing after 1B.
+    When I open "Dune" from the library
+    Then the book should offer to move it:
+      | Move it on to 1B |
 
     # A move is a placement, so it goes through the shelving step: the app
     # names the plank and waits to be told the book is on it.
-    When I choose to move "Dune" on to "1B"
+    When I choose to move it on to "1B"
     Then it should tell me to put "Dune" in the gap at "1B"
 
     When I say it fits and finish the move
@@ -56,7 +66,11 @@ Feature: Adjusting where one area ends
     # nothing to report.
     And nothing should need attention
 
-    When I choose to move "Dune" back to "1A"
+    When I open "Dune" from the library
+    Then the book should offer to move it:
+      | Move it back to 1A |
+
+    When I choose to move it back to "1A"
     And I say it fits and finish the move
     Then the library should show "Dune" on shelf "1A"
     And the catalogue should hold "Dune" recorded as:

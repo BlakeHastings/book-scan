@@ -352,6 +352,14 @@ export function createApp(options: CreateAppOptions): express.Express {
       gapIndex: -1,
       placedIndex: strip.index,
       books: strip.books.map((placed) => stripBook(placed.book, true)),
+      /*
+       * Offered only here, where the book is genuinely where the catalogue
+       * says it is. A hypothetical strip built for an unsaved edit carries no
+       * boundary to move, because the book has not earned that position yet
+       * (#96): the detail view reads this to decide whether to show the
+       * button at all, and the write route re-checks it regardless.
+       */
+      boundary: shelves.boundaryOptions(range, id),
     }
   }
 

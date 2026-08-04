@@ -27,16 +27,16 @@ Feature: Scanning a book that is already catalogued
     Then it should open the book "Dune"
     And the catalogue should record "Dune" as on the bookcase
     And the book should offer:
-      | Take it off the bookcase |
-      | Edit details             |
-      | Scan another             |
+      | Check out    |
+      | Edit details |
+      | Scan another |
 
-    When I take it off the bookcase
+    When I check it out
     Then the catalogue should record "Dune" as off the bookcase
     And the book should offer:
-      | Put it back on the bookcase |
-      | Edit details                |
-      | Scan another                |
+      | Check in     |
+      | Edit details |
+      | Scan another |
 
   Scenario: A book that is off the bookcase goes back through the shelving step
     Given the camera is pointed at the back cover of "Dune"
@@ -48,7 +48,7 @@ Feature: Scanning a book that is already catalogued
     # Scanning it did not put it back. Nothing does that but the person.
     And the catalogue should record "Dune" as off the bookcase
 
-    When I put it back on the bookcase
+    When I check it in
     Then it should tell me to put "Dune" in the gap at "1A"
 
     When I say it fits and put it back

@@ -837,6 +837,38 @@ describe('moving a book across an area boundary', () => {
     expect((await misfiles()).misfiles).toEqual([])
   })
 
+  /**
+   * The detail view offers the boundary move button off this field (#96),
+   * read from the same placement preview the book's own page already fetches.
+   * It has to agree with the route above: a book the preview says cannot move
+   * must be the same one the route just refused.
+   */
+  it('previews which way a book can be carried, agreeing with the move route', async () => {
+    const { rama, dune, dispossessed } = await threeOverTwoAreas()
+
+    const boundaryFor = async (title: string, author: string, excludeId: number) => {
+      const { status, body } = await post('/api/placement/preview', {
+        title, authors: [author], isFiction: true, excludeId,
+      })
+      expect(status, `previewing ${title}`).toBe(200)
+      return body.strip.boundary as { next: string | null; previous: string | null }
+    }
+
+    // Rama is in the middle of 1A: the same book the route above just
+    // refused, and the preview offers it neither direction.
+    expect(await boundaryFor('Rendezvous with Rama', 'Arthur C. Clarke', rama))
+      .toEqual({ next: null, previous: null })
+
+    // Dune is last on 1A, with 1B to carry it to.
+    expect(await boundaryFor('Dune', 'Frank Herbert', dune))
+      .toEqual({ next: '1B', previous: null })
+
+    // The Dispossessed is alone on 1B: the front of it is her own to give
+    // back, and there is nothing yet past the end of it.
+    expect(await boundaryFor('The Dispossessed', 'Ursula K. Le Guin', dispossessed))
+      .toEqual({ next: null, previous: '1A' })
+  })
+
   it('refuses both ends of the run, and says why each way', async () => {
     const { rama, dispossessed } = await threeOverTwoAreas()
 

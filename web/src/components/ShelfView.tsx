@@ -32,15 +32,6 @@ export interface LibraryReturnAnchor {
 interface Props {
   onOpen: (id: number, anchor: LibraryReturnAnchor) => void
   /**
-   * Start moving a boundary book on to the plank next door.
-   *
-   * Handed up rather than finished here, because a move is a placement: the
-   * app names a plank, the person walks over and puts the book on it, and
-   * then says so. That is the shelving step, and it already exists, so this
-   * only says which book and which way (#79).
-   */
-  onMove: (range: ShelfRange, id: number, direction: 'next' | 'previous') => Promise<void>
-  /**
    * Set when this mount is a return trip from a book's detail view. Used once
    * to put the person back where they were, then reported as consumed.
    */
@@ -61,9 +52,14 @@ interface Props {
  *   - the gallery, a grid of covers, which is allowed to wrap precisely
  *     because it is not pretending to be a photograph of the furniture.
  *
- * Everything around them is shared: the misfiles, the books off the bookcase,
- * the boundary moves and the separators are facts about the shelves, not about
- * how they are drawn.
+ * Everything around them is shared: the misfiles, the books off the bookcase
+ * and the separators are facts about the shelves, not about how they are
+ * drawn.
+ *
+ * A boundary move is not offered here at all (#96). It is one book's own
+ * business, so it lives on that book's page, only when the book is genuinely
+ * at an edge; a control drawn into every area, in three different drawings,
+ * is one mistap away from moving a book nobody meant to touch.
  *
  * The button at the end of the last shelf is how the software learns
  * something it cannot see: that the shelf is full. From then on a book
@@ -71,7 +67,7 @@ interface Props {
  * that causes are reported rather than left for you to discover at the shelf.
  */
 export function ShelfView({
-  onOpen, onMove, returnAnchor, onReturnAnchorConsumed,
+  onOpen, returnAnchor, onReturnAnchorConsumed,
 }: Props) {
   // A return trip opens on the range it left from, or the tab would change
   // under the person while they were away.
@@ -189,30 +185,6 @@ export function ShelfView({
   const unplaced = (review?.excluded ?? [])
     .filter((entry) => entry.reason === 'never-placed').length
 
-  /**
-   * The person picks a boundary book to move on to the plank next door.
-   *
-   * Offered only on the first and last book of an area, because those are the
-   * only two that can move without putting the run out of order. That is not
-   * this component's rule to keep, though: the server refuses any other book
-   * whatever this screen chooses to draw.
-   *
-   * Nothing is recorded here. This hands off to the shelving step, which tells
-   * them where to put it and takes their answer, exactly as it does for a book
-   * coming back off the table.
-   */
-  const startMove = async (id: number, direction: 'next' | 'previous') => {
-    setMoving(id)
-    setError('')
-    try {
-      await onMove(range, id, direction)
-    } catch (caught) {
-      setError((caught as Error).message)
-    } finally {
-      setMoving(0)
-    }
-  }
-
   const removeSeparator = async (id: number) => {
     setError('')
     try {
@@ -293,7 +265,7 @@ export function ShelfView({
       {off.length > 0 && (
         <section className="offshelf">
           <h3 className="offshelf__head">
-            Off the bookcase ({off.length})
+            Checked out ({off.length})
           </h3>
           {/* What happens to a book that is not on the bookcase depends on
               what is being drawn, so this says which. The list files it into
@@ -307,7 +279,7 @@ export function ShelfView({
                 + 'a book that is not there. '
               : 'Not drawn below, because they are not on the bookcase: the run '
                 + 'has closed up behind each one, exactly as it has in the room. '}
-            Open one to put it back.
+            Open one to check it in.
           </p>
           {off.map(({ book, label }) => (
             <button key={book.id} className="offshelf__row" onClick={() => open(book.id)}>
@@ -339,16 +311,7 @@ export function ShelfView({
         <p className="hint">Nothing catalogued in this range yet.</p>
       )}
 
-      {groups.map((group, index) => {
-        /*
-         * The two books that can leave this plank without disturbing anyone.
-         * On a plank holding one book they are the same book, which is
-         * honest: it really can go either way, and doing so empties the plank.
-         */
-        const first = group.books[0]?.book
-        const last = group.books[group.books.length - 1]?.book
-        const above = groups[index - 1]
-        const below = groups[index + 1]
+      {groups.map((group) => {
         const missing = missingFrom(group.label, off)
 
         return (
@@ -366,23 +329,6 @@ export function ShelfView({
                 {missing > 0 ? `, ${missing} off` : ''}
               </span>
             </header>
-
-            {/* Drawn at the top of the plank because that is where the book
-                it names physically is. */}
-            {above && first && (
-              <div className="boundary">
-                <span className="boundary__label">
-                  {first.title} is first here
-                </span>
-                <button
-                  className="btn btn--ghost"
-                  disabled={moving === first.id}
-                  onClick={() => startMove(first.id, 'previous')}
-                >
-                  {moving === first.id ? '...' : `Move it back to ${above.label}`}
-                </button>
-              </div>
-            )}
 
             {/* The area itself, drawn whichever way was asked for. Everything
                 above and below this is the same in all three. */}
@@ -413,24 +359,6 @@ export function ShelfView({
                 label={group.label}
                 onOpen={open}
               />
-            )}
-
-            {/* And at the bottom, for the same reason. Nothing is offered on
-                the last plank of the range: there is no next one, and making
-                one is what saying a plank is full does. */}
-            {below && last && (
-              <div className="boundary">
-                <span className="boundary__label">
-                  {last.title} is last here
-                </span>
-                <button
-                  className="btn btn--ghost"
-                  disabled={moving === last.id}
-                  onClick={() => startMove(last.id, 'next')}
-                >
-                  {moving === last.id ? '...' : `Move it on to ${below.label}`}
-                </button>
-              </div>
             )}
 
             {group.separatorId !== null && (

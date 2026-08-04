@@ -315,6 +315,27 @@ export class Shelves {
   }
 
   /**
+   * Which plank a boundary move would land this book on, in each direction,
+   * without moving anything.
+   *
+   * Runs the same rule `moveAcrossBoundary` enforces on the write, so a
+   * screen can decide whether to offer the button before anybody taps it
+   * (#96). That is a courtesy, not the rule itself: the write path checks
+   * again regardless of what this said a moment ago, because a shelf can
+   * change between the two calls.
+   */
+  boundaryOptions(range: ShelfRange, bookId: number): { next: string | null; previous: string | null } {
+    const placed = this.layout(range)
+    const separators = this.list(range)
+    const next = boundaryMove(placed, separators, bookId, 'next')
+    const previous = boundaryMove(placed, separators, bookId, 'previous')
+    return {
+      next: next.ok ? next.move.to : null,
+      previous: previous.ok ? previous.move.to : null,
+    }
+  }
+
+  /**
    * Which books in this range are not where the catalogue says they belong.
    *
    * The two halves of the comparison come from different places on purpose.
