@@ -30,8 +30,31 @@ export interface CatalogueStub {
   close: () => Promise<void>
 }
 
+/**
+ * A delay armed for the next lookup of one ISBN, so a test can hold a
+ * relookup open for as long as it needs to assert on what the app does while
+ * one is still running.
+ *
+ * `remaining` starts at two because `lookupOne` fires Open Library and Google
+ * Books together with `Promise.all`: both legs have to be held up, or the one
+ * left alone answers immediately and the lookup as a whole is not actually
+ * slow. It counts down as each matching request is served and clears itself
+ * once both have gone, so it never lingers to catch a lookup nobody armed it
+ * for.
+ */
+interface PendingDelay {
+  isbn: string
+  ms: number
+  remaining: number
+}
+
+/** Digits and check character only, uppercased, so any form of the same ISBN compares equal. */
+function normalise(isbn: string): string {
+  return isbn.replace(/[^0-9Xx]/g, '').toUpperCase()
+}
+
 function byIsbn(isbn: string): StubBook | undefined {
-  const digits = isbn.replace(/[^0-9Xx]/g, '').toUpperCase()
+  const digits = normalise(isbn)
   return ALL_STUB_BOOKS.find(
     (book) => book.isbn13 === digits || book.isbn10 === digits,
   )
@@ -78,9 +101,39 @@ function googleVolume(book: StubBook) {
 export async function startCatalogueStub(): Promise<CatalogueStub> {
   const requests: string[] = []
   const unknown: string[] = []
+  let pendingDelay: PendingDelay | null = null
+
+  /**
+   * How long to hold this ISBN's answer up, consuming one use of whatever
+   * delay is armed. Zero for everything else, which is every request outside
+   * the one scenario that arms this.
+   */
+  function delayFor(isbn: string): number {
+    if (!pendingDelay || pendingDelay.isbn !== isbn) return 0
+    const ms = pendingDelay.ms
+    pendingDelay.remaining -= 1
+    if (pendingDelay.remaining <= 0) pendingDelay = null
+    return ms
+  }
 
   const server: Server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://stub.invalid')
+
+    // A test's own control call, not a lookup, so it is answered before the
+    // request log and the lookup routes below ever see it.
+    if (request.method === 'POST' && url.pathname === '/__control/delay-next-lookup') {
+      let body = ''
+      request.on('data', (chunk: Buffer) => { body += chunk })
+      request.on('end', () => {
+        const { isbn13, ms } = JSON.parse(body || '{}') as { isbn13?: string; ms?: number }
+        const isbn = normalise(isbn13 ?? '')
+        pendingDelay = isbn && ms ? { isbn, ms, remaining: 2 } : null
+        response.writeHead(204)
+        response.end()
+      })
+      return
+    }
+
     requests.push(url.pathname + url.search)
 
     const json = (body: unknown) => {
@@ -95,8 +148,11 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     // Open Library: the metadata call.
     if (url.pathname === '/api/books') {
       const key = url.searchParams.get('bibkeys') ?? ''
-      const book = byIsbn(key.replace(/^ISBN:/, ''))
-      json(book ? { [key]: openLibraryData(book) } : {})
+      const isbn = normalise(key.replace(/^ISBN:/, ''))
+      const book = byIsbn(isbn)
+      const send = () => json(book ? { [key]: openLibraryData(book) } : {})
+      const wait = delayFor(isbn)
+      if (wait > 0) setTimeout(send, wait); else send()
       return
     }
 
@@ -134,8 +190,11 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     // Google Books.
     if (url.pathname === '/books/v1/volumes') {
       const query = url.searchParams.get('q') ?? ''
-      const book = byIsbn(query.replace(/^isbn:/, ''))
-      json(book ? googleVolume(book) : { items: [] })
+      const isbn = normalise(query.replace(/^isbn:/, ''))
+      const book = byIsbn(isbn)
+      const send = () => json(book ? googleVolume(book) : { items: [] })
+      const wait = delayFor(isbn)
+      if (wait > 0) setTimeout(send, wait); else send()
       return
     }
 

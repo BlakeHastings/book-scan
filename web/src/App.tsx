@@ -335,6 +335,23 @@ export default function App() {
   // -----------------------------------------------------------------------
 
   /**
+   * Bump the review session and drop whatever a relookup was doing, without
+   * touching the book on screen otherwise.
+   *
+   * Every place that stops expecting a relookup's answer to still be welcome
+   * used to repeat the same three lines by hand: bump the ref, clear
+   * `relookupBusy`, clear `relookupError`. That duplication is exactly how
+   * this bug happened, since ending an edit by saving it was never one of the
+   * copies. One helper, called from all of them, so there is only one list to
+   * keep complete.
+   */
+  const endReviewSession = () => {
+    reviewSessionRef.current += 1
+    setRelookupBusy(false)
+    setRelookupError('')
+  }
+
+  /**
    * Replace the ISBN and refetch the record from the catalogue.
    *
    * The ISBN is the key everything else hangs off, so a misread digit makes
@@ -451,6 +468,11 @@ export default function App() {
         await api.setCheckedOut(bookId, false).catch(() => {})
       }
       if (stay) {
+        // Staying means the edit just written is the one still on screen: no
+        // navigation happens, so nothing else bumps the session for it. A
+        // relookup started before this save is no longer wanted once the
+        // write it would have raced with has landed.
+        endReviewSession()
         await refreshPlacement()
       } else if (origin === 'scan') {
         // A scanned book that has just been put back leaves the way it came,
@@ -537,9 +559,7 @@ export default function App() {
    * Everything the page offers to do comes from the book itself.
    */
   const openBook = async (id: number, from: Origin = 'library') => {
-    reviewSessionRef.current += 1
-    setRelookupBusy(false)
-    setRelookupError('')
+    endReviewSession()
     setError('')
     setNotice('')
     setOrigin(from)
@@ -578,9 +598,7 @@ export default function App() {
 
   /** Open a queue item in the review pane, pre-filled from its lookup. */
   const openCapture = (capture: Capture, anchor: QueueReturnAnchor) => {
-    reviewSessionRef.current += 1
-    setRelookupBusy(false)
-    setRelookupError('')
+    endReviewSession()
     const looked = capture.draft_json
       ? (JSON.parse(capture.draft_json) as LookupResponse)
       : null
@@ -619,9 +637,7 @@ export default function App() {
 
   /** Leave a catalogued book the way you came in. */
   const leaveBook = () => {
-    reviewSessionRef.current += 1
-    setRelookupBusy(false)
-    setRelookupError('')
+    endReviewSession()
     setBookId(null)
     setCheckedOutAt(null)
     setCoverImage('')
@@ -647,9 +663,7 @@ export default function App() {
    * itself, see below.
    */
   const clearBookInHand = () => {
-    reviewSessionRef.current += 1
-    setRelookupBusy(false)
-    setRelookupError('')
+    endReviewSession()
     if (captureId) void api.releaseCapture(captureId, me).catch(() => {})
     setDraft(emptyDraft)
     setLookup(null)
