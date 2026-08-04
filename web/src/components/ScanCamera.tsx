@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type CoverMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
-import { confidentPick, matchConfidence, shortlistPrompt } from '../lib/confidence'
+import { confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
 import {
   applyFocusHints, captureStill, listLenses, openCamera, preferredLens,
   rememberedLens, rememberLens, stopStream, thumbnail,

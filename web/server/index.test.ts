@@ -19,9 +19,11 @@
  * Two things are stubbed rather than real: Open Library and Google Books.
  * Saving a book kicks off an un-awaited cover fetch, and a real network call
  * there would make this suite depend on the internet being up. `./identify`
- * is not stubbed: barcode decoding is real, and every fixture below is built
- * so the fast, non-OCR path answers it, keeping this file out of the
- * multi-second OCR pipeline that identify.test.ts already pays for.
+ * is not stubbed: barcode decoding is real, and the fixtures below stay
+ * clear of the multi-second OCR pipeline that identify.test.ts already pays
+ * for. Most are read by the fast, non-OCR pass; one is deliberately shrunk
+ * past what that pass can resolve, because the defect in #66 only shows on
+ * the photos it misses.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -30,6 +32,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Database } from 'better-sqlite3'
+import sharp from 'sharp'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
 import { createApp } from './index'
@@ -521,6 +524,75 @@ describe('scanning a book at the shelf', () => {
     expect(body.outcome).toBe('identified')
     expect(running.store.getBook(id)?.checked_out_at).toBeNull()
   }, 20_000)
+
+  /**
+   * A barcode the first, fast look cannot read.
+   *
+   * The route opens with zxing alone, which is a fifth of a second and reads
+   * most covers. Shrinking the fixture to 420px puts the bars below what that
+   * single look resolves, exactly as standing back from a book does, while
+   * the thorough zbar ladder underneath still reads it from its upscaled
+   * rung. Nothing else in the photo carries the number: the printed ISBN is
+   * left off, so an answer here can only have come from the barcode.
+   */
+  const distantBackCover = (isbn: string) =>
+    backCover(isbn, { printedIsbn: false })
+      .then((cover) => sharp(cover).resize({ width: 420 }).png().toBuffer())
+
+  /**
+   * A hash a stated number of bits away from another one.
+   *
+   * Seeding a decoy with a distance rather than with a second generated cover
+   * is what makes the band under test the thing the test states: 12 bits is
+   * inside the shortlist cutoff of 24 and well outside the close band of 8,
+   * so it is precisely the weak guess this route used to answer with.
+   */
+  function nudgeHash(hash: string, bits: number): string {
+    let out = ''
+    let left = bits
+    for (const character of hash.slice(2)) {
+      // Four bits per hex digit, flipped low bits first.
+      const flip = (1 << Math.min(4, left)) - 1
+      out += (parseInt(character, 16) ^ flip).toString(16)
+      left -= Math.min(4, left)
+    }
+    return hash.slice(0, 2) + out
+  }
+
+  it('reads the barcode the fast pass missed instead of offering a lookalike', async () => {
+    // The defect in #66: the owner photographs a visible barcode, the fast
+    // pass misses it, and a weak cover match returns before the thorough read
+    // ever runs. A barcode validates; a hash distance is a guess.
+    const buffer = await distantBackCover(DUNE)
+    const { id } = running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+    })
+    const decoy = running.store.addBook({
+      title: 'Children of Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    running.store.setHashes(decoy.id, nudgeHash(await coverHash(buffer), 12), '')
+
+    const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(status).toBe(200)
+    expect(body.outcome).toBe('identified')
+    expect(body.book.id).toBe(id)
+  }, 30_000)
+
+  it('still offers the shortlist when the thorough read finds no barcode either', async () => {
+    // The other half of the trade: waiting for the barcode must not cost the
+    // person the shortlist when there was never a barcode to read.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const { id } = running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    running.store.setHashes(id, nudgeHash(await coverHash(buffer), 12), '')
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).toBe('candidates')
+    expect(body.candidates.map((c: { id: number }) => c.id)).toContain(id)
+  }, 30_000)
 
   it('reports not-catalogued for a real ISBN nobody has saved, and writes nothing', async () => {
     const buffer = await backCover(DUNE)
