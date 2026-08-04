@@ -107,6 +107,27 @@ export function BookDetail({
   const category = draft.isFiction ? 'Fiction' : 'Non-fiction'
   const filing = draft.authorFilingOverride || derivedFiling
 
+  /*
+   * Whether a save can run at all, for either kind of book.
+   *
+   * One expression, read by both buttons, because there is only one question
+   * here and it does not depend on which of them is drawn. A relookup in
+   * flight is about to replace the title, the authors and the ISBN; a save
+   * started before it lands writes the record it was about to correct. #74
+   * established that for a catalogued book and wrote the condition into that
+   * branch, which left the new-book branch next to it doing the same work
+   * unguarded, and that is the branch somebody changing an ISBN is most often
+   * on: resolving a fresh capture. Copying the condition across would leave
+   * two of them to keep in step, which is how one came to be missed. So it is
+   * shared, the way #68 gave the Camera tab and Back to camera one
+   * backToCamera().
+   *
+   * A lookup that fails or finds nothing clears relookupBusy in its finally,
+   * so both buttons come back either way and neither can strand a book.
+   */
+  const saveBlocked = saving || relookupBusy || !draft.title
+  const whyBlocked = relookupBusy ? 'Waiting for the ISBN lookup to finish' : undefined
+
   return (
     <>
       {!editing && (
@@ -140,8 +161,8 @@ export function BookDetail({
                   // failure the edits must stay on screen to be retried.
                   if (await onSaveEdits()) setEditing(false)
                 }}
-                disabled={saving || relookupBusy || !draft.title}
-                title={relookupBusy ? 'Waiting for the ISBN lookup to finish' : undefined}
+                disabled={saveBlocked}
+                title={whyBlocked}
               >
                 {saving ? 'Saving...' : 'Save changes'}
               </button>
@@ -149,7 +170,8 @@ export function BookDetail({
               <button
                 className="btn btn--primary"
                 onClick={onShelve}
-                disabled={saving || !draft.title}
+                disabled={saveBlocked}
+                title={whyBlocked}
               >
                 Looks right, shelve it
               </button>

@@ -401,24 +401,34 @@ When('I change the ISBN to that of {string}', async ({ page }, title: string) =>
   await page.getByRole('button', { name: 'Look up and replace' }).click()
 })
 
-Then('Save changes should be unavailable while the lookup runs', async ({ page }) => {
-  // Short and explicit rather than the suite's default 30s: this is either
-  // already true by the time "Look up and replace" has been clicked, or it
-  // never becomes true, and a regression should say so in seconds, not
-  // three quarters of a minute.
-  await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled({ timeout: 2_000 })
-})
+/**
+ * Named rather than fixed to "Save changes", because the button that saves
+ * depends on which book is on screen: a catalogued one is written where it
+ * stands, a fresh capture goes on down the shelving step. They are two labels
+ * for one decision, and #88 was the two of them having drifted apart, so one
+ * step drives both and a scenario names the button it is standing in front of.
+ */
+Then(
+  '{string} should be unavailable while the lookup runs',
+  async ({ page }, label: string) => {
+    // Short and explicit rather than the suite's default 30s: this is either
+    // already true by the time "Look up and replace" has been clicked, or it
+    // never becomes true, and a regression should say so in seconds, not
+    // three quarters of a minute.
+    await expect(page.getByRole('button', { name: label })).toBeDisabled({ timeout: 2_000 })
+  },
+)
 
 /**
  * The delay armed on the stub (see "I arm a slow lookup" in
  * catalogue.steps.ts) is what makes this worth waiting for rather than
- * asserting instantly: a fix that disabled Save but never re-enabled it would
- * time out here instead of passing.
+ * asserting instantly: a fix that disabled the button but never re-enabled it
+ * would time out here instead of passing.
  */
 Then(
-  'Save changes should be available again once the lookup answers',
-  async ({ page }) => {
-    await expect(page.getByRole('button', { name: 'Save changes' }))
+  '{string} should be available again once the lookup answers',
+  async ({ page }, label: string) => {
+    await expect(page.getByRole('button', { name: label }))
       .toBeEnabled({ timeout: 10_000 })
   },
 )
