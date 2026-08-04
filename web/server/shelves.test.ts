@@ -503,6 +503,63 @@ describe('moving a book across an area boundary', () => {
       .toEqual([['1A', '1B']])
   })
 
+  it('sends the first book of a bookcase back to the last area of the one before', () => {
+    /*
+     * #79. Within a range the areas are one continuous sequence and a bookcase
+     * break is only where it crosses furniture, so this is the same move. It
+     * is the bookcase break that gets re-anchored, which is why the books past
+     * it stay on the bookcase they were on.
+     */
+    const ann = shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'shelf')       // Cal on to bookcase 2
+    store.setLocation(cal, '2A')
+    shelves.overflow('fiction', '1A', 'shelf')       // Bob joins him there
+    store.setLocation(bob, '2A')
+    expect(labels()).toEqual(['1A', '2A', '2A'])
+    expect(shelves.review('fiction').misfiles).toEqual([])
+
+    const result = carry(bob, 'previous')
+    expect(result.ok).toBe(true)
+    expect(result.move?.from).toBe('2A')
+    expect(result.move?.to).toBe('1A')
+    expect(labels()).toEqual(['1A', '1A', '2A'])
+    // Cal did not follow him back, and Ann never moved.
+    expect(store.getBook(cal)?.location).toBe('2A')
+    expect(store.getBook(ann)?.location).toBe('1A')
+    expect(result.moves).toEqual([])
+    expect(shelves.review('fiction').misfiles).toEqual([])
+  })
+
+  it('sends the last book of a bookcase on to the next one', () => {
+    const ann = shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    const cal = shelve('Cal Church')
+    shelves.overflow('fiction', '1A', 'shelf')
+    store.setLocation(cal, '2A')
+    expect(labels()).toEqual(['1A', '1A', '2A'])
+
+    expect(carry(bob, 'next').ok).toBe(true)
+    expect(labels()).toEqual(['1A', '2A', '2A'])
+    expect(store.getBook(ann)?.location).toBe('1A')
+    expect(shelves.review('fiction').misfiles).toEqual([])
+  })
+
+  it('keeps refusing at the ends of the range, bookcases or not', () => {
+    // Making new furniture is what declaring a plank full is for. That holds
+    // at the two ends of the run and nowhere else.
+    const ann = shelve('Ann Author')
+    const bob = shelve('Bob Baker')
+    shelves.overflow('fiction', '1A', 'shelf')
+    store.setLocation(bob, '2A')
+
+    expect(shelves.moveAcrossBoundary('fiction', ann, 'previous').error)
+      .toContain('no area before 1A')
+    expect(shelves.moveAcrossBoundary('fiction', bob, 'next').error)
+      .toContain('no area after 2A')
+  })
+
   it('never lets a fiction move touch non-fiction', () => {
     shelve('Ann Author')
     const harari = store.addBook({

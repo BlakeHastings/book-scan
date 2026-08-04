@@ -33,10 +33,15 @@ Feature: Adjusting where one area ends
     # There is nothing before 1A and nothing after 1B, and a book in the middle
     # of a plank cannot move at all without being filed out of order.
     And the library should offer only these boundary moves:
-      | Dune is last here              | Moved it on to 1B   |
-      | The Dispossessed is first here | Moved it back to 1A |
+      | Dune is last here              | Move it on to 1B   |
+      | The Dispossessed is first here | Move it back to 1A |
 
-    When I say I moved "Dune" on to "1B"
+    # A move is a placement, so it goes through the shelving step: the app
+    # names the plank and waits to be told the book is on it.
+    When I choose to move "Dune" on to "1B"
+    Then it should tell me to put "Dune" in the gap at "1B"
+
+    When I say it fits and finish the move
     Then the library should show "Dune" on shelf "1B"
     And the catalogue should hold "Dune" recorded as:
       | location | 1B |
@@ -51,7 +56,8 @@ Feature: Adjusting where one area ends
     # nothing to report.
     And nothing should need attention
 
-    When I say I moved "Dune" back to "1A"
+    When I choose to move "Dune" back to "1A"
+    And I say it fits and finish the move
     Then the library should show "Dune" on shelf "1A"
     And the catalogue should hold "Dune" recorded as:
       | location | 1A |

@@ -122,6 +122,42 @@ Given(
   },
 )
 
+/**
+ * Two bookcases, reached the way the app reaches them.
+ *
+ * Twice, because one answer only creates the second bookcase and moves one
+ * book on to it. A second answer puts another book there, which is what leaves
+ * a bookcase with a first book that has something after it, and that is the
+ * arrangement the move under test needs.
+ */
+Given(
+  '{string} filled up twice, so its last two books are on bookcase 2',
+  async ({ apiUrl }, label: string) => {
+    for (let round = 1; round <= 2; round += 1) {
+      const response = await fetch(`${apiUrl}/api/shelves/overflow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ range: 'fiction', label, kind: 'shelf' }),
+      })
+      expect(response.ok, `filling ${label} (round ${round}) failed: ${response.status}`)
+        .toBe(true)
+
+      const { step } = (await response.json()) as {
+        step: { id: number; to: string } | null
+      }
+      expect(step, `${label} had no book to give up on round ${round}`).toBeTruthy()
+
+      const recorded = await fetch(`${apiUrl}/api/books/${step!.id}/location`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ location: step!.to }),
+      })
+      expect(recorded.ok, `recording the displaced book failed: ${recorded.status}`)
+        .toBe(true)
+    }
+  },
+)
+
 /** The id of a seeded book, read back through the route the client reads. */
 async function bookIdByTitle(apiUrl: string, title: string): Promise<number> {
   const response = await fetch(`${apiUrl}/api/books?range=fiction`)

@@ -10,7 +10,7 @@ import {
   SLOT_CROP, SLOT_GUIDE, SLOT_GUIDE_LABEL, SLOTS, SLOT_HINT, SLOT_LABEL,
   SLOT_SHORT, stopStream, thumbnail, type Lens, type Slot,
 } from './lib/scanner'
-import { filingName } from '../shared/shelving'
+import { filingName, type ShelfRange } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
 import { bookStillInHand } from './lib/cameraReturn'
 import { BookDetail } from './components/BookDetail'
@@ -27,8 +27,12 @@ type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
 /**
  * How a catalogued book came to be on screen, which decides only where the way
  * out leads. What can be done to the book is decided by the book.
+ *
+ * `move` is the library too, and differs only in the way out: somebody
+ * adjusting where a plank ends is working through the shelves, and dropping
+ * them at the cataloguing camera when they finish would be the wrong room.
  */
-type Origin = 'library' | 'scan'
+type Origin = 'library' | 'scan' | 'move'
 
 /** What actually happened when the shelf state was changed, in words. */
 const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
@@ -474,10 +478,12 @@ export default function App() {
         // write it would have raced with has landed.
         endReviewSession()
         await refreshPlacement()
-      } else if (origin === 'scan') {
+      } else if (origin === 'scan' || origin === 'move') {
         // A scanned book that has just been put back leaves the way it came,
         // so the next one off the pile is one tap away. reset() would send it
         // to the cataloguing camera or to the queue, and it came from neither.
+        // A book moved across a boundary is the same argument: it came from
+        // the shelves and that is where the next adjustment is.
         leaveBook()
       } else {
         reset()
@@ -531,6 +537,30 @@ export default function App() {
   const openScanned = async (id: number) => {
     setScanning(false)
     await openBook(id, 'scan')
+  }
+
+  /**
+   * Move a boundary book on to the plank next door, through the shelving step.
+   *
+   * The boundary moves first and the book's recorded location does not, which
+   * is the same shape the overflow cascade has always had: the furniture is
+   * the app's to change, and where a book physically is only a person can say.
+   * So the layout now puts this book on the next plank, the shelving step
+   * names that plank because it derives it, and "It fits, save" writes it down
+   * through the one route that changes a location.
+   *
+   * Backing out leaves the book reported as needing to move, which is the
+   * truth: the shelves have been reorganised and the book has not been carried
+   * yet. Moving it back is one tap from the same list.
+   */
+  const moveAcrossBoundary = async (
+    range: ShelfRange,
+    id: number,
+    direction: 'next' | 'previous',
+  ) => {
+    await api.moveAcrossBoundary(range, id, direction)
+    await openBook(id, 'move')
+    setMode('shelve')
   }
 
   // Named wrappers rather than passing persist straight to a handler: onClick
@@ -990,7 +1020,7 @@ export default function App() {
         />
       )}
 
-      {mode === 'library' && <ShelfView onOpen={openBook} />}
+      {mode === 'library' && <ShelfView onOpen={openBook} onMove={moveAcrossBoundary} />}
 
       {mode === 'review' && (
         <main className="main">

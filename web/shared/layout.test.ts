@@ -477,6 +477,66 @@ describe('boundaryMove', () => {
     expect(labels(books, after)).toEqual(['1A', '2A', '2A', '2A'])
   })
 
+  it('sends the first book of 2A back to the last area of bookcase 1', () => {
+    /*
+     * Within a range the areas are one continuous sequence, and a bookcase
+     * boundary is only where that sequence breaks across furniture. So the
+     * first book of 2A goes back to 1E, and it is the bookcase break that
+     * moves, not a plank break: everything after it stays on bookcase 2 at the
+     * area it was on.
+     */
+    const books = run('ABCDEFG')
+    const separators = [
+      sep(1, 'B'), sep(2, 'C'), sep(3, 'D'), sep(4, 'E'),
+      sep(5, 'F', 'shelf'), sep(6, 'G'),
+    ]
+    expect(labels(books, separators)).toEqual(['1A', '1B', '1C', '1D', '1E', '2A', '2B'])
+
+    const { outcome, separators: after } = carry(books, separators, 6, 'previous')
+    expect(outcome.ok && outcome.move.from).toBe('2A')
+    expect(outcome.ok && outcome.move.to).toBe('1E')
+    /*
+     * F joins 1E and G keeps 2B, which is the bare-plank case from #76 seen at
+     * a bookcase break: F was the only book on 2A, so 2A is now empty, and an
+     * empty plank has no books to name it. Nothing shuffles up to fill it, and
+     * that is the point: the books past the break are not disturbed.
+     */
+    expect(labels(books, after)).toEqual(['1A', '1B', '1C', '1D', '1E', '1E', '2B'])
+
+    // The bookcase break, and only it, was re-anchored.
+    expect(after.find((s) => s.id === 5)).toEqual({ ...sep(5, 'G', 'shelf') })
+    expect(after.filter((s) => s.kind === 'area').map((s) => s.startsAt))
+      .toEqual(['B', 'C', 'D', 'E', 'G'])
+  })
+
+  it('leaves the books past a bookcase break where they were', () => {
+    // The other half of the same claim, with more than one book on 2A: the
+    // book moves back a bookcase and its old neighbours do not follow it.
+    const books = run('ABC')
+    const separators = [sep(1, 'B', 'shelf')]
+    expect(labels(books, separators)).toEqual(['1A', '2A', '2A'])
+
+    const { outcome, separators: after } = carry(books, separators, 2, 'previous')
+    expect(outcome.ok && outcome.move.to).toBe('1A')
+    expect(labels(books, after)).toEqual(['1A', '1A', '2A'])
+    expect(after.map((s) => `${s.kind}@${s.startsAt}`)).toEqual(['shelf@C'])
+  })
+
+  it('still refuses at the two ends of the range, not at every bookcase', () => {
+    // Making new furniture is what declaring a plank full is for, and that
+    // reasoning applies to the start and end of the run, not to a break
+    // between two bookcases that both already exist.
+    const books = run('ABC')
+    const separators = [sep(1, 'B', 'shelf'), sep(2, 'C', 'shelf')]
+    expect(labels(books, separators)).toEqual(['1A', '2A', '3A'])
+
+    expect(refusal(books, separators, 1, 'previous')).toBe('no-adjacent-area')
+    expect(refusal(books, separators, 3, 'next')).toBe('no-adjacent-area')
+    // And the bookcase break in the middle is crossable both ways.
+    expect(refusal(books, separators, 2, 'previous')).toBe('')
+    expect(refusal(books, separators, 2, 'next')).toBe('')
+  })
+
   it('writes the same boundary an overflow of the same shelf would', () => {
     // A manual bounce and an automatic shuffle answer the same physical
     // question. If they wrote different things down, one would quietly undo

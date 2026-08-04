@@ -9,6 +9,15 @@ import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
   onOpen: (id: number) => void
+  /**
+   * Start moving a boundary book on to the plank next door.
+   *
+   * Handed up rather than finished here, because a move is a placement: the
+   * app names a plank, the person walks over and puts the book on it, and
+   * then says so. That is the shelving step, and it already exists, so this
+   * only says which book and which way (#79).
+   */
+  onMove: (range: ShelfRange, id: number, direction: 'next' | 'previous') => Promise<void>
 }
 
 /**
@@ -20,7 +29,7 @@ interface Props {
  * the moves that causes are reported rather than left for you to discover at
  * the shelf.
  */
-export function ShelfView({ onOpen }: Props) {
+export function ShelfView({ onOpen, onMove }: Props) {
   const [range, setRange] = useState<ShelfRange>('fiction')
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
   const [moves, setMoves] = useState<Move[]>([])
@@ -80,21 +89,22 @@ export function ShelfView({ onOpen }: Props) {
     .filter((entry) => entry.reason === 'never-placed').length
 
   /**
-   * The person says they have bounced a book onto the plank next door.
+   * The person picks a boundary book to move on to the plank next door.
    *
    * Offered only on the first and last book of an area, because those are the
    * only two that can move without putting the run out of order. That is not
    * this component's rule to keep, though: the server refuses any other book
    * whatever this screen chooses to draw.
+   *
+   * Nothing is recorded here. This hands off to the shelving step, which tells
+   * them where to put it and takes their answer, exactly as it does for a book
+   * coming back off the table.
    */
-  const moveAcrossBoundary = async (id: number, direction: 'next' | 'previous') => {
+  const startMove = async (id: number, direction: 'next' | 'previous') => {
     setMoving(id)
     setError('')
     try {
-      await api.moveAcrossBoundary(range, id, direction)
-      // Reloaded rather than patched from the response, because the misfile
-      // list has to be asked again: the whole claim is that it stays empty.
-      load()
+      await onMove(range, id, direction)
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -272,9 +282,9 @@ export function ShelfView({ onOpen }: Props) {
                 <button
                   className="btn btn--ghost"
                   disabled={moving === first.id}
-                  onClick={() => moveAcrossBoundary(first.id, 'previous')}
+                  onClick={() => startMove(first.id, 'previous')}
                 >
-                  {moving === first.id ? '...' : `Moved it back to ${above.label}`}
+                  {moving === first.id ? '...' : `Move it back to ${above.label}`}
                 </button>
               </div>
             )}
@@ -320,9 +330,9 @@ export function ShelfView({ onOpen }: Props) {
                 <button
                   className="btn btn--ghost"
                   disabled={moving === last.id}
-                  onClick={() => moveAcrossBoundary(last.id, 'next')}
+                  onClick={() => startMove(last.id, 'next')}
                 >
-                  {moving === last.id ? '...' : `Moved it on to ${below.label}`}
+                  {moving === last.id ? '...' : `Move it on to ${below.label}`}
                 </button>
               </div>
             )}

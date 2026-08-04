@@ -484,36 +484,33 @@ export const api = {
     }),
 
   /**
-   * Carry the first or last book of an area to the plank next door, and say
-   * it is there.
+   * Move the boundary so the first or last book of an area belongs on the
+   * plank next door.
    *
-   * Two calls, for the same reason `updateAndShelve` makes two. Moving the
-   * boundary is a change to the furniture; saying which plank the book is on
-   * is an observation about the room, and only one route is allowed to write
-   * that. Skipping the second call moves the area boundary and leaves the
-   * book recorded on the plank it came off, so the library turns round and
-   * reports the move as still outstanding, which is the exact failure #61 was
-   * about.
+   * Only the furniture changes here, and deliberately nothing else. Saying
+   * which plank the book is physically on is an observation about the room,
+   * made by somebody who has walked over and put it there, so it goes through
+   * the shelving step and its `PATCH .../location` like every other placement
+   * (#79). Until they say so the book is genuinely not where the catalogue
+   * has it, and the library reports exactly that, which is the same shape the
+   * overflow cascade has always had.
    *
-   * The server refuses a book that is not at a boundary; the buttons that call
-   * this are only offered on ones that are. Both, deliberately.
+   * The server refuses a book that is not at a boundary; the controls that
+   * call this are only offered on ones that are. Both, deliberately.
    */
-  moveAcrossBoundary: async (
+  moveAcrossBoundary: (
     range: ShelfRange,
     id: number,
     direction: 'next' | 'previous',
-  ) => {
-    const result = await request<{
+  ) =>
+    request<{
       move: { id: number; title: string; from: string; to: string } | null
       groups: ShelfGroupDto[]
       moves: Move[]
     }>('/api/shelves/move', {
       method: 'POST',
       body: JSON.stringify({ range, id, direction }),
-    })
-    if (result.move?.to) await setLocation(id, result.move.to)
-    return result
-  },
+    }),
 
   removeSeparator: (id: number, range: ShelfRange) =>
     request<{ groups: ShelfGroupDto[]; moves: Move[] }>(
