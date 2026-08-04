@@ -227,6 +227,11 @@ html, body {
 }
 .cam__idle h2 { margin: 0; font-size: 20px; }
 .cam__idle p { color: var(--muted); margin: 0; max-width: 30ch; }
+.cam__idle-origin {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
 
 /* Two rows only: which side you are shooting, and the shutter. Anything that
    is read once and then ignored belongs in the sheet or the toast, not here.

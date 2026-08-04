@@ -82,6 +82,112 @@ export async function listLenses(): Promise<Lens[]> {
   }
 }
 
+/**
+ * The address this page is actually loaded from.
+ *
+ * Vite prints eight of these at startup (localhost, lvh.me, and four LAN
+ * interfaces including Docker and WSL ranges), and only some of them are
+ * reachable from a phone. Both the camera permission and the self-signed
+ * certificate exception are scoped to the exact origin, so a phone that once
+ * loaded a different one is not the same origin as far as either is
+ * concerned, even though it looks like the same app.
+ */
+export function currentOrigin(): string {
+  if (typeof location === 'undefined') return 'this address'
+  return `${location.protocol}//${location.host}`
+}
+
+export type CameraFailureReason =
+  | 'insecure-context'
+  | 'permission-denied'
+  | 'no-camera'
+  | 'unsupported'
+  | 'unknown'
+
+export interface CameraDiagnosis {
+  reason: CameraFailureReason
+  message: string
+}
+
+/**
+ * Why the camera did not open, in words a person can act on.
+ *
+ * "No camera devices" on its own is a dead end: it reads the same whether the
+ * fix is in Settings or the device genuinely has no camera. This is #60: a
+ * second phone had a stale permission denial and a stale certificate
+ * exception, both scoped to one of the eight addresses Vite prints, and the
+ * app had no way to say which of those was true.
+ *
+ * `navigator.permissions.query` only reads the browser's stored decision, it
+ * does not request anything, so it is safe to call at any time, including
+ * before a user gesture. It is also not supported everywhere (notably not
+ * for `camera` on every engine), so a browser that lacks it falls back to
+ * reading the error name alone, which still separates permission denial from
+ * a genuinely missing camera.
+ */
+export async function diagnoseCameraFailure(error?: unknown): Promise<CameraDiagnosis> {
+  const origin = currentOrigin()
+
+  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+    return {
+      reason: 'insecure-context',
+      message:
+        `${origin} is not a secure address, and the browser refuses camera ` +
+        'access on plain HTTP. Use the https address instead, which is why ' +
+        'the dev server hands out a self-signed certificate.',
+    }
+  }
+
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return {
+      reason: 'unsupported',
+      message: 'This browser does not expose a camera at all, on any address.',
+    }
+  }
+
+  let permissionState: PermissionState | undefined
+  try {
+    const status = await navigator.permissions?.query?.({ name: 'camera' as PermissionName })
+    permissionState = status?.state
+  } catch {
+    // Not every engine supports querying the camera permission. Fall through
+    // to the error name, which is still informative on its own.
+    permissionState = undefined
+  }
+
+  const name = (error as DOMException | undefined)?.name
+
+  if (permissionState === 'denied' || name === 'NotAllowedError') {
+    return {
+      reason: 'permission-denied',
+      message:
+        `Camera permission was denied for ${origin}. Open the "aA" menu in ` +
+        'the address bar, choose Website Settings, and set Camera to Allow. ' +
+        'If that setting is not offered, the fix is clearing this site: ' +
+        'Settings, Safari, Advanced, Website Data, find this address, ' +
+        'remove it, then reload.',
+    }
+  }
+
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return {
+      reason: 'no-camera',
+      message:
+        permissionState === 'granted'
+          ? `Permission is granted for ${origin}, but this browser found no ` +
+            'camera to use. That points at the device, not this app.'
+          : `No camera was found at ${origin}. If this device has one, a ` +
+            'blocked permission can look the same as no camera; check the ' +
+            '"aA" menu, Website Settings, Camera.',
+    }
+  }
+
+  return {
+    reason: 'unknown',
+    message: (error as Error)?.message || `The camera could not be opened at ${origin}.`,
+  }
+}
+
 /** "Back Ultra Wide Camera" is too long for a chip; "Ultra Wide" is not. */
 export function lensName(label: string): string {
   const short = label.replace(/\bback\b/i, '').replace(/\bcamera\b/i, '').trim()
@@ -110,11 +216,8 @@ export function preferredLens(lenses: Lens[]): string {
  */
 export async function openCamera(deviceId = ''): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error(
-      'This browser will not expose a camera. On iPhone the page must be ' +
-        'served over HTTPS, which is why the dev server uses a self-signed ' +
-        'certificate.',
-    )
+    const diagnosis = await diagnoseCameraFailure()
+    throw new Error(diagnosis.message)
   }
 
   try {
@@ -133,17 +236,8 @@ export async function openCamera(deviceId = ''): Promise<MediaStream> {
       },
     })
   } catch (error) {
-    const name = (error as DOMException)?.name
-    if (name === 'NotAllowedError') {
-      throw new Error(
-        'Camera permission was denied. Reload and tap Allow, or check ' +
-          'Settings, Safari, Camera.',
-      )
-    }
-    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-      throw new Error('No usable camera was found on this device.')
-    }
-    throw error
+    const diagnosis = await diagnoseCameraFailure(error)
+    throw new Error(diagnosis.message)
   }
 }
 
