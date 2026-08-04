@@ -534,6 +534,112 @@ describe('shelving a book onto a bookcase', () => {
 })
 
 /**
+ * The row a catalogued book stands in, as the detail view draws it (#81).
+ *
+ * The detail view shows the whole area end on and every spine in it is a way
+ * through to that book, so every one of them needs its photo. This used to
+ * send three: the book and the two either side, which is all the placing
+ * strip needs and would leave a library row as two photographs among twenty
+ * blank blocks.
+ */
+describe('the row a shelved book stands in', () => {
+  const seedWith = (title: string, author: string, images: {
+    front?: string; back?: string; edge?: string
+  }) => running.store.addBook({
+    title,
+    authors: [author],
+    isFiction: true,
+    frontImage: images.front ?? '',
+    backImage: images.back ?? '',
+    edgeImage: images.edge ?? '',
+  }).id
+
+  /** The row as the detail view receives it, for the book with this id. */
+  const rowFor = async (id: number, title: string, author: string) => {
+    const { status, body } = await post('/api/placement/preview', {
+      title, authors: [author], isFiction: true, excludeId: id,
+    })
+    expect(status, `previewing ${title}`).toBe(200)
+    return body.strip as {
+      placedIndex: number | null
+      books: { id: number; spine: string; spineSlot: string }[]
+    }
+  }
+
+  it('gives every book in the row its photo, not just the neighbours', async () => {
+    seedWith('Foundation', 'Isaac Asimov', { edge: 'asimov.jpg' })
+    seedWith('Neuromancer', 'William Gibson', { edge: 'gibson.jpg' })
+    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    seedWith('The Dispossessed', 'Ursula K. Le Guin', { edge: 'leguin.jpg' })
+    seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
+
+    const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
+
+    // The book itself is in the row rather than a gap in it, and Asimov and
+    // Lem are two books away from it, so the old rule would have sent them
+    // blank.
+    expect(strip.placedIndex).toBe(2)
+    expect(strip.books).toHaveLength(5)
+    expect(strip.books.map((b) => b.spine)).toEqual([
+      'asimov.jpg', 'gibson.jpg', 'herbert.jpg', 'leguin.jpg', 'lem.jpg',
+    ])
+  })
+
+  it('falls back to a cover for a book catalogued before spines, and says which face it is', async () => {
+    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    seedWith('The Dispossessed', 'Ursula K. Le Guin', { front: 'leguin-front.jpg' })
+    seedWith('Solaris', 'Stanislaw Lem', { back: 'lem-back.jpg' })
+
+    const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
+
+    expect(strip.books.map((b) => [b.spine, b.spineSlot])).toEqual([
+      ['herbert.jpg', 'edge'],
+      ['leguin-front.jpg', 'front'],
+      ['lem-back.jpg', 'back'],
+    ])
+  })
+
+  it('leaves a book with no photograph at all blank rather than inventing one', async () => {
+    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    seedWith('Solaris', 'Stanislaw Lem', {})
+
+    const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
+
+    expect(strip.books[1]?.spine).toBe('')
+    expect(strip.books[1]?.spineSlot).toBe('')
+  })
+
+  it('photographs the whole row for a book that is off the bookcase too', async () => {
+    // Off the bookcase, so the answer is the row with a gap in it rather than
+    // the row it stands in. Same drawing, same page, same taps: two photos in
+    // a run of blank blocks there would read as missing data.
+    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    seedWith('Foundation', 'Isaac Asimov', { edge: 'asimov.jpg' })
+    seedWith('Neuromancer', 'William Gibson', { edge: 'gibson.jpg' })
+    seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
+    await post(`/api/books/${dune}/checkout`, { out: true })
+
+    const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
+
+    expect(strip.placedIndex).toBeNull()
+    expect(strip.books.map((b) => b.spine)).toEqual(['asimov.jpg', 'gibson.jpg', 'lem.jpg'])
+  })
+
+  it('leaves a checked out book out of the row, because it is not on the shelf', async () => {
+    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    const lem = seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
+    await post(`/api/books/${lem}/checkout`, { out: true })
+
+    const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
+
+    // The run has closed up behind it, exactly as the shelf has. Drawing it
+    // would put every position after it out by one, and the positions are
+    // what somebody counts along.
+    expect(strip.books.map((b) => b.id)).toEqual([dune])
+  })
+})
+
+/**
  * Bouncing a book across an area boundary.
  *
  * Where a plank ends is the one arbitrary thing in the model, so it gets

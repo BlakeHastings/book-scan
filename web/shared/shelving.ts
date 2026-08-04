@@ -213,10 +213,35 @@ export interface Neighbour {
   images: { front: string; back: string; edge: string }
 }
 
+/** Which photo of a book is being shown in place of its spine. */
+export type ShelfSlot = 'edge' | 'front' | 'back' | ''
+
+/**
+ * The best photo for recognising a book on a shelf, and which slot it is.
+ *
+ * Spine first, by a mile: it is the only face you can see with the book
+ * shelved. Front then back are fallbacks for books catalogued before the
+ * spine slot existed, and the slot comes back with the filename so a caller
+ * can crop it correctly and say what it is looking at. A cover standing in
+ * for a spine should not be passed off as one.
+ *
+ * The single place this precedence is written down. The server sends strips
+ * through it and the library draws its rows through it, and two copies of
+ * this would be two rows of books that disagree about the same shelf.
+ */
+export function shelfImage(images: { front: string; back: string; edge: string }): {
+  name: string
+  slot: ShelfSlot
+} {
+  if (images.edge) return { name: images.edge, slot: 'edge' }
+  if (images.front) return { name: images.front, slot: 'front' }
+  if (images.back) return { name: images.back, slot: 'back' }
+  return { name: '', slot: '' }
+}
+
 /** Best photo for recognising a book on a shelf. Spine first, by a mile. */
 export function shelfPhoto(neighbour: Neighbour | null): string {
-  if (!neighbour) return ''
-  return neighbour.images.edge || neighbour.images.front || neighbour.images.back || ''
+  return neighbour ? shelfImage(neighbour.images).name : ''
 }
 
 /**
@@ -226,12 +251,8 @@ export function shelfPhoto(neighbour: Neighbour | null): string {
  * of a spine is its top, where the title starts, while a cover reads best from
  * its middle.
  */
-export function shelfPhotoSlot(neighbour: Neighbour | null): 'edge' | 'front' | 'back' | '' {
-  if (!neighbour) return ''
-  if (neighbour.images.edge) return 'edge'
-  if (neighbour.images.front) return 'front'
-  if (neighbour.images.back) return 'back'
-  return ''
+export function shelfPhotoSlot(neighbour: Neighbour | null): ShelfSlot {
+  return neighbour ? shelfImage(neighbour.images).slot : ''
 }
 
 export type PlacementKind =

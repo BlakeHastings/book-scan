@@ -1,5 +1,6 @@
 import type {
-  Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelvingReview,
+  Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelfSlot,
+  ShelvingReview,
 } from '../../shared/shelving'
 
 /**
@@ -66,14 +67,22 @@ export interface Draft {
   authorFilingOverride: string
 }
 
-/** One book already on the shelf, as drawn in the placing strip. */
+/** One book already on the shelf, as drawn end on in a row of spines. */
 export interface StripBook {
   id: number
   title: string
   authorFiling: string
-  /** Filename, and only for the two books either side of the gap. */
+  /**
+   * Filename of the photo standing in for this book's spine, or '' when
+   * there is none to show or none was asked for.
+   */
   spine: string
-  spineSlot: 'edge' | 'front'
+  /**
+   * Which face `spine` actually is. A book catalogued before the spine slot
+   * existed falls back to a cover, and this says so rather than letting a
+   * front cover pass for a spine.
+   */
+  spineSlot: ShelfSlot
 }
 
 /** A single shelf seen end on, with the space the new book goes in. */
@@ -207,7 +216,7 @@ export interface CheckedOutAt {
   label: string
 }
 
-export type { Misfile, Excluded, ExcludedReason, ShelvingReview }
+export type { Misfile, Excluded, ExcludedReason, ShelfSlot, ShelvingReview }
 
 export interface IdentifyResult {
   isbn13: string
