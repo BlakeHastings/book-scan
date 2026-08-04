@@ -647,22 +647,126 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 /* --- Book detail: photos ---------------------------------------------- */
 
-.photos {
+/* One photo at a time, with the spine standing beside it. The spine is the
+   one you look for a book by, so it is never something you have to swipe to. */
+.gallery {
+  --gallery-h: 250px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  align-items: start;
   margin-bottom: 14px;
 }
-.photo { margin: 0; display: grid; gap: 4px; }
-.photo img {
+.gallery--with-spine { grid-template-columns: 1fr 66px; }
+
+.gallery__main { display: grid; gap: 8px; min-width: 0; }
+
+/*
+ * A native scroll container, not a drag handler.
+ *
+ * The browser works out from the first few pixels of a gesture whether it is
+ * horizontal or vertical and gives the other axis to the page, so swiping
+ * through photos and scrolling down the record never fight. `contain` stops a
+ * swipe past the last photo turning into the browser's back gesture.
+ */
+.gallery__track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.gallery__track::-webkit-scrollbar { display: none; }
+
+/*
+ * Short of the full width on purpose. The sliver of the next photo showing at
+ * the edge is what tells somebody there is a next photo at all, before they
+ * have looked at the dots or tried anything.
+ */
+/* The space between photos is padding inside the frame rather than a flex
+   gap, so one frame's width really is the distance the track scrolls by. A
+   gap would put the dots half a photo out of step with the scroll. */
+.gallery__frame {
+  margin: 0;
+  flex: 0 0 calc(100% - 26px);
+  padding-right: 8px;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.gallery__track--single .gallery__frame { padding-right: 0; }
+.gallery__frame img {
+  display: block;
   width: 100%;
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
+  height: var(--gallery-h);
+  /* contain, not cover: a cropped cover hides the title, and the title is
+     what somebody is checking when they look at this page. */
+  object-fit: contain;
   border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--panel-2);
 }
-.photo figcaption { font-size: 11px; color: var(--muted); text-align: center; }
+
+/* A single photo has nothing to swipe to, so it takes the width and the
+   peek would just be a stripe of nothing. */
+.gallery__track--single .gallery__frame { flex-basis: 100%; }
+
+/* Two lines' worth of room whether or not this photo needs a second line, so
+   swiping to one that does not moves the picture and nothing else. */
+.gallery__caption {
+  display: grid;
+  gap: 1px;
+  min-height: 34px;
+  align-content: start;
+  text-align: center;
+  font-size: 12px;
+}
+.gallery__label { color: var(--text); }
+.gallery__note { font-size: 11px; color: var(--muted); }
+
+/* Buttons, not decoration. Every photo stays reachable by tapping for anyone
+   who never discovers the swipe. */
+.gallery__dots {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+.gallery__dot {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  position: relative;
+}
+.gallery__dot::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.gallery__dot--on::after { background: var(--accent); }
+
+.gallery__spine { margin: 0; display: grid; gap: 4px; }
+.gallery__spine img {
+  display: block;
+  width: 100%;
+  height: var(--gallery-h);
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.gallery__spine figcaption {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
 
 /* Tap a photo to read the small print on it, which is the whole reason the
    detail view exists: you copy the ISBN off the cover by eye. */
@@ -1440,40 +1544,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   background: none;
   color: var(--muted);
   font-size: 14px;
-}
-
-/* --- Is this the same book? -------------------------------------------- */
-
-.compare {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.compare__side {
-  margin: 0;
-  display: grid;
-  gap: 6px;
-  justify-items: center;
-}
-.compare__side img {
-  width: 100%;
-  height: 190px;
-  object-fit: contain;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-.compare__side figcaption { font-size: 12px; color: var(--muted); }
-.compare__none {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 190px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 /* --- Which of these is it? --------------------------------------------- */

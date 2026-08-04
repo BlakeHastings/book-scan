@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Draft, LookupResponse } from '../lib/api'
-import { SLOTS, SLOT_LABEL, type Slot } from '../lib/scanner'
+import type { Frame } from '../lib/gallery'
+import { type Slot } from '../lib/scanner'
 import { BookFields } from './BookFields'
+import { BookGallery } from './BookGallery'
 import { ConfirmDialog } from './ConfirmDialog'
 import { IsbnPrompt } from './IsbnPrompt'
 
@@ -84,7 +86,7 @@ export function BookDetail({
   const [editing, setEditing] = useState(!saved)
   const [asking, setAsking] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [zoomed, setZoomed] = useState<Slot | null>(null)
+  const [zoomed, setZoomed] = useState<Frame | null>(null)
   const [jokeIndex, setJokeIndex] = useState(0)
   const wasBusy = useRef(false)
 
@@ -102,7 +104,6 @@ export function BookDetail({
     wasBusy.current = relookupBusy
   }, [relookupBusy])
 
-  const taken = SLOTS.filter((slot) => photos[slot])
   const category = draft.isFiction ? 'Fiction' : 'Non-fiction'
   const filing = draft.authorFilingOverride || derivedFiling
 
@@ -198,37 +199,31 @@ export function BookDetail({
 
       {placement}
 
-      {/* Side by side and nothing else between them, because the whole job
-          here is deciding whether these are the same book. */}
-      {catalogueCover && (
-        <div className="compare">
-          <figure className="compare__side">
-            <img src={catalogueCover} alt="Cover from the catalogue" loading="lazy" />
-            <figcaption>Catalogue says</figcaption>
-          </figure>
-          <figure className="compare__side">
-            {photos.front
-              ? <img src={photos.front} alt="The book photographed" loading="lazy" />
-              : <span className="compare__none">no front photo</span>}
-            <figcaption>Your photo</figcaption>
-          </figure>
-        </div>
-      )}
+      {/*
+        * One photo at a time, with the spine beside it.
+        *
+        * These used to be five images stacked down the page: the catalogue
+        * cover and the front photo side by side to compare, then all three
+        * captures again below. That is most of a phone screen for something
+        * you are looking at with the book itself in your other hand. The
+        * catalogue cover and the front photo are still adjacent, so flicking
+        * between them answers "is this the same book" by putting one exactly
+        * where the other was, which is a sharper comparison than two
+        * thumbnails at half width.
+        */}
+      <BookGallery
+        sources={{
+          catalogue: catalogueCover,
+          front: photos.front,
+          back: photos.back,
+          edge: photos.edge,
+        }}
+        onZoom={setZoomed}
+      />
 
-      {taken.length > 0 && (
-        <div className="photos">
-          {taken.map((slot) => (
-            <figure key={slot} className="photo" onClick={() => setZoomed(slot)}>
-              <img src={photos[slot]} alt={SLOT_LABEL[slot]} loading="lazy" />
-              <figcaption>{SLOT_LABEL[slot]}</figcaption>
-            </figure>
-          ))}
-        </div>
-      )}
-
-      {zoomed && photos[zoomed] && (
+      {zoomed && (
         <div className="lightbox" onClick={() => setZoomed(null)}>
-          <img src={photos[zoomed]} alt={SLOT_LABEL[zoomed]} />
+          <img src={zoomed.src} alt={zoomed.label} />
           <span className="lightbox__hint">Tap to close</span>
         </div>
       )}
