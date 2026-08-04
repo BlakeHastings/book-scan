@@ -638,6 +638,51 @@ describe('shelving a book onto a bookcase', () => {
     expect(running.store.getBook(id)?.checked_out_at).toBe(takenDown)
     expect(running.store.getBook(id)?.notes).toBe('signed by the author')
   })
+
+  /**
+   * The exact shape of #90. An edit that re-files a book moves it in the
+   * sequence without anybody having carried it to a shelf, so the Library's
+   * misfile list is right to keep reporting it once the edit is saved. The
+   * detail view previewing that same saved edit has to say the same thing:
+   * a gap still to carry the book to, not a row it is already sitting in.
+   * One answer checked against the other is worth more than either alone,
+   * since it is the two disagreeing that was the actual defect.
+   */
+  it('previews a re-filed book as still needing to move, agreeing with the Library', async () => {
+    await seed('Book', 'Ann Author')
+    await seed('Book', 'Mary Mills')
+    const zola = await seed('Book', 'Zoe Zola')
+
+    // Zola alone gets pushed on to 1B, and the move is recorded, the way the
+    // shelving step has somebody do it.
+    const split = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area',
+    })
+    expect(split.body.step.id).toBe(zola)
+    await patch(`/api/books/${zola}/location`, { location: split.body.step.to })
+    expect(running.store.getBook(zola)?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+
+    // Renaming the author to Adams sorts the book back to the front of the
+    // range. Nobody has carried it there, so it is still, physically, on 1B.
+    await put(`/api/books/${zola}`, { title: 'Book', authors: ['Al Adams'], isFiction: true })
+
+    const library = await misfiles()
+    expect(library.misfiles).toHaveLength(1)
+    expect(library.misfiles[0].book.id).toBe(zola)
+    expect(library.misfiles[0].from).toBe('1B')
+    expect(library.misfiles[0].to).toBe('1A')
+
+    const { status, body } = await post('/api/placement/preview', {
+      title: 'Book', authors: ['Al Adams'], isFiction: true, excludeId: zola,
+    })
+    expect(status).toBe(200)
+    expect(body.derivedLocation).toBe('1A')
+    // Not settled: a gap at the front of 1A rather than the book drawn
+    // already standing in the row.
+    expect(body.strip.placedIndex).toBeNull()
+    expect(body.strip.gapIndex).toBe(0)
+  })
 })
 
 /**
