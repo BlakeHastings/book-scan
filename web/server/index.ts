@@ -290,18 +290,9 @@ export function createApp(options: CreateAppOptions): express.Express {
    * the book's photos with them, and there is no getting those back.
    */
   function deleteOrphanedImages(names: string[]): string[] {
-    const usedByBook = db.prepare(
-      `SELECT 1 FROM books
-        WHERE front_image = ?1 OR back_image = ?1 OR edge_image = ?1 OR cover_image = ?1
-        LIMIT 1`,
-    )
-    const usedByCapture = db.prepare(
-      'SELECT 1 FROM captures WHERE front_image = ? OR back_image = ? OR edge_image = ? LIMIT 1',
-    )
-
     const removed: string[] = []
     for (const name of names.filter(Boolean)) {
-      if (usedByBook.get(name) || usedByCapture.get(name, name, name)) continue
+      if (store.imageInUse(name)) continue
       try {
         rmSync(join(coverDir, name), { force: true })
         removed.push(name)

@@ -382,6 +382,34 @@ export class Store {
     this.db.prepare('DELETE FROM books WHERE id = ?').run(id)
   }
 
+  /**
+   * Whether any book or capture still names this file in one of its image
+   * columns.
+   *
+   * A capture hands its filenames to the book it becomes, so a capture and a
+   * shelved book routinely name the same file on disk. Callers deleting an
+   * orphaned photo must check both tables, or removing a capture's copy of a
+   * filename a book still uses would take the book's photo with it, and
+   * there is no getting that back.
+   */
+  imageInUse(name: string): boolean {
+    const usedByBook = this.db
+      .prepare(
+        `SELECT 1 FROM books
+          WHERE front_image = ? OR back_image = ? OR edge_image = ? OR cover_image = ?
+          LIMIT 1`,
+      )
+      .get(name, name, name, name)
+    if (usedByBook) return true
+
+    const usedByCapture = this.db
+      .prepare(
+        'SELECT 1 FROM captures WHERE front_image = ? OR back_image = ? OR edge_image = ? LIMIT 1',
+      )
+      .get(name, name, name)
+    return Boolean(usedByCapture)
+  }
+
   // -----------------------------------------------------------------------
   // Reads
   // -----------------------------------------------------------------------

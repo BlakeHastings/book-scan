@@ -4,6 +4,7 @@
  * Runs against a real in-memory SQLite database, not a mock.
  */
 
+import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
 import { Store, type DraftBook } from './store'
@@ -13,9 +14,11 @@ function draft(over: Partial<DraftBook> & { title: string; authors: string[] }):
 }
 
 let store: Store
+let db: Database
 
 beforeEach(() => {
-  store = new Store(openDatabase(':memory:'))
+  db = openDatabase(':memory:')
+  store = new Store(db)
 })
 
 describe('placement as books arrive one at a time', () => {
@@ -276,5 +279,57 @@ describe('checking a book out and back in', () => {
   it('reports no change for a book that does not exist, rather than throwing', () => {
     const result = store.setCheckedOut(999, true)
     expect(result).toEqual({ changed: false, checkedOutAt: null })
+  })
+})
+
+describe('imageInUse', () => {
+  it('reports false for a name nothing on file references', () => {
+    expect(store.imageInUse('ghost.jpg')).toBe(false)
+  })
+
+  it("checks all four of a book's image columns, not just the front photo", () => {
+    const { id } = store.addBook(
+      draft({
+        title: 'X',
+        authors: ['Ann Author'],
+        frontImage: 'front.jpg',
+        backImage: 'back.jpg',
+        edgeImage: 'edge.jpg',
+      }),
+    )
+    store.setCoverImage(id, 'cover.jpg')
+
+    expect(store.imageInUse('front.jpg')).toBe(true)
+    expect(store.imageInUse('back.jpg')).toBe(true)
+    expect(store.imageInUse('edge.jpg')).toBe(true)
+    expect(store.imageInUse('cover.jpg')).toBe(true)
+  })
+
+  it('reports true when only a capture names the file, across all three of its columns', () => {
+    // Raw insert: nothing on Store creates a capture, and the fixture only
+    // needs the row to exist, not the queue machinery around it.
+    for (const column of ['front_image', 'back_image', 'edge_image']) {
+      db.prepare(
+        `INSERT INTO captures (status, ${column}, created_at) VALUES ('pending', 'shared.jpg', ?)`,
+      ).run(new Date().toISOString())
+      expect(store.imageInUse('shared.jpg')).toBe(true)
+      db.prepare('DELETE FROM captures').run()
+    }
+  })
+
+  it("does not report a book's image as orphaned merely because a finished capture also names it", () => {
+    // This is the case deleteOrphanedImages exists to protect. A capture
+    // hands its filenames to the book it becomes, so a capture and the book
+    // it produced routinely name the same file. Deleting on the capture's
+    // behalf must not take the book's copy of that file with it.
+    const { id } = store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
+    )
+    db.prepare(
+      `INSERT INTO captures (status, back_image, created_at, book_id)
+       VALUES ('done', 'shared.jpg', ?, ?)`,
+    ).run(new Date().toISOString(), id)
+
+    expect(store.imageInUse('shared.jpg')).toBe(true)
   })
 })
