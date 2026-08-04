@@ -278,9 +278,12 @@ Then(
     const library = page.locator('button.cam__chip-btn', { hasText: 'Library' })
     if (await library.isVisible()) await library.click()
 
-    const row = page.locator('li.shelfrow', { hasText: title })
-    await expect(row).toBeVisible()
-    await expect(row.locator('.shelfrow__loc')).toHaveText(shelf)
+    // The library draws each area as a run of spines now, so a book is in
+    // the right place when its spine is inside that area's section. The
+    // spine's tooltip is what carries the title: at 34px wide there is no
+    // room to print it, which is also true of the shelf itself.
+    const area = page.locator(`section.shelfgroup[data-label="${shelf}"]`)
+    await expect(area.locator(`button.spine[title*=${JSON.stringify(title)}]`)).toBeVisible()
   },
 )
 
@@ -352,12 +355,12 @@ Then('nothing should need attention', async ({ page }) => {
 })
 
 /**
- * A catalogued book opened by tapping its row in the shelf listing, rather
+ * A catalogued book opened by tapping its spine in the shelf drawing, rather
  * than the off-bookcase list `openLibrary` above already covers. Same
  * destination, a different route in.
  */
 When('I open {string} from the library', async ({ page }, title: string) => {
-  await page.locator('li.shelfrow', { hasText: title }).locator('.shelfrow__body').click()
+  await page.locator(`button.spine[title*=${JSON.stringify(title)}]`).first().click()
   await expect(page.locator('.detail__title')).toHaveText(title)
 })
 

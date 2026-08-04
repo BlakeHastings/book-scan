@@ -16,7 +16,7 @@ import { resolveIsbnPair } from '../shared/isbn'
 import { bookStillInHand } from './lib/cameraReturn'
 import { BookDetail } from './components/BookDetail'
 import { PlacementView } from './components/ShelfStrip'
-import { ShelfView } from './components/ShelfView'
+import { ShelfView, type LibraryReturnAnchor } from './components/ShelfView'
 import { ShelveView } from './components/ShelveView'
 import { HomePane } from './components/HomePane'
 import { QueuePane, type QueueReturnAnchor } from './components/QueuePane'
@@ -106,6 +106,10 @@ export default function App() {
   // in the list to land, since the shelved book leaves the queue behind.
   const [fromQueue, setFromQueue] = useState(false)
   const [queueReturn, setQueueReturn] = useState<QueueReturnAnchor | null>(null)
+  // Where the library was when a book was opened from it. Rows are long and
+  // the page is a stack of them, so coming back to the top of the first
+  // bookcase means finding your place again every time.
+  const [libraryReturn, setLibraryReturn] = useState<LibraryReturnAnchor | null>(null)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
@@ -703,6 +707,37 @@ export default function App() {
   }
 
   /**
+   * Open a book from the library, remembering where the library was.
+   *
+   * The anchor is kept here rather than in ShelfView because ShelfView is
+   * unmounted the moment the book opens, which is exactly why it cannot
+   * remember anything itself. Same arrangement as the queue's (#47).
+   */
+  const openFromLibrary = (id: number, anchor: LibraryReturnAnchor) => {
+    setLibraryReturn(anchor)
+    void openBook(id, 'library')
+  }
+
+  /**
+   * Jump from the book on screen to another one standing next to it.
+   *
+   * The row drawn on the detail view is the shelf, so tapping a spine in it
+   * is walking along the shelf rather than navigating away (#81). Where the
+   * way out leads is unchanged: you are still in whatever you came from.
+   *
+   * The library's memory of your place moves along with you, so leaving lands
+   * on the book you ended on rather than the one you first opened.
+   */
+  const openNeighbour = (id: number) => {
+    setLibraryReturn((current) => (current ? { ...current, bookId: id } : current))
+    // A different book is a different record, and its actions are at the top
+    // of the page. Landing halfway down someone else's page reads as the tap
+    // not having worked.
+    window.scrollTo({ top: 0 })
+    void openBook(id, origin)
+  }
+
+  /**
    * Open a queue item in the review pane, pre-filled from its lookup and from
    * whatever anybody has already worked out about it.
    *
@@ -1109,7 +1144,14 @@ export default function App() {
         />
       )}
 
-      {mode === 'library' && <ShelfView onOpen={openBook} onMove={moveAcrossBoundary} />}
+      {mode === 'library' && (
+        <ShelfView
+          onOpen={openFromLibrary}
+          onMove={moveAcrossBoundary}
+          returnAnchor={libraryReturn}
+          onReturnAnchorConsumed={() => setLibraryReturn(null)}
+        />
+      )}
 
       {mode === 'review' && (
         <main className="main">
@@ -1141,6 +1183,7 @@ export default function App() {
                 placement={placement}
                 pending={placementStale}
                 instruction={false}
+                onOpen={openNeighbour}
               />
             ) : undefined}
             doneLabel={

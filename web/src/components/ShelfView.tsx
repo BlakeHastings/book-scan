@@ -1,14 +1,30 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, type BookRow, type CheckedOutAt, type Counts, type Misfile, type Move,
   type ShelfGroupDto, type ShelvingReview,
 } from '../lib/api'
-import { coverUrl } from './PlacementCard'
+import { missingFrom, rowOf } from '../lib/shelfRow'
+import { SpineRow } from './ShelfStrip'
 import { areaLabel } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
+/**
+ * Where the library was when a book was opened from it, so coming back lands
+ * there rather than at the top of the first bookcase.
+ *
+ * Both axes, because this view now has two. The page scroll says which area
+ * you were looking at; the book says where along that area's row you were,
+ * and it is stored as an id rather than a pixel offset so the row can have
+ * moved underneath you and still land in the right place.
+ */
+export interface LibraryReturnAnchor {
+  range: ShelfRange
+  bookId: number
+  scrollY: number
+}
+
 interface Props {
-  onOpen: (id: number) => void
+  onOpen: (id: number, anchor: LibraryReturnAnchor) => void
   /**
    * Start moving a boundary book on to the plank next door.
    *
@@ -18,19 +34,33 @@ interface Props {
    * only says which book and which way (#79).
    */
   onMove: (range: ShelfRange, id: number, direction: 'next' | 'previous') => Promise<void>
+  /**
+   * Set when this mount is a return trip from a book's detail view. Used once
+   * to put the person back where they were, then reported as consumed.
+   */
+  returnAnchor?: LibraryReturnAnchor | null
+  onReturnAnchorConsumed?: () => void
 }
 
 /**
  * The shelves as they physically are, rather than one flat list.
  *
- * Each group is a real shelf. The button at the end of the last one is how the
- * software learns something it cannot see: that the shelf is full. From then
- * on a book inserted earlier in the alphabet pushes the last one along, and
- * the moves that causes are reported rather than left for you to discover at
- * the shelf.
+ * Each area is drawn as one horizontal run of spines, scrolled sideways,
+ * because that is what the person sees standing in front of it. It
+ * deliberately does not wrap: a break in a run means "a new area" everywhere
+ * else here, so a wrapped row would invent furniture (#81).
+ *
+ * The button at the end of the last shelf is how the software learns
+ * something it cannot see: that the shelf is full. From then on a book
+ * inserted earlier in the alphabet pushes the last one along, and the moves
+ * that causes are reported rather than left for you to discover at the shelf.
  */
-export function ShelfView({ onOpen, onMove }: Props) {
-  const [range, setRange] = useState<ShelfRange>('fiction')
+export function ShelfView({
+  onOpen, onMove, returnAnchor, onReturnAnchorConsumed,
+}: Props) {
+  // A return trip opens on the range it left from, or the tab would change
+  // under the person while they were away.
+  const [range, setRange] = useState<ShelfRange>(returnAnchor?.range ?? 'fiction')
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
   const [moves, setMoves] = useState<Move[]>([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +69,21 @@ export function ShelfView({ onOpen, onMove }: Props) {
   const [off, setOff] = useState<CheckedOutAt[]>([])
   const [review, setReview] = useState<ShelvingReview | null>(null)
   const [moving, setMoving] = useState(0)
+  const spines = useRef(new Map<number, HTMLElement>())
+  /*
+   * The anchor this mount was born with, which is the only one that means
+   * "you are coming back".
+   *
+   * Read from the prop once, on the first render, and never again. Opening a
+   * book records an anchor while this view is still on screen, since the book
+   * has to be fetched before the screen changes. Watching the prop would see
+   * that one arrive, treat the visit it is still in the middle of as a return
+   * trip, and consume it, so the actual return had nothing left to restore.
+   */
+  const arrivedWith = useRef(returnAnchor ?? null)
+  // A fresh mount every time the library is shown (App only renders it while
+  // mode === 'library'), so this only needs to fire once per visit.
+  const restored = useRef(false)
 
   /*
    * Both tallies, not just this tab's. A non-fiction book saved while the
@@ -62,6 +107,35 @@ export function ShelfView({ onOpen, onMove }: Props) {
   }, [range])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * Put the person back where they were reading, not at the top.
+   *
+   * A row can be forty books long, and the page is a stack of those rows, so
+   * both axes have to be restored or coming back from a book means hunting
+   * for the place you had already found. The page scroll goes back first, and
+   * then the book that was opened is brought into view along its own row;
+   * `block: 'nearest'` means that second step does not undo the first, since
+   * by then the row is already where it was.
+   *
+   * Registers as consumed whether or not the book is still there. It can have
+   * been deleted, or checked out and so no longer in the run at all, and in
+   * that case the vertical position alone is the best answer available.
+   */
+  useEffect(() => {
+    const anchor = arrivedWith.current
+    if (restored.current || loading || !anchor) return
+    restored.current = true
+
+    window.scrollTo({ top: anchor.scrollY })
+    spines.current.get(anchor.bookId)
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' })
+    onReturnAnchorConsumed?.()
+  }, [groups, loading, onReturnAnchorConsumed])
+
+  /** Open a book, remembering enough to come back to this exact spot. */
+  const open = (id: number) =>
+    onOpen(id, { range, bookId: id, scrollY: window.scrollY })
 
   /**
    * The person says they have carried this book to where it belongs.
@@ -125,24 +199,6 @@ export function ShelfView({ onOpen, onMove }: Props) {
 
   const title = (book: BookRow) => book.author_filing || book.authors || book.title
 
-  /**
-   * The books on a shelf plus, in their alphabetical slots, the ones that
-   * belong there but are currently off it.
-   *
-   * The numbering deliberately counts only what is physically present, since
-   * that is what you use to find a book by counting along. An absent book gets
-   * a dash: it is in the list to explain a gap, not to be counted to.
-   */
-  const rowsFor = (group: ShelfGroupDto) => {
-    const present = group.books.map(({ book }, i) => ({ book, n: i + 1, here: true }))
-    const absent = off
-      .filter((entry) => entry.label === group.label)
-      .map((entry) => ({ book: entry.book, n: 0, here: false }))
-
-    return [...present, ...absent].sort((a, b) =>
-      a.book.sort_key < b.book.sort_key ? -1 : a.book.sort_key > b.book.sort_key ? 1 : 0)
-  }
-
   return (
     <main className="main">
       <div className="segmented">
@@ -176,7 +232,7 @@ export function ShelfView({ onOpen, onMove }: Props) {
             <div key={misfile.book.id} className="attention__row">
               <button
                 className="attention__body"
-                onClick={() => onOpen(misfile.book.id)}
+                onClick={() => open(misfile.book.id)}
               >
                 <span className="attention__title">{misfile.book.title}</span>
                 <span className="attention__where">
@@ -213,11 +269,12 @@ export function ShelfView({ onOpen, onMove }: Props) {
             Off the bookcase ({off.length})
           </h3>
           <p className="hint">
-            Held out of the layout, so nothing is filed next to them. Open one
-            to put it back.
+            Not drawn in the rows below, because they are not on the bookcase:
+            the run has closed up behind each one, exactly as it has in the
+            room. Open one to put it back.
           </p>
           {off.map(({ book, label }) => (
-            <button key={book.id} className="offshelf__row" onClick={() => onOpen(book.id)}>
+            <button key={book.id} className="offshelf__row" onClick={() => open(book.id)}>
               <span className="offshelf__title">{book.title}</span>
               <span className="offshelf__author">{title(book)} · belongs at {label}</span>
             </button>
@@ -256,9 +313,13 @@ export function ShelfView({ onOpen, onMove }: Props) {
         const last = group.books[group.books.length - 1]?.book
         const above = groups[index - 1]
         const below = groups[index + 1]
+        const missing = missingFrom(group.label, off)
 
         return (
-          <section key={group.label} className="shelfgroup">
+          /* The label is on the section as well as spelled out in the header,
+             because the header spells it as two halves ("Bookcase 1", "Area
+             A") and nothing else on the page carries "1A" whole. */
+          <section key={group.label} className="shelfgroup" data-label={group.label}>
             <header className="shelfgroup__head">
               {/* Spelled out rather than left as "A2": the bookcase number is
                   the half people actually need when walking to the book. */}
@@ -266,9 +327,7 @@ export function ShelfView({ onOpen, onMove }: Props) {
               <span className="shelfgroup__shelf">Area {areaLabel(group.area)}</span>
               <span className="shelfgroup__count">
                 {group.books.length} books
-                {rowsFor(group).length > group.books.length
-                  ? `, ${rowsFor(group).length - group.books.length} off`
-                  : ''}
+                {missing > 0 ? `, ${missing} off` : ''}
               </span>
             </header>
 
@@ -289,35 +348,18 @@ export function ShelfView({ onOpen, onMove }: Props) {
               </div>
             )}
 
-            <ol className="shelf">
-              {rowsFor(group).map(({ book, n, here }) => (
-                <li key={book.id} className={here ? 'shelfrow' : 'shelfrow shelfrow--off'}>
-                  {/* Count along the shelf to find it. The old per-row A1 is
-                      gone now that the header carries the location, so this is
-                      what identifies a book in the room. */}
-                  <span className="shelfrow__n">{here ? n : '--'}</span>
-                  <span className="shelfrow__photo">
-                    {(book.edge_image || book.front_image) && (
-                      <img
-                        className={book.edge_image ? 'thumb thumb--edge' : 'thumb thumb--front'}
-                        src={coverUrl(book.edge_image || book.front_image)}
-                        alt=""
-                        loading="lazy"
-                      />
-                    )}
-                  </span>
-                  <button className="shelfrow__body" onClick={() => onOpen(book.id)}>
-                    <span className="shelfrow__author">{title(book)}</span>
-                    <span className="shelfrow__title">{book.title}</span>
-                  </button>
-                  {/* Repeated per row so a row still says where it is once the
-                      header has scrolled away. */}
-                  <span className="shelfrow__loc">
-                    {here ? group.label : 'off bookcase'}
-                  </span>
-                </li>
-              ))}
-            </ol>
+            {/* The area itself: one run of spines, scrolled sideways and
+                never wrapped, with the number under each book being what you
+                count along to find it. Tap one to open it. */}
+            <SpineRow
+              books={rowOf(group)}
+              label={group.label}
+              onOpen={open}
+              registerSpine={(id, element) => {
+                if (element) spines.current.set(id, element)
+                else spines.current.delete(id)
+              }}
+            />
 
             {/* And at the bottom, for the same reason. Nothing is offered on
                 the last plank of the range: there is no next one, and making

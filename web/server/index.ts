@@ -34,7 +34,9 @@ import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
 import { confidentPick } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
-import { buildPlacement, formatLocation, parseLocation } from '../shared/shelving'
+import {
+  buildPlacement, formatLocation, parseLocation, shelfImage, type ShelfSlot,
+} from '../shared/shelving'
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -137,14 +139,22 @@ function checkoutOutcome(out: boolean, changed: boolean): 'checked-out' | 'alrea
 }
 
 function stripBook(row: ShelvedBook, withPhoto: boolean) {
+  // Same precedence as a neighbour thumbnail, and the same function: the
+  // spine is what you see looking at a shelf, and a cover is only a fallback.
+  // The slot travels with the filename so the client can say which it got
+  // rather than calling a front cover a spine.
+  const photo = shelfImage({
+    front: row.front_image ?? '',
+    back: row.back_image ?? '',
+    edge: row.edge_image ?? '',
+  })
+
   return {
     id: row.id,
     title: row.title,
     authorFiling: row.author_filing,
-    // Same precedence as a neighbour thumbnail: the spine is what you see
-    // looking at a shelf, and a cover is only a fallback.
-    spine: withPhoto ? row.edge_image || row.front_image || row.back_image || '' : '',
-    spineSlot: withPhoto && !row.edge_image ? 'front' : 'edge',
+    spine: withPhoto ? photo.name : '',
+    spineSlot: withPhoto ? photo.slot : ('' as ShelfSlot),
   }
 }
 
@@ -275,10 +285,16 @@ export function createApp(options: CreateAppOptions): express.Express {
   /**
    * The shelf drawn end on, for the placing view.
    *
-   * Only the two books either side of the gap carry a photo. They are the
-   * ones you actually look for on the shelf; sending thirty spine filenames
-   * so the client can render thirty thumbnails it will not look at costs a
-   * request each and tells you nothing extra.
+   * Every book carries its photo, the same as the settled row below. This
+   * used to send two, the pair touching the gap, on the grounds that they are
+   * the ones you look for and the rest are only counted along. That was true
+   * of a strip nobody could tap, and it stopped being true when the same
+   * drawing became the way through to a book (#81): a checked out book's page
+   * would otherwise show two photographs in a run of blank blocks, which
+   * reads as missing data rather than as a design.
+   *
+   * The photo files are immutable, their names carry a timestamp, and they
+   * are served with a long cache, so a row costs its requests once.
    */
   function stripFor(
     range: 'fiction' | 'nonfiction',
@@ -299,13 +315,21 @@ export function createApp(options: CreateAppOptions): express.Express {
       label: strip.label,
       gapIndex: strip.gapIndex,
       placedIndex: null,
-      books: strip.books.map((placed, i) =>
-        stripBook(placed.book, i === strip.gapIndex - 1 || i === strip.gapIndex),
-      ),
+      books: strip.books.map((placed) => stripBook(placed.book, true)),
     }
   }
 
-  /** The row as it stands, when this book is already in it and in the right place. */
+  /**
+   * The row as it stands, when this book is already in it and in the right
+   * place.
+   *
+   * Every book carries its photo here, unlike the placing strip above. This
+   * row is not an instruction with two landmarks either side of a gap: it is
+   * the area drawn as it looks, and each spine is a way through to that book
+   * (#81). A run of blank blocks with two photographs in it would be neither.
+   * The files are immutable and served with a long cache, so a row scrolled
+   * back to costs nothing the second time.
+   */
   function settledRow(range: 'fiction' | 'nonfiction', sortKey: string, id: number) {
     const row = store.getBook(id)
     if (!row || row.shelf_range !== range || row.sort_key !== sortKey) return null
@@ -317,10 +341,7 @@ export function createApp(options: CreateAppOptions): express.Express {
       label: strip.label,
       gapIndex: -1,
       placedIndex: strip.index,
-      books: strip.books.map((placed, i) =>
-        // The book itself and the two it sits between.
-        stripBook(placed.book, Math.abs(i - strip.index) <= 1),
-      ),
+      books: strip.books.map((placed) => stripBook(placed.book, true)),
     }
   }
 
