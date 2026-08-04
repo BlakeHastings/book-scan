@@ -523,7 +523,14 @@ export default function App() {
    * `shelvedAt` is the shelf the person has just been told to put the book on
    * and answered "it fits" about. Empty for an ordinary edit, where nobody has
    * been anywhere near the shelves and the recorded location must be left
-   * alone.
+   * alone, along with whether the book is on the bookcase at all.
+   *
+   * That is the whole of what this knows about the physical world, and it is
+   * carried by one value. Nothing here reads `checkedOutAt` to decide to write
+   * anything: a save that used to check a book in on the strength of the book
+   * being out is what destroyed take-down times, since editing a note is not a
+   * statement about where a book is (#87). Both statements a placement makes
+   * now travel with the label, in `api.updateAndShelve`.
    *
    * A new book needs nothing here: POST /api/books records where it landed as
    * part of the insert. Only the update path had the gap, and it is the path a
@@ -545,12 +552,6 @@ export default function App() {
       // it at save time, but you have just come through the shelving step
       // with the book in your hand, so repeating the instruction over the
       // next book's viewfinder tells you nothing you did not act on.
-      // Coming out of the shelving step with a book that was off the shelf
-      // means it is back on one. Done here rather than in the view, so it
-      // cannot be missed by a route that skips the shelving step.
-      if (bookId !== null && checkedOutAt) {
-        await api.setCheckedOut(bookId, false).catch(() => {})
-      }
       if (stay) {
         // Staying means the edit just written is the one still on screen: no
         // navigation happens, so nothing else bumps the session for it. A

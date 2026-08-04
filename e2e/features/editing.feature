@@ -37,3 +37,24 @@ Feature: Editing a catalogued book
     Then the catalogue should hold "The Dispossessed" recorded as:
       | isbn13 | 9780060512750    |
       | title  | The Dispossessed |
+
+  Scenario: Correcting a note says nothing about where the book physically is
+    A save of a catalogued book used to check it back in whatever the edit
+    said, so correcting a note on a book that was down off the shelf cleared
+    the moment it was taken down. Store.setCheckedOut guards that timestamp
+    deliberately, because there is no history table and nothing can recover it
+    once it is gone (#87). The screen and the catalogue then disagreed too: the
+    record still offered to put back a book the database thought was already
+    on the bookcase.
+
+    When I open the app
+    And I go to the library
+    And I open "Rendezvous with Rama" from the library
+    And I take it off the bookcase
+    And I start editing the details
+    And I set "Notes" to "in the pile by the door"
+    And I save the changes
+    Then the catalogue should record "Rendezvous with Rama" as off the bookcase
+    And the catalogue should hold "Rendezvous with Rama" recorded as:
+      | notes | in the pile by the door |
+    And the book should say it is off the bookcase

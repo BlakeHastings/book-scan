@@ -370,6 +370,26 @@ When('I start editing the details', async ({ page }) => {
 })
 
 /**
+ * Type into one of the book's fields. Exact, for the reason the review screen
+ * assertion is: "Title" also matches "Subtitle" loosely.
+ */
+When('I set {string} to {string}', async ({ page }, label: string, value: string) => {
+  await page.getByLabel(label, { exact: true }).fill(value)
+})
+
+/**
+ * The banner a book off the bookcase carries.
+ *
+ * Asserted after an edit as well as before one, because the screen and the
+ * database disagreeing is half of #87: the row was checked back in and the
+ * page went on offering to put the book back, which sends somebody through a
+ * shelving step for a book already in the layout.
+ */
+Then('the book should say it is off the bookcase', async ({ page }) => {
+  await expect(page.locator('.checkedout')).toBeVisible()
+})
+
+/**
  * The Change ISBN flow: open the prompt, type the digits, submit. The lookup
  * it starts is asynchronous and outlives this step; whether Save waits for it
  * is what a scenario using this step is checking, not asserted here.

@@ -163,8 +163,23 @@ describe('updateAndShelve', () => {
     expect(sent.map((call) => `${call.method} ${call.url}`)).toEqual([
       'PUT /api/books/7',
       'PATCH /api/books/7/location',
+      'POST /api/books/7/checkout',
     ])
     expect((sent[1]?.body as { location: string }).location).toBe('1B')
+  })
+
+  /**
+   * The second half of the same observation. Somebody has walked to a plank
+   * with the book in their hand and said it fits, so the book is on the
+   * bookcase, and saying so on every confirmed placement costs nothing: asking
+   * for the state a book is already in is a no-op rather than a write (#15).
+   */
+  it('says the book is on the bookcase, because somebody just put it there', async () => {
+    const sent = captureFetch()
+
+    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune' }, '1B')
+
+    expect(sent[2]?.body).toEqual({ out: false })
   })
 
   it('says nothing about the location when no one has been to a shelf', async () => {
@@ -174,5 +189,27 @@ describe('updateAndShelve', () => {
 
     expect(sent).toHaveLength(1)
     expect(sent[0]?.method).toBe('PUT')
+  })
+
+  /**
+   * The seam #87 lived in, and the reason it cost something irreplaceable.
+   *
+   * Editing a note is not a statement about where a book physically is, and
+   * checking a book in on the strength of it being out overwrote the moment it
+   * was taken down. There is no history table, so that moment does not come
+   * back. A metadata-only save must therefore say nothing about the bookcase
+   * at all, exactly as it says nothing about the location.
+   */
+  it('says nothing about the bookcase when no one has been to a shelf', async () => {
+    const sent = captureFetch()
+
+    await api.updateAndShelve(
+      7, { ...emptyDraft, title: 'Dune', notes: 'signed by the author' }, '',
+    )
+
+    expect(
+      sent.filter((call) => call.url.endsWith('/checkout')),
+      'a metadata edit asserted whether the book was on the bookcase',
+    ).toEqual([])
   })
 })

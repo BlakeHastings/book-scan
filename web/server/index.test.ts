@@ -531,6 +531,32 @@ describe('shelving a book onto a bookcase', () => {
     })
     expect(running.store.getBook(id)?.location).toBe('2C')
   })
+
+  /**
+   * The same rule, one column over (#87).
+   *
+   * A metadata edit is not a statement about where a book physically is, and
+   * whether it is on the bookcase at all is that same kind of statement. The
+   * take-down time is worth more than the location too: `setCheckedOut`
+   * protects it against being rewritten (#15) precisely because there is no
+   * history table, and an edit that quietly cleared it destroyed it outright.
+   * Only POST /api/books/:id/checkout may touch this column.
+   */
+  it('leaves a book that is off the bookcase off it when an edit carries no observation', async () => {
+    const id = await seed('The Dispossessed', 'Ursula K. Le Guin')
+    const { body: out } = await post(`/api/books/${id}/checkout`, { out: true })
+    const takenDown = out.book.checked_out_at as string
+
+    await put(`/api/books/${id}`, {
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      notes: 'signed by the author',
+    })
+
+    // Still off the bookcase, and off it since the moment somebody actually
+    // took it down rather than the moment they corrected a note.
+    expect(running.store.getBook(id)?.checked_out_at).toBe(takenDown)
+    expect(running.store.getBook(id)?.notes).toBe('signed by the author')
+  })
 })
 
 /**
