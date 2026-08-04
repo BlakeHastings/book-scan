@@ -102,6 +102,20 @@ function ownPhoto(row: {
     : { cover: row.cover_image, fromCatalogue: Boolean(row.cover_image) }
 }
 
+/**
+ * Express 4 does not catch a rejected async handler, and an uncaught one
+ * takes the process down. Wrapping a handler in this forwards its rejection
+ * to `next`, which the error middleware registered below turns into a clean
+ * 500 instead of a crash.
+ */
+function asyncRoute(
+  handler: (req: express.Request, res: express.Response) => Promise<void>,
+): express.RequestHandler {
+  return (req, res, next) => {
+    handler(req, res).catch(next)
+  }
+}
+
 export interface CreateAppOptions {
   db: Database
   coverDir: string
@@ -410,7 +424,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    * poll would be a worse version of waiting. Nothing is stored: this reads
    * the image, returns what it found, and forgets it.
    */
-  app.post('/api/identify/isbn', async (req, res) => {
+  app.post('/api/identify/isbn', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const buffer = decodeDataUrl(String(body.image ?? ''))
     if (!buffer) {
@@ -418,21 +432,17 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    try {
-      const result = await identify(buffer, { wantTitle: false })
-      const settled = await settleAmbiguity(result)
+    const result = await identify(buffer, { wantTitle: false })
+    const settled = await settleAmbiguity(result)
 
-      res.json({
-        isbn13: settled.isbn13,
-        isbn10: settled.isbn10,
-        source: result.source,
-        candidates: result.isbnCandidates,
-        barcodes: result.barcodes,
-      })
-    } catch (caught) {
-      res.status(500).json({ error: (caught as Error).message })
-    }
-  })
+    res.json({
+      isbn13: settled.isbn13,
+      isbn10: settled.isbn10,
+      source: result.source,
+      candidates: result.isbnCandidates,
+      barcodes: result.barcodes,
+    })
+  }))
 
   /**
    * Choose between barcode readings that cannot be told apart by arithmetic.
@@ -473,8 +483,13 @@ export function createApp(options: CreateAppOptions): express.Express {
     return winner ? resolveIsbnPair(winner.isbn) : result
   }
 
-  app.get('/api/lookup/isbn/:isbn', async (req, res) => {
-    const raw = normaliseIsbn(req.params.isbn)
+  app.get('/api/lookup/isbn/:isbn', asyncRoute(async (req, res) => {
+    // asyncRoute's handler type is express.Request, not the route-literal
+    // type app.get would otherwise infer, so :isbn is a plain indexed lookup
+    // under noUncheckedIndexedAccess. Express only calls this handler when
+    // the segment matched, so it is always a string.
+    const isbnParam = req.params.isbn ?? ''
+    const raw = normaliseIsbn(isbnParam)
     const pair = resolveIsbnPair(raw)
 
     // The old guard tested `isbn13 && !isValidIsbn13(isbn13)`, which let an
@@ -482,7 +497,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     // making the left side falsy and skipping the check entirely.
     if (!pair.isbn13 && raw.length >= 10) {
       res.status(400).json({
-        error: `"${req.params.isbn}" is not a valid ISBN-10 or ISBN-13.`,
+        error: `"${isbnParam}" is not a valid ISBN-10 or ISBN-13.`,
       })
       return
     }
@@ -496,12 +511,12 @@ export function createApp(options: CreateAppOptions): express.Express {
         ? { id: existing.id, title: existing.title, location: existing.location }
         : null,
     })
-  })
+  }))
 
-  app.get('/api/lookup/title', async (req, res) => {
+  app.get('/api/lookup/title', asyncRoute(async (req, res) => {
     const result = await searchTitle(String(req.query.q ?? ''), { googleApiKey })
     res.json({ ...result, duplicateOf: null })
-  })
+  }))
 
   // ---------------------------------------------------------------------------
   // Placement
@@ -804,33 +819,26 @@ export function createApp(options: CreateAppOptions): express.Express {
    */
   // Not under /api/covers: that path is a static mount with fallthrough off,
   // which answers anything beneath it and would reject this as a 405.
-  app.post('/api/backfill/covers', async (req, res) => {
+  app.post('/api/backfill/covers', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const limit = Math.min(50, Math.max(1, Number(body.limit ?? 10)))
     // Ask again about the ones that came up empty, for when a cover has
     // since been added upstream or a lookup was simply down at the time.
     const retry = body.retry === true
-    try {
-      const todo = store.missingCovers(limit, retry)
+    const todo = store.missingCovers(limit, retry)
 
-      let fetched = 0
-      for (const book of todo) {
-        if (await fetchCoverFor(book.id)) fetched += 1
-      }
-
-      res.json({
-        tried: todo.length,
-        fetched,
-        remaining: store.missingCovers(1000).length,
-        withoutCover: store.missingCovers(1000, true).length,
-      })
-    } catch (caught) {
-      // Express 4 does not catch a rejected async handler, and an uncaught
-      // one takes the process down. Fetching covers is not worth the
-      // server.
-      res.status(500).json({ error: (caught as Error).message })
+    let fetched = 0
+    for (const book of todo) {
+      if (await fetchCoverFor(book.id)) fetched += 1
     }
-  })
+
+    res.json({
+      tried: todo.length,
+      fetched,
+      remaining: store.missingCovers(1000).length,
+      withoutCover: store.missingCovers(1000, true).length,
+    })
+  }))
 
   /** Hash whatever images a book has, so it can be recognised by its cover. */
   async function hashBook(id: number): Promise<void> {
@@ -954,7 +962,7 @@ export function createApp(options: CreateAppOptions): express.Express {
    * Checking in only clears the flag here. Where the book physically goes is
    * the shelving step's business, and the client takes them there.
    */
-  app.post('/api/books/scan-checkout', async (req, res) => {
+  app.post('/api/books/scan-checkout', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const out = body.out !== false
 
@@ -964,87 +972,83 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    try {
-      /*
-       * Barcode only to begin with, and no OCR.
-       *
-       * Someone is stood at a shelf holding a book, so the order of the
-       * fallbacks is the order of their cost. Reading a barcode takes about
-       * a fifth of a second when it works. Hashing the cover to shortlist
-       * books takes about fifty milliseconds. A full OCR pass takes five to
-       * ten seconds and, for a book being held front-out, almost always
-       * returns nothing: it used to run every single time, before the
-       * cover match that actually answers.
-       *
-       * So OCR is last, and only runs when the cover is not recognised
-       * either.
-       */
-      const read = await identify(buffer, {
-        wantTitle: false,
-        ocrEnabled: false,
-        // zxing only. A front held up to the camera has no barcode at all,
-        // and the thorough ladder spends 2.6 seconds proving it before the
-        // cover match answers in fifty milliseconds.
-        barcodeEffort: 'fast',
-      })
+    /*
+     * Barcode only to begin with, and no OCR.
+     *
+     * Someone is stood at a shelf holding a book, so the order of the
+     * fallbacks is the order of their cost. Reading a barcode takes about
+     * a fifth of a second when it works. Hashing the cover to shortlist
+     * books takes about fifty milliseconds. A full OCR pass takes five to
+     * ten seconds and, for a book being held front-out, almost always
+     * returns nothing: it used to run every single time, before the
+     * cover match that actually answers.
+     *
+     * So OCR is last, and only runs when the cover is not recognised
+     * either.
+     */
+    const read = await identify(buffer, {
+      wantTitle: false,
+      ocrEnabled: false,
+      // zxing only. A front held up to the camera has no barcode at all,
+      // and the thorough ladder spends 2.6 seconds proving it before the
+      // cover match answers in fifty milliseconds.
+      barcodeEffort: 'fast',
+    })
 
-      if (!read.isbn13) {
-        const candidates = await looksLike(buffer)
-        if (candidates.length) {
-          res.json({ outcome: 'candidates', barcodes: read.barcodes, candidates })
-          return
-        }
-
-        // Nothing recognised the book, so now it is worth reading the page.
-        const slow = await identify(buffer, { wantTitle: false })
-        if (!slow.isbn13) {
-          res.json({ outcome: 'no-isbn', barcodes: slow.barcodes, candidates: [] })
-          return
-        }
-        read.isbn13 = slow.isbn13
-      }
-
-      /*
-       * One photo can decode several barcodes, and not all of them are real.
-       * A back cover carries the EAN-13 and often an EAN-5 price add-on, and
-       * zbar will occasionally return a misread alongside the true one: Mary
-       * Barton decodes as 9781240286898, 9781840226898 and 9181840826898,
-       * and only the middle one is the book. All three pass their own check
-       * digit or are discarded by the Bookland test, so arithmetic cannot
-       * separate them.
-       *
-       * The catalogue can. Here we are looking for a book that is already in
-       * the library, so the reading that names one is the reading that is
-       * right, whatever order zbar happened to return them in.
-       */
-      const book =
-        read.barcodes
-          .map((code) => resolveIsbnPair(code).isbn13)
-          .filter(Boolean)
-          .map((isbn) => store.findByIsbn(isbn))
-          .find(Boolean)
-        ?? store.findByIsbn(read.isbn13)
-
-      if (!book) {
-        res.json({ outcome: 'not-catalogued', isbn13: read.isbn13 })
+    if (!read.isbn13) {
+      const candidates = await looksLike(buffer)
+      if (candidates.length) {
+        res.json({ outcome: 'candidates', barcodes: read.barcodes, candidates })
         return
       }
 
-      // Already in the state being asked for is worth its own answer:
-      // telling someone a book is off the shelf when they just took it off
-      // reads as a failure, and telling them nothing is worse.
-      // `Store.setCheckedOut` is the one place that decides whether
-      // anything actually changed, so that decision is not repeated here.
-      const result = store.setCheckedOut(book.id, out)
-      res.json({
-        outcome: checkoutOutcome(out, result.changed),
-        book: store.getBook(book.id),
-        counts: store.counts(),
-      })
-    } catch (caught) {
-      res.status(500).json({ error: (caught as Error).message })
+      // Nothing recognised the book, so now it is worth reading the page.
+      const slow = await identify(buffer, { wantTitle: false })
+      if (!slow.isbn13) {
+        res.json({ outcome: 'no-isbn', barcodes: slow.barcodes, candidates: [] })
+        return
+      }
+      read.isbn13 = slow.isbn13
     }
-  })
+
+    /*
+     * One photo can decode several barcodes, and not all of them are real.
+     * A back cover carries the EAN-13 and often an EAN-5 price add-on, and
+     * zbar will occasionally return a misread alongside the true one: Mary
+     * Barton decodes as 9781240286898, 9781840226898 and 9181840826898,
+     * and only the middle one is the book. All three pass their own check
+     * digit or are discarded by the Bookland test, so arithmetic cannot
+     * separate them.
+     *
+     * The catalogue can. Here we are looking for a book that is already in
+     * the library, so the reading that names one is the reading that is
+     * right, whatever order zbar happened to return them in.
+     */
+    const book =
+      read.barcodes
+        .map((code) => resolveIsbnPair(code).isbn13)
+        .filter(Boolean)
+        .map((isbn) => store.findByIsbn(isbn))
+        .find(Boolean)
+      ?? store.findByIsbn(read.isbn13)
+
+    if (!book) {
+      res.json({ outcome: 'not-catalogued', isbn13: read.isbn13 })
+      return
+    }
+
+    // Already in the state being asked for is worth its own answer:
+    // telling someone a book is off the shelf when they just took it off
+    // reads as a failure, and telling them nothing is worse.
+    // `Store.setCheckedOut` is the one place that decides whether
+    // anything actually changed, so that decision is not repeated here.
+    const result = store.setCheckedOut(book.id, out)
+    res.json({
+      outcome: checkoutOutcome(out, result.changed),
+      book: store.getBook(book.id),
+      counts: store.counts(),
+    })
+  }))
 
   /**
    * The books to physically move, for one range.
@@ -1063,6 +1067,20 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, counts: store.counts(), db: options.dbLabel ?? '' })
+  })
+
+  // Express identifies error-handling middleware solely by arity: a function
+  // of exactly four parameters. Dropping the unused `next` here would
+  // silently demote this to ordinary middleware, which Express would then
+  // never call. The underscore keeps `noUnusedParameters` quiet without
+  // deleting the parameter that is the whole reason this runs.
+  //
+  // The message stays generic. This is a phone-facing API, and whatever
+  // `asyncRoute` forwarded here (a database error, a filesystem path, a
+  // stack trace) is not something a stranger holding the app should see.
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('[api] unhandled route error:', err)
+    res.status(500).json({ error: 'Something went wrong.' })
   })
 
   if (startBackgroundWork) {

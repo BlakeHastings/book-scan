@@ -33,6 +33,7 @@ import type { Database } from 'better-sqlite3'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
 import { createApp } from './index'
+import { lookupIsbn } from './lookup'
 import { Store } from './store'
 import { coverHash } from './imagehash'
 import { backCover, frontCover } from './fixtures'
@@ -455,5 +456,22 @@ describe('failure paths', () => {
     const { status, body } = await call('/api/lookup/isbn/12345678901')
     expect(status).toBe(400)
     expect(body.error).toContain('not a valid ISBN')
+  })
+
+  it('a rejected async handler answers 500 instead of taking the server down', async () => {
+    // lookupIsbn had no try/catch of its own before asyncRoute existed: a
+    // rejection here would have been an unhandled promise rejection and
+    // crashed the process rather than answered the request.
+    vi.mocked(lookupIsbn).mockRejectedValueOnce(new Error('lookup service exploded'))
+
+    const { status, body } = await call('/api/lookup/isbn/9780000000002')
+
+    expect(status).toBe(500)
+    expect(body.error).toBe('Something went wrong.')
+    expect(body.error).not.toContain('exploded') // no internals in the response
+
+    // The process, and the app inside it, are still alive.
+    const health = await call('/api/health')
+    expect(health.status).toBe(200)
   })
 })
