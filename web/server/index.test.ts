@@ -325,6 +325,117 @@ describe('checking a book out and back in by id', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 1b. Shelving: a placement a person confirmed has to survive the flow
+// ---------------------------------------------------------------------------
+
+/**
+ * Putting a book on a shelf, driven the way the client drives it.
+ *
+ * Each of these ends by asking /api/misfiles, because that is the thing the
+ * recorded location exists to be reconciled against. A location that is
+ * written but still reported as wrong is no better than one that was never
+ * written, and reporting the move somebody has just been walked through
+ * making is exactly what #61 was.
+ */
+describe('shelving a book onto a bookcase', () => {
+  const seed = async (title: string, author: string): Promise<number> => {
+    const { status, body } = await post('/api/books', {
+      title, authors: [author], isFiction: true,
+    })
+    expect(status, `seeding ${title}`).toBe(201)
+    return body.id as number
+  }
+
+  const misfiles = async () => (await call('/api/misfiles?range=fiction')).body
+
+  it('leaves a book put back where the app said out of the misfile list', async () => {
+    const rama = await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
+    expect(running.store.getBook(rama)?.location).toBe('1A')
+
+    // Somebody moved it and it was never recorded, which is the state a book
+    // is in when the library reports it. What it is told to do next is the
+    // instruction the shelving step then renders.
+    await patch(`/api/books/${dispossessed}/location`, { location: '2A' })
+    const before = await misfiles()
+    expect(before.misfiles).toHaveLength(1)
+    expect(before.misfiles[0].book.id).toBe(dispossessed)
+    expect(before.misfiles[0].to).toBe('1A')
+
+    // Off the bookcase, then back on through the shelving step: the PUT
+    // carries the draft the detail view holds, stale location and all, and
+    // the confirmed shelf goes through the location route.
+    await post(`/api/books/${dispossessed}/checkout`, { out: true })
+    const { status } = await put(`/api/books/${dispossessed}`, {
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      location: '2A',
+    })
+    expect(status).toBe(200)
+    await patch(`/api/books/${dispossessed}/location`, { location: '1A' })
+    await post(`/api/books/${dispossessed}/checkout`, { out: false })
+
+    expect(running.store.getBook(dispossessed)?.location).toBe('1A')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('names the book a shuffle displaces, so where it lands can be recorded', async () => {
+    await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
+
+    const { status, body } = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area',
+    })
+
+    expect(status).toBe(200)
+    expect(body.step.id).toBe(dispossessed)
+    expect(body.step.title).toBe('The Dispossessed')
+    expect(body.step.from).toBe('1A')
+    expect(body.step.to).toBe('1B')
+  })
+
+  it('stops reporting a shuffled book once the shuffle is recorded', async () => {
+    await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
+
+    const { body } = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area',
+    })
+
+    // The boundary has moved and the book has not, which is the false misfile
+    // a shuffle used to manufacture every time.
+    const during = await misfiles()
+    expect(during.misfiles).toHaveLength(1)
+    expect(during.misfiles[0].book.id).toBe(dispossessed)
+    expect(during.misfiles[0].to).toBe('1B')
+
+    // "Yes, it fit" against the step the person was just given.
+    await patch(`/api/books/${body.step.id}/location`, { location: body.step.to })
+
+    expect(running.store.getBook(dispossessed)?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('leaves a recorded location alone when an edit carries no observation', async () => {
+    const id = await seed('The Dispossessed', 'Ursula K. Le Guin')
+    await patch(`/api/books/${id}/location`, { location: '2C' })
+
+    // The two shapes a metadata-only edit arrives in: no location key at all,
+    // and the empty string. Neither one was made by somebody standing at a
+    // shelf, so neither may touch the column that says where the book is.
+    await put(`/api/books/${id}`, {
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+    })
+    expect(running.store.getBook(id)?.location).toBe('2C')
+
+    await put(`/api/books/${id}`, {
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      location: '',
+    })
+    expect(running.store.getBook(id)?.location).toBe('2C')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 2. Camera recognition: scanning identifies, and never writes
 // ---------------------------------------------------------------------------
 

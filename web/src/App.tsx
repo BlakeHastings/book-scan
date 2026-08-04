@@ -417,13 +417,22 @@ export default function App() {
    * Write the book. `stay` is the difference between finishing a new book,
    * which hands the screen back to the camera for the next one, and editing a
    * catalogued book, where throwing you out to the camera would be absurd.
+   *
+   * `shelvedAt` is the shelf the person has just been told to put the book on
+   * and answered "it fits" about. Empty for an ordinary edit, where nobody has
+   * been anywhere near the shelves and the recorded location must be left
+   * alone.
+   *
+   * A new book needs nothing here: POST /api/books records where it landed as
+   * part of the insert. Only the update path had the gap, and it is the path a
+   * book takes every time it goes back on a shelf.
    */
-  const persist = async (stay: boolean): Promise<boolean> => {
+  const persist = async (stay: boolean, shelvedAt = ''): Promise<boolean> => {
     setSaving(true)
     setError('')
     try {
       const result = bookId
-        ? await api.updateBook(bookId, draft)
+        ? await api.updateAndShelve(bookId, draft, shelvedAt)
         : await api.saveBook(
             draft, shots, Boolean(draft.authorFilingOverride), captureId ?? undefined,
           )
@@ -503,8 +512,8 @@ export default function App() {
 
   // Named wrappers rather than passing persist straight to a handler: onClick
   // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
-  /** Finish a new book and hand the screen back to the camera. */
-  const save = () => persist(false)
+  /** Finish shelving a book and hand the screen back to the camera. */
+  const save = (shelvedAt = '') => persist(false, shelvedAt)
 
   /** Write edits to a catalogued book without leaving it. */
   const saveEdits = () => persist(true)
@@ -895,7 +904,7 @@ export default function App() {
           range={draft.isFiction ? 'fiction' : 'nonfiction'}
           title={draft.title || 'this book'}
           saving={saving}
-          onShelved={() => save()}
+          onShelved={(shelvedAt) => save(shelvedAt)}
           onBack={() => setMode('review')}
           onRefresh={refreshPlacement}
         />

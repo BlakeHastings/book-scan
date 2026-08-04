@@ -8,7 +8,7 @@
  * turns into a flake.
  */
 
-import { expect } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import type { DataTable } from 'playwright-bdd'
 
 import { Then, When } from './fixtures.js'
@@ -193,6 +193,46 @@ When('I say it fits and save it', async ({ page }) => {
   await expect(page.locator('button.shutter')).toBeVisible({ timeout: QUEUE_TIMEOUT })
 })
 
+/**
+ * To the library from wherever this scenario happens to be.
+ *
+ * Three ways in, because the library is reachable from the camera, the home
+ * tiles and the header, and which one is on screen depends on what the
+ * scenario just did rather than on anything it says.
+ */
+async function openLibrary(page: Page): Promise<void> {
+  for (const entry of [
+    page.locator('button.cam__chip-btn', { hasText: 'Library' }),
+    page.locator('button.tile', { hasText: 'Library' }),
+    page.locator('nav button.tab', { hasText: 'Library' }),
+  ]) {
+    if (await entry.isVisible()) {
+      await entry.click()
+      break
+    }
+  }
+
+  // Groups and the attention list are filled by the same load, so a rendered
+  // shelf means the misfile check has been asked and answered too. Without
+  // this wait, "nothing needs attention" would pass on a page that has not
+  // finished asking.
+  await expect(page.locator('.shelfgroup').first()).toBeVisible()
+}
+
+When('I go to the library', async ({ page }) => {
+  await openLibrary(page)
+})
+
+When(
+  'I open {string} from the off-bookcase list',
+  async ({ page }, title: string) => {
+    await page.locator('button.offshelf__row', { hasText: title }).click()
+    // A catalogued book opens as a record, not as the editable form, so the
+    // heading is what says the right book is on screen.
+    await expect(page.locator('.detail__title')).toHaveText(title)
+  },
+)
+
 Then(
   'the library should show {string} on shelf {string}',
   async ({ page }, title: string, shelf: string) => {
@@ -205,3 +245,15 @@ Then(
     await expect(row.locator('.shelfrow__loc')).toHaveText(shelf)
   },
 )
+
+/**
+ * The list of books the catalogue thinks are in the wrong place.
+ *
+ * Asserted as absent rather than as "does not contain this title", because the
+ * failure being guarded against is the app reporting a move it has just walked
+ * somebody through: any entry at all, for any book in a scenario that has only
+ * ever put books where it was told, is that failure.
+ */
+Then('nothing should need attention', async ({ page }) => {
+  await expect(page.locator('.attention')).toHaveCount(0)
+})

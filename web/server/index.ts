@@ -672,9 +672,23 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
 
     res.json({
+      /*
+       * The one book to move, named by id as well as by title.
+       *
+       * The id is what lets the client record where that book ended up once
+       * the person says it is there. Without it a shuffle moved the boundary
+       * and left every displaced book recorded on the shelf it came off, so
+       * misfile detection reported a move the person had just been walked
+       * through making.
+       */
       step: result.step
-        ? { ...result.step, title: shelves.layout(range)
-              .find((p) => p.book.id === result.step!.moved.id)?.book.title ?? '' }
+        ? {
+            id: result.step.moved.id,
+            from: result.step.from,
+            to: result.step.to,
+            title: shelves.layout(range)
+              .find((p) => p.book.id === result.step!.moved.id)?.book.title ?? '',
+          }
         : null,
       moves: describeMoves(range, result.moves ?? []),
       groups: shelfGroups(range),

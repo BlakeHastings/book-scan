@@ -46,3 +46,32 @@ Feature: Putting a book on a shelf that is already full
       | The Dispossessed     |
     And the library should show "Dune" on shelf "1A"
     And the library should show "The Dispossessed" on shelf "1B"
+
+    # The book the shuffle displaced was carried to 1B on the app's own
+    # instruction and confirmed. If that is not written down, the library turns
+    # round and reports the move as still outstanding.
+    And the catalogue should hold "The Dispossessed" recorded as:
+      | location | 1B |
+    And nothing should need attention
+
+  Scenario: A book put back where the app said is not then reported as misfiled
+    Books come off the shelves and go back on again, and the shelves move
+    underneath them while they are off. Putting one back is the app telling
+    somebody a shelf and being told the book fits, which is an observation
+    about the room and the only thing allowed to change where the catalogue
+    thinks a book is.
+
+    Given "The Dispossessed" was last recorded at "2A"
+    And "The Dispossessed" is off the bookcase
+
+    When I open the app
+    And I go to the library
+    And I open "The Dispossessed" from the off-bookcase list
+    And I put it back on the bookcase
+    Then it should tell me to put "The Dispossessed" in the gap at "1A"
+
+    When I say it fits and save it
+    And I go to the library
+    Then the catalogue should hold "The Dispossessed" recorded as:
+      | location | 1A |
+    And nothing should need attention
