@@ -66,6 +66,46 @@ Given('the catalogue already holds:', async ({ apiUrl }, table: DataTable) => {
 })
 
 /**
+ * A book already down off the shelf when the scenario starts.
+ *
+ * Through the real checkout route, which takes an id and a direction and no
+ * photograph, because that is the only thing in the app allowed to change this
+ * state and a scenario that wrote the column directly would prove nothing
+ * about it.
+ */
+Given('{string} is off the bookcase', async ({ apiUrl, catalogue }, title: string) => {
+  const book = catalogue.bookByTitle(title)
+  expect(book, `no book called "${title}" to take off the bookcase`).toBeTruthy()
+
+  const response = await fetch(`${apiUrl}/api/books/${book?.id}/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ out: true }),
+  })
+  expect(response.ok, `checking "${title}" out failed: ${response.status}`).toBe(true)
+  expect((await response.json()).outcome).toBe('checked-out')
+})
+
+/**
+ * Where the book physically is, according to the database rather than the
+ * screen. This is what makes "scanning writes nothing" a claim worth making:
+ * the page can say whatever it likes, the column is the fact.
+ */
+Then(
+  'the catalogue should record {string} as {word} the bookcase',
+  async ({ catalogue }, title: string, where: string) => {
+    const book = catalogue.bookByTitle(title)
+    expect(book, `no book called "${title}" in the database`).toBeTruthy()
+
+    if (where === 'off') {
+      expect(book?.checked_out_at, `"${title}" is still on the bookcase`).not.toBeNull()
+    } else {
+      expect(book?.checked_out_at, `"${title}" is still off the bookcase`).toBeNull()
+    }
+  },
+)
+
+/**
  * The camera is a launch argument, not something a step can change, so this
  * checks that the feature is talking about the book Chromium was actually
  * given rather than silently testing a different one.

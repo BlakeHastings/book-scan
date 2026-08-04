@@ -46,8 +46,8 @@ warning permanently.
 src/                    React UI (phone-first, dark, 44px tap targets)
   App.tsx                 top-level state machine: home, capture, review, shelve, library, queue
   components/
-    HomePane              the home screen: Add, Check out, Shelve, Library, plus the queue
-    ShelfCamera            full-screen camera for checking books in and out by cover or barcode
+    HomePane              the home screen: Add, Scan, Library, plus the queue
+    ScanCamera             full-screen camera that identifies a catalogued book by cover or barcode
     IsbnCamera             point-and-read ISBN capture
     IsbnPrompt              the "Change ISBN" dialog that wraps IsbnCamera
     BookDetail             record view and edit form, shared by a new book and a shelved one
@@ -78,11 +78,18 @@ shared/                 pure logic used by both sides
 
 ## The home screen
 
-The app opens on a home screen, not the camera. There are four jobs, and which
-one you are doing is decided before you pick up a book: **Add** a new one,
-**Check out** a stack by holding each up to the camera, **Shelve** a book that
-came back, or browse the **Library**. A queue banner appears underneath,
-badged with a count, only when something is waiting to be confirmed.
+The app opens on a home screen, not the camera. **Add** photographs a book the
+catalogue has never seen. **Scan** is for one it already has: hold the book up
+and it opens the book's own page, where what you can do with it is whatever
+its current state allows. **Library** browses. A queue banner appears
+underneath, badged with a count, only when something is waiting to be
+confirmed.
+
+There used to be two more tiles, Check out and Shelve, and they were the same
+camera pointed in opposite directions. That made you decide what you were
+about to do before you had picked the book up, and it meant the app had two
+ways in to the same book. One door, and the book's state decides what is
+behind it.
 
 ## Capture flow
 
@@ -140,13 +147,29 @@ The phone only ever talks to Vite over HTTPS. Vite proxies `/api` to the
 Express process server-side, which is what keeps the page free of the
 mixed-content errors Safari would otherwise block.
 
-## Checking books in and out with the camera
+## Scanning a book you already have
 
-Once a book is catalogued, `ShelfCamera` lets you work through a stack with the
-camera instead of the keyboard: hold each one up, and it is marked off the
-shelf. Checking a pile out never leaves the screen; checking one back in hands
-straight over to the shelving step, because a book coming back has to go
+Once a book is catalogued, `ScanCamera` finds out which book you are holding
+and opens it. That is all it does. `POST /api/books/scan` takes a photograph
+and no direction, and writes nothing on any branch; the detail view it lands
+on reads the book's `checked_out_at` and offers **Take it off the bookcase**
+or **Put it back on the bookcase** accordingly. Putting one back goes through
+the same guided shuffle as a new book, because a book coming back has to go
 somewhere and only the person holding it knows whether it fits.
+
+**Nothing infers the action from the state.** A checked-out book held up to
+the camera does not check itself back in, tempting as that is. Cover matching
+still puts the wrong book first about one lookup in ten, and the catalogue is
+somebody's afternoons; the gate on revisiting this is a measured wrong-match
+rate, not appetite (#49).
+
+The detail view opens by itself only when the identification is worth it: a
+barcode, which is self-validating, or a single candidate in the `close`
+confidence band (`src/lib/confidence.ts`, distance 0 to 8, "looks the same").
+Two close candidates cannot both be the book in your hands, so that goes back
+as a shortlist, as does anything weaker. Opening a page is not a write, which
+is why a good guess is allowed to do it and is still not allowed to check a
+book out.
 
 Identification here is ordered by cost, cheapest first, because someone is
 standing at a shelf holding the book:
@@ -158,7 +181,7 @@ standing at a shelf holding the book:
    book's stored cover**. Matching by cover, not identifier, is what makes
    holding up a book front-out work at all, and it costs about fifty
    milliseconds. Candidates are a shortlist, never an answer: they are shown
-   with their own photo where one exists, and a person taps to confirm.
+   with their own photo where one exists, and a person taps to open one.
 3. Only if neither of those finds anything does it fall back to a **full OCR
    pass**, which used to run on every single scan and cost five to ten
    seconds, almost always for nothing, since a book held front-out to the
@@ -466,7 +489,8 @@ which condition it exercises.
   adds several seconds more. A readable barcode still gives the fastest path
   by far.
 - Cover matching is a shortlist, not an identification. It is not scale- or
-  rotation-invariant, and never claims to be; a person always confirms the
-  match.
+  rotation-invariant, and never claims to be. It can open a book's page on its
+  own when exactly one candidate is in the close band, because that writes
+  nothing; it can never change a book's state, which always takes a tap.
 - Non-fiction is ordered by author last name, matching fiction. If browsing by
   subject turns out to matter more, that is a change to the sort key tuple.

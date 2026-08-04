@@ -325,7 +325,7 @@ describe('checking a book out and back in by id', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 2. Camera recognition: a cover-hash match must never write
+// 2. Camera recognition: scanning identifies, and never writes
 // ---------------------------------------------------------------------------
 
 describe('scanning a book at the shelf', () => {
@@ -351,52 +351,70 @@ describe('scanning a book at the shelf', () => {
     const { id, buffer } = await seedRecognisable()
     const before = running.store.getBook(id)
 
-    const { status, body } = await post('/api/books/scan-checkout', {
-      image: dataUrl(buffer), out: true,
-    })
+    const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
     expect(status).toBe(200)
     expect(body.outcome).toBe('candidates')
     expect(body.candidates.map((c: { id: number }) => c.id)).toContain(id)
 
     // Load bearing: a shortlist is not a decision. Nothing about the row
-    // this candidate names may have changed, whichever way `out` was asked.
+    // this candidate names may have changed.
     expect(running.store.getBook(id)).toEqual(before)
     expect(running.store.counts().checkedOut).toBe(0)
   }, 20_000)
 
-  it('still writes nothing when the check-in direction is asked for instead', async () => {
+  it('still writes nothing when the book it recognises is already off the shelf', async () => {
+    // The case the automatic path would have acted on: a book that is out,
+    // held up again. Scanning must still only look. Deferred until the wrong
+    // first candidate rate is measurably better than one in ten (#49).
     const { id, buffer } = await seedRecognisable()
+    running.store.setCheckedOut(id, true)
     const before = running.store.getBook(id)
 
-    const { body } = await post('/api/books/scan-checkout', {
-      image: dataUrl(buffer), out: false,
-    })
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
     expect(body.outcome).toBe('candidates')
     expect(running.store.getBook(id)).toEqual(before)
+    expect(running.store.counts().checkedOut).toBe(1)
   }, 20_000)
 
-  it('checks out a catalogued book identified by its barcode', async () => {
+  it('identifies a catalogued book by its barcode and leaves it exactly as it was', async () => {
+    const { id } = running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+    })
+    const before = running.store.getBook(id)
+    const buffer = await backCover(DUNE)
+
+    const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(status).toBe(200)
+    expect(body.outcome).toBe('identified')
+    expect(body.book.id).toBe(id)
+
+    // A barcode settles what the book is, and nothing more. Which of the two
+    // directions the person wanted is theirs to say on the book's own page.
+    expect(running.store.getBook(id)).toEqual(before)
+    expect(running.store.counts().checkedOut).toBe(0)
+  }, 20_000)
+
+  it('takes no direction, so a body asking for one changes nothing', async () => {
+    // Belt and braces on the shape: the old route wrote when told to, and a
+    // client left on the old contract must not be able to reach that again.
     const { id } = running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
     })
     const buffer = await backCover(DUNE)
 
-    const { status, body } = await post('/api/books/scan-checkout', {
-      image: dataUrl(buffer), out: true,
-    })
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer), out: true })
 
-    expect(status).toBe(200)
-    expect(body.outcome).toBe('checked-out')
-    expect(body.book.id).toBe(id)
-    expect(running.store.getBook(id)?.checked_out_at).not.toBeNull()
+    expect(body.outcome).toBe('identified')
+    expect(running.store.getBook(id)?.checked_out_at).toBeNull()
   }, 20_000)
 
   it('reports not-catalogued for a real ISBN nobody has saved, and writes nothing', async () => {
     const buffer = await backCover(DUNE)
 
-    const { status, body } = await post('/api/books/scan-checkout', { image: dataUrl(buffer) })
+    const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
     expect(status).toBe(200)
     expect(body.outcome).toBe('not-catalogued')
@@ -410,14 +428,14 @@ describe('scanning a book at the shelf', () => {
 // ---------------------------------------------------------------------------
 
 describe('failure paths', () => {
-  it('scan-checkout: 400s on a body with no image', async () => {
-    const { status, body } = await post('/api/books/scan-checkout', { out: true })
+  it('scan: 400s on a body with no image', async () => {
+    const { status, body } = await post('/api/books/scan', {})
     expect(status).toBe(400)
     expect(body.error).toContain('image')
   })
 
-  it('scan-checkout: 400s on an image that is not a data URL', async () => {
-    const { status } = await post('/api/books/scan-checkout', { image: 'not-a-data-url' })
+  it('scan: 400s on an image that is not a data URL', async () => {
+    const { status } = await post('/api/books/scan', { image: 'not-a-data-url' })
     expect(status).toBe(400)
   })
 

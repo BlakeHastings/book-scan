@@ -160,36 +160,41 @@ export function BookDetail({
               Cancel
             </button>
           </>
-        ) : checkedOutAt ? (
-          <>
-            {/* Back on through the same guided shuffle as a new book, which is
-                the point: it is how a shelf gets rearranged by hand. */}
-            <button className="btn btn--primary" onClick={onShelve}>
-              Put it back on the bookcase
-            </button>
-            <button className="btn" onClick={onDiscard}>{doneLabel}</button>
-          </>
         ) : (
           <>
-            <button className="btn btn--primary" onClick={() => setEditing(true)}>
+            {/*
+              * The one action the book's own state decides, and the only thing
+              * that decides it. There is a single way in for a catalogued
+              * book now, so this page cannot know whether somebody arrived
+              * meaning to take it down or put it back, and it does not need
+              * to: a book on the bookcase can come off it, a book that is off
+              * can go back, and neither is ever offered as the other.
+              */}
+            {checkedOutAt ? (
+              /* Back on through the same guided shuffle as a new book, which
+                 is the point: it is how a shelf gets rearranged by hand. */
+              <button className="btn btn--primary" onClick={onShelve}>
+                Put it back on the bookcase
+              </button>
+            ) : onCheckOut ? (
+              <button
+                className="btn btn--primary"
+                onClick={() => onCheckOut(true)}
+                disabled={checkingOut}
+              >
+                {checkingOut ? 'Taking it off...' : 'Take it off the bookcase'}
+              </button>
+            ) : null}
+
+            {/* Available in either state, because correcting a record has
+                nothing to do with where the book physically is. */}
+            <button className="btn" onClick={() => setEditing(true)}>
               Edit details
             </button>
             <button className="btn" onClick={onDiscard}>{doneLabel}</button>
           </>
         )}
       </div>
-
-      {!editing && onCheckOut && !checkedOutAt && (
-        <div className="actions">
-          <button
-            className="btn btn--ghost"
-            onClick={() => onCheckOut(true)}
-            disabled={checkingOut}
-          >
-            {checkingOut ? 'Taking it off...' : 'Take it off the bookcase'}
-          </button>
-        </div>
-      )}
 
       {placement}
 

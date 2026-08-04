@@ -65,9 +65,13 @@ function asDraft(body: Record<string, unknown>): DraftBook {
 }
 
 /**
- * Turn what `Store.setCheckedOut` actually did into the same outcome
- * vocabulary both checkout routes report, so a client cannot tell which one
- * it called from the shape of the answer.
+ * Turn what `Store.setCheckedOut` actually did into the outcome vocabulary the
+ * checkout route reports.
+ *
+ * Four words rather than two, because asking for the state a book is already
+ * in is not a failure and is not the same as changing it. Telling somebody a
+ * book is off the shelf when they took it off a moment ago reads as an error,
+ * and telling them nothing is worse.
  */
 function checkoutOutcome(out: boolean, changed: boolean): 'checked-out' | 'already-out' | 'checked-in' | 'already-in' {
   if (out) return changed ? 'checked-out' : 'already-out'
@@ -941,21 +945,25 @@ export function createApp(options: CreateAppOptions): express.Express {
   })
 
   /**
-   * Hold a book up to the camera and take it off the shelf, or bring it
-   * back.
+   * Hold a book up to the camera and find out which book it is.
    *
-   * One round trip from photo to decision, because the alternative is three
-   * and the person is stood there holding the book. It reads the ISBN,
-   * finds the catalogue entry and applies the change, and the reply says
-   * which of the several ways this can go actually happened so the screen
-   * can say something true rather than just "no".
+   * One round trip from photo to an identity, because the alternative is
+   * three and the person is stood there holding the book.
    *
-   * Checking in only clears the flag here. Where the book physically goes is
-   * the shelving step's business, and the client takes them there.
+   * **This route answers a question. It never writes.** There is no direction
+   * to give it and no state for it to change, in any branch, for any input.
+   * The scanner is one entry point now rather than a check-out camera and a
+   * check-in camera, so there is nothing here that could know which of the
+   * two the person meant, and guessing from the book's current state is
+   * exactly what was deferred until identification is measurably better than
+   * one wrong first candidate in ten (#49). The client opens the book's
+   * detail view, which reads the state and offers the actions that fit it,
+   * and the person chooses. A checkout still happens in one place only:
+   * `POST /api/books/:id/checkout`, which takes an id and a direction and no
+   * photograph at all.
    */
-  app.post('/api/books/scan-checkout', asyncRoute(async (req, res) => {
+  app.post('/api/books/scan', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
-    const out = body.out !== false
 
     const buffer = decodeDataUrl(String(body.image ?? ''))
     if (!buffer) {
@@ -1028,17 +1036,10 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    // Already in the state being asked for is worth its own answer:
-    // telling someone a book is off the shelf when they just took it off
-    // reads as a failure, and telling them nothing is worse.
-    // `Store.setCheckedOut` is the one place that decides whether
-    // anything actually changed, so that decision is not repeated here.
-    const result = store.setCheckedOut(book.id, out)
-    res.json({
-      outcome: checkoutOutcome(out, result.changed),
-      book: store.getBook(book.id),
-      counts: store.counts(),
-    })
+    // A barcode is self-validating and this one named a row in the catalogue,
+    // so the identity is settled. What to do about it is not, and is not this
+    // route's to decide: the book is handed back exactly as it was found.
+    res.json({ outcome: 'identified', book })
   }))
 
   /**

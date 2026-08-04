@@ -4,8 +4,7 @@ interface Props {
   counts: Counts | null
   queue: QueueCounts | null
   onAdd: () => void
-  onCheckOut: () => void
-  onShelve: () => void
+  onScan: () => void
   onLibrary: () => void
   onQueue: () => void
 }
@@ -13,14 +12,20 @@ interface Props {
 /**
  * Where the app opens, and the answer to "what am I doing right now".
  *
- * There are four jobs, and which one you are on is decided before you pick up
- * a book, not after. Opening straight into the camera assumed the answer was
- * always "adding", and left taking books off the shelf as a pair of buttons
- * tucked above the library listing, which is not where anyone would look for
- * them.
+ * Opening straight into the camera assumed the answer was always "adding",
+ * and left everything else as buttons tucked above the library listing, which
+ * is not where anyone would look for them.
+ *
+ * There used to be four tiles here and two of them were the same camera: Check
+ * out and Shelve differed only in which direction they wrote. That put the
+ * decision before the book, so picking wrong meant backing out and starting
+ * again, and it made the app ask a question it had no business asking yet.
+ * Now a book that is already in the catalogue has one door, Scan, which opens
+ * the book itself. What can be done with it is a property of the book, and the
+ * book's own page is where it is said.
  */
 export function HomePane({
-  counts, queue, onAdd, onCheckOut, onShelve, onLibrary, onQueue,
+  counts, queue, onAdd, onScan, onLibrary, onQueue,
 }: Props) {
   const waiting = queue ? queue.pending + queue.ready + queue.failed : 0
 
@@ -34,19 +39,15 @@ export function HomePane({
           primary
         />
         <Tile
-          title="Check out"
-          body="Hold books up to take them off the bookcase."
-          onClick={onCheckOut}
-        />
-        <Tile
-          title="Shelve"
-          body="Put a book back, with the guided shuffle."
-          onClick={onShelve}
+          title="Scan"
+          body="Hold a book you already have up to the camera. It opens the book, and you say what happens next."
+          onClick={onScan}
         />
         <Tile
           title="Library"
           body={counts ? `Browse all ${counts.total} books.` : 'Browse the bookcases.'}
           onClick={onLibrary}
+          wide
         />
       </div>
 
@@ -76,15 +77,21 @@ export function HomePane({
 }
 
 function Tile({
-  title, body, onClick, primary = false,
+  title, body, onClick, primary = false, wide = false,
 }: {
   title: string
   body: string
   onClick: () => void
   primary?: boolean
+  /** Takes the whole row rather than half of one. */
+  wide?: boolean
 }) {
   return (
-    <button className={primary ? 'tile tile--primary' : 'tile'} onClick={onClick}>
+    <button
+      className={['tile', primary ? 'tile--primary' : '', wide ? 'tile--wide' : '']
+        .filter(Boolean).join(' ')}
+      onClick={onClick}
+    >
       <span className="tile__title">{title}</span>
       <span className="tile__body">{body}</span>
     </button>
