@@ -32,6 +32,10 @@ Feature: Putting a book on a shelf that is already full
     Then the placement should read "1A: between Rendezvous with Rama (Clarke, Arthur C.) and The Dispossessed (Le Guin, Ursula K.)"
     And the shelf drawing should be labelled "1A"
 
+    # Dune files between the two books on 1A, so the gap is in the middle and a
+    # book genuinely has to come off the end to open it.
+    And the first answer should read "No room, move one along"
+
     When I say there is no room on the shelf
     Then it should ask me to move "The Dispossessed" from "1A" to "1B"
     And a new area should be recorded for fiction, starting at "The Dispossessed"

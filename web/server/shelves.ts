@@ -8,10 +8,10 @@
 import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
-  boundaryMove, diffLayout, groupByShelf, layoutRange, locationLabel,
+  boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange, locationLabel,
   NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt,
   type RangeStart,
-  type BoundaryDirection, type BoundaryMove, type BoundaryRefusal,
+  type BoundaryDirection, type BoundaryMove, type BoundaryRefusal, type CarryOn,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
   type ShelfGroup, type Strip,
 } from '../shared/layout'
@@ -179,17 +179,44 @@ export class Shelves {
   /**
    * The person says a shelf will not take another book.
    *
-   * Moves its last book to the front of the next shelf, creating that shelf
-   * if it does not exist, and returns the single physical step to perform.
-   * Nothing here decides whether the next shelf can cope: that is the next
-   * question to ask, and the caller walks the chain one answer at a time.
+   * Two answers, and the first one is tried first on purpose.
+   *
+   * When the book being placed belongs at the END of that shelf, the book in
+   * their hand is the one that moves: it goes to the start of the next shelf
+   * and nothing already on a shelf is touched. `placing` is that book's sort
+   * key, and it is what makes this case visible at all, because the book does
+   * not exist yet and so is absent from every layout the database can produce.
+   *
+   * Otherwise the gap is in the middle, something genuinely has to come off
+   * the end to open it, and the last book moves to the front of the next
+   * shelf, creating that shelf if it does not exist. Nothing here decides
+   * whether the next shelf can cope: that is the next question to ask, and the
+   * caller walks the chain one answer at a time.
    */
   overflow(
     range: ShelfRange,
     label: string,
     kindIfNew: SeparatorKind = 'shelf',
-  ): { ok: boolean; error?: string; step?: Overflow; moves?: Move[] } {
+    placing = '',
+  ): { ok: boolean; error?: string; step?: Overflow; carry?: CarryOn; moves?: Move[] } {
     const before = this.layout(range)
+
+    /*
+     * Before the cascade, and before the label is even checked against the
+     * shelves that exist: a book being placed can be about to go on a plank
+     * that a boundary move left bare, which has no books to name it and so is
+     * absent from the groups below.
+     */
+    if (placing) {
+      const carry = carryOn(
+        this.layoutWith(range, placing), this.list(range), label, kindIfNew,
+      )
+      if (carry) {
+        this.applyBoundary(range, carry)
+        return { ok: true, carry, moves: this.movesSince(range, before) }
+      }
+    }
+
     const known = groupByShelf(before, this.list(range)).map((g) => g.label)
 
     // Two different failures used to share one message, which sent you looking
@@ -212,21 +239,29 @@ export class Shelves {
       }
     }
 
-    if (step.create) {
+    this.applyBoundary(range, step)
+
+    return { ok: true, step, moves: this.movesSince(range, before) }
+  }
+
+  /** Write the one boundary change a plan asks for. Shared by both answers. */
+  private applyBoundary(
+    range: ShelfRange,
+    plan: { create?: { startsAt: string; kind: SeparatorKind }; shift?: { id: number; startsAt: string } },
+  ): void {
+    if (plan.create) {
       this.db
         .prepare(
           `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
            VALUES (?, ?, ?, ?, '', ?)`,
         )
-        .run(range, step.create.kind, step.create.startsAt,
+        .run(range, plan.create.kind, plan.create.startsAt,
              this.list(range).length, new Date().toISOString())
-    } else if (step.shift) {
+    } else if (plan.shift) {
       this.db
         .prepare('UPDATE separators SET starts_at = ? WHERE id = ?')
-        .run(step.shift.startsAt, step.shift.id)
+        .run(plan.shift.startsAt, plan.shift.id)
     }
-
-    return { ok: true, step, moves: this.movesSince(range, before) }
   }
 
   /**

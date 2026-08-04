@@ -396,6 +396,100 @@ describe('shelving a book onto a bookcase', () => {
     expect(body.step.to).toBe('1B')
   })
 
+  /**
+   * The book being placed belongs at the END of a full shelf.
+   *
+   * Then it is the one that moves, and nothing on a shelf is touched. The
+   * route needs the sort key of a book that does not exist yet to see this at
+   * all, which is what /api/placement/preview hands the client.
+   */
+  const previewKey = async (title: string, author: string): Promise<string> => {
+    const { status, body } = await post('/api/placement/preview', {
+      title, authors: [author], isFiction: true,
+    })
+    expect(status, `previewing ${title}`).toBe(200)
+    return body.sortKey as string
+  }
+
+  it('moves the book in hand, not a shelved one, when it belongs at the end', async () => {
+    const rama = await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    const gibson = await seed('Neuromancer', 'William Gibson')
+    const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
+
+    // 1A holds Clarke and Gibson; Le Guin has been pushed on to 1B.
+    const split = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area',
+    })
+    await patch(`/api/books/${split.body.step.id}/location`, { location: split.body.step.to })
+    expect((await misfiles()).misfiles).toEqual([])
+
+    // Dune files after Gibson and before Le Guin, so nothing on 1A follows it.
+    const sortKey = await previewKey('Dune', 'Frank Herbert')
+    const { status, body } = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area', sortKey,
+    })
+
+    expect(status).toBe(200)
+    expect(body.carry).toEqual({ from: '1A', to: '1B' })
+    expect(body.step).toBeNull()
+    expect(body.moves).toEqual([])
+
+    // Nobody was asked to pick up a book that was already on a shelf.
+    expect(running.store.getBook(rama)?.location).toBe('1A')
+    expect(running.store.getBook(gibson)?.location).toBe('1A')
+    expect(running.store.getBook(dispossessed)?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+
+    // And saving it puts it exactly where the answer said it would go.
+    const saved = await post('/api/books', {
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    expect(running.store.getBook(saved.body.id)?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('still displaces a book when the gap is in the middle of the shelf', async () => {
+    // The cascade is not weakened: something really does have to move here.
+    await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    const gibson = await seed('Neuromancer', 'William Gibson')
+    await seed('The Dispossessed', 'Ursula K. Le Guin')
+    const split = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area',
+    })
+    await patch(`/api/books/${split.body.step.id}/location`, { location: split.body.step.to })
+
+    // Card files before Clarke, so Clarke and Gibson are both still to the
+    // right of the gap and a book has to come off the end to open it.
+    const sortKey = await previewKey("Ender's Game", 'Orson Scott Card')
+    const { body } = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area', sortKey,
+    })
+
+    expect(body.carry).toBeNull()
+    expect(body.step.id).toBe(gibson)
+    expect(body.step.from).toBe('1A')
+    expect(body.step.to).toBe('1B')
+  })
+
+  it('makes a shelf for the book in hand at the end of the run', async () => {
+    await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    await seed('Neuromancer', 'William Gibson')
+
+    const sortKey = await previewKey('The Dispossessed', 'Ursula K. Le Guin')
+    const { body } = await post('/api/shelves/overflow', {
+      range: 'fiction', label: '1A', kind: 'area', sortKey,
+    })
+
+    expect(body.carry).toEqual({ from: '1A', to: '1B' })
+    expect(body.moves).toEqual([])
+
+    const saved = await post('/api/books', {
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+    })
+    expect(running.store.getBook(saved.body.id)?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
   it('stops reporting a shuffled book once the shuffle is recorded', async () => {
     await seed('Rendezvous with Rama', 'Arthur C. Clarke')
     const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')

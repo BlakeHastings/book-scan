@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  areaLabel, boundaryMove, groupByShelf, layoutRange, locationLabel,
+  areaLabel, boundaryMove, carryOn, groupByShelf, layoutRange, locationLabel,
   NEWCOMER_ID, overflow, shelfLoads, stripAt, stripAround,
   type Separator,
 } from './layout'
@@ -490,5 +490,151 @@ describe('boundaryMove', () => {
 
     expect(labels(books, carry(books, separators, 2, 'next').separators))
       .toEqual(labels(books, shuffled))
+  })
+})
+
+describe('carryOn', () => {
+  /** The run as the placing step sees it, with the unsaved book slotted in. */
+  const placing = (
+    books: { id: number; sortKey: string }[],
+    separators: Separator[],
+    sortKey: string,
+  ) =>
+    layoutRange(
+      [...books, { id: NEWCOMER_ID, sortKey }]
+        .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0)),
+      separators,
+    )
+
+  /** Apply the plan, the way the store does, and lay the run out again. */
+  const applied = (
+    books: { id: number; sortKey: string }[],
+    separators: Separator[],
+    sortKey: string,
+    plan: NonNullable<ReturnType<typeof carryOn>>,
+  ) => {
+    const next = plan.create
+      ? [...separators, sep(
+          Math.max(0, ...separators.map((s) => s.id)) + 1,
+          plan.create.startsAt,
+          plan.create.kind,
+        )]
+      : separators.map((s) =>
+          s.id === plan.shift?.id ? { ...s, startsAt: plan.shift.startsAt } : s)
+    return placing(books, next, sortKey)
+  }
+
+  /** Where every book, saved or not, ends up. */
+  const where = (placed: ReturnType<typeof placing>) =>
+    placed.map((p) => `${p.book.id === NEWCOMER_ID ? 'new' : p.book.id}${p.label}`)
+
+  it('sends the book in your hand on when it belongs at the end', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+    const before = where(placing(books, separators, 'BB'))
+    expect(before).toEqual(['11A', '21A', 'new1A', '31B', '41B'])
+
+    const plan = carryOn(placing(books, separators, 'BB'), separators, '1A', 'area')
+    expect(plan).toEqual({ from: '1A', to: '1B', shift: { id: 1, startsAt: 'BB' } })
+
+    // The book moves and nothing already shelved does, which is the whole
+    // point: the person is holding the one that has to go somewhere else.
+    expect(where(applied(books, separators, 'BB', plan!)))
+      .toEqual(['11A', '21A', 'new1B', '31B', '41B'])
+  })
+
+  it('declines when the gap is in the middle, so the cascade runs', () => {
+    // Something on the plank really does sort after the book, so a gap has to
+    // be opened and a book has to come off the end to open it.
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+    expect(carryOn(placing(books, separators, 'AA'), separators, '1A', 'area')).toBeNull()
+  })
+
+  it('declines for a plank the book is not going on', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C')]
+    expect(carryOn(placing(books, separators, 'BB'), separators, '1B', 'area')).toBeNull()
+  })
+
+  it('makes the plank when the book is last in the whole run', () => {
+    // The end of the last area of the last bookcase. There is nothing to
+    // displace and nowhere to displace it to, so the plank gets made and the
+    // book is the only thing on it.
+    const books = run('AB')
+    const plan = carryOn(placing(books, [], 'C'), [], '1A', 'area')
+    expect(plan).toEqual({ from: '1A', to: '1B', create: { startsAt: 'C', kind: 'area' } })
+    expect(where(applied(books, [], 'C', plan!))).toEqual(['11A', '21A', 'new1B'])
+  })
+
+  it('starts a whole new bookcase when that is what was asked for', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C', 'area')]
+    const plan = carryOn(placing(books, separators, 'BB'), separators, '1A', 'shelf')
+
+    // A boundary of its own, inserted before the plank break, or the book
+    // would stay in this bookcase, which is the opposite of what was asked.
+    expect(plan?.to).toBe('2A')
+    expect(plan?.create).toEqual({ startsAt: 'BB', kind: 'shelf' })
+    expect(where(applied(books, separators, 'BB', plan!)))
+      .toEqual(['11A', '21A', 'new2A', '32B', '42B'])
+  })
+
+  it('crosses a bookcase break the same way it crosses a plank break', () => {
+    const books = run('ABCD')
+    const separators = [sep(1, 'C', 'shelf')]
+    const plan = carryOn(placing(books, separators, 'BB'), separators, '1A', 'area')
+    expect(plan?.to).toBe('2A')
+    expect(where(applied(books, separators, 'BB', plan!)))
+      .toEqual(['11A', '21A', 'new2A', '32A', '42A'])
+  })
+
+  it('puts it on a bare plank rather than skipping past one', () => {
+    // Two boundaries on one anchor is what a plank emptied by a boundary move
+    // looks like. A book with nowhere to go belongs on the empty one.
+    const books = run('ABC')
+    const separators = [sep(1, 'C'), sep(2, 'C')]
+    expect(labels(books, separators)).toEqual(['1A', '1A', '1C'])
+
+    const plan = carryOn(placing(books, separators, 'BB'), separators, '1A', 'area')
+    expect(plan?.to).toBe('1B')
+    expect(where(applied(books, separators, 'BB', plan!)))
+      .toEqual(['11A', '21A', 'new1B', '31C'])
+  })
+
+  it('is never reached for a book that lands first on a plank', () => {
+    /*
+     * The mirror case, and it does not arise. A boundary is anchored to the
+     * sort key of the first book on its plank, so a book landing on that
+     * plank at all sorts at or after that anchor, which puts it at or after
+     * the book the anchor names. There is no key that lands first on a plank
+     * whose anchor is a book still on it.
+     */
+    const books = run('ACEG')
+    const separators = [sep(1, 'C'), sep(2, 'E', 'shelf'), sep(3, 'G')]
+
+    for (const key of ['AA', 'B', 'BB', 'CC', 'D', 'DD', 'EE', 'F', 'FF', 'H']) {
+      const placed = placing(books, separators, key)
+      const index = placed.findIndex((p) => p.book.id === NEWCOMER_ID)
+      const first = index === 0 || placed[index - 1]!.label !== placed[index]!.label
+      expect(first && index > 0, `${key} landed first on a plank`).toBe(false)
+    }
+  })
+
+  it('declines when an orphaned anchor does put it first, leaving the cascade', () => {
+    /*
+     * The one way to land first on a plank: an anchor naming a book that is no
+     * longer on it, because it was deleted or taken off the bookcase. Going
+     * back to the previous plank is not the answer there. It is a plank the
+     * person was not asked about, and after a carry the anchor is the book in
+     * hand, so treating "first" as "go back" would undo the hop that had just
+     * been made and ask the same question forever.
+     */
+    const books = run('AD')
+    const separators = [sep(1, 'B')]           // B has since gone
+    const placed = placing(books, separators, 'C')
+    expect(where(placed)).toEqual(['11A', 'new1B', '21B'])
+
+    expect(carryOn(placed, separators, '1B', 'area')).toBeNull()
   })
 })
