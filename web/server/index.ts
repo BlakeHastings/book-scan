@@ -4,6 +4,19 @@
  * keeps the HTTPS page free of mixed content.
  */
 
+// First, and deliberately above express: the OpenTelemetry auto
+// instrumentations patch http and express as those modules load, so this has
+// to be evaluated before them. ESM evaluates a module's imports in source
+// order, so being the first line is what makes that true.
+//
+// This was previously preloaded with `tsx watch --import ./instrumentation.ts`,
+// which depended on tsx registering its loader before Node processed the flag.
+// That ordering is not guaranteed, and when it lost the race Node tried to read
+// a .ts file itself and killed the server with ERR_UNKNOWN_FILE_EXTENSION.
+// Importing it here puts it in the normal module graph, where resolving .ts is
+// tsx's ordinary job rather than a race.
+import '../instrumentation'
+
 import express from 'express'
 import type { Database } from 'better-sqlite3'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
