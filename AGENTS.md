@@ -191,6 +191,17 @@ nothing about whether it would catch the fix being lost.
 Both checks must pass before a pull request is ready. `npm test` takes well
 under a minute, so there is no excuse for not having run it.
 
+**No CI run at all is a different problem from a failing one.** GitHub runs
+pull request checks against a merge commit it computes from your branch and the
+base. When the branch conflicts, that commit cannot be built, so no run is ever
+created and the pull request simply sits there with nothing to look at. It
+looks exactly like Actions being broken.
+
+Check `gh pr view <n> --json mergeable` before concluding anything about CI. If
+it says `CONFLICTING`, rebase on `master` and the run appears. Several changes
+are usually in flight here at once, so a branch that was clean when you opened
+it may not be twenty minutes later.
+
 **Note the test count before you change anything, and compare it at the end.**
 If it went down you removed a test, and that has to be deliberate and said out
 loud in the pull request. A number is deliberately not written here: it moves
