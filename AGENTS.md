@@ -134,9 +134,44 @@ else about a checkout is affected.
 `.aspire/modules/`**: it is generated and regenerated on every start, so edits
 are lost. To add an integration, run `aspire add <package>`.
 
-Both checks must pass before a pull request is ready. As of 2026-08-03
-`npm run typecheck` is clean and `npm test` reports 298 tests passing across 15
-files in about 21 seconds. If the count drops, you removed a test.
+### The end to end suite
+
+`e2e/` holds a browser suite described in Gherkin. It starts the app through
+Aspire itself, drives the real camera path, and asserts on what reaches the
+database rather than only on what renders.
+
+```
+cd web && npm ci     # the camera fixtures use this package's toolchain
+cd ../e2e && npm ci && npx playwright install chromium
+npm test             # bddgen && playwright test
+```
+
+The camera is a generated video file handed to Chromium with
+`--use-file-for-fake-video-capture`, and Open Library and Google Books are
+answered by a local stub, so a run needs no hardware and no network. **Do not
+add a scenario that depends on either.**
+
+It writes to `web/data/e2e/<run id>`, derived by the AppHost from
+`BOOKSCAN_E2E_RUN`. That is not a back door for setting the data directory: the
+value is sanitised to a single path segment and joined under `web/data`, and
+`BOOKSCAN_DATA` is still set in exactly one place, by the AppHost, and nowhere
+else.
+
+The suite runs `aspire stop` without `--all`, so it stops only this checkout's
+AppHost. Unrelated Aspire apps are usually running on this machine.
+
+It does not gate pull requests: it needs the Aspire CLI, a browser and two npm
+trees, which do not belong on the fast path. It runs nightly and on demand with
+`gh workflow run e2e.yml`.
+
+**A scenario that has never been seen to fail is not a regression test.** When
+you fix a defect an e2e scenario covers, revert your fix, watch the scenario
+fail, then restore it. A test that only ever passed alongside a fix proves
+nothing about whether it would catch the fix being lost.
+
+Both checks must pass before a pull request is ready. Verified 2026-08-03:
+`npm run typecheck` is clean and `npm test` reports **302 tests passing across
+16 files** in about 24 seconds. If the count drops, you removed a test.
 
 ## Layout
 
@@ -151,6 +186,8 @@ files in about 21 seconds. If the count drops, you removed a test.
 | `web/server/store.ts` | All SQL |
 | `web/server/shelves.ts` | Shelf capacity and derived locations |
 | `web/shared/` | Domain rules shared by client and server |
+| `web/instrumentation.ts` | OpenTelemetry setup, preloaded with `--import` |
+| `e2e/` | Gherkin features and the browser suite that runs them |
 | `docs/shelving.md` | The shelving specification |
 
 ## Conventions
@@ -163,6 +200,18 @@ files in about 21 seconds. If the count drops, you removed a test.
 - Tests run against real dependencies where it is affordable: real SQLite in
   memory, real barcode decoding, real OCR against generated images. Prefer that
   over mocks.
+- `web/server/lookup.ts` and `web/server/covers.ts` read their catalogue origins
+  from `BOOKSCAN_OPENLIBRARY_URL`, `BOOKSCAN_GOOGLE_BOOKS_URL` and
+  `BOOKSCAN_COVERS_URL`. These are unset in normal use, and exist so a test run
+  can take the lookups off the network. **Do not set them in a shell**, for the
+  same reason as `BOOKSCAN_DATA`: they redirect what the real app talks to.
+- **Every capability claim in this file names the command that demonstrates it,
+  and that command gets run before the sentence is written.** This file has
+  four times asserted something the code did not do (tests could reach the
+  catalogue, two checkouts could not both start, traces arrive, a feature was
+  unimplemented when it had shipped). Each read plausibly and was false. A claim
+  nobody has executed is a guess with formatting, and an invariant that is not
+  true is worse than an absent one, because the next person builds on it.
 - Do not use em dashes in code comments, commit messages, or documentation.
 
 ## History
