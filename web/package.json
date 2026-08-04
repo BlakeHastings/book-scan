@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "e2e:fixture": "tsx scripts/e2e-video-fixture.ts",
+    "seed": "tsx scripts/seed-world.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
