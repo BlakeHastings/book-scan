@@ -29,7 +29,7 @@ import { identify } from './identify'
 import { warmPaddle } from './paddle'
 import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
-import { CaptureQueue } from './queue'
+import { CaptureQueue, type CaptureEdit } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
 import { confidentPick } from '../shared/confidence'
@@ -76,6 +76,50 @@ function asDraft(body: Record<string, unknown>): DraftBook {
       ? String(body.authorFilingOverride)
       : null,
   }
+}
+
+/**
+ * The fields of an edit to a queued capture, taken one at a time.
+ *
+ * Absent and empty are different here, and the difference is load bearing. The
+ * worker fills in whatever a person has not stated, so a key that is present
+ * says "a person decided this" and a key that is absent says "nobody has".
+ * Copying the whole body across would make every unmentioned field a silent
+ * human decision and freeze the worker out of the capture entirely, so only
+ * keys the request actually carries are taken.
+ */
+function asCaptureEdit(body: Record<string, unknown>): CaptureEdit {
+  const edit: CaptureEdit = {}
+  const text = (key: keyof CaptureEdit) => {
+    if (body[key] !== undefined) (edit as Record<string, unknown>)[key] = String(body[key] ?? '')
+  }
+
+  for (const key of [
+    'isbn13', 'isbn10', 'isbnSource', 'title', 'subtitle', 'publisher',
+    'published', 'pages', 'notes', 'classificationSource',
+    'classificationConfidence', 'seriesName', 'location', 'lookupSource',
+  ] as const) {
+    text(key)
+  }
+
+  if (body.authors !== undefined) {
+    edit.authors = (Array.isArray(body.authors)
+      ? (body.authors as unknown[]).map(String)
+      : String(body.authors ?? '').split(',').map((a) => a.trim())
+    ).filter(Boolean)
+  }
+  if (body.isFiction !== undefined) edit.isFiction = Boolean(body.isFiction)
+  if (body.seriesIndex !== undefined) {
+    edit.seriesIndex =
+      body.seriesIndex === null || body.seriesIndex === '' ? null : Number(body.seriesIndex)
+  }
+  if (body.authorFilingOverride !== undefined) {
+    edit.authorFilingOverride = body.authorFilingOverride
+      ? String(body.authorFilingOverride)
+      : null
+  }
+
+  return edit
 }
 
 /**
@@ -399,6 +443,47 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
     res.json({ capture: result.row })
   })
+
+  /**
+   * Persist what somebody worked out about a capture that is still queued.
+   *
+   * The route the queue was missing. Every other capture route creates, reads,
+   * claims, releases or deletes; nothing updated one, so a corrected ISBN or a
+   * fixed title lived in one browser tab and reached the database only when the
+   * book was finally saved. Navigating away lost it, which meant resolving and
+   * shelving had to be the same person in one sitting.
+   *
+   * PATCH rather than PUT: the body is the fields somebody stated, not a whole
+   * capture. Everything is optional, including all of it, so a request that
+   * states nothing is still meaningful and records that a person looked at this
+   * book and left it as it was.
+   *
+   * Holding the claim is required, and the claim is the existing one from
+   * POST /claim rather than anything new. `queue.edit` renews the lease as a
+   * side effect of a successful edit, and a lease that has gone stale is
+   * takeable, on exactly the terms opening the capture already uses.
+   */
+  app.patch('/api/captures/:id', asyncRoute(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const who = String(body.who ?? '').trim() || 'unknown'
+
+    const result = await queue.edit(Number(req.params.id), who, asCaptureEdit(body))
+
+    if (!result.ok) {
+      if (result.reason === 'missing') {
+        res.status(404).json({ error: 'No such capture.' })
+      } else if (result.reason === 'done') {
+        res.status(409).json({
+          error: 'That book has already been shelved. Edit the book itself.',
+        })
+      } else {
+        res.status(409).json({ error: `That book is being worked on by ${result.heldBy}.` })
+      }
+      return
+    }
+
+    res.json({ capture: result.row, lookup: result.lookup, counts: queue.counts() })
+  }))
 
   app.post('/api/captures/:id/release', (req, res) => {
     queue.release(Number(req.params.id), String((req.body ?? {}).who ?? ''))

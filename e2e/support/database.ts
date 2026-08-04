@@ -44,6 +44,25 @@ export interface BookRow {
   checked_out_at: string | null
 }
 
+/** A book photographed but not yet filed. */
+export interface CaptureRow {
+  id: number
+  status: string
+  isbn13: string
+  isbn10: string
+  isbn_source: string
+  title_guess: string
+  /** What the background worker read off the photographs. */
+  draft_json: string
+  /** What a person stated while it sat in the queue. */
+  edit_json: string
+  edited_by: string
+  edited_at: string | null
+  note: string
+  claimed_by: string
+  book_id: number | null
+}
+
 export interface SeparatorRow {
   id: number
   shelf_range: string
@@ -112,6 +131,16 @@ export class Catalogue {
     return this.db
       .prepare('SELECT * FROM separators WHERE shelf_range = ? ORDER BY position ASC')
       .all(range) as SeparatorRow[]
+  }
+
+  /**
+   * The work queue itself. Read because #65 is a claim about what reaches the
+   * database while a book is still in it, which no screen assertion can make.
+   */
+  captures(): CaptureRow[] {
+    return this.db
+      .prepare('SELECT * FROM captures ORDER BY id ASC')
+      .all() as CaptureRow[]
   }
 
   captureCount(): number {
