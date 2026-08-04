@@ -973,6 +973,61 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .moves ul { margin: 6px 0; padding-left: 18px; }
 .moves .hint { margin: 0; }
 
+/* --- Shelf rows -------------------------------------------------------- */
+
+.shelf { list-style: none; margin: 0; padding: 0; }
+
+/* Its own grid. Reusing .shelf__row inherited a four-column layout built for
+   a different row shape, so two children landed in the two narrow columns and
+   the rest of the width sat empty. */
+.shelfrow {
+  display: grid;
+  grid-template-columns: 26px 34px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.shelfrow__n {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+}
+.shelfrow__photo {
+  width: 34px;
+  height: 46px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-2);
+  display: block;
+}
+.shelfrow__body {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.shelfrow__body:active { opacity: 0.6; }
+.shelfrow__author { font-size: 13px; color: var(--muted); }
+.shelfrow__title {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shelfrow__loc {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
 .shelfgroup__shelf { font-size: 13px; color: var(--text); }
 
 /* Destructive actions read as destructive, and never as the primary button. */
@@ -1451,6 +1506,155 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .attention__title { font-weight: 500; }
 .attention__where { color: var(--muted); font-size: 13px; }
 .attention__where strong { color: var(--text); }
+
+/* Belongs on this shelf but is not on it. Dimmed and dashed so it reads as a
+   gap in the run rather than as a book you could walk up and pull out. */
+.shelfrow--off { opacity: 0.6; }
+.shelfrow--off .shelfrow__photo { filter: grayscale(1); }
+.shelfrow--off .shelfrow__title { text-decoration: line-through; }
+.shelfrow--off .shelfrow__loc {
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 11px;
+}
+.shelfrow--off .shelfrow__n { color: var(--warn); }
+
+/* --- The gallery: one area's covers, laid out face up ------------------ */
+
+/* This one wraps, and the spine row above still does not. A run of spines is
+   a drawing of the furniture, where a break means "a new area"; a grid of
+   covers is not pretending to be a photograph of a shelf, so a line break
+   costs it nothing. auto-fill rather than a fixed count, so a wide phone or a
+   tablet gets more per row instead of larger covers. */
+.covers {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+.covers__cell { min-width: 0; }
+
+.cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  /* Fixed before the picture arrives. This is what makes lazy loading work
+     without the page jumping: the browser knows how tall every tile is, so it
+     can tell which ones are near the screen and nothing below moves as they
+     land. */
+  aspect-ratio: 2 / 3;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: transform 90ms ease-out;
+}
+.cover:active { transform: translateY(-3px); opacity: 0.85; }
+.cover:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Not a front cover of this copy: a spine or a back standing in, or the
+   publisher's picture. Dashed, the same way a cover standing in for a spine is
+   dashed in the shelf rows. */
+.cover--stand-in { border-style: dashed; border-color: rgba(255, 255, 255, 0.3); }
+
+.cover__photo { width: 100%; height: 100%; object-fit: cover; }
+/* A spine standing in for a cover carries its title at the top, the same as
+   everywhere else a spine is framed small. */
+.cover__photo--edge { object-position: center top; }
+
+/* No picture at all. The two things a blank spine carries, for the same
+   reason: the author is what you read looking for a book. */
+.cover__blank {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  height: 100%;
+  padding: 8px;
+  text-align: left;
+}
+.cover__blank-author { font-size: 12px; color: var(--muted); }
+.cover__blank-title { font-size: 13px; }
+
+/* What you count along the shelf to. Same number the spine row draws. */
+.cover__no {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Says whose picture this is, on the tile rather than only in its label. */
+.cover__note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--warn);
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Choosing which drawing of the library you get --------------------- */
+
+/* Floated over the bottom of the page rather than laid out at the top of it.
+   Two reasons, and both are about a phone in one hand: the bottom centre is
+   where a thumb already rests, and a row of controls in the flow would take a
+   strip of height off all three views permanently. The page pays for it once,
+   below the last book, instead. */
+.viewswitch {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(28, 28, 39, 0.92);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.viewswitch__opt {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+}
+.viewswitch__opt--on {
+  background: var(--accent);
+  color: #0b0b12;
+  font-weight: 600;
+}
+.viewswitch__opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* So the last row of the last area is not left permanently under the pill. */
+.main--library { padding-bottom: 68px; }
 
 /* Sits over the scanning camera, which says what it is looking for. */
 .isbncam__top {

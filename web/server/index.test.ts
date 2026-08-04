@@ -28,7 +28,7 @@
 
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Database } from 'better-sqlite3'
@@ -1210,6 +1210,75 @@ describe('failure paths', () => {
     expect(status).toBe(404)
     expect(body.error).not.toContain(running.coverDir) // no filesystem path leaks
     expect(body.error).not.toMatch(/[A-Za-z]:[\\/]|\/(home|Users)\//) // no absolute path at all
+  })
+
+  /**
+   * The gallery draws a hundred covers at once at about 120 pixels each, and
+   * every file on disk is up to 1000 wide. Sending the originals is tens of
+   * megabytes over a phone's data to draw thumbnails, so the width is asked
+   * for in the URL and the resize happens in the server.
+   */
+  describe('a cover asked for smaller than it is stored', () => {
+    /** A real JPEG on disk, since the resize is real sharp and not a stub. */
+    const storeCover = async (name: string, width = 1000, height = 1500) => {
+      const jpeg = await sharp({
+        create: { width, height, channels: 3, background: '#3a6ea5' },
+      }).jpeg().toBuffer()
+      writeFileSync(join(running.coverDir, name), jpeg)
+      return jpeg
+    }
+
+    const fetchCover = (path: string) => fetch(`${running.baseUrl}${path}`)
+
+    it('sends the width the gallery asked for, and a fraction of the bytes', async () => {
+      const full = await storeCover('big.jpg')
+
+      const res = await fetchCover('/api/covers/big.jpg?w=320')
+      const body = Buffer.from(await res.arrayBuffer())
+
+      expect(res.status).toBe(200)
+      expect((await sharp(body).metadata()).width).toBe(320)
+      expect(body.length).toBeLessThan(full.length)
+      // Cached as hard as the original, so a cover is resized at most once
+      // per phone rather than once per scroll past it.
+      expect(res.headers.get('cache-control')).toContain('immutable')
+    })
+
+    it('never enlarges a cover that is already smaller than the tile', async () => {
+      await storeCover('small.jpg', 120, 180)
+
+      const res = await fetchCover('/api/covers/small.jpg?w=320')
+
+      expect((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width).toBe(120)
+    })
+
+    it('ignores a width it does not offer, and sends the file as stored', async () => {
+      // The width is in a URL, so anybody can ask for one. An open set would
+      // let a caller make the server re-encode the whole catalogue at a
+      // hundred sizes nothing will ever draw.
+      const full = await storeCover('big.jpg')
+
+      const res = await fetchCover('/api/covers/big.jpg?w=317')
+
+      expect(res.status).toBe(200)
+      expect(Buffer.from(await res.arrayBuffer()).length).toBe(full.length)
+    })
+
+    it('answers a missing cover with the same 404 as the full size one', async () => {
+      const res = await fetchCover('/api/covers/not-here.jpg?w=320')
+      expect(res.status).toBe(404)
+    })
+
+    it('refuses to read anything that is not a file in the cover directory', async () => {
+      // %2F is a separator once Express has decoded the parameter, so a name
+      // carrying one is handed straight past this route rather than trusted
+      // to be a bare filename. The static mount below then refuses it, which
+      // is where the 403 comes from.
+      const res = await fetchCover('/api/covers/..%2F..%2Fpackage.json?w=320')
+
+      expect(res.status).toBe(403)
+      expect(await res.text()).not.toContain('book-scan-web')
+    })
   })
 
   it('a rejected async handler answers 500 instead of taking the server down', async () => {

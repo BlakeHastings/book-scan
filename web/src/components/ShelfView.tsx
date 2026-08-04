@@ -4,7 +4,13 @@ import {
   type ShelfGroupDto, type ShelvingReview,
 } from '../lib/api'
 import { missingFrom, rowOf } from '../lib/shelfRow'
+import {
+  LIBRARY_VIEWS, rememberedView, rememberView, VIEW_DESCRIPTION, VIEW_LABEL,
+  type LibraryView,
+} from '../lib/libraryView'
 import { SpineRow } from './ShelfStrip'
+import { ShelfList } from './ShelfList'
+import { CoverGrid } from './CoverGrid'
 import { areaLabel } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
@@ -45,10 +51,19 @@ interface Props {
 /**
  * The shelves as they physically are, rather than one flat list.
  *
- * Each area is drawn as one horizontal run of spines, scrolled sideways,
- * because that is what the person sees standing in front of it. It
- * deliberately does not wrap: a break in a run means "a new area" everywhere
- * else here, so a wrapped row would invent furniture (#81).
+ * Three drawings of the same books, in the same order, grouped the same way,
+ * and the person picks (#82). Only the middle of each area changes:
+ *
+ *   - the spine row, one horizontal run per area, which is what you see
+ *     standing in front of the bookcase, and which never wraps because a break
+ *     in a run means "a new area" everywhere else here (#81);
+ *   - the list, a line per book, which is what this was before the rows;
+ *   - the gallery, a grid of covers, which is allowed to wrap precisely
+ *     because it is not pretending to be a photograph of the furniture.
+ *
+ * Everything around them is shared: the misfiles, the books off the bookcase,
+ * the boundary moves and the separators are facts about the shelves, not about
+ * how they are drawn.
  *
  * The button at the end of the last shelf is how the software learns
  * something it cannot see: that the shelf is full. From then on a book
@@ -61,6 +76,12 @@ export function ShelfView({
   // A return trip opens on the range it left from, or the tab would change
   // under the person while they were away.
   const [range, setRange] = useState<ShelfRange>(returnAnchor?.range ?? 'fiction')
+  /*
+   * Read from storage rather than from a prop, because this component is
+   * unmounted the moment a book opens and so cannot remember anything itself,
+   * and because the answer has to survive a reload as well as a navigation.
+   */
+  const [view, setView] = useState<LibraryView>(rememberedView)
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
   const [moves, setMoves] = useState<Move[]>([])
   const [loading, setLoading] = useState(true)
@@ -137,6 +158,12 @@ export function ShelfView({
   const open = (id: number) =>
     onOpen(id, { range, bookId: id, scrollY: window.scrollY })
 
+  /** Change the drawing, and write the choice down so it outlives this mount. */
+  const chooseView = (next: LibraryView) => {
+    setView(next)
+    rememberView(next)
+  }
+
   /**
    * The person says they have carried this book to where it belongs.
    *
@@ -200,7 +227,7 @@ export function ShelfView({
   const title = (book: BookRow) => book.author_filing || book.authors || book.title
 
   return (
-    <main className="main">
+    <main className="main main--library">
       <div className="segmented">
         <button
           className={range === 'fiction' ? 'seg seg--on' : 'seg'}
@@ -268,10 +295,19 @@ export function ShelfView({
           <h3 className="offshelf__head">
             Off the bookcase ({off.length})
           </h3>
+          {/* What happens to a book that is not on the bookcase depends on
+              what is being drawn, so this says which. The list files it into
+              its alphabetical place with a dash where the position would be;
+              the two pictures of the furniture leave it out, because it is
+              not in the room. */}
           <p className="hint">
-            Not drawn in the rows below, because they are not on the bookcase:
-            the run has closed up behind each one, exactly as it has in the
-            room. Open one to put it back.
+            {view === 'list'
+              ? 'Filed into the list below in their alphabetical place, with a '
+                + 'dash where the position would be: you cannot count along to '
+                + 'a book that is not there. '
+              : 'Not drawn below, because they are not on the bookcase: the run '
+                + 'has closed up behind each one, exactly as it has in the room. '}
+            Open one to put it back.
           </p>
           {off.map(({ book, label }) => (
             <button key={book.id} className="offshelf__row" onClick={() => open(book.id)}>
@@ -348,18 +384,36 @@ export function ShelfView({
               </div>
             )}
 
-            {/* The area itself: one run of spines, scrolled sideways and
-                never wrapped, with the number under each book being what you
-                count along to find it. Tap one to open it. */}
-            <SpineRow
-              books={rowOf(group)}
-              label={group.label}
-              onOpen={open}
-              registerSpine={(id, element) => {
-                if (element) spines.current.set(id, element)
-                else spines.current.delete(id)
-              }}
-            />
+            {/* The area itself, drawn whichever way was asked for. Everything
+                above and below this is the same in all three. */}
+
+            {/* One run of spines, scrolled sideways and never wrapped, with
+                the number under each book being what you count along to find
+                it. Tap one to open it. */}
+            {view === 'shelf' && (
+              <SpineRow
+                books={rowOf(group)}
+                label={group.label}
+                onOpen={open}
+                registerSpine={(id, element) => {
+                  if (element) spines.current.set(id, element)
+                  else spines.current.delete(id)
+                }}
+              />
+            )}
+
+            {view === 'list' && (
+              <ShelfList group={group} checkedOut={off} onOpen={open} />
+            )}
+
+            {/* The same run, laid out face up and allowed to wrap. */}
+            {view === 'gallery' && (
+              <CoverGrid
+                books={group.books.map((entry) => entry.book)}
+                label={group.label}
+                onOpen={open}
+              />
+            )}
 
             {/* And at the bottom, for the same reason. Nothing is offered on
                 the last plank of the range: there is no next one, and making
@@ -395,6 +449,30 @@ export function ShelfView({
           </section>
         )
       })}
+
+      {/*
+        Which drawing you get, put where a thumb already is.
+        Fixed to the bottom of the viewport rather than laid out at the top
+        with the Fiction/Non-fiction tabs: this is a phone held in one hand,
+        the top corners are the part of the screen a thumb cannot reach, and a
+        second row up there would also cost every view a strip of the height
+        it is trying to fill. Floating it costs the page nothing but the
+        padding below, which only the very last row ever notices.
+      */}
+      <nav className="viewswitch" aria-label="How to draw the library">
+        {LIBRARY_VIEWS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className={view === option ? 'viewswitch__opt viewswitch__opt--on' : 'viewswitch__opt'}
+            aria-pressed={view === option}
+            aria-label={VIEW_DESCRIPTION[option]}
+            onClick={() => chooseView(option)}
+          >
+            {VIEW_LABEL[option]}
+          </button>
+        ))}
+      </nav>
     </main>
   )
 }

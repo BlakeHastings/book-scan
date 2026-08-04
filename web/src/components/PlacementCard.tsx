@@ -6,6 +6,18 @@ export function coverUrl(filename: string): string {
   return filename ? `/api/covers/${encodeURIComponent(filename)}` : ''
 }
 
+/**
+ * The same photo, resized by the server before it is sent.
+ *
+ * For a screen that is nothing but pictures. One book at full size is fine;
+ * a grid of a hundred is tens of megabytes of image to draw thumbnails with,
+ * and on a phone that is somebody's data allowance. The server only answers a
+ * short list of widths, so this must ask for one of them.
+ */
+export function coverThumbUrl(filename: string, width: 160 | 320 | 640): string {
+  return filename ? `${coverUrl(filename)}?w=${width}` : ''
+}
+
 function NeighbourRow({
   label, neighbour, emptyText,
 }: {

@@ -1,5 +1,5 @@
 import type { BookRow, CheckedOutAt, ShelfGroupDto, StripBook } from './api'
-import { shelfImage, type ShelfSlot } from '../../shared/shelving'
+import { bookCover, shelfImage, type CoverSlot, type ShelfSlot } from '../../shared/shelving'
 
 /**
  * Turning what the catalogue stores into what a shelf looks like.
@@ -46,9 +46,100 @@ export function rowOf(group: ShelfGroupDto): StripBook[] {
   return group.books.map(({ book }) => spineOf(book))
 }
 
+/** One line of the vertical list: a book, its position, and whether it is there. */
+export interface ListRow {
+  book: BookRow
+  /** What you count along to. Zero for a book that is not on the bookcase. */
+  n: number
+  here: boolean
+}
+
+/**
+ * The books on a shelf plus, in their alphabetical slots, the ones that belong
+ * there but are currently off it.
+ *
+ * Lifted out of ShelfView unchanged when the list came back as one of three
+ * views (#82), so it can be tested without a DOM. The numbering deliberately
+ * counts only what is physically present, since that is what you use to find a
+ * book by counting along. An absent book gets a dash: it is in the list to
+ * explain a gap, not to be counted to.
+ *
+ * This is the one thing the list does that the spine row and the gallery do
+ * not. Those two draw the run as it physically stands, because a spine or a
+ * cover is a picture of furniture and a book that is out of the house is not
+ * in the picture. A line of text is not a picture, and the list has always
+ * used that to say where the gap is.
+ */
+export function listOf(group: ShelfGroupDto, checkedOut: CheckedOutAt[]): ListRow[] {
+  const present: ListRow[] = group.books.map(({ book }, i) => ({ book, n: i + 1, here: true }))
+  const absent: ListRow[] = checkedOut
+    .filter((entry) => entry.label === group.label)
+    .map((entry) => ({ book: entry.book, n: 0, here: false }))
+
+  return [...present, ...absent].sort((a, b) =>
+    a.book.sort_key < b.book.sort_key ? -1 : a.book.sort_key > b.book.sort_key ? 1 : 0)
+}
+
 /** How many books belonging in this area are off the bookcase right now. */
 export function missingFrom(label: string, checkedOut: CheckedOutAt[]): number {
   return checkedOut.filter((entry) => entry.label === label).length
+}
+
+/** One catalogued book as a tile in the gallery. */
+export interface GridBook {
+  id: number
+  title: string
+  /** Written across a tile that has no picture, the way a blank spine is. */
+  authorFiling: string
+  cover: string
+  coverSlot: CoverSlot
+  /** The publisher's picture rather than a photograph of this copy. */
+  fromCatalogue: boolean
+}
+
+/**
+ * One book as it is drawn lying face up in the gallery.
+ *
+ * The sibling of `spineOf`, asking the same question of the same book for a
+ * view that shows the other face of it, and going through the one shared rule
+ * for both reasons `spineOf` does: so the two views cannot disagree about a
+ * book, and so the answer arrives saying what it is rather than leaving the
+ * caller to assume.
+ */
+export function coverOf(book: BookRow): GridBook {
+  const picture = bookCover({
+    front: book.front_image ?? '',
+    back: book.back_image ?? '',
+    edge: book.edge_image ?? '',
+    catalogue: book.cover_image ?? '',
+  })
+
+  return {
+    id: book.id,
+    title: book.title,
+    authorFiling: book.author_filing || book.authors || book.title,
+    cover: picture.name,
+    coverSlot: picture.slot,
+    fromCatalogue: picture.fromCatalogue,
+  }
+}
+
+/**
+ * What a tile is showing, said plainly.
+ *
+ * Every case except a front cover is one somebody would otherwise get wrong:
+ * a spine or a back standing in reads as a badly cropped cover, and the
+ * publisher's picture reads as a photograph of the book on the shelf when it
+ * is a stock image of some edition of it.
+ */
+export function coverLabel(book: GridBook): string {
+  if (book.coverSlot === 'front') return `${book.title}, front cover`
+  if (book.coverSlot === 'edge') return `${book.title}, spine, no cover photo`
+  if (book.coverSlot === 'back') return `${book.title}, back cover, no front cover photo`
+  if (book.coverSlot === 'catalogue') {
+    return `${book.title}, the publisher's picture, not this copy`
+  }
+  return `${book.title}, no picture`
 }
 
 /** What a spine is showing, for the people who cannot see it. */

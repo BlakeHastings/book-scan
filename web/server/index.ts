@@ -19,9 +19,10 @@ import '../instrumentation'
 
 import express from 'express'
 import type { Database } from 'better-sqlite3'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import sharp from 'sharp'
 import { openDatabase } from './db'
 
 import { lookupIsbn, searchTitle } from './lookup'
@@ -35,7 +36,8 @@ import { Store, type DraftBook } from './store'
 import { confidentPick } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
-  buildPlacement, formatLocation, parseLocation, shelfImage, type ShelfSlot,
+  bookCover, buildPlacement, formatLocation, parseLocation, shelfImage,
+  type ShelfSlot,
 } from '../shared/shelving'
 
 export type Slot = 'front' | 'back' | 'edge'
@@ -164,14 +166,21 @@ function stripBook(row: ShelvedBook, withPhoto: boolean) {
  * The catalogue cover is the last resort rather than the first, and is
  * labelled when used, so a design they do not recognise is explained instead
  * of quietly undermining the match.
+ *
+ * The precedence itself lives in `shared/shelving` as `bookCover`, because the
+ * library's gallery asks the same question of the same book and two copies of
+ * this would be two screens disagreeing about whose picture they are showing.
  */
 function ownPhoto(row: {
   front_image: string; edge_image: string; back_image: string; cover_image: string
 }) {
-  const mine = row.front_image || row.edge_image || row.back_image
-  return mine
-    ? { cover: mine, fromCatalogue: false }
-    : { cover: row.cover_image, fromCatalogue: Boolean(row.cover_image) }
+  const picked = bookCover({
+    front: row.front_image ?? '',
+    back: row.back_image ?? '',
+    edge: row.edge_image ?? '',
+    catalogue: row.cover_image ?? '',
+  })
+  return { cover: picked.name, fromCatalogue: picked.fromCatalogue }
 }
 
 /**
@@ -388,6 +397,53 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   const app = express()
   app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
+
+  /**
+   * Ask for a picture smaller than the one on disk.
+   *
+   * Everything stored here is full size: a catalogue cover is up to 1000px
+   * wide and a phone photo is whatever the camera produced. That is right for
+   * a screen showing one book, and wrong for the library's gallery, which is a
+   * grid of a hundred of them at about 120 CSS pixels each. Sending the
+   * originals there is tens of megabytes over somebody's mobile data to draw
+   * thumbnails.
+   *
+   * A closed set of widths, because the width is in a URL and a URL is a
+   * request anybody can make. An open one would let a caller ask the server to
+   * re-encode the whole catalogue at a hundred sizes it will never show.
+   *
+   * Nothing is written. The resize happens per request and the answer is
+   * cached by the browser under the same immutable, thirty day policy as the
+   * original, so a cover is resized at most once per phone rather than once
+   * per scroll. A miss falls through to the static mount below, which is what
+   * turns it into the same 404 as the full size file.
+   */
+  const THUMB_WIDTHS = [160, 320, 640]
+
+  app.get('/api/covers/:name', (req, res, next) => {
+    const width = Number(req.query.w)
+    if (!THUMB_WIDTHS.includes(width)) return next()
+
+    const name = req.params.name
+    // A filename, never a path. `basename` on its own is enough on POSIX and
+    // both separators are refused outright so this reads the same everywhere.
+    if (name.includes('/') || name.includes('\\')) return next()
+    const file = join(coverDir, basename(name))
+    if (!existsSync(file)) return next()
+
+    void sharp(file)
+      .resize({ width, withoutEnlargement: true })
+      .jpeg({ quality: 72 })
+      .toBuffer()
+      .then((body) => {
+        res.type('jpeg')
+          .set('Cache-Control', 'public, max-age=2592000, immutable')
+          .send(body)
+      })
+      // Not an image, or an image sharp cannot read. The full size file is
+      // still there and still servable, so send that rather than failing.
+      .catch(() => next())
+  })
 
   // Captured photos. Immutable once written (the filename carries a
   // timestamp), so they can be cached hard: the placement card renders
