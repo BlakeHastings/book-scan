@@ -59,13 +59,13 @@ Then('the book should offer:', async ({ page }, table: DataTable) => {
   await expect(page.locator('.actions--top .btn')).toHaveText(wanted)
 })
 
-When('I take it off the bookcase', async ({ page }) => {
-  await page.getByRole('button', { name: 'Take it off the bookcase' }).click()
+When('I check it out', async ({ page }) => {
+  await page.getByRole('button', { name: 'Check out' }).click()
   await expect(page.locator('.checkedout')).toBeVisible()
 })
 
-When('I put it back on the bookcase', async ({ page }) => {
-  await page.getByRole('button', { name: 'Put it back on the bookcase' }).click()
+When('I check it in', async ({ page }) => {
+  await page.getByRole('button', { name: 'Check in' }).click()
   await expect(page.locator('.shelve__ask')).toBeVisible()
 })
 

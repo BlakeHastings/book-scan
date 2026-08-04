@@ -64,10 +64,10 @@ const RETURN_TO: Record<Origin, { mode: Mode; scanning?: boolean }> = {
 
 /** What actually happened when the shelf state was changed, in words. */
 const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
-  'checked-out': 'Taken off the bookcase.',
-  'already-out': 'It was already off the bookcase, so nothing changed.',
-  'checked-in': 'Back on the bookcase.',
-  'already-in': 'It was already on the bookcase, so nothing changed.',
+  'checked-out': 'Checked out.',
+  'already-out': 'It was already checked out, so nothing changed.',
+  'checked-in': 'Checked in.',
+  'already-in': 'It was already checked in, so nothing changed.',
 }
 
 /** Next slot with no photo in it, so the shutter advances by itself. */

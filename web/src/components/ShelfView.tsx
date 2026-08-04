@@ -265,7 +265,7 @@ export function ShelfView({
       {off.length > 0 && (
         <section className="offshelf">
           <h3 className="offshelf__head">
-            Off the bookcase ({off.length})
+            Checked out ({off.length})
           </h3>
           {/* What happens to a book that is not on the bookcase depends on
               what is being drawn, so this says which. The list files it into
@@ -279,7 +279,7 @@ export function ShelfView({
                 + 'a book that is not there. '
               : 'Not drawn below, because they are not on the bookcase: the run '
                 + 'has closed up behind each one, exactly as it has in the room. '}
-            Open one to put it back.
+            Open one to check it in.
           </p>
           {off.map(({ book, label }) => (
             <button key={book.id} className="offshelf__row" onClick={() => open(book.id)}>

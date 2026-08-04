@@ -35,7 +35,7 @@ interface Props {
   placement?: ReactNode
   /** Null while the book is on a shelf, a timestamp while it is off one. */
   checkedOutAt?: string | null
-  /** Take it off the shelf, or put it back. Saved books only. */
+  /** Check it out, or check it in. Saved books only. */
   onCheckOut?: (out: boolean) => void
   checkingOut?: boolean
   /**
@@ -158,10 +158,10 @@ export function BookDetail({
           especially, means something different for a book in a pile. */}
       {checkedOutAt && (
         <div className="checkedout">
-          <strong>Off the bookcase</strong>
+          <strong>Checked out</strong>
           <span>
-            Taken down {new Date(checkedOutAt).toLocaleDateString()}. Nothing is
-            filed next to it, and the bookcase has closed up behind it.
+            Checked out {new Date(checkedOutAt).toLocaleDateString()}. Nothing
+            is filed next to it, and the bookcase has closed up behind it.
           </span>
         </div>
       )}
@@ -219,10 +219,11 @@ export function BookDetail({
               * can go back, and neither is ever offered as the other.
               */}
             {checkedOutAt ? (
-              /* Back on through the same guided shuffle as a new book, which
-                 is the point: it is how a shelf gets rearranged by hand. */
+              /* Check-in goes through the same guided shuffle as a new book,
+                 which is the point: it is how a shelf gets rearranged by
+                 hand. */
               <button className="btn btn--primary" onClick={onShelve}>
-                Put it back on the bookcase
+                Check in
               </button>
             ) : onCheckOut ? (
               <button
@@ -230,7 +231,7 @@ export function BookDetail({
                 onClick={() => onCheckOut(true)}
                 disabled={checkingOut}
               >
-                {checkingOut ? 'Taking it off...' : 'Take it off the bookcase'}
+                {checkingOut ? 'Checking out...' : 'Check out'}
               </button>
             ) : null}
 

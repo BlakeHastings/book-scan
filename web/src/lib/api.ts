@@ -364,7 +364,7 @@ const setLocation = (id: number, location: string) =>
   })
 
 /**
- * Take a book off the shelf, or put it back. Nothing is deleted either way.
+ * Check a book out, or check it in. Nothing is deleted either way.
  *
  * Asking for the state it is already in is a no-op: `outcome` says whether
  * anything changed, and `book` always carries the real, unmodified value.
