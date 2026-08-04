@@ -51,15 +51,10 @@ The safety here is structural, not just a request:
 - `web/.gitignore` excludes `data/`, so a database or cover photo cannot be
   committed. CI re-checks this on the result, because an ignore rule is silent
   when someone forces past it.
-
-**One real exception, and it is not theoretical.** `web/server/identify.ts:385`
-builds its tesseract cache path from `BOOKSCAN_DATA` too, and `workerOptions()`
-creates that directory. The OCR tests reach it. So running `npm test` in a
-shell where `BOOKSCAN_DATA` points at the live catalogue writes a `tessdata`
-directory into it. That only adds a cache folder and never touches `books.db`
-or `covers/`, but it means "tests cannot reach real data" is not true today.
-Tracked as an issue. Until it is fixed, do not run the test suite from a shell
-that has `BOOKSCAN_DATA` set.
+- The OCR tests download and cache language data, but that cache is resolved
+  independently of `BOOKSCAN_DATA` (`web/server/identify.ts:392`, cached under
+  the user's home directory, not the data directory), so it cannot land
+  anywhere near the catalogue either.
 
 If you add a test that needs a database, open `:memory:` like the existing ones
 do (see `web/server/store.test.ts`). Never write a test that touches a path
