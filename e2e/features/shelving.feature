@@ -65,6 +65,11 @@ Feature: Putting a book on a shelf that is already full
     about the room and the only thing allowed to change where the catalogue
     thinks a book is.
 
+    It also ends where it started. Somebody putting a book back is working
+    through their shelves, so finishing drops them in the library rather than
+    at the cataloguing camera, which is a room they would then have to navigate
+    out of (#89).
+
     Given "The Dispossessed" was last recorded at "2A"
     And "The Dispossessed" is off the bookcase
 
@@ -74,8 +79,7 @@ Feature: Putting a book on a shelf that is already full
     And I put it back on the bookcase
     Then it should tell me to put "The Dispossessed" in the gap at "1A"
 
-    When I say it fits and save it
-    And I go to the library
+    When I say it fits and finish putting it back
     Then the catalogue should hold "The Dispossessed" recorded as:
       | location | 1A |
     And nothing should need attention

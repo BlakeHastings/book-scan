@@ -79,6 +79,19 @@ When('I say it fits and put it back', async ({ page }) => {
   await expect(page.locator('video.isbncam__video')).toBeVisible({ timeout: QUEUE_TIMEOUT })
 })
 
+/**
+ * The end of putting a book back that was picked up in the library.
+ *
+ * Landing back in the library is the assertion, the same way the move step
+ * below asserts landing in the shelves. Finishing here used to end at the
+ * cataloguing camera, a room somebody who was browsing their shelves then has
+ * to navigate out of (#89).
+ */
+When('I say it fits and finish putting it back', async ({ page }) => {
+  await page.getByRole('button', { name: 'It fits, save' }).click()
+  await expect(page.locator('.shelfgroup').first()).toBeVisible({ timeout: QUEUE_TIMEOUT })
+})
+
 When('I start the camera', async ({ page }) => {
   await page.locator('button.tile', { hasText: 'Add' }).click()
   await page.getByRole('button', { name: 'Start camera' }).click()
