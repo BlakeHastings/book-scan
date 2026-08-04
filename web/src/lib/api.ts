@@ -432,9 +432,19 @@ export const emptyDraft: Draft = {
   isbnSource: '', ocrText: '', authorFilingOverride: '',
 }
 
-export function draftFromLookup(result: LookupResponse): Draft {
+/**
+ * Fill a draft from what the catalogue returned.
+ *
+ * `isbnSource` is not in the lookup and cannot be: the catalogue only knows
+ * the number it was asked about, not how the number was read. It comes from
+ * whoever did the reading, so the caller passes it, and a book catalogued at
+ * the camera keeps the difference between a self-validating barcode and an
+ * OCR guess the lookup happened to agree with.
+ */
+export function draftFromLookup(result: LookupResponse, isbnSource = ''): Draft {
   return {
     ...emptyDraft,
+    isbnSource,
     isbn13: result.isbn13,
     isbn10: result.isbn10,
     title: result.title,
