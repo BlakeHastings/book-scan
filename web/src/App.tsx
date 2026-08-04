@@ -26,14 +26,39 @@ type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
 
 /**
- * How a catalogued book came to be on screen, which decides only where the way
+ * How the book on screen came to be there, which decides only where the way
  * out leads. What can be done to the book is decided by the book.
  *
  * `move` is the library too, and differs only in the way out: somebody
  * adjusting where a plank ends is working through the shelves, and dropping
  * them at the cataloguing camera when they finish would be the wrong room.
  */
-type Origin = 'library' | 'scan' | 'move'
+type Origin = 'capture' | 'queue' | 'library' | 'scan' | 'move'
+
+/**
+ * Where finishing with a book puts you back.
+ *
+ * A table rather than a chain of conditionals, and one table rather than one
+ * per exit. Finishing a book used to be answered in two places that knew
+ * different halves of the question: one asked whether the book came from the
+ * queue, the other whether it came from the scanner, and neither had heard of
+ * the library. So putting a book back from the library ended at the
+ * cataloguing camera, which is a room you then have to navigate out of (#89,
+ * the same complaint as #47).
+ *
+ * Every origin appears here, so a new one cannot be added without saying where
+ * it goes back to, and adding one no longer means finding every conditional
+ * that would otherwise quietly treat it as "somewhere else".
+ */
+const RETURN_TO: Record<Origin, { mode: Mode; scanning?: boolean }> = {
+  // Straight back to the viewfinder, so a pile of books is worked through
+  // without a detour past the home screen.
+  capture: { mode: 'capture' },
+  queue: { mode: 'queue' },
+  library: { mode: 'library' },
+  move: { mode: 'library' },
+  scan: { mode: 'home', scanning: true },
+}
 
 /** What actually happened when the shelf state was changed, in words. */
 const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
@@ -97,14 +122,12 @@ export default function App() {
   const [checkingOut, setCheckingOut] = useState(false)
   const [coverImage, setCoverImage] = useState('')
   const [scanning, setScanning] = useState(false)
-  const [origin, setOrigin] = useState<Origin>('library')
+  const [origin, setOrigin] = useState<Origin>('capture')
   /** What the last state change actually did, in the outcome's own words. */
   const [notice, setNotice] = useState('')
-  // Whether the book in hand was opened from the queue, so finishing (or
-  // abandoning) shelving can return there instead of dropping the person
-  // wherever the camera flow normally lands. queueReturn also carries where
-  // in the list to land, since the shelved book leaves the queue behind.
-  const [fromQueue, setFromQueue] = useState(false)
+  // Where in the queue listing to land on the way back, since the book being
+  // shelved leaves the queue behind and the row it sat in goes with it. The
+  // queue is the origin itself; this is only the position within it.
   const [queueReturn, setQueueReturn] = useState<QueueReturnAnchor | null>(null)
   // Where the library was when a book was opened from it. Rows are long and
   // the page is a stack of them, so coming back to the top of the first
@@ -506,7 +529,10 @@ export default function App() {
     try {
       const result = await api.deleteBook(bookId)
       setCounts(result.counts)
-      reset()
+      // The one exit that ignores where the book came from, because the book
+      // it came from no longer exists. The library is the only screen left
+      // that makes sense to land on.
+      clearBookInHand()
       setMode('library')
     } catch (caught) {
       setError((caught as Error).message)
@@ -523,7 +549,14 @@ export default function App() {
    * `shelvedAt` is the shelf the person has just been told to put the book on
    * and answered "it fits" about. Empty for an ordinary edit, where nobody has
    * been anywhere near the shelves and the recorded location must be left
-   * alone.
+   * alone, along with whether the book is on the bookcase at all.
+   *
+   * That is the whole of what this knows about the physical world, and it is
+   * carried by one value. Nothing here reads `checkedOutAt` to decide to write
+   * anything: a save that used to check a book in on the strength of the book
+   * being out is what destroyed take-down times, since editing a note is not a
+   * statement about where a book is (#87). Both statements a placement makes
+   * now travel with the label, in `api.updateAndShelve`.
    *
    * A new book needs nothing here: POST /api/books records where it landed as
    * part of the insert. Only the update path had the gap, and it is the path a
@@ -545,12 +578,6 @@ export default function App() {
       // it at save time, but you have just come through the shelving step
       // with the book in your hand, so repeating the instruction over the
       // next book's viewfinder tells you nothing you did not act on.
-      // Coming out of the shelving step with a book that was off the shelf
-      // means it is back on one. Done here rather than in the view, so it
-      // cannot be missed by a route that skips the shelving step.
-      if (bookId !== null && checkedOutAt) {
-        await api.setCheckedOut(bookId, false).catch(() => {})
-      }
       if (stay) {
         // Staying means the edit just written is the one still on screen: no
         // navigation happens, so nothing else bumps the session for it. A
@@ -558,14 +585,11 @@ export default function App() {
         // write it would have raced with has landed.
         endReviewSession()
         await refreshPlacement()
-      } else if (origin === 'scan' || origin === 'move') {
-        // A scanned book that has just been put back leaves the way it came,
-        // so the next one off the pile is one tap away. reset() would send it
-        // to the cataloguing camera or to the queue, and it came from neither.
-        // A book moved across a boundary is the same argument: it came from
-        // the shelves and that is where the next adjustment is.
-        leaveBook()
       } else {
+        // Finished with the book, so back the way you came in: the scanner for
+        // the next one off the pile, the shelves for the next adjustment, the
+        // queue for the next capture, the library for the book you were just
+        // looking at. reset() reads that off the origin rather than guessing.
         reset()
       }
       return true
@@ -696,9 +720,9 @@ export default function App() {
         edge: book.edge_image ? `/api/covers/${book.edge_image}` : undefined,
       })
       setShots({})
-      // Reached from the library, not the queue: finishing here must go back
-      // to the library, not the queue, however this book last got opened.
-      setFromQueue(false)
+      // Reached from the shelves, not the queue: the anchor a previous book
+      // left behind is not where this one goes back to. `from` above already
+      // says where that is.
       setQueueReturn(null)
       setMode('review')
     } catch (caught) {
@@ -769,30 +793,10 @@ export default function App() {
     // Came from the queue, so finishing or abandoning shelving lands back
     // there, near where this capture sat. The scanner is not where this book
     // came from, whatever the last book on this screen arrived through.
-    setOrigin('library')
+    setOrigin('queue')
     setNotice('')
-    setFromQueue(true)
     setQueueReturn(anchor)
     setMode('review')
-  }
-
-  /** Leave a catalogued book the way you came in. */
-  const leaveBook = () => {
-    endReviewSession()
-    setBookId(null)
-    setCheckedOutAt(null)
-    setCoverImage('')
-    setDraft(emptyDraft)
-    setPlacement(null)
-    setNotice('')
-    // Straight back to the viewfinder when that is where you came from, so a
-    // pile of books is worked through without a detour past the home screen.
-    if (origin === 'scan') {
-      setMode('home')
-      setScanning(true)
-    } else {
-      setMode('library')
-    }
   }
 
   /**
@@ -832,23 +836,28 @@ export default function App() {
     setCheckedOutAt(null)
     setCoverImage('')
     setNotice('')
-    setOrigin('library')
-    setFromQueue(false)
+    // Nothing in hand means the camera is where the next book comes from,
+    // which is what the origin says once this one has been put down.
+    setOrigin('capture')
   }
 
   /**
-   * Clear the book in hand and return to the screen the person started from.
+   * Put the book down and go back to wherever it was picked up.
    *
-   * Shared by finishing shelving and by abandoning it (discarding a queued
-   * capture mid-review): both are "done with this book" moments, and both
-   * should land back in the queue when that is where the book came from.
-   * queueReturn stays set on the way out; QueuePane uses it once to land
-   * near the book just handled, then reports it consumed.
+   * The one way out, shared by finishing shelving, by abandoning it, and by
+   * leaving a catalogued book alone: they are all "done with this book"
+   * moments, and they all owe the person the screen they started on. There
+   * used to be two of these disagreeing about which screen that was.
+   *
+   * The origin is read before the book is put down, since putting it down is
+   * what forgets where it came from. queueReturn survives on purpose; QueuePane
+   * uses it once to land near the book just handled, then reports it consumed.
    */
   const reset = () => {
-    const backToQueue = fromQueue
+    const landing = RETURN_TO[origin]
     clearBookInHand()
-    setMode(backToQueue ? 'queue' : 'capture')
+    setMode(landing.mode)
+    setScanning(Boolean(landing.scanning))
   }
 
   /**
@@ -861,7 +870,7 @@ export default function App() {
    * puts one down.
    */
   const backToCamera = () => {
-    if (!bookStillInHand(fromQueue, bookId)) {
+    if (!bookStillInHand(origin === 'queue', bookId)) {
       clearBookInHand()
       setQueueReturn(null)
     }
@@ -1192,7 +1201,7 @@ export default function App() {
             }
             onShelve={() => setMode('shelve')}
             onSaveEdits={saveEdits}
-            onDiscard={bookId !== null ? leaveBook : reset}
+            onDiscard={reset}
             shelfLabel={placement?.derivedLocation ?? ''}
             onDelete={bookId !== null ? deleteBook : undefined}
             deleting={deletingBook}

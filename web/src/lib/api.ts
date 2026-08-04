@@ -346,6 +346,18 @@ const setLocation = (id: number, location: string) =>
     body: JSON.stringify({ location }),
   })
 
+/**
+ * Take a book off the shelf, or put it back. Nothing is deleted either way.
+ *
+ * Asking for the state it is already in is a no-op: `outcome` says whether
+ * anything changed, and `book` always carries the real, unmodified value.
+ */
+const setCheckedOut = (id: number, out: boolean) =>
+  request<{ outcome: CheckoutOutcome; book: BookRow; counts: Counts }>(
+    `/api/books/${id}/checkout`,
+    { method: 'POST', body: JSON.stringify({ out }) },
+  )
+
 export const api = {
   lookupIsbn: (isbn: string) =>
     request<LookupResponse>(`/api/lookup/isbn/${encodeURIComponent(isbn)}`),
@@ -443,17 +455,7 @@ export const api = {
 
   getBook: (id: number) => request<{ book: BookRow }>(`/api/books/${id}`),
 
-  /**
-   * Take a book off the shelf, or put it back. Nothing is deleted either way.
-   *
-   * Asking for the state it is already in is a no-op: `outcome` says whether
-   * anything changed, and `book` always carries the real, unmodified value.
-   */
-  setCheckedOut: (id: number, out: boolean) =>
-    request<{ outcome: CheckoutOutcome; book: BookRow; counts: Counts }>(
-      `/api/books/${id}/checkout`,
-      { method: 'POST', body: JSON.stringify({ out }) },
-    ),
+  setCheckedOut,
 
   checkedOut: () => request<{ books: BookRow[] }>('/api/checked-out'),
 
@@ -490,7 +492,16 @@ export const api = {
    * that changes a position.
    *
    * `shelvedAt` empty means this is an ordinary edit and nobody observed
-   * anything, which leaves the recorded location exactly where it was.
+   * anything, which leaves the recorded location exactly where it was, and now
+   * leaves whether the book is on the bookcase alone for the same reason (#87).
+   * Both are physical facts, both are observed at the shelf and nowhere else,
+   * so one condition governs both: correcting a note cannot state where a book
+   * is, and it cannot state that it is back either.
+   *
+   * Putting the book back is safe to say on every confirmed placement rather
+   * than only when the caller believes the book was down, because asking for
+   * the state a book is already in is a no-op and not a write (#15). So this
+   * never invents a check-in, and never has to be told about one.
    *
    * Without this the guidance the person had just followed was never written
    * down, and misfile detection then reported that same book as needing to
@@ -498,7 +509,11 @@ export const api = {
    */
   updateAndShelve: async (id: number, draft: Draft, shelvedAt: string) => {
     const result = await updateBook(id, draft)
-    if (shelvedAt.trim()) await setLocation(id, shelvedAt.trim())
+    const observed = shelvedAt.trim()
+    if (observed) {
+      await setLocation(id, observed)
+      await setCheckedOut(id, false)
+    }
     return result
   },
 
