@@ -18,12 +18,17 @@ import { Then, When } from './fixtures.js'
 const QUEUE_TIMEOUT = 90 * 1000
 
 /**
- * To the queue from wherever the scenario happens to be: the camera has its
- * own chip for it, every other screen has the header tab.
+ * To the queue from wherever the scenario happens to be.
+ *
+ * Three ways in, and all three are needed: the camera has its own chip, the
+ * home screen has a tile and hides the header nav, and everywhere else has the
+ * tab. Which one is on screen depends on what the scenario just did rather
+ * than on anything it says.
  */
 When('I go to the queue', async ({ page }) => {
   for (const entry of [
     page.locator('button.cam__chip-btn', { hasText: 'Queue' }),
+    page.locator('button.home__queue'),
     page.locator('nav button.tab', { hasText: 'Queue' }),
   ]) {
     if (await entry.isVisible()) {
