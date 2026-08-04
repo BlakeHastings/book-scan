@@ -81,10 +81,20 @@ function refusal(
     : `There is no area before ${at}; it is where this range starts.`
 }
 
+/**
+ * Every public method here returns a promise, for the reason given on `Store`:
+ * the driver this is heading for is asynchronous, so the shape changes first,
+ * while a missed `await` is still a compile error.
+ *
+ * Order is the shelving logic, so the sequence of reads and writes inside each
+ * method is exactly what it was. Every layout still comes from a read taken
+ * before the write it is compared against, and every sort still happens on the
+ * rows that read returned.
+ */
 export class Shelves {
   constructor(private readonly db: Database) {}
 
-  list(range: ShelfRange): Separator[] {
+  async list(range: ShelfRange): Promise<Separator[]> {
     return (
       this.db
         .prepare('SELECT * FROM separators WHERE shelf_range = ? ORDER BY position ASC')
@@ -93,7 +103,7 @@ export class Shelves {
   }
 
   /** Which bookcase a range begins on. */
-  private startOf(range: ShelfRange): RangeStart {
+  private async startOf(range: ShelfRange): Promise<RangeStart> {
     const row = this.db
       .prepare('SELECT start_shelf, start_area FROM shelf_ranges WHERE shelf_range = ?')
       .get(range) as { start_shelf: number; start_area: number } | undefined
@@ -106,7 +116,7 @@ export class Shelves {
    * book be pulled out and refiled without the boundaries pretending it is
    * still taking up room.
    */
-  private booksIn(range: ShelfRange, excludeId = 0): BookRow[] {
+  private async booksIn(range: ShelfRange, excludeId = 0): Promise<BookRow[]> {
     const rows = this.db
       .prepare(
         `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NULL
@@ -117,20 +127,20 @@ export class Shelves {
   }
 
   /** Every book in a range, with the shelf it lands on. */
-  layout(range: ShelfRange): Placed<ShelvedBook>[] {
+  async layout(range: ShelfRange): Promise<Placed<ShelvedBook>[]> {
     return layoutRange(
-      this.booksIn(range).map((row) => ({ ...row, sortKey: row.sort_key })),
-      this.list(range),
-      this.startOf(range),
+      (await this.booksIn(range)).map((row) => ({ ...row, sortKey: row.sort_key })),
+      await this.list(range),
+      await this.startOf(range),
     )
   }
 
-  groups(range: ShelfRange): ShelfGroup<ShelvedBook>[] {
-    return groupByShelf(this.layout(range), this.list(range))
+  async groups(range: ShelfRange): Promise<ShelfGroup<ShelvedBook>[]> {
+    return groupByShelf(await this.layout(range), await this.list(range))
   }
 
-  loads(range: ShelfRange) {
-    return shelfLoads(this.layout(range), this.list(range))
+  async loads(range: ShelfRange) {
+    return shelfLoads(await this.layout(range), await this.list(range))
   }
 
   /**
@@ -141,39 +151,52 @@ export class Shelves {
    * laying the run out with the newcomer slotted in, so boundaries are honoured
    * rather than approximated from a neighbour.
    */
-  shelfForSortKey(range: ShelfRange, sortKey: string): string {
-    const start = this.startOf(range)
-    return this.layoutWith(range, sortKey)
+  async shelfForSortKey(range: ShelfRange, sortKey: string): Promise<string> {
+    const start = await this.startOf(range)
+    return (await this.layoutWith(range, sortKey))
       .find((p) => p.book.id === NEWCOMER_ID)?.label
       ?? locationLabel(start.shelf, start.area)
   }
 
-  /** The run laid out as though a book with this sort key were already in it. */
-  private layoutWith(
+  /**
+   * The run laid out as though a book with this sort key were already in it.
+   *
+   * The rows are read first and the newcomer merged into the array that read
+   * returned, so the sort still runs over one consistent snapshot of the range
+   * rather than over rows fetched either side of it.
+   */
+  private async layoutWith(
     range: ShelfRange,
     sortKey: string,
     excludeId = 0,
-  ): Placed<ShelvedBook>[] {
-    const books = this.booksIn(range, excludeId)
+  ): Promise<Placed<ShelvedBook>[]> {
+    const books = (await this.booksIn(range, excludeId))
       .map((row) => ({ ...row, sortKey: row.sort_key }))
     const merged = [...books, { id: NEWCOMER_ID, sortKey } as ShelvedBook]
       .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
-    return layoutRange(merged, this.list(range), this.startOf(range))
+    return layoutRange(merged, await this.list(range), await this.startOf(range))
   }
 
   /** The shelf this book lands on, end on, with the gap it goes in. */
-  strip(range: ShelfRange, sortKey: string, excludeId = 0): Strip<ShelvedBook> | null {
-    return stripAround(this.layoutWith(range, sortKey, excludeId))
+  async strip(
+    range: ShelfRange,
+    sortKey: string,
+    excludeId = 0,
+  ): Promise<Strip<ShelvedBook> | null> {
+    return stripAround(await this.layoutWith(range, sortKey, excludeId))
   }
 
   /** The shelf a book already sits on, and where along it. */
-  stripOf(range: ShelfRange, bookId: number): { label: string; books: Placed<ShelvedBook>[]; index: number } | null {
-    return stripAt(this.layout(range), bookId)
+  async stripOf(
+    range: ShelfRange,
+    bookId: number,
+  ): Promise<{ label: string; books: Placed<ShelvedBook>[]; index: number } | null> {
+    return stripAt(await this.layout(range), bookId)
   }
 
   /** Where one book sits now, or '' if it is not shelved in this range. */
-  labelFor(range: ShelfRange, bookId: number): string {
-    return this.layout(range).find((p) => p.book.id === bookId)?.label ?? ''
+  async labelFor(range: ShelfRange, bookId: number): Promise<string> {
+    return (await this.layout(range)).find((p) => p.book.id === bookId)?.label ?? ''
   }
 
   /**
@@ -193,13 +216,13 @@ export class Shelves {
    * whether the next shelf can cope: that is the next question to ask, and the
    * caller walks the chain one answer at a time.
    */
-  overflow(
+  async overflow(
     range: ShelfRange,
     label: string,
     kindIfNew: SeparatorKind = 'shelf',
     placing = '',
-  ): { ok: boolean; error?: string; step?: Overflow; carry?: CarryOn; moves?: Move[] } {
-    const before = this.layout(range)
+  ): Promise<{ ok: boolean; error?: string; step?: Overflow; carry?: CarryOn; moves?: Move[] }> {
+    const before = await this.layout(range)
 
     /*
      * Before the cascade, and before the label is even checked against the
@@ -209,15 +232,15 @@ export class Shelves {
      */
     if (placing) {
       const carry = carryOn(
-        this.layoutWith(range, placing), this.list(range), label, kindIfNew,
+        await this.layoutWith(range, placing), await this.list(range), label, kindIfNew,
       )
       if (carry) {
-        this.applyBoundary(range, carry)
-        return { ok: true, carry, moves: this.movesSince(range, before) }
+        await this.applyBoundary(range, carry)
+        return { ok: true, carry, moves: await this.movesSince(range, before) }
       }
     }
 
-    const known = groupByShelf(before, this.list(range)).map((g) => g.label)
+    const known = groupByShelf(before, await this.list(range)).map((g) => g.label)
 
     // Two different failures used to share one message, which sent you looking
     // at the shelf when the real problem was that the label never existed.
@@ -230,7 +253,7 @@ export class Shelves {
       }
     }
 
-    const step = overflow(before, this.list(range), label, kindIfNew)
+    const step = overflow(before, await this.list(range), label, kindIfNew)
     if (!step) {
       return {
         ok: false,
@@ -239,24 +262,27 @@ export class Shelves {
       }
     }
 
-    this.applyBoundary(range, step)
+    await this.applyBoundary(range, step)
 
-    return { ok: true, step, moves: this.movesSince(range, before) }
+    return { ok: true, step, moves: await this.movesSince(range, before) }
   }
 
   /** Write the one boundary change a plan asks for. Shared by both answers. */
-  private applyBoundary(
+  private async applyBoundary(
     range: ShelfRange,
     plan: { create?: { startsAt: string; kind: SeparatorKind }; shift?: { id: number; startsAt: string } },
-  ): void {
+  ): Promise<void> {
     if (plan.create) {
+      // Counted before the insert, exactly as it was: the new separator takes
+      // the position after the ones already there.
+      const position = (await this.list(range)).length
       this.db
         .prepare(
           `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
            VALUES (?, ?, ?, ?, '', ?)`,
         )
         .run(range, plan.create.kind, plan.create.startsAt,
-             this.list(range).length, new Date().toISOString())
+             position, new Date().toISOString())
     } else if (plan.shift) {
       this.db
         .prepare('UPDATE separators SET starts_at = ? WHERE id = ?')
@@ -279,25 +305,29 @@ export class Shelves {
    * What changes here is the furniture: an area boundary, re-anchored one
    * book along.
    */
-  moveAcrossBoundary(
+  async moveAcrossBoundary(
     range: ShelfRange,
     bookId: number,
     direction: BoundaryDirection,
-  ): { ok: boolean; error?: string; move?: BoundaryMove; moves?: Move[] } {
-    const before = this.layout(range)
-    const outcome = boundaryMove(before, this.list(range), bookId, direction)
+  ): Promise<{ ok: boolean; error?: string; move?: BoundaryMove; moves?: Move[] }> {
+    const before = await this.layout(range)
+    const outcome = boundaryMove(before, await this.list(range), bookId, direction)
 
     if (!outcome.ok) {
       return { ok: false, error: refusal(outcome.reason, outcome.at, direction) }
     }
 
+    // Synchronous on purpose while better-sqlite3 is underneath. The shifts and
+    // the removals are one boundary change and have to land together, so this
+    // closure calls the synchronous body of `remove` rather than awaiting the
+    // public method, which would push the delete outside the transaction.
     const apply = this.db.transaction(() => {
       for (const shift of outcome.move.shift) {
         this.db
           .prepare('UPDATE separators SET starts_at = ? WHERE id = ?')
           .run(shift.startsAt, shift.id)
       }
-      for (const id of outcome.move.remove) this.remove(id)
+      for (const id of outcome.move.remove) this.removeWithin(id)
     })
     apply()
 
@@ -310,7 +340,7 @@ export class Shelves {
        * where it landed is recorded through the location route rather than
        * handed back as a job still to do.
        */
-      moves: this.movesSince(range, before).filter((move) => move.id !== bookId),
+      moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
     }
   }
 
@@ -324,9 +354,12 @@ export class Shelves {
    * again regardless of what this said a moment ago, because a shelf can
    * change between the two calls.
    */
-  boundaryOptions(range: ShelfRange, bookId: number): { next: string | null; previous: string | null } {
-    const placed = this.layout(range)
-    const separators = this.list(range)
+  async boundaryOptions(
+    range: ShelfRange,
+    bookId: number,
+  ): Promise<{ next: string | null; previous: string | null }> {
+    const placed = await this.layout(range)
+    const separators = await this.list(range)
     const next = boundaryMove(placed, separators, bookId, 'next')
     const previous = boundaryMove(placed, separators, bookId, 'previous')
     return {
@@ -353,8 +386,8 @@ export class Shelves {
    * layout, having no position, and dropping them silently would leave the
    * caller unable to tell "not misfiled" from "not considered".
    */
-  review(range: ShelfRange): ShelvingReview {
-    const onShelf = this.layout(range)
+  async review(range: ShelfRange): Promise<ShelvingReview> {
+    const onShelf = (await this.layout(range))
       .map((placed) => toFiled(placed.book, placed.label, false))
 
     const off = (
@@ -370,7 +403,18 @@ export class Shelves {
   }
 
   /** Remove a boundary and renumber the rest so positions stay contiguous. */
-  remove(id: number): void {
+  async remove(id: number): Promise<void> {
+    this.removeWithin(id)
+  }
+
+  /**
+   * The synchronous body of `remove`, so a transaction closure can call it.
+   *
+   * See `moveAcrossBoundary`: while better-sqlite3 is the driver, a closure
+   * handed to `db.transaction` cannot await, and the delete plus the renumber
+   * must be inside it.
+   */
+  private removeWithin(id: number): void {
     const row = this.db
       .prepare('SELECT * FROM separators WHERE id = ?')
       .get(id) as SeparatorRow | undefined
@@ -395,7 +439,7 @@ export class Shelves {
    * user which books to shift, rather than leaving the catalogue and the
    * shelves to drift apart.
    */
-  movesSince(range: ShelfRange, before: Placed<ShelvedBook>[]): Move[] {
-    return diffLayout(before, this.layout(range))
+  async movesSince(range: ShelfRange, before: Placed<ShelvedBook>[]): Promise<Move[]> {
+    return diffLayout(before, await this.layout(range))
   }
 }

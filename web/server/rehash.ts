@@ -115,7 +115,7 @@ export async function rehashCovers(
     changed: 0,
   }
 
-  for (const row of store.imageHashes()) {
+  for (const row of await store.imageHashes()) {
     report.rows += 1
     const next: Record<(typeof SLOTS)[number]['hash'], string> = {
       front_hash: row.front_hash ?? '',
@@ -176,7 +176,7 @@ export async function rehashCovers(
 
     if (!rowChanged) continue
     report.changed += 1
-    if (apply) store.setHashes(row.id, next.front_hash, next.cover_hash)
+    if (apply) await store.setHashes(row.id, next.front_hash, next.cover_hash)
   }
 
   return report

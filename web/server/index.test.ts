@@ -153,7 +153,7 @@ describe('saving a book', () => {
     expect(body.counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0 })
     expect(body.placement.suggestedLocation).toBe('1A')
 
-    const stored = running.store.getBook(body.id)
+    const stored = await running.store.getBook(body.id)
     expect(stored?.title).toBe('Dune')
     expect(stored?.isbn13).toBe(DUNE)
     // Placed automatically, since the request carried no location of its own.
@@ -165,7 +165,7 @@ describe('saving a book', () => {
 
     expect(status).toBe(400)
     expect(body.error).toContain('title')
-    expect(running.store.counts().total).toBe(0)
+    expect((await running.store.counts()).total).toBe(0)
   })
 
   it('records the location a person actually gave it, not the auto-placement', async () => {
@@ -176,13 +176,13 @@ describe('saving a book', () => {
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true, location: '1C',
     })
 
-    expect(running.store.getBook(body.id)?.location).toBe('1C')
+    expect((await running.store.getBook(body.id))?.location).toBe('1C')
   })
 })
 
 describe('updating a book', () => {
   it('edits an existing book in place', async () => {
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Old Title', authors: ['Ann Author'], isFiction: true,
     })
 
@@ -192,8 +192,8 @@ describe('updating a book', () => {
 
     expect(status).toBe(200)
     expect(body.id).toBe(id)
-    expect(running.store.getBook(id)?.title).toBe('New Title')
-    expect(running.store.counts().total).toBe(1) // edited, not duplicated
+    expect((await running.store.getBook(id))?.title).toBe('New Title')
+    expect((await running.store.counts()).total).toBe(1) // edited, not duplicated
   })
 
   it('404s on a book that does not exist, and writes nothing', async () => {
@@ -203,18 +203,18 @@ describe('updating a book', () => {
 
     expect(status).toBe(404)
     expect(body.error).toContain('No such book')
-    expect(running.store.counts().total).toBe(0)
+    expect((await running.store.counts()).total).toBe(0)
   })
 
   it('400s when the edit drops the title, and leaves the row untouched', async () => {
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Keep Me', authors: ['Ann Author'], isFiction: true,
     })
 
     const { status } = await put(`/api/books/${id}`, { authors: ['Ann Author'], isFiction: true })
 
     expect(status).toBe(400)
-    expect(running.store.getBook(id)?.title).toBe('Keep Me')
+    expect((await running.store.getBook(id))?.title).toBe('Keep Me')
   })
 })
 
@@ -223,7 +223,7 @@ describe('cropping a saved book to the book', () => {
   async function untilCropped(id: number, within = 15_000): Promise<void> {
     const deadline = Date.now() + within
     for (;;) {
-      if ((running.store.getBook(id)?.cropped ?? '') !== '') return
+      if (((await running.store.getBook(id))?.cropped ?? '') !== '') return
       if (Date.now() > deadline) throw new Error('the crop never ran')
       await new Promise((done) => setTimeout(done, 50))
     }
@@ -241,7 +241,7 @@ describe('cropping a saved book to the book', () => {
     })
 
     await untilCropped(body.id)
-    const book = running.store.getBook(body.id)!
+    const book = (await running.store.getBook(body.id))!
 
     expect(book.front_image).toBeTruthy()
     expect(book.front_crop).toBe(`${book.front_image.replace(/\.jpg$/, '')}_crop.jpg`)
@@ -269,7 +269,7 @@ describe('cropping a saved book to the book', () => {
     })
 
     await untilCropped(body.id)
-    const book = running.store.getBook(body.id)!
+    const book = (await running.store.getBook(body.id))!
 
     expect(book.front_image).toBeTruthy()
     expect(book.front_crop).toBe('')
@@ -288,7 +288,7 @@ describe('cropping a saved book to the book', () => {
     })
 
     await untilCropped(body.id)
-    const book = running.store.getBook(body.id)!
+    const book = (await running.store.getBook(body.id))!
     expect(book.front_crop).toBeTruthy()
 
     await del(`/api/books/${body.id}`)
@@ -301,7 +301,7 @@ describe('cropping a saved book to the book', () => {
 
 describe('deleting a book', () => {
   it('removes it from the catalogue', async () => {
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Gone Soon', authors: ['Ann Author'], isFiction: true,
     })
 
@@ -309,8 +309,8 @@ describe('deleting a book', () => {
 
     expect(status).toBe(200)
     expect(body.ok).toBe(true)
-    expect(running.store.getBook(id)).toBeUndefined()
-    expect(running.store.counts().total).toBe(0)
+    expect(await running.store.getBook(id)).toBeUndefined()
+    expect((await running.store.counts()).total).toBe(0)
   })
 
   it('404s on an id that was never there', async () => {
@@ -322,7 +322,7 @@ describe('deleting a book', () => {
 
 describe('updating a location', () => {
   it('records where a person says the book actually is', async () => {
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'X', authors: ['Ann Author'], isFiction: true, location: '1A',
     })
 
@@ -330,11 +330,11 @@ describe('updating a location', () => {
 
     expect(status).toBe(200)
     expect(body.book.location).toBe('2C')
-    expect(running.store.getBook(id)?.location).toBe('2C')
+    expect((await running.store.getBook(id))?.location).toBe('2C')
   })
 
   it('takes the book back to never-placed on an empty label', async () => {
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'X', authors: ['Ann Author'], isFiction: true, location: '1A',
     })
 
@@ -343,7 +343,7 @@ describe('updating a location', () => {
   })
 
   it('refuses a label that is not a real location, and does not touch the row', async () => {
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'X', authors: ['Ann Author'], isFiction: true, location: '1A',
     })
 
@@ -351,7 +351,7 @@ describe('updating a location', () => {
 
     expect(status).toBe(400)
     expect(body.error).toContain('the loft')
-    expect(running.store.getBook(id)?.location).toBe('1A')
+    expect((await running.store.getBook(id))?.location).toBe('1A')
   })
 
   it('404s on a book that does not exist', async () => {
@@ -362,7 +362,7 @@ describe('updating a location', () => {
 
 describe('checking a book out and back in by id', () => {
   it('takes it off the shelf the first time', async () => {
-    const { id } = running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
 
     const { status, body } = await post(`/api/books/${id}/checkout`, { out: true })
 
@@ -373,7 +373,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('reports already-out on a second checkout and keeps the original timestamp', async () => {
-    const { id } = running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
     const first = await post(`/api/books/${id}/checkout`, { out: true })
 
     const second = await post(`/api/books/${id}/checkout`, { out: true })
@@ -383,7 +383,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('checks it back in, clearing the timestamp', async () => {
-    const { id } = running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
     await post(`/api/books/${id}/checkout`, { out: true })
 
     const { status, body } = await post(`/api/books/${id}/checkout`, { out: false })
@@ -394,7 +394,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('reports already-in for a book already on the shelf, as a no-op', async () => {
-    const { id } = running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
 
     const { body } = await post(`/api/books/${id}/checkout`, { out: false })
 
@@ -436,7 +436,7 @@ describe('shelving a book onto a bookcase', () => {
   it('leaves a book put back where the app said out of the misfile list', async () => {
     const rama = await seed('Rendezvous with Rama', 'Arthur C. Clarke')
     const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
-    expect(running.store.getBook(rama)?.location).toBe('1A')
+    expect((await running.store.getBook(rama))?.location).toBe('1A')
 
     // Somebody moved it and it was never recorded, which is the state a book
     // is in when the library reports it. What it is told to do next is the
@@ -459,7 +459,7 @@ describe('shelving a book onto a bookcase', () => {
     await patch(`/api/books/${dispossessed}/location`, { location: '1A' })
     await post(`/api/books/${dispossessed}/checkout`, { out: false })
 
-    expect(running.store.getBook(dispossessed)?.location).toBe('1A')
+    expect((await running.store.getBook(dispossessed))?.location).toBe('1A')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -517,16 +517,16 @@ describe('shelving a book onto a bookcase', () => {
     expect(body.moves).toEqual([])
 
     // Nobody was asked to pick up a book that was already on a shelf.
-    expect(running.store.getBook(rama)?.location).toBe('1A')
-    expect(running.store.getBook(gibson)?.location).toBe('1A')
-    expect(running.store.getBook(dispossessed)?.location).toBe('1B')
+    expect((await running.store.getBook(rama))?.location).toBe('1A')
+    expect((await running.store.getBook(gibson))?.location).toBe('1A')
+    expect((await running.store.getBook(dispossessed))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
 
     // And saving it puts it exactly where the answer said it would go.
     const saved = await post('/api/books', {
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
     })
-    expect(running.store.getBook(saved.body.id)?.location).toBe('1B')
+    expect((await running.store.getBook(saved.body.id))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -568,7 +568,7 @@ describe('shelving a book onto a bookcase', () => {
     const saved = await post('/api/books', {
       title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
     })
-    expect(running.store.getBook(saved.body.id)?.location).toBe('1B')
+    expect((await running.store.getBook(saved.body.id))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -590,7 +590,7 @@ describe('shelving a book onto a bookcase', () => {
     // "Yes, it fit" against the step the person was just given.
     await patch(`/api/books/${body.step.id}/location`, { location: body.step.to })
 
-    expect(running.store.getBook(dispossessed)?.location).toBe('1B')
+    expect((await running.store.getBook(dispossessed))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -604,13 +604,13 @@ describe('shelving a book onto a bookcase', () => {
     await put(`/api/books/${id}`, {
       title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
     })
-    expect(running.store.getBook(id)?.location).toBe('2C')
+    expect((await running.store.getBook(id))?.location).toBe('2C')
 
     await put(`/api/books/${id}`, {
       title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
       location: '',
     })
-    expect(running.store.getBook(id)?.location).toBe('2C')
+    expect((await running.store.getBook(id))?.location).toBe('2C')
   })
 
   /**
@@ -635,8 +635,8 @@ describe('shelving a book onto a bookcase', () => {
 
     // Still off the bookcase, and off it since the moment somebody actually
     // took it down rather than the moment they corrected a note.
-    expect(running.store.getBook(id)?.checked_out_at).toBe(takenDown)
-    expect(running.store.getBook(id)?.notes).toBe('signed by the author')
+    expect((await running.store.getBook(id))?.checked_out_at).toBe(takenDown)
+    expect((await running.store.getBook(id))?.notes).toBe('signed by the author')
   })
 
   /**
@@ -660,7 +660,7 @@ describe('shelving a book onto a bookcase', () => {
     })
     expect(split.body.step.id).toBe(zola)
     await patch(`/api/books/${zola}/location`, { location: split.body.step.to })
-    expect(running.store.getBook(zola)?.location).toBe('1B')
+    expect((await running.store.getBook(zola))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
 
     // Renaming the author to Adams sorts the book back to the front of the
@@ -695,16 +695,16 @@ describe('shelving a book onto a bookcase', () => {
  * blank blocks.
  */
 describe('the row a shelved book stands in', () => {
-  const seedWith = (title: string, author: string, images: {
+  const seedWith = async (title: string, author: string, images: {
     front?: string; back?: string; edge?: string
-  }) => running.store.addBook({
+  }) => (await running.store.addBook({
     title,
     authors: [author],
     isFiction: true,
     frontImage: images.front ?? '',
     backImage: images.back ?? '',
     edgeImage: images.edge ?? '',
-  }).id
+  })).id
 
   /** The row as the detail view receives it, for the book with this id. */
   const rowFor = async (id: number, title: string, author: string) => {
@@ -719,11 +719,11 @@ describe('the row a shelved book stands in', () => {
   }
 
   it('gives every book in the row its photo, not just the neighbours', async () => {
-    seedWith('Foundation', 'Isaac Asimov', { edge: 'asimov.jpg' })
-    seedWith('Neuromancer', 'William Gibson', { edge: 'gibson.jpg' })
-    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
-    seedWith('The Dispossessed', 'Ursula K. Le Guin', { edge: 'leguin.jpg' })
-    seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
+    await seedWith('Foundation', 'Isaac Asimov', { edge: 'asimov.jpg' })
+    await seedWith('Neuromancer', 'William Gibson', { edge: 'gibson.jpg' })
+    const dune = await seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    await seedWith('The Dispossessed', 'Ursula K. Le Guin', { edge: 'leguin.jpg' })
+    await seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
 
     const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
 
@@ -738,9 +738,9 @@ describe('the row a shelved book stands in', () => {
   })
 
   it('falls back to a cover for a book catalogued before spines, and says which face it is', async () => {
-    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
-    seedWith('The Dispossessed', 'Ursula K. Le Guin', { front: 'leguin-front.jpg' })
-    seedWith('Solaris', 'Stanislaw Lem', { back: 'lem-back.jpg' })
+    const dune = await seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    await seedWith('The Dispossessed', 'Ursula K. Le Guin', { front: 'leguin-front.jpg' })
+    await seedWith('Solaris', 'Stanislaw Lem', { back: 'lem-back.jpg' })
 
     const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
 
@@ -752,8 +752,8 @@ describe('the row a shelved book stands in', () => {
   })
 
   it('leaves a book with no photograph at all blank rather than inventing one', async () => {
-    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
-    seedWith('Solaris', 'Stanislaw Lem', {})
+    const dune = await seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    await seedWith('Solaris', 'Stanislaw Lem', {})
 
     const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
 
@@ -765,10 +765,10 @@ describe('the row a shelved book stands in', () => {
     // Off the bookcase, so the answer is the row with a gap in it rather than
     // the row it stands in. Same drawing, same page, same taps: two photos in
     // a run of blank blocks there would read as missing data.
-    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
-    seedWith('Foundation', 'Isaac Asimov', { edge: 'asimov.jpg' })
-    seedWith('Neuromancer', 'William Gibson', { edge: 'gibson.jpg' })
-    seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
+    const dune = await seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    await seedWith('Foundation', 'Isaac Asimov', { edge: 'asimov.jpg' })
+    await seedWith('Neuromancer', 'William Gibson', { edge: 'gibson.jpg' })
+    await seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
     await post(`/api/books/${dune}/checkout`, { out: true })
 
     const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
@@ -778,8 +778,8 @@ describe('the row a shelved book stands in', () => {
   })
 
   it('leaves a checked out book out of the row, because it is not on the shelf', async () => {
-    const dune = seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
-    const lem = seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
+    const dune = await seedWith('Dune', 'Frank Herbert', { edge: 'herbert.jpg' })
+    const lem = await seedWith('Solaris', 'Stanislaw Lem', { edge: 'lem.jpg' })
     await post(`/api/books/${lem}/checkout`, { out: true })
 
     const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
@@ -850,7 +850,7 @@ describe('moving a book across an area boundary', () => {
     })
     await patch(`/api/books/${body.move.id}/location`, { location: body.move.to })
 
-    expect(running.store.getBook(dune)?.location).toBe('1B')
+    expect((await running.store.getBook(dune))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -878,7 +878,7 @@ describe('moving a book across an area boundary', () => {
 
     expect(status).toBe(400)
     expect(body.error).toContain('first or last book of 1A')
-    expect(running.store.getBook(rama)?.location).toBe('1A')
+    expect((await running.store.getBook(rama))?.location).toBe('1A')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -965,7 +965,7 @@ describe('moving a book across an area boundary', () => {
 
   it('sends the first book of 2A back to the last area of bookcase 1', async () => {
     const { rama, gibson, dune, dispossessed } = await twoBookcases()
-    expect(running.store.getBook(dune)?.location).toBe('2A')
+    expect((await running.store.getBook(dune))?.location).toBe('2A')
 
     const { status, body } = await post('/api/shelves/move', {
       range: 'fiction', id: dune, direction: 'previous',
@@ -975,9 +975,9 @@ describe('moving a book across an area boundary', () => {
     expect(body.move).toEqual({ id: dune, title: 'Dune', from: '2A', to: '1A' })
     // The bookcase break moved, so the book past it stayed on bookcase 2.
     expect(body.moves).toEqual([])
-    expect(running.store.getBook(rama)?.location).toBe('1A')
-    expect(running.store.getBook(gibson)?.location).toBe('1A')
-    expect(running.store.getBook(dispossessed)?.location).toBe('2A')
+    expect((await running.store.getBook(rama))?.location).toBe('1A')
+    expect((await running.store.getBook(gibson))?.location).toBe('1A')
+    expect((await running.store.getBook(dispossessed))?.location).toBe('2A')
   })
 
   it('reports the move until it is confirmed, then nothing', async () => {
@@ -1002,7 +1002,7 @@ describe('moving a book across an area boundary', () => {
     })
     await patch(`/api/books/${dune}/location`, { location: body.move.to })
 
-    expect(running.store.getBook(dune)?.location).toBe('1A')
+    expect((await running.store.getBook(dune))?.location).toBe('1A')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -1016,8 +1016,8 @@ describe('moving a book across an area boundary', () => {
     expect(body.moves).toEqual([])
 
     await patch(`/api/books/${gibson}/location`, { location: body.move.to })
-    expect(running.store.getBook(rama)?.location).toBe('1A')
-    expect(running.store.getBook(dune)?.location).toBe('2A')
+    expect((await running.store.getBook(rama))?.location).toBe('1A')
+    expect((await running.store.getBook(dune))?.location).toBe('2A')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
@@ -1054,16 +1054,16 @@ describe('scanning a book at the shelf', () => {
   async function seedRecognisable(): Promise<{ id: number; buffer: Buffer }> {
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const hash = await coverHash(buffer)
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
     })
-    running.store.setHashes(id, hash, '')
+    await running.store.setHashes(id, hash, '')
     return { id, buffer }
   }
 
   it('answers with candidates and writes nothing to the catalogue', async () => {
     const { id, buffer } = await seedRecognisable()
-    const before = running.store.getBook(id)
+    const before = await running.store.getBook(id)
 
     const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
@@ -1073,8 +1073,8 @@ describe('scanning a book at the shelf', () => {
 
     // Load bearing: a shortlist is not a decision. Nothing about the row
     // this candidate names may have changed.
-    expect(running.store.getBook(id)).toEqual(before)
-    expect(running.store.counts().checkedOut).toBe(0)
+    expect(await running.store.getBook(id)).toEqual(before)
+    expect((await running.store.counts()).checkedOut).toBe(0)
   }, 20_000)
 
   it('still writes nothing when the book it recognises is already off the shelf', async () => {
@@ -1082,21 +1082,21 @@ describe('scanning a book at the shelf', () => {
     // held up again. Scanning must still only look. Deferred until the wrong
     // first candidate rate is measurably better than one in ten (#49).
     const { id, buffer } = await seedRecognisable()
-    running.store.setCheckedOut(id, true)
-    const before = running.store.getBook(id)
+    await running.store.setCheckedOut(id, true)
+    const before = await running.store.getBook(id)
 
     const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
     expect(body.outcome).toBe('candidates')
-    expect(running.store.getBook(id)).toEqual(before)
-    expect(running.store.counts().checkedOut).toBe(1)
+    expect(await running.store.getBook(id)).toEqual(before)
+    expect((await running.store.counts()).checkedOut).toBe(1)
   }, 20_000)
 
   it('identifies a catalogued book by its barcode and leaves it exactly as it was', async () => {
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
     })
-    const before = running.store.getBook(id)
+    const before = await running.store.getBook(id)
     const buffer = await backCover(DUNE)
 
     const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
@@ -1107,14 +1107,14 @@ describe('scanning a book at the shelf', () => {
 
     // A barcode settles what the book is, and nothing more. Which of the two
     // directions the person wanted is theirs to say on the book's own page.
-    expect(running.store.getBook(id)).toEqual(before)
-    expect(running.store.counts().checkedOut).toBe(0)
+    expect(await running.store.getBook(id)).toEqual(before)
+    expect((await running.store.counts()).checkedOut).toBe(0)
   }, 20_000)
 
   it('takes no direction, so a body asking for one changes nothing', async () => {
     // Belt and braces on the shape: the old route wrote when told to, and a
     // client left on the old contract must not be able to reach that again.
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
     })
     const buffer = await backCover(DUNE)
@@ -1122,7 +1122,7 @@ describe('scanning a book at the shelf', () => {
     const { body } = await post('/api/books/scan', { image: dataUrl(buffer), out: true })
 
     expect(body.outcome).toBe('identified')
-    expect(running.store.getBook(id)?.checked_out_at).toBeNull()
+    expect((await running.store.getBook(id))?.checked_out_at).toBeNull()
   }, 20_000)
 
   /**
@@ -1164,13 +1164,13 @@ describe('scanning a book at the shelf', () => {
     // pass misses it, and a weak cover match returns before the thorough read
     // ever runs. A barcode validates; a hash distance is a guess.
     const buffer = await distantBackCover(DUNE)
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
     })
-    const decoy = running.store.addBook({
+    const decoy = await running.store.addBook({
       title: 'Children of Dune', authors: ['Frank Herbert'], isFiction: true,
     })
-    running.store.setHashes(decoy.id, nudgeHash(await coverHash(buffer), 12), '')
+    await running.store.setHashes(decoy.id, nudgeHash(await coverHash(buffer), 12), '')
 
     const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
@@ -1183,10 +1183,10 @@ describe('scanning a book at the shelf', () => {
     // The other half of the trade: waiting for the barcode must not cost the
     // person the shortlist when there was never a barcode to read.
     const buffer = await frontCover('Dune', 'Frank Herbert')
-    const { id } = running.store.addBook({
+    const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
     })
-    running.store.setHashes(id, nudgeHash(await coverHash(buffer), 12), '')
+    await running.store.setHashes(id, nudgeHash(await coverHash(buffer), 12), '')
 
     const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
@@ -1202,7 +1202,7 @@ describe('scanning a book at the shelf', () => {
     expect(status).toBe(200)
     expect(body.outcome).toBe('not-catalogued')
     expect(body.isbn13).toBe(DUNE)
-    expect(running.store.counts().total).toBe(0)
+    expect((await running.store.counts()).total).toBe(0)
   }, 20_000)
 })
 
@@ -1218,11 +1218,11 @@ describe('editing a capture that is still in the queue', () => {
    * OCR pipeline for no benefit here. The queue's own writer, against the same
    * database the running app is serving from.
    */
-  const queued = () =>
+  const queued = async () =>
     new CaptureQueue(running.db, () => null).add({ back: 'b.jpg', front: 'f.jpg' })
 
   it('persists a correction so the next person picks it up', async () => {
-    const capture = queued()
+    const capture = await queued()
 
     const { status, body } = await patch(`/api/captures/${capture.id}`, {
       who: 'alice', title: 'Dune', authors: ['Frank Herbert'],
@@ -1246,7 +1246,7 @@ describe('editing a capture that is still in the queue', () => {
       classification: { isFiction: true, confidence: 'high', reason: 'stub' },
       notes: [],
     })
-    const capture = queued()
+    const capture = await queued()
 
     const { body } = await patch(`/api/captures/${capture.id}`, {
       who: 'alice', isbn13: DUNE,
@@ -1260,7 +1260,7 @@ describe('editing a capture that is still in the queue', () => {
   })
 
   it('refuses an edit while somebody else holds the claim', async () => {
-    const capture = queued()
+    const capture = await queued()
     await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
 
     const { status, body } = await patch(`/api/captures/${capture.id}`, {
@@ -1269,11 +1269,13 @@ describe('editing a capture that is still in the queue', () => {
 
     expect(status).toBe(409)
     expect(body.error).toContain('alice')
-    expect(new CaptureQueue(running.db, () => null).get(capture.id)!.edit_json).toBe('')
+    expect(
+      (await new CaptureQueue(running.db, () => null).get(capture.id))!.edit_json,
+    ).toBe('')
   })
 
   it('records that somebody looked, even having stated nothing', async () => {
-    const capture = queued()
+    const capture = await queued()
 
     const { status, body } = await patch(`/api/captures/${capture.id}`, { who: 'alice' })
 
@@ -1290,8 +1292,8 @@ describe('editing a capture that is still in the queue', () => {
   })
 
   it('409s on a capture that has already become a book', async () => {
-    const capture = queued()
-    const { id } = running.store.addBook({
+    const capture = await queued()
+    const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
     })
     new CaptureQueue(running.db, () => null).markDone(capture.id, id)

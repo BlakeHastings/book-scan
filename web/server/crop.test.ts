@@ -57,19 +57,19 @@ async function blank(): Promise<Buffer> {
 }
 
 describe('cropName', () => {
-  it('sits next to the photograph it came from', () => {
+  it('sits next to the photograph it came from', async () => {
     expect(cropName('1770000000000_9780441013593_front.jpg'))
       .toBe('1770000000000_9780441013593_front_crop.jpg')
   })
 
-  it('cannot collide with a photograph or a catalogue cover', () => {
+  it('cannot collide with a photograph or a catalogue cover', async () => {
     // saveImage ends every name with a slot and downloadCover with _cover, so
     // nothing either of them writes can end _crop.jpg.
     expect(cropName('1770000000000_noisbn_edge.jpg')).toMatch(/_crop\.jpg$/)
     expect(cropName('1770000000000_x_ab12cd34_cover.jpg')).toMatch(/_crop\.jpg$/)
   })
 
-  it('copes with a name that has no extension at all', () => {
+  it('copes with a name that has no extension at all', async () => {
     expect(cropName('somefile')).toBe('somefile_crop.jpg')
   })
 })
@@ -80,8 +80,8 @@ describe('cropPhotos', () => {
     const original = await photograph()
     const io = memory({ 'a_front.jpg': original })
 
-    const { id } = s.addBook(draft({ frontImage: 'a_front.jpg' } as Partial<DraftBook>))
-    const outcomes = await cropPhotos(s, s.getBook(id)!, io, { apply: true })
+    const { id } = await s.addBook(draft({ frontImage: 'a_front.jpg' } as Partial<DraftBook>))
+    const outcomes = await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })
 
     expect(outcomes).toHaveLength(1)
     expect(outcomes[0]!.crop).toBe('a_front_crop.jpg')
@@ -92,7 +92,7 @@ describe('cropPhotos', () => {
     expect(io.files['a_front_crop.jpg']).toBeDefined()
     expect(io.files['a_front_crop.jpg']!.equals(original)).toBe(false)
 
-    const book = s.getBook(id)!
+    const book = (await s.getBook(id))!
     expect(book.front_image).toBe('a_front.jpg')
     expect(book.front_crop).toBe('a_front_crop.jpg')
     expect(book.cropped).toBe('front')
@@ -102,14 +102,14 @@ describe('cropPhotos', () => {
     const s = store()
     const io = memory({ 'b_front.jpg': await blank() })
 
-    const { id } = s.addBook(draft({ frontImage: 'b_front.jpg' } as Partial<DraftBook>))
-    const outcomes = await cropPhotos(s, s.getBook(id)!, io, { apply: true })
+    const { id } = await s.addBook(draft({ frontImage: 'b_front.jpg' } as Partial<DraftBook>))
+    const outcomes = await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })
 
     expect(outcomes[0]!.crop).toBe('')
     expect(outcomes[0]!.refusal).toBeTruthy()
     expect(io.files['b_front_crop.jpg']).toBeUndefined()
 
-    const book = s.getBook(id)!
+    const book = (await s.getBook(id))!
     // Looked at, found nothing. Different from never looked at, and it is the
     // difference that lets the detail view say "shown whole" about this photo
     // without saying it about every photo taken before any of this existed.
@@ -121,37 +121,37 @@ describe('cropPhotos', () => {
     const s = store()
     const io = memory({ 'c_front.jpg': await photograph(2) })
 
-    const { id } = s.addBook(draft({ frontImage: 'c_front.jpg' } as Partial<DraftBook>))
-    const outcomes = await cropPhotos(s, s.getBook(id)!, io)
+    const { id } = await s.addBook(draft({ frontImage: 'c_front.jpg' } as Partial<DraftBook>))
+    const outcomes = await cropPhotos(s, (await s.getBook(id))!, io)
 
     expect(outcomes[0]!.crop).toBe('c_front_crop.jpg')
     expect(Object.keys(io.files)).toEqual(['c_front.jpg'])
-    expect(s.getBook(id)!.cropped).toBe('')
+    expect((await s.getBook(id))!.cropped).toBe('')
   }, 20_000)
 
   it('does the same photo twice only if told to', async () => {
     const s = store()
     const io = memory({ 'd_front.jpg': await photograph(3) })
-    const { id } = s.addBook(draft({ frontImage: 'd_front.jpg' } as Partial<DraftBook>))
+    const { id } = await s.addBook(draft({ frontImage: 'd_front.jpg' } as Partial<DraftBook>))
 
-    await cropPhotos(s, s.getBook(id)!, io, { apply: true })
-    const again = await cropPhotos(s, s.getBook(id)!, io, { apply: true })
+    await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })
+    const again = await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })
     expect(again).toHaveLength(0)
 
-    const forced = await cropPhotos(s, s.getBook(id)!, io, { apply: true, force: true })
+    const forced = await cropPhotos(s, (await s.getBook(id))!, io, { apply: true, force: true })
     expect(forced).toHaveLength(1)
   }, 30_000)
 
   it('skips a photo it cannot read, without claiming it looked at it', async () => {
     const s = store()
     const io = memory({})
-    const { id } = s.addBook(draft({ frontImage: 'gone.jpg' } as Partial<DraftBook>))
+    const { id } = await s.addBook(draft({ frontImage: 'gone.jpg' } as Partial<DraftBook>))
 
-    const outcomes = await cropPhotos(s, s.getBook(id)!, io, { apply: true })
+    const outcomes = await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })
     expect(outcomes[0]!.refusal).toBe('unreadable')
     // Not marked examined: a missing file is a problem to fix, and recording
     // it as "no book found" would hide it behind a caption.
-    expect(s.getBook(id)!.cropped).toBe('')
+    expect((await s.getBook(id))!.cropped).toBe('')
   })
 
   it('does each of the three slots that has a photo', async () => {
@@ -161,14 +161,14 @@ describe('cropPhotos', () => {
       'e_edge.jpg': await photograph(5),
     })
 
-    const { id } = s.addBook(draft({
+    const { id } = await s.addBook(draft({
       frontImage: 'e_front.jpg', edgeImage: 'e_edge.jpg',
     } as Partial<DraftBook>))
 
-    const outcomes = await cropPhotos(s, s.getBook(id)!, io, { apply: true })
+    const outcomes = await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })
     expect(outcomes.map((o) => o.slot)).toEqual(['front', 'edge'])
-    expect(s.getBook(id)!.cropped).toBe('front,edge')
-    expect(s.getBook(id)!.back_crop).toBe('')
+    expect((await s.getBook(id))!.cropped).toBe('front,edge')
+    expect((await s.getBook(id))!.back_crop).toBe('')
   }, 30_000)
 })
 
@@ -178,8 +178,8 @@ describe('cropCatalogue', () => {
     const good = await photograph(6)
     const io = memory({ 'f_front.jpg': good, 'g_front.jpg': await blank() })
 
-    s.addBook(draft({ title: 'One', frontImage: 'f_front.jpg' } as Partial<DraftBook>))
-    s.addBook(draft({ title: 'Two', frontImage: 'g_front.jpg' } as Partial<DraftBook>))
+    await s.addBook(draft({ title: 'One', frontImage: 'f_front.jpg' } as Partial<DraftBook>))
+    await s.addBook(draft({ title: 'Two', frontImage: 'g_front.jpg' } as Partial<DraftBook>))
 
     const report = await cropCatalogue(s, { ...io, apply: true })
 
@@ -194,7 +194,7 @@ describe('cropCatalogue', () => {
   it('is resumable: a second run finds nothing left to do', async () => {
     const s = store()
     const io = memory({ 'h_front.jpg': await photograph(7) })
-    s.addBook(draft({ frontImage: 'h_front.jpg' } as Partial<DraftBook>))
+    await s.addBook(draft({ frontImage: 'h_front.jpg' } as Partial<DraftBook>))
 
     await cropCatalogue(s, { ...io, apply: true })
     const second = await cropCatalogue(s, { ...io, apply: true })
@@ -206,8 +206,8 @@ describe('cropCatalogue', () => {
   it('stops at the limit, so a cautious operator can look before committing', async () => {
     const s = store()
     const io = memory({ 'i_front.jpg': await blank(), 'j_front.jpg': await blank() })
-    s.addBook(draft({ title: 'One', frontImage: 'i_front.jpg' } as Partial<DraftBook>))
-    s.addBook(draft({ title: 'Two', frontImage: 'j_front.jpg' } as Partial<DraftBook>))
+    await s.addBook(draft({ title: 'One', frontImage: 'i_front.jpg' } as Partial<DraftBook>))
+    await s.addBook(draft({ title: 'Two', frontImage: 'j_front.jpg' } as Partial<DraftBook>))
 
     const report = await cropCatalogue(s, { ...io, apply: true, limit: 1 })
     expect(report.images).toBe(1)
@@ -216,7 +216,7 @@ describe('cropCatalogue', () => {
   it('names a photograph it could not read instead of skipping it silently', async () => {
     const s = store()
     const io = memory({})
-    s.addBook(draft({ title: 'Lost', frontImage: 'nowhere.jpg' } as Partial<DraftBook>))
+    await s.addBook(draft({ title: 'Lost', frontImage: 'nowhere.jpg' } as Partial<DraftBook>))
 
     const report = await cropCatalogue(s, { ...io, apply: true })
     expect(report.failed).toBe(1)
@@ -229,11 +229,11 @@ describe('a crop is a file the catalogue owns', () => {
   it('counts as in use, so tidying up orphans cannot delete it', async () => {
     const s = store()
     const io = memory({ 'k_front.jpg': await photograph(8) })
-    const { id } = s.addBook(draft({ frontImage: 'k_front.jpg' } as Partial<DraftBook>))
-    await cropPhotos(s, s.getBook(id)!, io, { apply: true })
+    const { id } = await s.addBook(draft({ frontImage: 'k_front.jpg' } as Partial<DraftBook>))
+    await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })
 
-    expect(s.imageInUse('k_front_crop.jpg')).toBe(true)
-    expect(s.imageInUse('k_front.jpg')).toBe(true)
-    expect(s.imageInUse('nothing.jpg')).toBe(false)
+    expect(await s.imageInUse('k_front_crop.jpg')).toBe(true)
+    expect(await s.imageInUse('k_front.jpg')).toBe(true)
+    expect(await s.imageInUse('nothing.jpg')).toBe(false)
   }, 20_000)
 })

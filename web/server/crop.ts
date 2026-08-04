@@ -102,14 +102,14 @@ export async function cropPhotos(
 
     if (!result.image) {
       outcomes.push({ slot, image, crop: '', refusal: result.refusal })
-      if (apply) store.setCrop(book.id, slot, '')
+      if (apply) await store.setCrop(book.id, slot, '')
       continue
     }
 
     const name = cropName(image)
     if (apply) {
       await io.write(name, result.image)
-      store.setCrop(book.id, slot, name)
+      await store.setCrop(book.id, slot, name)
     }
     outcomes.push({ slot, image, crop: name })
   }
@@ -170,7 +170,7 @@ export async function cropCatalogue(
     rows: 0, images: 0, cropped: 0, declined: 0, skipped: 0, failed: 0, failures: [],
   }
 
-  for (const row of store.photographed()) {
+  for (const row of await store.photographed()) {
     if (limit !== undefined && report.images >= limit) break
     report.rows += 1
 

@@ -49,6 +49,16 @@ export interface ResolvedKey {
   sortKey: string
 }
 
+/**
+ * Every public method here returns a promise, and the bodies underneath are
+ * still synchronous better-sqlite3 calls.
+ *
+ * That is deliberate and temporary. `pg` is asynchronous, so the shape of this
+ * class has to change whether or not the driver has; doing the shape change
+ * first, against a driver that cannot fail in any new way, means a caller that
+ * forgets an `await` is a type error rather than something that only shows up
+ * as a promise where a row was expected at runtime. The SQL is untouched.
+ */
 export class Store {
   constructor(private readonly db: Database) {}
 
@@ -57,7 +67,7 @@ export class Store {
   // -----------------------------------------------------------------------
 
   /** Look up a saved override before falling back to the heuristic. */
-  filingFor(displayName: string): string {
+  async filingFor(displayName: string): Promise<string> {
     const key = normalise(displayName)
     if (!key) return ''
 
@@ -68,12 +78,12 @@ export class Store {
     return row?.filing_name ?? filingName(displayName)
   }
 
-  saveFilingOverride(
+  async saveFilingOverride(
     displayName: string,
     filing: string,
     isCorporate = false,
     note = '',
-  ): void {
+  ): Promise<void> {
     const key = normalise(displayName)
     if (!key) return
     this.db
@@ -88,10 +98,10 @@ export class Store {
       .run(key, filing, isCorporate ? 1 : 0, note)
   }
 
-  resolveKey(draft: DraftBook): ResolvedKey {
+  async resolveKey(draft: DraftBook): Promise<ResolvedKey> {
     const primary = draft.authors.find((n) => n.trim())?.trim() ?? ''
     const authorFiling =
-      draft.authorFilingOverride?.trim() || this.filingFor(primary)
+      draft.authorFilingOverride?.trim() || (await this.filingFor(primary))
 
     return {
       range: draft.isFiction ? 'fiction' : 'nonfiction',
@@ -110,7 +120,7 @@ export class Store {
   // Placement
   // -----------------------------------------------------------------------
 
-  private rangeStart(range: ShelfRange): string {
+  private async rangeStart(range: ShelfRange): Promise<string> {
     const row = this.db
       .prepare('SELECT start_label FROM shelf_ranges WHERE shelf_range = ?')
       .get(range) as { start_label: string } | undefined
@@ -140,11 +150,11 @@ export class Store {
    * `excludeId` matters when previewing an edit to an already-saved book, so
    * it does not end up as its own neighbour.
    */
-  neighbours(
+  async neighbours(
     range: ShelfRange,
     sortKey: string,
     excludeId?: number,
-  ): { predecessor: Neighbour | null; successor: Neighbour | null } {
+  ): Promise<{ predecessor: Neighbour | null; successor: Neighbour | null }> {
     const exclude = excludeId ?? -1
 
     // checked_out_at IS NULL is the whole point of the column here: a book in
@@ -174,9 +184,12 @@ export class Store {
   }
 
   /** Where does this book go? Does not save anything. */
-  placementFor(draft: DraftBook, excludeId?: number): Placement & ResolvedKey {
-    const resolved = this.resolveKey(draft)
-    const { predecessor, successor } = this.neighbours(
+  async placementFor(
+    draft: DraftBook,
+    excludeId?: number,
+  ): Promise<Placement & ResolvedKey> {
+    const resolved = await this.resolveKey(draft)
+    const { predecessor, successor } = await this.neighbours(
       resolved.range,
       resolved.sortKey,
       excludeId,
@@ -185,7 +198,7 @@ export class Store {
       resolved.range,
       predecessor,
       successor,
-      this.rangeStart(resolved.range),
+      await this.rangeStart(resolved.range),
     )
     return { ...placement, ...resolved }
   }
@@ -194,9 +207,9 @@ export class Store {
   // Writes
   // -----------------------------------------------------------------------
 
-  addBook(draft: DraftBook): { id: number; placement: Placement } {
-    const placement = this.placementFor(draft)
-    const resolved = this.resolveKey(draft)
+  async addBook(draft: DraftBook): Promise<{ id: number; placement: Placement }> {
+    const placement = await this.placementFor(draft)
+    const resolved = await this.resolveKey(draft)
     const now = new Date().toISOString()
     const location = draft.location?.trim() ?? ''
 
@@ -205,6 +218,9 @@ export class Store {
     // book scanned from its barcode still matches one entered by ISBN-10.
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
 
+    // The closure stays synchronous, and so does better-sqlite3's transaction.
+    // Nothing inside it awaits, so the whole insert still commits or rolls back
+    // in one uninterrupted go. It becomes an async `tx` in a later stage.
     const insert = this.db.transaction(() => {
       const result = this.db
         .prepare(
@@ -276,7 +292,7 @@ export class Store {
    * ISBN-10, or an edition the catalogue reports under only one of the two.
    * Both columns are populated on save, so both are worth searching.
    */
-  getBook(id: number): BookRow | undefined {
+  async getBook(id: number): Promise<BookRow | undefined> {
     return this.db.prepare('SELECT * FROM books WHERE id = ?').get(id) as
       BookRow | undefined
   }
@@ -288,8 +304,8 @@ export class Store {
    * so the sort key and range have to be rebuilt or the row would keep its
    * old position and quietly break the ordering.
    */
-  updateBook(id: number, draft: DraftBook): Placement & ResolvedKey {
-    const resolved = this.resolveKey(draft)
+  async updateBook(id: number, draft: DraftBook): Promise<Placement & ResolvedKey> {
+    const resolved = await this.resolveKey(draft)
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
     const location = draft.location?.trim() ?? ''
 
@@ -358,7 +374,7 @@ export class Store {
     return this.placementFor(draft, id)
   }
 
-  findByIsbn(value: string): BookRow | undefined {
+  async findByIsbn(value: string): Promise<BookRow | undefined> {
     const { isbn13, isbn10 } = resolveIsbnPair(value)
     if (!isbn13 && !isbn10) return undefined
 
@@ -372,13 +388,13 @@ export class Store {
       .get({ isbn13, isbn10 }) as BookRow | undefined
   }
 
-  setLocation(id: number, location: string): void {
+  async setLocation(id: number, location: string): Promise<void> {
     this.db
       .prepare('UPDATE books SET location = ?, shelved_at = ? WHERE id = ?')
       .run(location, location ? new Date().toISOString() : null, id)
   }
 
-  deleteBook(id: number): void {
+  async deleteBook(id: number): Promise<void> {
     this.db.prepare('DELETE FROM books WHERE id = ?').run(id)
   }
 
@@ -392,7 +408,7 @@ export class Store {
    * filename a book still uses would take the book's photo with it, and
    * there is no getting that back.
    */
-  imageInUse(name: string): boolean {
+  async imageInUse(name: string): Promise<boolean> {
     const usedByBook = this.db
       .prepare(
         `SELECT 1 FROM books
@@ -415,7 +431,7 @@ export class Store {
   // Reads
   // -----------------------------------------------------------------------
 
-  listRange(range: ShelfRange): BookRow[] {
+  async listRange(range: ShelfRange): Promise<BookRow[]> {
     return this.db
       .prepare(
         'SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC',
@@ -450,7 +466,10 @@ export class Store {
    * anything happened, and `checkedOutAt` is always the row's real value
    * afterward, so a no-op cannot be mistaken for a fresh checkout.
    */
-  setCheckedOut(id: number, out: boolean): { changed: boolean; checkedOutAt: string | null } {
+  async setCheckedOut(
+    id: number,
+    out: boolean,
+  ): Promise<{ changed: boolean; checkedOutAt: string | null }> {
     const row = this.db
       .prepare('SELECT checked_out_at FROM books WHERE id = ?')
       .get(id) as { checked_out_at: string | null } | undefined
@@ -474,14 +493,17 @@ export class Store {
    * and without a record of having asked, every backfill would spend its whole
    * batch re-asking about the same ones and never reach the rest.
    */
-  setCoverImage(id: number, name: string): void {
+  async setCoverImage(id: number, name: string): Promise<void> {
     this.db
       .prepare('UPDATE books SET cover_image = ?, cover_checked_at = ? WHERE id = ?')
       .run(name, new Date().toISOString(), id)
   }
 
   /** Books with an ISBN whose cover has never been looked for. */
-  missingCovers(limit: number, retry = false): { id: number; isbn13: string; isbn10: string }[] {
+  async missingCovers(
+    limit: number,
+    retry = false,
+  ): Promise<{ id: number; isbn13: string; isbn10: string }[]> {
     return this.db
       .prepare(
         `SELECT id, isbn13, isbn10 FROM books
@@ -494,7 +516,7 @@ export class Store {
         { id: number; isbn13: string; isbn10: string }[]
   }
 
-  setHashes(id: number, front: string, cover: string): void {
+  async setHashes(id: number, front: string, cover: string): Promise<void> {
     this.db
       .prepare('UPDATE books SET front_hash = ?, cover_hash = ? WHERE id = ?')
       .run(front, cover, id)
@@ -507,13 +529,13 @@ export class Store {
    * books is nothing, and an index that let us skip comparisons would have to
    * approximate the very thing being measured.
    */
-  hashIndex(): {
+  async hashIndex(): Promise<{
     id: number; title: string; author_filing: string
     cover_image: string; front_image: string
     edge_image: string; back_image: string
     checked_out_at: string | null
     front_hash: string; cover_hash: string
-  }[] {
+  }[]> {
     return this.db
       .prepare(
         `SELECT id, title, author_filing, cover_image, front_image, edge_image,
@@ -534,11 +556,11 @@ export class Store {
    * neither. This makes no judgement about the hashes at all and lets the
    * caller decide what is stale.
    */
-  imageHashes(): {
+  async imageHashes(): Promise<{
     id: number; title: string
     front_image: string; cover_image: string
     front_hash: string; cover_hash: string
-  }[] {
+  }[]> {
     return this.db
       .prepare(
         `SELECT id, title, front_image, cover_image, front_hash, cover_hash
@@ -561,7 +583,7 @@ export class Store {
    * The photo's own column is not touched here, and no statement in this class
    * ever writes a crop filename into one. The original is the record.
    */
-  setCrop(id: number, slot: 'front' | 'back' | 'edge', name: string): void {
+  async setCrop(id: number, slot: 'front' | 'back' | 'edge', name: string): Promise<void> {
     const row = this.db.prepare('SELECT cropped FROM books WHERE id = ?').get(id) as
       { cropped: string | null } | undefined
     if (!row) return
@@ -582,12 +604,12 @@ export class Store {
    * derived file is still on disk, and none of that belongs in SQL where a
    * later change to the rule would have to be made twice.
    */
-  photographed(): {
+  async photographed(): Promise<{
     id: number; title: string
     front_image: string; back_image: string; edge_image: string
     front_crop: string; back_crop: string; edge_crop: string
     cropped: string
-  }[] {
+  }[]> {
     return this.db
       .prepare(
         `SELECT id, title, front_image, back_image, edge_image,
@@ -600,7 +622,9 @@ export class Store {
   }
 
   /** Books whose images have not been hashed yet. */
-  missingHashes(limit: number): { id: number; front_image: string; cover_image: string }[] {
+  async missingHashes(
+    limit: number,
+  ): Promise<{ id: number; front_image: string; cover_image: string }[]> {
     return this.db
       .prepare(
         `SELECT id, front_image, cover_image FROM books
@@ -612,7 +636,7 @@ export class Store {
   }
 
   /** Books off the shelf, oldest first, so nothing is quietly forgotten. */
-  checkedOut(): BookRow[] {
+  async checkedOut(): Promise<BookRow[]> {
     return this.db
       .prepare(
         `SELECT * FROM books WHERE checked_out_at IS NOT NULL
@@ -621,7 +645,9 @@ export class Store {
       .all() as BookRow[]
   }
 
-  counts(): { total: number; fiction: number; nonfiction: number; checkedOut: number } {
+  async counts(): Promise<{
+    total: number; fiction: number; nonfiction: number; checkedOut: number
+  }> {
     const row = this.db
       .prepare(
         `SELECT
