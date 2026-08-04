@@ -32,6 +32,7 @@ import { coverHash, distance } from './imagehash'
 import { CaptureQueue } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
+import { confidentPick } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import { buildPlacement, formatLocation, parseLocation } from '../shared/shelving'
 
@@ -1015,26 +1016,67 @@ export function createApp(options: CreateAppOptions): express.Express {
     const read = await identify(buffer, {
       wantTitle: false,
       ocrEnabled: false,
-      // zxing only. A front held up to the camera has no barcode at all,
-      // and the thorough ladder spends 2.6 seconds proving it before the
-      // cover match answers in fifty milliseconds.
+      // zxing only, and only as a first look. A front held up to the camera
+      // has no barcode at all, and the thorough ladder spends seconds proving
+      // it before the cover match answers in fifty milliseconds. What the
+      // fast pass may not do is settle the question: when it reads nothing,
+      // the branch below gives the barcode its thorough look before any
+      // shortlist that is not certain of itself gets to answer.
       barcodeEffort: 'fast',
     })
 
     if (!read.isbn13) {
       const candidates = await looksLike(buffer)
-      if (candidates.length) {
+
+      /*
+       * A barcode is evidence. A cover hash is a guess.
+       *
+       * An ISBN-13 carries a check digit, so a decoded one either validates
+       * or is discarded. A hash distance is a similarity score that puts the
+       * wrong book first about one lookup in ten. Precedence has to follow
+       * that, and it did not: any candidate inside the shortlist cutoff used
+       * to return here, which meant the thorough barcode read never ran on
+       * the very photo a person takes when they want the barcode read (#66).
+       *
+       * So only one shortlist may answer before the barcode has had its
+       * second look: a single candidate in the `close` band, which is the
+       * same bar the scanner already opens a book on without asking. That
+       * keeps the common path at the shelf, a front cover held up and
+       * recognised, exactly as fast as it was.
+       */
+      if (confidentPick(candidates)) {
         res.json({ outcome: 'candidates', barcodes: read.barcodes, candidates })
         return
       }
 
-      // Nothing recognised the book, so now it is worth reading the page.
-      const slow = await identify(buffer, { wantTitle: false })
+      /*
+       * Now look properly. `thorough` is the default effort, so this adds the
+       * zbar ladder underneath zxing: measured on a phone-sized photo it
+       * turns a 0.14s look into a 1.5s one when there is no barcode to find,
+       * and it reads small, distant and low-contrast barcodes that the fast
+       * pass misses outright.
+       *
+       * OCR only when there is no shortlist at all. Reading the printed page
+       * costs five to ten seconds, and a shortlist is something to show the
+       * person now rather than a reason to make them wait for it.
+       */
+      const slow = await identify(buffer, {
+        wantTitle: false,
+        ocrEnabled: candidates.length === 0,
+      })
+
       if (!slow.isbn13) {
+        if (candidates.length) {
+          res.json({ outcome: 'candidates', barcodes: slow.barcodes, candidates })
+          return
+        }
         res.json({ outcome: 'no-isbn', barcodes: slow.barcodes, candidates: [] })
         return
       }
       read.isbn13 = slow.isbn13
+      // The thorough pass saw the barcodes the fast one did not, and the
+      // disambiguation below is only as good as the list it is given.
+      read.barcodes = slow.barcodes
     }
 
     /*

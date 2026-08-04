@@ -14,6 +14,11 @@
  * relative scale would call the best of four bad guesses "close", which is
  * the exact moment a wrong match gets tapped. Being the least bad of a bad
  * set is not evidence.
+ *
+ * Shared rather than client-only because the server now weighs a cover match
+ * too: `/api/books/scan` asks whether the shortlist is confident enough to
+ * answer without reading the barcode thoroughly first (#66). One definition
+ * of confident, in one file, for both sides of the wire.
  */
 
 /**
@@ -100,6 +105,12 @@ export function shortlistPrompt(candidates: readonly { distance: number }[]): st
  * Two close candidates return nothing. They cannot both be the book in your
  * hands, and picking the nearer one would be exactly the relative grading the
  * bands exist to refuse. Ambiguity goes back to the person as a shortlist.
+ *
+ * The server asks the same question for a different reason. A barcode is
+ * self-validating and a cover hash is a guess, so a shortlist may only
+ * pre-empt the thorough barcode read when it is this confident. Anything
+ * weaker waits, because a guess that beats an unread barcode is a guess
+ * standing in for evidence nobody looked for (#66).
  */
 export function confidentPick<T extends { distance: number }>(
   candidates: readonly T[],
