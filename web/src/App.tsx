@@ -17,7 +17,7 @@ import { PlacementView } from './components/ShelfStrip'
 import { ShelfView } from './components/ShelfView'
 import { ShelveView } from './components/ShelveView'
 import { HomePane } from './components/HomePane'
-import { QueuePane } from './components/QueuePane'
+import { QueuePane, type QueueReturnAnchor } from './components/QueuePane'
 import { ScanCamera } from './components/ScanCamera'
 
 type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue'
@@ -87,6 +87,12 @@ export default function App() {
   const [origin, setOrigin] = useState<Origin>('library')
   /** What the last state change actually did, in the outcome's own words. */
   const [notice, setNotice] = useState('')
+  // Whether the book in hand was opened from the queue, so finishing (or
+  // abandoning) shelving can return there instead of dropping the person
+  // wherever the camera flow normally lands. queueReturn also carries where
+  // in the list to land, since the shelved book leaves the queue behind.
+  const [fromQueue, setFromQueue] = useState(false)
+  const [queueReturn, setQueueReturn] = useState<QueueReturnAnchor | null>(null)
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
@@ -438,8 +444,8 @@ export default function App() {
         await refreshPlacement()
       } else if (origin === 'scan') {
         // A scanned book that has just been put back leaves the way it came,
-        // so the next one off the pile is one tap away. reset() would hand the
-        // screen to the cataloguing camera, which is a different job.
+        // so the next one off the pile is one tap away. reset() would send it
+        // to the cataloguing camera or to the queue, and it came from neither.
         leaveBook()
       } else {
         reset()
@@ -550,6 +556,10 @@ export default function App() {
         edge: book.edge_image ? `/api/covers/${book.edge_image}` : undefined,
       })
       setShots({})
+      // Reached from the library, not the queue: finishing here must go back
+      // to the library, not the queue, however this book last got opened.
+      setFromQueue(false)
+      setQueueReturn(null)
       setMode('review')
     } catch (caught) {
       setError((caught as Error).message)
@@ -557,7 +567,7 @@ export default function App() {
   }
 
   /** Open a queue item in the review pane, pre-filled from its lookup. */
-  const openCapture = (capture: Capture) => {
+  const openCapture = (capture: Capture, anchor: QueueReturnAnchor) => {
     reviewSessionRef.current += 1
     setRelookupBusy(false)
     setRelookupError('')
@@ -587,6 +597,13 @@ export default function App() {
     })
     // The photos already live on the server; do not re-upload them on save.
     setShots({})
+    // Came from the queue, so finishing or abandoning shelving lands back
+    // there, near where this capture sat. The scanner is not where this book
+    // came from, whatever the last book on this screen arrived through.
+    setOrigin('library')
+    setNotice('')
+    setFromQueue(true)
+    setQueueReturn(anchor)
     setMode('review')
   }
 
@@ -611,10 +628,20 @@ export default function App() {
     }
   }
 
+  /**
+   * Clear the book in hand and return to the screen the person started from.
+   *
+   * Shared by finishing shelving and by abandoning it (discarding a queued
+   * capture mid-review): both are "done with this book" moments, and both
+   * should land back in the queue when that is where the book came from.
+   * queueReturn stays set on the way out; QueuePane uses it once to land
+   * near the book just handled, then reports it consumed.
+   */
   const reset = () => {
     reviewSessionRef.current += 1
     setRelookupBusy(false)
     setRelookupError('')
+    const backToQueue = fromQueue
     if (captureId) void api.releaseCapture(captureId, me).catch(() => {})
     setDraft(emptyDraft)
     setLookup(null)
@@ -630,7 +657,8 @@ export default function App() {
     setCoverImage('')
     setNotice('')
     setOrigin('library')
-    setMode('capture')
+    setFromQueue(false)
+    setMode(backToQueue ? 'queue' : 'capture')
   }
 
   // -----------------------------------------------------------------------
@@ -874,7 +902,12 @@ export default function App() {
       )}
 
       {mode === 'queue' && (
-        <QueuePane onOpen={openCapture} onCounts={setQueueCounts} />
+        <QueuePane
+          onOpen={openCapture}
+          onCounts={setQueueCounts}
+          returnAnchor={queueReturn}
+          onReturnAnchorConsumed={() => setQueueReturn(null)}
+        />
       )}
 
       {mode === 'home' && (
@@ -944,7 +977,18 @@ export default function App() {
               from the library and goes back there. */}
           {bookId === null && (
             <div className="actions">
-              <button className="btn" onClick={() => setMode('capture')}>
+              <button
+                className="btn"
+                onClick={() => {
+                  // An explicit choice of the camera overrides where this
+                  // book came from, so a later reset() must not reroute
+                  // back to the queue for a book the person has moved on
+                  // from.
+                  setFromQueue(false)
+                  setQueueReturn(null)
+                  setMode('capture')
+                }}
+              >
                 Back to camera
               </button>
             </div>
