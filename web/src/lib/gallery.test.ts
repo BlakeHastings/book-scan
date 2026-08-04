@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { frameAtScroll, gallery, spineShape, SPINE_MAX_ASPECT } from './gallery'
+import { frameAtScroll, gallery, spineShape, SPINE_MAX_ASPECT, UNCROPPED_NOTE } from './gallery'
 
 const all = {
   catalogue: '/api/covers/cat.jpg',
@@ -174,6 +174,100 @@ describe('showing the crop but keeping the photograph', () => {
     const catalogue = swipe.find((frame) => frame.kind === 'catalogue')!
     expect(catalogue.src).toBe('/api/covers/cat.jpg')
     expect(catalogue.full).toBe('/api/covers/cat.jpg')
+  })
+})
+
+describe('scrolling from the crops into the full photos', () => {
+  it('runs the cropped photos first, then continues into the uncropped ones', () => {
+    const { swipe } = gallery({
+      ...all,
+      crops: {
+        front: '/api/covers/front_crop.jpg',
+        back: '/api/covers/back_crop.jpg',
+      },
+      examined: ['front', 'back'],
+    }, 'strip')
+
+    expect(kinds(swipe)).toEqual(['catalogue', 'front', 'back', 'front', 'back'])
+    expect(swipe.map((frame) => frame.src)).toEqual([
+      all.catalogue,
+      '/api/covers/front_crop.jpg',
+      '/api/covers/back_crop.jpg',
+      all.front,
+      all.back,
+    ])
+  })
+
+  it('does not show a declined photo twice', () => {
+    // Front was cropped; back was looked at and declined, so its one frame is
+    // already the whole photo. Appending it again as a "full" continuation
+    // would be the exact duplicate #98 warned about.
+    const { swipe } = gallery({
+      ...all,
+      crops: { front: '/api/covers/front_crop.jpg' },
+      examined: ['front', 'back'],
+    }, 'strip')
+
+    expect(swipe.filter((frame) => frame.src === all.back)).toHaveLength(1)
+    expect(kinds(swipe)).toEqual(['catalogue', 'front', 'back', 'front'])
+  })
+
+  it('does not add a continuation for a photo nobody has ever examined', () => {
+    const { swipe } = gallery(all, 'strip')
+    expect(swipe.every((frame) => frame.note !== UNCROPPED_NOTE)).toBe(true)
+  })
+
+  it('says the continuation is the whole photo the crop above was cut from', () => {
+    const { swipe } = gallery({
+      ...all,
+      crops: { front: '/api/covers/front_crop.jpg' },
+      examined: ['front'],
+    }, 'strip')
+
+    const crop = swipe.find((frame) => frame.kind === 'front')!
+    const continuation = swipe.filter((frame) => frame.kind === 'front').at(-1)!
+    expect(continuation.src).toBe(all.front)
+    expect(continuation.note).toBe(UNCROPPED_NOTE)
+    expect(continuation.label).not.toBe(crop.label) // reads as a different frame from the crop
+  })
+
+  it('continues a lone cropped spine into its full photo too', () => {
+    // No front, back or catalogue: the spine is the whole gallery, so it is
+    // treated like any other swiped photo rather than staying tap-only.
+    const { swipe, beside } = gallery({
+      edge: all.edge,
+      crops: { edge: '/api/covers/edge_crop.jpg' },
+      examined: ['edge'],
+    }, 'strip')
+
+    expect(beside).toBeNull()
+    expect(swipe.map((frame) => frame.src)).toEqual(['/api/covers/edge_crop.jpg', all.edge])
+  })
+
+  it('continues a whole-book spine crop into its full photo too', () => {
+    const { swipe } = gallery({ ...all, crops: { edge: '/api/covers/edge_crop.jpg' } }, 'whole')
+    expect(kinds(swipe)).toEqual(['catalogue', 'front', 'back', 'edge', 'edge'])
+    expect(swipe.at(-1)?.src).toBe(all.edge)
+  })
+
+  it('leaves the spine beside the swipe reachable only by tapping, not doubled into it', () => {
+    // The spine beside the swipe is not swiped past at all (it never was,
+    // #98), so it is not part of "the carousel" this scroll-into-the-full-
+    // photos behaviour extends. Its full photo stays one tap away.
+    const { swipe, beside } = gallery({
+      ...all,
+      crops: { edge: '/api/covers/edge_crop.jpg' },
+      examined: ['edge'],
+    }, 'strip')
+
+    expect(kinds(swipe)).not.toContain('edge')
+    expect(beside?.src).toBe('/api/covers/edge_crop.jpg')
+    expect(beside?.full).toBe(all.edge)
+  })
+
+  it('never leaves a dead scroll position: no frame is added for a book with no crops at all', () => {
+    const { swipe } = gallery(all, 'strip')
+    expect(kinds(swipe)).toEqual(['catalogue', 'front', 'back'])
   })
 })
 

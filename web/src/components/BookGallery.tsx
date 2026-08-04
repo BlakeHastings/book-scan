@@ -77,7 +77,10 @@ export function BookGallery({ sources, onZoom }: Props) {
           aria-label={swipe.length > 1 ? 'Photos of this book' : undefined}
         >
           {swipe.map((frame) => (
-            <figure key={frame.kind} className="gallery__frame">
+            // `src` rather than `kind`: a cropped photo and the uncropped
+            // continuation of it now share a kind, since scrolling reaches
+            // both. The two are always different files.
+            <figure key={frame.src} className="gallery__frame">
               <img
                 src={frame.src}
                 alt={frame.label}
@@ -109,7 +112,7 @@ export function BookGallery({ sources, onZoom }: Props) {
           <div className="gallery__dots">
             {swipe.map((frame, i) => (
               <button
-                key={frame.kind}
+                key={frame.src}
                 type="button"
                 className={i === index ? 'gallery__dot gallery__dot--on' : 'gallery__dot'}
                 aria-label={frame.label}

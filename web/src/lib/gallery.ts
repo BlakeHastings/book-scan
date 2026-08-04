@@ -105,6 +105,16 @@ export function spineShape(width: number, height: number): SpineShape {
  */
 const NOT_FOUND = 'The book could not be picked out, so this is the whole photo'
 
+/**
+ * Said on the uncropped continuation of a photo that already appeared cropped
+ * earlier in the swipe.
+ *
+ * The owner's ask: scrolling past the cropped photos should keep going into
+ * the full ones rather than leaving them behind a tap. This is what tells a
+ * reader why what looks like the same book again is not a mistake.
+ */
+export const UNCROPPED_NOTE = 'The whole photo this was cut from'
+
 const CATALOGUE: Omit<Frame, 'src' | 'full'> = {
   kind: 'catalogue',
   label: 'Catalogue cover',
@@ -138,9 +148,12 @@ export interface Gallery {
 /**
  * The gallery for one book.
  *
- * Order is the owner's: the catalogue picture, then the front, then the back.
- * Anything missing is left out rather than drawn as a gap, so a book with one
- * photo has one frame and no swipe that goes nowhere.
+ * Order is the owner's: the catalogue picture, then the front, then the back,
+ * cropped where a crop exists. Once every cropped photo has had its turn, the
+ * swipe keeps going into the uncropped photograph behind each one, so
+ * scrolling reaches everything a tap used to be the only way to. Anything
+ * missing is left out rather than drawn as a gap, so a book with one photo has
+ * one frame and no swipe that goes nowhere.
  */
 export function gallery(sources: GallerySources, shape: SpineShape = 'unknown'): Gallery {
   /**
@@ -161,28 +174,74 @@ export function gallery(sources: GallerySources, shape: SpineShape = 'unknown'):
     }
   }
 
+  /**
+   * The same photograph again, uncropped, to append after every cropped frame
+   * has had its turn.
+   *
+   * Only returns a frame where a crop actually cut something away. A photo
+   * the detector declined already shows the whole picture as its one frame
+   * (`photo`, above, falls back to `src` when there is no crop), and a photo
+   * never examined is the same case; appending it again here would be the
+   * exact duplicate #98 warned against, one pretending to be a crop and one
+   * as itself.
+   */
+  const uncropped = (base: Omit<Frame, 'src' | 'full'>, kind: PhotoKind, src: string): Frame | null => {
+    const crop = sources.crops?.[kind] ?? ''
+    if (!crop) return null
+    return {
+      ...base,
+      label: `${base.label}, uncropped`,
+      src,
+      full: src,
+      note: UNCROPPED_NOTE,
+    }
+  }
+
   const swipe: Frame[] = []
+  // Uncropped continuations, held back and appended once every cropped frame
+  // is in, so the order reads as "the crops, then the photos" rather than
+  // alternating between them.
+  const tail: Frame[] = []
+
   if (sources.catalogue) {
     swipe.push({ ...CATALOGUE, src: sources.catalogue, full: sources.catalogue })
   }
-  if (sources.front) swipe.push(photo(FRONT, 'front', sources.front))
-  if (sources.back) swipe.push(photo(BACK, 'back', sources.back))
+  if (sources.front) {
+    swipe.push(photo(FRONT, 'front', sources.front))
+    const continuation = uncropped(FRONT, 'front', sources.front)
+    if (continuation) tail.push(continuation)
+  }
+  if (sources.back) {
+    swipe.push(photo(BACK, 'back', sources.back))
+    const continuation = uncropped(BACK, 'back', sources.back)
+    if (continuation) tail.push(continuation)
+  }
 
-  if (!sources.edge) return { swipe, beside: null }
+  if (!sources.edge) return { swipe: [...swipe, ...tail], beside: null }
 
   // A whole-book spine photo is unreadable in a strip two centimetres wide,
   // so it goes in the swipe at full size instead of being squeezed beside it.
   if (shape === 'whole') {
     swipe.push(photo(SPINE_WHOLE, 'edge', sources.edge))
-    return { swipe, beside: null }
+    const continuation = uncropped(SPINE_WHOLE, 'edge', sources.edge)
+    if (continuation) tail.push(continuation)
+    return { swipe: [...swipe, ...tail], beside: null }
   }
 
   const beside: Frame = photo(SPINE_STRIP, 'edge', sources.edge)
 
-  // Nothing to sit beside. A lone spine is the gallery, not a margin note.
-  if (!swipe.length) return { swipe: [beside], beside: null }
+  // Nothing to sit beside. A lone spine is the gallery, not a margin note, so
+  // it is treated like any other frame in the swipe: cropped first, then its
+  // own uncropped continuation if there is one to show.
+  if (!swipe.length) {
+    const continuation = uncropped(SPINE_STRIP, 'edge', sources.edge)
+    return { swipe: continuation ? [beside, continuation] : [beside], beside: null }
+  }
 
-  return { swipe, beside }
+  // The spine beside the swipe stays exactly that: shown once, beside it, and
+  // never swiped past. It is not part of "the carousel" the owner asked to
+  // keep scrolling through, and it already has its full photo one tap away.
+  return { swipe: [...swipe, ...tail], beside }
 }
 
 /**
