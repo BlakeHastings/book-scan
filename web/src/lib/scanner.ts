@@ -63,6 +63,25 @@ export function rememberLens(deviceId: string): void {
   else localStorage.removeItem(LENS_KEY)
 }
 
+const TORCH_KEY = 'bookscan.torch'
+
+/**
+ * Whether the torch was left on for spines.
+ *
+ * Remembered rather than asked for again, because somebody who needs it needs
+ * it on every spine, and a toggle that resets is a tap per book. Off by
+ * default: a torch that came on by itself indoors, in somebody's hands, would
+ * be startling and would flare a glossy spine.
+ */
+export function rememberedTorch(): boolean {
+  return localStorage.getItem(TORCH_KEY) === 'on'
+}
+
+export function rememberTorch(on: boolean): void {
+  if (on) localStorage.setItem(TORCH_KEY, 'on')
+  else localStorage.removeItem(TORCH_KEY)
+}
+
 /**
  * The rear lenses this phone will name.
  *
@@ -194,6 +213,10 @@ export function lensName(label: string): string {
   return short || 'Main'
 }
 
+const VIRTUAL_LENS = /dual|triple|combined/i
+const ULTRA_WIDE_LENS = /ultra.?wide/i
+const TELEPHOTO_LENS = /tele/i
+
 /**
  * Prefer a single physical lens over the combined one.
  *
@@ -201,13 +224,42 @@ export function lensName(label: string): string {
  * lenses, and that virtual device is what silently switches lens mid-shot as
  * the phone guesses at the subject distance. Asking for the plain back camera
  * pins it, so the framing stops jumping while you are lining a book up.
+ *
+ * That reason still holds, and it is now known to cost nothing in steadiness.
+ * WebKit's capture source never asks AVFoundation for video stabilisation on
+ * any device, and the multi-frame fusion the virtual device can do is a still
+ * photo setting that a getUserMedia video track never reaches. Stabilisation
+ * on an iPhone is optical, and it lives on the physical wide lens, which is
+ * precisely the one this pins. Pinning gives up lens switching, not steadiness.
+ *
+ * The order below matters, and only its tail changed (#92). "Back Camera" is
+ * the wide lens and has optical stabilisation on every iPhone that has any, so
+ * it wins outright. What follows is for phones that do not label a lens that
+ * way, and it used to be "the first thing that is not virtual", which on an
+ * iPhone can be the ultra wide. That is the worst rear lens for this job on
+ * two counts: no stabilisation at all on non-Pro models, and a field of view
+ * so wide that a spine lands on a fraction of the pixels it otherwise would,
+ * in a crop that is already down to a few hundred pixels across. So a virtual
+ * device now outranks it: a virtual device sits on the wide lens by default,
+ * and an occasional framing jump is a smaller price than a permanently softer,
+ * smaller subject. Ultra wide is the last resort rather than an early guess.
  */
 export function preferredLens(lenses: Lens[]): string {
-  const plain = lenses.find((l) => /back camera$/i.test(l.label.trim()))
-  if (plain) return plain.deviceId
+  const rank = (lens: Lens): number => {
+    const label = lens.label.trim()
+    if (/back camera$/i.test(label)) return 0
+    if (ULTRA_WIDE_LENS.test(label)) return 4
+    if (VIRTUAL_LENS.test(label)) return 2
+    if (TELEPHOTO_LENS.test(label)) return 3
+    return 1
+  }
 
-  const notVirtual = lenses.find((l) => !/dual|triple|combined/i.test(l.label))
-  return (notVirtual ?? lenses[0])?.deviceId ?? ''
+  // Strictly better only, so equal ranks keep the order the browser gave.
+  let best: Lens | undefined
+  for (const lens of lenses) {
+    if (!best || rank(lens) < rank(best)) best = lens
+  }
+  return best?.deviceId ?? ''
 }
 
 /**
@@ -428,11 +480,16 @@ export function describeStream(stream: MediaStream | null): string {
  * Nudge the camera towards the subject in the middle of the frame.
  *
  * Everything here is feature-detected and optional, because the browser that
- * matters supports almost none of it. iOS Safari exposes no focus control at
- * all: there is no focusMode, no focusDistance, and no tap-to-focus hook. So
- * this helps on Android and is a no-op on an iPhone, and the honest fix for a
- * spine that will not come sharp is distance, not code. Returns what it
- * actually managed to apply, so the UI can say rather than imply.
+ * matters supports almost none of it. iOS Safari exposes no way to *set* focus:
+ * WebKit's capture source understands width, height, aspectRatio, frameRate,
+ * facingMode, deviceId, groupId, focusDistance, whiteBalanceMode, zoom and
+ * torch, and of those only whiteBalanceMode, zoom and torch are ever applied to
+ * the device. There is no focusMode and no tap-to-focus hook. focusDistance is
+ * reported but read only, as the lens minimum, which `cameraFacts` surfaces
+ * rather than sets. So this helps on Android and is nearly a no-op on an
+ * iPhone, and the honest fix for a spine that will not come sharp is distance,
+ * not code. Returns what it actually managed to apply, so the UI can say
+ * rather than imply.
  */
 export async function applyFocusHints(
   stream: MediaStream | null,
@@ -477,4 +534,138 @@ export async function applyFocusHints(
   } catch {
     return []
   }
+}
+
+// ---------------------------------------------------------------------------
+// Torch
+// ---------------------------------------------------------------------------
+
+/** Read a track's capabilities without caring that some browsers have none. */
+function capabilitiesOf(stream: MediaStream | null): Record<string, unknown> {
+  const track = stream?.getVideoTracks()[0]
+  if (!track?.getCapabilities) return {}
+  try {
+    return (track.getCapabilities() as unknown as Record<string, unknown>) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Whether this phone will let the page turn the torch on.
+ *
+ * WebKit only reports the capability when the device actually has a torch, so
+ * this is the honest question rather than a guess from the user agent. Torch
+ * is worth more here than any lens choice: a video frame's exposure is capped
+ * by the frame interval, about 1/30s, and within that ceiling the only thing
+ * that shortens the exposure is more light. A shorter exposure is less motion
+ * blur, directly, on every frame of the burst rather than probabilistically.
+ */
+export function torchAvailable(stream: MediaStream | null): boolean {
+  return capabilitiesOf(stream).torch === true
+}
+
+/**
+ * Turn the torch on or off, reporting whether it took.
+ *
+ * Never throws: a phone that advertises the capability and then refuses the
+ * constraint must not break the shutter, it must just stay dark.
+ */
+export async function setTorch(stream: MediaStream | null, on: boolean): Promise<boolean> {
+  const track = stream?.getVideoTracks()[0]
+  if (!track || !torchAvailable(stream)) return false
+  try {
+    await track.applyConstraints({ advanced: [{ torch: on }] } as unknown as MediaTrackConstraints)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// What this camera actually is
+// ---------------------------------------------------------------------------
+
+export interface CameraFact {
+  /** Plain enough to read down a telephone. */
+  label: string
+  value: string
+}
+
+/**
+ * What the camera actually granted, in words a non-developer can report back.
+ *
+ * This exists because the remaining open questions about steadying a shot
+ * cannot be answered without the phone (#92), and the person holding that
+ * phone is not going to open a web inspector. Each line is one of those
+ * questions: whether the resolution we ask for is the resolution we get, how
+ * fast frames arrive (which sets the exposure ceiling and so the burst
+ * length), whether a torch is offered at all, and how close the pinned lens
+ * can focus, which is the difference between "hold the book further away" and
+ * "this lens cannot do it".
+ *
+ * The spine strip is the one that reframes the whole problem: the spine crop
+ * is a narrow slice of an already-cropped frame, so it arrives at the OCR only
+ * a few hundred pixels across. That is why the spine is the hardest shot. It
+ * is not that hands shake more on it, it is that it has the fewest pixels to
+ * lose, so it is worth being able to read the real number off the real phone.
+ */
+export function cameraFacts(
+  stream: MediaStream | null,
+  video?: HTMLVideoElement | null,
+): CameraFact[] {
+  const track = stream?.getVideoTracks()[0]
+  if (!track) return [{ label: 'Camera', value: 'not running' }]
+
+  const settings = (track.getSettings?.() ?? {}) as MediaTrackSettings
+  const capabilities = capabilitiesOf(stream)
+  const facts: CameraFact[] = []
+
+  facts.push({ label: 'Lens in use', value: track.label || 'unnamed' })
+
+  facts.push({
+    label: 'Picture size',
+    value: settings.width && settings.height
+      ? `${settings.width} by ${settings.height}`
+      : 'not reported',
+  })
+
+  facts.push({
+    label: 'Frames a second',
+    value: settings.frameRate ? `${Math.round(settings.frameRate)}` : 'not reported',
+  })
+
+  facts.push({
+    label: 'Torch',
+    value: capabilities.torch === true ? 'available' : 'not offered by this phone',
+  })
+
+  const focus = capabilities.focusDistance as { min?: number } | undefined
+  facts.push({
+    label: 'Closest it can focus',
+    value: typeof focus?.min === 'number'
+      // Reported in metres. Centimetres is what somebody holding a book thinks in.
+      ? `${Math.round(focus.min * 100)} cm`
+      : 'not reported',
+  })
+
+  const zoom = capabilities.zoom as { min?: number; max?: number } | undefined
+  facts.push({
+    label: 'Zoom range',
+    value: typeof zoom?.min === 'number' && typeof zoom?.max === 'number'
+      ? `${zoom.min}x to ${zoom.max}x`
+      : 'not adjustable',
+  })
+
+  if (video?.videoWidth) {
+    const { sw } = cropToSource(video, SPINE_CROP)
+    facts.push({ label: 'Spine strip', value: `${Math.round(sw)} pixels across` })
+  }
+
+  return facts
+}
+
+/** The same facts as one pasteable block, so they can be sent rather than read out. */
+export function cameraFactsText(facts: CameraFact[]): string {
+  return facts.map((fact) => `${fact.label}: ${fact.value}`).join('\n')
 }

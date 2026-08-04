@@ -3,9 +3,10 @@ import { api, type CoverMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { confidenceLine, confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
 import {
-  applyFocusHints, captureStill, listLenses, openCamera, preferredLens,
+  applyFocusHints, listLenses, openCamera, preferredLens,
   rememberedLens, rememberLens, stopStream, thumbnail,
 } from '../lib/scanner'
+import { captureSteadiest } from '../lib/steady'
 
 interface Props {
   /** Which book is being held up. Opening it is all that follows. */
@@ -96,7 +97,10 @@ export function ScanCamera({ onIdentified, onClose }: Props) {
     const video = videoRef.current
     if (!video || reading) return
 
-    const image = captureStill(video)
+    // Same burst as the cataloguing camera. A cover held up one-handed shakes
+    // just as much, and here a blurred frame costs a wrong shortlist rather
+    // than a visibly bad photo, so it is the harder failure to notice.
+    const { image } = await captureSteadiest(video)
     if (!image) {
       setError('The camera has not produced a frame yet. Give it a moment.')
       return
