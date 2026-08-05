@@ -1070,12 +1070,13 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .shelfgroup__label { font-size: 16px; font-weight: 700; color: var(--accent); }
 .shelfgroup__count { font-size: 12px; color: var(--muted); margin-left: auto; }
 
-/* A closed shelf gets a solid rule; the open one gets the controls. */
+/* The line for a boundary, drawn above the heading of the area it opens: it
+   is that area's boundary, and Remove on it deletes that boundary (#145). */
 .divider {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  margin: 6px 0 10px;
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--panel);

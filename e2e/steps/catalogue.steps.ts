@@ -314,6 +314,36 @@ Then('the catalogue should be filed in this order:', async ({ catalogue }, table
   expect(catalogue.books().map((book) => book.title)).toEqual(wanted)
 })
 
+/**
+ * Every boundary the database holds, said as the book each one starts at.
+ *
+ * The proof that a removal removed the right row. A boundary is anchored to
+ * the sort key of the first book on the new plank, so naming that book says
+ * which boundary this is in the words the feature file can check; the id would
+ * say nothing to a reader and the label on screen is the half that was already
+ * lying (#145).
+ *
+ * Listed in anchor order, which is the order somebody walking the shelves
+ * meets them, not the `position` column: position records the order the
+ * boundaries were created in, and a bookcase break made after the plank break
+ * beyond it sits earlier on the furniture than it does in the table.
+ */
+Then(
+  'the boundaries recorded for fiction should be:',
+  async ({ catalogue }, table: DataTable) => {
+    const books = catalogue.books()
+    const actual = [...catalogue.separators('fiction')]
+      .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
+      .map((separator) => ({
+        kind: separator.kind,
+        'starts at': books.find((book) => book.sort_key === separator.starts_at)?.title
+          ?? `no book at ${separator.starts_at}`,
+      }))
+
+    expect(actual).toEqual(table.hashes())
+  },
+)
+
 Then(
   'a new area should be recorded for fiction, starting at {string}',
   async ({ catalogue }, title: string) => {

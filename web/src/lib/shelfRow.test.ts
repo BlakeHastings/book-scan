@@ -57,8 +57,7 @@ function group(books: BookRow[], label = '1A'): ShelfGroupDto {
     shelf: 1,
     label,
     books: books.map((b) => ({ book: b })),
-    separatorId: null,
-    kind: null,
+    opensWith: null,
   }
 }
 

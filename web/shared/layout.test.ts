@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  areaLabel, boundaryMove, carryOn, groupByShelf, layoutRange, locationLabel,
-  NEWCOMER_ID, overflow, shelfLoads, stripAt, stripAround,
+  areaLabel, boundaryMove, carryOn, groupByShelf, layoutRange, libraryRows,
+  locationLabel, NEWCOMER_ID, overflow, shelfLoads, stripAt, stripAround,
   type Separator,
 } from './layout'
 
@@ -128,8 +128,36 @@ describe('groupByShelf', () => {
     expect(groups.map((g) => g.label)).toEqual(['1A', '2A'])
     expect(groups[1]!.books.map((b) => b.book.id)).toEqual([2, 3])
     // The boundary that opens the shelf, so the UI can offer to remove it.
-    expect(groups[1]).toMatchObject({ separatorId: 7, kind: 'shelf' })
-    expect(groups[0]).toMatchObject({ separatorId: null })
+    expect(groups[1]).toMatchObject({ opensWith: { id: 7, kind: 'shelf' } })
+    expect(groups[0]).toMatchObject({ opensWith: null })
+  })
+
+  /**
+   * The order the library is drawn in, which is why this is data and not a
+   * decision taken inside a component (#145). A line names the boundary it
+   * removes, so it belongs above the heading of the area that boundary opens.
+   */
+  it('draws each boundary line above the heading it opens', () => {
+    const separators = [sep(1, 'B'), sep(2, 'C', 'shelf')]
+    const groups = groupByShelf(layoutRange(run('ABCD'), separators), separators)
+
+    expect(libraryRows(groups).map((row) =>
+      row.row === 'divider' ? `${row.notice} (${row.separatorId})` : row.group.label))
+      .toEqual([
+        '1A',
+        'New area starts here (1)', '1B',
+        'New bookcase starts here (2)', '2A',
+      ])
+  })
+
+  it('names the area each line opens, which is the heading beneath it', () => {
+    const separators = [sep(1, 'B'), sep(2, 'C', 'shelf')]
+    const groups = groupByShelf(layoutRange(run('ABCD'), separators), separators)
+
+    expect(libraryRows(groups)
+      .filter((row) => row.row === 'divider')
+      .map((row) => (row.row === 'divider' ? row.opens : '')))
+      .toEqual(['1B', '2A'])
   })
 
   it('counts what is on each shelf without predicting what fits', () => {

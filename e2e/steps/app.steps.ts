@@ -592,3 +592,81 @@ When('I save the changes', async ({ page }) => {
   // Saving a catalogued book returns to its record view, not the camera.
   await expect(page.getByRole('button', { name: 'Edit details' })).toBeVisible()
 })
+
+/**
+ * The library read down the page: every area heading and every boundary line,
+ * in the order somebody scrolling meets them.
+ *
+ * Read off the DOM in document order rather than by querying each kind of
+ * element separately, because the order is the claim. #145 was a set of lines
+ * every one of which was correct in isolation and drawn one area too low.
+ */
+Then(
+  'the library should read, top to bottom:',
+  async ({ page }, table: DataTable) => {
+    const wanted = table.raw().map((row) => row[0] ?? '')
+
+    const lines = await page.evaluate(() => {
+      const main = document.querySelector('main.main--library')
+      if (!main) return []
+
+      const text = (element: Element, selector: string) =>
+        element.querySelector(selector)?.textContent?.trim() ?? ''
+
+      return [...main.children].flatMap((element) => {
+        if (element.classList.contains('divider')) {
+          return [text(element, '.divider__label')]
+        }
+        if (element.classList.contains('shelfgroup')) {
+          return [
+            `${text(element, '.shelfgroup__label')} ${text(element, '.shelfgroup__shelf')}`,
+          ]
+        }
+        return []
+      })
+    })
+
+    expect(lines).toEqual(wanted)
+  },
+)
+
+/**
+ * Tap Remove on the line drawn immediately above a named heading.
+ *
+ * Deliberately positional. Somebody adjusting the shelves is pointing at the
+ * gap between two planks, and the whole of #145 was that the line sitting in
+ * that gap deleted a boundary from somewhere else. Naming the heading and
+ * stepping back one element is how that tap is reproduced.
+ */
+When(
+  'I remove the boundary drawn above {string}',
+  async ({ page }, heading: string) => {
+    const parts = /^(Bookcase \d+) (Area \w+)$/.exec(heading)
+    expect(parts, `"${heading}" is not an area heading`).toBeTruthy()
+    const [, bookcase, area] = parts!
+
+    const line = page.locator(
+      'xpath=//section[contains(@class,"shelfgroup")]' +
+      `[.//span[normalize-space()="${bookcase}"] and .//span[normalize-space()="${area}"]]` +
+      '/preceding-sibling::*[1]',
+    )
+    await expect(line, `nothing is drawn above ${heading}`).toHaveClass(/divider/)
+
+    const drawn = await page.locator('.divider').count()
+    await line.getByRole('button', { name: 'Remove' }).click()
+    // One line fewer, which is the redraw finishing. Waiting on the moves
+    // panel instead would assume that a removal always moves a book.
+    await expect(page.locator('.divider')).toHaveCount(drawn - 1)
+  },
+)
+
+/**
+ * The physical job the app hands back, in full.
+ *
+ * A closed list, because the failure being guarded against is books being
+ * carried that did not need to move: #145 asked for four of them.
+ */
+Then('it should say to move exactly:', async ({ page }, table: DataTable) => {
+  const wanted = table.hashes().map((row) => `${row.book}: ${row.from} to ${row.to}`)
+  await expect(page.locator('.moves li')).toHaveText(wanted)
+})
