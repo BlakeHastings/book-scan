@@ -113,6 +113,45 @@ When an update is ready, say so and say what is in it, then stop. Landing it on
 `master` is the finished job. Shipping it is the owner's call and the owner's
 timing.
 
+### What `stable` actually runs, and why the command changed
+
+**The live catalogue is still a SQLite file.** Stage G flipped the project's
+default to Postgres, and stage H, which moves the real data, has not happened.
+Until it does, `stable` runs SQLite against
+`C:\Users\Blake\book-scan-production-data\live\`.
+
+So the launch needs **two** environment variables now, not one:
+
+```
+BOOKSCAN_DB=sqlite
+BOOKSCAN_DATA=C:\Users\Blake\book-scan-production-data\live
+```
+
+Started with `BOOKSCAN_DATA` alone, the server **refuses to start** and names
+the missing variable. That is deliberate and it is the good outcome: on this
+revision the default is Postgres, so a deployment with no connection string
+would otherwise come up on an empty database sitting beside a full `books.db`,
+which reads exactly like a catalogue that has lost every book.
+
+Launch it **detached**, not as a child of an agent session. It has died three
+times because the process was owned by a session that later let go of it:
+
+```
+powershell -NoProfile -Command "$env:BOOKSCAN_DB='sqlite'; $env:BOOKSCAN_DATA='C:\Users\Blake\book-scan-production-data\live'; Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory 'C:\Users\Blake\source\repos\book-scan-stable\web' -WindowStyle Hidden"
+```
+
+Nothing watches it. If the phone stops loading, check
+`curl http://127.0.0.1:3001/api/health`, which reports the database it opened.
+
+### Backups are verified by opening them, not by checksum
+
+Before anything touches the live catalogue, copy the whole `live\` directory,
+including `books.db-wal` and `books.db-shm`, and then **open the copy** and
+check `integrity_check` and the row counts. A checksum proves two files match;
+it does not prove either one opens. `docs/postgres-migration.md` records a
+`cp books.db` that silently lost five hours of work because the WAL was newer
+than the `.db`.
+
 ## Running things
 
 All commands run from `web/`.
