@@ -532,3 +532,101 @@ describe('text ordering, which every shelf depends on', () => {
     }
   })
 })
+
+/**
+ * Two requests in flight at once, which is what the whole migration is for.
+ *
+ * This is the rehearsal docs/postgres-migration.md asks for at stage G, and
+ * these are the only tests in this file that would pass for the wrong reason if
+ * they were written carelessly. Each one was watched failing with its fix
+ * removed before it was kept: two placements both saying "first in the range",
+ * a checkout timestamp overwritten by the second tap, and a crop list with one
+ * of its two slots missing.
+ *
+ * Nothing here is conditional on the driver. On SQLite the guarantee comes from
+ * a transaction holding the one connection; on Postgres it comes from the
+ * advisory lock behind `TxOptions.serialiseOn`. The assertion is the same
+ * either way, which is the point: what the caller is promised does not depend
+ * on which database is underneath.
+ */
+describe('two people scanning at once', () => {
+  /**
+   * Make the pool hold more than one connection before the race starts.
+   *
+   * Without this the second caller waits for the first to give its connection
+   * back, so the two never overlap and the test cannot fail however broken the
+   * code is. All three of these passed with their fix removed until this was
+   * added, which is the whole reason it is a named function with a paragraph on
+   * it rather than a line somebody tidies away. Costs nothing on SQLite, which
+   * has one connection and serialises for real reasons.
+   */
+  const warmTheConnections = () =>
+    Promise.all([db.get('SELECT 1'), db.get('SELECT 1'), db.get('SELECT 1')])
+
+  it('tells the second book about the first, rather than sending both to the same gap', async () => {
+    await warmTheConnections()
+
+    // Gibson sorts before Herbert, so whichever of these commits first, the
+    // other has a neighbour and cannot be the first book in the range.
+    const [gibson, herbert] = await Promise.all([
+      store.addBook(draft({ title: 'Neuromancer', authors: ['William Gibson'] })),
+      store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'] })),
+    ])
+
+    const kinds = [gibson.placement.kind, herbert.placement.kind]
+    expect(
+      kinds.filter((kind) => kind === 'first-in-range'),
+      `both saves were told the shelf was empty: ${kinds.join(' and ')}`,
+    ).toHaveLength(1)
+
+    // And the one that was not first names the other, so the person holding it
+    // is sent to a book that is genuinely on the shelf.
+    const second = gibson.placement.kind === 'first-in-range' ? herbert : gibson
+    const named = [second.placement.predecessor?.title, second.placement.successor?.title]
+    expect(named).toContain(second === herbert ? 'Neuromancer' : 'Dune')
+
+    // Whoever won, the shelf itself is in order. That held before the fix too:
+    // the sort keys decide it, not the placement.
+    expect((await store.listRange('fiction')).map((row) => row.title))
+      .toEqual(['Neuromancer', 'Dune'])
+  })
+
+  it('keeps the moment a book left when two checkouts arrive together', async () => {
+    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    await warmTheConnections()
+
+    const [first, second] = await Promise.all([
+      store.setCheckedOut(id, true),
+      store.setCheckedOut(id, true),
+    ])
+
+    // Exactly one of them took the book off the shelf. The other is told
+    // nothing changed, and is handed the timestamp that stands.
+    const changed = [first, second].filter((result) => result.changed)
+    expect(changed, 'both callers were told they checked the book out').toHaveLength(1)
+
+    const stored = (await store.getBook(id))?.checked_out_at
+    expect(stored).toBe(changed[0]!.checkedOutAt)
+    expect(first.checkedOutAt).toBe(stored)
+    expect(second.checkedOutAt).toBe(stored)
+  })
+
+  it('keeps both slots when two crop passes finish at the same time', async () => {
+    const { id } = await store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], frontImage: 'f.jpg', edgeImage: 'e.jpg' }),
+    )
+    await warmTheConnections()
+
+    await Promise.all([
+      store.setCrop(id, 'front', 'f_crop.jpg'),
+      store.setCrop(id, 'edge', ''),
+    ])
+
+    const book = (await store.getBook(id))!
+    expect(book.cropped.split(',').sort()).toEqual(['edge', 'front'])
+    expect(book.front_crop).toBe('f_crop.jpg')
+    // The slot that was looked at and declined still says so, which is the
+    // state the lost update used to erase.
+    expect(book.edge_crop).toBe('')
+  })
+})
