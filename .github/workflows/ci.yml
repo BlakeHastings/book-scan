@@ -44,6 +44,42 @@ jobs:
     name: web (typecheck + tests)
     runs-on: ubuntu-latest
 
+    # Since stage F of the Postgres migration, the four test files that open a
+    # database run twice, once against SQLite and once against a real Postgres.
+    # Locally that container is started by @testcontainers/postgresql; here it
+    # is a service container, so the pull overlaps checkout and `npm ci` instead
+    # of being paid for in series inside the test step.
+    #
+    # It also means the two paths into the harness are each exercised by
+    # somebody on every change: a developer takes the container path, CI takes
+    # the BOOKSCAN_TEST_DATABASE_URL escape hatch below. Neither is a code path
+    # nobody runs until it breaks.
+    #
+    # Pinned to 17, matching web/server/pgcontainer.ts. That is the version the
+    # eventual managed target is expected to run, and collation behaviour is a
+    # property of the server and the libc it was built against, so this is a
+    # decision rather than a default to refresh.
+    #
+    # A service container starts whatever the steps below decide to do, so a
+    # documentation-only run pays for it too. Measured against the alternative
+    # and kept: that run is a handful of seconds either way and GitHub bills a
+    # job rounded up to a whole minute, so it costs the same minute it did.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Without this the test step can reach a container that is listening
+        # and not yet accepting connections, which fails as a connection reset
+        # and reads as a flaky driver.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -113,12 +149,20 @@ jobs:
         working-directory: web
         run: npm run typecheck
 
-      # Tests open :memory: databases and generate their own barcode and
-      # cover fixtures, so this never reaches real scan data.
+      # Tests open :memory: SQLite databases and scratch Postgres databases
+      # created on the service container above, and generate their own barcode
+      # and cover fixtures, so this never reaches real scan data.
+      #
+      # BOOKSCAN_TEST_DATABASE_URL is the only connection variable the harness
+      # reads, deliberately: not DATABASE_URL and not ConnectionStrings__*, so
+      # an ambient one cannot point a test run at a real catalogue. See
+      # web/server/pgcontainer.ts.
       - name: Tests
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: web
         run: npm test
+        env:
+          BOOKSCAN_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
       # Three script suites, none of which needs a dependency tree. They run
       # here rather than in jobs of their own because a job is billed rounded up

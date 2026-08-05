@@ -1,11 +1,14 @@
 /**
- * The rehash path, against a real in-memory SQLite database and real
- * generated cover images. No file is opened: the tool takes its image reader
- * from the caller, so a test hands it a map and never names a directory.
+ * The rehash path, against a real database and real generated cover images. No
+ * file is opened: the tool takes its image reader from the caller, so a test
+ * hands it a map and never names a directory.
+ *
+ * Since stage F this runs against both databases, and nothing below knows
+ * which. See server/testdb.ts.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase } from './db'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import { Store } from './store'
 import { frontCover } from './fixtures'
 import { coverHash, distance } from './imagehash'
@@ -54,11 +57,13 @@ async function hashesOf(id: number): Promise<{ front: string; cover: string }> {
   return { front: row.front_hash, cover: row.cover_hash }
 }
 
-beforeEach(() => {
-  store = new Store(openDatabase(':memory:'))
+beforeEach(async () => {
+  store = new Store(await openTestDatabase())
   images = new Map()
   read = reader(images)
 })
+
+afterAll(closeTestDatabase)
 
 describe('telling a stale hash from a current one', () => {
   it('rejects everything the old algorithm wrote', async () => {

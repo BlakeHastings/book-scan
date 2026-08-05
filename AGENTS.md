@@ -49,8 +49,17 @@ The safety here is structural, not just a request:
   server and the real catalogue. Under Aspire you do not need to: the AppHost
   sets it explicitly to this checkout's own directory, which overrides anything
   inherited from your shell.
-- Every server test opens an in-memory database (`:memory:`) and generates its
-  own barcode and cover fixtures, so **no test reads or writes the catalogue.**
+- No test reads or writes the catalogue, and since stage F of the Postgres
+  migration that sentence needs two halves rather than one. Most server tests
+  still open an in-memory SQLite database (`:memory:`), which cannot reach a
+  file at all. The four that also run against Postgres create a scratch
+  database per test file on a throwaway container and drop it afterwards, and
+  the harness reads **only** `BOOKSCAN_TEST_DATABASE_URL` to find a server:
+  never `DATABASE_URL`, never `ConnectionStrings__*`. That is the same rule as
+  `BOOKSCAN_DATA` and it exists for the same reason, so **do not set
+  `BOOKSCAN_TEST_DATABASE_URL` in a shell** either, except at a scratch server
+  you are content to have databases created on and dropped from. Every test
+  generates its own barcode and cover fixtures.
 - `web/.gitignore` excludes `data/`, so a database or cover photo cannot be
   committed. CI re-checks this on the result, because an ignore rule is silent
   when someone forces past it.
@@ -104,6 +113,27 @@ npm run build      # typecheck then vite build
 `npm run dev` binds `0.0.0.0:5173` with a self-signed certificate. That is
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
 LAN address, so the phone needs HTTPS.
+
+**`npm test` needs Docker.** That is new as of stage F of the Postgres
+migration and it is a real regression in what it takes to contribute, accepted
+by the owner rather than stumbled into: a suite that does not exercise the
+database being shipped is how a collation difference passes everything and
+surfaces on somebody's shelf. `web/vitest.config.ts` runs two projects.
+
+- `sqlite` is the suite as it always was: every test file, no services.
+- `postgres` re-runs the files that open a database, against a real Postgres,
+  plus `server/db.pg.test.ts`.
+
+**If you add a test file that opens a database, add it to `BOTH_DRIVERS` in
+`web/vitest.config.ts`.** One that is not on that list guards SQLite only, and
+looks entirely green while doing it.
+
+The container is started by `@testcontainers/postgresql`. If you already have a
+Postgres you are willing to have scratch databases created on and dropped from,
+`BOOKSCAN_TEST_DATABASE_URL` points the harness at it and no container starts;
+that is how CI does it. Measured on this machine with `cd web && npm test`:
+about 40 seconds before, about 47 after, with the image already pulled.
+`npx vitest run --project sqlite` runs the half that needs nothing.
 
 ### Running it under Aspire
 

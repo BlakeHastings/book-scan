@@ -23,6 +23,7 @@ import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 import { openDatabase } from './db'
+import { describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 
 import { lookupIsbn, searchTitle } from './lookup'
@@ -1783,6 +1784,38 @@ export function createApp(options: CreateAppOptions): express.Express {
 const isMainModule = process.argv[1] !== undefined
   && import.meta.url === pathToFileURL(process.argv[1]).href
 
+/**
+ * Which database, and where.
+ *
+ * **`sqlite` is the default and stays the default until stage G.** Setting
+ * `BOOKSCAN_DB=postgres` is how the Postgres implementation is reached at all;
+ * unset, nothing in this process opens a connection or reads a connection
+ * string, and the behaviour is exactly what it was.
+ *
+ * The connection arrives as `ConnectionStrings__bookscan`, which is the name
+ * Aspire gives it, read here the way `PORT` is. Note that this is the one place
+ * it is read: the test harness deliberately ignores it and every other ambient
+ * connection variable (server/testdb.ts), for the same reason as `BOOKSCAN_DATA`.
+ */
+async function openCatalogue(sqlitePath: string): Promise<{ db: Db; label: string }> {
+  if ((process.env.BOOKSCAN_DB ?? 'sqlite') !== 'postgres') {
+    return { db: openDatabase(sqlitePath), label: sqlitePath }
+  }
+
+  const url = process.env.ConnectionStrings__bookscan ?? ''
+  if (!url) {
+    throw new Error(
+      'BOOKSCAN_DB=postgres but ConnectionStrings__bookscan is empty. ' +
+      'Under Aspire the AppHost sets it; on its own, set it to the catalogue.',
+    )
+  }
+
+  // Host, port and database, never the credentials. This reaches /api/health,
+  // and a password on a health endpoint is a password in every log that scrapes
+  // one. Stage G makes the same redaction the only thing that endpoint reports.
+  return { db: await openPostgres(url), label: describeConnection(url) }
+}
+
 if (isMainModule) {
   const PORT = Number(process.env.PORT ?? 3001)
   const DATA_DIR = resolve(process.env.BOOKSCAN_DATA ?? 'data')
@@ -1792,15 +1825,31 @@ if (isMainModule) {
 
   mkdirSync(COVER_DIR, { recursive: true })
 
-  const app = createApp({
-    db: openDatabase(DB_PATH),
-    coverDir: COVER_DIR,
-    googleApiKey: GOOGLE_API_KEY,
-    dbLabel: DB_PATH,
-  })
+  // Connecting is asynchronous where opening a file was not, so the wiring
+  // moves into a function rather than running as the module evaluates. Nothing
+  // else about the startup path changes: the same createApp with the same
+  // options, and listen still happens once.
+  const bootstrap = async () => {
+    const { db, label } = await openCatalogue(DB_PATH)
 
-  app.listen(PORT, '127.0.0.1', () => {
-    console.log(`[api] listening on http://127.0.0.1:${PORT}`)
-    console.log(`[api] database ${DB_PATH}`)
+    const app = createApp({
+      db,
+      coverDir: COVER_DIR,
+      googleApiKey: GOOGLE_API_KEY,
+      dbLabel: label,
+    })
+
+    app.listen(PORT, '127.0.0.1', () => {
+      console.log(`[api] listening on http://127.0.0.1:${PORT}`)
+      console.log(`[api] database ${label}`)
+    })
+  }
+
+  bootstrap().catch((error) => {
+    // A database that will not open is not something to limp on: every route
+    // needs it, and a process that exits says so where a stack trace on the
+    // first request would not.
+    console.error('[api] could not open the catalogue', error)
+    process.exitCode = 1
   })
 }
