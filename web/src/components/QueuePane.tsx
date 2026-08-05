@@ -17,26 +17,30 @@ import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
 import { FAILURE_LABEL, failureOf } from '../../shared/captureFailure'
 import { coverUrl } from './PlacementCard'
 
-const STATUS_LABEL: Record<CaptureStatus, string> = {
+/**
+ * The three statuses that say all there is to say on their own. `failed` is
+ * deliberately absent: it needs the row's own facts to mean anything.
+ */
+const STATUS_LABEL: Record<Exclude<CaptureStatus, 'failed'>, string> = {
   pending: 'reading photos',
   ready: 'identified',
-  failed: 'needs you',
   done: 'shelved',
 }
 
 /**
  * What this row says is wrong with the book.
  *
- * "needs you" was true and useless: it is the same three words whether the
- * photographs yielded no ISBN, yielded a good one no catalogue has, or broke
- * the read outright. Those need different things from the person holding the
- * book, so the row names which one, out of the same helper Home counts with
- * (#148). One rule, so the row and the first screen cannot say different
- * things about the same capture again.
+ * `failed` used to read "needs you", which was true and useless: the same
+ * three words whether the photographs yielded no ISBN, yielded a good one no
+ * catalogue has, or broke the read outright. Those need different things from
+ * the person holding the book, so the row names which one, out of the same
+ * helper Home counts with (#148). One rule, so the row and the first screen
+ * cannot say different things about the same capture again.
  */
 export function statusLine(capture: Capture): string {
-  if (capture.status !== 'failed') return STATUS_LABEL[capture.status]
-  return FAILURE_LABEL[failureOf(capture)]
+  return capture.status === 'failed'
+    ? FAILURE_LABEL[failureOf(capture)]
+    : STATUS_LABEL[capture.status]
 }
 
 /**
