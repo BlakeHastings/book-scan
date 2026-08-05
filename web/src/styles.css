@@ -2032,6 +2032,11 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   border-bottom: 1px solid var(--line);
   background: rgba(10, 10, 16, 0.96);
 }
+/* No frame to show, because the answer is not about one frame: the Add flow is
+   asking about photographs that are already on the chips below. The empty box
+   goes with it rather than being left captioned and blank. */
+.choices__head--noshot { grid-template-columns: 1fr; }
+
 .choices__shot {
   width: 46px;
   height: 62px;

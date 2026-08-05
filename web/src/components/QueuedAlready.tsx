@@ -13,9 +13,13 @@ interface Props {
   /** What the way past says, since it differs by where the person is stood. */
   dismissLabel: string
   /**
-   * The shot being answered, as a data URL, or empty where there is nothing
-   * to show. The scanner has one frame and shows it; the Add flow has the
-   * photographs on the chips already.
+   * The shot being answered, as a data URL.
+   *
+   * Only the scanner has one: it hashes a single frame and keeps it so every
+   * answer can be held against the same picture. The Add flow leaves this out
+   * altogether, because the photographs it is asking about are on the chips
+   * below, and a box captioned "your shot" with nothing in it reads as a
+   * picture that failed to load rather than as one that was never taken.
    */
   shot?: string
   /** What tapping a match will do, said before it is tapped. */
@@ -49,8 +53,8 @@ export function QueuedAlready({
 
   return (
     <div className={`isbncam__choices isbncam__choices--queued ${className ?? ''}`.trim()}>
-      <div className="choices__head">
-        {shot
+      <div className={`choices__head${shot === undefined ? ' choices__head--noshot' : ''}`}>
+        {shot === undefined ? null : shot
           ? <img className="choices__shot" src={shot} alt="The shot this is answering" />
           : <span className="choice__nocover">your shot</span>}
         <span className="choice__text">
