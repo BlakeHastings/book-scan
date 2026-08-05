@@ -72,20 +72,46 @@ export function rememberPhoto(photo: QueuePhoto): void {
 }
 
 /**
- * The front photograph of a capture.
+ * A slot's picture: the crop where the detector found the book, the whole
+ * photograph where it did not.
  *
- * The one seam that knows what "the front" means. The owner asked for cropped
- * fronts, and captures have no crop columns and no derivatives today, so #121
- * carries that; when a cropped front lands it is added here and every caller
- * picks it up without knowing anything changed.
+ * The fallback is the ordinary case, not the exception. On real photographs the
+ * detector declines more often than it succeeds, and a decline is recorded as a
+ * slot named in `cropped` with an empty crop column. Both of those read as an
+ * empty string here and both mean the same thing to a thumbnail: draw the
+ * photograph. An empty crop is never a missing picture, so it must never be
+ * handed on as one.
  */
-function frontOf(capture: Capture): string {
-  return capture.front_image
+function pictureOf(crop: string, photo: string): string {
+  return crop || photo
 }
 
-/** The spine photograph of a capture. */
+/**
+ * The front photograph of a capture, cropped to the book where there is a crop.
+ *
+ * The one seam that knows what "the front" means. The owner asked for cropped
+ * fronts so that somebody working through a stack sees the book rather than the
+ * room around it (#135); #121 gave captures the crop columns, and this is where
+ * every caller picks them up without knowing anything changed.
+ */
+function frontOf(capture: Capture): string {
+  return pictureOf(capture.front_crop, capture.front_image)
+}
+
+/** The spine photograph of a capture, cropped the same way. */
 function spineOf(capture: Capture): string {
-  return capture.edge_image
+  return pictureOf(capture.edge_crop, capture.edge_image)
+}
+
+/**
+ * The back photograph, cropped the same way.
+ *
+ * Never asked for, only ever fallen back to, but cropped on the same terms as
+ * the other two: a row drawing the back because nothing else exists yet should
+ * not be the one row showing the table it was photographed on.
+ */
+function backOf(capture: Capture): string {
+  return pictureOf(capture.back_crop, capture.back_image)
 }
 
 /**
@@ -95,12 +121,17 @@ function spineOf(capture: Capture): string {
  * photographed in whatever order somebody managed, and half of them are still
  * being read, so the asked-for shot is often simply not there yet. Showing the
  * wrong photograph of the right book beats showing nothing.
+ *
+ * Which slot wins is settled before any crop is considered, the way `bookCover`
+ * settles it: a front photograph still beats a spine whether or not either
+ * cropped. Only then does the crop of that slot stand in for the whole frame,
+ * so a row showing the surrounding room is never showing it because a different
+ * photograph happened to crop better.
  */
 export function queueThumb(capture: Capture, photo: QueuePhoto): string {
   const front = frontOf(capture)
   const spine = spineOf(capture)
-  const order = photo === 'front'
-    ? [front, spine, capture.back_image]
-    : [spine, front, capture.back_image]
+  const back = backOf(capture)
+  const order = photo === 'front' ? [front, spine, back] : [spine, front, back]
   return order.find(Boolean) ?? ''
 }

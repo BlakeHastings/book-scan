@@ -65,7 +65,8 @@ describe('draftFromCapture', () => {
     isbn13: '', isbn10: '', isbn_source: '', title_guess: '', cover_text: '',
     analysed: '', draft_json: '', edit_json: '', edited_by: '', edited_at: null,
     note: '', claimed_by: '', claimed_at: null, book_id: null,
-    created_at: '', processed_at: null, ...fields,
+    created_at: '', processed_at: null,
+    front_crop: '', back_crop: '', edge_crop: '', cropped: '', ...fields,
   })
 
   it('shows the worker\'s reading when nobody has said anything', () => {

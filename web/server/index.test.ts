@@ -1307,6 +1307,43 @@ describe('editing a capture that is still in the queue', () => {
 })
 
 /**
+ * What a queued capture tells the client about its crops.
+ *
+ * The queue draws the cropped front (#135), and it can only do that if the crop
+ * columns reach the browser. They do because the capture routes hand the row
+ * back whole, which is easy to narrow to a column list later without noticing
+ * what was lost: the crops would go quietly and the queue would go back to
+ * showing the room, with nothing failing.
+ *
+ * `cropped` travels with them for the reason the column exists. An empty crop
+ * on a slot named there was looked at and declined, which is a different fact
+ * from a photograph nothing has examined, and only the client holding both can
+ * tell them apart.
+ */
+describe('the crops a queued capture carries to the client', () => {
+  it('sends the crop columns and the record of what was examined', async () => {
+    const queue = new CaptureQueue(running.db, () => null)
+    const capture = await queue.add({ front: 's_front.jpg', edge: 's_edge.jpg' })
+    await queue.setCrop(capture.id, 'front', 's_front_crop.jpg')
+    // Looked at and declined. Empty crop, but examined all the same.
+    await queue.setCrop(capture.id, 'edge', '')
+
+    const one = await call(`/api/captures/${capture.id}`)
+    expect(one.body.capture.front_crop).toBe('s_front_crop.jpg')
+    expect(one.body.capture.edge_crop).toBe('')
+    expect(one.body.capture.back_crop).toBe('')
+    expect(one.body.capture.cropped.split(',').sort()).toEqual(['edge', 'front'])
+
+    // The listing is what the queue itself reads, so it carries them too.
+    const listed = await call('/api/captures')
+    const row = listed.body.captures.find((c: { id: number }) => c.id === capture.id)
+    expect(row.front_crop).toBe('s_front_crop.jpg')
+    expect(row.edge_crop).toBe('')
+    expect(row.cropped.split(',').sort()).toEqual(['edge', 'front'])
+  })
+})
+
+/**
  * Discarding a capture, which deletes files.
  *
  * A capture now causes derived files to exist as well as photographs, and a

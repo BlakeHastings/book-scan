@@ -278,6 +278,25 @@ export interface Capture {
   book_id: number | null
   created_at: string
   processed_at: string | null
+  /**
+   * The three photos cut to the book, as filenames under /api/covers. The same
+   * columns books carry and the same contract: a crop is derived from the
+   * photograph, never a replacement for it, so a view that has one shows it and
+   * a view that does not shows the whole frame.
+   *
+   * Empty where the detector has not looked, and also empty where it looked and
+   * declined. `cropped` is what tells those two apart.
+   */
+  front_crop: string
+  back_crop: string
+  edge_crop: string
+  /**
+   * Slots the detector has looked at, comma separated, whether or not it found
+   * a book. A slot named here with an empty crop column was examined and
+   * declined, which is a different fact from a photo taken before crops
+   * existed. Empty means none have been looked at.
+   */
+  cropped: string
 }
 
 /**
