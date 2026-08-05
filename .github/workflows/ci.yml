@@ -120,7 +120,7 @@ jobs:
         working-directory: web
         run: npm test
 
-      # Two script suites, neither of which needs a dependency tree. They run
+      # Three script suites, none of which needs a dependency tree. They run
       # here rather than in jobs of their own because a job is billed rounded up
       # to a whole minute and these take about a second between them.
       #
@@ -133,6 +133,15 @@ jobs:
       - name: Merge guard behaves
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/guard-merge.test.mjs
+
+      # The other half of the merge path. `guard-merge.mjs` decides which
+      # commands may run; `merge-pr.mjs` decides whether a pull request may
+      # land, and since #154 that includes whether its checks ran against the
+      # base as it stands now. A stale-base gate nobody exercises is how the
+      # first version of this tooling shipped two defects.
+      - name: Merge gate behaves
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/merge-pr.test.mjs
 
       - name: Scope rules
         if: steps.scope.outputs.docs_only != 'true'
