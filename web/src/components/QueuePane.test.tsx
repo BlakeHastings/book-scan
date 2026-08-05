@@ -49,6 +49,10 @@ function capture(over: Partial<Capture> = {}): Capture {
     book_id: null,
     created_at: '',
     processed_at: null,
+    front_crop: '',
+    back_crop: '',
+    edge_crop: '',
+    cropped: '',
     ...over,
   }
 }

@@ -25,6 +25,10 @@ function capture(id: number, status: CaptureStatus = 'ready'): Capture {
     book_id: null,
     created_at: '',
     processed_at: null,
+    front_crop: '',
+    back_crop: '',
+    edge_crop: '',
+    cropped: '',
   }
 }
 
