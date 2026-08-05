@@ -172,6 +172,15 @@ export function bindParams(
       continue
     }
 
+    // `::` is a cast, not a name. Stage D took the one use of it out for being
+    // Postgres-only, and reading the second colon as a placeholder would turn
+    // any that came back into a parameter nobody passed.
+    if (char === ':' && sql[i + 1] === ':') {
+      text += '::'
+      i += 2
+      continue
+    }
+
     if ((char === '@' || char === ':') && NAME_START.test(sql[i + 1] ?? '')) {
       let j = i + 1
       while (j < sql.length && NAME_BODY.test(sql[j] ?? '')) j += 1
