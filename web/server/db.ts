@@ -1,15 +1,24 @@
 /**
- * SQLite schema and store. Mirrors the design in docs/shelving.md.
+ * SQLite schema and driver. Mirrors the design in docs/shelving.md.
  *
  * One deviation from that document: the column is `shelf_range`, not `range`.
  * RANGE is a reserved word in SQLite's window-function grammar and quoting it
  * everywhere is worse than renaming it once.
+ *
+ * **This is the only production file that imports better-sqlite3.** The stores
+ * are written against the `Db` interface in driver.ts and cannot see what is
+ * underneath them, which is what makes stage F a new file rather than an edit
+ * to every call site:
+ *
+ *     grep -rn better-sqlite3 web/server --include='*.ts' | grep -v '\.test\.'
  */
 
 import Database from 'better-sqlite3'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { ShelfRange } from '../shared/shelving'
+import { anonymous, bindParams, type Db, type Params } from './driver'
 
 const SCHEMA_VERSION = 1
 
@@ -392,7 +401,128 @@ function migrateSeparators(db: Database.Database): void {
   rebuild()
 }
 
-export function openDatabase(path: string): Database.Database {
+/** How deep in transactions the caller currently is, if it is in one at all. */
+interface TxDepth {
+  depth: number
+}
+
+/**
+ * `Db` over better-sqlite3.
+ *
+ * Every statement goes through the translator in driver.ts rather than being
+ * handed to better-sqlite3 in the style it was written in, even though
+ * better-sqlite3 understands all three styles itself. That is deliberate: it
+ * means the translation is exercised by the whole existing suite now, on the
+ * database that already works, rather than being written blind in stage F and
+ * first exercised by the driver nobody has run yet. Stage F changes one
+ * argument, from `anonymous` to `numbered`.
+ *
+ * better-sqlite3 is synchronous, so the promises here are already resolved by
+ * the time they are returned. What that costs, and what the lock below is for:
+ * an `await` inside a transaction is a point where some other request's
+ * continuation can run, and a statement of its own would land inside a
+ * transaction it knows nothing about. That could not happen while the stores
+ * handed synchronous closures to `db.transaction`, so it is not something this
+ * stage is entitled to introduce.
+ */
+class SqliteDb implements Db {
+  /**
+   * Whether the calling code is inside one of this connection's transactions,
+   * and how deep. Async-context tracked rather than a counter on the
+   * connection: a counter cannot tell the transaction's own statements from an
+   * unrelated request's, and would nest the unrelated one into the transaction.
+   */
+  private readonly context = new AsyncLocalStorage<TxDepth>()
+
+  /**
+   * The connection, held one caller at a time. SQLite has a single connection
+   * here, so this is what keeps a transaction's statements contiguous on it.
+   */
+  private lock: Promise<unknown> = Promise.resolve()
+
+  constructor(private readonly handle: Database.Database) {}
+
+  async all<Row>(sql: string, params?: Params): Promise<Row[]> {
+    return this.exclusive(async () => {
+      const { text, values } = bindParams(sql, params, anonymous)
+      return this.handle.prepare(text).all(...values) as Row[]
+    })
+  }
+
+  async get<Row>(sql: string, params?: Params): Promise<Row | undefined> {
+    return this.exclusive(async () => {
+      const { text, values } = bindParams(sql, params, anonymous)
+      return this.handle.prepare(text).get(...values) as Row | undefined
+    })
+  }
+
+  async run(sql: string, params?: Params): Promise<{ changes: number }> {
+    return this.exclusive(async () => {
+      const { text, values } = bindParams(sql, params, anonymous)
+      return { changes: this.handle.prepare(text).run(...values).changes }
+    })
+  }
+
+  async tx<T>(work: (db: Db) => Promise<T>): Promise<T> {
+    const open = this.context.getStore()
+    if (open) return this.savepoint(open, work)
+    return this.exclusive(() => this.transaction(work))
+  }
+
+  async close(): Promise<void> {
+    this.handle.close()
+  }
+
+  /**
+   * Run `job` with the connection to itself.
+   *
+   * Statements issued from inside a transaction skip the queue, because that
+   * transaction is already holding it. Everything else waits its turn, which is
+   * the ordering better-sqlite3 gave for free by being synchronous.
+   */
+  private exclusive<T>(job: () => Promise<T>): Promise<T> {
+    if (this.context.getStore()) return job()
+
+    const running = this.lock.then(job, job)
+    // The chain itself must never reject, or one failed statement would be
+    // inherited by every statement queued behind it.
+    this.lock = running.then(() => undefined, () => undefined)
+    return running
+  }
+
+  private async transaction<T>(work: (db: Db) => Promise<T>): Promise<T> {
+    this.handle.exec('BEGIN')
+    try {
+      const result = await this.context.run({ depth: 1 }, () => work(this))
+      this.handle.exec('COMMIT')
+      return result
+    } catch (error) {
+      this.handle.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /**
+   * A transaction inside a transaction. SQLite spells it SAVEPOINT, Postgres
+   * spells it the same way, and the alternative, quietly joining the outer
+   * transaction, would make the inner one's rollback undo the outer one's work.
+   */
+  private async savepoint<T>(open: TxDepth, work: (db: Db) => Promise<T>): Promise<T> {
+    const name = `bookscan_${open.depth}`
+    this.handle.exec(`SAVEPOINT ${name}`)
+    try {
+      const result = await this.context.run({ depth: open.depth + 1 }, () => work(this))
+      this.handle.exec(`RELEASE ${name}`)
+      return result
+    } catch (error) {
+      this.handle.exec(`ROLLBACK TO ${name}`)
+      this.handle.exec(`RELEASE ${name}`)
+      throw error
+    }
+  }
+}
+
+export function openDatabase(path: string): Db {
   mkdirSync(dirname(path), { recursive: true })
 
   const db = new Database(path)
@@ -434,5 +564,8 @@ export function openDatabase(path: string): Database.Database {
     "AND start_label != '1A'",
   ).run()
 
-  return db
+  // Everything above is schema and pragma work, which is per-dialect and stays
+  // here. What leaves this file is the wrapper, and nothing on the other side
+  // of it can tell which database it got.
+  return new SqliteDb(db)
 }

@@ -307,9 +307,12 @@ interface CaptureFields {
   claimed_at?: string | null
 }
 
-function insertCapture(db: ReturnType<typeof openDatabase>, fields: CaptureFields): void {
+async function insertCapture(
+  db: ReturnType<typeof openDatabase>,
+  fields: CaptureFields,
+): Promise<void> {
   const now = new Date().toISOString()
-  db.prepare(
+  await db.run(
     `INSERT INTO captures (
        status, front_image, back_image, edge_image, isbn13, isbn10,
        isbn_source, title_guess, cover_text, analysed, draft_json, edit_json,
@@ -319,26 +322,27 @@ function insertCapture(db: ReturnType<typeof openDatabase>, fields: CaptureField
        @isbn_source, @title_guess, @cover_text, @analysed, @draft_json, @edit_json,
        @edited_by, @edited_at, @note, @claimed_by, @claimed_at, @created_at
      )`,
-  ).run({
-    status: fields.status,
-    front_image: fields.front_image ?? '',
-    back_image: fields.back_image ?? '',
-    edge_image: fields.edge_image ?? '',
-    isbn13: fields.isbn13 ?? '',
-    isbn10: fields.isbn10 ?? '',
-    isbn_source: fields.isbn_source ?? '',
-    title_guess: fields.title_guess ?? '',
-    cover_text: fields.cover_text ?? '',
-    analysed: fields.analysed ?? '',
-    draft_json: fields.draft_json ?? '',
-    edit_json: fields.edit_json ?? '',
-    edited_by: fields.edited_by ?? '',
-    edited_at: fields.edited_at ?? null,
-    note: fields.note ?? '',
-    claimed_by: fields.claimed_by ?? '',
-    claimed_at: fields.claimed_at ?? null,
-    created_at: now,
-  })
+    {
+      status: fields.status,
+      front_image: fields.front_image ?? '',
+      back_image: fields.back_image ?? '',
+      edge_image: fields.edge_image ?? '',
+      isbn13: fields.isbn13 ?? '',
+      isbn10: fields.isbn10 ?? '',
+      isbn_source: fields.isbn_source ?? '',
+      title_guess: fields.title_guess ?? '',
+      cover_text: fields.cover_text ?? '',
+      analysed: fields.analysed ?? '',
+      draft_json: fields.draft_json ?? '',
+      edit_json: fields.edit_json ?? '',
+      edited_by: fields.edited_by ?? '',
+      edited_at: fields.edited_at ?? null,
+      note: fields.note ?? '',
+      claimed_by: fields.claimed_by ?? '',
+      claimed_at: fields.claimed_at ?? null,
+      created_at: now,
+    },
+  )
 }
 
 /** The shape queue.ts stores under draft_json: a LookupResult. */
@@ -456,7 +460,7 @@ async function main(): Promise<void> {
     const book = nextBook()
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
-    insertCapture(db, {
+    await insertCapture(db, {
       status: 'ready',
       front_image: photos.front,
       back_image: photos.back,
@@ -479,7 +483,7 @@ async function main(): Promise<void> {
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
     const correctedPages = String(Number(book.pages) + 4)
-    insertCapture(db, {
+    await insertCapture(db, {
       status: 'ready',
       front_image: photos.front,
       back_image: photos.back,
@@ -502,7 +506,7 @@ async function main(): Promise<void> {
     const book = nextBook()
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
-    insertCapture(db, {
+    await insertCapture(db, {
       status: 'ready',
       front_image: photos.front,
       back_image: photos.back,
@@ -528,7 +532,7 @@ async function main(): Promise<void> {
     const book = nextBook()
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
-    insertCapture(db, {
+    await insertCapture(db, {
       status: 'pending',
       front_image: photos.front,
       back_image: photos.back,
@@ -542,7 +546,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < 3; i += 1) {
     const isbn13 = nextIsbn13()
     const back = saveImage(await toJpeg(await backCover(isbn13)), isbn13, 'back')
-    insertCapture(db, { status: 'pending', back_image: back })
+    await insertCapture(db, { status: 'pending', back_image: back })
     captureCount += 1
   }
 
@@ -551,7 +555,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < 2; i += 1) {
     const book = nextBook()
     const front = saveImage(await toJpeg(await frontCover(book.title, book.authors.join(', '))), '', 'front')
-    insertCapture(db, { status: 'pending', front_image: front })
+    await insertCapture(db, { status: 'pending', front_image: front })
     captureCount += 1
   }
 
@@ -561,7 +565,7 @@ async function main(): Promise<void> {
     const book = nextBook()
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
-    insertCapture(db, {
+    await insertCapture(db, {
       status: 'failed',
       front_image: photos.front,
       back_image: photos.back,
