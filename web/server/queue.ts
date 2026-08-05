@@ -15,6 +15,8 @@
 import type { Database } from 'better-sqlite3'
 import { identify } from './identify'
 import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
+import { deriveCapture, type DerivableCapture } from './capturecrop'
+import type { CropIo, CropSlot } from './crop'
 import { resolveIsbnPair } from '../shared/isbn'
 
 export type Slot = 'front' | 'back' | 'edge'
@@ -47,6 +49,21 @@ export interface CaptureRow {
   book_id: number | null
   created_at: string
   processed_at: string | null
+  /**
+   * The three photos cut to the book, as filenames beside the originals.
+   * Empty where the detector was never run or could not find the book.
+   */
+  front_crop: string
+  back_crop: string
+  edge_crop: string
+  /** Slots the detector has looked at, comma separated. See db.ts. */
+  cropped: string
+  /**
+   * Hash of the front photograph, in the format imagehash.ts writes. Empty
+   * where it has not been hashed, or where the frame carried no detail to
+   * hash: a refusal is left as one rather than stored as a hash.
+   */
+  front_hash: string
 }
 
 /**
@@ -93,6 +110,22 @@ export type EditOutcome =
 /** How long a claim holds before someone else may take the capture. */
 const CLAIM_LEASE_MS = 5 * 60 * 1000
 
+/**
+ * Where a capture's derived pictures are read and written, and what to do with
+ * one whose capture went while it was being written.
+ *
+ * That last case is not hypothetical. A discard is deferred by ten seconds in
+ * the client (`src/lib/discardWindow.ts`), so the delete arrives well after the
+ * swipe and can land in the second this pass spends cropping. The delete
+ * sweeps the crops the row named at the time, which is nothing yet, and the
+ * file lands afterwards with nothing pointing at it. `orphaned` hands those
+ * names to the same sweep the discard used, rather than to a second mechanism
+ * with its own idea of what is safe to delete.
+ */
+export interface CaptureImages extends CropIo {
+  orphaned?: (names: string[]) => Promise<unknown> | unknown
+}
+
 /** The catalogue's answer, in the shape the overlay stores. */
 function fromLookup(lookup: LookupResult): CaptureEdit {
   return {
@@ -130,6 +163,16 @@ export class CaptureQueue {
     private readonly db: Database,
     private readonly readImage: (name: string) => Buffer | null,
     private readonly lookupOptions: LookupOptions = {},
+    /**
+     * Where a capture's derivatives are read and written.
+     *
+     * Optional because the derivatives are not what the queue is for: without
+     * it the worker reads photographs and identifies books exactly as it
+     * always did, which is what a test of the reading itself wants. The server
+     * passes the cover directory, so every capture taken on a real run gets
+     * cropped and hashed.
+     */
+    private readonly images?: CaptureImages,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -362,6 +405,88 @@ export class CaptureQueue {
     this.db.prepare('DELETE FROM captures WHERE id = ?').run(id)
   }
 
+  /**
+   * Record what the crop detector made of one of a capture's photos.
+   *
+   * `name` is the derived file, or '' when the book could not be found in the
+   * frame. Either way the slot joins `cropped`, because "looked at and found
+   * nothing" and "never looked at" are different states and only the first is
+   * worth telling a reader about.
+   *
+   * The photo's own column is not touched here, and no statement in this class
+   * ever writes a crop filename into one. The original is the record.
+   */
+  async setCrop(id: number, slot: CropSlot, name: string): Promise<void> {
+    const row = this.db.prepare('SELECT cropped FROM captures WHERE id = ?').get(id) as
+      { cropped: string | null } | undefined
+    if (!row) return
+
+    const done = new Set((row.cropped ?? '').split(',').filter(Boolean))
+    done.add(slot)
+
+    this.db
+      .prepare(`UPDATE captures SET ${slot}_crop = ?, cropped = ? WHERE id = ?`)
+      .run(name, [...done].join(','), id)
+  }
+
+  /** Store the front photograph's hash. Only ever a hash of that photograph. */
+  async setFrontHash(id: number, hash: string): Promise<void> {
+    this.db.prepare('UPDATE captures SET front_hash = ? WHERE id = ?').run(hash, id)
+  }
+
+  /**
+   * Every capture that has a photograph, oldest first.
+   *
+   * Deliberately unfiltered, for the same reason `Store.photographed` is:
+   * whether a slot still wants cropping depends on `cropped`, on whether the
+   * caller is forcing a redo, and on whether the derived file is still on
+   * disk, none of which belongs in SQL where a later change to the rule would
+   * have to be made twice. Captures that became books are included: they are
+   * still in the queue's table, still name photographs, and a queue view that
+   * looks back over them wants the same crops.
+   */
+  async photographed(): Promise<DerivableCapture[]> {
+    return this.db
+      .prepare(
+        `SELECT id, front_image, back_image, edge_image,
+                front_crop, back_crop, edge_crop, cropped, front_hash
+           FROM captures
+          WHERE front_image != '' OR back_image != '' OR edge_image != ''
+          ORDER BY id`,
+      )
+      .all() as DerivableCapture[]
+  }
+
+  /**
+   * Cut this capture's photographs to the book and hash its front.
+   *
+   * Called from the drain loop, so it happens on the same background pass that
+   * reads the photographs and nobody waits for it. Failure is silent on
+   * purpose: these are derived and disposable, a capture with none is a
+   * capture shown whole and unmatched, and nothing about the identification it
+   * followed should be disturbed by a detector having a bad day.
+   */
+  private async derive(id: number): Promise<void> {
+    const images = this.images
+    if (!images) return
+    try {
+      const capture = await this.get(id)
+      if (!capture) return
+
+      const outcome = await deriveCapture(this, capture, images, { apply: true })
+
+      // Discarded while this was cropping. `setCrop` wrote nothing, because
+      // there is no row to write to, so the files it produced are already
+      // orphans. See CaptureImages above for why the delete arrives here.
+      const written = outcome.crops.map((slot) => slot.crop).filter(Boolean)
+      if (written.length && !(await this.get(id))) {
+        await images.orphaned?.(written)
+      }
+    } catch {
+      // Left uncropped and unhashed, which is a state every reader draws.
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Worker
   // -----------------------------------------------------------------------
@@ -406,6 +531,12 @@ export class CaptureQueue {
         const next = await this.nextPending()
         if (!next) break
         await this.process(next)
+        // After the reading, not before it: identifying the book is what the
+        // queue is for and what the next person is waiting on, and a crop is
+        // worth a second of a background pass but not a second of that.
+        // Idempotent, so a capture that comes back round for a newly arrived
+        // photograph crops only the slot that is new.
+        await this.derive(next.id)
       }
     } finally {
       this.draining = false

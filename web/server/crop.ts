@@ -24,6 +24,19 @@ export interface CropIo {
 }
 
 /**
+ * Where the outcome of looking at one photograph gets written.
+ *
+ * `Store` satisfies this for books and `CaptureQueue` for captures, and each
+ * owns its own table's SQL as it did before. The interface exists so the two
+ * share the detector, the file naming and the "a slot named in `cropped` with
+ * an empty crop column was looked at and declined" contract rather than each
+ * carrying a copy of it that could drift.
+ */
+export interface CropSink {
+  setCrop: (id: number, slot: CropSlot, name: string) => Promise<void>
+}
+
+/**
  * What to call the crop of a photograph.
  *
  * Derived from the original's name so the two sit next to each other in a
@@ -53,6 +66,11 @@ export interface CropOptions {
   force?: boolean
 }
 
+/**
+ * A row with photographs in it. A book or a queued capture: both carry the
+ * same three slots, the same three crop columns and the same `cropped` list,
+ * so both are croppable on exactly the same terms.
+ */
 export interface CroppableBook {
   id: number
   front_image: string
@@ -65,7 +83,7 @@ export interface CroppableBook {
 }
 
 /**
- * Crop whichever of a book's photographs have not been looked at yet.
+ * Crop whichever of a row's photographs have not been looked at yet.
  *
  * Idempotent: a slot already in `cropped` is skipped, so a second run finds
  * nothing to do and an interrupted run leaves the slots it finished done. A
@@ -73,7 +91,7 @@ export interface CroppableBook {
  * the same reason `rehash` leaves a stale hash alone rather than clearing it.
  */
 export async function cropPhotos(
-  store: Store,
+  sink: CropSink,
   book: CroppableBook,
   io: CropIo,
   options: CropOptions = {},
@@ -102,14 +120,14 @@ export async function cropPhotos(
 
     if (!result.image) {
       outcomes.push({ slot, image, crop: '', refusal: result.refusal })
-      if (apply) await store.setCrop(book.id, slot, '')
+      if (apply) await sink.setCrop(book.id, slot, '')
       continue
     }
 
     const name = cropName(image)
     if (apply) {
       await io.write(name, result.image)
-      await store.setCrop(book.id, slot, name)
+      await sink.setCrop(book.id, slot, name)
     }
     outcomes.push({ slot, image, crop: name })
   }

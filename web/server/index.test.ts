@@ -1306,6 +1306,65 @@ describe('editing a capture that is still in the queue', () => {
   })
 })
 
+/**
+ * Discarding a capture, which deletes files.
+ *
+ * A capture now causes derived files to exist as well as photographs, and a
+ * derivative left behind by a discard is a picture in the data directory that
+ * nothing in either table can be traced back to. The check that keeps a
+ * shelved book's files safe is the same one, extended, rather than a second
+ * mechanism beside it.
+ */
+describe('discarding a capture', () => {
+  /** A capture whose files really exist in this run's cover directory. */
+  async function queuedWithFiles(names: string[]) {
+    const queue = new CaptureQueue(running.db, () => null)
+    for (const name of names) {
+      writeFileSync(join(running.coverDir, name), Buffer.from('not really a jpeg'))
+    }
+    return { queue, capture: await queue.add({ front: names[0]!, back: names[1]! }) }
+  }
+
+  it('takes the crops with the photographs', async () => {
+    const { queue, capture } = await queuedWithFiles(['q_front.jpg', 'q_back.jpg'])
+    writeFileSync(join(running.coverDir, 'q_front_crop.jpg'), Buffer.from('a crop'))
+    await queue.setCrop(capture.id, 'front', 'q_front_crop.jpg')
+    // Looked at and declined, so there is no file and nothing to delete.
+    await queue.setCrop(capture.id, 'back', '')
+
+    const { status, body } = await del(`/api/captures/${capture.id}`)
+
+    expect(status).toBe(200)
+    expect(body.photosRemoved).toBe(3)
+    for (const name of ['q_front.jpg', 'q_back.jpg', 'q_front_crop.jpg']) {
+      expect(existsSync(join(running.coverDir, name))).toBe(false)
+    }
+  })
+
+  it('leaves a crop alone while a book still names it', async () => {
+    // The case the orphan check exists for. A capture hands its filenames to
+    // the book it becomes, and a crop is named after the photograph it came
+    // from, so the book's crop and the capture's are one file.
+    const { queue, capture } = await queuedWithFiles(['r_front.jpg', 'r_back.jpg'])
+    writeFileSync(join(running.coverDir, 'r_front_crop.jpg'), Buffer.from('a crop'))
+    await queue.setCrop(capture.id, 'front', 'r_front_crop.jpg')
+
+    const { id } = await running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      frontImage: 'r_front.jpg',
+    })
+    await running.store.setCrop(id, 'front', 'r_front_crop.jpg')
+
+    const { body } = await del(`/api/captures/${capture.id}`)
+
+    // Only the back photo, which nothing else names.
+    expect(body.photosRemoved).toBe(1)
+    expect(existsSync(join(running.coverDir, 'r_front.jpg'))).toBe(true)
+    expect(existsSync(join(running.coverDir, 'r_front_crop.jpg'))).toBe(true)
+    expect(existsSync(join(running.coverDir, 'r_back.jpg'))).toBe(false)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // 3. Failure paths
 // ---------------------------------------------------------------------------
