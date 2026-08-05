@@ -25,8 +25,26 @@ import sharp, { type OverlayOptions } from 'sharp'
 // fixtures-assets/OFL.txt). Subset to ASCII, Latin-1 Supplement and a
 // handful of typographic punctuation marks, which is everything the fixture
 // text below needs. Passing this file straight to sharp's `fontfile` bypasses
-// system font lookup entirely, so the same glyphs at the same metrics render
-// on Windows and Linux alike, whatever fonts either machine happens to have.
+// system font lookup entirely, so the same glyphs at the same metrics are laid
+// out on Windows and Linux alike, whatever fonts either machine happens to have.
+//
+// The same glyphs at the same metrics, and not the same pixels. This is worth
+// being exact about, because the sentence that used to be here claimed the
+// stronger thing and it is not true. Rendering this cover on both platforms and
+// differencing the raw pixels:
+//
+//   colouredCover('Blindsight', ...): 7654 of 1215000 pixels differ, by up to
+//   109 levels out of 255, and every one of them is inside the glyphs. The
+//   chosen point size and the canvas the text lays out into are identical; the
+//   rasterisation of the outlines into coverage is not.
+//
+// A scene with no text in it is byte-identical across the two, so the rest of
+// the pipeline (background generation, compositing, resize, JPEG encode) is
+// stable and only the glyph interiors are not.
+//
+// So a fixture may be built out of text, but no test may rest on a decision
+// that a few pixels along a glyph edge could tip. One did: see the note on the
+// title position in `colouredCover`.
 const FONT_FAMILY = 'Gelasio'
 const FONT_FILE = fileURLToPath(new URL('./fixtures-assets/Gelasio-Regular.ttf', import.meta.url))
 
@@ -278,8 +296,25 @@ export async function colouredCover(
       top: Math.round(height * rule.at),
     })
   }
+  // The title sits where `frontCover` puts its own title, and it has to.
+  //
+  // It used to be centred at y=120, which put its glyphs within 60 pixels of
+  // the top of the cover. The detector snaps each side of a candidate onto the
+  // strongest straight line within 24 of its working pixels, and in a scene
+  // built from this cover 24 working pixels is about 80 cover pixels. So the
+  // top of the title and the top of the book were two rival lines inside one
+  // search band, and which of them the search settled on came down to the
+  // handful of pixels along the glyph edges. Those pixels are not the same on
+  // every machine: see the note at the top of this file. The result was a scene
+  // that found the book on one platform and came back with the title cut off on
+  // another.
+  //
+  // Nothing here wanted to test that. A printed line that a crop must not stop
+  // at is the sibling scene's job, and the `rule` parameter above places one at
+  // 28 per cent of the way down on purpose, far outside the snap band, so that
+  // it tests the far-offset check rather than the snapping search.
   composites.push(
-    centred(await fixtureText(title, { width: 700, height: 180 }, ink), width, 120),
+    centred(await fixtureText(title, { width: 700, height: 180 }, ink), width, 620),
     centred(await fixtureText(author, { width: 620, height: 80 }, ink), width, 1120),
   )
 
