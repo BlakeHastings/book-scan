@@ -133,6 +133,18 @@ Then('the queue should hold one book', async ({ catalogue }) => {
 })
 
 /**
+ * A count, for the scenario where more than one row is the correct answer.
+ *
+ * Two copies of one book genuinely turn up, so a person who says the app has
+ * the wrong book keeps what they photographed. Asserting the row is still
+ * there is the whole of that claim: the warning must not be a refusal wearing
+ * softer words (#146).
+ */
+Then('the queue should hold {int} books', async ({ catalogue }, count: number) => {
+  expect(catalogue.captureCount(), `the queue does not hold ${count} books`).toBe(count)
+})
+
+/**
  * The capture row itself, not the screen.
  *
  * The whole claim of #65 is about what reaches the database while a book is

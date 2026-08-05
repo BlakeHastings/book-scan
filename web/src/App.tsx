@@ -4,6 +4,7 @@ import {
   editFromDraft, emptyDraft,
   type Capture, type CheckoutOutcome, type Counts, type Draft,
   type LookupResponse, type Misfile, type PlacementResponse, type QueueCounts,
+  type QueueMatch,
 } from './lib/api'
 import { findMisfile, recordMoved } from './lib/misfile'
 import { putDownCapture, putDownOnPageHide, type HeldCapture } from './lib/leaveCapture'
@@ -25,6 +26,7 @@ import { ShelveView } from './components/ShelveView'
 import { HomePane } from './components/HomePane'
 import { canShelve, QueuePane, type QueueReturnAnchor } from './components/QueuePane'
 import { ScanCamera } from './components/ScanCamera'
+import { QueuedAlready } from './components/QueuedAlready'
 
 type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
@@ -150,6 +152,24 @@ export default function App() {
   const [relookupError, setRelookupError] = useState('')
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [captureId, setCaptureId] = useState<number | null>(null)
+  /**
+   * Captures already in the queue that the one being photographed appears to
+   * be a second go at (#146).
+   *
+   * The server decides this, on the poll below, and by the ISBN first: the
+   * back cover is the shot this camera opens on and it carries the barcode, so
+   * usually there is an identifier long before there is anything worth
+   * comparing pictures with. See `duplicatesOf` in server/index.ts.
+   */
+  const [duplicates, setDuplicates] = useState<QueueMatch[]>([])
+  /**
+   * Captures the person has been shown and turned down, by id.
+   *
+   * Without this the panel would come back on the next poll, one and a half
+   * seconds after being dismissed, and there would be no way past an answer at
+   * all. Two copies of one book genuinely exist, so there has to be one.
+   */
+  const [duplicatesTurnedDown, setDuplicatesTurnedDown] = useState<number[]>([])
   const [bookId, setBookId] = useState<number | null>(null)
   const [deletingBook, setDeletingBook] = useState(false)
   const [checkedOutAt, setCheckedOutAt] = useState<string | null>(null)
@@ -179,6 +199,10 @@ export default function App() {
   const [evidence, setEvidence] = useState({ coverText: '', note: '' })
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
+  /** What is still worth saying: found, and not already turned down. */
+  const queueDuplicates = duplicates.filter(
+    (match) => !duplicatesTurnedDown.includes(match.capture.id),
+  )
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
   const busy = SLOTS.some((slot) => status[slot] === 'busy')
   const fullScreenCamera = mode === 'capture'
@@ -424,8 +448,14 @@ export default function App() {
     let cancelled = false
     const tick = async () => {
       try {
-        const { capture } = await api.getCapture(captureId)
+        const { capture, duplicates: found } = await api.getCapture(captureId)
         if (cancelled) return
+
+        // Whether this book is already in the queue arrives with the reading,
+        // because it is decided from what the reading produced: the ISBN off
+        // the barcode, and failing that the hash of the front. Nothing is
+        // blocked or undone by it; it is drawn over the viewfinder and waits.
+        setDuplicates(found)
 
         const read = new Set(capture.analysed.split(',').filter(Boolean))
         setStatus((current) => {
@@ -871,6 +901,65 @@ export default function App() {
   }
 
   /**
+   * The same answer, given at the cataloguing camera instead of the scanner
+   * (#146): this book is already in the queue, go and finish that one.
+   *
+   * The difference is that here the second capture already exists. It was
+   * created by the shutter, before anything had read the photograph, which is
+   * the only moment at which nothing can be known about the book. So the
+   * choice offered is a real one and it is offered after the fact: go to the
+   * capture somebody already made, and the photographs just taken go with it,
+   * or say this is a different book and keep them.
+   *
+   * Claimed before anything is deleted. If somebody else is holding the
+   * capture, the claim fails, and the person keeps what they photographed and
+   * decides again rather than losing it to a trip that went nowhere.
+   */
+  const openQueuedInstead = async (match: QueueMatch) => {
+    if (!canShelve(match.capture)) {
+      setToast('Still reading its photographs. Give it a moment and open it from the queue.')
+      return
+    }
+
+    const mine = captureId
+    try {
+      const { capture: claimed } = await api.claimCapture(match.capture.id, me)
+
+      // Only now. These photographs are of a book that is already in the
+      // queue, and the person has just said so, so the row they would leave
+      // behind is the duplicate this whole answer exists to prevent.
+      if (mine !== null) {
+        const { counts } = await api.deleteCapture(mine)
+        setQueueCounts(counts)
+      }
+
+      stopCamera()
+      clearBookInHand()
+      // The scanner's reasoning for the anchor holds here too: the camera never
+      // saw the queue listing, so the top of it is the honest answer to "near
+      // where this sat".
+      openCapture(claimed, { id: match.capture.id, index: 0 })
+    } catch (caught) {
+      setError((caught as Error).message)
+    }
+  }
+
+  /**
+   * "It is a different book." Two copies of one title genuinely turn up, and
+   * the cover comparison, tight as its bar is, is still a comparison.
+   *
+   * Turned down by id rather than by clearing the list, because the list is
+   * re-answered every poll: clearing it would put the panel back a second and
+   * a half later, which is an answer with no way past it.
+   */
+  const keepDespiteQueue = () => {
+    setDuplicatesTurnedDown((seen) => [
+      ...seen,
+      ...duplicates.map((match) => match.capture.id).filter((id) => !seen.includes(id)),
+    ])
+  }
+
+  /**
    * Move a boundary book on to the plank next door, through the shelving step.
    *
    * The boundary moves first and the book's recorded location does not, which
@@ -1116,6 +1205,12 @@ export default function App() {
     setActiveSlot('back')
     setPlacement(null)
     setCaptureId(null)
+    // Both halves of the queue answer belong to the capture that has just been
+    // put down. Keeping the list would draw a finding about a book nobody is
+    // holding; keeping what was turned down would carry one book's decision
+    // over on to the next one.
+    setDuplicates([])
+    setDuplicatesTurnedDown([])
     setBookId(null)
     setCheckedOutAt(null)
     setCoverImage('')
@@ -1342,6 +1437,24 @@ export default function App() {
         {/* Transient, and above the bottom band rather than inside it, so it
             costs nothing once it has faded. */}
         {toast && <div className="cam__toast">{toast}</div>}
+
+        {/* The book in your hands is already in the queue (#146). Drawn over
+            the viewfinder and nowhere near the shutter, because it is a
+            finding and not a gate: the photograph has already been taken and
+            accepted, and whether there are two copies of this book is not
+            something a camera can know. */}
+        <QueuedAlready
+          matches={queueDuplicates}
+          className="isbncam__choices--incam"
+          note={
+            'Open it to go and finish it, which drops what was just photographed. '
+            + 'Carry on if this is a second copy.'
+          }
+          onOpen={(match) => void openQueuedInstead(match)}
+          onDismiss={keepDespiteQueue}
+          dismissLabel="Different book, keep what I just took"
+          disabled={saving}
+        />
 
         <div className="cam__bottom">
           {identified && (

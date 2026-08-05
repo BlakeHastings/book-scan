@@ -31,7 +31,7 @@ import { warmPaddle } from './paddle'
 import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
-import { CaptureQueue, type CaptureEdit } from './queue'
+import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
@@ -547,13 +547,29 @@ export function createApp(options: CreateAppOptions): express.Express {
     res.status(201).json({ capture, counts: await queue.counts() })
   }))
 
+  /**
+   * One capture, and whether it is a second photographing of a book already in
+   * the queue (#146).
+   *
+   * Answered here rather than on the way in, and that is the whole shape of
+   * the fix. `POST /api/captures` returns the moment the photograph exists,
+   * before anything has read it: there is no ISBN yet and no hash yet, so a
+   * check made there would have nothing to check. The reading happens on the
+   * background pass and this route is what the camera already polls for it, so
+   * the answer arrives with the reading, on the request the camera was making
+   * anyway, and the shutter waits for nothing.
+   */
   app.get('/api/captures/:id', asyncRoute(async (req, res) => {
     const capture = await queue.get(Number(req.params.id))
     if (!capture) {
       res.status(404).json({ error: 'No such capture.' })
       return
     }
-    res.json({ capture, counts: await queue.counts() })
+    res.json({
+      capture,
+      duplicates: await duplicatesOf(capture),
+      counts: await queue.counts(),
+    })
   }))
 
   app.get('/api/captures', asyncRoute(async (_req, res) => {
@@ -1378,17 +1394,74 @@ export function createApp(options: CreateAppOptions): express.Express {
    *
    * Nothing here writes and nothing here is acted on without a tap.
    */
-  async function alreadyInQueue(query: string | null, limit = 3) {
+  async function alreadyInQueue(query: string | null, limit = 3, exceptId: number | null = null) {
     if (!query) return []
 
-    const scored = (await queue.waiting()).map((row) => ({
-      capture: row,
-      // The front photograph only. A capture's hash is of its front, and the
-      // books path already refuses to compare hashes it cannot line up.
-      distance: distance(query, row.front_hash),
-    }))
+    const scored = (await queue.waiting())
+      .filter((row) => row.id !== exceptId)
+      .map((row) => ({
+        capture: row,
+        // The front photograph only. A capture's hash is of its front, and the
+        // books path already refuses to compare hashes it cannot line up.
+        distance: distance(query, row.front_hash),
+      }))
 
-    return queueMatches(scored, limit)
+    return queueMatches(scored, limit).map((match) => ({ ...match, basis: 'cover' as const }))
+  }
+
+  /**
+   * Captures already waiting that carry this exact ISBN, in the shape the
+   * cover comparison answers in (#146).
+   *
+   * `distance` is null rather than 0. Zero is a measurement, and there is no
+   * measurement here: nothing was compared. A caller that printed "looks the
+   * same, 100%" off a fabricated zero would be dressing an identifier up as a
+   * likeness, and the two are not the same kind of evidence.
+   */
+  async function queuedWithIsbn(isbn13: string, limit = 3, exceptId: number | null = null) {
+    const rows = await queue.sharingIsbn(isbn13, exceptId)
+    return rows.slice(0, limit).map((capture) => ({
+      capture,
+      distance: null,
+      basis: 'isbn' as const,
+    }))
+  }
+
+  /**
+   * Whether this capture is a second photographing of a book already in the
+   * queue, and which captures say so (#146).
+   *
+   * **An ISBN is stronger evidence than a hash, not weaker.** #138 answered
+   * this question with a perceptual comparison, because it was asked from the
+   * scan route on a front cover, where a hash is the only signal there is. A
+   * capture is different: the back cover is the first shot the Add flow takes
+   * and it carries the barcode, so by the time this is asked there is usually
+   * an ISBN, and an ISBN-13 either satisfies its check digit or is thrown
+   * away. So the identifier is asked first and answers alone when it answers
+   * at all. The hash is what is left when nothing could be read.
+   *
+   * The cover comparison is unchanged and still held to `QUEUE_LIMIT`, which
+   * is `CLOSE_LIMIT` and about a third of the shortlist's `MATCH_CUTOFF`.
+   * Nothing here loosens it and nothing here reuses `MATCH_CUTOFF`: on the
+   * owner's own photographs that cutoff calls nearly one pair of different
+   * books in five a match, because a shared table and carpet pull two books
+   * together rather than apart (#122). A wrong answer here says two different
+   * books are one book, and the way that ends is a book nobody catalogues.
+   *
+   * Nothing here writes, and nothing here stops a capture existing. Two copies
+   * of one book genuinely turn up, so this is a finding to put in front of a
+   * person, not a refusal.
+   */
+  async function duplicatesOf(capture: CaptureRow, limit = 3) {
+    const byIsbn = await queuedWithIsbn(capture.isbn13, limit, capture.id)
+    if (byIsbn.length) return byIsbn
+
+    // Only now, and only if the front has been hashed. A capture with no hash
+    // has not been through the background pass yet, or carried no detail worth
+    // hashing; either way there is nothing to compare and no answer to give.
+    if (!capture.front_hash) return []
+
+    return alreadyInQueue(capture.front_hash, limit, capture.id)
   }
 
   /**
@@ -1590,6 +1663,27 @@ export function createApp(options: CreateAppOptions): express.Express {
     const book = fromBarcodes.find(Boolean) ?? await store.findByIsbn(read.isbn13)
 
     if (!book) {
+      /*
+       * No shelf has it, but the queue might (#146).
+       *
+       * The barcode branch never asked this. #138 only ever ran the queue
+       * comparison where no barcode read, so holding up a book somebody
+       * photographed an hour ago and not yet shelved answered "not in the
+       * library yet, add it first", which is an instruction to scan it a
+       * second time.
+       *
+       * By ISBN, not by hash, and that is the point: the digits are already in
+       * hand and validated by their own check digit, so there is nothing for a
+       * perceptual comparison to add. It is asked only after the catalogue has
+       * said no, because a shelved book is a settled fact and a capture is
+       * work in progress.
+       */
+      const waiting = await queuedWithIsbn(read.isbn13)
+      if (waiting.length) {
+        res.json({ outcome: 'in-queue', matches: waiting })
+        return
+      }
+
       res.json({ outcome: 'not-catalogued', isbn13: read.isbn13 })
       return
     }

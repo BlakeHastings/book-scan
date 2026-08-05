@@ -517,6 +517,46 @@ export class CaptureQueue {
   }
 
   /**
+   * Other captures still waiting that carry this exact ISBN (#146).
+   *
+   * The identifier, not a likeness. `waiting` above answers "what looks like
+   * this photograph", which is a measurement with a band and an error rate;
+   * this answers "what is the same book", which is a fact. An ISBN-13 carries
+   * a check digit, so a barcode reading either validates or is discarded, and
+   * two captures holding the same one are two captures of the same title.
+   * Where both answers exist the caller takes this one.
+   *
+   * Deliberately not filtered on `front_hash` or `front_image` the way
+   * `waiting` is. Those filters are there because a hash comparison needs
+   * something to compare and a panel needs a photograph to show; neither is
+   * true here. A capture whose back cover read and whose front has not been
+   * taken yet is exactly the row somebody is about to duplicate, and leaving
+   * it out would lose the case this exists for.
+   *
+   * `status != 'done'` is kept, for the reason it is kept there: a capture
+   * that became a book is not waiting for anybody, and the catalogue answers
+   * for that book already.
+   *
+   * `exceptId` is the capture being asked about, so a capture never reports
+   * itself as its own duplicate. Pass null when asking on behalf of a
+   * photograph that is not a capture at all, which is what the scan route
+   * does.
+   */
+  async sharingIsbn(isbn13: string, exceptId: number | null = null): Promise<CaptureRow[]> {
+    // An empty ISBN is the absence of an identifier, not an identifier every
+    // unread capture happens to share. Without this guard a photograph nobody
+    // could read would match every other photograph nobody could read.
+    if (!isbn13) return []
+
+    return this.db.all<CaptureRow>(
+      `SELECT * FROM captures
+        WHERE status != 'done' AND isbn13 = @isbn13 AND id != @except
+        ORDER BY id`,
+      { isbn13, except: exceptId ?? -1 },
+    )
+  }
+
+  /**
    * Every capture that has a photograph, oldest first.
    *
    * Deliberately unfiltered, for the same reason `Store.photographed` is:
