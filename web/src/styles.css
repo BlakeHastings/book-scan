@@ -1270,6 +1270,18 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   border: 2px dashed var(--bad);
   border-radius: 3px;
   background: rgba(247, 118, 142, 0.1);
+  /* A snap point of its own, or the row cannot come to rest showing it.
+     Snapping is what settles a flick on a whole book, and the browser applies
+     it to a programmatic scroll too: the component scrolls the gap into view,
+     the snap engine then pulls the row to the nearest snap position, and every
+     one of those belonged to a spine. For a gap in the middle that costs
+     nothing, because a spine snap point is never more than one book away. For
+     a gap at the very start it was the bug in #119: the gap takes column 1,
+     every book shifts along, so scrollLeft 0 stopped being a snap position and
+     the row settled one book in with the gap scrolled off the left edge
+     entirely. Aligned to the start, matching the spines, which puts the first
+     gap's snap position at scrollLeft 0. */
+  scroll-snap-align: start;
 }
 
 .strip__shelf {
