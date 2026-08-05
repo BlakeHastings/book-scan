@@ -4,9 +4,9 @@
  * Runs against a real in-memory SQLite database, not a mock.
  */
 
-import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
+import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { Store, type DraftBook } from './store'
 
@@ -15,7 +15,7 @@ function draft(over: Partial<DraftBook> & { title: string; authors: string[] }):
 }
 
 let store: Store
-let db: Database
+let db: Db
 
 beforeEach(() => {
   db = openDatabase(':memory:')
@@ -385,11 +385,12 @@ describe('imageInUse', () => {
     // Raw insert: nothing on Store creates a capture, and the fixture only
     // needs the row to exist, not the queue machinery around it.
     for (const column of ['front_image', 'back_image', 'edge_image']) {
-      db.prepare(
+      await db.run(
         `INSERT INTO captures (status, ${column}, created_at) VALUES ('pending', 'shared.jpg', ?)`,
-      ).run(new Date().toISOString())
+        [new Date().toISOString()],
+      )
       expect(await store.imageInUse('shared.jpg')).toBe(true)
-      db.prepare('DELETE FROM captures').run()
+      await db.run('DELETE FROM captures')
     }
   })
 
@@ -397,10 +398,11 @@ describe('imageInUse', () => {
     // A crop is named after the photograph it came from, so two captures of
     // the same photograph produce the same crop filename. Deleting on one
     // capture's behalf must not take the other's picture with it.
-    db.prepare(
+    await db.run(
       `INSERT INTO captures (status, front_image, front_crop, cropped, created_at)
        VALUES ('ready', 'shared.jpg', 'shared_crop.jpg', 'front', ?)`,
-    ).run(new Date().toISOString())
+      [new Date().toISOString()],
+    )
 
     expect(await store.imageInUse('shared_crop.jpg')).toBe(true)
   })
@@ -413,10 +415,11 @@ describe('imageInUse', () => {
     const { id } = await store.addBook(
       draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
     )
-    db.prepare(
+    await db.run(
       `INSERT INTO captures (status, back_image, created_at, book_id)
        VALUES ('done', 'shared.jpg', ?, ?)`,
-    ).run(new Date().toISOString(), id)
+      [new Date().toISOString(), id],
+    )
 
     expect(await store.imageInUse('shared.jpg')).toBe(true)
   })

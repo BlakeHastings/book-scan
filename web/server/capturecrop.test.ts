@@ -13,10 +13,10 @@
  * few seconds rather than mocking the thing being tested.
  */
 
-import type { Database } from 'better-sqlite3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import sharp from 'sharp'
 import { openDatabase } from './db'
+import type { Db } from './driver'
 import { CaptureQueue } from './queue'
 import { backfillCaptures, deriveCapture } from './capturecrop'
 import type { CropIo } from './crop'
@@ -32,7 +32,7 @@ import { frontCover, photographedBook } from './fixtures'
 vi.mock('./identify', () => ({ identify: vi.fn() }))
 vi.mock('./lookup', () => ({ lookupIsbn: vi.fn(), searchTitle: vi.fn() }))
 
-let db: Database
+let db: Db
 
 beforeEach(() => {
   db = openDatabase(':memory:')

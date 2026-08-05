@@ -18,12 +18,12 @@
 import '../instrumentation'
 
 import express from 'express'
-import type { Database } from 'better-sqlite3'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 import { openDatabase } from './db'
+import type { Db } from './driver'
 
 import { lookupIsbn, searchTitle } from './lookup'
 import { identify } from './identify'
@@ -199,7 +199,7 @@ function asyncRoute(
 }
 
 export interface CreateAppOptions {
-  db: Database
+  db: Db
   coverDir: string
   googleApiKey?: string
   /**

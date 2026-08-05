@@ -3,8 +3,8 @@
  * and out of shared/shelving.ts, which stays pure.
  */
 
-import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
+import type { Db } from './driver'
 import {
   buildPlacement,
   buildSortKey,
@@ -63,9 +63,14 @@ export interface ResolvedKey {
  * this file is spelled the same way in SQLite and in Postgres, so the only
  * thing left to change when the driver does is the driver. Where a difference
  * could not be spelled away it is called out at the statement itself.
+ *
+ * And the driver itself is now behind `Db` (driver.ts), so nothing in this file
+ * knows which database it is talking to or that the one underneath is
+ * synchronous. The statements are unchanged: the placeholder styles they are
+ * written in are translated by the driver rather than rewritten here.
  */
 export class Store {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Db) {}
 
   // -----------------------------------------------------------------------
   // Filing names and keys
@@ -76,9 +81,10 @@ export class Store {
     const key = normalise(displayName)
     if (!key) return ''
 
-    const row = this.db
-      .prepare('SELECT filing_name FROM author_filing WHERE display_key = ?')
-      .get(key) as { filing_name: string } | undefined
+    const row = await this.db.get<{ filing_name: string }>(
+      'SELECT filing_name FROM author_filing WHERE display_key = ?',
+      [key],
+    )
 
     return row?.filing_name ?? filingName(displayName)
   }
@@ -91,16 +97,15 @@ export class Store {
   ): Promise<void> {
     const key = normalise(displayName)
     if (!key) return
-    this.db
-      .prepare(
-        `INSERT INTO author_filing (display_key, filing_name, is_corporate, note)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(display_key) DO UPDATE SET
-           filing_name  = excluded.filing_name,
-           is_corporate = excluded.is_corporate,
-           note         = excluded.note`,
-      )
-      .run(key, filing, isCorporate ? 1 : 0, note)
+    await this.db.run(
+      `INSERT INTO author_filing (display_key, filing_name, is_corporate, note)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(display_key) DO UPDATE SET
+         filing_name  = excluded.filing_name,
+         is_corporate = excluded.is_corporate,
+         note         = excluded.note`,
+      [key, filing, isCorporate ? 1 : 0, note],
+    )
   }
 
   async resolveKey(draft: DraftBook): Promise<ResolvedKey> {
@@ -126,9 +131,10 @@ export class Store {
   // -----------------------------------------------------------------------
 
   private async rangeStart(range: ShelfRange): Promise<string> {
-    const row = this.db
-      .prepare('SELECT start_label FROM shelf_ranges WHERE shelf_range = ?')
-      .get(range) as { start_label: string } | undefined
+    const row = await this.db.get<{ start_label: string }>(
+      'SELECT start_label FROM shelf_ranges WHERE shelf_range = ?',
+      [range],
+    )
     return row?.start_label ?? (range === 'nonfiction' ? 'S4' : '1A')
   }
 
@@ -164,23 +170,21 @@ export class Store {
 
     // checked_out_at IS NULL is the whole point of the column here: a book in
     // a box on the floor is not something to put another book beside.
-    const predecessor = this.db
-      .prepare(
-        `SELECT * FROM books
-          WHERE shelf_range = ? AND sort_key < ? AND id != ?
-            AND checked_out_at IS NULL
-          ORDER BY sort_key DESC LIMIT 1`,
-      )
-      .get(range, sortKey, exclude) as BookRow | undefined
+    const predecessor = await this.db.get<BookRow>(
+      `SELECT * FROM books
+        WHERE shelf_range = ? AND sort_key < ? AND id != ?
+          AND checked_out_at IS NULL
+        ORDER BY sort_key DESC LIMIT 1`,
+      [range, sortKey, exclude],
+    )
 
-    const successor = this.db
-      .prepare(
-        `SELECT * FROM books
-          WHERE shelf_range = ? AND sort_key > ? AND id != ?
-            AND checked_out_at IS NULL
-          ORDER BY sort_key ASC LIMIT 1`,
-      )
-      .get(range, sortKey, exclude) as BookRow | undefined
+    const successor = await this.db.get<BookRow>(
+      `SELECT * FROM books
+        WHERE shelf_range = ? AND sort_key > ? AND id != ?
+          AND checked_out_at IS NULL
+        ORDER BY sort_key ASC LIMIT 1`,
+      [range, sortKey, exclude],
+    )
 
     return {
       predecessor: this.toNeighbour(predecessor),
@@ -223,33 +227,31 @@ export class Store {
     // book scanned from its barcode still matches one entered by ISBN-10.
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
 
-    // The closure stays synchronous, and so does better-sqlite3's transaction.
-    // Nothing inside it awaits, so the whole insert still commits or rolls back
-    // in one uninterrupted go. It becomes an async `tx` in a later stage.
-    const insert = this.db.transaction(() => {
+    // The row and its authors are still one transaction, and it still nests:
+    // `Db.tx` opens a savepoint when the caller is already inside one, which is
+    // what better-sqlite3's own nested transactions did.
+    const id = await this.db.tx(async (tx) => {
       // RETURNING id rather than lastInsertRowid: the id comes back from the
       // statement that produced it, which every dialect can do, instead of from
       // a driver-specific property of the result object.
-      const inserted = this.db
-        .prepare(
-          `INSERT INTO books (
-             isbn13, isbn10, title, subtitle, authors, publisher, published,
-             pages, notes, shelf_range, is_fiction, classification_source,
-             classification_confidence, author_filing, series_name,
-             series_index, title_filing, sort_key, location, lookup_source,
-             front_image, back_image, edge_image, isbn_source,
-             scanned_at, shelved_at
-           ) VALUES (
-             @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
-             @published, @pages, @notes, @shelf_range, @is_fiction,
-             @classification_source, @classification_confidence,
-             @author_filing, @series_name, @series_index, @title_filing,
-             @sort_key, @location, @lookup_source, @front_image, @back_image,
-             @edge_image, @isbn_source, @scanned_at, @shelved_at
-           )
-           RETURNING id`,
-        )
-        .get({
+      const inserted = await tx.get<{ id: number }>(
+        `INSERT INTO books (
+           isbn13, isbn10, title, subtitle, authors, publisher, published,
+           pages, notes, shelf_range, is_fiction, classification_source,
+           classification_confidence, author_filing, series_name,
+           series_index, title_filing, sort_key, location, lookup_source,
+           front_image, back_image, edge_image, isbn_source,
+           scanned_at, shelved_at
+         ) VALUES (
+           @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
+           @published, @pages, @notes, @shelf_range, @is_fiction,
+           @classification_source, @classification_confidence,
+           @author_filing, @series_name, @series_index, @title_filing,
+           @sort_key, @location, @lookup_source, @front_image, @back_image,
+           @edge_image, @isbn_source, @scanned_at, @shelved_at
+         )
+         RETURNING id`,
+        {
           isbn13: isbn.isbn13 || draft.isbn13 || '',
           isbn10: isbn.isbn10 || draft.isbn10 || '',
           title: draft.title,
@@ -276,21 +278,27 @@ export class Store {
           isbn_source: draft.isbnSource ?? '',
           scanned_at: now,
           shelved_at: location ? now : null,
-        }) as { id: number }
+        },
+      )
+
+      // An INSERT ... RETURNING that inserted a row always has one to return,
+      // so the absence of one is a broken statement rather than a case to
+      // handle: reporting it as a book with no id would be worse.
+      if (!inserted) throw new Error('the insert returned no id')
 
       const bookId = Number(inserted.id)
-      const authorInsert = this.db.prepare(
-        'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
-      )
-      draft.authors
-        .map((name) => name.trim())
-        .filter(Boolean)
-        .forEach((name, index) => authorInsert.run(bookId, index + 1, name))
+      const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
+      for (const [index, name] of authors.entries()) {
+        await tx.run(
+          'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
+          [bookId, index + 1, name],
+        )
+      }
 
       return bookId
     })
 
-    return { id: insert(), placement }
+    return { id, placement }
   }
 
   /**
@@ -302,8 +310,7 @@ export class Store {
    * Both columns are populated on save, so both are worth searching.
    */
   async getBook(id: number): Promise<BookRow | undefined> {
-    return this.db.prepare('SELECT * FROM books WHERE id = ?').get(id) as
-      BookRow | undefined
+    return this.db.get<BookRow>('SELECT * FROM books WHERE id = ?', [id])
   }
 
   /**
@@ -318,29 +325,35 @@ export class Store {
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
     const location = draft.location?.trim() ?? ''
 
-    const apply = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `UPDATE books SET
-             isbn13 = @isbn13, isbn10 = @isbn10, title = @title,
-             subtitle = @subtitle, authors = @authors, publisher = @publisher,
-             published = @published, pages = @pages, notes = @notes,
-             shelf_range = @shelf_range, is_fiction = @is_fiction,
-             classification_source = @classification_source,
-             classification_confidence = @classification_confidence,
-             author_filing = @author_filing, series_name = @series_name,
-             series_index = @series_index, title_filing = @title_filing,
-             sort_key = @sort_key,
-             -- An edit that carries no location leaves the recorded one alone
-             -- rather than blanking it. Where the book physically is was
-             -- observed by a person and is not something a metadata edit knows
-             -- anything about; clearing it is what PATCH .../location is for.
-             location = COALESCE(NULLIF(@location, ''), location),
-             lookup_source = @lookup_source, isbn_source = @isbn_source,
-             shelved_at = COALESCE(shelved_at, @shelved_at)
-           WHERE id = @id`,
-        )
-        .run({
+    await this.db.tx(async (tx) => {
+      await tx.run(
+        `UPDATE books SET
+           isbn13 = @isbn13, isbn10 = @isbn10, title = @title,
+           subtitle = @subtitle, authors = @authors, publisher = @publisher,
+           published = @published, pages = @pages, notes = @notes,
+           shelf_range = @shelf_range, is_fiction = @is_fiction,
+           classification_source = @classification_source,
+           classification_confidence = @classification_confidence,
+           author_filing = @author_filing, series_name = @series_name,
+           series_index = @series_index, title_filing = @title_filing,
+           sort_key = @sort_key,
+           -- An edit that carries no location leaves the recorded one alone
+           -- rather than blanking it. Where the book physically is was
+           -- observed by a person and is not something a metadata edit knows
+           -- anything about; clearing it is what PATCH .../location is for.
+           --
+           -- The CAST is the one thing here that is not about locations. A
+           -- parameter inside a bare NULLIF has nothing to take a type from:
+           -- SQLite infers one from the value it was handed, and a database
+           -- that types its parameters at parse time instead has no column and
+           -- no literal to look at, so it refuses the statement outright. The
+           -- cast says what the value is. It is identity on SQLite, which is
+           -- where this stage can prove it changes nothing.
+           location = COALESCE(NULLIF(CAST(@location AS TEXT), ''), location),
+           lookup_source = @lookup_source, isbn_source = @isbn_source,
+           shelved_at = COALESCE(shelved_at, @shelved_at)
+         WHERE id = @id`,
+        {
           id,
           isbn13: isbn.isbn13 || draft.isbn13 || '',
           isbn10: isbn.isbn10 || draft.isbn10 || '',
@@ -364,19 +377,18 @@ export class Store {
           lookup_source: draft.lookupSource ?? '',
           isbn_source: draft.isbnSource ?? '',
           shelved_at: location ? new Date().toISOString() : null,
-        })
-
-      this.db.prepare('DELETE FROM book_authors WHERE book_id = ?').run(id)
-      const insertAuthor = this.db.prepare(
-        'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
+        },
       )
-      draft.authors
-        .map((name) => name.trim())
-        .filter(Boolean)
-        .forEach((name, index) => insertAuthor.run(id, index + 1, name))
-    })
 
-    apply()
+      await tx.run('DELETE FROM book_authors WHERE book_id = ?', [id])
+      const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
+      for (const [index, name] of authors.entries()) {
+        await tx.run(
+          'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
+          [id, index + 1, name],
+        )
+      }
+    })
 
     // Exclude the book from its own neighbour search, or it would be told to
     // sit next to itself.
@@ -387,24 +399,24 @@ export class Store {
     const { isbn13, isbn10 } = resolveIsbnPair(value)
     if (!isbn13 && !isbn10) return undefined
 
-    return this.db
-      .prepare(
-        `SELECT * FROM books
-          WHERE (isbn13 != '' AND isbn13 = :isbn13)
-             OR (isbn10 != '' AND isbn10 = :isbn10)
-          ORDER BY id LIMIT 1`,
-      )
-      .get({ isbn13, isbn10 }) as BookRow | undefined
+    return this.db.get<BookRow>(
+      `SELECT * FROM books
+        WHERE (isbn13 != '' AND isbn13 = :isbn13)
+           OR (isbn10 != '' AND isbn10 = :isbn10)
+        ORDER BY id LIMIT 1`,
+      { isbn13, isbn10 },
+    )
   }
 
   async setLocation(id: number, location: string): Promise<void> {
-    this.db
-      .prepare('UPDATE books SET location = ?, shelved_at = ? WHERE id = ?')
-      .run(location, location ? new Date().toISOString() : null, id)
+    await this.db.run(
+      'UPDATE books SET location = ?, shelved_at = ? WHERE id = ?',
+      [location, location ? new Date().toISOString() : null, id],
+    )
   }
 
   async deleteBook(id: number): Promise<void> {
-    this.db.prepare('DELETE FROM books WHERE id = ?').run(id)
+    await this.db.run('DELETE FROM books WHERE id = ?', [id])
   }
 
   /**
@@ -422,24 +434,22 @@ export class Store {
    * same argument applies to it as to the photograph it came from.
    */
   async imageInUse(name: string): Promise<boolean> {
-    const usedByBook = this.db
-      .prepare(
-        `SELECT 1 FROM books
-          WHERE front_image = ? OR back_image = ? OR edge_image = ? OR cover_image = ?
-             OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
-          LIMIT 1`,
-      )
-      .get(name, name, name, name, name, name, name)
+    const usedByBook = await this.db.get(
+      `SELECT 1 FROM books
+        WHERE front_image = ? OR back_image = ? OR edge_image = ? OR cover_image = ?
+           OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
+        LIMIT 1`,
+      [name, name, name, name, name, name, name],
+    )
     if (usedByBook) return true
 
-    const usedByCapture = this.db
-      .prepare(
-        `SELECT 1 FROM captures
-          WHERE front_image = ? OR back_image = ? OR edge_image = ?
-             OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
-          LIMIT 1`,
-      )
-      .get(name, name, name, name, name, name)
+    const usedByCapture = await this.db.get(
+      `SELECT 1 FROM captures
+        WHERE front_image = ? OR back_image = ? OR edge_image = ?
+           OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
+        LIMIT 1`,
+      [name, name, name, name, name, name],
+    )
     return Boolean(usedByCapture)
   }
 
@@ -448,11 +458,10 @@ export class Store {
   // -----------------------------------------------------------------------
 
   async listRange(range: ShelfRange): Promise<BookRow[]> {
-    return this.db
-      .prepare(
-        'SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC',
-      )
-      .all(range) as BookRow[]
+    return this.db.all<BookRow>(
+      'SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC',
+      [range],
+    )
   }
 
   /**
@@ -486,9 +495,10 @@ export class Store {
     id: number,
     out: boolean,
   ): Promise<{ changed: boolean; checkedOutAt: string | null }> {
-    const row = this.db
-      .prepare('SELECT checked_out_at FROM books WHERE id = ?')
-      .get(id) as { checked_out_at: string | null } | undefined
+    const row = await this.db.get<{ checked_out_at: string | null }>(
+      'SELECT checked_out_at FROM books WHERE id = ?',
+      [id],
+    )
 
     if (!row) return { changed: false, checkedOutAt: null }
 
@@ -496,9 +506,10 @@ export class Store {
     if (alreadyOut === out) return { changed: false, checkedOutAt: row.checked_out_at }
 
     const checkedOutAt = out ? new Date().toISOString() : null
-    this.db
-      .prepare('UPDATE books SET checked_out_at = ? WHERE id = ?')
-      .run(checkedOutAt, id)
+    await this.db.run(
+      'UPDATE books SET checked_out_at = ? WHERE id = ?',
+      [checkedOutAt, id],
+    )
     return { changed: true, checkedOutAt }
   }
 
@@ -510,9 +521,10 @@ export class Store {
    * batch re-asking about the same ones and never reach the rest.
    */
   async setCoverImage(id: number, name: string): Promise<void> {
-    this.db
-      .prepare('UPDATE books SET cover_image = ?, cover_checked_at = ? WHERE id = ?')
-      .run(name, new Date().toISOString(), id)
+    await this.db.run(
+      'UPDATE books SET cover_image = ?, cover_checked_at = ? WHERE id = ?',
+      [name, new Date().toISOString(), id],
+    )
   }
 
   /** Books with an ISBN whose cover has never been looked for. */
@@ -520,22 +532,26 @@ export class Store {
     limit: number,
     retry = false,
   ): Promise<{ id: number; isbn13: string; isbn10: string }[]> {
-    return this.db
-      .prepare(
-        `SELECT id, isbn13, isbn10 FROM books
-          WHERE (cover_image IS NULL OR cover_image = '')
-            AND (isbn13 != '' OR isbn10 != '')
-            AND (:retry = 1 OR cover_checked_at IS NULL)
-          ORDER BY id LIMIT :limit`,
-      )
-      .all({ limit, retry: retry ? 1 : 0 }) as
-        { id: number; isbn13: string; isbn10: string }[]
+    // CAST for the same reason as the one in updateBook: `:retry` is compared
+    // against a bare literal with no column anywhere near it, so a database
+    // that wants a parameter's type before it will plan the statement has
+    // nothing to work it out from. Identity on SQLite, which is the only
+    // database this stage can demonstrate it on.
+    return this.db.all<{ id: number; isbn13: string; isbn10: string }>(
+      `SELECT id, isbn13, isbn10 FROM books
+        WHERE (cover_image IS NULL OR cover_image = '')
+          AND (isbn13 != '' OR isbn10 != '')
+          AND (CAST(:retry AS INTEGER) = 1 OR cover_checked_at IS NULL)
+        ORDER BY id LIMIT :limit`,
+      { limit, retry: retry ? 1 : 0 },
+    )
   }
 
   async setHashes(id: number, front: string, cover: string): Promise<void> {
-    this.db
-      .prepare('UPDATE books SET front_hash = ?, cover_hash = ? WHERE id = ?')
-      .run(front, cover, id)
+    await this.db.run(
+      'UPDATE books SET front_hash = ?, cover_hash = ? WHERE id = ?',
+      [front, cover, id],
+    )
   }
 
   /**
@@ -552,14 +568,12 @@ export class Store {
     checked_out_at: string | null
     front_hash: string; cover_hash: string
   }[]> {
-    return this.db
-      .prepare(
-        `SELECT id, title, author_filing, cover_image, front_image, edge_image,
-                back_image, checked_out_at, front_hash, cover_hash
-           FROM books
-          WHERE front_hash != '' OR cover_hash != ''`,
-      )
-      .all() as never
+    return this.db.all(
+      `SELECT id, title, author_filing, cover_image, front_image, edge_image,
+              back_image, checked_out_at, front_hash, cover_hash
+         FROM books
+        WHERE front_hash != '' OR cover_hash != ''`,
+    ) as never
   }
 
   /**
@@ -577,15 +591,13 @@ export class Store {
     front_image: string; cover_image: string
     front_hash: string; cover_hash: string
   }[]> {
-    return this.db
-      .prepare(
-        `SELECT id, title, front_image, cover_image, front_hash, cover_hash
-           FROM books
-          WHERE front_image != '' OR cover_image != ''
-             OR front_hash != ''  OR cover_hash != ''
-          ORDER BY id`,
-      )
-      .all() as never
+    return this.db.all(
+      `SELECT id, title, front_image, cover_image, front_hash, cover_hash
+         FROM books
+        WHERE front_image != '' OR cover_image != ''
+           OR front_hash != ''  OR cover_hash != ''
+        ORDER BY id`,
+    ) as never
   }
 
   /**
@@ -600,16 +612,19 @@ export class Store {
    * ever writes a crop filename into one. The original is the record.
    */
   async setCrop(id: number, slot: 'front' | 'back' | 'edge', name: string): Promise<void> {
-    const row = this.db.prepare('SELECT cropped FROM books WHERE id = ?').get(id) as
-      { cropped: string | null } | undefined
+    const row = await this.db.get<{ cropped: string | null }>(
+      'SELECT cropped FROM books WHERE id = ?',
+      [id],
+    )
     if (!row) return
 
     const done = new Set((row.cropped ?? '').split(',').filter(Boolean))
     done.add(slot)
 
-    this.db
-      .prepare(`UPDATE books SET ${slot}_crop = ?, cropped = ? WHERE id = ?`)
-      .run(name, [...done].join(','), id)
+    await this.db.run(
+      `UPDATE books SET ${slot}_crop = ?, cropped = ? WHERE id = ?`,
+      [name, [...done].join(','), id],
+    )
   }
 
   /**
@@ -626,39 +641,34 @@ export class Store {
     front_crop: string; back_crop: string; edge_crop: string
     cropped: string
   }[]> {
-    return this.db
-      .prepare(
-        `SELECT id, title, front_image, back_image, edge_image,
-                front_crop, back_crop, edge_crop, cropped
-           FROM books
-          WHERE front_image != '' OR back_image != '' OR edge_image != ''
-          ORDER BY id`,
-      )
-      .all() as never
+    return this.db.all(
+      `SELECT id, title, front_image, back_image, edge_image,
+              front_crop, back_crop, edge_crop, cropped
+         FROM books
+        WHERE front_image != '' OR back_image != '' OR edge_image != ''
+        ORDER BY id`,
+    ) as never
   }
 
   /** Books whose images have not been hashed yet. */
   async missingHashes(
     limit: number,
   ): Promise<{ id: number; front_image: string; cover_image: string }[]> {
-    return this.db
-      .prepare(
-        `SELECT id, front_image, cover_image FROM books
-          WHERE (front_image != '' AND front_hash = '')
-             OR (cover_image != '' AND cover_hash = '')
-          ORDER BY id LIMIT ?`,
-      )
-      .all(limit) as never
+    return this.db.all(
+      `SELECT id, front_image, cover_image FROM books
+        WHERE (front_image != '' AND front_hash = '')
+           OR (cover_image != '' AND cover_hash = '')
+        ORDER BY id LIMIT ?`,
+      [limit],
+    ) as never
   }
 
   /** Books off the shelf, oldest first, so nothing is quietly forgotten. */
   async checkedOut(): Promise<BookRow[]> {
-    return this.db
-      .prepare(
-        `SELECT * FROM books WHERE checked_out_at IS NOT NULL
-          ORDER BY checked_out_at ASC`,
-      )
-      .all() as BookRow[]
+    return this.db.all<BookRow>(
+      `SELECT * FROM books WHERE checked_out_at IS NOT NULL
+        ORDER BY checked_out_at ASC`,
+    )
   }
 
   /**
@@ -677,28 +687,26 @@ export class Store {
   async counts(): Promise<{
     total: number; fiction: number; nonfiction: number; checkedOut: number
   }> {
-    const row = this.db
-      .prepare(
-        `SELECT
-           CAST(COUNT(*) AS INTEGER)                                   AS total,
-           CAST(SUM(CASE WHEN shelf_range = 'fiction'    THEN 1 ELSE 0 END)
-                AS INTEGER)                                            AS fiction,
-           CAST(SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END)
-                AS INTEGER)                                            AS nonfiction,
-           CAST(SUM(CASE WHEN checked_out_at IS NOT NULL THEN 1 ELSE 0 END)
-                AS INTEGER)                                            AS "checkedOut"
-         FROM books`,
-      )
-      .get() as {
-        total: number; fiction: number | null
-        nonfiction: number | null; checkedOut: number | null
-      }
+    const row = await this.db.get<{
+      total: number; fiction: number | null
+      nonfiction: number | null; checkedOut: number | null
+    }>(
+      `SELECT
+         CAST(COUNT(*) AS INTEGER)                                   AS total,
+         CAST(SUM(CASE WHEN shelf_range = 'fiction'    THEN 1 ELSE 0 END)
+              AS INTEGER)                                            AS fiction,
+         CAST(SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END)
+              AS INTEGER)                                            AS nonfiction,
+         CAST(SUM(CASE WHEN checked_out_at IS NOT NULL THEN 1 ELSE 0 END)
+              AS INTEGER)                                            AS "checkedOut"
+       FROM books`,
+    )
 
     return {
-      total: row.total ?? 0,
-      fiction: row.fiction ?? 0,
-      nonfiction: row.nonfiction ?? 0,
-      checkedOut: row.checkedOut ?? 0,
+      total: row?.total ?? 0,
+      fiction: row?.fiction ?? 0,
+      nonfiction: row?.nonfiction ?? 0,
+      checkedOut: row?.checkedOut ?? 0,
     }
   }
 }

@@ -12,7 +12,7 @@
  * soon as two people are scanning into the same server.
  */
 
-import type { Database } from 'better-sqlite3'
+import type { Db } from './driver'
 import { identify } from './identify'
 import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
 import { deriveCapture, type DerivableCapture } from './capturecrop'
@@ -160,7 +160,7 @@ export class CaptureQueue {
   private draining = false
 
   constructor(
-    private readonly db: Database,
+    private readonly db: Db,
     private readonly readImage: (name: string) => Buffer | null,
     private readonly lookupOptions: LookupOptions = {},
     /**
@@ -182,16 +182,15 @@ export class CaptureQueue {
   async add(images: { front?: string; back?: string; edge?: string }): Promise<CaptureRow> {
     // RETURNING id rather than lastInsertRowid, for the reason given on
     // Store.addBook: the id comes back from the statement that made it.
-    const created = this.db
-      .prepare(
-        `INSERT INTO captures (status, front_image, back_image, edge_image, created_at)
-         VALUES ('pending', ?, ?, ?, ?)
-         RETURNING id`,
-      )
-      .get(images.front ?? '', images.back ?? '', images.edge ?? '',
-           new Date().toISOString()) as { id: number }
+    const created = await this.db.get<{ id: number }>(
+      `INSERT INTO captures (status, front_image, back_image, edge_image, created_at)
+       VALUES ('pending', ?, ?, ?, ?)
+       RETURNING id`,
+      [images.front ?? '', images.back ?? '', images.edge ?? '',
+       new Date().toISOString()],
+    )
 
-    return (await this.get(Number(created.id)))!
+    return (await this.get(Number(created!.id)))!
   }
 
   /**
@@ -207,41 +206,44 @@ export class CaptureQueue {
     const now = new Date().toISOString()
 
     if (captureId && (await this.get(captureId))) {
-      this.db
-        .prepare(
-          `UPDATE captures
-              SET ${column} = @filename,
-                  status = CASE WHEN status = 'done' THEN status ELSE 'pending' END,
-                  -- Re-taking a slot means it needs reading again.
-                  analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
-            WHERE id = @id`,
-        )
-        .run({ id: captureId, filename, slot })
+      await this.db.run(
+        `UPDATE captures
+            SET ${column} = @filename,
+                status = CASE WHEN status = 'done' THEN status ELSE 'pending' END,
+                -- Re-taking a slot means it needs reading again.
+                analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
+          WHERE id = @id`,
+        { id: captureId, filename, slot },
+      )
       return (await this.get(captureId))!
     }
 
-    const created = this.db
-      .prepare(
-        `INSERT INTO captures (status, ${column}, created_at)
-         VALUES ('pending', ?, ?)
-         RETURNING id`,
-      )
-      .get(filename, now) as { id: number }
-    return (await this.get(Number(created.id)))!
+    const created = await this.db.get<{ id: number }>(
+      `INSERT INTO captures (status, ${column}, created_at)
+       VALUES ('pending', ?, ?)
+       RETURNING id`,
+      [filename, now],
+    )
+    return (await this.get(Number(created!.id)))!
   }
 
   async get(id: number): Promise<CaptureRow | undefined> {
-    return this.db.prepare('SELECT * FROM captures WHERE id = ?').get(id) as
-      CaptureRow | undefined
+    return this.db.get<CaptureRow>('SELECT * FROM captures WHERE id = ?', [id])
   }
 
+  /**
+   * The one statement here whose shape is not known until it is called: the
+   * `IN` list is as long as the caller asked for. The driver walks placeholders
+   * in the order it meets them, so a varying count needs nothing said about it.
+   */
   async list(
     statuses: CaptureStatus[] = ['pending', 'ready', 'failed'],
   ): Promise<CaptureRow[]> {
     const placeholders = statuses.map(() => '?').join(', ')
-    return this.db
-      .prepare(`SELECT * FROM captures WHERE status IN (${placeholders}) ORDER BY id ASC`)
-      .all(...statuses) as CaptureRow[]
+    return this.db.all<CaptureRow>(
+      `SELECT * FROM captures WHERE status IN (${placeholders}) ORDER BY id ASC`,
+      statuses,
+    )
   }
 
   /**
@@ -250,12 +252,10 @@ export class CaptureQueue {
    * one reaches /api/health and the queue badge.
    */
   async counts(): Promise<Record<CaptureStatus, number>> {
-    const rows = this.db
-      .prepare(
-        `SELECT status, CAST(COUNT(*) AS INTEGER) AS n
-           FROM captures GROUP BY status`,
-      )
-      .all() as { status: CaptureStatus; n: number }[]
+    const rows = await this.db.all<{ status: CaptureStatus; n: number }>(
+      `SELECT status, CAST(COUNT(*) AS INTEGER) AS n
+         FROM captures GROUP BY status`,
+    )
 
     const counts: Record<CaptureStatus, number> = {
       pending: 0, ready: 0, failed: 0, done: 0,
@@ -278,16 +278,15 @@ export class CaptureQueue {
   ): Promise<{ ok: boolean; row?: CaptureRow; heldBy?: string }> {
     const cutoff = new Date(Date.now() - CLAIM_LEASE_MS).toISOString()
 
-    const result = this.db
-      .prepare(
-        `UPDATE captures
-            SET claimed_by = @who, claimed_at = @now
-          WHERE id = @id
-            AND status != 'done'
-            AND (claimed_by = '' OR claimed_by = @who OR claimed_at IS NULL
-                 OR claimed_at < @cutoff)`,
-      )
-      .run({ id, who, now: new Date().toISOString(), cutoff })
+    const result = await this.db.run(
+      `UPDATE captures
+          SET claimed_by = @who, claimed_at = @now
+        WHERE id = @id
+          AND status != 'done'
+          AND (claimed_by = '' OR claimed_by = @who OR claimed_at IS NULL
+               OR claimed_at < @cutoff)`,
+      { id, who, now: new Date().toISOString(), cutoff },
+    )
 
     if (result.changes === 0) {
       const row = await this.get(id)
@@ -363,28 +362,32 @@ export class CaptureQueue {
 
     const now = new Date().toISOString()
 
-    this.db
-      .prepare(
-        `UPDATE captures SET
-           edit_json = @edit, edited_by = @who, edited_at = @now,
-           -- Mirrored onto the row's own columns as well as into the overlay:
-           -- the queue listing and the worker both read these directly, and a
-           -- correction nobody can see in the list is half a correction.
-           isbn13 = COALESCE(@isbn13, isbn13),
-           isbn10 = COALESCE(@isbn10, isbn10),
-           isbn_source = COALESCE(@isbnSource, isbn_source),
-           title_guess = COALESCE(@title, title_guess),
-           -- A person who has stated a title or an ISBN has resolved this
-           -- book, whatever the photographs did or did not read. 'pending'
-           -- is left alone: the worker is mid-pass and settles it itself,
-           -- with this overlay applied.
-           status = CASE
-             WHEN status IN ('ready', 'failed') AND @resolved = 1 THEN 'ready'
-             ELSE status
-           END
-         WHERE id = @id`,
-      )
-      .run({
+    await this.db.run(
+      `UPDATE captures SET
+         edit_json = @edit, edited_by = @who, edited_at = @now,
+         -- Mirrored onto the row's own columns as well as into the overlay:
+         -- the queue listing and the worker both read these directly, and a
+         -- correction nobody can see in the list is half a correction.
+         isbn13 = COALESCE(@isbn13, isbn13),
+         isbn10 = COALESCE(@isbn10, isbn10),
+         isbn_source = COALESCE(@isbnSource, isbn_source),
+         title_guess = COALESCE(@title, title_guess),
+         -- A person who has stated a title or an ISBN has resolved this
+         -- book, whatever the photographs did or did not read. 'pending'
+         -- is left alone: the worker is mid-pass and settles it itself,
+         -- with this overlay applied.
+         --
+         -- The CAST is the point made at Store.updateBook: this parameter is
+         -- compared against a bare literal, with no column to take a type
+         -- from, so a database that types parameters before it plans refuses
+         -- the statement rather than guessing. Identity on SQLite.
+         status = CASE
+           WHEN status IN ('ready', 'failed') AND CAST(@resolved AS INTEGER) = 1
+             THEN 'ready'
+           ELSE status
+         END
+       WHERE id = @id`,
+      {
         id,
         who,
         now,
@@ -394,28 +397,29 @@ export class CaptureQueue {
         isbnSource: merged.isbnSource ?? null,
         title: merged.title ?? null,
         resolved: (merged.title ?? '') || (merged.isbn13 ?? '') ? 1 : 0,
-      })
+      },
+    )
 
     return { ok: true, row: (await this.get(id))!, lookup }
   }
 
   async release(id: number, who: string): Promise<void> {
-    this.db
-      .prepare(
-        `UPDATE captures SET claimed_by = '', claimed_at = NULL
-          WHERE id = ? AND claimed_by = ?`,
-      )
-      .run(id, who)
+    await this.db.run(
+      `UPDATE captures SET claimed_by = '', claimed_at = NULL
+        WHERE id = ? AND claimed_by = ?`,
+      [id, who],
+    )
   }
 
   async markDone(id: number, bookId: number): Promise<void> {
-    this.db
-      .prepare("UPDATE captures SET status = 'done', book_id = ? WHERE id = ?")
-      .run(bookId, id)
+    await this.db.run(
+      "UPDATE captures SET status = 'done', book_id = ? WHERE id = ?",
+      [bookId, id],
+    )
   }
 
   async remove(id: number): Promise<void> {
-    this.db.prepare('DELETE FROM captures WHERE id = ?').run(id)
+    await this.db.run('DELETE FROM captures WHERE id = ?', [id])
   }
 
   /**
@@ -430,21 +434,24 @@ export class CaptureQueue {
    * ever writes a crop filename into one. The original is the record.
    */
   async setCrop(id: number, slot: CropSlot, name: string): Promise<void> {
-    const row = this.db.prepare('SELECT cropped FROM captures WHERE id = ?').get(id) as
-      { cropped: string | null } | undefined
+    const row = await this.db.get<{ cropped: string | null }>(
+      'SELECT cropped FROM captures WHERE id = ?',
+      [id],
+    )
     if (!row) return
 
     const done = new Set((row.cropped ?? '').split(',').filter(Boolean))
     done.add(slot)
 
-    this.db
-      .prepare(`UPDATE captures SET ${slot}_crop = ?, cropped = ? WHERE id = ?`)
-      .run(name, [...done].join(','), id)
+    await this.db.run(
+      `UPDATE captures SET ${slot}_crop = ?, cropped = ? WHERE id = ?`,
+      [name, [...done].join(','), id],
+    )
   }
 
   /** Store the front photograph's hash. Only ever a hash of that photograph. */
   async setFrontHash(id: number, hash: string): Promise<void> {
-    this.db.prepare('UPDATE captures SET front_hash = ? WHERE id = ?').run(hash, id)
+    await this.db.run('UPDATE captures SET front_hash = ? WHERE id = ?', [hash, id])
   }
 
   /**
@@ -474,13 +481,11 @@ export class CaptureQueue {
    * again.
    */
   async waiting(): Promise<CaptureRow[]> {
-    return this.db
-      .prepare(
-        `SELECT * FROM captures
-          WHERE status != 'done' AND front_hash != '' AND front_image != ''
-          ORDER BY id`,
-      )
-      .all() as CaptureRow[]
+    return this.db.all<CaptureRow>(
+      `SELECT * FROM captures
+        WHERE status != 'done' AND front_hash != '' AND front_image != ''
+        ORDER BY id`,
+    )
   }
 
   /**
@@ -495,15 +500,13 @@ export class CaptureQueue {
    * looks back over them wants the same crops.
    */
   async photographed(): Promise<DerivableCapture[]> {
-    return this.db
-      .prepare(
-        `SELECT id, front_image, back_image, edge_image,
-                front_crop, back_crop, edge_crop, cropped, front_hash
-           FROM captures
-          WHERE front_image != '' OR back_image != '' OR edge_image != ''
-          ORDER BY id`,
-      )
-      .all() as DerivableCapture[]
+    return this.db.all<DerivableCapture>(
+      `SELECT id, front_image, back_image, edge_image,
+              front_crop, back_crop, edge_crop, cropped, front_hash
+         FROM captures
+        WHERE front_image != '' OR back_image != '' OR edge_image != ''
+        ORDER BY id`,
+    )
   }
 
   /**
@@ -541,9 +544,9 @@ export class CaptureQueue {
   // -----------------------------------------------------------------------
 
   private async nextPending(): Promise<CaptureRow | undefined> {
-    return this.db
-      .prepare("SELECT * FROM captures WHERE status = 'pending' ORDER BY id ASC LIMIT 1")
-      .get() as CaptureRow | undefined
+    return this.db.get<CaptureRow>(
+      "SELECT * FROM captures WHERE status = 'pending' ORDER BY id ASC LIMIT 1",
+    )
   }
 
   /**
@@ -609,13 +612,20 @@ export class CaptureQueue {
         // somebody typed counts as much as an ISBN here: the book is resolved
         // either way, and calling it 'failed' would send the next person to a
         // book that no longer needs them.
-        this.db
-          .prepare(
-            `UPDATE captures
-                SET status = CASE WHEN isbn13 != '' OR @statedTitle != '' THEN 'ready' ELSE 'failed' END
-              WHERE id = @id AND status = 'pending'`,
-          )
-          .run({ id: capture.id, statedTitle: editsOn(capture).title ?? '' })
+        // The CAST is the same one made at Store.updateBook and at `edit`
+        // above: `@statedTitle` is compared against a bare literal with no
+        // column in reach, which is the shape that leaves a parameter with no
+        // type for a database that wants one before it will plan. Identity on
+        // SQLite. Stage D listed three of these; this is the fourth.
+        await this.db.run(
+          `UPDATE captures
+              SET status = CASE
+                WHEN isbn13 != '' OR CAST(@statedTitle AS TEXT) != '' THEN 'ready'
+                ELSE 'failed'
+              END
+            WHERE id = @id AND status = 'pending'`,
+          { id: capture.id, statedTitle: editsOn(capture).title ?? '' },
+        )
         return
       }
 
@@ -720,16 +730,14 @@ export class CaptureQueue {
       const statedIsbn = stated.isbn13 !== undefined
       const resolved = Boolean(lookup?.found) || Boolean(stated.title) || statedIsbn
 
-      this.db
-        .prepare(
-          `UPDATE captures SET
-             status = @status, isbn13 = @isbn13, isbn10 = @isbn10,
-             isbn_source = @source, title_guess = @titleGuess,
-             cover_text = @coverText, analysed = @analysed,
-             draft_json = @draft, note = @note, processed_at = @now
-           WHERE id = @id`,
-        )
-        .run({
+      await this.db.run(
+        `UPDATE captures SET
+           status = @status, isbn13 = @isbn13, isbn10 = @isbn10,
+           isbn_source = @source, title_guess = @titleGuess,
+           cover_text = @coverText, analysed = @analysed,
+           draft_json = @draft, note = @note, processed_at = @now
+         WHERE id = @id`,
+        {
           id: capture.id,
           status: resolved ? 'ready' : 'failed',
           isbn13: statedIsbn ? stated.isbn13! : isbn13,
@@ -748,7 +756,8 @@ export class CaptureQueue {
           // book that has already been dealt with.
           note: statedIsbn ? '' : notes.join(' '),
           now: new Date().toISOString(),
-        })
+        },
+      )
 
       // A photo taken while this pass was running set the row back to pending,
       // and the write above has just overwritten that. Without this the newly
@@ -763,23 +772,23 @@ export class CaptureQueue {
           return filename && !read.has(slot)
         })
         if (outstanding) {
-          this.db
-            .prepare("UPDATE captures SET status = 'pending' WHERE id = ?")
-            .run(capture.id)
+          await this.db.run(
+            "UPDATE captures SET status = 'pending' WHERE id = ?",
+            [capture.id],
+          )
         }
       }
     } catch (error) {
-      this.db
-        .prepare(
-          `UPDATE captures SET status = 'failed', analysed = ?, note = ?, processed_at = ?
-            WHERE id = ?`,
-        )
-        .run(
+      await this.db.run(
+        `UPDATE captures SET status = 'failed', analysed = ?, note = ?, processed_at = ?
+          WHERE id = ?`,
+        [
           [...analysed].join(','),
           `Could not process these photos: ${(error as Error).message}`,
           new Date().toISOString(),
           capture.id,
-        )
+        ],
+      )
     }
   }
 

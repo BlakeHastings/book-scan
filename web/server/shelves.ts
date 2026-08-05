@@ -5,8 +5,8 @@
  * lives in shared/layout.ts and stays pure.
  */
 
-import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
+import type { Db } from './driver'
 import {
   boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange, locationLabel,
   NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt, stripWithGap,
@@ -90,23 +90,28 @@ function refusal(
  * method is exactly what it was. Every layout still comes from a read taken
  * before the write it is compared against, and every sort still happens on the
  * rows that read returned.
+ *
+ * The driver is behind `Db` (driver.ts) rather than named here, so this file no
+ * longer knows which database it is talking to.
  */
 export class Shelves {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Db) {}
 
   async list(range: ShelfRange): Promise<Separator[]> {
     return (
-      this.db
-        .prepare('SELECT * FROM separators WHERE shelf_range = ? ORDER BY position ASC')
-        .all(range) as SeparatorRow[]
+      await this.db.all<SeparatorRow>(
+        'SELECT * FROM separators WHERE shelf_range = ? ORDER BY position ASC',
+        [range],
+      )
     ).map(toSeparator)
   }
 
   /** Which bookcase a range begins on. */
   private async startOf(range: ShelfRange): Promise<RangeStart> {
-    const row = this.db
-      .prepare('SELECT start_shelf, start_area FROM shelf_ranges WHERE shelf_range = ?')
-      .get(range) as { start_shelf: number; start_area: number } | undefined
+    const row = await this.db.get<{ start_shelf: number; start_area: number }>(
+      'SELECT start_shelf, start_area FROM shelf_ranges WHERE shelf_range = ?',
+      [range],
+    )
     return { shelf: row?.start_shelf ?? 1, area: row?.start_area ?? 0 }
   }
 
@@ -117,12 +122,11 @@ export class Shelves {
    * still taking up room.
    */
   private async booksIn(range: ShelfRange, excludeId = 0): Promise<BookRow[]> {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NULL
-          ORDER BY sort_key ASC`,
-      )
-      .all(range) as BookRow[]
+    const rows = await this.db.all<BookRow>(
+      `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NULL
+        ORDER BY sort_key ASC`,
+      [range],
+    )
     return excludeId ? rows.filter((row) => row.id !== excludeId) : rows
   }
 
@@ -390,17 +394,17 @@ export class Shelves {
       // Counted before the insert, exactly as it was: the new separator takes
       // the position after the ones already there.
       const position = (await this.list(range)).length
-      this.db
-        .prepare(
-          `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
-           VALUES (?, ?, ?, ?, '', ?)`,
-        )
-        .run(range, plan.create.kind, plan.create.startsAt,
-             position, new Date().toISOString())
+      await this.db.run(
+        `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
+         VALUES (?, ?, ?, ?, '', ?)`,
+        [range, plan.create.kind, plan.create.startsAt,
+         position, new Date().toISOString()],
+      )
     } else if (plan.shift) {
-      this.db
-        .prepare('UPDATE separators SET starts_at = ? WHERE id = ?')
-        .run(plan.shift.startsAt, plan.shift.id)
+      await this.db.run(
+        'UPDATE separators SET starts_at = ? WHERE id = ?',
+        [plan.shift.startsAt, plan.shift.id],
+      )
     }
   }
 
@@ -431,19 +435,20 @@ export class Shelves {
       return { ok: false, error: refusal(outcome.reason, outcome.at, direction) }
     }
 
-    // Synchronous on purpose while better-sqlite3 is underneath. The shifts and
-    // the removals are one boundary change and have to land together, so this
-    // closure calls the synchronous body of `remove` rather than awaiting the
-    // public method, which would push the delete outside the transaction.
-    const apply = this.db.transaction(() => {
+    // The shifts and the removals are one boundary change and have to land
+    // together. `remove` opens a transaction of its own and is called from
+    // inside this one, which is exactly the nesting `Db.tx` handles with a
+    // savepoint, so it no longer needs a second synchronous body to be reached
+    // from in here.
+    await this.db.tx(async () => {
       for (const shift of outcome.move.shift) {
-        this.db
-          .prepare('UPDATE separators SET starts_at = ? WHERE id = ?')
-          .run(shift.startsAt, shift.id)
+        await this.db.run(
+          'UPDATE separators SET starts_at = ? WHERE id = ?',
+          [shift.startsAt, shift.id],
+        )
       }
-      for (const id of outcome.move.remove) this.removeWithin(id)
+      for (const id of outcome.move.remove) await this.remove(id)
     })
-    apply()
 
     return {
       ok: true,
@@ -505,45 +510,39 @@ export class Shelves {
       .map((placed) => toFiled(placed.book, placed.label, false))
 
     const off = (
-      this.db
-        .prepare(
-          `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NOT NULL
-            ORDER BY sort_key ASC`,
-        )
-        .all(range) as BookRow[]
+      await this.db.all<BookRow>(
+        `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NOT NULL
+          ORDER BY sort_key ASC`,
+        [range],
+      )
     ).map((row) => toFiled(row, '', true))
 
     return reviewShelving([...onShelf, ...off])
   }
 
-  /** Remove a boundary and renumber the rest so positions stay contiguous. */
-  async remove(id: number): Promise<void> {
-    this.removeWithin(id)
-  }
-
   /**
-   * The synchronous body of `remove`, so a transaction closure can call it.
+   * Remove a boundary and renumber the rest so positions stay contiguous.
    *
-   * See `moveAcrossBoundary`: while better-sqlite3 is the driver, a closure
-   * handed to `db.transaction` cannot await, and the delete plus the renumber
-   * must be inside it.
+   * The read is outside the transaction and the two writes are inside it,
+   * exactly as before. Called from inside `moveAcrossBoundary`'s transaction as
+   * well as on its own, and `Db.tx` opens a savepoint rather than a second
+   * transaction when that happens.
    */
-  private removeWithin(id: number): void {
-    const row = this.db
-      .prepare('SELECT * FROM separators WHERE id = ?')
-      .get(id) as SeparatorRow | undefined
+  async remove(id: number): Promise<void> {
+    const row = await this.db.get<SeparatorRow>(
+      'SELECT * FROM separators WHERE id = ?',
+      [id],
+    )
     if (!row) return
 
-    const drop = this.db.transaction(() => {
-      this.db.prepare('DELETE FROM separators WHERE id = ?').run(id)
-      this.db
-        .prepare(
-          `UPDATE separators SET position = position - 1
-            WHERE shelf_range = ? AND position > ?`,
-        )
-        .run(row.shelf_range, row.position)
+    await this.db.tx(async (tx) => {
+      await tx.run('DELETE FROM separators WHERE id = ?', [id])
+      await tx.run(
+        `UPDATE separators SET position = position - 1
+          WHERE shelf_range = ? AND position > ?`,
+        [row.shelf_range, row.position],
+      )
     })
-    drop()
   }
 
   /**

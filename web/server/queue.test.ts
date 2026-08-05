@@ -9,9 +9,9 @@
  * and a queue test that reached Open Library would fail whenever it was down.
  */
 
-import type { Database } from 'better-sqlite3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
+import type { Db } from './driver'
 import { CaptureQueue, editsOn } from './queue'
 import { identify } from './identify'
 import { lookupIsbn } from './lookup'
@@ -58,7 +58,7 @@ function readBarcode(isbn13: string) {
 
 let queue: CaptureQueue
 let store: Store
-let db: Database
+let db: Db
 
 beforeEach(() => {
   vi.mocked(identify).mockReset()
@@ -163,8 +163,8 @@ describe('claiming, with two people on the same queue', () => {
     await queue.claim(capture.id, 'alice')
 
     // Backdate the claim past the lease window.
-    db.prepare('UPDATE captures SET claimed_at = ? WHERE id = ?')
-      .run(new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id)
+    await db.run('UPDATE captures SET claimed_at = ? WHERE id = ?',
+      [new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id])
 
     expect((await queue.claim(capture.id, 'bob')).ok).toBe(true)
   })
@@ -228,7 +228,7 @@ describe('editing a capture while it is still in the queue', () => {
     // The case this actually happens in: the photographs failed, so somebody
     // is typing the number off the back of the book.
     const capture = await add()
-    db.prepare("UPDATE captures SET status = 'failed' WHERE id = ?").run(capture.id)
+    await db.run("UPDATE captures SET status = 'failed' WHERE id = ?", [capture.id])
 
     const result = await queue.edit(capture.id, 'alice', { isbn13: DUNE })
 
@@ -281,8 +281,8 @@ describe('editing a capture while it is still in the queue', () => {
   it('lets an edit take a claim that has gone stale', async () => {
     const capture = await add()
     await queue.claim(capture.id, 'alice')
-    db.prepare('UPDATE captures SET claimed_at = ? WHERE id = ?')
-      .run(new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id)
+    await db.run('UPDATE captures SET claimed_at = ? WHERE id = ?',
+      [new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id])
 
     const result = await queue.edit(capture.id, 'bob', { title: 'Dune' })
 
@@ -294,7 +294,7 @@ describe('editing a capture while it is still in the queue', () => {
     const capture = await add()
     await queue.claim(capture.id, 'alice')
     const stale = new Date(Date.now() - 4 * 60 * 1000).toISOString()
-    db.prepare('UPDATE captures SET claimed_at = ? WHERE id = ?').run(stale, capture.id)
+    await db.run('UPDATE captures SET claimed_at = ? WHERE id = ?', [stale, capture.id])
 
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
 
@@ -332,7 +332,7 @@ describe('editing a capture while it is still in the queue', () => {
 
   it('stops a resolved capture reading as failed', async () => {
     const capture = await add()
-    db.prepare("UPDATE captures SET status = 'failed' WHERE id = ?").run(capture.id)
+    await db.run("UPDATE captures SET status = 'failed' WHERE id = ?", [capture.id])
 
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
 
@@ -462,8 +462,8 @@ describe('photos arriving one at a time', () => {
 
   it('marks a re-taken slot as needing another read', async () => {
     const capture = await queue.attach(null, 'back', 'b.jpg')
-    db.prepare("UPDATE captures SET analysed = 'back,front', status = 'failed' WHERE id = ?")
-      .run(capture.id)
+    await db.run("UPDATE captures SET analysed = 'back,front', status = 'failed' WHERE id = ?",
+      [capture.id])
 
     const again = await queue.attach(capture.id, 'back', 'b2.jpg')
     expect(again.back_image).toBe('b2.jpg')
@@ -558,7 +558,7 @@ describe('captures still waiting to be shelved', () => {
   it('keeps a failed capture, which is the one most likely to still be sitting there', async () => {
     // The read failed. The photographs did not, and neither did the book.
     const id = await hashed()
-    db.prepare("UPDATE captures SET status = 'failed' WHERE id = ?").run(id)
+    await db.run("UPDATE captures SET status = 'failed' WHERE id = ?", [id])
     expect((await queue.waiting()).map((c) => c.id)).toEqual([id])
   })
 
