@@ -18,7 +18,21 @@ import { execFileSync } from 'node:child_process'
 //   gh pr view <n> --json statusCheckRollup --jq '.statusCheckRollup[].name'
 // A name that never appears is treated as "never ran" and refuses the merge.
 // That is the safe direction, but a typo here looks like a broken script.
-const REQUIRED = ['web (typecheck + tests)', 'no production data committed', 'browser journeys']
+//
+// Both of these appear on every pull request, including one that changes only
+// markdown. Their jobs are never filtered out by `paths:` and never skipped by
+// a job-level `if:`: they always start, and decide inside themselves whether
+// the expensive steps are worth running (`scripts/ci-scope.mjs`). If you are
+// tempted to make a job conditional, read the top of that file first, because
+// the version of this list that refuses to merge a README change is the one
+// this comment exists to prevent.
+//
+// `no production data committed` was a third entry until #126. It was a
+// five second job billed as a whole minute, so it became the first step of
+// `web (typecheck + tests)` and also runs after a merge in `provenance.yml`.
+// The check still runs, on more commits than before; it no longer has a check
+// name of its own.
+const REQUIRED = ['web (typecheck + tests)', 'browser journeys']
 
 const prNumber = process.argv[2]
 if (!prNumber || !/^\d+$/.test(prNumber)) {

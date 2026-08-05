@@ -1,67 +1,139 @@
 name: CI
 
+# Pull requests only.
+#
+# There used to be a `push: branches: [master]` trigger here as well, and it
+# re-proved the same tree twice. Merges land only through
+# `scripts/merge-pr.mjs`, which squashes and refuses unless every required
+# check is already green, and GitHub runs pull request checks against the merge
+# commit it computes from the branch and the base. The push run therefore built
+# a tree that had just been built.
+#
+# Checked before removing it: nothing uses `workflow_run`, no README carries a
+# status badge, branch protection is unavailable on this plan so no ruleset
+# names a CI context, and `provenance.yml` has its own independent `push`
+# trigger and still runs on every merge. `e2e.yml` also still runs nightly on
+# the default branch, so master keeps a daily full browser signal.
 on:
-  push:
-    branches: [master]
   pull_request:
 
+# `ci-scope.mjs` asks the API which files this pull request touches, and the
+# default token cannot read pull requests unless it is asked to. Without this it
+# gets `403 Forbidden`, falls back to "run everything" and quietly costs the
+# full five minutes on a README change. Measured, not guessed: run 30966770067
+# did exactly that. Kept to the two scopes actually used.
+permissions:
+  contents: read
+  pull-requests: read
+
 # A second push to a PR makes the first run irrelevant. Cancel it.
+# Confirmed cancelling rather than assumed: runs 30964083948 and 30962802311
+# both ended `cancelled` when a later push superseded them.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # One job, not two. `no production data committed` used to be a job of its
+  # own and took about five seconds; GitHub bills each job rounded up to a whole
+  # minute, so those five seconds cost exactly as much as this whole job does.
+  # It is now the first step here, and it also runs after a merge in
+  # `provenance.yml`, so it is checked in more places than before for less
+  # money. `REQUIRED` in `scripts/merge-pr.mjs` was updated in the same change.
   web:
     name: web (typecheck + tests)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
 
     steps:
       - uses: actions/checkout@v4
 
+      # First, and never conditional on what the change touched. Any change at
+      # all can commit a database or a scan image, including one whose other
+      # steps are about to be skipped as documentation.
+      - name: No production data committed
+        run: bash scripts/check-no-scan-data.sh
+
+      # Runs on the runner's preinstalled node, before setup-node, so a
+      # documentation only pull request never pays for a toolchain either.
+      #
+      # This decides whether the steps below do anything. It does NOT decide
+      # whether this job runs: see the comment at the top of the script. The job
+      # always runs and always reports under this name, because
+      # `scripts/merge-pr.mjs` reads a missing required check as a refusal.
+      - name: What this change needs
+        id: scope
+        run: node scripts/ci-scope.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
 
-      - run: npm ci
+      # The npm download cache, kept by hand rather than through setup-node's
+      # `cache: npm`, purely so it can have `restore-keys`.
+      #
+      # This is the one thing that turned out to depend on the push to master
+      # run, and it took looking rather than reasoning. GitHub scopes a cache
+      # written by a pull request run to that pull request's own merge ref, so
+      # only a run on the default branch writes one every pull request can read.
+      # In `gh api repos/{owner}/{repo}/actions/caches`, the entry
+      # `node-cache-Linux-x64-npm-1dcb3a6...` sits on `refs/heads/master` and was
+      # last read at 01:39:19 by pull request run 30967006278. The push run is
+      # what wrote it, and nothing writes master's scope now, so the day
+      # `web/package-lock.json` changes the exact key stops matching for good.
+      #
+      # Then it was measured, and the honest number is small. `npm ci` took 15s
+      # against that shared cache (run 30967006278) and 19s with `~/.npm` empty
+      # (run 30967390466, the first run on this new key, nothing to restore).
+      # Four seconds, well inside the same billed minute. So this is not a
+      # minute saved, it is a silent dependency removed for free: `restore-keys`
+      # makes a lock file change a delta install against the previous entry, and
+      # the read keeps that entry from being evicted.
+      #
+      # Do not restate this as a billed-minute saving. It is not one.
+      - name: Cache the npm downloads
+        if: steps.scope.outputs.docs_only != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-web-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            npm-web-${{ runner.os }}-
+
+      - name: Install
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
+        run: npm ci
 
       - name: Typecheck
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
         run: npm run typecheck
 
       # Tests open :memory: databases and generate their own barcode and
       # cover fixtures, so this never reaches real scan data.
       - name: Tests
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
         run: npm test
 
-      # The merge guard is the thing standing between an agent and an
-      # unreviewed commit on master, and it had no tests until it had shipped
-      # two defects. It lives at the repo root rather than under web/, so it
-      # runs from there and needs no dependencies.
+      # Two script suites, neither of which needs a dependency tree. They run
+      # here rather than in jobs of their own because a job is billed rounded up
+      # to a whole minute and these take about a second between them.
+      #
+      # The merge guard is the thing standing between an agent and an unreviewed
+      # commit on master, and it had no tests until it had shipped two defects.
+      # `ci-scope.mjs` decides which steps above get skipped, so a bug in it is a
+      # suite silently not running. Both live under `scripts/`, which
+      # `ci-scope.mjs` never treats as documentation, so any change to either one
+      # forces the full run that tests it.
       - name: Merge guard behaves
-        working-directory: .
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/guard-merge.test.mjs
 
-  no-production-data:
-    name: no production data committed
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Detection, not prevention. web/.gitignore already excludes data/,
-      # but an ignore rule is silent when someone forces past it. This
-      # runs on the result, which a bypass cannot avoid producing.
-      - name: Refuse databases and scan images in the tree
-        run: |
-          hits=$(git ls-files \
-            | grep -Ei '\.(db|db-wal|db-shm|sqlite|sqlite3)$|(^|/)(covers|captures)/' \
-            || true)
-          if [ -n "$hits" ]; then
-            echo "::error::Scan data must never be committed. Found:"
-            echo "$hits"
-            exit 1
-          fi
-          echo "No databases or scan images tracked."
+      - name: Scope rules
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/ci-scope.test.mjs

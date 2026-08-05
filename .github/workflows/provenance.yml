@@ -13,6 +13,12 @@ name: Provenance
 #
 # It cannot undo the push. It makes the push visible, which is the difference
 # between a rule and a control.
+#
+# This is now the only workflow that runs on a push to master. `ci.yml` lost its
+# push trigger in #126, because it re-proved the tree the pull request had
+# already proved. The scan data check below rides along in a minute that is
+# already being billed, so master keeps a post-merge control on the one rule
+# that matters most here, at no extra cost.
 
 on:
   push:
@@ -38,6 +44,14 @@ jobs:
           # does not reach it, and the script fails loudly rather than passing
           # on a history it cannot see.
           fetch-depth: 0
+
+      # Free, in billed terms: this job takes about eleven seconds and is
+      # charged a whole minute either way. It repeats on the merged result what
+      # `ci.yml` checked on the pull request, which is worth doing precisely
+      # because a direct push is the case this workflow exists to catch, and a
+      # direct push never saw `ci.yml` at all.
+      - name: No production data committed
+        run: bash scripts/check-no-scan-data.sh
 
       - uses: actions/setup-node@v4
         with:

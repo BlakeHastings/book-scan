@@ -9,16 +9,31 @@ name: End to end
 # was a human running the suite by hand before shipping, which is the manual
 # step this repository exists to not have.
 #
-# It is deliberately NOT filtered by path. `scripts/merge-pr.mjs` treats a
-# required check that never ran as a refusal, so a `paths` filter that skipped
-# this job on a docs-only pull request would block every such pull request
-# instead of speeding it up.
+# It is deliberately NOT filtered by path, and must not be. `scripts/merge-pr.mjs`
+# treats a required check that never ran as a refusal, so a `paths:` filter that
+# skipped this job on a docs-only pull request would block every such pull
+# request instead of speeding it up. A job-level `if:` is no better: a skipped
+# job reports SKIPPED, and the guard accepts only SUCCESS or NEUTRAL.
+#
+# The job therefore always runs and always reports as `browser journeys`, and
+# asks `scripts/ci-scope.mjs` whether the steps inside it are worth doing. On a
+# documentation only change it starts, finds nothing to prove, and finishes
+# green in seconds. See the top of that script for the whole argument.
 on:
   pull_request:
   workflow_dispatch:
   schedule:
     # 04:00 UTC, so a broken journey is waiting in the morning.
     - cron: '0 4 * * *'
+
+# `ci-scope.mjs` asks the API which files this pull request touches, and the
+# default token cannot read pull requests unless it is asked to. Without this it
+# gets `403 Forbidden`, falls back to "run everything" and quietly costs the
+# full five minutes on a README change. Measured, not guessed: run 30966770067
+# did exactly that. Kept to the two scopes actually used.
+permissions:
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -33,16 +48,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Caches the three npm trees this job installs: the app, the AppHost at
-      # the repository root, and the suite.
+      # Runs on the runner's preinstalled node, before anything is installed, so
+      # a documentation only pull request pays for a checkout and nothing else.
+      # Every non-pull-request trigger above, the nightly schedule and a manual
+      # dispatch, is answered "full run" by the script, so the nightly cannot be
+      # hollowed out by this.
+      - name: What this change needs
+        id: scope
+        run: node scripts/ci-scope.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            package-lock.json
-            e2e/package-lock.json
+
+      # Covers the three npm trees this job installs: the app, the AppHost at
+      # the repository root, and the suite. By hand rather than through
+      # setup-node's `cache: npm`, for the `restore-keys` fallback. Worth
+      # slightly more here than in `ci.yml`, because this workflow reaches the
+      # default branch only through the nightly schedule, so the shared entry
+      # every pull request reads is refreshed once a day at best.
+      #
+      # Read the note in `ci.yml` before quoting a saving for this: the measured
+      # difference between a warm and a cold `npm ci` here is a few seconds, not
+      # a billed minute.
+      - name: Cache the npm downloads
+        if: steps.scope.outputs.docs_only != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ runner.os }}-${{ hashFiles('web/package-lock.json', 'package-lock.json', 'e2e/package-lock.json') }}
+          restore-keys: |
+            npm-e2e-${{ runner.os }}-
 
       # Chrome for Testing is around a hundred megabytes and the download is
       # the second largest step here after the run itself. Keyed on the suite's
@@ -50,6 +90,7 @@ jobs:
       # rather than reusing the previous one.
       - name: Cache the browser
         id: browser-cache
+        if: steps.scope.outputs.docs_only != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -59,18 +100,22 @@ jobs:
       # would pin the CLI version until something else in the key changed,
       # which is the wrong trade for four seconds.
       - name: Install the Aspire CLI
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           curl -sSL https://aspire.dev/install.sh | bash
           echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
 
       - name: Install the app
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: web
         run: npm ci
 
       - name: Install the AppHost
+        if: steps.scope.outputs.docs_only != 'true'
         run: npm ci
 
       - name: Install the suite
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
         run: npm ci
 
@@ -78,6 +123,7 @@ jobs:
       # it links against are installed either way, because they live outside
       # the cached directory and a runner image refresh can drop them.
       - name: Install Chromium
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
         run: |
           if [ "${{ steps.browser-cache.outputs.cache-hit }}" = "true" ]; then
@@ -91,18 +137,26 @@ jobs:
       # beyond the installs above and never reaches real scan data: the
       # AppHost puts the database in web/data/e2e/<run id>.
       #
-      # The Aspire bundle this pulls down is NOT cached, and that was measured
-      # rather than assumed. On run 30963595547 the step split 39s of AppHost
-      # startup against 58s of scenarios, and the download it would avoid is
-      # 429M in ~/.aspire/versions beside 429M in ~/.nuget/packages. Restoring
-      # most of a gigabyte to save part of 39s is not obviously a win, so it is
-      # left alone. If you revisit this, measure both halves before keeping it.
+      # The Aspire bundle this pulls down is NOT cached. That was measured on
+      # wall clock once and re-measured on billed minutes for #126, and the
+      # answer got firmer rather than closer.
+      #
+      # The experiment: cache `~/.aspire/versions` and `~/.nuget/packages`, run
+      # this workflow twice on the same branch, once to populate and once to
+      # hit. Run 30966851528, everything cold, took 2m36s. Run 30967066322,
+      # 719M restored in 6s, took 2m37s. The scenarios step was 1m25s cold and
+      # 1m36s warm, so the difference is noise and points the wrong way. Both
+      # runs are billed 3 minutes. There is no minute here to save.
+      #
+      # If you revisit it, the thing to beat is 2m37s, and the boundary that
+      # would actually pay is 2m00s.
       - name: Run the journeys
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
         run: npm test
 
       - name: Keep the report
-        if: always()
+        if: always() && steps.scope.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
