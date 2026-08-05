@@ -4,20 +4,26 @@ An issue is done when it passes **three lenses**. Mechanical checks are not one
 of the lenses: they are the price of admission, they run in CI, and no human or
 agent should spend judgment on them.
 
-> Template. Replace the bracketed parts with this repo's real commands, then
-> delete this note.
-
 ## Gate 0: mechanical (automated, no judgment)
 
-CI runs these. If they are red, the work is not ready for review.
+CI runs exactly these. If they are red, the work is not ready for review.
 
-- typecheck, lint, format
-- unit and integration tests
-- production build succeeds
-- database migrations apply cleanly to an empty database and are reversible
+- `npm run typecheck`
+- `npm test`, the unit and integration suites
+- the browser journeys in `e2e/`, which gate pull requests
+- no scan data committed (`scripts/check-no-scan-data.sh`)
+- the merge guard and the CI scope rules behave (`scripts/guard-merge.test.mjs`,
+  `scripts/ci-scope.test.mjs`)
 
 Never ask a reviewer to run these by hand. If a mechanical check is missing,
 adding it is cheaper than reviewing for it forever.
+
+**Three things a reviewer might assume are covered and are not.** There is no
+lint or format check: `eslint.config.mjs` exists but nothing runs it. The
+production build is never run in CI, only `tsc --noEmit` via typecheck, so a
+Vite build failure would reach master. And migrations are **not** reversible by
+design: the schema is append only, columns are added and never dropped or
+repurposed, so "reverts cleanly" is not a property to check for.
 
 ## Lens 1: functionality, proven by interaction
 
