@@ -88,8 +88,8 @@ Given('the catalogue already holds:', async ({ apiUrl }, table: DataTable) => {
 })
 
 /**
- * A plank with a second one after it, arrived at the way the app arrives at
- * one: somebody stood in front of it and said it would not take another book.
+ * Somebody standing in front of a plank saying it will not take another book,
+ * and then carrying the book it gave up.
  *
  * Through the real overflow route, and then through the location route for the
  * book it displaced, because those are two statements and the app makes both.
@@ -97,30 +97,48 @@ Given('the catalogue already holds:', async ({ apiUrl }, table: DataTable) => {
  * reported as misfiled, and "nothing should need attention" later would then
  * be testing the seed rather than the move.
  */
+async function fillUp(apiUrl: string, label: string, kind: 'area' | 'shelf') {
+  const response = await fetch(`${apiUrl}/api/shelves/overflow`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ range: 'fiction', label, kind }),
+  })
+  expect(response.ok, `filling ${label} failed: ${response.status}`).toBe(true)
+
+  const { step } = (await response.json()) as {
+    step: { id: number; to: string } | null
+  }
+  expect(step, `${label} had no book to give up`).toBeTruthy()
+
+  const recorded = await fetch(`${apiUrl}/api/books/${step!.id}/location`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ location: step!.to }),
+  })
+  expect(recorded.ok, `recording the displaced book failed: ${recorded.status}`)
+    .toBe(true)
+}
+
+/** A plank with a second one after it. */
 Given(
   '{string} filled up, so its last book started a new area',
   async ({ apiUrl }, label: string) => {
-    const response = await fetch(`${apiUrl}/api/shelves/overflow`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ range: 'fiction', label, kind: 'area' }),
-    })
-    expect(response.ok, `filling ${label} failed: ${response.status}`).toBe(true)
-
-    const { step } = (await response.json()) as {
-      step: { id: number; to: string } | null
-    }
-    expect(step, `${label} had no book to give up`).toBeTruthy()
-
-    const recorded = await fetch(`${apiUrl}/api/books/${step!.id}/location`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ location: step!.to }),
-    })
-    expect(recorded.ok, `recording the displaced book failed: ${recorded.status}`)
-      .toBe(true)
+    await fillUp(apiUrl, label, 'area')
   },
 )
+
+/**
+ * Several planks with books on each, arrived at one answer at a time.
+ *
+ * A cascade that has to go deep and then descend AGAIN needs planks past the
+ * one being filled that still have a book to give up, and there is only one
+ * way for a plank to come into existence: somebody said the one before it was
+ * full. So the arrangement is spelled as the sequence of times that happened,
+ * which is both what the room looks like and how it got that way.
+ */
+Given('the areas filled up in this order:', async ({ apiUrl }, table: DataTable) => {
+  for (const row of table.raw()) await fillUp(apiUrl, row[0] ?? '', 'area')
+})
 
 /**
  * Two bookcases, reached the way the app reaches them.
@@ -155,6 +173,31 @@ Given(
       expect(recorded.ok, `recording the displaced book failed: ${recorded.status}`)
         .toBe(true)
     }
+  },
+)
+
+/**
+ * Where the shelves themselves put a book, which is not the same question as
+ * where the catalogue records it.
+ *
+ * This one is derived from the boundaries, so it is what somebody looking at
+ * the drawing sees. Asserting it mid-cascade is how "nothing moved" is
+ * checked: a proposed step used to shift the boundary immediately, and the
+ * book vanished off the plank the person was still standing at (#111).
+ */
+Then(
+  'the bookcase should still show {string} on {string}',
+  async ({ apiUrl }, title: string, label: string) => {
+    const response = await fetch(`${apiUrl}/api/shelves?range=fiction`)
+    expect(response.ok, `reading the shelves failed: ${response.status}`).toBe(true)
+
+    const { groups } = (await response.json()) as {
+      groups: { label: string; books: { book: { title: string } }[] }[]
+    }
+    const on = groups.find((group) =>
+      group.books.some((entry) => entry.book.title === title))
+    expect(on?.label, `"${title}" is drawn on ${on?.label ?? 'no plank at all'}`)
+      .toBe(label)
   },
 )
 

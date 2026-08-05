@@ -1438,10 +1438,23 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .moves ol { margin: 8px 0 0; padding-left: 22px; }
 .moves li { margin-bottom: 5px; }
-/* Confirmed steps recede; the one being asked about does not. */
-.moves__done { color: var(--muted); }
-.moves__now { color: var(--text); }
-.moves__now::marker { color: var(--accent); font-weight: 700; }
+/* Three states, because a deep shuffle has all three at once: books already
+   put down, the one being asked about, and the ones still in the air waiting
+   to be asked about again on the way back up. Only the last two are jobs
+   still to do, so only the confirmed ones recede. */
+.moves__placed, .moves__carried { color: var(--muted); }
+.moves__asking { color: var(--text); }
+.moves__asking::marker { color: var(--accent); font-weight: 700; }
+.moves__waiting { color: var(--text); }
+.moves__state { color: var(--muted); font-size: 13px; }
+
+/* How far in you are, above the question, because four books deep with a
+   re-descent in it is not something anybody is holding in their head. */
+.shelve__where {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--accent);
+}
 
 /* How far the shimmy has spread, which is the thing that is hard to hold in
    your head once it is more than one shelf. */

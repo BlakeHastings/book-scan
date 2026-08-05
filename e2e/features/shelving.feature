@@ -38,10 +38,13 @@ Feature: Putting a book on a shelf that is already full
 
     When I say there is no room on the shelf
     Then it should ask me to move "The Dispossessed" from "1A" to "1B"
-    And a new area should be recorded for fiction, starting at "The Dispossessed"
+    # Offered, not done. Nothing on the bookcase changes until somebody says
+    # they carried the book, because a proposal is not an observation (#111).
+    And the bookcase should still show "The Dispossessed" on "1A"
 
     When I say the moved book fitted
-    Then it should tell me to put "Dune" in the gap at "1A"
+    Then a new area should be recorded for fiction, starting at "The Dispossessed"
+    And it should tell me to put "Dune" in the gap at "1A"
 
     When I say it fits and save it
     Then the catalogue should be filed in this order:

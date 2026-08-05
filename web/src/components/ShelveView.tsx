@@ -1,5 +1,9 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { api, type Move, type PlacementResponse } from '../lib/api'
+import {
+  asking, confirm, depth, emptyCascade, pushCarry, pushFrame, repropose,
+  spreadOf, started, whereYouAre, type Proposal,
+} from '../lib/cascade'
 import { PlacementView } from './ShelfStrip'
 import type { ShelfRange } from '../../shared/shelving'
 
@@ -22,23 +26,6 @@ interface Props {
   onRefresh: () => Promise<unknown>
 }
 
-interface Step {
-  /** The displaced book, so where it lands can be recorded. Zero in hand. */
-  id: number
-  title: string
-  from: string
-  to: string
-  /**
-   * The book being placed moved on, rather than a shelved one being displaced.
-   *
-   * Nothing to confirm and nothing to record here: the book is still in your
-   * hand, and where it lands is written when it is saved. It is listed anyway,
-   * because a screen that silently renamed the shelf in the question reads as
-   * a tap that did nothing.
-   */
-  inHand?: boolean
-}
-
 /**
  * Putting the book on the shelf, kept separate from confirming what the book
  * is. They are different jobs: one happens looking at a screen, the other
@@ -48,30 +35,41 @@ interface Step {
  * capacity depends on the thickness of whatever is already on it. So the
  * person is the sensor, and the screen only ever asks one question at a time.
  *
- * There are two nested loops, and on a full bookcase both get used:
+ * On a full bookcase that becomes a stack of books in the air, and it is
+ * walked in both directions:
  *
- *   placing  does the book in your hand go in yet? Each "no" takes one book
- *            off the end of its shelf, which starts a move.
- *   moving   did that displaced book fit on the next shelf? Each "no" takes
- *            one book off the end of THAT shelf, and so on down the bookcase.
- *            When one finally fits, the question goes back to the book in
- *            your hand, which may still not fit, which starts the whole thing
- *            again.
+ *   down  each "no" takes one book off the end of the plank the last one was
+ *         going on, and asks about that book instead, as deep as it needs to.
+ *   up    each "yes" carries out one move, records where that book went, and
+ *         hands the question back to the book underneath, which has not been
+ *         asked about since the plank it is going on changed. A "no" there
+ *         descends again from that point, by the route the first "no" took.
  *
- * Presenting it as one question keeps an arbitrarily deep shimmy legible: the
- * screen never asks about two shelves at once, and the list above it is the
- * physical to-do list in the order it has to happen.
+ * The unwind is #110. It used to settle the entire chain on one yes at the
+ * bottom, on the reasoning that every rung above was only waiting for room
+ * below. Books are different thicknesses, so that is not true of a real
+ * shelf, and the person is the only one who can say.
+ *
+ * Three things this screen used to run together, now kept apart:
+ *
+ *   showing    which book is being placed and how far in you are, said above
+ *              the question. Drawing each level is #112 and comes next.
+ *   applying   a proposal changes nothing. The boundary moves when somebody
+ *              says they carried the book, one frame at a time (#111).
+ *   recording  where a book physically ended up, written as it is confirmed,
+ *              so an abandoned chain leaves behind what really happened.
+ *
+ * The stack itself lives in `lib/cascade.ts`, pure and tested away from here.
  */
 export function ShelveView({
   placement, stale, range, title, saving, onShelved, onBack, onRefresh,
 }: Props) {
-  const [steps, setSteps] = useState<Step[]>([])
-  /** The move awaiting a yes or no. Null means the question is about the book. */
-  const [pending, setPending] = useState<Step | null>(null)
+  const [cascade, setCascade] = useState(emptyCascade)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  /** How many steps have had their new location written down already. */
-  const recorded = useRef(0)
+
+  /** The frame awaiting a yes or no. Null means the question is about the book. */
+  const pending = asking(cascade)
 
   // The derived shelf, not suggestedLocation: that belongs to the old
   // per-book scheme and names shelves the layout has never heard of.
@@ -98,6 +96,12 @@ export function ShelveView({
    * about nothing: the catalogue ends up confidently wrong rather than
    * silent, and nothing reports it, because the recorded location is exactly
    * what misfile detection compares against.
+   *
+   * The same hazard exists at every frame of a cascade, since every frame now
+   * shows a placement too. It is answered there by redrawing the frame from
+   * the shelves each time it becomes the question, and by the server refusing
+   * to apply a move against a plank that no longer ends with the book the
+   * person was told to carry.
    */
   const known = Boolean(shelfLabel) && !stale
 
@@ -112,37 +116,61 @@ export function ShelveView({
   const atEndOfShelf =
     !!placement?.strip && placement.strip.gapIndex === placement.strip.books.length
 
+  /**
+   * "There is no room here." The one route for that answer, wherever it came
+   * from.
+   *
+   * The no that starts a cascade and the no given to a frame on the way back
+   * up are the same physical event: somebody at a plank saying it will not
+   * take the book they are holding. Two paths for one question drift, which
+   * is how several bugs here happened, so both arrive at this and both push a
+   * frame the same way.
+   *
+   * Nothing on the shelves changes. What comes back is a proposal and a
+   * picture of it, and the plank keeps every book it has until somebody says
+   * they moved one (#111).
+   */
   const overflowFrom = async (label: string, kind: 'shelf' | 'area') => {
     if (!label || busy) return
     setBusy(true)
     setError('')
     try {
-      const result = await api.overflowShelf(range, label, kind, placement?.sortKey)
+      const plan = await api.planOverflow(range, label, kind, placement?.sortKey)
 
-      // The book in your hand goes on instead, and nothing already shelved
-      // moves. No question follows: the placing question is re-asked against
-      // the shelf it now goes on, once the refresh below has landed.
-      if (result.carry) {
-        setSteps((done) => [...done, {
-          id: 0, title, from: result.carry!.from, to: result.carry!.to, inHand: true,
-        }])
-        setPending(null)
+      /*
+       * The book in your hand goes on instead, and nothing already shelved
+       * moves, so there is nothing to put to anybody and this is applied at
+       * once. It is not a cascade step: no book is displaced, so #111 has
+       * nothing to hold back. The placing question is re-asked against the
+       * plank it now goes on, once the refresh below has landed.
+       */
+      if (plan.carry) {
+        const applied = await api.overflowShelf(range, label, kind, placement?.sortKey)
+        const carry = applied.carry ?? plan.carry
+        setCascade((now) => pushCarry(now, {
+          id: 0, title, from: carry.from, to: carry.to,
+        }))
         await onRefresh()
         return
       }
 
-      const step: Step = {
-        id: result.step?.id ?? 0,
-        title: result.step?.title || 'the last book',
-        from: result.step?.from ?? label,
-        to: result.step?.to ?? '',
+      if (!plan.step) {
+        setError(`Nothing on ${label} can move along, so there is no gap to open.`)
+        return
       }
-      setSteps((done) => [...done, step])
-      setPending(step)
-      // Books have physically moved, so the drawn shelf is a lie until
-      // placement is asked again. Awaited, or the next tap acts on the old
-      // shelf label and moves a book nobody asked about.
-      await onRefresh()
+
+      setCascade((now) => pushFrame(now, {
+        from: label,
+        kind,
+        proposal: {
+          id: plan.step!.id,
+          title: plan.step!.title || 'the last book',
+          authorFiling: plan.step!.authorFiling,
+          to: plan.step!.to,
+          strip: null,
+        },
+      }))
+      // No refresh: nothing has moved, so the shelf on screen is still true.
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -151,37 +179,55 @@ export function ShelveView({
   }
 
   /**
-   * The person says the shuffle has come to rest.
+   * The person says they have carried that one and it went in.
    *
-   * A yes at the deepest point of the chain settles every step above it too:
-   * each one was only waiting for room on the shelf below, and the question
-   * would not have come back to the book in hand otherwise. That answer is
-   * somebody saying where books physically are, which is the only thing
-   * allowed to change a recorded location, so it is written down here through
-   * the same route the "Moved it" button uses.
+   * Three statements, in this order, because that is the order the room made
+   * them true. The furniture moves first, since the plank the book is now on
+   * is a plank the layout does not put it on until the boundary has shifted;
+   * then where the book physically is gets written down, which is the only
+   * thing allowed to change a recorded location and the reason a shuffle does
+   * not turn round and report itself as still outstanding; then the frame
+   * comes off the stack.
    *
-   * Without this the shuffle moved the boundaries and left every book it had
-   * displaced recorded on the shelf it came off, so the library reported each
-   * of them as needing to make the move it had just walked somebody through.
+   * Doing both as the answer is given, rather than at the end, is what lets
+   * somebody walk away four books deep and leave the catalogue honest: the
+   * books they carried are on the shelves and recorded there, and the ones
+   * still in the air were never claimed to have moved at all.
+   *
+   * Then exactly one frame comes off, and whatever is underneath is redrawn
+   * before it is asked, because the moves just made were made on the plank it
+   * is about.
    */
-  const settle = async () => {
-    const outstanding = steps.slice(recorded.current)
-    if (!outstanding.length) {
-      setPending(null)
-      return
-    }
+  const confirmPlaced = async () => {
+    const frame = asking(cascade)
+    if (!frame || busy) return
 
     setBusy(true)
     setError('')
     try {
-      for (const step of outstanding) {
-        // A step the server could not name is one nothing can be recorded
-        // against. Counting it as done anyway keeps the chain moving rather
-        // than retrying it forever.
-        if (step.id && step.to) await api.setLocation(step.id, step.to)
-        recorded.current += 1
-      }
-      setPending(null)
+      const applied = await api.overflowShelf(
+        range, frame.from, frame.kind, placement?.sortKey, frame.proposal.id,
+      )
+
+      /*
+       * The plank the server just put the book on, not the one drawn a moment
+       * ago. They agree unless the shelves changed underneath, and when they
+       * do it is the write that is right: recording against the older of the
+       * two is exactly the stale answer #106 fixed.
+       */
+      const to = applied.step?.to || frame.proposal.to
+      if (frame.proposal.id && to) await api.setLocation(frame.proposal.id, to)
+
+      const settled = confirm(cascade, {
+        id: frame.proposal.id, title: frame.proposal.title, from: frame.from, to,
+      })
+
+      const under = asking(settled)
+      setCascade(under ? repropose(settled, await redraw(under.from, under.kind)) : settled)
+
+      // Books have moved, so the drawn shelf is a lie until placement is
+      // asked again. Awaited, or the next tap acts on the old shelf label.
+      await onRefresh()
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -189,7 +235,20 @@ export function ShelveView({
     }
   }
 
-  const spread = [...new Set(steps.flatMap((s) => [s.from, s.to]))]
+  /** The frame under the one just confirmed, as the shelves now stand. */
+  const redraw = async (from: string, kind: 'shelf' | 'area'): Promise<Proposal> => {
+    const plan = await api.planOverflow(range, from, kind, placement?.sortKey)
+    if (!plan.step) throw new Error(`There is nothing left on ${from} to move along.`)
+    return {
+      id: plan.step.id,
+      title: plan.step.title || 'the last book',
+      authorFiling: plan.step.authorFiling,
+      to: plan.step.to,
+      strip: null,
+    }
+  }
+
+  const spread = spreadOf(cascade)
 
   return (
     <main className="main">
@@ -199,21 +258,21 @@ export function ShelveView({
 
       <PlacementView placement={placement} pending={busy || stale} />
 
-      {steps.length > 0 && (
+      {started(cascade) && (
         <div className="moves">
           {/* "Shuffle" is a lie when the only thing that moved is the book
               still in your hand, and nothing on the bookcase was touched. */}
           <strong>
-            {steps.every((step) => step.inHand)
+            {cascade.done.every((step) => step.inHand) && !cascade.stack.length
               ? 'Where it went instead'
-              : 'Shuffle, in this order'}
+              : 'Shuffle, in the order it happened'}
           </strong>
           {spread.length > 2 && (
             <p className="moves__spread">{spread.join(' → ')}</p>
           )}
           <ol>
-            {steps.map((step, i) => (
-              <li key={i} className={step === pending ? 'moves__now' : 'moves__done'}>
+            {cascade.done.map((step, i) => (
+              <li key={`done-${i}`} className={step.inHand ? 'moves__carried' : 'moves__placed'}>
                 {step.inHand ? (
                   <>
                     <strong>{step.title}</strong>: {step.from} was full, so it goes
@@ -223,8 +282,23 @@ export function ShelveView({
                   <>
                     <strong>{step.title}</strong>: end of {step.from} to start of{' '}
                     <strong>{step.to}</strong>
+                    <span className="moves__state"> · moved and written down</span>
                   </>
                 )}
+              </li>
+            ))}
+            {cascade.stack.map((frame, i) => (
+              <li
+                key={`open-${i}`}
+                className={i === cascade.stack.length - 1 ? 'moves__asking' : 'moves__waiting'}
+              >
+                <strong>{frame.proposal.title}</strong>: end of {frame.from} to start of{' '}
+                <strong>{frame.proposal.to}</strong>
+                <span className="moves__state">
+                  {i === cascade.stack.length - 1
+                    ? ' · in your hand now'
+                    : ' · still to check'}
+                </span>
               </li>
             ))}
           </ol>
@@ -233,18 +307,22 @@ export function ShelveView({
 
       <div className="shelve__ask">
         {pending ? (
-          /* One shelf along the chain. Answering yes hands the question back
-             to the book in your hand; answering no goes one shelf further. */
+          /* One plank along the chain. Answering yes carries the move out and
+             hands the question to the one under it; answering no goes one
+             plank further, from here. */
           <>
+            <p className="shelve__where">{whereYouAre(cascade, title)}</p>
+
             <p>
-              Take <strong>{pending.title}</strong> off the end of {pending.from} and
-              put it at the start of <strong>{pending.to}</strong>. Did it fit there?
+              Take <strong>{pending.proposal.title}</strong> off the end of {pending.from}{' '}
+              and put it at the start of <strong>{pending.proposal.to}</strong>. Did it
+              fit there?
             </p>
 
             <div className="actions">
               <button
                 className="btn btn--primary"
-                onClick={() => void settle()}
+                onClick={() => void confirmPlaced()}
                 disabled={busy}
               >
                 {busy ? 'Saving...' : 'Yes, it fit'}
@@ -254,16 +332,24 @@ export function ShelveView({
             <div className="actions">
               <button
                 className="btn"
-                onClick={() => overflowFrom(pending.to, 'area')}
+                onClick={() => overflowFrom(pending.proposal.to, 'area')}
                 disabled={busy}
               >
-                {busy ? '...' : `No, ${pending.to} is full too`}
+                {busy ? '...' : `No, ${pending.proposal.to} is full too`}
               </button>
             </div>
 
             <p className="hint">
-              Saying no takes the last book off {pending.to} as well, and asks
-              about the bookcase after that. The chain can run as far as it needs to.
+              {depth(cascade) > 1
+                ? `Yes moves ${pending.proposal.title} to ${pending.proposal.to}, writes ` +
+                  'it down, and asks about the book under it, which is still in your ' +
+                  `hand. No takes the last book off ${pending.proposal.to} instead and ` +
+                  'goes one deeper again.'
+                : `Nothing has moved on the bookcase yet. Yes makes this move and ` +
+                  `writes it down; no takes the last book off ${pending.proposal.to} as ` +
+                  'well and asks about the plank after that. The chain can run as far ' +
+                  'as it needs to, and every book on it is asked about again on the ' +
+                  'way back.'}
             </p>
           </>
         ) : (
@@ -272,7 +358,7 @@ export function ShelveView({
               {known ? (
                 <>
                   Put <strong>{title}</strong> in the gap at <strong>{shelfLabel}</strong>.
-                  Does it fit{steps.length > 0 ? ' now' : ''}?
+                  Does it fit{started(cascade) ? ' now' : ''}?
                 </>
               ) : (
                 <>Working out where <strong>{title}</strong> goes...</>
@@ -304,7 +390,7 @@ export function ShelveView({
                   ? '...'
                   : atEndOfShelf
                     ? 'No room, put it on the next area'
-                    : steps.length > 0 ? 'Still no room' : 'No room, move one along'}
+                    : started(cascade) ? 'Still no room' : 'No room, move one along'}
               </button>
               <button
                 className="btn"
@@ -320,9 +406,9 @@ export function ShelveView({
                 ? `Nothing on ${shelfLabel || 'this area'} goes after this book, so ` +
                   'it is the one that moves. Everything already on the bookcase ' +
                   'stays where it is.'
-                : `Each time you say there is no room, one more book comes off the ` +
-                  `end of ${shelfLabel || 'the bookcase'} and the same question is ` +
-                  'asked again.'}
+                : `Each time you say there is no room, you are shown one more book ` +
+                  `coming off the end of ${shelfLabel || 'the bookcase'}, and nothing ` +
+                  'moves until you say you have moved it.'}
             </p>
           </>
         )}
