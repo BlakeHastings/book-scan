@@ -25,8 +25,26 @@ import sharp, { type OverlayOptions } from 'sharp'
 // fixtures-assets/OFL.txt). Subset to ASCII, Latin-1 Supplement and a
 // handful of typographic punctuation marks, which is everything the fixture
 // text below needs. Passing this file straight to sharp's `fontfile` bypasses
-// system font lookup entirely, so the same glyphs at the same metrics render
-// on Windows and Linux alike, whatever fonts either machine happens to have.
+// system font lookup entirely, so the same glyphs at the same metrics are laid
+// out on Windows and Linux alike, whatever fonts either machine happens to have.
+//
+// The same glyphs at the same metrics, and not the same pixels. This is worth
+// being exact about, because the sentence that used to be here claimed the
+// stronger thing and it is not true. Rendering this cover on both platforms and
+// differencing the raw pixels:
+//
+//   colouredCover('Blindsight', ...): 7654 of 1215000 pixels differ, by up to
+//   109 levels out of 255, and every one of them is inside the glyphs. The
+//   chosen point size and the canvas the text lays out into are identical; the
+//   rasterisation of the outlines into coverage is not.
+//
+// A scene with no text in it is byte-identical across the two, so the rest of
+// the pipeline (background generation, compositing, resize, JPEG encode) is
+// stable and only the glyph interiors are not.
+//
+// So a fixture may be built out of text, but no test may rest on a decision
+// that a few pixels along a glyph edge could tip. One did: see the note on the
+// title position in `colouredCover`.
 const FONT_FAMILY = 'Gelasio'
 const FONT_FILE = fileURLToPath(new URL('./fixtures-assets/Gelasio-Regular.ttf', import.meta.url))
 
@@ -64,10 +82,13 @@ interface RenderedText {
 async function fixtureText(
   text: string,
   box: { width: number, height: number },
+  /** Pango colour for the glyphs. Black when not given, as it always was. */
+  ink?: string,
 ): Promise<RenderedText> {
+  const escaped = escapePangoMarkup(text)
   const png = await sharp({
     text: {
-      text: escapePangoMarkup(text),
+      text: ink ? `<span foreground="${ink}">${escaped}</span>` : escaped,
       font: FONT_FAMILY,
       fontfile: FONT_FILE,
       rgba: true,
@@ -242,6 +263,84 @@ export async function spine(title: string, author: string): Promise<Buffer> {
   return sharp(laid).rotate(90).png().toBuffer()
 }
 
+/**
+ * A cover on coloured paper, optionally with a panel printed on it.
+ *
+ * Every other cover here is black on white, which is the one case a detector
+ * that only measures brightness handles well. The owner's collection is not
+ * like that: the covers that were being missed were dark ones photographed on
+ * a dark table, differing from it in hue far more than in tone.
+ *
+ * `rule` prints a contrasting band right across the cover, which is what the
+ * edge of a title bar or a divider actually is: a strong straight line with the
+ * same cover on both sides of it a short way out. A crop that stops at one has
+ * cut the book in half, and the owner has a real photograph where that happened.
+ */
+export async function colouredCover(
+  title: string,
+  author: string,
+  paper: string,
+  ink: string,
+  rule?: { colour: string, thickness: number, at: number },
+): Promise<Buffer> {
+  const width = 900
+  const height = 1350
+
+  const composites: OverlayOptions[] = []
+  if (rule) {
+    composites.push({
+      input: await sharp({
+        create: { width, height: rule.thickness, channels: 3, background: rule.colour },
+      }).png().toBuffer(),
+      left: 0,
+      top: Math.round(height * rule.at),
+    })
+  }
+  // The title sits where `frontCover` puts its own title, and it has to.
+  //
+  // It used to be centred at y=120, which put its glyphs within 60 pixels of
+  // the top of the cover. The detector snaps each side of a candidate onto the
+  // strongest straight line within 24 of its working pixels, and in a scene
+  // built from this cover 24 working pixels is about 80 cover pixels. So the
+  // top of the title and the top of the book were two rival lines inside one
+  // search band, and which of them the search settled on came down to the
+  // handful of pixels along the glyph edges. Those pixels are not the same on
+  // every machine: see the note at the top of this file. The result was a scene
+  // that found the book on one platform and came back with the title cut off on
+  // another.
+  //
+  // Nothing here wanted to test that. A printed line that a crop must not stop
+  // at is the sibling scene's job, and the `rule` parameter above places one at
+  // 28 per cent of the way down on purpose, far outside the snap band, so that
+  // it tests the far-offset check rather than the snapping search.
+  composites.push(
+    centred(await fixtureText(title, { width: 700, height: 180 }, ink), width, 620),
+    centred(await fixtureText(author, { width: 620, height: 80 }, ink), width, 1120),
+  )
+
+  return sharp({ create: { width, height, channels: 3, background: paper } })
+    .composite(composites)
+    .png()
+    .toBuffer()
+}
+
+/** A spine on coloured paper, for the same reason `colouredCover` exists. */
+export async function colouredSpine(
+  title: string,
+  paper: string,
+  ink: string,
+): Promise<Buffer> {
+  const width = 150
+  const height = 1250
+
+  const laid = await sharp({ create: { width: height, height: width, channels: 3, background: paper } })
+    .composite([positioned(await fixtureText(title, { width: 700, height: 70 }, ink), 200, 35)])
+    .png()
+    .toBuffer()
+
+  return sharp(laid).rotate(90).png().toBuffer()
+}
+
 /** Simulate a glossy cover: low contrast plus a bright diagonal highlight. */
 export async function glossy(input: Buffer): Promise<Buffer> {
   const { width = 900, height = 1250 } = await sharp(input).metadata()
@@ -306,6 +405,16 @@ export interface SceneOptions {
   shadow?: boolean
   /** 0 to 1. How near the background's brightness is to the book's own. */
   camouflage?: number
+  /**
+   * Per-channel multipliers for the background, red then green then blue.
+   *
+   * Without this every surface here is neutral grey, which quietly makes the
+   * scenes easier than the room they stand for: a grey floor differs from a
+   * cover in brightness or not at all. A warm dark table, `[1.15, 0.85, 0.6]`,
+   * differs from a cool dark cover mostly in hue, and that is the case the
+   * owner's photographs are full of.
+   */
+  backgroundTint?: [number, number, number]
 }
 
 /** Deterministic, so a measured accuracy is the same number tomorrow. */
@@ -325,6 +434,7 @@ function backgroundPixels(
   style: SceneBackground,
   random: () => number,
   camouflage: number,
+  tint: [number, number, number],
 ): Buffer {
   // Camouflage lifts the floor towards the cover's own near-white, which is
   // what takes a book's outline away and is the case worth being able to fail
@@ -357,10 +467,12 @@ function backgroundPixels(
       value += Math.round((x / width) * 26 - 13)
 
       const clamped = Math.max(0, Math.min(255, Math.round(value)))
+      const channel = (v: number, multiplier: number): number =>
+        Math.max(0, Math.min(255, Math.round(v * multiplier)))
       const i = (y * width + x) * 3
-      raw[i] = clamped
-      raw[i + 1] = Math.max(0, clamped - 2)
-      raw[i + 2] = Math.max(0, clamped - 8)
+      raw[i] = channel(clamped, tint[0])
+      raw[i + 1] = channel(Math.max(0, clamped - 2), tint[1])
+      raw[i + 2] = channel(Math.max(0, clamped - 8), tint[2])
     }
   }
 
@@ -388,6 +500,7 @@ export async function photographedBook(
     distractors = 0,
     shadow = true,
     camouflage = 0,
+    backgroundTint = [1, 1, 1],
   } = options
 
   const random = rng(seed)
@@ -454,7 +567,7 @@ export async function photographedBook(
 
   layers.push({ input: book, left, top })
 
-  const image = await sharp(backgroundPixels(width, height, background, random, camouflage), {
+  const image = await sharp(backgroundPixels(width, height, background, random, camouflage, backgroundTint), {
     raw: { width, height, channels: 3 },
   })
     .composite(layers)

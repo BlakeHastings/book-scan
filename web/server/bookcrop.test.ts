@@ -29,7 +29,7 @@ import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
 import { cropBook, detectBook, type Rect } from './bookcrop'
 import {
-  backCover, frontCover, glossy, photographedBook, spine,
+  backCover, colouredCover, colouredSpine, frontCover, glossy, photographedBook, spine,
   type SceneBackground,
 } from './fixtures'
 
@@ -157,6 +157,91 @@ describe('finding a book in a photograph', () => {
 
     expect(refusals.join('\n')).not.toContain('cropped')
   }, 30_000)
+
+  /**
+   * The scenes above are all neutral: a grey floor under a white cover, where
+   * the only thing separating them is brightness. The owner's collection is
+   * not, and measuring the detector against his photographs said so plainly.
+   * The covers that were being found were pale and the ones being missed were
+   * dark, in the same room on the same table, which is another way of saying
+   * the detector was reading luminance and calling it an object.
+   *
+   * These three lock in what fixing that took. They are here rather than in the
+   * sweep above because each one failed before the change and passes after it,
+   * which is the only property that makes a regression test worth its runtime.
+   */
+  describe('colour, not just brightness', () => {
+    /** A warm dark table. Roughly the tone of the wood in the real photographs. */
+    const DARK_TABLE: [number, number, number] = [1.15, 0.85, 0.6]
+
+    it('finds a dark cover on a dark table that differs from it in hue', async () => {
+      // A cool near-black cover on warm near-black wood. In greyscale these are
+      // within a few levels of each other and the step gate threw the book away
+      // even though it had located it: this was the single largest category of
+      // failure, fourteen of the owner's thirty-six.
+      const scene = await photographedBook(
+        await colouredCover('Blindsight', 'Peter Watts', '#154048', '#8fa4bb'),
+        {
+          seed: 71, width: 900, height: 1200, fill: 0.55, rotate: -8,
+          background: 'plain', backgroundTint: DARK_TABLE,
+        },
+      )
+
+      const decision = await detectBook(scene.image)
+      expect(decision.refusal ?? 'cropped').toBe('cropped')
+      expect(kept(scene.rect, decision.rect!)).toBeGreaterThanOrEqual(KEEPS_THE_BOOK)
+    }, 30_000)
+
+    it('crops the book and not the band printed across it', async () => {
+      // A dark cover on a dark table with a darker rule ruled across the top of
+      // it, which is what the edge of a title bar looks like from above. The
+      // book's own outline is faint here, so the printed rule is the strongest
+      // straight line in the frame and it steps the same way the cover does
+      // against the table, which is enough to pass a gate that only looks at a
+      // thin band either side of the line. Measuring the same difference again
+      // sixteen pixels out is what rejects it: past the rule the cover is back,
+      // so the difference does not keep. Without that reading this scene comes
+      // back with 71 per cent of the book, and there is a real photograph in the
+      // owner's collection that failed the same way.
+      const scene = await photographedBook(
+        await colouredCover(
+          'Mary Barton', 'E. Gaskell', '#154048', '#8fa4bb',
+          { colour: '#0b1c22', thickness: 46, at: 0.28 },
+        ),
+        {
+          seed: 71, width: 900, height: 1200, fill: 0.6, rotate: -8,
+          background: 'plain', backgroundTint: DARK_TABLE,
+        },
+      )
+
+      const decision = await detectBook(scene.image)
+      // Declining is allowed. Coming back with the part below the rule is not.
+      if (!decision.rect) return
+      expect(kept(scene.rect, decision.rect)).toBeGreaterThanOrEqual(KEEPS_THE_BOOK)
+    }, 30_000)
+
+    it('finds a spine in the strip shape the phone really saves', async () => {
+      // The edge slot saves 511 by 3072 pixels, an aspect of 0.166. The test
+      // above it uses 480 by 1360, which is 0.353: more than twice as wide for
+      // its height, and comfortably inside a working range the real shape sits
+      // outside. Detection scaled that strip to 480 by 2885, and a side swept
+      // through eight degrees of tilt in a frame that tall moves 405 pixels
+      // sideways in a frame 480 wide, so the tilts on offer were both mostly
+      // off the picture and a hundred pixels apart. A spine an inch out of
+      // square in a hand landed between two of them and was measured smeared.
+      const scene = await photographedBook(
+        await colouredSpine('The Dispossessed', '#c8b48a', '#2a2118'),
+        {
+          seed: 77, width: 511, height: 3072, fill: 0.55, rotate: -2,
+          background: 'plain', backgroundTint: DARK_TABLE,
+        },
+      )
+
+      const decision = await detectBook(scene.image)
+      expect(decision.refusal ?? 'cropped').toBe('cropped')
+      expect(kept(scene.rect, decision.rect!)).toBeGreaterThanOrEqual(KEEPS_THE_BOOK)
+    }, 30_000)
+  })
 
   it('declines a flat frame instead of dividing by nothing', async () => {
     const flat = await sharp({
