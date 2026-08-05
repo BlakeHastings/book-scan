@@ -328,3 +328,67 @@ Then(
     expect(separators[0]?.starts_at).toBe(moved?.sort_key)
   },
 )
+
+/**
+ * Enough books on one plank that the drawn row is wider than the phone.
+ *
+ * Where a row comes to rest is only a question once it is longer than the
+ * screen, and the six books this suite stubs draw a row that fits with room
+ * to spare. These are padding and read as padding: the only thing that matters
+ * about each of them is which side of the book in hand it files, which is the
+ * whole reason it is here.
+ *
+ * Written through POST /api/books like the rest of the furniture, so the
+ * filing names and sort keys come from the code under test rather than from
+ * this file.
+ */
+const PADDING_BEFORE = [
+  'Achebe, Chinua', 'Amis, Kingsley', 'Baldwin, James', 'Brontë, Charlotte',
+  'Calvino, Italo', 'Chandler, Raymond', 'Conrad, Joseph', 'Dickens, Charles',
+  'Eliot, George', 'Forster, E. M.', 'Greene, Graham', 'Hardy, Thomas',
+]
+const PADDING_AFTER = [
+  'Ishiguro, Kazuo', 'Joyce, James', 'Kafka, Franz', 'Lessing, Doris',
+  'Morrison, Toni', 'Nabokov, Vladimir', 'Orwell, George', 'Pratchett, Terry',
+  'Rushdie, Salman', 'Steinbeck, John', 'Tolstoy, Leo', 'Woolf, Virginia',
+]
+
+async function pad(apiUrl: string, count: number, filings: string[]) {
+  expect(
+    count,
+    `only ${filings.length} padding names are defined in catalogue.steps.ts`,
+  ).toBeLessThanOrEqual(filings.length)
+
+  for (let i = 0; i < count; i += 1) {
+    const filing = filings[i]!
+    const response = await fetch(`${apiUrl}/api/books`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: `Shelf filler ${i + 1}`,
+        authors: [filing],
+        authorFilingOverride: filing,
+        isFiction: true,
+        classificationSource: 'manual',
+        classificationConfidence: 'high',
+      }),
+    })
+    expect(response.ok, `padding with "${filing}" failed: ${response.status}`).toBe(true)
+  }
+}
+
+Given(
+  '{int} more books are on the shelves, all filing before {string}',
+  async ({ apiUrl }, count: number, title: string) => {
+    expect(title, 'the padding is chosen against the book in hand').toBe(BOOK_IN_HAND.title)
+    await pad(apiUrl, count, PADDING_BEFORE)
+  },
+)
+
+Given(
+  '{int} more books are on the shelves, all filing after {string}',
+  async ({ apiUrl }, count: number, title: string) => {
+    expect(title, 'the padding is chosen against the book in hand').toBe(BOOK_IN_HAND.title)
+    await pad(apiUrl, count, PADDING_AFTER)
+  },
+)
