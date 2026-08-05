@@ -72,7 +72,7 @@ export const CLOSE_LIMIT = 8
  *   <= 8    caught  33% of double scans,     0 of 36720 wrong pairs
  *   <=12    caught  53%,                     3 of 36720
  *   <=16    caught  70%,                   205 of 36720
- *   <=24    caught  90%,                  6605 of 36720   (18%)
+ *   <=24    caught  91%,                  6605 of 36720   (18%)
  *
  * So `MATCH_CUTOFF` does not carry over at all: on real photographs it calls
  * nearly one pair of different books in five a match. 12 was measured and
