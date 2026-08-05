@@ -31,10 +31,10 @@ import type { Server } from 'node:http'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Database } from 'better-sqlite3'
 import sharp from 'sharp'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
+import type { Db } from './driver'
 import { createApp } from './index'
 import { lookupIsbn } from './lookup'
 import { Store } from './store'
@@ -97,7 +97,7 @@ beforeAll(() => {
 })
 
 interface Running {
-  db: Database
+  db: Db
   store: Store
   coverDir: string
   baseUrl: string
@@ -1237,7 +1237,7 @@ describe('a book already waiting in the queue', () => {
     const capture = await queue.add({ front: 'dune-front.jpg' })
     const hash = await coverHash(buffer)
     await queue.setFrontHash(capture.id, options.bits ? nudgeHash(hash, options.bits) : hash)
-    running.db.prepare("UPDATE captures SET status = 'ready' WHERE id = ?").run(capture.id)
+    await running.db.run("UPDATE captures SET status = 'ready' WHERE id = ?", [capture.id])
     return capture.id
   }
 
