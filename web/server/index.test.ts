@@ -35,7 +35,7 @@ import sharp from 'sharp'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
 import type { Db } from './driver'
-import { createApp } from './index'
+import { createApp, openCatalogue } from './index'
 import { lookupIsbn } from './lookup'
 import { Store } from './store'
 import { coverHash } from './imagehash'
@@ -1967,5 +1967,73 @@ describe('failure paths', () => {
     // The process, and the app inside it, are still alive.
     const health = await call('/api/health')
     expect(health.status).toBe(200)
+  })
+})
+
+/**
+ * Which database a process opens, which stage G changed the default of.
+ *
+ * The one thing that must stay true through that flip: **the SQLite path is
+ * still selected by configuration and still opens the file it always did.**
+ * Stage H has not happened, so the owner's catalogue is a `books.db`, and the
+ * way back from Postgres named in docs/postgres-migration.md is exactly the
+ * variable asserted here.
+ *
+ * Nothing below opens a path outside this repository, and nothing sets
+ * BOOKSCAN_DATA. The file the "there is already a catalogue" case points at is
+ * this checkout's own source, chosen because it certainly exists and is
+ * certainly never opened: the refusal happens before anything is read.
+ */
+describe('choosing the database', () => {
+  const HERE = fileURLToPath(new URL('.', import.meta.url))
+  const A_FILE_THAT_EXISTS = join(HERE, 'index.ts')
+  const NO_SUCH_FILE = join(HERE, 'no-such-catalogue.db')
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('opens SQLite when asked, which is how the catalogue is still reached', async () => {
+    vi.stubEnv('BOOKSCAN_DB', 'sqlite')
+    // No connection string anywhere, deliberately: the SQLite path must not
+    // need one, or "set BOOKSCAN_DB=sqlite" would not be a way back.
+    vi.stubEnv('ConnectionStrings__bookscan', '')
+
+    const { db, label } = await openCatalogue(':memory:')
+    try {
+      expect(label).toBe(':memory:')
+      // A real database, with the schema on it, not a stub.
+      await expect(db.all('SELECT * FROM books')).resolves.toEqual([])
+    } finally {
+      await db.close()
+    }
+  })
+
+  it('defaults to Postgres', async () => {
+    vi.stubEnv('BOOKSCAN_DB', undefined)
+    vi.stubEnv('ConnectionStrings__bookscan', '')
+
+    await expect(openCatalogue(NO_SUCH_FILE)).rejects.toThrow(/defaults to postgres/)
+  })
+
+  it('refuses to start an empty Postgres beside a catalogue that already exists', async () => {
+    // The case that matters. A deployment started with BOOKSCAN_DATA and
+    // nothing else is how the running system starts today, and on this
+    // revision that process has no connection string. Coming up empty would
+    // look exactly like a catalogue that lost every book.
+    vi.stubEnv('BOOKSCAN_DB', undefined)
+    vi.stubEnv('ConnectionStrings__bookscan', '')
+
+    await expect(openCatalogue(A_FILE_THAT_EXISTS)).rejects.toThrow(
+      /Refusing to start an empty Postgres one beside it/,
+    )
+    // And it says the one command that fixes it, because a refusal nobody can
+    // act on is an outage.
+    await expect(openCatalogue(A_FILE_THAT_EXISTS)).rejects.toThrow(/BOOKSCAN_DB=sqlite/)
+  })
+
+  it('says so when BOOKSCAN_DB is neither, rather than quietly picking one', async () => {
+    vi.stubEnv('BOOKSCAN_DB', 'sqlite3')
+    await expect(openCatalogue(':memory:')).rejects.toThrow(/either "postgres" or "sqlite"/)
   })
 })

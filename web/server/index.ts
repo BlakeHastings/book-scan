@@ -1787,32 +1787,55 @@ const isMainModule = process.argv[1] !== undefined
 /**
  * Which database, and where.
  *
- * **`sqlite` is the default and stays the default until stage G.** Setting
- * `BOOKSCAN_DB=postgres` is how the Postgres implementation is reached at all;
- * unset, nothing in this process opens a connection or reads a connection
- * string, and the behaviour is exactly what it was.
+ * **`postgres` is the default as of stage G, and SQLite is one variable away.**
+ * `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db` and behaves exactly as
+ * this app always has, which is not a courtesy: stage H has not happened, so
+ * the owner's catalogue is still a SQLite file, and it stays selectable and
+ * supported until stage I says otherwise. The rollback in the migration plan is
+ * that one variable.
  *
  * The connection arrives as `ConnectionStrings__bookscan`, which is the name
  * Aspire gives it, read here the way `PORT` is. Note that this is the one place
  * it is read: the test harness deliberately ignores it and every other ambient
  * connection variable (server/testdb.ts), for the same reason as `BOOKSCAN_DATA`.
+ *
+ * **Flipping a default cannot be allowed to open the wrong database quietly**,
+ * and there is exactly one way it could: a deployment that has been started
+ * with `BOOKSCAN_DATA` and nothing else, which is how the running system starts
+ * today. On this revision that process has no connection string, so rather than
+ * creating an empty Postgres catalogue beside a `books.db` full of somebody's
+ * afternoons, it refuses to start and says which two things it is choosing
+ * between. A process that exits saying so is recoverable in one command. A
+ * process that comes up empty looks like a catalogue that lost every book.
  */
-async function openCatalogue(sqlitePath: string): Promise<{ db: Db; label: string }> {
-  if ((process.env.BOOKSCAN_DB ?? 'sqlite') !== 'postgres') {
+export async function openCatalogue(sqlitePath: string): Promise<{ db: Db; label: string }> {
+  const choice = process.env.BOOKSCAN_DB ?? 'postgres'
+  if (choice === 'sqlite') {
     return { db: openDatabase(sqlitePath), label: sqlitePath }
+  }
+  if (choice !== 'postgres') {
+    throw new Error(`BOOKSCAN_DB is "${choice}". It is either "postgres" or "sqlite".`)
   }
 
   const url = process.env.ConnectionStrings__bookscan ?? ''
   if (!url) {
+    const existing = existsSync(sqlitePath)
     throw new Error(
-      'BOOKSCAN_DB=postgres but ConnectionStrings__bookscan is empty. ' +
-      'Under Aspire the AppHost sets it; on its own, set it to the catalogue.',
+      'No Postgres connection: ConnectionStrings__bookscan is empty, and ' +
+      `BOOKSCAN_DB ${process.env.BOOKSCAN_DB ? 'is postgres' : 'defaults to postgres'}. ` +
+      (existing
+        ? `There is a SQLite catalogue at ${sqlitePath}. Refusing to start an ` +
+          'empty Postgres one beside it: set BOOKSCAN_DB=sqlite to open that ' +
+          'file, or set ConnectionStrings__bookscan to the Postgres holding the ' +
+          'catalogue. Under Aspire the AppHost sets it.'
+        : 'Under Aspire the AppHost sets it; on its own, set it to the ' +
+          'catalogue, or set BOOKSCAN_DB=sqlite to use a local file.'),
     )
   }
 
   // Host, port and database, never the credentials. This reaches /api/health,
   // and a password on a health endpoint is a password in every log that scrapes
-  // one. Stage G makes the same redaction the only thing that endpoint reports.
+  // one.
   return { db: await openPostgres(url), label: describeConnection(url) }
 }
 

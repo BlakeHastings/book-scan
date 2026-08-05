@@ -11,6 +11,7 @@
 // pins the dashboard, the OTLP endpoint and the resource service to fixed
 // ports, and a second checkout then fails to bind them. Do not add one back.
 
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -59,44 +60,79 @@ const stubbed = [
 const builder = await createBuilder();
 
 /**
- * Postgres, provisioned and idle.
+ * Postgres, and as of stage G the database the app actually opens.
  *
- * **The app is still on SQLite.** `server/index.ts` reads `BOOKSCAN_DB` and
- * defaults it to `sqlite`, and nothing here sets it, so this container is
- * started, referenced and not connected to. That separation is deliberate: the
- * AppHost change is proven on its own, before the stage that flips the default
- * (G) makes it the thing every request depends on.
+ * `server/index.ts` defaults `BOOKSCAN_DB` to `postgres`, so every request in a
+ * run started from here goes to this container. SQLite is one variable away and
+ * stays that way until stage I: `BOOKSCAN_DB=sqlite` opens
+ * `<BOOKSCAN_DATA>/books.db` exactly as before.
  *
- * Three things not done here, each one a decision rather than an omission:
+ * Three decisions, each one a decision rather than an omission:
  *
  * - **No `withHostPort`.** A fixed port is exactly what issue #28 was about,
  *   and several checkouts have to keep starting side by side. Aspire assigns
  *   one, as it does for every other endpoint in this file.
- * - **No `withDataVolume`.** A volume with a fixed name is one database shared
- *   by every worktree, which is issue #28 wearing a different hat, and a volume
- *   named per checkout is a decision about developer data the owner has not
- *   made yet (plan decision 2). Without one a scratch catalogue is ephemeral,
- *   which is a change from `web/data/books.db` persisting today, and is what
- *   the end to end suite wants anyway since it assumes an empty catalogue.
+ * - **A data volume, named per checkout.** See `volumeName` below. Plan
+ *   decision 2, settled: a seeded scratch world surviving a restart is worth
+ *   more than a clean slate every run, `web/data/books.db` persisted before
+ *   this migration and losing that would be a regression in developing here,
+ *   and Aspire's own guidance prefers a persistent lifetime for a database.
  * - **No image tag pinned, because it cannot be.** `addPostgres` exposes no
  *   `withImageTag` on the TypeScript surface, only `withHostPort`,
  *   `withDataVolume`, `withPassword` and the two admin UIs. Aspire 13.4.2 runs
  *   `postgres:18.3` here, read off `docker ps` after `aspire start`, while the
- *   test suite deliberately pins `postgres:17` (server/pgcontainer.ts) as the
- *   plan's decision 3 asks. The two therefore differ. It costs nothing while
- *   the app is on SQLite and this container is idle; it is an owner decision
- *   before stage G, which is when the app starts using this one.
+ *   test suite deliberately pins `postgres:17` (server/pgcontainer.ts). The two
+ *   differ, which is #162, and stage G makes it matter more rather than less:
+ *   the browser suite now exercises 18.3 while the unit suite exercises 17.
  *
  * The cost, stated because it is per checkout and not per machine: one
- * Postgres container for every running checkout. Five worktrees is five
- * containers.
+ * Postgres container and one volume for every running checkout. Five worktrees
+ * is five of each.
  */
-const postgres = await builder.addPostgres('postgres');
 
-// The name is the connection string name: the api resource receives it as
-// ConnectionStrings__bookscan, which is what server/index.ts reads when
-// BOOKSCAN_DB=postgres.
-const catalogue = await postgres.addDatabase('bookscan');
+/**
+ * A volume this checkout does not share with any other.
+ *
+ * A fixed name would be issue #28 wearing a different hat: every worktree
+ * writing to one database, so a scenario run in one checkout deletes what
+ * somebody was looking at in another. The checkout's own path is the thing that
+ * distinguishes them, hashed because a volume name may not contain a drive
+ * letter, a colon or a backslash. Short enough to read in `docker volume ls`
+ * and long enough not to collide.
+ *
+ * Deleting a volume by hand is how a developer gets the clean slate this no
+ * longer gives them for free: `docker volume rm <name>` with the AppHost
+ * stopped, printed below so nobody has to work out which one is theirs.
+ */
+const volumeName = `bookscan-pg-${createHash('sha256').update(here).digest('hex').slice(0, 12)}`;
+
+/**
+ * The database inside that volume, which is per run for the browser suite.
+ *
+ * A directory per run was enough while the catalogue was a file: the suite
+ * assumes an empty catalogue, and `web/data/e2e/<id>` gave it one. On Postgres
+ * that directory still isolates the photographs and isolates nothing else,
+ * because the rows are in a container whose volume now survives the run. So the
+ * run gets a database of its own by the same id, and `reset()` truncating it is
+ * a statement about this run rather than about whatever a developer has been
+ * scanning into `bookscan`.
+ *
+ * The resource is still called `bookscan` whatever the database is called, so
+ * the api still receives `ConnectionStrings__bookscan` and `server/index.ts`
+ * reads one name. Only the catalogue on the other end of it moves.
+ *
+ * `e2eRun` is already sanitised to letters, digits, dash and underscore; the
+ * dashes go too, because they would need quoting in an identifier.
+ */
+const databaseName = e2eRun ? `bookscan_${e2eRun.replace(/-/g, '_')}` : 'bookscan';
+
+const postgres = await builder
+  .addPostgres('postgres')
+  .withDataVolume({ name: volumeName });
+
+const catalogue = await postgres.addDatabase('bookscan', { databaseName });
+
+console.log(`[apphost] postgres volume ${volumeName}, database ${databaseName}`);
 
 let apiBuilder = builder
   .addNodeApp('api', './web', 'server/index.ts')
