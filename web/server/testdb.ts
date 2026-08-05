@@ -82,11 +82,26 @@ function serverUrl(): string {
   return inject('postgresUrl')
 }
 
+/**
+ * A short-lived connection for creating and dropping databases.
+ *
+ * The `error` listener is not optional. node-postgres emits `error` on the pool
+ * when an idle client fails, and an `error` event with no listener is one
+ * `EventEmitter` throws, which surfaces as the whole test file failing with
+ * every test in it passing. `PgDb` carries the same listener for the same
+ * reason.
+ */
+function adminPool(connectionString: string): pg.Pool {
+  const pool = new pg.Pool({ connectionString })
+  pool.on('error', () => {})
+  return pool
+}
+
 async function createCatalogue(): Promise<Catalogue> {
   const server = serverUrl()
   const name = `bookscan_test_${randomBytes(6).toString('hex')}`
 
-  const admin = new pg.Pool({ connectionString: server })
+  const admin = adminPool(server)
   try {
     let created = false
     for (const collation of HOSTILE_COLLATIONS) {
@@ -112,7 +127,7 @@ async function createCatalogue(): Promise<Catalogue> {
 
   const target = new URL(server)
   target.pathname = `/${name}`
-  const pool = new pg.Pool({ connectionString: target.href })
+  const pool = adminPool(target.href)
   await applySchema(pool)
 
   return { db: new PgDb(pool), name, serverUrl: server }
@@ -146,7 +161,7 @@ export async function closeTestDatabase(): Promise<void> {
   catalogue = undefined
 
   await db.close()
-  const admin = new pg.Pool({ connectionString: server })
+  const admin = adminPool(server)
   try {
     await admin.query(`DROP DATABASE IF EXISTS ${name}`)
   } catch {

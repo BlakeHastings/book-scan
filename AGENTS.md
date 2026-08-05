@@ -127,9 +127,9 @@ surfaces on somebody's shelf. `web/vitest.config.ts` runs two projects.
 The container is started by `@testcontainers/postgresql`. If you already have a
 Postgres you are willing to have scratch databases created on and dropped from,
 `BOOKSCAN_TEST_DATABASE_URL` points the harness at it and no container starts;
-that is how CI does it. Measured on this machine: about 37 seconds before,
-about 44 after, with the image already pulled. `npx vitest run --project sqlite`
-runs the half that needs nothing.
+that is how CI does it. Measured on this machine with `cd web && npm test`:
+about 37 seconds before, about 42 after, with the image already pulled.
+`npx vitest run --project sqlite` runs the half that needs nothing.
 
 ### Running it under Aspire
 

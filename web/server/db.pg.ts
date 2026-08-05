@@ -321,7 +321,27 @@ interface TxContext {
 export class PgDb implements Db {
   private readonly context = new AsyncLocalStorage<TxContext>()
 
-  constructor(private readonly pool: pg.Pool) {}
+  constructor(private readonly pool: pg.Pool) {
+    /*
+     * An idle connection can fail with nobody waiting on it: the server is
+     * restarted, a network path drops, an administrator ends the backend.
+     * node-postgres reports that by emitting `error` on the pool, and an
+     * `error` event with no listener is what `EventEmitter` **throws**, so the
+     * default behaviour is that a blip on a connection nobody was using takes
+     * the whole API process down.
+     *
+     * Not hypothetical, and it is how this was found: one run of the suite
+     * reported db.pg.test.ts as a failed file with every test in it passing,
+     * which is what an unhandled rejection outside a test looks like.
+     *
+     * Logged and swallowed. The pool discards the client and makes another,
+     * and any request that was actually using one gets its own rejection
+     * through the promise it is already awaiting.
+     */
+    pool.on('error', (error) => {
+      console.error('[db] an idle Postgres connection failed, discarding it', error)
+    })
+  }
 
   async all<Row>(sql: string, params?: Params): Promise<Row[]> {
     const result = await this.query(sql, params)

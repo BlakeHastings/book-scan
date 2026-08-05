@@ -574,11 +574,23 @@ projects. `npx vitest run --project postgres` runs the Postgres half alone.
 Verify: 302 SQLite tests green, plus roughly 71 Postgres tests. Test count rises
 to about 373 across 16 files, and AGENTS.md's number is updated in the same PR.
 
-**Measured on this branch: 801 before, 964 after, across 44 files.** The extra
-163 are the four files run a second time (142) and `db.pg.test.ts` (21). There
+**Measured on this branch: 801 before, 968 after, across 44 files.** The extra
+167 are the four files run a second time (142) and `db.pg.test.ts` (25). There
 was no number in AGENTS.md to update: it deliberately carries none, and says
-why. About 37 seconds before, about 44 after, on a machine with the image
-already pulled.
+why. About 37 seconds before, about 42 after, on a machine with the image
+already pulled. Run three times consecutively before pushing, because the
+finding below only appeared in one run out of four.
+
+**And the suite found a production bug on the way, which is the argument for
+building it.** One run reported `db.pg.test.ts` as a **failed file with every
+test in it passing**, which is what an unhandled rejection outside a test looks
+like. The cause: node-postgres emits `error` on the pool when an **idle** client
+fails, and an `error` event with no listener is one `EventEmitter` throws. So a
+Postgres restart, a dropped network path or an administrator ending a backend
+would have taken the API process down over a connection nobody was using. `PgDb`
+now logs and discards. Worth noting how close this came to shipping: it is
+invisible on a healthy server, and only a run that happened to disturb a pool
+surfaced it at all.
 
 **A near miss worth recording**, because it is the shape of mistake this stage
 invites. The first `vitest.config.ts` gave the `sqlite` project a hand-written
