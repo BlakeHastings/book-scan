@@ -34,7 +34,7 @@ import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit } from './queue'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store, type DraftBook } from './store'
-import { confidentPick } from '../shared/confidence'
+import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
   bookCover, buildPlacement, compareLocations, formatLocation, parseLocation, shelfImage,
@@ -1283,17 +1283,12 @@ export function createApp(options: CreateAppOptions): express.Express {
    * on roughly one query in ten, which is the reason confirming is not
    * optional.
    */
-  async function looksLike(input: Buffer, limit = 4) {
-    let query: string
-    try {
-      query = await coverHash(input)
-    } catch {
-      // A frame with nothing in it, or bytes that are not an image at all.
-      // Either way there is nothing to compare, and an empty shortlist is
-      // the honest answer. The caller falls through to reading the page,
-      // which is what happens when no book is recognised.
-      return []
-    }
+  async function looksLike(query: string | null, limit = 4) {
+    // A frame with nothing in it, or bytes that are not an image at all.
+    // Either way there is nothing to compare, and an empty shortlist is the
+    // honest answer. The caller falls through to reading the page, which is
+    // what happens when no book is recognised.
+    if (!query) return []
 
     const scored = (await store.hashIndex()).map((row) => ({
       row,
@@ -1324,6 +1319,49 @@ export function createApp(options: CreateAppOptions): express.Express {
         checkedOut: row.checked_out_at !== null,
         distance: d,
       }))
+  }
+
+  /**
+   * The hash of the photograph being asked about, or nothing.
+   *
+   * Taken once and handed to both comparisons. Hashing twice would be fifty
+   * wasted milliseconds, but the reason it lives here is that the books path
+   * and the queue path must be asking with the same string: two hashes of one
+   * buffer are equal today and a divergence would be invisible, which is the
+   * kind of bug this file keeps arguing against.
+   */
+  async function queryHash(input: Buffer): Promise<string | null> {
+    try {
+      return await coverHash(input)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Captures already waiting to be shelved that look like the book being held
+   * up, nearest first (#122).
+   *
+   * A different answer from `looksLike`, not a section of it, and held to a
+   * much tighter bar. `QUEUE_LIMIT` says why in full; the short version is
+   * that these are photographs compared against photographs taken in the same
+   * room, which share a background the hash can see, so two different books
+   * land as close as 16 bits apart and `MATCH_CUTOFF` would call about one
+   * pair in five a match.
+   *
+   * Nothing here writes and nothing here is acted on without a tap.
+   */
+  async function alreadyInQueue(query: string | null, limit = 3) {
+    if (!query) return []
+
+    const scored = (await queue.waiting()).map((row) => ({
+      capture: row,
+      // The front photograph only. A capture's hash is of its front, and the
+      // books path already refuses to compare hashes it cannot line up.
+      distance: distance(query, row.front_hash),
+    }))
+
+    return queueMatches(scored, limit)
   }
 
   /**
@@ -1414,7 +1452,8 @@ export function createApp(options: CreateAppOptions): express.Express {
     })
 
     if (!read.isbn13) {
-      const candidates = await looksLike(buffer)
+      const query = await queryHash(buffer)
+      const candidates = await looksLike(query)
 
       /*
        * A barcode is evidence. A cover hash is a guess.
@@ -1434,6 +1473,37 @@ export function createApp(options: CreateAppOptions): express.Express {
        */
       if (confidentPick(candidates)) {
         res.json({ outcome: 'candidates', barcodes: read.barcodes, candidates })
+        return
+      }
+
+      /*
+       * Then: is this book already sitting in the queue, scanned by somebody
+       * else and not shelved yet? (#122)
+       *
+       * Asked here rather than folded into the shortlist above because it is
+       * a different answer to a different question. A book on a shelf is a
+       * catalogued record with a title and a place; a capture is three
+       * photographs and a job somebody started. It has no catalogue id, it
+       * may have no title, and the useful thing to say about it is not "is it
+       * one of these" but "somebody has already done this, go and finish it".
+       * Folding it into one list would have to pick a title for a row that
+       * has none, and would have to present two very different cutoffs, 24
+       * and 8, as one scale of likeness.
+       *
+       * After the books, not before, and only when no book was close. A
+       * catalogued row is a settled fact and a capture is work in progress,
+       * so when both look identical the person gets the shortlist they get
+       * today rather than being sent to the queue. In practice they rarely
+       * collide: a book still in the queue is by definition not catalogued.
+       *
+       * Before the thorough barcode read, for the same reason a confident
+       * shortlist is: somebody is stood there holding the book, and this
+       * costs a hash comparison per queued capture against seconds of zbar
+       * and OCR that will find nothing on a front cover.
+       */
+      const waiting = hasCloseMatch(candidates) ? [] : await alreadyInQueue(query)
+      if (waiting.length) {
+        res.json({ outcome: 'in-queue', matches: waiting })
         return
       }
 
