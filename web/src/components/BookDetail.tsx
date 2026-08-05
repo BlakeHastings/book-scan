@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Draft, LookupResponse } from '../lib/api'
+import type { Draft, LookupResponse, Misfile } from '../lib/api'
 import type { Frame } from '../lib/gallery'
 import { type Slot } from '../lib/scanner'
 import { BookFields } from './BookFields'
@@ -60,6 +60,20 @@ interface Props {
    * the cover is the one part of a lookup a person can confirm at a glance.
    */
   catalogueCover?: string
+  /**
+   * This book's entry in the shelving review, when the catalogue and the
+   * order disagree about where it is.
+   *
+   * Null or absent for every book that is not flagged, which is nearly all of
+   * them, and nothing is drawn in that case. The judgement is the server's:
+   * this arrives from `api.misfiles`, already carrying the two facts the
+   * library row carries, rather than being worked out again here from the
+   * placement below (see findMisfile in src/lib/misfile.ts).
+   */
+  misfile?: Misfile | null
+  /** A person says they have carried the book to where the order puts it. */
+  onMisfileMoved?: () => void
+  misfileMoving?: boolean
 }
 
 /**
@@ -96,6 +110,7 @@ export function BookDetail({
   onDelete, deleting = false, shelfLabel = '', doneLabel = 'Done', placement,
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
   boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
+  misfile = null, onMisfileMoved, misfileMoving = false,
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
   // because correcting it is the whole reason it is on screen.
@@ -164,6 +179,19 @@ export function BookDetail({
             is filed next to it, and the bookcase has closed up behind it.
           </span>
         </div>
+      )}
+
+      {/* Beside the checked-out banner, and for the same reason: it is a fact
+          about where the book physically is, and the page below reads
+          differently once you know it. The two are mutually exclusive in
+          practice, since a book off the shelf holds no position to be wrong
+          about and the server excludes it from the review entirely. */}
+      {misfile && onMisfileMoved && (
+        <MisfileNotice
+          misfile={misfile}
+          moving={misfileMoving}
+          onMoved={onMisfileMoved}
+        />
       )}
 
       <div className="actions actions--top">
@@ -415,6 +443,47 @@ export function BookDetail({
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * The one thing this page was missing: that the catalogue and the order
+ * disagree about where this book is, and that a person can close it.
+ *
+ * Both places are named, the same two the library's "Needs attention" row
+ * carries, because "this book is misfiled" is not actionable on its own: you
+ * are standing in front of the bookcase and need to know which shelf to take
+ * it off and which to put it on. The placement drawing further down already
+ * says where it belongs, so this does not draw that again; what it adds is the
+ * disagreement itself.
+ *
+ * "Moved it" means somebody has physically carried the book, and it is the
+ * only control here. There is deliberately no dismiss, no ignore and no clear:
+ * the recorded location is the sole record of where the book actually is, and
+ * writing it to tidy a screen would throw that record away and leave the book
+ * lost. The list is a report, and it can only be closed by a walk to the
+ * shelf.
+ */
+export function MisfileNotice({ misfile, moving, onMoved }: {
+  misfile: Misfile
+  moving: boolean
+  onMoved: () => void
+}) {
+  return (
+    <div className="misfile">
+      <strong className="misfile__head">Needs attention</strong>
+      <span className="misfile__where">
+        Last seen on {misfile.from}. The order now puts it on{' '}
+        <strong>{misfile.to}</strong>.
+      </span>
+      <span className="misfile__hint">
+        Nothing has been changed for you. Tap "Moved it" once the book is
+        actually there.
+      </span>
+      <button className="btn btn--ghost" disabled={moving} onClick={onMoved}>
+        {moving ? '...' : 'Moved it'}
+      </button>
+    </div>
   )
 }
 

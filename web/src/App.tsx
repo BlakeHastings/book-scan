@@ -3,8 +3,9 @@ import {
   api, deviceName, draftFromBook, draftFromCapture, draftFromLookup,
   editFromDraft, emptyDraft,
   type Capture, type CheckoutOutcome, type Counts, type Draft,
-  type LookupResponse, type PlacementResponse, type QueueCounts,
+  type LookupResponse, type Misfile, type PlacementResponse, type QueueCounts,
 } from './lib/api'
+import { findMisfile, recordMoved } from './lib/misfile'
 import {
   applyFocusHints, cameraFacts, cameraFactsText, currentOrigin, describeStream,
   listLenses, openCamera, lensName, preferredLens, rememberedLens, rememberLens,
@@ -134,6 +135,15 @@ export default function App() {
   const [identified, setIdentified] = useState(false)
   const [placement, setPlacement] = useState<PlacementResponse | null>(null)
   const [placementStale, setPlacementStale] = useState(false)
+  /**
+   * This book's shelving-review entry, when the server reports one.
+   *
+   * Kept here rather than in BookDetail because BookDetail does not fetch:
+   * everything it draws arrives as a prop, the same way the placement preview
+   * beside this does.
+   */
+  const [misfile, setMisfile] = useState<Misfile | null>(null)
+  const [misfileMoving, setMisfileMoving] = useState(false)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [relookupBusy, setRelookupBusy] = useState(false)
   const [relookupError, setRelookupError] = useState('')
@@ -473,6 +483,73 @@ export default function App() {
     const timer = setTimeout(loadPlacement, 250)
     return () => clearTimeout(timer)
   }, [mode, draft.title, loadPlacement])
+
+  // -----------------------------------------------------------------------
+  // The misfile flag, for a book that is already on the shelves
+  // -----------------------------------------------------------------------
+
+  /**
+   * Ask the server whether this book is where it belongs.
+   *
+   * The same read the library makes, `api.misfiles(range)`, and then this
+   * book's row out of the answer. Deliberately not derived here by comparing
+   * the recorded location against `placement.derivedLocation`, even though
+   * both are already in hand: that comparison would flag books the real test
+   * excludes, and there is one definition of a misfile (see src/lib/misfile.ts).
+   *
+   * Only for a catalogued book. A capture still being confirmed has no
+   * recorded position for anything to disagree with.
+   */
+  const loadMisfile = useCallback(() => {
+    if (bookId === null) {
+      setMisfile(null)
+      return Promise.resolve()
+    }
+    return api.misfiles(draft.isFiction ? 'fiction' : 'nonfiction')
+      .then((review) => setMisfile(findMisfile(review, bookId)))
+      .catch((caught) => {
+        // Nothing said rather than a banner nobody can act on: an unanswered
+        // review is not evidence the book is fine, and the error already has
+        // somewhere to be shown.
+        setMisfile(null)
+        setError((caught as Error).message)
+      })
+  }, [bookId, draft.isFiction])
+
+  useEffect(() => {
+    if (mode !== 'review') {
+      setMisfile(null)
+      return
+    }
+    void loadMisfile()
+  }, [mode, loadMisfile])
+
+  /**
+   * The person says they have carried this book to where it belongs.
+   *
+   * Identical in meaning to the library's "Moved it", because it is the same
+   * statement: somebody has been to the shelf. Nothing here decides that on
+   * their behalf, and the flag is not cleared locally to make the banner go
+   * away. The review is asked again afterwards, so what the page then shows is
+   * the server's answer about the book's new location rather than this screen
+   * assuming its own write was the whole story.
+   *
+   * The library refreshes itself: ShelfView is unmounted while a book is open
+   * and loads on mount, so going back re-reads the review.
+   */
+  const confirmMisfileMoved = async () => {
+    if (!misfile) return
+    setMisfileMoving(true)
+    setError('')
+    try {
+      await recordMoved(misfile)
+      await loadMisfile()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setMisfileMoving(false)
+    }
+  }
 
   // -----------------------------------------------------------------------
   // Actions
@@ -1379,6 +1456,9 @@ export default function App() {
             boundaryMoves={placement?.strip?.boundary ?? null}
             onBoundaryMove={bookId !== null ? startBoundaryMove : undefined}
             boundaryMoving={boundaryMoving}
+            misfile={misfile}
+            onMisfileMoved={confirmMisfileMoved}
+            misfileMoving={misfileMoving}
           />
 
           {/* Only for a book still being scanned. A catalogued book came
