@@ -412,10 +412,14 @@ export function openDatabase(path: string): Database.Database {
   }
 
   // Shelf 4 is dedicated to non-fiction; fiction starts at 1A.
+  //
+  // ON CONFLICT DO NOTHING rather than INSERT OR IGNORE: the two mean the same
+  // thing here, and only one of them is spelled the same way in every dialect.
   const seed = db.prepare(
-    `INSERT OR IGNORE INTO shelf_ranges
+    `INSERT INTO shelf_ranges
        (shelf_range, start_label, start_shelf, start_area, note)
-     VALUES (?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT DO NOTHING`,
   )
   seed.run('fiction', '1A', 1, 0, 'Starts on the first bookcase')
   seed.run('nonfiction', '4A', 4, 0, 'Bookcase 4 is dedicated to non-fiction')

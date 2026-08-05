@@ -57,7 +57,12 @@ export interface ResolvedKey {
  * class has to change whether or not the driver has; doing the shape change
  * first, against a driver that cannot fail in any new way, means a caller that
  * forgets an `await` is a type error rather than something that only shows up
- * as a promise where a row was expected at runtime. The SQL is untouched.
+ * as a promise where a row was expected at runtime.
+ *
+ * The SQL underneath has since been made dialect-neutral: every statement in
+ * this file is spelled the same way in SQLite and in Postgres, so the only
+ * thing left to change when the driver does is the driver. Where a difference
+ * could not be spelled away it is called out at the statement itself.
  */
 export class Store {
   constructor(private readonly db: Database) {}
@@ -222,7 +227,10 @@ export class Store {
     // Nothing inside it awaits, so the whole insert still commits or rolls back
     // in one uninterrupted go. It becomes an async `tx` in a later stage.
     const insert = this.db.transaction(() => {
-      const result = this.db
+      // RETURNING id rather than lastInsertRowid: the id comes back from the
+      // statement that produced it, which every dialect can do, instead of from
+      // a driver-specific property of the result object.
+      const inserted = this.db
         .prepare(
           `INSERT INTO books (
              isbn13, isbn10, title, subtitle, authors, publisher, published,
@@ -238,9 +246,10 @@ export class Store {
              @author_filing, @series_name, @series_index, @title_filing,
              @sort_key, @location, @lookup_source, @front_image, @back_image,
              @edge_image, @isbn_source, @scanned_at, @shelved_at
-           )`,
+           )
+           RETURNING id`,
         )
-        .run({
+        .get({
           isbn13: isbn.isbn13 || draft.isbn13 || '',
           isbn10: isbn.isbn10 || draft.isbn10 || '',
           title: draft.title,
@@ -267,9 +276,9 @@ export class Store {
           isbn_source: draft.isbnSource ?? '',
           scanned_at: now,
           shelved_at: location ? now : null,
-        })
+        }) as { id: number }
 
-      const bookId = Number(result.lastInsertRowid)
+      const bookId = Number(inserted.id)
       const authorInsert = this.db.prepare(
         'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
       )
@@ -652,16 +661,32 @@ export class Store {
       .all() as BookRow[]
   }
 
+  /**
+   * Two dialect-neutrality details here, both of which are silent when wrong.
+   *
+   * The CASTs: COUNT and SUM are wider than an int in every real database, and
+   * a driver that refuses to narrow them hands back a string rather than lose
+   * precision. `/api/health` and every save response carry these numbers, so a
+   * total of "57" would render identically and fail every piece of arithmetic
+   * downstream. Casting says what the caller actually wants.
+   *
+   * The quoted "checkedOut": an unquoted alias is folded to a single case by
+   * some dialects and preserved verbatim by others, so the one camelCase name
+   * in this file has to say it means that. Quoting is understood everywhere.
+   */
   async counts(): Promise<{
     total: number; fiction: number; nonfiction: number; checkedOut: number
   }> {
     const row = this.db
       .prepare(
         `SELECT
-           COUNT(*)                                                   AS total,
-           SUM(CASE WHEN shelf_range = 'fiction'    THEN 1 ELSE 0 END) AS fiction,
-           SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END) AS nonfiction,
-           SUM(CASE WHEN checked_out_at IS NOT NULL THEN 1 ELSE 0 END) AS checkedOut
+           CAST(COUNT(*) AS INTEGER)                                   AS total,
+           CAST(SUM(CASE WHEN shelf_range = 'fiction'    THEN 1 ELSE 0 END)
+                AS INTEGER)                                            AS fiction,
+           CAST(SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END)
+                AS INTEGER)                                            AS nonfiction,
+           CAST(SUM(CASE WHEN checked_out_at IS NOT NULL THEN 1 ELSE 0 END)
+                AS INTEGER)                                            AS "checkedOut"
          FROM books`,
       )
       .get() as {
