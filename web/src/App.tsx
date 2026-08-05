@@ -6,6 +6,7 @@ import {
   type LookupResponse, type Misfile, type PlacementResponse, type QueueCounts,
 } from './lib/api'
 import { findMisfile, recordMoved } from './lib/misfile'
+import { putDownCapture, putDownOnPageHide, type HeldCapture } from './lib/leaveCapture'
 import {
   applyFocusHints, cameraFacts, cameraFactsText, currentOrigin, describeStream,
   listLenses, openCamera, lensName, preferredLens, rememberedLens, rememberLens,
@@ -167,12 +168,59 @@ export default function App() {
   // the page is a stack of them, so coming back to the top of the first
   // bookcase means finding your place again every time.
   const [libraryReturn, setLibraryReturn] = useState<LibraryReturnAnchor | null>(null)
+  /**
+   * What a queued capture's photographs produced: the lines OCR read off the
+   * cover, and the queue's note about why it could not settle the book.
+   *
+   * Held separately from the draft and never folded into it. It is evidence
+   * for the person filling the form in rather than a value in it (#147), and
+   * anything that put it in a field would be promoting a guess to a fact.
+   */
+  const [evidence, setEvidence] = useState({ coverText: '', note: '' })
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
   const busy = SLOTS.some((slot) => status[slot] === 'busy')
   const fullScreenCamera = mode === 'capture'
   const me = deviceName()
+
+  /*
+   * The three facts "what is in my hands" is made of, mirrored into refs.
+   *
+   * The page-away listener below is registered once and fires much later, so
+   * it cannot close over a render's values: it has to ask what is in hand at
+   * the moment somebody leaves.
+   */
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+  const captureIdRef = useRef(captureId)
+  captureIdRef.current = captureId
+  const bookIdRef = useRef(bookId)
+  bookIdRef.current = bookId
+
+  /**
+   * The capture in hand, with whatever has been typed into it that the
+   * autosave has not written yet.
+   *
+   * Null when there is no capture, and null for a catalogued book, which has
+   * its own Save and holds no claim. A capture straight off the camera is
+   * included even though nobody claimed it: releasing what you do not hold is
+   * a no-op, and the typing is worth the same either way.
+   */
+  const heldCapture = useCallback((): HeldCapture | null => {
+    const id = captureIdRef.current
+    if (id === null || bookIdRef.current !== null) return null
+    const onServer = captureOnServerRef.current
+    return {
+      id,
+      who: me,
+      edit: onServer ? editFromDraft(draftRef.current, onServer) : {},
+    }
+  }, [me])
+
+  // Every way out that is not a tap: the browser's back button, the tab
+  // closing, the phone putting the page away. See lib/leaveCapture.ts.
+  useEffect(() => putDownOnPageHide(heldCapture), [heldCapture])
 
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
@@ -613,6 +661,9 @@ export default function App() {
         const settled = draftFromCapture(capture)
         captureOnServerRef.current = settled
         setDraft(settled)
+        // The row is the fresh one, and its note may have stopped being true:
+        // "use Change ISBN" is stale advice to somebody who just did.
+        setEvidence({ coverText: capture.cover_text, note: capture.note })
         setLookup(found)
         setIdentified(Boolean(found?.found))
         if (found && !found.found) {
@@ -930,6 +981,8 @@ export default function App() {
       setCoverImage(book.cover_image ? `/api/covers/${book.cover_image}` : '')
       setCaptureId(null)
       setLookup(null)
+      // A catalogued book has no capture behind it to quote.
+      setEvidence({ coverText: '', note: '' })
       setIdentified(Boolean(book.isbn13))
       setThumbs({
         front: book.front_image ? `/api/covers/${book.front_image}` : undefined,
@@ -1006,6 +1059,10 @@ export default function App() {
     setIdentified(Boolean(loaded.title))
     setDraft(loaded)
     captureOnServerRef.current = loaded
+    // What the photographs produced, carried through to the screen where
+    // somebody has to work the book out. It is not laid over the draft: see
+    // the state's own comment, and #147.
+    setEvidence({ coverText: capture.cover_text, note: capture.note })
     setThumbs({
       front: capture.front_image ? `/api/covers/${capture.front_image}` : undefined,
       back: capture.back_image ? `/api/covers/${capture.back_image}` : undefined,
@@ -1036,22 +1093,20 @@ export default function App() {
    */
   const clearBookInHand = () => {
     endReviewSession()
-    if (captureId) {
-      const id = captureId
-      // Mark it looked at before letting go of it, then release. An empty edit
-      // states nothing and changes no field; it records that a person read this
-      // book and left it as it was, which the queue needs to tell apart from a
-      // book nobody has opened yet. It runs before the release because editing
-      // requires the claim, and it is allowed to fail: a capture that has just
-      // become a book refuses the edit, and that refusal is correct.
-      void api.updateCapture(id, me)
-        .catch(() => {})
-        .then(() => api.releaseCapture(id, me))
-        .catch(() => {})
-    }
+    /*
+     * Written down and handed back in one request; see lib/leaveCapture.ts.
+     * What goes with it is whatever the autosave has not sent yet, which on
+     * the way out is usually everything typed since the last pause, and used
+     * to be dropped. An empty one still records that a person read this book
+     * and left it as it was, which the queue needs in order to tell that
+     * apart from a book nobody has opened.
+     */
+    const held = heldCapture()
+    if (held) void putDownCapture(held)
     captureOnServerRef.current = null
     setDraft(emptyDraft)
     setLookup(null)
+    setEvidence({ coverText: '', note: '' })
     setIdentified(false)
     setShots({})
     setThumbs({})
@@ -1090,20 +1145,29 @@ export default function App() {
   }
 
   /**
-   * Return to the camera, from either the "Back to camera" button in review
-   * or the Camera tab in the header nav.
+   * Go somewhere else from the header: the Camera, Queue and Library tabs,
+   * the "Book scan" title, and the "Back to camera" button in review.
    *
-   * Whether the capture on screen survives the trip is `bookStillInHand`'s
-   * call, see `lib/cameraReturn.ts` for the reasoning (issue #62). When it is
-   * not still in hand, the capture is put down here the same way `reset`
-   * puts one down.
+   * Every one of these is a way out of the book on screen, and until #150
+   * only the Camera tab knew it. The others changed the mode and left the
+   * capture claimed by somebody who had walked away, with what they had typed
+   * still sitting in the browser. One function for all of them, so a fourth
+   * destination cannot be added without the way out coming with it, which is
+   * the same argument RETURN_TO above makes about where finishing lands you.
+   *
+   * Whether the book survives the trip is unchanged and is still
+   * `bookStillInHand`'s call, see `lib/cameraReturn.ts` (#62): a plain camera
+   * session is the one case where the book really is still in your hands.
    */
-  const backToCamera = () => {
+  const leaveFor = (next: Mode) => {
     if (!bookStillInHand(origin === 'queue', bookId)) {
       clearBookInHand()
-      setQueueReturn(null)
+      // Where in the queue listing the book sat, which is only any use to a
+      // trip that ends in the queue. Going there by the tab lands near the
+      // book just put down, the same as finishing with it does.
+      if (next !== 'queue') setQueueReturn(null)
     }
-    setMode('capture')
+    setMode(next)
   }
 
   // -----------------------------------------------------------------------
@@ -1363,7 +1427,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <h1>
-          <button className="topbar__home" onClick={() => setMode('home')}>
+          <button className="topbar__home" onClick={() => leaveFor('home')}>
             Book scan
           </button>
         </h1>
@@ -1371,16 +1435,16 @@ export default function App() {
             with room to explain themselves. */}
         {mode !== 'home' && (
         <nav>
-          <button className="tab" onClick={backToCamera}>Camera</button>
+          <button className="tab" onClick={() => leaveFor('capture')}>Camera</button>
           <button
             className={mode === 'queue' ? 'tab tab--on' : 'tab'}
-            onClick={() => setMode('queue')}
+            onClick={() => leaveFor('queue')}
           >
             Queue
           </button>
           <button
             className={mode === 'library' ? 'tab tab--on' : 'tab'}
-            onClick={() => setMode('library')}
+            onClick={() => leaveFor('library')}
           >
             Library
           </button>
@@ -1452,6 +1516,10 @@ export default function App() {
             saving={saving}
             relookupBusy={relookupBusy}
             relookupError={relookupError}
+            /* What the photographs read, shown beside the form as evidence
+               and never poured into it (#147). */
+            coverText={evidence.coverText}
+            captureNote={evidence.note}
             onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
             onRelookup={relookup}
             onClearRelookupError={() => setRelookupError('')}
@@ -1499,7 +1567,7 @@ export default function App() {
               from the library and goes back there. */}
           {bookId === null && (
             <div className="actions">
-              <button className="btn" onClick={backToCamera}>
+              <button className="btn" onClick={() => leaveFor('capture')}>
                 Back to camera
               </button>
             </div>

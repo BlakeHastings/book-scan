@@ -1646,6 +1646,39 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .misfile__hint { color: var(--muted); font-size: 13px; }
 .misfile .btn { margin-top: 4px; }
 
+/* What the photographs read, quoted next to the form rather than poured into
+   it. Deliberately does not look like a field: no box, no border on the lines
+   themselves, and a rule down the left the way a quotation is set, so that
+   nothing here can be mistaken for a value somebody has confirmed. */
+.evidence {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 0 10px 12px;
+  border-left: 3px solid var(--line);
+  font-size: 14px;
+}
+.evidence__label {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.evidence__note { margin: 0; }
+.evidence__lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+/* Set apart from the page's own prose: this is a machine quoting a
+   photograph, not the app talking. */
+.evidence__lines li { font-family: var(--mono, ui-monospace, monospace); }
+.evidence__caveat { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+
 .offshelf {
   border: 1px solid var(--warn);
   border-radius: var(--radius);

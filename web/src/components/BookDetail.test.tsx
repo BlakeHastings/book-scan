@@ -95,6 +95,85 @@ describe('BookDetail, for a book that is where it belongs', () => {
   })
 })
 
+/**
+ * A queued capture, opened to correct rather than to look at. `saved` false
+ * is the difference: it is what puts the editable fields on screen, and the
+ * fields are what the OCR text must be shown beside without getting into.
+ */
+function capture(overrides: Partial<Parameters<typeof BookDetail>[0]> = {}) {
+  return renderToStaticMarkup(
+    <BookDetail
+      draft={emptyDraft}
+      lookup={null}
+      photos={{}}
+      derivedFiling=""
+      saving={false}
+      relookupBusy={false}
+      relookupError=""
+      saved={false}
+      onChange={() => {}}
+      onRelookup={() => {}}
+      onClearRelookupError={() => {}}
+      onShelve={() => {}}
+      onSaveEdits={async () => true}
+      onDiscard={() => {}}
+      {...overrides}
+    />,
+  )
+}
+
+/*
+ * The case the whole issue is about: the photographs read something, no
+ * catalogue matched it, and so there is no title. That capture is precisely
+ * the one somebody has to work out by hand, and the reading was on the
+ * previous screen.
+ */
+describe('a queued capture with cover text and no title', () => {
+  it('shows what the cover photo read', () => {
+    const html = capture({ coverText: 'Song of Solomon\nToni Morrison' })
+    expect(html).toContain('Song of Solomon')
+    expect(html).toContain('Toni Morrison')
+  })
+
+  it('says it was read off the photograph by a machine', () => {
+    const html = capture({ coverText: 'Song of Solomon' })
+    expect(html).toContain('The cover photo reads')
+    expect(html).toContain('often wrong')
+  })
+
+  /*
+   * The point of showing it at all is undone by pre-filling it. OCR is a
+   * lossy reading of a photograph, and a guess sitting in the Title box is
+   * one save away from entering the catalogue as a confirmed value.
+   */
+  it('leaves the Title box empty rather than filling it with the reading', () => {
+    const html = capture({ coverText: 'Song of Solomon' })
+    expect(html).not.toContain('value="Song of Solomon"')
+    expect(html).toContain('Nothing here has been filled in for you')
+  })
+
+  it('offers nothing that copies the reading into a field', () => {
+    const html = capture({ coverText: 'Song of Solomon' }).toLowerCase()
+    expect(html).not.toContain('use this')
+    expect(html).not.toContain('use as title')
+  })
+
+  /*
+   * Three people work one pile and a note is how one hands the book to the
+   * next, so it belongs on the screen where the next one picks it up.
+   */
+  it('shows the note that came with it', () => {
+    const html = capture({ captureNote: 'No ISBN confirmed. Barcode is torn.' })
+    expect(html).toContain('No ISBN confirmed. Barcode is torn.')
+  })
+
+  it('quotes nothing when the photographs produced nothing', () => {
+    const html = capture()
+    expect(html).not.toContain('The cover photo reads')
+    expect(html).not.toContain('evidence')
+  })
+})
+
 /** Find a button by its label in an unrendered element tree. */
 function buttonIn(node: unknown, label: string): { onClick?: () => void } | null {
   if (!node || typeof node !== 'object') return null

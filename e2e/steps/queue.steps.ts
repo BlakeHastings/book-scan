@@ -73,6 +73,44 @@ When('I put the book down without shelving it', async ({ page }) => {
 })
 
 /**
+ * Leave the book by the header nav rather than by a button on the page.
+ *
+ * This is the way out that used to send nothing at all: no write of what had
+ * been typed, and no release, so the book stayed claimed by somebody who had
+ * walked away for the whole five minutes of the lease (#150).
+ */
+When('I leave by the {string} tab', async ({ page }, tab: string) => {
+  await page.locator('nav button.tab', { hasText: tab }).click()
+})
+
+/**
+ * Whether the queue is holding this book for somebody.
+ *
+ * Read off the row rather than off the screen, on the same reasoning as the
+ * recorded-as step below: the claim is what stalls the next person, it lives
+ * in the database, and it outlives the browser that took it. A screen-only
+ * assertion would pass on precisely the defect, which is a page that went
+ * away and left the lease running behind it.
+ */
+Then('the queued book should be held by somebody', async ({ catalogue }) => {
+  const [capture] = catalogue.captures()
+  expect(capture, 'nothing is in the queue').toBeTruthy()
+  expect(capture.claimed_by, 'nobody has claimed the book').not.toBe('')
+})
+
+/**
+ * Polled rather than read once: putting the book down is a request the page
+ * fires on its way out, so the row is freed a moment after the tap lands.
+ */
+Then('the queued book should be held by nobody', async ({ catalogue }) => {
+  await expect
+    .poll(() => catalogue.captures()[0]?.claimed_by ?? 'nothing is in the queue', {
+      message: 'the queue is still holding the book for somebody who has left',
+    })
+    .toBe('')
+})
+
+/**
  * A second person, on the same queue.
  *
  * The device name is what a claim is recorded under and what lets a browser

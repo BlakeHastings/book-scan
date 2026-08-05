@@ -52,3 +52,31 @@ Feature: Handing a queued book on to somebody else
     # And it is still only ever one book: the correction edited the capture
     # rather than starting a second one.
     And the queue should hold one book
+
+  # Opening a capture claims it, and a claim is a five minute lease. Leaving by
+  # the header used to fire nothing at all, so the book stayed with a person
+  # who had walked away and the next one was told it was being worked on by
+  # somebody who was not there (#150).
+  Scenario: Leaving by the header hands the book back
+    Given the camera is pointed at the back cover of "Dune"
+    When I open the app
+    And I start the camera
+    And I photograph the book
+    # The shutter hands the photo over in the background, so this is also the
+    # wait for it to have arrived at all.
+    Then the camera should recognise the book as "Dune"
+
+    When I go to the queue
+    And I open the queued book
+    Then the queued book should be held by somebody
+
+    When I leave by the "Queue" tab
+    Then the queued book should be held by nobody
+
+    # Which is the whole point of handing it back: the next person picks the
+    # book up straight away rather than waiting out a lease nobody is using.
+    When I come back as somebody else
+    And I go to the queue
+    And I open the queued book
+    Then the review screen should show:
+      | Title | Dune |
