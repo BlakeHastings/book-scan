@@ -17,6 +17,15 @@ name: CI
 on:
   pull_request:
 
+# `ci-scope.mjs` asks the API which files this pull request touches, and the
+# default token cannot read pull requests unless it is asked to. Without this it
+# gets `403 Forbidden`, falls back to "run everything" and quietly costs the
+# full five minutes on a README change. Measured, not guessed: run 30966770067
+# did exactly that. Kept to the two scopes actually used.
+permissions:
+  contents: read
+  pull-requests: read
+
 # A second push to a PR makes the first run irrelevant. Cancel it.
 # Confirmed cancelling rather than assumed: runs 30964083948 and 30962802311
 # both ended `cancelled` when a later push superseded them.
