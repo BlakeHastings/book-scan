@@ -67,12 +67,14 @@ jobs:
 
       # Covers the three npm trees this job installs: the app, the AppHost at
       # the repository root, and the suite. By hand rather than through
-      # setup-node's `cache: npm`, for the `restore-keys` fallback, which
-      # matters more here than in `ci.yml`: this workflow reaches the default
-      # branch only through the nightly schedule, so the shared entry every
-      # pull request reads is refreshed once a day at best. Without a fallback,
-      # any lock file change leaves pull requests reinstalling from the registry
-      # until the next nightly. See the same note in `ci.yml`.
+      # setup-node's `cache: npm`, for the `restore-keys` fallback. Worth
+      # slightly more here than in `ci.yml`, because this workflow reaches the
+      # default branch only through the nightly schedule, so the shared entry
+      # every pull request reads is refreshed once a day at best.
+      #
+      # Read the note in `ci.yml` before quoting a saving for this: the measured
+      # difference between a warm and a cold `npm ci` here is a few seconds, not
+      # a billed minute.
       - name: Cache the npm downloads
         if: steps.scope.outputs.docs_only != 'true'
         uses: actions/cache@v4

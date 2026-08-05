@@ -75,22 +75,25 @@ jobs:
       # The npm download cache, kept by hand rather than through setup-node's
       # `cache: npm`, purely so it can have `restore-keys`.
       #
-      # This is the one real consequence of dropping the push to master trigger,
-      # and it was found by looking rather than by reasoning. GitHub scopes a
-      # cache written by a pull request run to that pull request's own merge
-      # ref; only a run on the default branch writes one that every other pull
-      # request can read. The push run was what wrote this one. In
-      # `gh api repos/{owner}/{repo}/actions/caches`, the entry
-      # `node-cache-Linux-x64-npm-1dcb3a6...` on `refs/heads/master` was last
-      # read at 01:39:19 by pull request run 30967006278, which is why that
-      # run's `npm ci` took fifteen seconds.
+      # This is the one thing that turned out to depend on the push to master
+      # run, and it took looking rather than reasoning. GitHub scopes a cache
+      # written by a pull request run to that pull request's own merge ref, so
+      # only a run on the default branch writes one every pull request can read.
+      # In `gh api repos/{owner}/{repo}/actions/caches`, the entry
+      # `node-cache-Linux-x64-npm-1dcb3a6...` sits on `refs/heads/master` and was
+      # last read at 01:39:19 by pull request run 30967006278. The push run is
+      # what wrote it, and nothing writes master's scope now, so the day
+      # `web/package-lock.json` changes the exact key stops matching for good.
       #
-      # With no push run, nothing writes master's scope again, so the day
-      # `web/package-lock.json` changes the exact key stops matching and every
-      # pull request pays a cold install from then on, permanently.
-      # `restore-keys` turns that cliff into a slope: the previous cache still
-      # restores, `npm ci` fetches only what actually changed, and a read keeps
-      # the entry from being evicted.
+      # Then it was measured, and the honest number is small. `npm ci` took 15s
+      # against that shared cache (run 30967006278) and 19s with `~/.npm` empty
+      # (run 30967390466, the first run on this new key, nothing to restore).
+      # Four seconds, well inside the same billed minute. So this is not a
+      # minute saved, it is a silent dependency removed for free: `restore-keys`
+      # makes a lock file change a delta install against the previous entry, and
+      # the read keeps that entry from being evicted.
+      #
+      # Do not restate this as a billed-minute saving. It is not one.
       - name: Cache the npm downloads
         if: steps.scope.outputs.docs_only != 'true'
         uses: actions/cache@v4
