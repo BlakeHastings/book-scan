@@ -37,6 +37,14 @@ jobs:
       - name: Tests
         run: npm test
 
+      # The merge guard is the thing standing between an agent and an
+      # unreviewed commit on master, and it had no tests until it had shipped
+      # two defects. It lives at the repo root rather than under web/, so it
+      # runs from there and needs no dependencies.
+      - name: Merge guard behaves
+        working-directory: .
+        run: node scripts/guard-merge.test.mjs
+
   no-production-data:
     name: no production data committed
     runs-on: ubuntu-latest

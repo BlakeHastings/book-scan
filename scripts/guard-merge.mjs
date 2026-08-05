@@ -110,7 +110,14 @@ if (fastForwardFromRemote) process.exit(0)
 
 // A bare `git push` or a `git merge` is only dangerous depending on the branch
 // you are standing on, which the command text does not tell us.
-if (/\bgit\s+(push|merge)\b/.test(normalized)) {
+//
+// The trailing guard against `-` and word characters matters: `\bmerge\b` also
+// matches inside `git merge-base`, which is read-only plumbing, and inside
+// `git merge-tree`. Denying those blocked a command that only asked a question,
+// which is the second time this guard has been too broad about what a word is
+// (see the push-arguments comment above). Both misfires were false denials of
+// safe commands, and a guard that cries wolf gets worked around.
+if (/\bgit\s+(push|merge)(?![-\w])/.test(normalized)) {
   let branch = ''
   try {
     branch = execSync('git rev-parse --abbrev-ref HEAD', {
