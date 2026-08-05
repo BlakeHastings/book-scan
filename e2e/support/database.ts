@@ -61,6 +61,13 @@ export interface CaptureRow {
   note: string
   claimed_by: string
   book_id: number | null
+  /**
+   * Hash of the front photograph, written by the background pass after the
+   * reading. Empty until then, and empty for good on a frame the hash refused
+   * as featureless. It is what lets a book held up be recognised as one
+   * already waiting to be shelved.
+   */
+  front_hash: string
 }
 
 export interface SeparatorRow {

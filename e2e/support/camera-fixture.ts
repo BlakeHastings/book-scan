@@ -14,7 +14,7 @@ import { promisify } from 'node:util'
 import { join } from 'node:path'
 import { existsSync, statSync } from 'node:fs'
 
-import { WEB_ROOT, cameraVideoFor } from './paths.js'
+import { WEB_ROOT, cameraVideoFor, frontCameraVideoFor } from './paths.js'
 
 const run = promisify(execFile)
 
@@ -36,8 +36,21 @@ const GENERATOR = join(WEB_ROOT, 'scripts', 'e2e-video-fixture.ts')
  * silently keeps passing.
  */
 export async function ensureCameraVideo(isbn: string): Promise<string> {
-  const out = cameraVideoFor(isbn)
+  return generate(cameraVideoFor(isbn), ['back', isbn])
+}
 
+/**
+ * The same, showing a front cover instead.
+ *
+ * Same generator, same freshness rule; only the argument differs. A front
+ * carries no barcode, which is the whole reason a scenario would want it: it
+ * is the photograph that makes the app fall through to comparing covers.
+ */
+export async function ensureFrontCameraVideo(title: string, author: string): Promise<string> {
+  return generate(frontCameraVideoFor(title), ['front', title, author])
+}
+
+async function generate(out: string, args: string[]): Promise<string> {
   if (!existsSync(TSX)) {
     throw new Error(
       `${TSX} is missing. Run \`npm ci\` in web/ before the end to end suite: ` +
@@ -50,7 +63,7 @@ export async function ensureCameraVideo(isbn: string): Promise<string> {
 
   if (existsSync(out) && statSync(out).mtimeMs > newest) return out
 
-  await run(process.execPath, [TSX, GENERATOR, 'back', isbn, out], {
+  await run(process.execPath, [TSX, GENERATOR, ...args, out], {
     cwd: WEB_ROOT,
     timeout: 5 * 60 * 1000,
     windowsHide: true,
