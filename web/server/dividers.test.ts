@@ -16,13 +16,13 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Database } from 'better-sqlite3'
 import { openDatabase } from './db'
+import type { Db } from './driver'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store } from './store'
 import { libraryRows, type LibraryRow, type ShelfGroup } from '../shared/layout'
 
-let db: Database
+let db: Db
 let store: Store
 let shelves: Shelves
 
@@ -40,10 +40,18 @@ const NAMES = [
 
 const labels = async () => (await shelves.layout('fiction')).map((p) => p.label)
 
-/** Every separator as the table holds it, which is what a removal is judged on. */
+/**
+ * Every separator as the table holds it, which is what a removal is judged on.
+ *
+ * Read through the same `Db` the stores use, so this asserts against the rows
+ * the shipping driver returns rather than reaching past it to better-sqlite3.
+ */
+type SeparatorRow = { id: number; kind: string; starts_at: string; position: number }
+
 const rows = () =>
-  db.prepare('SELECT id, kind, starts_at, position FROM separators ORDER BY position ASC')
-    .all() as { id: number; kind: string; starts_at: string; position: number }[]
+  db.all<SeparatorRow>(
+    'SELECT id, kind, starts_at, position FROM separators ORDER BY position ASC',
+  )
 
 /**
  * A separator said as this file reads it: its kind, and the book it opens at.
@@ -55,7 +63,7 @@ const rows = () =>
  */
 const openers = async () => {
   const placed = await shelves.layout('fiction')
-  return [...rows()]
+  return [...(await rows())]
     .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
     .map((row) => {
       const at = placed.find((p) => p.book.sort_key === row.starts_at)
@@ -138,17 +146,18 @@ describe('removing the bookcase boundary', () => {
     await twoBookcases()
 
     const line = lineAbove(libraryRows(await shelves.groups('fiction')), '2A')
-    const doomed = rows().find((row) => row.kind === 'shelf')!
-    const survivors = rows().filter((row) => row.id !== doomed.id)
+    const doomed = (await rows()).find((row) => row.kind === 'shelf')!
+    const survivors = (await rows()).filter((row) => row.id !== doomed.id)
     const before = await shelves.layout('fiction')
 
     await shelves.remove(line.separatorId)
 
     // At the database: that row and no other, with the rest renumbered so the
     // positions stay contiguous.
-    expect(rows().map((row) => row.id)).toEqual(survivors.map((row) => row.id))
-    expect(rows().map((row) => row.starts_at)).toEqual(survivors.map((row) => row.starts_at))
-    expect(rows().map((row) => row.position)).toEqual([0, 1])
+    const after = await rows()
+    expect(after.map((row) => row.id)).toEqual(survivors.map((row) => row.id))
+    expect(after.map((row) => row.starts_at)).toEqual(survivors.map((row) => row.starts_at))
+    expect(after.map((row) => row.position)).toEqual([0, 1])
     expect(await openers()).toEqual(['area@Fay Ford', 'area@Jo Jones'])
 
     // And exactly these books changed plank. The bookcase break is gone, so
@@ -183,7 +192,7 @@ describe('removing an area boundary', () => {
     // Bookcase 2 is still bookcase 2: only the plank break went, and the two
     // boundaries left behind are renumbered from zero.
     expect(await openers()).toEqual(['shelf@Hal Hale', 'area@Jo Jones'])
-    expect(rows().map((row) => row.position)).toEqual([0, 1])
+    expect((await rows()).map((row) => row.position)).toEqual([0, 1])
     expect(line.notice).toBe('New area starts here')
     expect(await titlesOf(await shelves.movesSince('fiction', before))).toEqual([
       { title: 'Fay Ford', from: '1B', to: '1A' },
