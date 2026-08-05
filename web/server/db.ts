@@ -164,6 +164,27 @@ CREATE TABLE IF NOT EXISTS captures (
     -- Soft lease, so two people cannot work the same capture at once.
     claimed_by   TEXT    DEFAULT '',
     claimed_at   TEXT,
+    -- The same three-photos-and-a-crop arrangement books carry, and it means
+    -- exactly what it means there: separate files and separate columns, never
+    -- a replacement. The photograph is the record, a crop is derived from it,
+    -- so a bad crop costs nothing and can be redone, and nothing on this path
+    -- ever opens a photograph for writing.
+    front_crop   TEXT    DEFAULT '',
+    back_crop    TEXT    DEFAULT '',
+    edge_crop    TEXT    DEFAULT '',
+    -- Which slots have been through the detector, comma separated, whether or
+    -- not it found a book. A slot named here with an empty crop column was
+    -- looked at and declined, which is what lets the queue say "shown whole"
+    -- about that photo without saying it about every photo taken before any
+    -- of this existed. Same contract as books.cropped.
+    cropped      TEXT    DEFAULT '',
+    -- Frequency hash of the front photo, in the format imagehash.ts writes.
+    -- The same column, the same algorithm and the same format tag as
+    -- books.front_hash, so a book held up to the camera can be compared
+    -- against the queue without anything comparing across two schemes. Left
+    -- empty when the photo could not be hashed: a wrong match is worse than
+    -- no match, so this fails closed exactly as the books path does.
+    front_hash   TEXT    DEFAULT '',
     book_id      INTEGER REFERENCES books(id) ON DELETE SET NULL,
     created_at   TEXT    NOT NULL,
     processed_at TEXT
@@ -278,6 +299,11 @@ function addMissingColumns(db: Database.Database): void {
       ['edit_json', "TEXT DEFAULT ''"],
       ['edited_by', "TEXT DEFAULT ''"],
       ['edited_at', 'TEXT'],
+      ['front_crop', "TEXT DEFAULT ''"],
+      ['back_crop', "TEXT DEFAULT ''"],
+      ['edge_crop', "TEXT DEFAULT ''"],
+      ['cropped', "TEXT DEFAULT ''"],
+      ['front_hash', "TEXT DEFAULT ''"],
     ],
     separators: [
       ['starts_at', "TEXT DEFAULT ''"],

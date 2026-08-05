@@ -391,6 +391,18 @@ export function createApp(options: CreateAppOptions): express.Express {
     return shelves.groups(range)
   }
 
+  /**
+   * Reading and writing derived pictures in the cover directory.
+   *
+   * Declared here rather than beside the crop helpers below because the
+   * capture queue is built next and takes it: a `const` referenced before its
+   * declaration is a temporal dead zone error, not a hoisted function.
+   */
+  const cropIo = {
+    read: (name: string) => readFileSync(join(coverDir, name)),
+    write: (name: string, data: Buffer) => { writeFileSync(join(coverDir, name), data) },
+  }
+
   const queue = new CaptureQueue(
     db,
     (name) => {
@@ -402,6 +414,9 @@ export function createApp(options: CreateAppOptions): express.Express {
       }
     },
     { googleApiKey },
+    // So a capture gets its crops and its front hash on the same background
+    // pass that reads its photographs, with nobody waiting on either.
+    cropIo,
   )
 
   /**
@@ -608,7 +623,21 @@ export function createApp(options: CreateAppOptions): express.Express {
       return
     }
 
-    const images = [capture.front_image, capture.back_image, capture.edge_image]
+    /*
+     * The crops go with the photographs.
+     *
+     * They are files this capture caused to exist, named after photographs
+     * that are about to stop being referenced by anything, so leaving them
+     * behind fills the data directory with pictures nobody can attribute to a
+     * capture, a book or anything else. They go through the same orphan check
+     * rather than a second mechanism: a capture that became a book hands its
+     * filenames on, and the crop of a photograph a book still names is the
+     * book's crop too.
+     */
+    const images = [
+      capture.front_image, capture.back_image, capture.edge_image,
+      capture.front_crop, capture.back_crop, capture.edge_crop,
+    ]
     await queue.remove(id)
     const removed = await deleteOrphanedImages(images)
 
@@ -1217,11 +1246,6 @@ export function createApp(options: CreateAppOptions): express.Express {
     } catch {
       // Left uncropped, which is a state the views already draw.
     }
-  }
-
-  const cropIo = {
-    read: (name: string) => readFileSync(join(coverDir, name)),
-    write: (name: string, data: Buffer) => { writeFileSync(join(coverDir, name), data) },
   }
 
   /** Hash whatever images a book has, so it can be recognised by its cover. */

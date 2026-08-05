@@ -407,6 +407,10 @@ export class Store {
    * orphaned photo must check both tables, or removing a capture's copy of a
    * filename a book still uses would take the book's photo with it, and
    * there is no getting that back.
+   *
+   * Crops count on both sides. They are derived from a photograph's name, so
+   * a capture and the book it became produce the same crop filename, and the
+   * same argument applies to it as to the photograph it came from.
    */
   async imageInUse(name: string): Promise<boolean> {
     const usedByBook = this.db
@@ -421,9 +425,12 @@ export class Store {
 
     const usedByCapture = this.db
       .prepare(
-        'SELECT 1 FROM captures WHERE front_image = ? OR back_image = ? OR edge_image = ? LIMIT 1',
+        `SELECT 1 FROM captures
+          WHERE front_image = ? OR back_image = ? OR edge_image = ?
+             OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
+          LIMIT 1`,
       )
-      .get(name, name, name)
+      .get(name, name, name, name, name, name)
     return Boolean(usedByCapture)
   }
 
