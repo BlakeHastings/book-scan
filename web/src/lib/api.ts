@@ -2,6 +2,7 @@ import type {
   Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelfSlot,
   ShelvingReview,
 } from '../../shared/shelving'
+import type { FailureCounts } from '../../shared/captureFailure'
 
 /**
  * Naming boundary, recorded here because this file is the only client to
@@ -351,7 +352,17 @@ export interface CaptureEdit {
   authorFilingOverride?: string | null
 }
 
-export type QueueCounts = Record<CaptureStatus, number>
+/**
+ * How much is waiting, and what kind of wrong the failed ones are.
+ *
+ * `failed` covers three situations that need different things from a person,
+ * so the server sends the breakdown rather than leaving Home to infer one from
+ * a single total, which is what it got wrong in #148. Mirrors the server's
+ * `QueueCounts`.
+ */
+export interface QueueCounts extends Record<CaptureStatus, number> {
+  failures: FailureCounts
+}
 
 /**
  * Stable per-device name, so a claim can say who holds a capture and the same

@@ -515,6 +515,57 @@ describe('two drains at once', () => {
 })
 
 /**
+ * The breakdown Home counts from (#148).
+ *
+ * `failed` is one status over three situations, and Home used to read it as
+ * one: "9 need an ISBN by hand" when five of the nine carried a valid ISBN off
+ * a barcode. Driven through the worker rather than by writing rows by hand,
+ * because the defect was reading a reason out of a status, so a test that set
+ * the reason itself would prove nothing about what the worker actually writes.
+ */
+describe('why the failed ones failed', () => {
+  it('tells a barcode no catalogue has apart from a photo with no ISBN on it', async () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+
+    // Read cleanly off a barcode, so the number on the row is right. Nothing
+    // has it, which is a different job for a person entirely.
+    vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
+    vi.mocked(lookupIsbn).mockResolvedValue(nothingFound())
+    const uncatalogued = await running.attach(null, 'back', 'b1.jpg')
+    await running.drain()
+
+    // Nothing readable on the photographs at all. This one does need typing in.
+    vi.mocked(identify).mockResolvedValue(readNothing())
+    const blank = await running.attach(null, 'back', 'b2.jpg')
+    await running.drain()
+
+    const counts = await running.counts()
+    expect(counts.failed).toBe(2)
+    expect(counts.failures).toEqual({ noIsbn: 1, uncatalogued: 1, errored: 0 })
+
+    expect((await running.get(uncatalogued.id))!.isbn13).toBe(DUNE)
+    expect((await running.get(blank.id))!.isbn13).toBe('')
+  })
+
+  it('counts a read that threw as broken, not as a book with no ISBN', async () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockRejectedValue(new Error('decoder crashed'))
+    await running.attach(null, 'back', 'b.jpg')
+    await running.drain()
+
+    const counts = await running.counts()
+    expect(counts.failed).toBe(1)
+    expect(counts.failures).toEqual({ noIsbn: 0, uncatalogued: 0, errored: 1 })
+  })
+
+  it('reports nothing wrong when nothing has failed', async () => {
+    await add()
+    expect((await queue.counts()).failures)
+      .toEqual({ noIsbn: 0, uncatalogued: 0, errored: 0 })
+  })
+})
+
+/**
  * What the scanner is allowed to compare a photograph against (#122).
  *
  * Each exclusion here is the difference between a useful answer and a wrong

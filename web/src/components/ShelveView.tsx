@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api, type Move, type PlacementResponse } from '../lib/api'
 import {
   asking, confirm, depth, emptyCascade, pushCarry, pushFrame, repropose,
-  spreadOf, started, whereYouAre, type Proposal,
+  started, whereYouAre, type Cascade, type Proposal,
 } from '../lib/cascade'
 import { PlacementView, ShelfStrip } from './ShelfStrip'
 import type { ShelfRange } from '../../shared/shelving'
@@ -249,8 +249,6 @@ export function ShelveView({
     }
   }
 
-  const spread = spreadOf(cascade)
-
   return (
     <main className="main">
       <h2 className="pane-title">Shelve {title}</h2>
@@ -281,52 +279,7 @@ export function ShelveView({
         <PlacementView placement={placement} pending={busy || stale} />
       )}
 
-      {started(cascade) && (
-        <div className="moves">
-          {/* "Shuffle" is a lie when the only thing that moved is the book
-              still in your hand, and nothing on the bookcase was touched. */}
-          <strong>
-            {cascade.done.every((step) => step.inHand) && !cascade.stack.length
-              ? 'Where it went instead'
-              : 'Shuffle, in the order it happened'}
-          </strong>
-          {spread.length > 2 && (
-            <p className="moves__spread">{spread.join(' → ')}</p>
-          )}
-          <ol>
-            {cascade.done.map((step, i) => (
-              <li key={`done-${i}`} className={step.inHand ? 'moves__carried' : 'moves__placed'}>
-                {step.inHand ? (
-                  <>
-                    <strong>{step.title}</strong>: {step.from} was full, so it goes
-                    on to <strong>{step.to}</strong>. Nothing else moves.
-                  </>
-                ) : (
-                  <>
-                    <strong>{step.title}</strong>: end of {step.from} to start of{' '}
-                    <strong>{step.to}</strong>
-                    <span className="moves__state"> · moved and written down</span>
-                  </>
-                )}
-              </li>
-            ))}
-            {cascade.stack.map((frame, i) => (
-              <li
-                key={`open-${i}`}
-                className={i === cascade.stack.length - 1 ? 'moves__asking' : 'moves__waiting'}
-              >
-                <strong>{frame.proposal.title}</strong>: end of {frame.from} to start of{' '}
-                <strong>{frame.proposal.to}</strong>
-                <span className="moves__state">
-                  {i === cascade.stack.length - 1
-                    ? ' · in your hand now'
-                    : ' · still to check'}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
+      <MovesSoFar cascade={cascade} />
 
       <div className="shelve__ask">
         {pending ? (
@@ -443,6 +396,67 @@ export function ShelveView({
         </button>
       </div>
     </main>
+  )
+}
+
+/**
+ * Everything that has happened to the shelves so far, one line per move.
+ *
+ * There used to be a plank-to-plank summary above this list, `1B → 2A → 1A`
+ * under a heading promising the order it happened. It is gone (#149): see
+ * `cascade.ts` for why no single arrow line can be true of a cascade, and note
+ * that it was wrong in front of somebody holding the books while the correct
+ * version sat directly underneath it.
+ *
+ * Split out of `ShelveView` so what it draws can be read by a test. The pane
+ * around it owns the network and the stack, and a false statement about the
+ * shuffle had no way of being caught while it was welded to those.
+ */
+export function MovesSoFar({ cascade }: { cascade: Cascade }) {
+  if (!started(cascade)) return null
+
+  return (
+    <div className="moves">
+      {/* "Shuffle" is a lie when the only thing that moved is the book
+          still in your hand, and nothing on the bookcase was touched. */}
+      <strong>
+        {cascade.done.every((step) => step.inHand) && !cascade.stack.length
+          ? 'Where it went instead'
+          : 'Shuffle, in the order it happened'}
+      </strong>
+      <ol>
+        {cascade.done.map((step, i) => (
+          <li key={`done-${i}`} className={step.inHand ? 'moves__carried' : 'moves__placed'}>
+            {step.inHand ? (
+              <>
+                <strong>{step.title}</strong>: {step.from} was full, so it goes
+                on to <strong>{step.to}</strong>. Nothing else moves.
+              </>
+            ) : (
+              <>
+                <strong>{step.title}</strong>: end of {step.from} to start of{' '}
+                <strong>{step.to}</strong>
+                <span className="moves__state"> · moved and written down</span>
+              </>
+            )}
+          </li>
+        ))}
+        {cascade.stack.map((frame, i) => (
+          <li
+            key={`open-${i}`}
+            className={i === cascade.stack.length - 1 ? 'moves__asking' : 'moves__waiting'}
+          >
+            <strong>{frame.proposal.title}</strong>: end of {frame.from} to start of{' '}
+            <strong>{frame.proposal.to}</strong>
+            <span className="moves__state">
+              {i === cascade.stack.length - 1
+                ? ' · in your hand now'
+                : ' · still to check'}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }
 

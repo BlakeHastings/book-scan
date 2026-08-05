@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import {
   api, deviceName, draftFromCapture, editsOn,
-  type Capture, type QueueCounts,
+  type Capture, type CaptureStatus, type QueueCounts,
 } from '../lib/api'
 import { newestFirst } from '../lib/queueOrder'
 import { filterQueue } from '../lib/queueSearch'
@@ -14,13 +14,33 @@ import {
   beginSwipe, moveSwipe, swipeArmed, type Swipe,
 } from '../lib/swipe'
 import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
+import { FAILURE_LABEL, failureOf } from '../../shared/captureFailure'
 import { coverUrl } from './PlacementCard'
 
-const STATUS_LABEL: Record<string, string> = {
+/**
+ * The three statuses that say all there is to say on their own. `failed` is
+ * deliberately absent: it needs the row's own facts to mean anything.
+ */
+const STATUS_LABEL: Record<Exclude<CaptureStatus, 'failed'>, string> = {
   pending: 'reading photos',
   ready: 'identified',
-  failed: 'needs you',
   done: 'shelved',
+}
+
+/**
+ * What this row says is wrong with the book.
+ *
+ * `failed` used to read "needs you", which was true and useless: the same
+ * three words whether the photographs yielded no ISBN, yielded a good one no
+ * catalogue has, or broke the read outright. Those need different things from
+ * the person holding the book, so the row names which one, out of the same
+ * helper Home counts with (#148). One rule, so the row and the first screen
+ * cannot say different things about the same capture again.
+ */
+export function statusLine(capture: Capture): string {
+  return capture.status === 'failed'
+    ? FAILURE_LABEL[failureOf(capture)]
+    : STATUS_LABEL[capture.status]
 }
 
 /**
@@ -181,7 +201,7 @@ export function QueueRow({
                       while a capture was being read. With the button gone this
                       line is the only thing left to say why tapping does
                       nothing, so it says it in words rather than in dots. */}
-                  {STATUS_LABEL[capture.status]}{shelvable ? '' : '...'}
+                  {statusLine(capture)}{shelvable ? '' : '...'}
                   {heldByOther ? ` · with ${capture.claimed_by}` : ''}
                   {looked ? ` · ${looked}` : ''}
                 </span>

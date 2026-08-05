@@ -16,7 +16,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
-import { canShelve, photoCount, QueueRow, type RowGesture } from './QueuePane'
+import { canShelve, photoCount, QueueRow, statusLine, type RowGesture } from './QueuePane'
 import type { Capture, CaptureStatus } from '../lib/api'
 
 const gesture: RowGesture = {
@@ -177,6 +177,49 @@ describe('what a row says', () => {
 
   it('offers what the gesture is going to do before the finger lifts', () => {
     expect(renderToStaticMarkup(row().tree)).toContain('Discard')
+  })
+})
+
+/**
+ * #148. "needs you" was the same three words for three different jobs, and
+ * Home guessed a fourth thing from the same status. The row and Home now read
+ * one helper, so they cannot say different things about the same capture.
+ */
+describe('what a failed row says is wrong', () => {
+  const failed = (over: Partial<Capture>) =>
+    statusLine(capture({ status: 'failed', ...over }))
+
+  it('asks for an ISBN only when there is no ISBN', () => {
+    expect(failed({ note: 'No ISBN could be read from these photos.' }))
+      .toBe('needs an ISBN')
+  })
+
+  it('says the catalogue is the problem when the ISBN itself read fine', () => {
+    expect(failed({
+      isbn13: '9781234567897',
+      note: 'Barcode on the back reads 9781234567897, but no catalogue has it.',
+    })).toBe('no catalogue has its ISBN')
+  })
+
+  it('says the read broke when it broke', () => {
+    expect(failed({ note: 'Could not process these photos: out of memory' }))
+      .toBe('could not be read')
+  })
+
+  it('leaves every other status alone', () => {
+    expect(statusLine(capture({ status: 'pending' }))).toBe('reading photos')
+    expect(statusLine(capture({ status: 'ready' }))).toBe('identified')
+    expect(statusLine(capture({ status: 'done' }))).toBe('shelved')
+  })
+
+  it('draws it on the row rather than only in the helper', () => {
+    const html = renderToStaticMarkup(row({
+      status: 'failed',
+      isbn13: '9781234567897',
+      note: 'Barcode on the back reads 9781234567897, but no catalogue has it.',
+    }).tree)
+    expect(html).toContain('no catalogue has its ISBN')
+    expect(html).not.toContain('needs you')
   })
 })
 

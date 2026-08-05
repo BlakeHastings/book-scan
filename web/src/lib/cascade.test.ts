@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   asking, confirm, depth, emptyCascade, pushCarry, pushFrame, repropose,
-  spreadOf, started, whereYouAre, type Cascade, type Done, type Frame,
+  started, whereYouAre, type Cascade, type Done, type Frame,
 } from './cascade'
 
 const frame = (
@@ -167,8 +167,46 @@ describe('saying where you are', () => {
       'Placing The Dispossessed, 1 book deep. Then back to Dune.',
     )
   })
+})
 
-  it('lists the planks in the order the shuffle touched them', () => {
-    expect(spreadOf(three())).toEqual(['1A', '1B', '1C', '1D'])
+/**
+ * #149. There was a summary line above the list reading `1B → 2A → 1A` for a
+ * shuffle that ran `1A → 1B → 2A`, built by deduplicating the from and to of
+ * every step. It is gone, and what is tested here is the record it was drawn
+ * from: every move stays in the list, in the order it was carried out, however
+ * many times a plank turns up.
+ */
+describe('a shuffle that comes back to a plank it already used', () => {
+  /*
+   * The shape from the issue, and not a contrived one. 1A is full, so its last
+   * book goes to 1B. 1B will not take it, so 1B's last book goes to 2A. That
+   * one is carried, the question comes back to 1A, and 1B is *still* too
+   * tight, so another book goes 1B to 2A. Then 1B takes the book from 1A and
+   * the chain closes. Three moves over three planks, and the pair 1B to 2A is
+   * walked twice.
+   */
+  const revisiting = (): Cascade => {
+    let cascade = pushFrame(emptyCascade, frame('The Dispossessed', '1A', '1B'))
+    cascade = pushFrame(cascade, frame('Snow Crash', '1B', '2A', 2))
+    cascade = settle(cascade)
+    // The same push the first no made, one level up, exactly as #110 has it.
+    cascade = pushFrame(cascade, frame('The Book Thief', '1B', '2A', 3))
+    cascade = settle(cascade)
+    return settle(cascade)
+  }
+
+  it('keeps every move, in the order the books were actually carried', () => {
+    expect(revisiting().done.map((step) => `${step.from} to ${step.to}`))
+      .toEqual(['1B to 2A', '1B to 2A', '1A to 1B'])
+  })
+
+  it('does not collapse two moves that share a plank into one', () => {
+    // Two different books off 1B, and the person carried both. The summary
+    // deduplicated planks and so could only ever show one of them, which is
+    // the whole defect.
+    const done = revisiting().done
+    expect(done).toHaveLength(3)
+    expect(done.map((step) => step.title))
+      .toEqual(['Snow Crash', 'The Book Thief', 'The Dispossessed'])
   })
 })

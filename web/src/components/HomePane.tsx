@@ -1,3 +1,4 @@
+import { failureLines } from '../../shared/captureFailure'
 import type { Counts, QueueCounts } from '../lib/api'
 
 interface Props {
@@ -28,6 +29,14 @@ export function HomePane({
   counts, queue, onAdd, onScan, onLibrary, onQueue,
 }: Props) {
   const waiting = queue ? queue.pending + queue.ready + queue.failed : 0
+  /*
+   * The failed ones, said one kind at a time (#148). This used to be a single
+   * sentence off `queue.failed` telling people to type in an ISBN, which was
+   * wrong for every capture whose barcode read perfectly well and whose real
+   * problem was that no catalogue has the number. Home is where the work gets
+   * sorted, so getting it wrong here mis-sorts it before anybody starts.
+   */
+  const failures = queue ? failureLines(queue.failures) : []
 
   return (
     <main className="main">
@@ -62,7 +71,7 @@ export function HomePane({
           <span className="home__queue-body">
             {queue?.ready ? `${queue.ready} ready to confirm. ` : ''}
             {queue?.pending ? `${queue.pending} still reading. ` : ''}
-            {queue?.failed ? `${queue.failed} need an ISBN by hand.` : ''}
+            {failures.join(' ')}
           </span>
         </button>
       )}

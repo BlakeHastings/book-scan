@@ -174,11 +174,25 @@ export function whereYouAre(cascade: Cascade, inHand: string): string {
     `then ${inHand}.`
 }
 
-/** The planks this shuffle has touched, in the order it touched them. */
-export function spreadOf(cascade: Cascade): string[] {
-  const planks = [
-    ...cascade.done.flatMap((step) => [step.from, step.to]),
-    ...cascade.stack.flatMap((frame) => [frame.from, frame.proposal.to]),
-  ]
-  return [...new Set(planks)]
-}
+/*
+ * There used to be a `spreadOf` here, drawn above the list as `1B → 2A → 1A`
+ * under the heading "Shuffle, in the order it happened". It is gone rather
+ * than fixed (#149), because there is no one thing it could have said.
+ *
+ * A cascade has two true orders and they are not the same. The order the
+ * person carried books is the order `done` is in, deepest first: they empty
+ * 1B on to 2A before they can empty 1A on to 1B. The order the displacement
+ * propagated is the reverse of that, 1A to 1B to 2A. An arrow between two
+ * plank names asserts one of them and cannot say which, so two people read the
+ * same line and disagree about what happened, which is how the summary and the
+ * list came to contradict each other in front of somebody holding the books.
+ *
+ * Deduplicating made it a third thing that is neither. A plank can legitimately
+ * be revisited (a book off 1A can come back to 1A later in the same unwind), so
+ * collapsing repeats invents a route nobody walked.
+ *
+ * The list underneath carries every fact the line did and names the book with
+ * each move, which is what a person at the shelves is matching against. A
+ * second rendering of the same record has to be kept in step with it forever,
+ * and this is what it cost the one time it was not.
+ */

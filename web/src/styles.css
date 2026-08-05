@@ -1611,16 +1611,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   color: var(--accent);
 }
 
-/* How far the shimmy has spread, which is the thing that is hard to hold in
-   your head once it is more than one shelf. */
-.moves__spread {
-  margin: 6px 0 0;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  color: var(--accent);
-}
-
 /* --- Off the shelf ----------------------------------------------------- */
 
 /* Stated where the book itself is, because every other reading of the page

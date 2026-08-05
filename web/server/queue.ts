@@ -18,6 +18,9 @@ import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
 import { deriveCapture, type DerivableCapture } from './capturecrop'
 import type { CropIo, CropSlot } from './crop'
 import { resolveIsbnPair } from '../shared/isbn'
+import {
+  countFailures, PROCESSING_ERROR_NOTE, type FailureCounts,
+} from '../shared/captureFailure'
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -25,6 +28,17 @@ export type Slot = 'front' | 'back' | 'edge'
 const SLOT_ORDER: Slot[] = ['back', 'front', 'edge']
 
 export type CaptureStatus = 'pending' | 'ready' | 'failed' | 'done'
+
+/**
+ * How much is waiting, and what kind of wrong the failed ones are.
+ *
+ * The status totals are what the queue badge counts. `failures` is there
+ * because `failed` on its own does not say what to do about a book, and Home
+ * used to guess (#148).
+ */
+export interface QueueCounts extends Record<CaptureStatus, number> {
+  failures: FailureCounts
+}
 
 export interface CaptureRow {
   id: number
@@ -250,15 +264,29 @@ export class CaptureQueue {
    * The CAST is the same point Store.counts makes: an uncast COUNT is wider
    * than an int, and a driver that will not narrow it hands back a string. This
    * one reaches /api/health and the queue badge.
+   *
+   * `failures` breaks the `failed` total into the three things it can mean
+   * (#148). Counted in TypeScript over the failed rows rather than in SQL,
+   * because the rule is `failureOf` and there must not be a second copy of it
+   * written in SQL for Home while the queue row uses the first. Only failed
+   * rows are read, which is the short end of the table: `done` never joins it.
    */
-  async counts(): Promise<Record<CaptureStatus, number>> {
+  async counts(): Promise<QueueCounts> {
     const rows = await this.db.all<{ status: CaptureStatus; n: number }>(
       `SELECT status, CAST(COUNT(*) AS INTEGER) AS n
          FROM captures GROUP BY status`,
     )
 
-    const counts: Record<CaptureStatus, number> = {
-      pending: 0, ready: 0, failed: 0, done: 0,
+    const counts: QueueCounts = {
+      pending: 0,
+      ready: 0,
+      failed: 0,
+      done: 0,
+      failures: countFailures(
+        await this.db.all<{ isbn13: string; note: string }>(
+          "SELECT isbn13, note FROM captures WHERE status = 'failed'",
+        ),
+      ),
     }
     for (const row of rows) counts[row.status] = row.n
     return counts
@@ -784,7 +812,10 @@ export class CaptureQueue {
           WHERE id = ?`,
         [
           [...analysed].join(','),
-          `Could not process these photos: ${(error as Error).message}`,
+          // The prefix is the only record that this pass threw rather than
+          // finished, which is what tells a broken read apart from a book no
+          // catalogue has. See `failureOf`.
+          `${PROCESSING_ERROR_NOTE} ${(error as Error).message}`,
           new Date().toISOString(),
           capture.id,
         ],
