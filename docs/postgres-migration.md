@@ -111,8 +111,16 @@ the only variable.
 ## 3. The stages
 
 Each stage is one pull request, leaves `master` working, and is verified by
-`npm run typecheck` plus `npm test` reporting **302 passing across 16 files**
-unless the stage says otherwise.
+`npm run typecheck` plus `npm test` reporting the same number of passing tests
+it reported before the stage, or more, unless the stage says otherwise.
+
+Every count in this document was measured on 2026-08-03 and every one of them
+is now wrong: the suite was 302 tests across 16 files then and was 770 across
+38 immediately before stage D. They are left as written because the ratios are
+what the reasoning rests on and those have held, but **take a fresh count at
+the start of your own stage rather than believing one of these.** The
+proportion that touches a database has not moved much, which is the part any of
+this depended on.
 
 ### Stage A. Make async route handlers safe (tiny, no database change)
 
@@ -198,7 +206,8 @@ exists, which is the point.
 | `INSERT OR IGNORE` (db.ts seed) | `ON CONFLICT DO NOTHING` | both accept |
 | `result.lastInsertRowid`, 3 sites | `INSERT ... RETURNING id` | SQLite 3.35+, `better-sqlite3` 11 supports it via `.get()` |
 | `?1` repeated placeholder | gone | removed in Stage B |
-| `COUNT(*) AS n`, `SUM(CASE ...)` | `COUNT(*)::int`, `SUM(...)::int` | see risk 3 |
+| `COUNT(*) AS n`, `SUM(CASE ...)` | `CAST(... AS INTEGER)` | see risk 3, and the correction below |
+| `AS checkedOut`, unquoted | `AS "checkedOut"` | found while doing it, see below |
 | `@name` / `:name` params | keep, translate in the driver layer | see below |
 | `db.pragma(...)` | driver-layer concern | Stage E |
 
@@ -218,7 +227,23 @@ character, asserted in the exact order the shelving model requires. It passes on
 SQLite today. It must pass on Postgres in Stage F, and it will not unless the
 columns are declared `COLLATE "C"`.
 
-Verify: 302 green plus the new ordering test.
+**Two corrections from doing it.** Both are the same mistake, which is worth
+naming: this stage runs on SQLite, so a "dialect-neutral" spelling that only
+Postgres understands fails the suite immediately, and one that only SQLite
+understands passes it and fails in stage F instead.
+
+- `::int` is Postgres-only syntax. SQLite cannot parse it, so the table above
+  as originally written would not have run at all. `CAST(x AS INTEGER)` is
+  standard, means the same thing to both, and is what landed.
+- Unquoted identifiers are folded to lower case by Postgres and preserved
+  verbatim by SQLite. `Store.counts` aliased a column `AS checkedOut` and read
+  `row.checkedOut`, which would have come back as `checkedout` and read as
+  `undefined`, silently, on a health endpoint. Quoting the alias is understood
+  by both. This is the only camelCase alias in the codebase; it is worth
+  re-grepping before adding one.
+
+Verify: the suite green, plus the new ordering test. Measured on this branch:
+770 before, 777 after, and the browser suite green at 20.
 
 ### Stage E. A driver interface, still on SQLite
 
@@ -236,6 +261,14 @@ interface Db {
 
 - `SqliteDb` implements it over `better-sqlite3`, including the `@name`
   translation and the `pragma` setup.
+- **The translator has three styles to handle, not one.** Stage D left the SQL
+  as it found it, per the instruction above, and what it found is `?`
+  positional (most statements), `@name` (the two big writes, `attach`, `claim`,
+  `edit` and the worker's settle) and `:name` (`findByIsbn`, `missingCovers`).
+  `CaptureQueue.list` also builds its `IN (?, ?, ...)` list at run time from the
+  number of statuses asked for, so the translator sees a statement whose
+  placeholder count varies per call. None of that is hard; all of it is easy to
+  discover late.
 - `Store`, `Shelves` and `CaptureQueue` take `Db` instead of
   `better-sqlite3.Database`.
 - `tx` must nest: `addBook` opens a transaction and a test harness may already
@@ -659,7 +692,22 @@ unnoticed for months.
   article and an accented character. Confirm during Stage F that removing
   `COLLATE "C"` makes it fail. **A test that has only ever passed proves
   nothing**, which is the rule this repository already states about regression
-  tests.
+  tests. Done: `store.test.ts`, "text ordering, which every shelf depends on".
+  The discriminating pair is `Smith, Zoe` against `Smithers, Ed`, and the
+  fixture was checked against a separator-ignoring comparison rather than only
+  a passing one.
+- **Do not spot-check the collation with `Intl.Collator`.** It was tried, and
+  `en-US` there orders this fixture identically to byte order, because CLDR
+  treats a space as significant at the first pass. A glibc `en_US.utf8`
+  cluster, which is what a managed Postgres is likely to hand you, does not: it
+  reorders the fixture. The two disagree, so agreement with Node's collator is
+  not evidence of anything and reads exactly like proof.
+- Two characters make it into `sort_key` that are worth knowing about before
+  choosing a column type: the unit separator `\x1f` that joins the components,
+  and the `.` in the padded series index. Neither is a problem for `text`, and
+  `\x1f` is precisely the sort of character a collation is entitled to treat as
+  ignorable, which is why the fixture pins the character set as well as the
+  order.
 - In the Stage H rehearsal, compare `SELECT id FROM books ORDER BY sort_key` as
   an ordered list between the SQLite snapshot and the migrated Postgres, on the
   real 57 books with the real author names.
