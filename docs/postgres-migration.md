@@ -1,7 +1,11 @@
 # SQLite to Postgres: a staged migration plan
 
-Status: planned, not started. Decisions below were settled by the owner on
-2026-08-03 and should not be relitigated without a reason.
+Status: **stages A to E have landed** (#44, #45, #55, #142, #144). The catalogue
+is still on SQLite and nothing has touched the live data. Progress is tracked on
+#140; this document is the authority on what each stage is.
+
+Decisions below were settled by the owner on 2026-08-03 and should not be
+relitigated without a reason.
 
 - **Why**: the app needs to be hostable with multiple users, which SQLite does
   not serve. Postgres in a container locally via the Aspire AppHost, managed
@@ -77,6 +81,13 @@ The last two rows are the good news and they shape everything below. Two thirds
 of the test suite and two thirds of the server never see a database. The blast
 radius is `db.ts`, `store.ts`, `shelves.ts`, `queue.ts`, the route layer in
 `index.ts`, four test files, `rehash-covers.ts`, and `e2e/support/database.ts`.
+
+Two rows are not merely stale now, they describe a shape that no longer exists.
+**`index.ts` has no SQL at all**: stage B moved `deleteOrphanedImages` onto
+`Store.imageInUse`, and after stage E `index.ts` names no database type either,
+only `openDatabase` and the `Db` it returns. The other place SQL turned up
+during the work is `web/scripts/seed-world.ts`, which was not on this list and
+inserts captures directly; it goes through `Db` now like everything else.
 
 ---
 
@@ -215,10 +226,20 @@ exists, which is the point.
 Rewriting the 27-column insert in `addBook` and the 20-column update in
 `updateBook` into `$1..$27` by hand is exactly the kind of change where a
 transposed pair of columns writes an author into a publisher field and no test
-notices. Do not do it. Write a 30-line translator in the driver layer that takes
+notices. Do not do it. Write a translator in the driver layer that takes
 `@name` placeholders plus an object and emits `$n` plus an array. The SQL
 strings then survive the migration byte for byte, and the diff on the two
 riskiest statements in the codebase is zero.
+
+**Correction from stage E, which wrote it: "30-line" was wrong**, and wrong in
+the direction that matters. Substituting placeholders is 30 lines. Not
+substituting them inside string literals, quoted identifiers, `--` comments and
+`/* */` comments is the rest, and it is not optional here: the statements in
+this repository carry explanatory `--` comments containing apostrophes
+("the row's own columns" in `CaptureQueue.edit`) and colons, so a scanner that
+took either for SQL loses track of where the literals end. It landed at about
+120 lines with a test file of its own, and finding this late would have been
+finding it as a corrupted statement rather than as an estimate being off.
 
 **On collation, which is the important one.** See risk 1. Nothing changes in
 this stage, but this is where the fixture test gets written: a set of sort keys
@@ -247,20 +268,32 @@ Verify: the suite green, plus the new ordering test. Measured on this branch:
 
 ### Stage E. A driver interface, still on SQLite
 
+**Done.** What follows is what the stage said to do, with what it turned out to
+be written underneath each point.
+
 Introduce the narrowest interface the three stores actually need:
 
 ```ts
+type Params = readonly unknown[] | Readonly<Record<string, unknown>>
+
 interface Db {
-  all<T>(sql: string, params?: unknown): Promise<T[]>
-  get<T>(sql: string, params?: unknown): Promise<T | undefined>
-  run(sql: string, params?: unknown): Promise<{ changes: number }>
+  all<Row>(sql: string, params?: Params): Promise<Row[]>
+  get<Row>(sql: string, params?: Params): Promise<Row | undefined>
+  run(sql: string, params?: Params): Promise<{ changes: number }>
   tx<T>(work: (db: Db) => Promise<T>): Promise<T>
   close(): Promise<void>
 }
 ```
 
+It lives in `web/server/driver.ts` with the translator, and nothing in that file
+knows what a driver is, so stage F is a new file rather than an edit to it.
+
 - `SqliteDb` implements it over `better-sqlite3`, including the `@name`
-  translation and the `pragma` setup.
+  translation and the `pragma` setup. **The pragmas did not move.** They run
+  against the raw handle in `openDatabase` before the schema exists, alongside
+  `addMissingColumns` and `migrateSeparators`, which are SQLite-only and are not
+  being ported anyway. `openDatabase` returns a `Db`, and everything
+  dialect-specific is on the far side of it.
 - **The translator has three styles to handle, not one.** Stage D left the SQL
   as it found it, per the instruction above, and what it found is `?`
   positional (most statements), `@name` (the two big writes, `attach`, `claim`,
@@ -269,14 +302,76 @@ interface Db {
   number of statuses asked for, so the translator sees a statement whose
   placeholder count varies per call. None of that is hard; all of it is easy to
   discover late.
+- **SQLite goes through the translator too**, even though `better-sqlite3`
+  understands all three styles itself and needs no translation. That is the
+  whole reason stage F is cheap: the translation is exercised by every statement
+  the existing suite runs, on the database that already works, instead of being
+  written blind and first run against the driver nobody has tried. Stage F
+  changes one argument, from `anonymous` to `numbered`.
 - `Store`, `Shelves` and `CaptureQueue` take `Db` instead of
   `better-sqlite3.Database`.
-- `tx` must nest: `addBook` opens a transaction and a test harness may already
-  be inside one. Implement nesting with `SAVEPOINT` in both drivers.
+- `tx` must nest. **The caller that needs it is not the one this said it was:**
+  `Shelves.moveAcrossBoundary` opens a transaction and calls `remove`, which
+  opens one of its own, and it does it through the handle the class holds rather
+  than the one `tx` hands its work. Nesting therefore has to be detected per
+  async context rather than per call, or an unrelated request's transaction gets
+  nested into an open one. Implemented with `SAVEPOINT` and an
+  `AsyncLocalStorage`; stage F needs the same two.
+- **`tx` also has to hold the connection.** `better-sqlite3` handed
+  `db.transaction` a synchronous closure, so nothing could interleave with a
+  transaction's statements. An async `tx` yields at every `await`, and a
+  statement from another request would land inside a transaction that may then
+  roll back. `SqliteDb` serialises the connection so it cannot. See the
+  correction to risk 3 below: this hazard arrives here, not in stage F.
 - After this stage, `better-sqlite3` is imported in exactly **one** production
-  file. `grep -rn better-sqlite3 web/server | wc -l` becomes the verification.
+  file, `db.ts`. The plan made `grep -rn better-sqlite3 web/server | wc -l` the
+  verification; it is a test as well, in `driver.test.ts`, because a grep only
+  says so on the day somebody runs it. Note that the grep as written counts the
+  comments that mention the package, so match the import rather than the name.
 
-Verify: 302 green, unchanged.
+Verify: the suite green and no test expectation changed. Measured on this
+branch: 777 before, 801 after, the extra 24 being `driver.test.ts`.
+
+Four test files changed and none of them changed an assertion. They name the
+type of the handle they open, and three of them run setup SQL through it; the
+SQL is byte for byte what it was and only the spelling of the call moved, from
+`prepare(sql).run(a, b)` to `run(sql, [a, b])`.
+
+#### The parameters with nothing to take a type from
+
+Stage D found several parameters leaning on SQLite's willingness to infer a type
+from the value it was handed, and left them here. A database that fixes
+parameter types when it parses the statement has no column and no literal to
+look at in these, and refuses the statement rather than guessing.
+
+All of them now carry an explicit `CAST`, which is identity on SQLite and is
+therefore the only part of this that stage E can actually demonstrate:
+
+| Where | Was | Now |
+| --- | --- | --- |
+| `Store.updateBook` | `NULLIF(@location, '')` | `NULLIF(CAST(@location AS TEXT), '')` |
+| `Store.missingCovers` | `:retry = 1` | `CAST(:retry AS INTEGER) = 1` |
+| `CaptureQueue.edit` | `@resolved = 1` | `CAST(@resolved AS INTEGER) = 1` |
+| `CaptureQueue.process`, the settle | `@statedTitle != ''` | `CAST(@statedTitle AS TEXT) != ''` |
+
+**The fourth is new**: stage D's list had three, and the worker's settle has the
+same shape as the `edit` one, in the same file, and was missed. Assume there are
+more of this family than anybody has listed rather than that the list is now
+complete.
+
+**Two warnings for stage F, which is the first stage that can check any of
+this.**
+
+- None of the above is verified against Postgres. It cannot be: stage E has no
+  Postgres by design. The casts are reasoning about a database nobody here has
+  run, which is exactly the kind of claim AGENTS.md says not to write without
+  the command that demonstrates it. Treat them as *probably right and untested*,
+  and run each of these four statements against a real server early.
+- One shape was deliberately left alone: `CaptureQueue.attach` builds
+  `',' || @slot || ','`, a parameter concatenated with string literals. Whether
+  Postgres resolves that to `text` or refuses it is a question about its type
+  resolution rules, and guessing at it here would have added an unverifiable
+  change to three verifiable ones. Check it.
 
 ### Stage F. Postgres exists but is not the default
 
@@ -321,6 +416,14 @@ is proven separately from the code change.
 **F2, the driver and the schema.** `web/server/db.pg.ts` with the Postgres DDL
 and a `PgDb implements Db` over `pg`. Selection by environment:
 `BOOKSCAN_DB=sqlite|postgres`, defaulting to `sqlite`.
+
+`Db` and the placeholder translator are already in `web/server/driver.ts` and
+are not per-dialect: `PgDb` calls the same `bindParams` with `numbered` instead
+of `anonymous` and gets `$1..$n` plus the values in order. It does need its own
+`tx`, with the same two properties stage E's has and for the same reasons:
+`SAVEPOINT` nesting keyed on async context rather than on a counter, and one
+connection held for the length of a transaction rather than taken from a pool
+per statement.
 
 Schema translation, deliberately literal. **Every column keeps the type that
 produces the same JavaScript value it produces today**, because the API contract
@@ -748,7 +851,26 @@ point inside `addBook` between reading the neighbours and writing the row, so
 two concurrent scans genuinely can interleave and both be told to go in the same
 gap. The e2e suite is single-user and will not catch it.
 
-Fix in Stage F: widen the existing `addBook` transaction to cover
+**Correction: "with `pg`" was wrong about when, in both halves.** This risk is
+attached to the driver in the paragraph above, and it is not the driver that
+carries it.
+
+- The await point between reading the neighbours and writing the row arrived at
+  **stage C**, the moment the stores became async. `await this.placementFor(...)`
+  yields whether or not anything underneath it does. It has been there since
+  #55, on SQLite, with no Postgres anywhere near it.
+- The transaction body's own atomicity survived stage C, because
+  `db.transaction` still took a synchronous closure. It stops being free at
+  **stage E**, where the closure becomes an async function and every `await`
+  inside it is a yield. Stage E holds the connection for the length of a
+  transaction to keep the old behaviour, which closes that half; it does not
+  close the first.
+
+The lesson is worth more than the correction: a risk written down against the
+stage that makes it *visible* gets attributed to the stage that makes it
+*possible*, and those were three stages apart here.
+
+Fix in Stage F, unchanged: widen the existing `addBook` transaction to cover
 `placementFor` as well as the insert, and rewrite `setCheckedOut` from
 read-then-write into a single conditional `UPDATE ... RETURNING`, which is both
 correct under concurrency and shorter than what is there now. Add one test that
