@@ -95,6 +95,15 @@ describe('queueing', () => {
     expect((await queue.counts()).ready).toBe(0)
   })
 
+  it('counts as numbers, not as strings that look like numbers', async () => {
+    // A COUNT is wider than an int, and a driver entitled to refuse to narrow
+    // one hands back a string instead. "2" renders exactly like 2 in the queue
+    // badge and behaves nothing like it in arithmetic, so the CAST that stops
+    // this is asserted rather than assumed.
+    await add()
+    expect(typeof (await queue.counts()).pending).toBe('number')
+  })
+
   it('keeps done captures out of the working list', async () => {
     const capture = await add()
     const bookId = await addBook()

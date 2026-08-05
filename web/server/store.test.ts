@@ -7,6 +7,7 @@
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openDatabase } from './db'
+import { SEP } from '../shared/shelving'
 import { Store, type DraftBook } from './store'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
@@ -147,6 +148,22 @@ describe('bookkeeping', () => {
     await store.addBook(draft({ title: 'C', authors: ['Q R'], isFiction: false }))
 
     expect(await store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0 })
+  })
+
+  it('counts as numbers, not as strings that look like numbers', async () => {
+    // COUNT and SUM are wider than an int, and a driver entitled to refuse to
+    // narrow them hands back strings instead. A total of "3" renders exactly
+    // like 3 everywhere it is shown and behaves nothing like it in arithmetic,
+    // so the CASTs that stop that are asserted rather than assumed.
+    await store.addBook(draft({ title: 'A', authors: ['X Y'] }))
+    const counts = await store.counts()
+
+    expect(typeof counts.total).toBe('number')
+    expect(typeof counts.fiction).toBe('number')
+    expect(typeof counts.nonfiction).toBe('number')
+    // Reached at all only because the alias is quoted: an unquoted camelCase
+    // alias is folded to one case by some dialects and kept verbatim by others.
+    expect(typeof counts.checkedOut).toBe('number')
   })
 
   it('keeps a recorded location through an edit that does not mention one', async () => {
@@ -402,5 +419,109 @@ describe('imageInUse', () => {
     ).run(new Date().toISOString(), id)
 
     expect(await store.imageInUse('shared.jpg')).toBe(true)
+  })
+})
+
+/**
+ * The order the whole product rests on, pinned to a fixture.
+ *
+ * `sort_key` ordering is not a detail of the store: `neighbours` compares it
+ * with `<` and `>`, `Shelves.booksIn` orders by it, separators are anchored to
+ * it, and the layout believes the sequence it is handed. Get the comparison
+ * wrong and nothing throws. A shelf comes back in a slightly different order,
+ * one book crosses a boundary, and the app tells somebody with total confidence
+ * to put a book in the wrong place.
+ *
+ * SQLite compares text byte by byte and has no other option. A database whose
+ * collation folds case, ignores punctuation or sorts accents next to their
+ * plain forms would order some of these pairs the other way round, so this is
+ * written now, while it can be seen to pass, and is the acceptance test for
+ * anything that changes what does the comparing. Every case below is one the
+ * fold in shared/shelving.ts exists to handle.
+ *
+ * It follows that this test must never be relaxed to make a database pass. If
+ * it goes red the database is wrong, not the fixture.
+ */
+describe('text ordering, which every shelf depends on', () => {
+  /** One book per ordering hazard, deliberately added out of order. */
+  const FIXTURE: { title: string; authors: string[] }[] = [
+    { title: 'Nana', authors: ['Émile Zola'] },              // accented letter
+    { title: 'Alpha', authors: ['Ed Smithers'] },            // longer surname
+    { title: 'Zenith', authors: ['Zoe Smith'] },             // shorter surname
+    { title: 'Beta', authors: ["Ann O'Brien"] },             // punctuation
+    { title: 'The Alpha', authors: ["Ann O'Brien"] },        // leading article
+    { title: 'Chapter 10', authors: ['Ian McEwan'] },        // digits
+    { title: 'Chapter 2', authors: ['Ian McEwan'] },         // digits
+    { title: 'Flowers in the Attic', authors: ['V.C. Andrews'] }, // mixed case
+  ]
+
+  const EXPECTED = [
+    'Flowers in the Attic', // Andrews
+    'Chapter 2',            // McEwan, and 2 before 10 because runs are padded
+    'Chapter 10',
+    'The Alpha',            // O'Brien, filed under A: the article is dropped
+    'Beta',
+    'Zenith',               // Smith, before Smithers
+    'Alpha',                // Smithers
+    'Nana',                 // Zola, filed under Z with the accent folded away
+  ]
+
+  beforeEach(async () => {
+    for (const book of FIXTURE) await store.addBook(draft(book))
+  })
+
+  it('returns the shelf in the one order the model says it is in', async () => {
+    const shelf = await store.listRange('fiction')
+    expect(shelf.map((row) => row.title)).toEqual(EXPECTED)
+  })
+
+  it('orders by bytes, so the database and JavaScript never disagree', async () => {
+    // The invariant underneath every case above, and the one a different
+    // collation breaks without breaking anything else: the sequence the
+    // database returns is the sequence a plain string comparison gives. Pure
+    // code either side of the store sorts and merges these same keys, so the
+    // two orders being the same order is not an implementation detail.
+    const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
+    const byBytes = [...keys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+
+    expect(keys).toEqual(byBytes)
+  })
+
+  it('puts a shorter surname first, because a space sorts below every letter', async () => {
+    // Smith before Smithers. A collation that ignores the separating space
+    // compares SMITHZOE against SMITHERSED and returns these the other way
+    // round, which is a real book on a real shelf in the wrong place.
+    const shelf = await store.listRange('fiction')
+    const titles = shelf.map((row) => row.title)
+
+    expect(titles.indexOf('Zenith')).toBeLessThan(titles.indexOf('Alpha'))
+  })
+
+  it('finds the neighbours that order implies, through < and > rather than ORDER BY', async () => {
+    // The other half of the risk. Placement does not sort; it seeks either side
+    // of a key with two inequalities, and an index that compares differently
+    // from the query would answer these two questions inconsistently.
+    const shelf = await store.listRange('fiction')
+    const zenith = shelf.find((row) => row.title === 'Zenith')!
+
+    const { predecessor, successor } = await store.neighbours(
+      'fiction', zenith.sort_key, zenith.id,
+    )
+
+    expect(predecessor?.title).toBe('Beta')
+    expect(successor?.title).toBe('Alpha')
+  })
+
+  it('stores only the characters the fold leaves behind', async () => {
+    // Why the cases above are safe to compare byte by byte at all: an accent,
+    // an apostrophe and a full stop never reach the column. What does reach it
+    // is A-Z, 0-9, the space, the unit separator between components and the
+    // full stop in the padded series index, and this says so, because those
+    // are exactly the characters a collation gets to have an opinion about.
+    const shelf = await store.listRange('fiction')
+
+    for (const row of shelf) {
+      expect(row.sort_key.split(SEP).join('')).toMatch(/^[A-Z0-9 .]+$/)
+    }
   })
 })
