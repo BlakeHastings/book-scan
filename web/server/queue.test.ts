@@ -9,8 +9,8 @@
  * and a queue test that reached Open Library would fail whenever it was down.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { openDatabase } from './db'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { CaptureQueue, editsOn } from './queue'
 import { identify } from './identify'
@@ -60,17 +60,20 @@ let queue: CaptureQueue
 let store: Store
 let db: Db
 
-beforeEach(() => {
+// Both databases, since stage F. Nothing below knows which. See testdb.ts.
+beforeEach(async () => {
   vi.mocked(identify).mockReset()
   vi.mocked(lookupIsbn).mockReset()
   vi.mocked(lookupIsbn).mockResolvedValue(nothingFound())
 
-  db = openDatabase(':memory:')
+  db = await openTestDatabase()
   store = new Store(db)
   // No image reader: most of these tests never run the worker. The ones that
   // do build their own queue with a reader below.
   queue = new CaptureQueue(db, () => null)
 })
+
+afterAll(closeTestDatabase)
 
 async function add() {
   return await queue.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })

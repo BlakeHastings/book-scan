@@ -4,19 +4,22 @@
  * of it.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase } from './db'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import { Shelves } from './shelves'
 import { Store } from './store'
 
 let store: Store
 let shelves: Shelves
 
-beforeEach(() => {
-  const db = openDatabase(':memory:')
+// Both databases, since stage F. Nothing below knows which. See testdb.ts.
+beforeEach(async () => {
+  const db = await openTestDatabase()
   store = new Store(db)
   shelves = new Shelves(db)
 })
+
+afterAll(closeTestDatabase)
 
 /** Authors chosen so alphabetical order matches the argument order. */
 const add = async (author: string, title = 'Book') =>

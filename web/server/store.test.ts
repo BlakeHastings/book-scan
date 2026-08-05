@@ -1,11 +1,13 @@
 /**
  * Integration coverage for the path that actually matters: a book goes in,
  * the two index seeks find its neighbours, and the instruction names them.
- * Runs against a real in-memory SQLite database, not a mock.
+ * Runs against a real database, not a mock, and since stage F against both of
+ * them: in-memory SQLite, and a real Postgres in a container. Nothing below
+ * knows which, deliberately. See server/testdb.ts.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { openDatabase } from './db'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { Store, type DraftBook } from './store'
@@ -17,10 +19,12 @@ function draft(over: Partial<DraftBook> & { title: string; authors: string[] }):
 let store: Store
 let db: Db
 
-beforeEach(() => {
-  db = openDatabase(':memory:')
+beforeEach(async () => {
+  db = await openTestDatabase()
   store = new Store(db)
 })
+
+afterAll(closeTestDatabase)
 
 describe('placement as books arrive one at a time', () => {
   it('calls the very first book the start of its range', async () => {
