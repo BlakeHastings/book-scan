@@ -14,6 +14,9 @@
 import type { FullConfig } from '@playwright/test'
 import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import pg from 'pg'
+
+import { connectionConfig, describeConnection } from './support/database.js'
 
 import { WEB_ROOT } from './support/paths.js'
 import { BOOK_IN_HAND } from './support/books.js'
@@ -24,13 +27,20 @@ import {
 } from './support/aspire.js'
 
 /**
- * A directory of this run's own.
+ * A run of this run's own.
  *
- * The AppHost turns this into `web/data/e2e/<id>`. It is deliberately not
- * BOOKSCAN_DATA: that variable is the one thing standing between a dev server
- * and the owner's real catalogue, and nothing in this repository sets it. The
- * AppHost keeps sole authority over where the data goes, and all this does is
- * ask for a subdirectory beneath the one it already chose.
+ * The AppHost turns this into two things: `web/data/e2e/<id>` for the
+ * photographs, and a Postgres database called `bookscan_<id>` for the rows.
+ * Both were one thing while the catalogue was a file. Since stage G they are
+ * not, because the container's volume now survives the run, so a directory per
+ * run would isolate the photographs and quietly share the catalogue with
+ * whatever a developer has been scanning into this checkout.
+ *
+ * It is deliberately not BOOKSCAN_DATA and deliberately not a connection
+ * string. Those two variables are what stand between a dev server and the
+ * owner's real catalogue, and nothing in this repository sets either. The
+ * AppHost keeps sole authority over both, and all this does is ask for a
+ * subdirectory and a database name beneath what it already chose.
  */
 function runId(): string {
   return `run-${Date.now().toString(36)}`
@@ -60,6 +70,53 @@ function pruneOldRuns(): void {
       // A run that is somehow still held open is not worth failing over.
     }
   }
+}
+
+/**
+ * Drop the databases earlier runs left in the container's volume.
+ *
+ * The other half of `pruneOldRuns`, and it exists for the same reason: a
+ * database per run is the right trade for isolation and the wrong one for a
+ * volume that now survives every run, so without this they accumulate forever.
+ * Nothing reads a finished run's rows.
+ *
+ * Deliberately narrow. It drops only databases named `bookscan_run_%`, which is
+ * a name only this file's `runId` produces, so a developer's own `bookscan` and
+ * anything else on that server are untouched. It also never drops the current
+ * run's own database, which is open.
+ *
+ * A failure here is logged and ignored: a scratch database left behind is not
+ * worth failing a run over, and a server that refuses the query is one where
+ * there was nothing of ours to drop anyway.
+ */
+async function pruneOldDatabases(connection: string, keep: string): Promise<string[]> {
+  const config = connectionConfig(connection)
+  // The maintenance database, because a session cannot drop the database it is
+  // connected to.
+  const admin = new pg.Client({ ...config, database: 'postgres' })
+  const dropped: string[] = []
+  try {
+    await admin.connect()
+    const { rows } = await admin.query<{ datname: string }>(
+      "SELECT datname FROM pg_database WHERE datname LIKE 'bookscan\\_run\\_%' AND datname <> $1",
+      [keep],
+    )
+    for (const { datname } of rows) {
+      try {
+        // Identifiers cannot be parameters, and these names came out of
+        // pg_database rather than from anywhere a value could be injected.
+        await admin.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`)
+        dropped.push(datname)
+      } catch {
+        // Somebody else's run may still hold it. Theirs to clean up.
+      }
+    }
+  } catch (error) {
+    console.warn(`[e2e] could not prune old run databases: ${(error as Error).message}`)
+  } finally {
+    await admin.end().catch(() => {})
+  }
+  return dropped
 }
 
 let stub: CatalogueStub | null = null
@@ -99,15 +156,48 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
   // describes the endpoint as http. See urlOf.
   const webUrl = urlOf(resources, 'web', 'https')
 
-  // The server is the authority on which database it opened. Asking it beats
-  // rebuilding the path here and hoping the two agree.
-  const health = await fetch(`${apiUrl}/api/health`).then((r) => r.json()) as {
-    db: string
+  /*
+   * Where the rows and the photographs are.
+   *
+   * Both are read out of the api resource's own environment, which is the same
+   * argument the file-path version made for asking /api/health: the suite
+   * asserts against what the app was actually given rather than something it
+   * rebuilt and hoped matched. `/api/health` cannot answer the first half any
+   * more, deliberately. It reports host, port and database and no credentials,
+   * because a password on a health endpoint is a password in every log that
+   * scrapes one, and the alternative to reading the environment here would have
+   * been teaching that endpoint to hand one out.
+   */
+  const api = resources.find((resource) => resource.displayName === 'api')
+  const connection = api?.environment?.ConnectionStrings__bookscan
+  const dataDir = api?.environment?.BOOKSCAN_DATA
+  if (!connection || !dataDir) {
+    throw new Error(
+      'The api resource has no ConnectionStrings__bookscan or no BOOKSCAN_DATA. ' +
+      'Both are set by apphost.mts, so this means the AppHost is not the one ' +
+      `this suite expects. Saw: ${Object.keys(api?.environment ?? {}).join(', ')}`,
+    )
   }
+
+  // The server is still asked, as a check rather than as the source: if it
+  // opened something other than what the AppHost handed it, the two disagree
+  // and every assertion below would be made against the wrong database.
+  const health = await fetch(`${apiUrl}/api/health`).then((r) => r.json()) as { db: string }
+  const described = describeConnection(connection)
+  if (health.db !== described) {
+    throw new Error(
+      `The api opened ${health.db}, not ${described}. The suite would be ` +
+      'reading a different database from the one under test.',
+    )
+  }
+
+  const dropped = await pruneOldDatabases(connection, `bookscan_${id.replace(/-/g, '_')}`)
+  if (dropped.length) say(`dropped ${dropped.length} database(s) from earlier runs`)
 
   process.env.BOOKSCAN_E2E_WEB_URL = webUrl
   process.env.BOOKSCAN_E2E_API_URL = apiUrl
-  process.env.BOOKSCAN_E2E_DB = health.db
+  process.env.BOOKSCAN_E2E_DB = connection
+  process.env.BOOKSCAN_E2E_COVERS = join(dataDir, 'covers')
   // The stub's own control endpoint, so a scenario can hold a lookup open for
   // as long as it needs. Not one of the BOOKSCAN_*_URL variables: those tell
   // the API where the catalogues live, this tells a test where the stub's
@@ -116,7 +206,9 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
 
   say(`web ${webUrl}`)
   say(`api ${apiUrl}`)
-  say(`db  ${health.db}`)
+  // Redacted, and this is not decoration. The connection now carries a
+  // password, and CI keeps this log.
+  say(`db  ${described}`)
   say(`ready in ${Math.round((Date.now() - started) / 1000)}s`)
 
   return async () => {
