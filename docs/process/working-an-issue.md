@@ -3,8 +3,29 @@
 How a change gets from an issue to the default branch. Read `review.md` first:
 it defines what "done" means. This file is only the mechanics.
 
-> Template. Replace the bracketed parts with this repo's real commands and check
-> names, then delete this note.
+## How the backlog is sized
+
+Two labels on every issue, answering two different questions.
+
+**How big is it?**
+
+| Label | Means |
+| --- | --- |
+| `task` | One pull request. The default; most issues are this. |
+| `story` | One user-visible change, one to a few pull requests. Names a person and an outcome. |
+| `epic` | Spans many pull requests, usually with a plan document. **Never worked directly**: an epic tracks progress, and the work happens in issues underneath it. |
+
+**Can it be started?**
+
+| Label | Means |
+| --- | --- |
+| *(none)* | Ready. The brief is complete and it can be picked up. |
+| `shaping` | **Not actionable.** Open questions have to be answered first, and the issue lists them. Never dispatch one of these, and never guess at the answers. |
+| `blocked` | Ready, but waiting on another issue, which the body names. |
+
+The point of `shaping` is that a half-formed idea and a specified piece of work
+look identical in a list, and starting the first one produces work built on a
+guess that is invisible afterwards.
 
 ## Before you start
 
@@ -73,7 +94,13 @@ trivial, and even when you are confident.
 
 ## Merge discipline
 
-CI runs [N] checks: `[names]`.
+CI runs two required checks: `web (typecheck + tests)` and `browser journeys`.
+Both always run and always report, whatever the change touched: a docs-only
+pull request still gets both names, in seconds, because `scripts/ci-scope.mjs`
+decides whether the steps inside them do any work. That shape is deliberate. A
+`paths:` filter drops the job from the rollup and a job-level `if:` reports
+SKIPPED, and the merge gate refuses both, which would make a README change
+unmergeable.
 
 **GitHub itself does not enforce them.** Branch protection needs a paid plan on a
 private repo, and this repo cannot be public. Three things stand in for it, and
