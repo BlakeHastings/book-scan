@@ -51,12 +51,20 @@ export function QueuedAlready({
 }: Props) {
   if (!matches.length) return null
 
+  // Three states, not two. No frame at all is the Add flow, which is asking
+  // about photographs that are elsewhere on screen; an empty string is the
+  // scanner with a frame still being shrunk, which is a placeholder rather
+  // than an absence.
+  const yourShot = shot === undefined
+    ? null
+    : shot
+      ? <img className="choices__shot" src={shot} alt="The shot this is answering" />
+      : <span className="choice__nocover">your shot</span>
+
   return (
     <div className={`isbncam__choices isbncam__choices--queued ${className ?? ''}`.trim()}>
-      <div className={`choices__head${shot === undefined ? ' choices__head--noshot' : ''}`}>
-        {shot === undefined ? null : shot
-          ? <img className="choices__shot" src={shot} alt="The shot this is answering" />
-          : <span className="choice__nocover">your shot</span>}
+      <div className={`choices__head${yourShot ? '' : ' choices__head--noshot'}`}>
+        {yourShot}
         <span className="choice__text">
           <span className="choice__title">
             {matches.length === 1
