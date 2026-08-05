@@ -76,6 +76,99 @@ describe('saying a shelf is full', () => {
   })
 })
 
+/**
+ * The move offered before anybody has made it.
+ *
+ * The boundary used to shift the moment a step was proposed, so the book left
+ * the plank the person was still standing at, and stayed gone if they walked
+ * away (#111). A proposal is not an observation about the room.
+ */
+describe('proposing the move without making it', () => {
+  it('names the same book the answer would move, and moves nothing', async () => {
+    await add('Ann Author')
+    const bob = await add('Bob Baker')
+
+    const plan = await shelves.proposeOverflow('fiction', '1A', 'area')
+    expect(plan.ok).toBe(true)
+    expect(plan.step?.moved.id).toBe(bob)
+    expect(plan.step?.to).toBe('1B')
+
+    // The shelf is exactly as it was, and so is the furniture.
+    expect(await labels()).toEqual(['1A', '1A'])
+    expect(await shelves.list('fiction')).toHaveLength(0)
+  })
+
+  it('draws the plank the book is going on, with the gap where it goes', async () => {
+    await add('Ann Author')
+    await add('Bob Baker')
+    const cal = await add('Cal Church')
+    // Cal is already on 1B, so the gap Bob would take is in front of him.
+    await shelves.overflow('fiction', '1A', 'area')
+
+    const plan = await shelves.proposeOverflow('fiction', '1A', 'area')
+    expect(plan.strip?.label).toBe('1B')
+    expect(plan.strip?.gapIndex).toBe(0)
+    expect(plan.strip?.books.map((p) => p.book.id)).toEqual([cal])
+  })
+
+  it('offers the carry without making that either', async () => {
+    const ann = await add('Ann Author')
+    await store.setLocation(ann, '1A')
+    const key = (await store.placementFor(
+      { title: 'Book', authors: ['Bob Baker'], isFiction: true } as never,
+    )).sortKey
+
+    const plan = await shelves.proposeOverflow('fiction', '1A', 'area', key)
+    expect(plan.carry?.from).toBe('1A')
+    expect(plan.carry?.to).toBe('1B')
+    expect(await shelves.list('fiction')).toHaveLength(0)
+  })
+
+  it('reports the refusals rather than pretending a move is available', async () => {
+    await add('Ann Author')
+    expect((await shelves.proposeOverflow('fiction', '1A', 'area')).error)
+      .toContain('holds only one book')
+    expect((await shelves.proposeOverflow('fiction', '9Z', 'area')).error)
+      .toContain('There is no shelf 9Z')
+  })
+})
+
+/**
+ * A cascade confirms its outermost move last (#110), so a proposal can be
+ * several answers old by the time somebody says they carried it out. Applying
+ * it to whatever book happens to be on the end by then is the stale answer
+ * #106 fixed, one level in.
+ */
+describe('confirming a move that was proposed a while ago', () => {
+  it('refuses when the plank no longer ends with the book named', async () => {
+    await add('Ann Author')
+    await add('Bob Baker')
+    const cal = await add('Cal Church')
+
+    // What the person was told to move, before anything else happened.
+    const plan = await shelves.proposeOverflow('fiction', '1A', 'area')
+    expect(plan.step?.moved.id).toBe(cal)
+
+    // Somebody else takes Cal off 1A in the meantime.
+    await shelves.overflow('fiction', '1A', 'area')
+
+    const applied = await shelves.overflow('fiction', '1A', 'area', '', cal)
+    expect(applied.ok).toBe(false)
+    expect(applied.error).toContain('changed')
+    // And it changed nothing on the way to saying so.
+    expect(await labels()).toEqual(['1A', '1A', '1B'])
+  })
+
+  it('applies it when the plank still ends with that book', async () => {
+    await add('Ann Author')
+    const bob = await add('Bob Baker')
+
+    const applied = await shelves.overflow('fiction', '1A', 'area', '', bob)
+    expect(applied.ok).toBe(true)
+    expect(await labels()).toEqual(['1A', '1B'])
+  })
+})
+
 describe('placing a book on a shelf that is full', () => {
   /** Add a book and record where it landed, as saving does. */
   const shelve = async (author: string, title = 'Book') => {
