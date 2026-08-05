@@ -18,6 +18,15 @@ on:
   push:
     branches: [master]
 
+# The check asks the API which pull requests a commit belongs to, and the
+# default token cannot read pull requests unless it is asked to. Without this
+# the run fails with `Resource not accessible by integration (HTTP 403)`, which
+# reads like the script is broken rather than like it was never allowed to
+# look. Kept to the two scopes it actually uses.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   provenance:
     name: every commit came through a pull request
