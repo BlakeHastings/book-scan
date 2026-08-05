@@ -180,14 +180,18 @@ export class CaptureQueue {
   // -----------------------------------------------------------------------
 
   async add(images: { front?: string; back?: string; edge?: string }): Promise<CaptureRow> {
-    const result = this.db
+    // RETURNING id rather than lastInsertRowid, for the reason given on
+    // Store.addBook: the id comes back from the statement that made it.
+    const created = this.db
       .prepare(
         `INSERT INTO captures (status, front_image, back_image, edge_image, created_at)
-         VALUES ('pending', ?, ?, ?, ?)`,
+         VALUES ('pending', ?, ?, ?, ?)
+         RETURNING id`,
       )
-      .run(images.front ?? '', images.back ?? '', images.edge ?? '', new Date().toISOString())
+      .get(images.front ?? '', images.back ?? '', images.edge ?? '',
+           new Date().toISOString()) as { id: number }
 
-    return (await this.get(Number(result.lastInsertRowid)))!
+    return (await this.get(Number(created.id)))!
   }
 
   /**
@@ -219,10 +223,11 @@ export class CaptureQueue {
     const created = this.db
       .prepare(
         `INSERT INTO captures (status, ${column}, created_at)
-         VALUES ('pending', ?, ?)`,
+         VALUES ('pending', ?, ?)
+         RETURNING id`,
       )
-      .run(filename, now)
-    return (await this.get(Number(created.lastInsertRowid)))!
+      .get(filename, now) as { id: number }
+    return (await this.get(Number(created.id)))!
   }
 
   async get(id: number): Promise<CaptureRow | undefined> {
@@ -239,9 +244,17 @@ export class CaptureQueue {
       .all(...statuses) as CaptureRow[]
   }
 
+  /**
+   * The CAST is the same point Store.counts makes: an uncast COUNT is wider
+   * than an int, and a driver that will not narrow it hands back a string. This
+   * one reaches /api/health and the queue badge.
+   */
   async counts(): Promise<Record<CaptureStatus, number>> {
     const rows = this.db
-      .prepare('SELECT status, COUNT(*) AS n FROM captures GROUP BY status')
+      .prepare(
+        `SELECT status, CAST(COUNT(*) AS INTEGER) AS n
+           FROM captures GROUP BY status`,
+      )
       .all() as { status: CaptureStatus; n: number }[]
 
     const counts: Record<CaptureStatus, number> = {
