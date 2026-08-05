@@ -1,17 +1,20 @@
 name: End to end
 
-# Deliberately NOT on every pull request.
+# This gates pull requests, and also runs nightly.
 #
-# This job installs the Aspire CLI, downloads a browser, installs two npm
-# trees and starts the whole application. That is minutes, against the fast
-# job's seconds, and it would be paid on every push whether or not anything it
-# covers changed. It runs on demand and once a night instead, which is the
-# right shape for a suite whose job is to catch the integration-level breakage
-# that unit tests structurally cannot see.
+# It used to be nightly and on demand only, on the reasoning that the Aspire
+# CLI, a browser and two npm trees do not belong on the fast path. That
+# reasoning cost more than it saved: #99 merged green while breaking browser
+# scenarios and nobody knew until the next morning's run, and the alternative
+# was a human running the suite by hand before shipping, which is the manual
+# step this repository exists to not have.
 #
-# Promote it to `pull_request` when it has been green on this runner for a
-# while and the wall clock is understood.
+# It is deliberately NOT filtered by path. `scripts/merge-pr.mjs` treats a
+# required check that never ran as a refusal, so a `paths` filter that skipped
+# this job on a docs-only pull request would block every such pull request
+# instead of speeding it up.
 on:
+  pull_request:
   workflow_dispatch:
   schedule:
     # 04:00 UTC, so a broken journey is waiting in the morning.
@@ -30,10 +33,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Caches the three npm trees this job installs: the app, the AppHost at
+      # the repository root, and the suite.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            package-lock.json
+            e2e/package-lock.json
 
+      # Chrome for Testing is around a hundred megabytes and the download is
+      # the second largest step here after the run itself. Keyed on the suite's
+      # lock file, so a Playwright bump fetches the browser that version wants
+      # rather than reusing the previous one.
+      - name: Cache the browser
+        id: browser-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+
+      # Not cached on purpose. It takes about four seconds, and a cached copy
+      # would pin the CLI version until something else in the key changed,
+      # which is the wrong trade for four seconds.
       - name: Install the Aspire CLI
         run: |
           curl -sSL https://aspire.dev/install.sh | bash
@@ -50,14 +74,29 @@ jobs:
         working-directory: e2e
         run: npm ci
 
+      # The browser binary comes from the cache when it hits; the OS packages
+      # it links against are installed either way, because they live outside
+      # the cached directory and a runner image refresh can drop them.
       - name: Install Chromium
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
+        run: |
+          if [ "${{ steps.browser-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       # The camera is a generated video file and the catalogue lookups are
       # answered by a stub the suite starts itself, so this needs no network
       # beyond the installs above and never reaches real scan data: the
       # AppHost puts the database in web/data/e2e/<run id>.
+      #
+      # The Aspire bundle this pulls down is NOT cached, and that was measured
+      # rather than assumed. On run 30963595547 the step split 39s of AppHost
+      # startup against 58s of scenarios, and the download it would avoid is
+      # 429M in ~/.aspire/versions beside 429M in ~/.nuget/packages. Restoring
+      # most of a gigabyte to save part of 39s is not obviously a win, so it is
+      # left alone. If you revisit this, measure both halves before keeping it.
       - name: Run the journeys
         working-directory: e2e
         run: npm test

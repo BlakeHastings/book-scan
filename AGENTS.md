@@ -221,17 +221,30 @@ else.
 The suite runs `aspire stop` without `--all`, so it stops only this checkout's
 AppHost. Unrelated Aspire apps are usually running on this machine.
 
-It does not gate pull requests: it needs the Aspire CLI, a browser and two npm
-trees, which do not belong on the fast path. It runs nightly and on demand with
-`gh workflow run e2e.yml`.
+It gates pull requests, as the `browser journeys` check in the `End to end`
+workflow, and still runs nightly and on demand with `gh workflow run e2e.yml`.
+
+It used to be nightly only, on the reasoning that the Aspire CLI, a browser and
+two npm trees do not belong on the fast path. #99 then merged on a green fast
+CI while breaking browser scenarios, and nobody found out until the next
+morning. The alternative to gating turned out to be a human running the suite by
+hand before shipping, which is worse than the minutes it costs.
+
+**Do not add a `paths` filter to that workflow.** `scripts/merge-pr.mjs` treats
+a required check that never ran as a refusal, so skipping the job on a
+documentation-only pull request would block that pull request rather than speed
+it up.
 
 **A scenario that has never been seen to fail is not a regression test.** When
 you fix a defect an e2e scenario covers, revert your fix, watch the scenario
 fail, then restore it. A test that only ever passed alongside a fix proves
 nothing about whether it would catch the fix being lost.
 
-Both checks must pass before a pull request is ready. `npm test` takes well
-under a minute, so there is no excuse for not having run it.
+Three checks must be green before a pull request is ready: `web (typecheck +
+tests)`, `no production data committed` and `browser journeys`. They are the
+names `scripts/merge-pr.mjs` requires. `npm run typecheck` and `npm test` take
+well under a minute between them, so there is no excuse for not having run them
+before pushing.
 
 **No CI run at all is a different problem from a failing one.** GitHub runs
 pull request checks against a merge commit it computes from your branch and the
