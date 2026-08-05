@@ -376,6 +376,18 @@ describe('imageInUse', () => {
     }
   })
 
+  it("counts a capture's crop, so a discard cannot delete another capture's copy", async () => {
+    // A crop is named after the photograph it came from, so two captures of
+    // the same photograph produce the same crop filename. Deleting on one
+    // capture's behalf must not take the other's picture with it.
+    db.prepare(
+      `INSERT INTO captures (status, front_image, front_crop, cropped, created_at)
+       VALUES ('ready', 'shared.jpg', 'shared_crop.jpg', 'front', ?)`,
+    ).run(new Date().toISOString())
+
+    expect(await store.imageInUse('shared_crop.jpg')).toBe(true)
+  })
+
   it("does not report a book's image as orphaned merely because a finished capture also names it", async () => {
     // This is the case deleteOrphanedImages exists to protect. A capture
     // hands its filenames to the book it becomes, so a capture and the book

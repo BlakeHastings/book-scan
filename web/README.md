@@ -67,6 +67,7 @@ server/                 Express API on loopback only
   imagehash.ts            perceptual hashing, for recognising a book by its cover
   bookcrop.ts              finds the book in a photograph, or declines to
   crop.ts                  stores a crop beside the photograph it came from
+  capturecrop.ts           the same crops and a front hash, for a queued capture
   queue.ts                 the capture queue and its background worker
   lookup.ts               Open Library primary, Google Books top-up
   classify.ts             fiction vs non-fiction ladder
@@ -546,6 +547,45 @@ does, prints the directory before touching it, waits five seconds before a
 write, and is resumable because a slot it finished is recorded. `--force`
 re-examines slots already looked at, which is what to use after a change to
 the detector.
+
+### Cropping and hashing a queued capture
+
+A capture in the queue gets exactly what a catalogued book gets: `front_crop`,
+`back_crop`, `edge_crop` and `cropped` on the `captures` table, meaning what
+they mean on `books`, plus `front_hash`, written by the same `imagehash.ts`
+with the same `p1` format tag. The two are therefore comparable, which is what
+lets a book held up to the camera be recognised as one already waiting to be
+shelved rather than only as one already on a shelf.
+
+It happens on the queue's own background pass, straight after the photographs
+are read for an ISBN, so nobody waits for it: `POST /api/captures` fires
+`drain()` and does not await it, and the derivation runs per capture inside
+that loop. A capture that is re-photographed crops only the slot that is new.
+
+Hashing fails closed. `coverHash` refuses a frame with no detail in it, and a
+refusal leaves `front_hash` empty rather than storing a number that would go on
+to be compared and offered to somebody as the book in their hands. An
+unreadable file leaves whatever was there alone.
+
+Discarding a capture deletes its files, and the crops go with the photographs
+through the same orphan check (`Store.imageInUse`), never a second mechanism.
+That check matters: a capture hands its filenames to the book it becomes and a
+crop is named after the photograph it came from, so a capture's crop and the
+resulting book's crop are one file on disk.
+
+Captures photographed before this shipped are left alone. As with the books
+above, there is a tool and running it is the owner's decision:
+
+```bash
+npx tsx server/crop-captures.ts                 # dry run, writes nothing
+npx tsx server/crop-captures.ts --apply
+npx tsx server/crop-captures.ts --apply --limit 20
+```
+
+Same shape again: `BOOKSCAN_DATA` as the server resolves it, the directory
+printed before anything is touched, five seconds before a write, resumable
+because a slot it finished is recorded and a hash it wrote is kept. `--force`
+re-examines slots already looked at and re-hashes fronts already hashed.
 
 Set `GOOGLE_BOOKS_API_KEY` to raise the Google Books quota. It is optional;
 Open Library does the real work and Google anonymous requests start returning
