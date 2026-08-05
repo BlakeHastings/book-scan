@@ -176,8 +176,15 @@ export interface ShelfGroupDto {
   shelf: number
   label: string
   books: { book: BookRow }[]
-  separatorId: number | null
-  kind: 'shelf' | 'area' | null
+  /**
+   * The boundary this area begins at, if it is not the first.
+   *
+   * Its own boundary, never the one after it, exactly as `ShelfGroup` on the
+   * server says (#145). The line for it is drawn above this area's heading,
+   * and `libraryRows` in shared/layout.ts is what decides that, so the words
+   * on the line and the boundary its Remove deletes come from one place.
+   */
+  opensWith: { id: number; kind: 'shelf' | 'area' } | null
 }
 
 /**

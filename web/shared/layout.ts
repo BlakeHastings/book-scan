@@ -161,6 +161,23 @@ export function diffLayout(before: Placed[], after: Placed[]): Move[] {
   return moves
 }
 
+/**
+ * The boundary a group begins at.
+ *
+ * A separator belongs to the group it OPENS, and that is the whole of the
+ * decision: `startsAt` is the sort key of the first book on the new plank
+ * (see `Separator`, and "What actually changes" in docs/shelving.md), so the
+ * group whose first book carries that key is the one the boundary is about.
+ *
+ * Kept as one object rather than as two loose fields because the two used to
+ * be read apart. `group.kind` reads like a property of the group, which is how
+ * a bookcase break came to be drawn under the bookcase it started (#145).
+ */
+export interface GroupOpener {
+  id: number
+  kind: SeparatorKind
+}
+
 export interface ShelfGroup<T extends LayoutInput = LayoutInput> {
   /** Bookcase, 1-based. */
   shelf: number
@@ -168,14 +185,19 @@ export interface ShelfGroup<T extends LayoutInput = LayoutInput> {
   area: number
   label: string
   books: Placed<T>[]
-  /** The boundary that starts this shelf, if it is not the first. */
-  separatorId: number | null
-  kind: SeparatorKind | null
+  /**
+   * The boundary this shelf begins at, if it is not the first.
+   *
+   * It is this group's own boundary, not the one after it. Anything drawing it
+   * draws it above this group's heading, and `libraryRows` is how, so that
+   * where the line sits and which boundary it removes cannot part company.
+   */
+  opensWith: GroupOpener | null
 }
 
 /**
  * Group a layout for display, one entry per physical shelf, carrying the
- * separator that closes it.
+ * separator that opens it.
  */
 export function groupByShelf<T extends LayoutInput>(
   placed: Placed<T>[],
@@ -193,11 +215,68 @@ export function groupByShelf<T extends LayoutInput>(
     const opener = byStart.get(item.book.sortKey)
     groups.push({
       shelf: item.shelf, area: item.area, label: item.label, books: [item],
-      separatorId: opener?.id ?? null, kind: opener?.kind ?? null,
+      opensWith: opener ? { id: opener.id, kind: opener.kind } : null,
     })
   }
 
   return groups
+}
+
+/** What a boundary line says, in the words the person reads. */
+export function dividerNotice(kind: SeparatorKind): string {
+  return kind === 'shelf' ? 'New bookcase starts here' : 'New area starts here'
+}
+
+/** One thing the library draws, in the order it is read down the page. */
+export type LibraryRow<G extends { label: string; opensWith: GroupOpener | null }> =
+  | {
+      row: 'divider'
+      /** The boundary this line removes. */
+      separatorId: number
+      kind: SeparatorKind
+      /** What the line says. */
+      notice: string
+      /** The group it opens, which is the heading directly beneath it. */
+      opens: string
+    }
+  | { row: 'shelf'; group: G }
+
+/**
+ * The library as one sequence, boundary lines included.
+ *
+ * Which side of a group its boundary is drawn on is a fact about the boundary,
+ * so it is decided here, once, rather than by where a component happens to put
+ * a `<div>`. A separator opens a group, so its line comes immediately before
+ * that group's heading and carries that group's boundary id.
+ *
+ * This is #145. The layout said "opens" and the rendering said "closes", so
+ * every line named the heading above it while removing the boundary of the
+ * heading below it: the labels contradicted the headings, and Remove deleted a
+ * boundary one place away from the one it named. Somebody was told to carry
+ * four books to planks they did not belong on. Shifting the drawing alone
+ * would have fixed the reading and left the removal wrong, which is worse,
+ * because then nothing on screen says so. The sentence and the id it removes
+ * come out of the same row here for exactly that reason.
+ */
+export function libraryRows<G extends { label: string; opensWith: GroupOpener | null }>(
+  groups: G[],
+): LibraryRow<G>[] {
+  const rows: LibraryRow<G>[] = []
+
+  for (const group of groups) {
+    if (group.opensWith) {
+      rows.push({
+        row: 'divider',
+        separatorId: group.opensWith.id,
+        kind: group.opensWith.kind,
+        notice: dividerNotice(group.opensWith.kind),
+        opens: group.label,
+      })
+    }
+    rows.push({ row: 'shelf', group })
+  }
+
+  return rows
 }
 
 export interface ShelfLoad {
@@ -273,7 +352,7 @@ export function overflow(
   // what was asked. The existing break survives and now divides the NEW
   // bookcase, so the books after it move along too, which is right: the whole
   // run past a full bookcase belongs in the next one.
-  if (kindIfNew === 'shelf' && nextGroup.kind !== 'shelf') {
+  if (kindIfNew === 'shelf' && nextGroup.opensWith?.kind !== 'shelf') {
     return {
       moved,
       from: label,
@@ -301,12 +380,12 @@ export function overflow(
      * what keeps the label and the layout in agreement.
      */
     to: locationLabel(
-      nextGroup.kind === 'shelf' ? group.shelf + 1 : group.shelf,
-      nextGroup.kind === 'shelf' ? 0 : group.area + 1,
+      nextGroup.opensWith?.kind === 'shelf' ? group.shelf + 1 : group.shelf,
+      nextGroup.opensWith?.kind === 'shelf' ? 0 : group.area + 1,
     ),
     // The next shelf now starts one book earlier.
-    shift: nextGroup.separatorId !== null
-      ? { id: nextGroup.separatorId, startsAt: moved.sortKey }
+    shift: nextGroup.opensWith
+      ? { id: nextGroup.opensWith.id, startsAt: moved.sortKey }
       : undefined,
   }
 }

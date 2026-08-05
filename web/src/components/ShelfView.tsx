@@ -11,7 +11,7 @@ import {
 import { SpineRow } from './ShelfStrip'
 import { ShelfList } from './ShelfList'
 import { CoverGrid } from './CoverGrid'
-import { areaLabel } from '../../shared/layout'
+import { areaLabel, libraryRows } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
 /**
@@ -311,7 +311,31 @@ export function ShelfView({
         <p className="hint">Nothing catalogued in this range yet.</p>
       )}
 
-      {groups.map((group) => {
+      {/*
+        Areas and the lines between them as one sequence, ordered by
+        `libraryRows` rather than by where this file puts a div.
+
+        A boundary belongs to the area it opens, so its line is drawn above
+        that area's heading and its Remove deletes that area's boundary. Both
+        halves come off the same row, which is the point: they used to be
+        decided in two places and disagreed by one (#145).
+      */}
+      {libraryRows(groups).map((row) => {
+        if (row.row === 'divider') {
+          return (
+            <div className="divider" key={`divider-${row.separatorId}`}>
+              <span className="divider__label">{row.notice}</span>
+              <button
+                className="btn btn--ghost"
+                onClick={() => removeSeparator(row.separatorId)}
+              >
+                Remove
+              </button>
+            </div>
+          )
+        }
+
+        const group = row.group
         const missing = missingFrom(group.label, off)
 
         return (
@@ -361,19 +385,6 @@ export function ShelfView({
               />
             )}
 
-            {group.separatorId !== null && (
-              <div className="divider">
-                <span className="divider__label">
-                  {group.kind === 'shelf' ? 'New bookcase starts here' : 'New area starts here'}
-                </span>
-                <button
-                  className="btn btn--ghost"
-                  onClick={() => removeSeparator(group.separatorId!)}
-                >
-                  Remove
-                </button>
-              </div>
-            )}
           </section>
         )
       })}
