@@ -573,6 +573,12 @@ That check matters: a capture hands its filenames to the book it becomes and a
 crop is named after the photograph it came from, so a capture's crop and the
 resulting book's crop are one file on disk.
 
+A discard is deferred by ten seconds in the client (`src/lib/discardWindow.ts`),
+so the delete arrives long after the swipe and can land in the second the
+worker spends cropping. A crop finished after its capture has gone is handed
+back to that same sweep rather than left on disk, so the narrow race does not
+leave a picture nothing can be traced to.
+
 Captures photographed before this shipped are left alone. As with the books
 above, there is a tool and running it is the owner's decision:
 

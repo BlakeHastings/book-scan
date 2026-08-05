@@ -415,8 +415,11 @@ export function createApp(options: CreateAppOptions): express.Express {
     },
     { googleApiKey },
     // So a capture gets its crops and its front hash on the same background
-    // pass that reads its photographs, with nobody waiting on either.
-    cropIo,
+    // pass that reads its photographs, with nobody waiting on either. A crop
+    // that finished after its capture was discarded goes to the same orphan
+    // sweep the discard itself uses; `deleteOrphanedImages` is a function
+    // declaration below and so is hoisted into scope here.
+    { ...cropIo, orphaned: deleteOrphanedImages },
   )
 
   /**

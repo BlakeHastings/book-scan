@@ -237,6 +237,36 @@ describe('the worker does it, so nobody waits', () => {
     expect(io.files['h_front_crop.jpg']).toBeDefined()
   }, 30_000)
 
+  it('hands back a crop whose capture was discarded while it was being written', async () => {
+    // The window the deferred discard opens (src/lib/discardWindow.ts): the
+    // delete arrives ten seconds after the swipe, so it can land in the second
+    // this pass spends cropping. It sweeps the crops the row named at the
+    // time, which is none, and the file lands afterwards pointing at nothing.
+    vi.mocked(identify).mockResolvedValue({
+      isbn13: '', isbn10: '', source: '' as const, barcodes: [], titleGuess: '',
+      coverLines: [], isbnCandidates: [], text: '', notes: [],
+    })
+    const io = memory({ 'p_front.jpg': await photograph(11) })
+    const orphaned: string[][] = []
+    /** The discard, fired at the worst possible moment: mid-write. */
+    let discard: (() => void) | null = null
+
+    const queue = new CaptureQueue(db, (name) => io.files[name] ?? null, {}, {
+      read: io.read,
+      write: (name, data) => { io.write(name, data); discard?.() },
+      orphaned: (names) => { orphaned.push(names) },
+    })
+
+    const capture = await queue.attach(null, 'front', 'p_front.jpg')
+    discard = () => { void queue.remove(capture.id) }
+    await queue.drain()
+
+    expect(await queue.get(capture.id)).toBeUndefined()
+    // Named to the caller's own sweep rather than deleted here, so the check
+    // that a shelved book does not still want the file is the same one.
+    expect(orphaned).toEqual([['p_front_crop.jpg']])
+  }, 30_000)
+
   it('leaves the photographs alone when nowhere was given to write derivatives', async () => {
     vi.mocked(identify).mockResolvedValue({
       isbn13: '', isbn10: '', source: '' as const, barcodes: [], titleGuess: '',

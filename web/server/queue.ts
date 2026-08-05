@@ -110,6 +110,22 @@ export type EditOutcome =
 /** How long a claim holds before someone else may take the capture. */
 const CLAIM_LEASE_MS = 5 * 60 * 1000
 
+/**
+ * Where a capture's derived pictures are read and written, and what to do with
+ * one whose capture went while it was being written.
+ *
+ * That last case is not hypothetical. A discard is deferred by ten seconds in
+ * the client (`src/lib/discardWindow.ts`), so the delete arrives well after the
+ * swipe and can land in the second this pass spends cropping. The delete
+ * sweeps the crops the row named at the time, which is nothing yet, and the
+ * file lands afterwards with nothing pointing at it. `orphaned` hands those
+ * names to the same sweep the discard used, rather than to a second mechanism
+ * with its own idea of what is safe to delete.
+ */
+export interface CaptureImages extends CropIo {
+  orphaned?: (names: string[]) => Promise<unknown> | unknown
+}
+
 /** The catalogue's answer, in the shape the overlay stores. */
 function fromLookup(lookup: LookupResult): CaptureEdit {
   return {
@@ -156,7 +172,7 @@ export class CaptureQueue {
      * passes the cover directory, so every capture taken on a real run gets
      * cropped and hashed.
      */
-    private readonly images?: CropIo,
+    private readonly images?: CaptureImages,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -451,11 +467,21 @@ export class CaptureQueue {
    * followed should be disturbed by a detector having a bad day.
    */
   private async derive(id: number): Promise<void> {
-    if (!this.images) return
+    const images = this.images
+    if (!images) return
     try {
       const capture = await this.get(id)
       if (!capture) return
-      await deriveCapture(this, capture, this.images, { apply: true })
+
+      const outcome = await deriveCapture(this, capture, images, { apply: true })
+
+      // Discarded while this was cropping. `setCrop` wrote nothing, because
+      // there is no row to write to, so the files it produced are already
+      // orphans. See CaptureImages above for why the delete arrives here.
+      const written = outcome.crops.map((slot) => slot.crop).filter(Boolean)
+      if (written.length && !(await this.get(id))) {
+        await images.orphaned?.(written)
+      }
     } catch {
       // Left uncropped and unhashed, which is a state every reader draws.
     }
