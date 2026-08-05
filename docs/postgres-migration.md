@@ -1,8 +1,8 @@
 # SQLite to Postgres: a staged migration plan
 
-Status: **stages A to E have landed** (#44, #45, #55, #142, #144). The catalogue
-is still on SQLite and nothing has touched the live data. Progress is tracked on
-#140; this document is the authority on what each stage is.
+Status: **stages A to F have landed** (#44, #45, #55, #142, #144, #146). The
+catalogue is still on SQLite and nothing has touched the live data. Progress is
+tracked on #140; this document is the authority on what each stage is.
 
 Decisions below were settled by the owner on 2026-08-03 and should not be
 relitigated without a reason.
@@ -373,9 +373,21 @@ this.**
   resolution rules, and guessing at it here would have added an unverifiable
   change to three verifiable ones. Check it.
 
+**Checked, in stage F.** All four run, and so does `attach`'s `@slot` exactly as
+stage E left it: Postgres resolves an operator whose inputs are all `unknown` as
+`text`, and takes a parameter's type from the other side of a comparison, so
+`',' || $1 || ','` is `text` and needs nothing said about it. Three of the four
+statements also run with the cast **removed**, so the casts are belt and braces
+on Postgres 17 rather than load-bearing. They stay, and stage E's instinct was
+right for a better reason than it knew: the casts cost nothing, and the shapes
+they guard are ones a different server or a future version is entitled to
+refuse. See stage F for the load-bearing casts, which are the aggregate ones.
+
 ### Stage F. Postgres exists but is not the default
 
-Two halves, and they can be two PRs if the first is noisy.
+**Done.** What follows is what the stage said to do, with what it turned out to
+be written underneath each point. Landed as one PR rather than two: F1 was six
+lines of AppHost and was not noisy.
 
 **F1, the AppHost.** `aspire add postgresql`, then in `apphost.mts`:
 
@@ -408,10 +420,44 @@ apiBuilder = apiBuilder.withReference(catalogue).waitFor(catalogue)
   top-level `await`. Straightforward, but it is a real edit to the startup path
   and belongs in the review.
 
+**Three corrections from doing it.**
+
+- **The connection is not a URL, and this one would have shipped broken.**
+  "Read it the way `PORT` is read" is true of getting the variable and false of
+  using it. Aspire hands over ADO.NET keywords,
+  `Host=localhost;Port=65156;Username=postgres;Password=...;Database=bookscan`,
+  because it produces connection strings for the .NET clients it was built
+  around. `node-postgres` reads only the `postgres://` URL form and takes
+  anything else as a hostname, so the app would have tried to resolve the whole
+  string. `connectionConfig` in `db.pg.ts` reads both spellings and its test
+  carries the string a real run produced.
+- **The image tag cannot be pinned from the TypeScript AppHost.**
+  `addPostgres` exposes `withHostPort`, `withDataVolume`, `withPassword`,
+  `withPgAdmin` and `withPgWeb`, and no `withImageTag`. Aspire 13.4.2 runs
+  **`postgres:18.3`**, read off `docker ps` after `aspire start`, while the test
+  suite pins `postgres:17` per decision 3. **The two therefore differ**, and
+  that is an open owner decision. It costs nothing while this container is
+  idle; stage G is where the app starts using it.
+- **The data volume was decided as "none", provisionally.** Decision 2 is still
+  the owner's. No volume is the option that cannot be wrong for the wrong
+  reason: a fixed volume name is one database shared by every worktree, which
+  is #28 again, and the end to end suite wants an empty catalogue anyway. The
+  change from today is that a scratch dev catalogue no longer survives a
+  restart.
+
 Verify: `aspire start --non-interactive`, `aspire ps` shows a healthy postgres,
 `aspire wait api`, `aspire logs api`. The app is still on SQLite at this point,
 so the container is provisioned and idle. That is deliberate: the AppHost change
 is proven separately from the code change.
+
+Done, and one step further, because "provisioned and idle" proves the AppHost
+and not the driver: `aspire wait postgres`, `api` and `web` all reported
+healthy, and the api was then run by hand with `BOOKSCAN_DB=postgres` against
+that container. `/api/health` answered
+`{"total":0,...,"db":"postgres localhost:65156/bookscan"}` (numbers, not
+strings; no credentials), and the eight-book ordering fixture saved through
+`POST /api/books` came back from `GET /api/books?range=fiction` in exactly the
+order `store.test.ts` asserts, Smith before Smithers included.
 
 **F2, the driver and the schema.** `web/server/db.pg.ts` with the Postgres DDL
 and a `PgDb implements Db` over `pg`. Selection by environment:
@@ -424,6 +470,31 @@ of `anonymous` and gets `$1..$n` plus the values in order. It does need its own
 `SAVEPOINT` nesting keyed on async context rather than on a counter, and one
 connection held for the length of a transaction rather than taken from a pool
 per statement.
+
+**That was all correct, and the pinning is worth saying exactly how.** The open
+transaction's `PoolClient` is carried in the `AsyncLocalStorage`, and `all`,
+`get` and `run` look there before they look at the pool. It has to be the async
+context and not a field, for the reason stage E already found: the caller that
+needs nesting reaches the connection through the handle the class holds, and a
+field would also sweep an unrelated request's statement into a transaction that
+may roll back. `SqliteDb`'s exclusive lock is deliberately **not** carried over.
+That exists because better-sqlite3 has one connection; Postgres has real ones,
+and an unrelated statement running alongside is the point of moving.
+
+Proved rather than reasoned about, in `db.pg.test.ts`: three statements inside
+one `tx`, one of them issued through the class's own handle, all report the same
+`pg_backend_pid()`, and a statement issued from outside that async context while
+the transaction is open reports a different one. Then the same fact without
+reading a pid: a write inside a transaction that rolls back is gone and an
+unrelated write is not, which an unpinned implementation could not manage
+because its insert would have autocommitted on another connection.
+
+**One thing the pid test taught, which is not obvious.** A statement scheduled
+from *inside* the transaction's work, by `setImmediate` or a promise chain,
+inherits the `AsyncLocalStorage` and so runs on the transaction's connection.
+That is correct: it is the transaction's own continuation. An unrelated request
+is one that never entered the transaction, and a test that models it any other
+way is testing `AsyncLocalStorage` rather than the driver.
 
 Schema translation, deliberately literal. **Every column keeps the type that
 produces the same JavaScript value it produces today**, because the API contract
@@ -451,8 +522,72 @@ run twice. This is the stage's whole verification argument: the Postgres
 implementation is correct exactly to the extent that the tests already guarding
 SQLite pass unchanged against it.
 
+**Done, and the four files gained no conditional.** The harness is
+`server/testdb.ts`; the two runs are two vitest projects, `sqlite` and
+`postgres`, in `web/vitest.config.ts`. The diff to each of the four files is its
+`beforeEach` and an `afterAll`. Nothing in them can tell which database it got,
+which is the property that makes the argument hold: the moment an assertion has
+to be made conditional, the migration has changed behaviour and that is the
+finding rather than something to accommodate.
+
+#### On the CASTs, the collation, and what checking them actually found
+
+**All four `CAST`s work, and so does `attach`'s `@slot`.** More usefully:
+**three of the four also work with the cast removed**, and so does `@slot`.
+Postgres resolves an operator whose inputs are all `unknown` as `text`, and
+infers a parameter's type from the other side of a comparison, so
+`NULLIF($1, '')`, `$1 = 1`, `$1 != ''` and `',' || $1 || ','` all resolve on
+Postgres 17. Stage E's four casts are belt and braces on this version, not
+load-bearing. **They stay**: they cost nothing, they are documented at the
+statement, and "works on the version I tried" is not the same claim as
+"specified to work".
+
+**The casts that ARE load-bearing are the aggregate ones**, and the check is in
+`db.pg.test.ts`: `SELECT COUNT(*) AS n` hands back a JavaScript **string**, and
+`CAST(COUNT(*) AS INTEGER)` hands back a number. That is risk 3's first half,
+confirmed on a real server rather than predicted.
+
+**And the collation matters exactly as much as risk 1 says.** The check is not
+`Intl.Collator` and could not be: stage D recorded that `en-US` there agrees
+with byte order on this fixture while glibc `en_US.utf8` does not, so agreement
+with Node's collator reads as proof and is not. So:
+
+- **The test databases are created with `en_US.utf8`**, from `template0`
+  (`server/testdb.ts`). A byte-order cluster would order every column correctly
+  whatever the column said, and `COLLATE "C"` could then be deleted from the
+  schema with nothing noticing until a managed Postgres handed the app a
+  linguistic collation. `db.pg.test.ts` asserts the database it got is not a
+  `C` one, so the fallback for a server without that locale shows up as a
+  failing test rather than as a check that quietly stopped checking.
+- **The confirmation the plan asked for exists.** The same fixture, the same
+  keys, in a column that took the database's own collation, comes back in a
+  different order, and specifically with `SMITHERS ED` before `SMITH ZOE`. The
+  `COLLATE "C"` column returns byte order. So the declaration is demonstrably
+  doing the work rather than being decoration on a test that has only passed.
+- The four columns' declarations are read back out of `pg_attribute` and
+  `pg_collation`, so the check is on what the database did and not on what the
+  DDL string asked for.
+
+The command, and it is the whole of it: **`cd web && npm test`**. That runs both
+projects. `npx vitest run --project postgres` runs the Postgres half alone.
+
 Verify: 302 SQLite tests green, plus roughly 71 Postgres tests. Test count rises
 to about 373 across 16 files, and AGENTS.md's number is updated in the same PR.
+
+**Measured on this branch: 801 before, 964 after, across 44 files.** The extra
+163 are the four files run a second time (142) and `db.pg.test.ts` (21). There
+was no number in AGENTS.md to update: it deliberately carries none, and says
+why. About 37 seconds before, about 44 after, on a machine with the image
+already pulled.
+
+**A near miss worth recording**, because it is the shape of mistake this stage
+invites. The first `vitest.config.ts` gave the `sqlite` project a hand-written
+`include` glob. It matched every `.test.ts` and therefore missed
+`src/components/BookDetail.test.tsx` and `QueuePane.test.tsx`. **The run stayed
+green and the count fell by 21.** A green suite that quietly stopped running two
+files is exactly what the "note the count before you change anything" rule in
+AGENTS.md exists to catch, and it caught it. That project now names only what it
+excludes.
 
 ### Stage G. Flip the default; e2e on Postgres
 
@@ -553,6 +688,27 @@ vitest `globalSetup`, and an escape hatch.**
 - Use container reuse for the inner loop, so a second `npm test` in the same
   session pays nothing.
 - Pin the image to the same major version as the eventual managed target.
+
+**Built in stage F, with two departures.**
+
+- **One database per test file, created from scratch rather than from a
+  template.** Applying the schema costs a few milliseconds and there are four
+  such files, so a template database bought nothing and was one more piece of
+  state to keep correct. `TRUNCATE ... RESTART IDENTITY CASCADE` between tests
+  as recommended, over five tables; `shelf_ranges` is deliberately left seeded,
+  because a fresh SQLite database arrives seeded and the two drivers have to
+  start from the same place.
+- **No container reuse.** A reused container survives the run that made it, so
+  the next run inherits whatever schema and databases the last one left, and the
+  failure that produces looks like a driver bug rather than a stale container.
+  The escape hatch already answers the inner loop for anyone who wants it, and
+  a cold container start measured about four seconds here. Revisit if that
+  changes.
+
+CI uses the escape hatch, with `services: postgres:17` in `ci.yml`. That is
+worth more than saving the pull: it means the container path and the escape
+hatch are each exercised by somebody on every change, rather than one of them
+being a code path nobody runs until it breaks.
 
 ### The cost, stated plainly
 
@@ -876,6 +1032,22 @@ read-then-write into a single conditional `UPDATE ... RETURNING`, which is both
 correct under concurrency and shorter than what is there now. Add one test that
 runs two `addBook` calls concurrently and asserts both books end up correctly
 ordered.
+
+**Not done in stage F, deliberately, and this is the one item of F's own list
+that is outstanding.** Stage F was scoped to "Postgres exists and is not the
+default", and both changes above are edits to `Store` that alter behaviour on
+**the driver that is still the default**, in the one stage whose whole claim is
+that nothing changes by default. Landing them there would have put a behaviour
+change into the PR that is supposed to be provably behaviour-free, and made
+`git revert` of the Postgres work also revert a concurrency fix, which is the
+separate-revertibility #140 is built on.
+
+Where it should go, for whoever picks it up: **stage G**, which already carries
+"rehearse `store.addBook` under two concurrent requests here, because of risk
+3". Doing the fix and its rehearsal in the same stage puts the change and the
+test that can actually exercise it together, on the driver that will by then be
+the default. Note that the hazard has been live on SQLite since stage C either
+way, so nothing about deferring it is new exposure.
 
 ---
 

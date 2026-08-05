@@ -616,11 +616,22 @@ noticed. The suites worth knowing about:
   edge cases and the shelf/area boundary arithmetic, including the two filing
   cases the heuristic is knowingly wrong about.
 - `server/store.test.ts`, `server/shelves.test.ts` and `server/queue.test.ts`
-  run the placement, boundary and capture-queue logic against a real
-  in-memory SQLite database.
+  run the placement, boundary and capture-queue logic against a real database.
 - `server/rehash.test.ts` covers the cover rehash: that a dry run writes
   nothing, that a second run finds nothing to do, and that a missing image is
   counted rather than thrown.
+- Those four run **twice**, once against in-memory SQLite and once against a
+  real Postgres in a container, and no assertion in them is conditional on
+  which. That is the verification argument for stage F of the Postgres
+  migration: the Postgres driver is correct exactly to the extent that the
+  tests already guarding SQLite pass unchanged against it. **This is why
+  `npm test` needs Docker**; `BOOKSCAN_TEST_DATABASE_URL` points the harness at
+  a server you already have instead, and `npx vitest run --project sqlite` is
+  the half that needs neither.
+- `server/db.pg.test.ts` covers what those four cannot see, because every item
+  on it fails silently rather than loudly: the `COLLATE "C"` declarations that
+  keep shelf order in byte order, the connection a transaction is pinned to,
+  and the aggregates that come back as strings without a cast.
 - `server/bookcrop.test.ts` measures the crop detector against generated
   scenes whose true rectangle is known, and prints the figures. The assertion
   that matters is that no crop cut into the book, since that is the failure

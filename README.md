@@ -57,11 +57,17 @@ so they get a scratch database instead. See [`AGENTS.md`](AGENTS.md).
 ```bash
 cd web
 npm run typecheck   # tsc --noEmit
-npm test            # vitest
+npm test            # vitest, both projects
 ```
 
 Both run in CI on every pull request, alongside a check that no scan data has
 been committed.
+
+`npm test` runs two projects: `sqlite`, which is every test and needs nothing,
+and `postgres`, which re-runs the four files that open a database against a
+real Postgres in a container. **It therefore needs Docker.** Set
+`BOOKSCAN_TEST_DATABASE_URL` to use a server you already have instead, or run
+`npx vitest run --project sqlite` for the half that needs neither.
 
 ### End to end
 
