@@ -90,20 +90,16 @@ jobs:
       # answered by a stub the suite starts itself, so this needs no network
       # beyond the installs above and never reaches real scan data: the
       # AppHost puts the database in web/data/e2e/<run id>.
+      #
+      # The Aspire bundle this pulls down is NOT cached, and that was measured
+      # rather than assumed. On run 30963595547 the step split 39s of AppHost
+      # startup against 58s of scenarios, and the download it would avoid is
+      # 429M in ~/.aspire/versions beside 429M in ~/.nuget/packages. Restoring
+      # most of a gigabyte to save part of 39s is not obviously a win, so it is
+      # left alone. If you revisit this, measure both halves before keeping it.
       - name: Run the journeys
         working-directory: e2e
         run: npm test
-
-      # TEMPORARY. Removed before this pull request is ready. Here to find out
-      # whether the Aspire SDK download is large enough to be worth a cache,
-      # rather than guessing at a path and calling it an optimisation.
-      - name: What Aspire left behind
-        if: always()
-        run: |
-          for d in "$HOME/.aspire" "$HOME/.nuget/packages" "$HOME/.dotnet"; do
-            if [ -d "$d" ]; then du -sh "$d"; else echo "$d absent"; fi
-          done
-          ls -la "$HOME/.aspire" 2>/dev/null || true
 
       - name: Keep the report
         if: always()
