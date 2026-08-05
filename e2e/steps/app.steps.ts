@@ -292,6 +292,74 @@ Then(
   },
 )
 
+/**
+ * Where the drawn row has come to rest, measured rather than reasoned about.
+ *
+ * Read after two animation frames, so what is measured is where the row
+ * settled and not where it happened to be mid-commit: the component scrolls
+ * the gap into view as an effect, and the browser's scroll snapping then has
+ * its own say about where the row is allowed to stop.
+ */
+async function whereTheGapIs(page: Page) {
+  await expect(page.locator('.strip__gap')).toBeVisible()
+  return page.locator('.strip__gap').evaluate((gap) => new Promise<{
+    gapLeft: number; gapRight: number
+    visibleLeft: number; visibleRight: number
+    rowWidth: number; screenWidth: number
+    scrollLeft: number
+  }>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const scroller = gap.closest('.strip__scroll') as HTMLElement
+      const seen = scroller.getBoundingClientRect()
+      const it = gap.getBoundingClientRect()
+      resolve({
+        gapLeft: Math.round(it.left),
+        gapRight: Math.round(it.right),
+        visibleLeft: Math.round(seen.left),
+        visibleRight: Math.round(seen.right),
+        rowWidth: scroller.scrollWidth,
+        screenWidth: scroller.clientWidth,
+        scrollLeft: Math.round(scroller.scrollLeft),
+      })
+    }))
+  }))
+}
+
+/**
+ * The guard on the three checks below.
+ *
+ * A row that fits on the screen cannot have its gap anywhere but on the
+ * screen, so without this a scenario could go green having proved nothing.
+ */
+Then('the shelf drawing should be longer than the screen', async ({ page }) => {
+  const seen = await whereTheGapIs(page)
+  expect(
+    seen.rowWidth,
+    `the drawn row is ${seen.rowWidth}px across a ${seen.screenWidth}px screen, so ` +
+    'it never needed scrolling and this scenario is not testing what it says',
+  ).toBeGreaterThan(seen.screenWidth)
+})
+
+/**
+ * The whole point of the shelving step, and #119.
+ *
+ * The strip answers one question, where this book goes, and it answers it by
+ * drawing a hole in a shelf. A hole that is off the side of the screen when
+ * the screen settles is the step having quietly stopped answering, and the
+ * person holding the book goes hunting for it.
+ */
+Then('the gap should be on screen without scrolling the shelf', async ({ page }) => {
+  const seen = await whereTheGapIs(page)
+  const said =
+    `the gap sits at x ${seen.gapLeft} to ${seen.gapRight}, and the visible part of ` +
+    `the shelf runs from x ${seen.visibleLeft} to ${seen.visibleRight} ` +
+    `(row ${seen.rowWidth}px, screen ${seen.screenWidth}px, resting at ` +
+    `scrollLeft ${seen.scrollLeft})`
+
+  expect(seen.gapLeft, `off the left: ${said}`).toBeGreaterThanOrEqual(seen.visibleLeft)
+  expect(seen.gapRight, `off the right: ${said}`).toBeLessThanOrEqual(seen.visibleRight)
+})
+
 /** Out of the shelving step without answering it, which is #111's case. */
 When('I go back to the book details', async ({ page }) => {
   await page.getByRole('button', { name: 'Back to book details' }).click()
