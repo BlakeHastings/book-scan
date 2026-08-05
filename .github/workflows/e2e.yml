@@ -60,17 +60,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
 
-      # Caches the three npm trees this job installs: the app, the AppHost at
-      # the repository root, and the suite.
       - uses: actions/setup-node@v4
         if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            package-lock.json
-            e2e/package-lock.json
+
+      # Covers the three npm trees this job installs: the app, the AppHost at
+      # the repository root, and the suite. By hand rather than through
+      # setup-node's `cache: npm`, for the `restore-keys` fallback, which
+      # matters more here than in `ci.yml`: this workflow reaches the default
+      # branch only through the nightly schedule, so the shared entry every
+      # pull request reads is refreshed once a day at best. Without a fallback,
+      # any lock file change leaves pull requests reinstalling from the registry
+      # until the next nightly. See the same note in `ci.yml`.
+      - name: Cache the npm downloads
+        if: steps.scope.outputs.docs_only != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ runner.os }}-${{ hashFiles('web/package-lock.json', 'package-lock.json', 'e2e/package-lock.json') }}
+          restore-keys: |
+            npm-e2e-${{ runner.os }}-
 
       # Chrome for Testing is around a hundred megabytes and the download is
       # the second largest step here after the run itself. Keyed on the suite's
@@ -125,12 +135,19 @@ jobs:
       # beyond the installs above and never reaches real scan data: the
       # AppHost puts the database in web/data/e2e/<run id>.
       #
-      # The Aspire bundle this pulls down is NOT cached, and that was measured
-      # rather than assumed. On run 30963595547 the step split 39s of AppHost
-      # startup against 58s of scenarios, and the download it would avoid is
-      # 429M in ~/.aspire/versions beside 429M in ~/.nuget/packages. Restoring
-      # most of a gigabyte to save part of 39s is not obviously a win, so it is
-      # left alone. If you revisit this, measure both halves before keeping it.
+      # The Aspire bundle this pulls down is NOT cached. That was measured on
+      # wall clock once and re-measured on billed minutes for #126, and the
+      # answer got firmer rather than closer.
+      #
+      # The experiment: cache `~/.aspire/versions` and `~/.nuget/packages`, run
+      # this workflow twice on the same branch, once to populate and once to
+      # hit. Run 30966851528, everything cold, took 2m36s. Run 30967066322,
+      # 719M restored in 6s, took 2m37s. The scenarios step was 1m25s cold and
+      # 1m36s warm, so the difference is noise and points the wrong way. Both
+      # runs are billed 3 minutes. There is no minute here to save.
+      #
+      # If you revisit it, the thing to beat is 2m37s, and the boundary that
+      # would actually pay is 2m00s.
       - name: Run the journeys
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e

@@ -71,8 +71,34 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+
+      # The npm download cache, kept by hand rather than through setup-node's
+      # `cache: npm`, purely so it can have `restore-keys`.
+      #
+      # This is the one real consequence of dropping the push to master trigger,
+      # and it was found by looking rather than by reasoning. GitHub scopes a
+      # cache written by a pull request run to that pull request's own merge
+      # ref; only a run on the default branch writes one that every other pull
+      # request can read. The push run was what wrote this one. In
+      # `gh api repos/{owner}/{repo}/actions/caches`, the entry
+      # `node-cache-Linux-x64-npm-1dcb3a6...` on `refs/heads/master` was last
+      # read at 01:39:19 by pull request run 30967006278, which is why that
+      # run's `npm ci` took fifteen seconds.
+      #
+      # With no push run, nothing writes master's scope again, so the day
+      # `web/package-lock.json` changes the exact key stops matching and every
+      # pull request pays a cold install from then on, permanently.
+      # `restore-keys` turns that cliff into a slope: the previous cache still
+      # restores, `npm ci` fetches only what actually changed, and a read keeps
+      # the entry from being evicted.
+      - name: Cache the npm downloads
+        if: steps.scope.outputs.docs_only != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-web-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            npm-web-${{ runner.os }}-
 
       - name: Install
         if: steps.scope.outputs.docs_only != 'true'
