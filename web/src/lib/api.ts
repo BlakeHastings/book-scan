@@ -492,18 +492,36 @@ export const api = {
    * A changed `isbn13` re-runs the lookup server side and comes back in
    * `lookup`, so the correction and everything that hangs off it land in one
    * write rather than two the browser has to survive.
+   *
+   * `release` hands the capture back to the queue in the same request, and is
+   * the only way to release one. `keepalive` asks the browser to send the
+   * request even though the page that made it is going away, which is what
+   * makes a closing tab still let go of the book. Both are explained in
+   * `lib/leaveCapture.ts`, which is the only thing that passes them.
    */
-  updateCapture: (id: number, who: string, edit: CaptureEdit = {}) =>
-    request<{ capture: Capture; lookup: LookupResponse | null; counts: QueueCounts }>(
+  updateCapture: (
+    id: number,
+    who: string,
+    edit: CaptureEdit = {},
+    options: { release?: boolean; keepalive?: boolean } = {},
+  ) =>
+    request<{
+      capture: Capture
+      lookup: LookupResponse | null
+      released: boolean
+      counts: QueueCounts
+    }>(
       `/api/captures/${id}`,
-      { method: 'PATCH', body: JSON.stringify({ who, ...edit }) },
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          who,
+          ...edit,
+          ...(options.release ? { release: true } : {}),
+        }),
+        keepalive: options.keepalive,
+      },
     ),
-
-  releaseCapture: (id: number, who: string) =>
-    request<{ ok: true }>(`/api/captures/${id}/release`, {
-      method: 'POST',
-      body: JSON.stringify({ who }),
-    }),
 
   deleteCapture: (id: number) =>
     request<{ ok: true; counts: QueueCounts; photosRemoved: number }>(

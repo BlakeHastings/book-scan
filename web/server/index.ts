@@ -590,32 +590,59 @@ export function createApp(options: CreateAppOptions): express.Express {
    * POST /claim rather than anything new. `queue.edit` renews the lease as a
    * side effect of a successful edit, and a lease that has gone stale is
    * takeable, on exactly the terms opening the capture already uses.
+   *
+   * `release` says the person is putting the book down. It travels with the
+   * edit rather than in a request of its own, and this is now the only way a
+   * capture is released, because on the way out the two cannot be separate
+   * calls (#150). An edit needs the claim, so it has to go first; a page that
+   * is going away cannot be relied on to send a second request once the first
+   * has answered; and two fired at once race, with an edit landing after a
+   * release taking the claim straight back. One request has no order to get
+   * wrong.
    */
   app.patch('/api/captures/:id', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const who = String(body.who ?? '').trim() || 'unknown'
+    const id = Number(req.params.id)
+    const lettingGo = body.release === true
 
-    const result = await queue.edit(Number(req.params.id), who, asCaptureEdit(body))
+    const result = await queue.edit(id, who, asCaptureEdit(body))
+
+    /*
+     * Unconditional, and deliberately outside the success branch below. What
+     * becomes of the typing and whether the book is handed back are two
+     * separate questions, and only the first of them can be refused: a
+     * capture that has just become a book rejects the edit, and holding on to
+     * the claim because of that would leave the next person told the book is
+     * being worked on by somebody who has gone. Releasing what you do not
+     * hold is already a no-op, so the refusals that are somebody else's claim
+     * change nothing here either.
+     */
+    if (lettingGo) await queue.release(id, who)
 
     if (!result.ok) {
       if (result.reason === 'missing') {
-        res.status(404).json({ error: 'No such capture.' })
+        res.status(404).json({ error: 'No such capture.', released: lettingGo })
       } else if (result.reason === 'done') {
         res.status(409).json({
           error: 'That book has already been shelved. Edit the book itself.',
+          released: lettingGo,
         })
       } else {
-        res.status(409).json({ error: `That book is being worked on by ${result.heldBy}.` })
+        res.status(409).json({
+          error: `That book is being worked on by ${result.heldBy}.`,
+          released: lettingGo,
+        })
       }
       return
     }
 
-    res.json({ capture: result.row, lookup: result.lookup, counts: await queue.counts() })
-  }))
-
-  app.post('/api/captures/:id/release', asyncRoute(async (req, res) => {
-    await queue.release(Number(req.params.id), String((req.body ?? {}).who ?? ''))
-    res.json({ ok: true })
+    res.json({
+      capture: result.row,
+      lookup: result.lookup,
+      released: lettingGo,
+      counts: await queue.counts(),
+    })
   }))
 
   app.delete('/api/captures/:id', asyncRoute(async (req, res) => {

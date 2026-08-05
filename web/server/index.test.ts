@@ -1444,6 +1444,107 @@ describe('editing a capture that is still in the queue', () => {
 })
 
 /**
+ * Walking away from a claimed capture (#150).
+ *
+ * The claim is a five minute lease, so a person who leaves without handing
+ * the book back stalls whoever comes to it next: the queue tells them it is
+ * "being worked on by alice" when nobody is. The browser's side of this is in
+ * src/lib/leaveCapture.ts; asserted here is the contract it depends on, which
+ * is that one request both writes what was typed and lets the book go.
+ */
+describe('putting a claimed capture down', () => {
+  const queued = async () =>
+    new CaptureQueue(running.db, () => null).add({ back: 'b.jpg', front: 'f.jpg' })
+
+  const rowOf = (id: number) => new CaptureQueue(running.db, () => null).get(id)
+
+  it('writes what was typed and frees the capture in one request', async () => {
+    const capture = await queued()
+    await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
+
+    const { status, body } = await patch(`/api/captures/${capture.id}`, {
+      who: 'alice', title: 'Song of Solomon', release: true,
+    })
+
+    expect(status).toBe(200)
+    expect(body.released).toBe(true)
+    expect(JSON.parse(body.capture.edit_json).title).toBe('Song of Solomon')
+    expect((await rowOf(capture.id))!.claimed_by).toBe('')
+  })
+
+  /*
+   * The next person can pick it up at once, which is the whole point: before
+   * this they were told the book was with somebody who had gone, and had to
+   * wait out the lease.
+   */
+  it('lets the next person claim it straight away', async () => {
+    const capture = await queued()
+    await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
+    await patch(`/api/captures/${capture.id}`, { who: 'alice', release: true })
+
+    const { status } = await post(`/api/captures/${capture.id}/claim`, { who: 'bob' })
+
+    expect(status).toBe(200)
+  })
+
+  /*
+   * The two halves are answerable separately, and only the edit can be
+   * refused. A capture that became a book while somebody had it open rejects
+   * the edit, and holding on to the claim over that refusal would leave the
+   * book claimed by a person who has left the screen.
+   */
+  it('frees the capture even when the edit itself is refused', async () => {
+    const capture = await queued()
+    await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
+    const { id } = await running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    new CaptureQueue(running.db, () => null).markDone(capture.id, id)
+
+    const { status, body } = await patch(`/api/captures/${capture.id}`, {
+      who: 'alice', title: 'Too late', release: true,
+    })
+
+    expect(status).toBe(409)
+    expect(body.released).toBe(true)
+    expect((await rowOf(capture.id))!.claimed_by).toBe('')
+  })
+
+  /*
+   * An ordinary autosave is not somebody leaving. The claim has to survive
+   * it, or a person typing would hand their own book away mid-sentence.
+   */
+  it('keeps the claim for an edit that does not ask to leave', async () => {
+    const capture = await queued()
+    await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
+
+    const { body } = await patch(`/api/captures/${capture.id}`, {
+      who: 'alice', title: 'Song of Solomon',
+    })
+
+    expect(body.released).toBe(false)
+    expect((await rowOf(capture.id))!.claimed_by).toBe('alice')
+  })
+
+  /*
+   * Somebody else's claim is not takeable by leaving. The release already
+   * only clears a claim held by the person making it, and the refused edit
+   * must not have moved anything either.
+   */
+  it('does not free a capture somebody else is holding', async () => {
+    const capture = await queued()
+    await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
+
+    const { status } = await patch(`/api/captures/${capture.id}`, {
+      who: 'bob', title: 'Not Dune', release: true,
+    })
+
+    expect(status).toBe(409)
+    expect((await rowOf(capture.id))!.claimed_by).toBe('alice')
+  })
+})
+
+/**
  * What a queued capture tells the client about its crops.
  *
  * The queue draws the cropped front (#135), and it can only do that if the crop

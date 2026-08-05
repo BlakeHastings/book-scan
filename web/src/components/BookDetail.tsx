@@ -74,6 +74,19 @@ interface Props {
   /** A person says they have carried the book to where the order puts it. */
   onMisfileMoved?: () => void
   misfileMoving?: boolean
+  /**
+   * The lines OCR read off this capture's cover photograph, newline
+   * separated, exactly as the queue row already quotes them.
+   *
+   * Empty for a catalogued book, which has no capture behind it, and for a
+   * capture whose photographs produced nothing readable.
+   */
+  coverText?: string
+  /**
+   * The queue's note on this capture: usually why it could not settle what
+   * the book is, and the line the next person needs before they start.
+   */
+  captureNote?: string
 }
 
 /**
@@ -111,6 +124,7 @@ export function BookDetail({
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
   boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
   misfile = null, onMisfileMoved, misfileMoving = false,
+  coverText = '', captureNote = '',
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
   // because correcting it is the whole reason it is on screen.
@@ -414,6 +428,11 @@ export function BookDetail({
         />
       )}
 
+      {/* Directly above the fields, because this is what somebody reads while
+          they type into them. Anywhere higher and it is off screen by the
+          time the Title box is, which is the complaint in a shorter form. */}
+      <CaptureEvidence coverText={coverText} note={captureNote} />
+
       {editing ? (
         <BookFields
           draft={draft}
@@ -443,6 +462,62 @@ export function BookDetail({
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * What the photographs said, on the screen where somebody has to work out
+ * what the book is.
+ *
+ * This is the page for exactly the captures the app could not settle by
+ * itself, and its one piece of evidence used to be on the previous screen:
+ * the queue row said "Cover reads: Song of Solomon", and opening the row
+ * showed neither that nor the note. Somebody correcting a stack of these was
+ * backing out to re-read a line they had just been shown and holding it in
+ * their head while typing (#147).
+ *
+ * Shown as evidence and never as a value. Nothing here is pre-filled into a
+ * field and there is deliberately no control that copies it across: OCR is a
+ * lossy, engine-version-dependent reading of a photograph, and a guess
+ * promoted into a box somebody then saves enters the catalogue wearing the
+ * clothes of a confirmed value. So it is quoted beside the form rather than
+ * poured into it, and it says both where it came from and how much to trust
+ * it.
+ *
+ * The note gets the same room. Three people work one pile, and a note is how
+ * one of them hands the work to the next.
+ */
+export function CaptureEvidence({ coverText = '', note = '' }: {
+  coverText?: string
+  note?: string
+}) {
+  const lines = coverText.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (!lines.length && !note) return null
+
+  return (
+    <section className="evidence">
+      {note && (
+        <p className="evidence__note">
+          <span className="evidence__label">Note</span>
+          {note}
+        </p>
+      )}
+
+      {lines.length > 0 && (
+        <div className="evidence__cover">
+          <span className="evidence__label">The cover photo reads</span>
+          <ul className="evidence__lines">
+            {lines.map((line, index) => (
+              <li key={`${index}-${line}`}>{line}</li>
+            ))}
+          </ul>
+          <p className="evidence__caveat">
+            Read off the photograph by a machine, and often wrong. Nothing here
+            has been filled in for you: type what the book itself says.
+          </p>
+        </div>
+      )}
+    </section>
   )
 }
 
