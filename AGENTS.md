@@ -43,16 +43,26 @@ instead of proceeding.
 The safety here is structural, not just a request:
 
 - The server resolves its data directory as
-  `process.env.BOOKSCAN_DATA ?? 'data'` (`web/server/index.ts:40`). With no env
+  `process.env.BOOKSCAN_DATA ?? 'data'` (`web/server/index.ts`). With no env
   var set, it uses `web/data/` inside your checkout, never the live path.
 - **Do not set `BOOKSCAN_DATA`.** It is the only thing standing between a dev
   server and the real catalogue. Under Aspire you do not need to: the AppHost
   sets it explicitly to this checkout's own directory, which overrides anything
   inherited from your shell.
+- **Since stage G there is a second variable of the same kind**, and it is the
+  one that now points at the rows: `ConnectionStrings__bookscan`. The app
+  defaults to Postgres and reads its connection from that name and no other,
+  and the AppHost sets it explicitly to the container it just started, so an
+  inherited value cannot win under `aspire start`. **Do not set it in a shell.**
+  Everything AGENTS.md says about `BOOKSCAN_DATA` applies to it word for word,
+  and it is worth more: it names a whole catalogue rather than a directory.
+- **The covers are still files, so `BOOKSCAN_DATA` did not stop mattering.**
+  The database holds bare filenames joined against the data directory at read
+  time. Both variables are live at once until the cover storage work lands.
 - No test reads or writes the catalogue, and since stage F of the Postgres
   migration that sentence needs two halves rather than one. Most server tests
   still open an in-memory SQLite database (`:memory:`), which cannot reach a
-  file at all. The four that also run against Postgres create a scratch
+  file at all. The five that also run against Postgres create a scratch
   database per test file on a throwaway container and drop it afterwards, and
   the harness reads **only** `BOOKSCAN_TEST_DATABASE_URL` to find a server:
   never `DATABASE_URL`, never `ConnectionStrings__*`. That is the same rule as
@@ -60,6 +70,11 @@ The safety here is structural, not just a request:
   `BOOKSCAN_TEST_DATABASE_URL` in a shell** either, except at a scratch server
   you are content to have databases created on and dropped from. Every test
   generates its own barcode and cover fixtures.
+- The end to end suite opens a real database rather than an in-memory one, and
+  has since it existed. It reaches it the same way it reaches the URLs: by
+  reading the api resource's own environment out of `aspire describe`, so it
+  can only ever open the database the AppHost just provisioned. It never reads
+  `BOOKSCAN_DATA` or a connection string from a shell.
 - `web/.gitignore` excludes `data/`, so a database or cover photo cannot be
   committed. CI re-checks this on the result, because an ignore rule is silent
   when someone forces past it.
@@ -113,6 +128,18 @@ npm run build      # typecheck then vite build
 `npm run dev` binds `0.0.0.0:5173` with a self-signed certificate. That is
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
 LAN address, so the phone needs HTTPS.
+
+**Postgres is the default database as of stage G.** `BOOKSCAN_DB` picks one and
+defaults to `postgres`; `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db`
+and behaves exactly as this app always has. SQLite is not deprecated and not
+second class until stage I says so: **the owner's catalogue is still a SQLite
+file**, and that variable is the whole of the way back.
+
+Under `aspire start` there is nothing to set. The AppHost provisions Postgres
+and hands the api its connection. Running the api on its own with neither
+`BOOKSCAN_DB` nor a connection string is the one combination that refuses to
+start, on purpose: coming up on an empty Postgres beside a `books.db` full of
+scanned books would look exactly like a catalogue that lost every one of them.
 
 **`npm test` needs Docker.** That is new as of stage F of the Postgres
 migration and it is a real regression in what it takes to contribute, accepted
@@ -242,11 +269,25 @@ The camera is a generated video file handed to Chromium with
 answered by a local stub, so a run needs no hardware and no network. **Do not
 add a scenario that depends on either.**
 
-It writes to `web/data/e2e/<run id>`, derived by the AppHost from
-`BOOKSCAN_E2E_RUN`. That is not a back door for setting the data directory: the
-value is sanitised to a single path segment and joined under `web/data`, and
-`BOOKSCAN_DATA` is still set in exactly one place, by the AppHost, and nowhere
-else.
+It writes to `web/data/e2e/<run id>` **and to a Postgres database called
+`bookscan_<run id>`**, both derived by the AppHost from `BOOKSCAN_E2E_RUN`.
+Neither is a back door: the value is sanitised to one path segment, the
+directory is joined under `web/data`, and `BOOKSCAN_DATA` and the connection
+are still set in exactly one place, by the AppHost, and nowhere else.
+
+Two things, because a directory per run stopped being enough at stage G. The
+Postgres container has a **persistent data volume**, named per checkout, so a
+scratch catalogue survives a restart the way `web/data/books.db` used to. That
+means a run that isolated only its directory would share the developer's rows,
+so the rows get a database of their own too. Old run databases are dropped at
+the start of the next run, the same way old run directories are.
+
+**Two checkouts can still run the suite at the same time**, because the volume,
+the container and therefore the databases are all per checkout. Two runs in
+*one* checkout cannot, and never could: there is one AppHost per checkout.
+
+For a clean slate, stop the AppHost and `docker volume rm` the volume whose
+name it printed on start.
 
 The suite runs `aspire stop` without `--all`, so it stops only this checkout's
 AppHost. Unrelated Aspire apps are usually running on this machine.

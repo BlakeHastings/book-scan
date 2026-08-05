@@ -1,8 +1,11 @@
 # SQLite to Postgres: a staged migration plan
 
-Status: **stages A to F have landed** (#44, #45, #55, #142, #144, #160). The
-catalogue is still on SQLite and nothing has touched the live data. Progress is
-tracked on #140; this document is the authority on what each stage is.
+Status: **stages A to G have landed** (#44, #45, #55, #142, #144, #160, #163).
+The app now defaults to Postgres, **and the owner's catalogue is still a SQLite
+file**: nothing has touched the live data, and nothing will until stage H, which
+the owner runs. `BOOKSCAN_DB=sqlite` opens that file and is a fully supported
+configuration until stage I. Progress is tracked on #140; this document is the
+authority on what each stage is.
 
 Decisions below were settled by the owner on 2026-08-03 and should not be
 relitigated without a reason.
@@ -623,6 +626,9 @@ excludes.
 
 ### Stage G. Flip the default; e2e on Postgres
 
+**Done.** What follows is what the stage said to do, with what it turned out to
+be written underneath each point.
+
 - Default `BOOKSCAN_DB` to `postgres`. SQLite stays reachable for one more
   stage.
 - `e2e/support/database.ts` swaps `better-sqlite3` for `pg`. Its `reset()`
@@ -644,6 +650,64 @@ until it is green twice in a row.
 
 Also rehearse `store.addBook` under two concurrent requests here, because of
 risk 3.
+
+**Green three times, 25 scenarios each.** The features did not change and
+neither did a single assertion. **The step files did**, and the plan was wrong
+to say they would not: `pg` is asynchronous, so twelve call sites gained an
+`await` and two `expect.poll` callbacks became `async`. That is a spelling
+change and not a behaviour change, which is the distinction the sentence was
+reaching for, but "the step files do not change" is the kind of claim that gets
+read as a check somebody can run.
+
+**Four corrections and two additions from doing it.**
+
+- **`/api/health` already reported the redacted description.** Stage F wired
+  `dbLabel` through `createApp`, so this stage had nothing to do here. What did
+  need doing is on the other side: the suite reads the connection *and* the
+  cover directory out of the api resource's environment, because `coverDir` used
+  to be `dirname()` of the database path and there is no path any more. It still
+  asks `/api/health`, as a **check** rather than as the source: if the api
+  opened something other than what the AppHost handed it, the run stops instead
+  of asserting against the wrong database.
+- **The e2e run needs a database of its own, not just a directory.** The plan
+  did not anticipate this because it did not settle decision 2. With a
+  persistent volume, `web/data/e2e/<id>` isolates the photographs and shares the
+  rows with whatever a developer has been scanning. So `apphost.mts` derives a
+  database name from `BOOKSCAN_E2E_RUN` as well, through
+  `addDatabase('bookscan', { databaseName })`: the **resource** stays called
+  `bookscan`, so `ConnectionStrings__bookscan` is still the one name
+  `index.ts` reads, and only the catalogue on the far end of it moves.
+  `global-setup.ts` drops the databases earlier runs left, which is the other
+  half of `pruneOldRuns` and exists for the same reason. Proved rather than
+  asserted: the developer's own `bookscan` database still held its eight books
+  after three consecutive suite runs.
+- **Runs stay as parallel as they were, which is per checkout and not per run.**
+  The volume, the container and therefore the databases are all per checkout, so
+  two checkouts still run the suite side by side. Two runs in one checkout could
+  not before this stage either: there is one AppHost per checkout.
+- **Decision 2 is settled, and the opposite way round from stage F's
+  provisional answer.** `withDataVolume({ name })`, named from a hash of the
+  checkout path. A fixed name would be issue #28 wearing a different hat; a hash
+  of the checkout is the thing that actually distinguishes worktrees.
+  `web/data/books.db` persisted before this migration and losing that would be a
+  regression in developing here, and Aspire's own guidance prefers a persistent
+  lifetime for a database. The name is printed on start, because the clean slate
+  a developer used to get for free is now `docker volume rm` and they have to
+  know which one is theirs.
+- **Flipping a default has a failure mode the plan does not mention**, and it is
+  the one that matters while stage H is outstanding. A deployment started with
+  `BOOKSCAN_DATA` and nothing else, which is how the running system starts, has
+  no connection string on this revision. Coming up on an empty Postgres beside a
+  `books.db` full of somebody's afternoons is indistinguishable, from the sofa,
+  from a catalogue that lost every book. So that case **refuses to start**: it
+  says there is a SQLite catalogue at that path and names the one variable that
+  opens it. Four tests in `index.test.ts` hold it.
+- **#162 got worse, not better.** The browser suite now exercises the AppHost's
+  `postgres:18.3` while the unit suite exercises `postgres:17`, so the gap is
+  the difference between the database a scenario proves and the database a unit
+  test proves rather than the difference between one that is used and one that
+  is idle. Nothing here makes it harder to fix: the tag is still in exactly two
+  places, `server/pgcontainer.ts` and whatever `addPostgres` defaults to.
 
 ### Stage H. The real data
 
@@ -847,8 +911,14 @@ run, and waits before writing.
 ### The way back
 
 This is why SQLite is not deleted until Stage I. Until then the way back is:
-stop the app, set `BOOKSCAN_DB=sqlite`, start the app. The SQLite file has not
-been written to since the cutover, so it is the catalogue as of that moment.
+stop the app, set `BOOKSCAN_DB=sqlite`, start the app. **That is a live,
+exercised path, not a hope**: stage G kept it selectable by configuration, the
+SQLite half of the suite runs on every change, and `index.test.ts` asserts that
+`BOOKSCAN_DB=sqlite` opens the file with no connection string anywhere. Note
+that the same variable is now the difference between the default and the file
+rather than between the file and an opt-in, so the rollback is one variable in
+either direction. The SQLite file has not been written to since the cutover, so
+it is the catalogue as of that moment.
 Anything scanned into Postgres since is lost by rolling back, which is why the
 rollback window is measured in hours and the decision to keep going is made the
 same day.
@@ -1065,6 +1135,12 @@ correct under concurrency and shorter than what is there now. Add one test that
 runs two `addBook` calls concurrently and asserts both books end up correctly
 ordered.
 
+**The first half of that is not sufficient on Postgres and the last sentence
+describes a test that cannot fail.** See "Done in stage G" below: a widened
+transaction is not mutual exclusion under READ COMMITTED, and both books end up
+correctly ordered whatever happens, because the sort keys decide the order and
+not the placement. The thing that was wrong is what each caller was *told*.
+
 **Not done in stage F, deliberately, and this is the one item of F's own list
 that is outstanding.** Stage F was scoped to "Postgres exists and is not the
 default", and both changes above are edits to `Store` that alter behaviour on
@@ -1081,6 +1157,84 @@ test that can actually exercise it together, on the driver that will by then be
 the default. Note that the hazard has been live on SQLite since stage C either
 way, so nothing about deferring it is new exposure.
 
+#### Done in stage G, and the instruction above was not sufficient
+
+**"Widen the existing `addBook` transaction" does not make a read-then-write
+atomic on Postgres.** That is the correction, and it is the kind that would have
+shipped as a fix nobody could tell had not worked.
+
+A transaction is not mutual exclusion. Postgres runs at READ COMMITTED, where
+every statement inside a transaction takes its own fresh snapshot, so a `SELECT`
+and the `INSERT` decided from it, inside one `BEGIN`/`COMMIT`, can still have
+somebody else's row commit between them. The instruction reads as sufficient
+because on SQLite it is: `SqliteDb` holds its single connection for the length of
+a transaction. That is a property of the driver, and it is precisely the lock
+stage F recorded `PgDb` as deliberately not carrying over.
+
+So `Db.tx` gained `TxOptions.serialiseOn`, naming the thing being read and then
+written rather than the statement doing it. `SqliteDb` needs nothing for it and
+says so. `PgDb` takes `pg_advisory_xact_lock` on a key derived from the name,
+released by the commit or the rollback rather than by anybody's `finally` block:
+a session-scoped lock leaked on a pooled connection is a deadlock inherited by
+the next request. One name per shelf range (`rangeLock` in `shelves.ts`), so two
+books being filed into fiction take turns, a book going into nonfiction does
+not wait, and nothing that only reads waits for either.
+
+**Seven sequences, not the two the risk names.** Two were named; the other five
+are the same shape and were found by looking for it, which is stage E's lesson
+about the missing `CAST` arriving again.
+
+| Where | What was wrong | What it does now |
+| --- | --- | --- |
+| `Store.addBook` | read neighbours, resolve the filing key **twice**, then open a transaction around the insert only | one `resolveKey`, placement and insert in one transaction, serialised on the range |
+| `Store.updateBook` | same, plus the placement read **after** the commit | all three in one transaction |
+| `Store.setCheckedOut` | read, decide, unconditional write | one `UPDATE ... WHERE ... RETURNING` |
+| `Store.setCrop` | read the `cropped` list, edit it, write it back | one statement, the list added to in SQL |
+| `CaptureQueue.setCrop` | the same, in the other table | the same |
+| `Shelves.overflow` | the `expectId` staleness check performed outside any transaction | plan, check and apply in one, serialised on the range |
+| `Shelves.moveAcrossBoundary` | the decision read outside the transaction that applied it | the read moved inside |
+| `Shelves.remove` | the `position` the renumber is keyed on read outside the transaction | the read moved inside |
+
+The two worth stating in full, because they are not "a stale number on a
+screen":
+
+- **`setCheckedOut` could destroy the only record of when a book left.** Two
+  checkouts arriving together both read NULL, both passed the no-op guard the
+  method's own docblock says it exists to enforce, and the second overwrote the
+  first person's timestamp. There is no history table to recover it from. The
+  fix is the shape `CaptureQueue.claim` had all along.
+- **Both `setCrop`s lost the "looked at and declined" state.** Two overlapping
+  crop passes each wrote the whole comma-separated list back, so one slot's
+  entry vanished while its crop column stayed populated. Every later reader
+  concluded that slot had never been examined and re-cropped it forever.
+
+**What was deliberately not fixed, and why.** The route handlers compose several
+store calls across `await` points, and `POST /api/books` is the worst of them:
+five writes across three stores with two full layout reads between them, able to
+record a location that disagrees with the shelf the response tells the person to
+use. Making a route transactional is a design change about where a unit of work
+begins, not a database migration, and #140's first rule is that nothing merges
+into a stage that is not that stage. It wants an issue of its own.
+
+**How it is proved.** Three tests in `store.test.ts`, which run on both drivers
+and are not conditional on which they got, and seven in `db.pg.test.ts` for the
+lock. Every one was watched failing with its fix removed. Two things had to be
+right first, and both cost a round of tests that could not fail:
+
+- **The pool has to be warmed before a race starts.** With one connection it
+  serialises everything by starvation, and all three store tests passed with
+  their fix removed until the warm-up was added.
+- **Settling has to be measured in round trips, not event loop turns or
+  milliseconds.** Fifty `setImmediate` turns take microseconds and a `BEGIN`
+  takes a millisecond, so every lock test reported "the second transaction
+  waited" whatever the lock did. A duration would have worked here and gone
+  flaky on a slower machine.
+
+And the first test in the lock block asserts that two **unlocked** transactions
+*do* overlap, so the rest cannot pass because something else serialised them.
+That is the same discipline as the collation negative control, applied to
+concurrency.
+
 ---
 
 ## 9. Decisions for the owner, before anyone starts
@@ -1093,8 +1247,16 @@ way, so nothing about deferring it is new exposure.
    the volume name must be derived per checkout or worktrees will share one
    database. If no, dev catalogues become ephemeral, which is simpler and is a
    change from today.
+
+   **Settled at stage G: yes, with the name derived per checkout**, exactly as
+   the "if yes" clause requires. Verified by restarting the AppHost and finding
+   the eight books still there. The end to end suite, which was the argument for
+   "no", is answered instead by a database per run inside that volume.
 3. **Postgres major version.** Pin the container to whatever the eventual
    managed target will run. If undecided, 17. Cheap now, annoying later.
+
+   Still open, as #162, and stage G raised the stakes: the browser suite now
+   proves 18.3 and the unit suite proves 17.
 4. **When does the live catalogue actually move?** Recommended: flip the local
    default at Stage G, live on scratch data for a week, then do Stage H.
    Migrating live data as soon as Postgres works buys nothing.
@@ -1106,6 +1268,9 @@ way, so nothing about deferring it is new exposure.
 7. **`/api/health` reports the database path and the e2e suite reads it.**
    Confirm that redacting it to host, port and database name, with the suite
    reading the connection from `aspire describe` instead, is acceptable.
+
+   Done at stages F and G. On SQLite the endpoint still reports the file path,
+   which is the same information it always gave and carries no credential.
 8. **Confirm the precondition from issue #6 is met.** It said not to start while
    #1 was open, because cover hashes were suspect. #1 and #11 are both closed and
    the hashes have been rebuilt, so this reads as satisfied. Worth the owner

@@ -2,8 +2,9 @@
  * Postgres schema and driver. The second implementation of `Db`, and a new
  * file rather than an edit to driver.ts, which is what the seam was for.
  *
- * **SQLite is still the default.** Nothing reaches this file unless
- * `BOOKSCAN_DB=postgres` is set. Flipping that is stage G.
+ * **This is the default as of stage G.** `BOOKSCAN_DB=sqlite` is what reaches
+ * db.ts instead, and it stays a supported configuration until stage I: the
+ * owner's catalogue is still a SQLite file until stage H moves it.
  *
  * The schema below is a deliberately literal translation of the one in db.ts.
  * That file stays the authority on what each column is for and why it exists;

@@ -52,6 +52,29 @@ BOOKSCAN_DATA="C:\path\to\your\data" npm run dev
 Anyone working on the code, human or agent, should leave `BOOKSCAN_DATA` unset
 so they get a scratch database instead. See [`AGENTS.md`](AGENTS.md).
 
+### Which database
+
+`BOOKSCAN_DB` picks one, and **it defaults to `postgres`** as of stage G of the
+migration:
+
+```bash
+BOOKSCAN_DB=sqlite  BOOKSCAN_DATA="C:\path\to\your\data" npm run dev
+```
+
+- `postgres` reads its connection from `ConnectionStrings__bookscan`, which the
+  Aspire AppHost sets. Under `aspire start` there is nothing to configure.
+- `sqlite` opens `<BOOKSCAN_DATA>/books.db` and needs no connection string. It
+  is still fully supported: the catalogue has not moved yet, and moving it is
+  stage H, which the owner runs.
+
+Running with neither set is the one combination that refuses to start. That is
+deliberate: a process that came up on an empty Postgres beside a `books.db`
+full of scanned books would look exactly like a catalogue that lost every one
+of them, so it says which of the two you meant instead of guessing.
+
+The cover photographs stay on the filesystem under `BOOKSCAN_DATA` whichever
+database is in use. Object storage for them is separate work, deliberately.
+
 ## Checks
 
 ```bash
@@ -64,7 +87,7 @@ Both run in CI on every pull request, alongside a check that no scan data has
 been committed.
 
 `npm test` runs two projects: `sqlite`, which is every test and needs nothing,
-and `postgres`, which re-runs the four files that open a database against a
+and `postgres`, which re-runs the five files that open a database against a
 real Postgres in a container. **It therefore needs Docker.** Set
 `BOOKSCAN_TEST_DATABASE_URL` to use a server you already have instead, or run
 `npx vitest run --project sqlite` for the half that needs neither.
