@@ -1,6 +1,6 @@
 # SQLite to Postgres: a staged migration plan
 
-Status: **stages A to F have landed** (#44, #45, #55, #142, #144, #146). The
+Status: **stages A to F have landed** (#44, #45, #55, #142, #144, #160). The
 catalogue is still on SQLite and nothing has touched the live data. Progress is
 tracked on #140; this document is the authority on what each stage is.
 
