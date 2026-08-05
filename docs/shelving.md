@@ -355,6 +355,31 @@ matches the recorded one. The same is true of the other way a book moves
 without being touched: marking a shelf full pushes a run of books along, and
 every one of them appears on the list until somebody says they were moved.
 
+## A boundary belongs to the area it opens
+
+This document already fixes what a boundary is anchored to: the sort key of the
+first book on the new plank (see
+[What actually changes](#what-actually-changes)). Which area it *belongs* to
+follows from that and had never been written down, so it is written down here:
+a boundary belongs to the area it **opens**, not to the one it closes.
+
+Everything that shows a boundary to a person follows the same rule. Its line is
+drawn above that area's heading, it is worded as the area it starts ("New
+bookcase starts here", "New area starts here"), and Remove on it removes that
+area's boundary.
+
+Recorded because the code once disagreed with itself about it (#145). The
+layout attached each boundary to the area it opened and the library drew it at
+that area's foot, so every line named the heading above it while removing the
+boundary of the heading below it. Tapping Remove on the line between 2A and 2B
+deleted the bookcase break above 2A, and four books were then reported as
+needing to be carried to planks they did not belong on.
+
+The other coherent reading, a boundary belonging to the area it closes, was not
+taken because it contradicts the anchor: the boundary is the sort key of a book
+on the *new* plank, so the area it closes may hold no book that names it, and an
+emptied area would leave the line describing a plank with nothing on it.
+
 ## Placing a book on a plank that is full
 
 Capacity is not modelled and never will be (decision 2), so the only signal
