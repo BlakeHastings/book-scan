@@ -60,7 +60,8 @@ npm run typecheck   # tsc --noEmit
 npm test            # vitest
 ```
 
-Both run in CI on every pull request.
+Both run in CI on every pull request, alongside a check that no scan data has
+been committed.
 
 ### End to end
 
@@ -81,6 +82,14 @@ The camera is a generated video file rather than hardware, and the Open Library
 and Google Books lookups are answered by a local stub, so a run does not depend
 on the network or on what a webcam can see. See
 [`e2e/README.md`](e2e/README.md).
+
+This suite gates pull requests too, and also runs nightly. Bear in mind that a
+scenario which has never been seen to fail is not a regression test: when you
+fix a defect a scenario covers, revert the fix, watch the scenario go red, then
+restore it.
+
+What CI proves and what a reviewer still has to check by hand is set out in
+[`docs/process/verifying-a-pr.md`](docs/process/verifying-a-pr.md).
 
 ## History
 

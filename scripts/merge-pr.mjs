@@ -18,7 +18,7 @@ import { execFileSync } from 'node:child_process'
 //   gh pr view <n> --json statusCheckRollup --jq '.statusCheckRollup[].name'
 // A name that never appears is treated as "never ran" and refuses the merge.
 // That is the safe direction, but a typo here looks like a broken script.
-const REQUIRED = ['web (typecheck + tests)', 'no production data committed']
+const REQUIRED = ['web (typecheck + tests)', 'no production data committed', 'browser journeys']
 
 const prNumber = process.argv[2]
 if (!prNumber || !/^\d+$/.test(prNumber)) {
