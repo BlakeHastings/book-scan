@@ -153,6 +153,22 @@ else about a checkout is affected.
 `.aspire/modules/`**: it is generated and regenerated on every start, so edits
 are lost. To add an integration, run `aspire add <package>`.
 
+### Hunting passes
+
+After a batch of merges, it is worth having an agent **use** the app rather
+than test it: follow whole journeys, get things wrong, change its mind, and
+report what breaks. `npm run seed -- --reset` builds a throwaway world to do it
+in, and `docs/process/agent-hunting-pass.md` is the brief.
+
+**This is not a gate**, because a pass is not repeatable. Its value is finding
+what scripted tests cannot, and **its output should become scripted tests.**
+Two passes have found nine real defects between them, including an API process
+that died on any OCR pass. The end to end suite never saw that one, because its
+stub resolves every barcode, so OCR never ran.
+
+That is the general lesson and it applies to every suite here: **a passing test
+proves only what it exercises.**
+
 ### The end to end suite
 
 `e2e/` holds a browser suite described in Gherkin. It starts the app through
