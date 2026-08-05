@@ -310,9 +310,26 @@ interface Box {
 
 /** Decode, downscale and flatten a photograph to grey working pixels. */
 async function toGrey(input: Buffer): Promise<Grey> {
-  const probe = await sharp(input).rotate().metadata()
-  const sourceWidth = probe.width ?? 0
-  const sourceHeight = probe.height ?? 0
+  // `autoOrient`, not `width` and `height`.
+  //
+  // `metadata()` reports the image as stored and says so: its own `width` and
+  // `height` are documented as taking no notice of the EXIF orientation, and
+  // calling `.rotate()` on the pipeline first does not change that, because
+  // metadata describes the input rather than the operations queued on it. The
+  // rest of this function then works in the rotated frame, so reading the
+  // stored pair here transposed `scale` and both bounds for any photograph
+  // whose tag swaps the axes: a 900 by 1200 image presenting as 1200 by 900
+  // scaled by 900/480 where the truth is 1200/480, and came back short by the
+  // ratio of the frame's two sides. Measured on the tagged scene in
+  // `bookcrop.test.ts`, that kept 0.3973 of the book. See #132.
+  //
+  // `metadata().autoOrient` is sharp answering the question directly: the
+  // dimensions once the orientation has been applied. Taken from the library
+  // rather than swapped by hand off the orientation number, so the eight tags
+  // stay sharp's business and not this file's.
+  const probe = await sharp(input).metadata()
+  const sourceWidth = probe.autoOrient?.width ?? 0
+  const sourceHeight = probe.autoOrient?.height ?? 0
   if (!sourceWidth || !sourceHeight) throw new Error('image has no dimensions')
 
   // One decode, two views of the same working pixels. Both go through the same

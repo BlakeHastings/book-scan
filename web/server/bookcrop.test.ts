@@ -517,28 +517,34 @@ describe('finding a book in a photograph', () => {
     expect(meta.width).toBe(result.rect!.width)
     expect(meta.height).toBe(result.rect!.height)
 
-    // What is deliberately NOT asserted here, and why.
+    // The rectangle has to hold the book, and that is the assertion this test
+    // was missing. #131 left it out on purpose: the axis was right and the
+    // rectangle was inside the frame, but it kept 0.3973 of the book, and
+    // pinning that number would have frozen #132 in place.
     //
-    // The rectangle is in the right axis and inside the frame, but it is too
-    // small: measured, it keeps 0.3973 of the book against the 0.98 every other
-    // scene in this file meets. Rotating the same pixels for real instead of by
-    // tag keeps 1.0000, so the detector locates the book correctly either way
-    // and then scales the answer back to source pixels by the wrong factor.
+    // The truth rectangle to judge it against is the fixture's own, turned the
+    // way the tag says. Orientation 6 means a quarter turn clockwise for
+    // display, so a point at (x, y) in the 900 by 1200 stored pixels lands at
+    // (1200 - 1 - y, x) in the 1200 by 900 frame the detector works in, and the
+    // rectangle transposes with it. Confirmed rather than assumed: rotating the
+    // same pixels for real instead of by tag returns {367, 203, 695, 461},
+    // which keeps 1.0000 of this rectangle.
     //
-    // The cause is in `toGrey`: `sharp(input).rotate().metadata()` reports the
-    // dimensions as stored, 900 by 1200, not the 1200 by 900 that `.rotate()`
-    // produces. `scale`, `sourceWidth` and `sourceHeight` are therefore
-    // transposed for any EXIF-rotated photograph, and the rectangle comes back
-    // multiplied by 900/480 where it should be 1200/480. Multiplying this
-    // rectangle by 4/3 gives {367, 203, 695, 461}, which is the answer from
-    // rotating the pixels for real, to a pixel.
-    //
-    // Left alone on purpose. Changing `bookcrop.ts` is outside #131, and the
-    // detector's recorded accuracy was measured on 48 photographs that all
-    // carry no orientation tag at all, so none of that measurement covers this
-    // path and none of it is invalidated by the defect either. Asserting the
-    // wrong number here would freeze the bug in place, so this asserts what is
-    // true and says the rest out loud.
+    // Before #132 was fixed this read 0.3973, because `toGrey` took its source
+    // dimensions from `sharp(input).rotate().metadata()`, which reports the
+    // image as stored and not as `.rotate()` will produce it. The scale was
+    // 900/480 where the truth is 1200/480, so every EXIF-rotated photograph
+    // came back short by exactly the ratio of the frame's two sides.
+    const truth: Rect = {
+      left: 1200 - (scene.rect.top + scene.rect.height),
+      top: scene.rect.left,
+      width: scene.rect.height,
+      height: scene.rect.width,
+    }
+    expect(kept(truth, turned.rect!)).toBeGreaterThanOrEqual(KEEPS_THE_BOOK)
+    // ...and with the same daylight around it as every other scene here, so a
+    // scale that was merely close would not pass either.
+    expect(clearance(truth, turned.rect!)).toBeGreaterThanOrEqual(CLEAR_ENOUGH)
   }, 20_000)
 })
 
