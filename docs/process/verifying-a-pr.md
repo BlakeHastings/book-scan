@@ -110,5 +110,5 @@ Not covered: what the brief asked for that was not reached, and why
 ```
 
 A "partial" with an honest **Not covered** is more useful than a "done" that
-quietly skipped a step. The point of the fixed shape is that you read four lines
-and know whether to believe the change.
+quietly skipped a step, and it is the reply worth asking for. The point of the
+fixed shape is that you read four lines and know whether to believe the change.
