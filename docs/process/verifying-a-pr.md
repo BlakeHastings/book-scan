@@ -6,16 +6,35 @@ cannot do at all.
 
 ## What CI already proves
 
-Three checks run on every pull request. Between them they cover:
+Two checks run on every pull request. Between them they cover:
 
-- **`web (typecheck + tests)`**: `tsc --noEmit` over the whole project, and the
-  unit and integration suite. Real SQLite in memory, real barcode decoding, real
-  OCR against generated images.
+- **`web (typecheck + tests)`**: no database file and no scan images tracked in
+  the tree, checked on the result rather than on the ignore rule; then
+  `tsc --noEmit` over the whole project, and the unit and integration suite.
+  Real SQLite in memory, real barcode decoding, real OCR against generated
+  images.
 - **`browser journeys`**: every Gherkin scenario in `e2e/`, in a real browser,
   against the app started through Aspire, asserting on what reached the
   database rather than only on what rendered.
-- **`no production data committed`**: no database file and no scan images in the
-  tree, checked on the result rather than on the ignore rule.
+
+`no production data committed` used to be a third check with a job of its own.
+It took five seconds and GitHub bills a job rounded up to a whole minute, so it
+is now the first step of `web (typecheck + tests)`, and it also runs after every
+merge in the `Provenance` workflow. Same check, run in more places, for less.
+
+### A green board on a documentation change
+
+Both jobs always start on every pull request, but each one asks
+`scripts/ci-scope.mjs` what the change touched and skips its expensive steps
+when the answer is "markdown and `docs/` only". So a README change gets both
+check names, both green, in about fifteen seconds each rather than five minutes.
+
+The names must always appear, which is why the skipping happens **inside** the
+jobs rather than through a `paths:` filter or a job-level `if:`. `merge-pr.mjs`
+treats a required check that never ran as a refusal, and a job skipped by `if:`
+reports SKIPPED, which it also refuses. Either would make documentation pull
+requests unmergeable. If you see a check name missing from a board, that is the
+bug, not a saving.
 
 **Do not re-run any of these by hand.** They gate the merge already:
 `scripts/merge-pr.mjs` refuses a pull request unless each one is green, and a

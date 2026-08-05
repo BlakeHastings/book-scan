@@ -9,10 +9,16 @@ name: End to end
 # was a human running the suite by hand before shipping, which is the manual
 # step this repository exists to not have.
 #
-# It is deliberately NOT filtered by path. `scripts/merge-pr.mjs` treats a
-# required check that never ran as a refusal, so a `paths` filter that skipped
-# this job on a docs-only pull request would block every such pull request
-# instead of speeding it up.
+# It is deliberately NOT filtered by path, and must not be. `scripts/merge-pr.mjs`
+# treats a required check that never ran as a refusal, so a `paths:` filter that
+# skipped this job on a docs-only pull request would block every such pull
+# request instead of speeding it up. A job-level `if:` is no better: a skipped
+# job reports SKIPPED, and the guard accepts only SUCCESS or NEUTRAL.
+#
+# The job therefore always runs and always reports as `browser journeys`, and
+# asks `scripts/ci-scope.mjs` whether the steps inside it are worth doing. On a
+# documentation only change it starts, finds nothing to prove, and finishes
+# green in seconds. See the top of that script for the whole argument.
 on:
   pull_request:
   workflow_dispatch:
@@ -33,9 +39,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Runs on the runner's preinstalled node, before anything is installed, so
+      # a documentation only pull request pays for a checkout and nothing else.
+      # Every non-pull-request trigger above, the nightly schedule and a manual
+      # dispatch, is answered "full run" by the script, so the nightly cannot be
+      # hollowed out by this.
+      - name: What this change needs
+        id: scope
+        run: node scripts/ci-scope.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
       # Caches the three npm trees this job installs: the app, the AppHost at
       # the repository root, and the suite.
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
           cache: npm
@@ -50,6 +69,7 @@ jobs:
       # rather than reusing the previous one.
       - name: Cache the browser
         id: browser-cache
+        if: steps.scope.outputs.docs_only != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -59,18 +79,22 @@ jobs:
       # would pin the CLI version until something else in the key changed,
       # which is the wrong trade for four seconds.
       - name: Install the Aspire CLI
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           curl -sSL https://aspire.dev/install.sh | bash
           echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
 
       - name: Install the app
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: web
         run: npm ci
 
       - name: Install the AppHost
+        if: steps.scope.outputs.docs_only != 'true'
         run: npm ci
 
       - name: Install the suite
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
         run: npm ci
 
@@ -78,6 +102,7 @@ jobs:
       # it links against are installed either way, because they live outside
       # the cached directory and a runner image refresh can drop them.
       - name: Install Chromium
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
         run: |
           if [ "${{ steps.browser-cache.outputs.cache-hit }}" = "true" ]; then
@@ -98,11 +123,12 @@ jobs:
       # most of a gigabyte to save part of 39s is not obviously a win, so it is
       # left alone. If you revisit this, measure both halves before keeping it.
       - name: Run the journeys
+        if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
         run: npm test
 
       - name: Keep the report
-        if: always()
+        if: always() && steps.scope.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report

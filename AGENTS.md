@@ -230,21 +230,39 @@ CI while breaking browser scenarios, and nobody found out until the next
 morning. The alternative to gating turned out to be a human running the suite by
 hand before shipping, which is worse than the minutes it costs.
 
-**Do not add a `paths` filter to that workflow.** `scripts/merge-pr.mjs` treats
-a required check that never ran as a refusal, so skipping the job on a
-documentation-only pull request would block that pull request rather than speed
-it up.
+**Do not add a `paths` filter to that workflow, and do not put an `if:` on the
+job.** `scripts/merge-pr.mjs` treats a required check that never ran as a
+refusal, and a job skipped by `if:` reports SKIPPED, which it also refuses.
+Either would make every documentation-only pull request unmergeable rather than
+faster.
+
+The job instead always runs, always reports as `browser journeys`, and asks
+`scripts/ci-scope.mjs` whether the steps **inside** it are worth doing. On a
+change that touches only markdown and `docs/` it starts, finds nothing to
+prove, and goes green in seconds. `ci.yml` does the same. That is the only
+sanctioned shape here: skip work, never skip a check name.
 
 **A scenario that has never been seen to fail is not a regression test.** When
 you fix a defect an e2e scenario covers, revert your fix, watch the scenario
 fail, then restore it. A test that only ever passed alongside a fix proves
 nothing about whether it would catch the fix being lost.
 
-Three checks must be green before a pull request is ready: `web (typecheck +
-tests)`, `no production data committed` and `browser journeys`. They are the
-names `scripts/merge-pr.mjs` requires. `npm run typecheck` and `npm test` take
-well under a minute between them, so there is no excuse for not having run them
-before pushing.
+Two checks must be green before a pull request is ready: `web (typecheck +
+tests)` and `browser journeys`. They are the names `scripts/merge-pr.mjs`
+requires. `npm run typecheck` and `npm test` take well under a minute between
+them, so there is no excuse for not having run them before pushing.
+
+The scan-data check that used to be a third name, `no production data
+committed`, is now the first step of `web (typecheck + tests)` and also runs
+after every merge in `provenance.yml`. It was a five second job, and GitHub
+bills a job rounded up to a whole minute, so as its own job it cost as much as
+the suite it sat beside. It is unconditional in both places: it never depends on
+what a change touched, because any change at all can commit a database.
+
+CI is billed by the job-minute on a private repository, so if you add a job,
+know what whole minute you are spending. `ci.yml` no longer runs on a push to
+master: the pull request run already proved that tree, and `provenance.yml`
+still runs on every merge.
 
 **No CI run at all is a different problem from a failing one.** GitHub runs
 pull request checks against a merge commit it computes from your branch and the
