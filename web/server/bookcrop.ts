@@ -142,8 +142,11 @@ const SNAP_OFFSET_STEP = 1
  * it. Measuring against the band rather than the frame is what tells a book's
  * edge (a spike among quiet neighbours) from a floorboard seam or a rug's
  * repeat (one of many equals).
+ *
+ * Exported so a test can name the gate a case depends on rather than restate
+ * the number. Nothing outside this file changes it.
  */
-const MIN_PROMINENCE = 2.6
+export const MIN_PROMINENCE = 2.6
 
 /** ...and it must still be a real edge in absolute terms. */
 const MIN_ABSOLUTE = 1.8
@@ -174,8 +177,12 @@ const MIN_ABSOLUTE = 1.8
  * owner's photographs the weakest correct crop scores 4.4 and the one rectangle
  * that cut a cover in half scores 3.3, so the gap between them is the only
  * honest place to put it.
+ *
+ * Exported for the same reason as MIN_PROMINENCE. The photograph-of-a-rug case
+ * in `bookcrop.test.ts` is held up by this gate and nothing else, so the test
+ * that covers it says so by naming this rather than by hoping.
  */
-const MIN_STEP = 4
+export const MIN_STEP = 4
 
 /**
  * How much the colour axes count relative to lightness.

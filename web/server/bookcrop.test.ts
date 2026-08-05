@@ -13,6 +13,12 @@
  *
  *   kept   how much of the real book survived the crop. Below 1 means the
  *          crop cut into the book, which is the expensive failure.
+ *   clear  how far the crop's nearest side sits outside the book, over the
+ *          book's own short side. This is `kept` with the saturation taken
+ *          out: `kept` is 1.0000 on every scene here and stays 1.0000 until a
+ *          crop cuts, so on its own it is a pass or fail rather than a
+ *          reading. `clear` says how near the cut we came, and it goes
+ *          negative one pixel before `kept` moves at all.
  *   iou    overlap with the true rectangle. A high `kept` with a low `iou`
  *          is a crop that contains the book and half the room with it:
  *          useless, but not damaging.
@@ -23,11 +29,17 @@
  * is the backgrounds that break edge detection (a patterned rug, floorboard
  * seams, a background nearly the same tone as the cover), a drop shadow just
  * outside the book, other rectangular objects in shot, and tilt.
+ *
+ * Every bar below was measured before it was written, and the measurements are
+ * recorded next to the number they justify. A threshold picked so the suite
+ * goes green is not a test, and a constant that is computed and printed but
+ * never asserted is documentation wearing a test's clothes: both were true of
+ * this file and #131 is why they are not now.
  */
 
 import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
-import { cropBook, detectBook, type Rect } from './bookcrop'
+import { MIN_PROMINENCE, MIN_STEP, cropBook, detectBook, type CropDecision, type Rect } from './bookcrop'
 import {
   backCover, colouredCover, colouredSpine, frontCover, glossy, photographedBook, spine,
   type SceneBackground,
@@ -46,6 +58,24 @@ function iou(truth: Rect, crop: Rect): number {
   return overlap / (truth.width * truth.height + crop.width * crop.height - overlap)
 }
 
+/**
+ * The nearest the crop came to the book, over the book's short side.
+ *
+ * Positive means every side of the crop lies outside the book with room to
+ * spare; zero means one side is on the book's own edge; negative means it cut.
+ * This exists because `kept` cannot tell a crop that cleared the book by a
+ * comfortable margin from one that cleared it by a single pixel, and those are
+ * not the same detector.
+ */
+function clearance(truth: Rect, crop: Rect): number {
+  return Math.min(
+    truth.left - crop.left,
+    truth.top - crop.top,
+    (crop.left + crop.width) - (truth.left + truth.width),
+    (crop.top + crop.height) - (truth.top + truth.height),
+  ) / Math.min(truth.width, truth.height)
+}
+
 function intersect(a: Rect, b: Rect): number {
   const left = Math.max(a.left, b.left)
   const top = Math.max(a.top, b.top)
@@ -55,18 +85,92 @@ function intersect(a: Rect, b: Rect): number {
   return (right - left) * (bottom - top)
 }
 
+function inside(rect: Rect, width: number, height: number): boolean {
+  return rect.left >= 0 && rect.top >= 0
+    && rect.left + rect.width <= width && rect.top + rect.height <= height
+}
+
+/** The weakest of the four sides, which is what the decision turned on. */
+function worstProminence(decision: CropDecision): number {
+  const p = decision.prominence!
+  return Math.min(p.left, p.right, p.top, p.bottom)
+}
+
 /**
  * A crop is right when it kept the whole book and did not bring most of the
  * room with it. The `kept` bar is the strict one on purpose.
  */
 const KEEPS_THE_BOOK = 0.98
-const TIGHT_ENOUGH = 0.8
+
+/**
+ * ...and how much daylight there has to be between the crop and the book.
+ *
+ * `kept` reads 1.0000 on all twenty-four scenes in the sweep, so on its own it
+ * says nothing until a crop actually cuts. Measured clearances across the sweep
+ * run from 0.0072 to 0.0156 of the book's short side, which is the 1.5 per cent
+ * outward pad arriving as it should. The bar is 0.004: below zero a crop is
+ * cutting, and 0.004 is comfortably under the tightest scene measured while
+ * still failing loudly if the pad were dropped, which would put every scene
+ * between -0.008 and -0.001.
+ */
+const CLEAR_ENOUGH = 0.004
+
+/**
+ * How much of the crop has to be book rather than room.
+ *
+ * This was 0.8, computed and printed and never asserted, and #131 is the
+ * decision it was deferring. Asserting 0.8 was the wrong move twice over.
+ *
+ * The measured scores fall into two populations with nothing between them. The
+ * twenty-two scenes where the detector finds the book's own four edges score
+ * 0.9387 to 0.9496, the spread being the outward pad. Two scenes score 0.8234
+ * and 0.7627, and they fail the same way: on floorboards the bottom side snaps
+ * onto a plank seam below the book instead of the book's own bottom edge, so
+ * the crop takes in a strip of floor. See KNOWN_LOOSE.
+ *
+ * So 0.8 sat inside the loose population rather than above it. It would have
+ * passed one seam-snapped crop at 0.8234 while failing the other at 0.7627,
+ * which is not a distinction the number was drawing on purpose, and a scene
+ * that clears a bar by 0.023 is a scene that flips on somebody else's machine.
+ * 0.88 sits in the gap between the two populations, the same reasoning that put
+ * MIN_STEP at 4 in `bookcrop.ts`, and it is stricter than 0.8 everywhere except
+ * the two scenes that are now named and bounded rather than silently tolerated.
+ */
+const TIGHT_ENOUGH = 0.88
+
+/** ...and the floor under a scene that is a recorded limitation. */
+const HOLDS_THE_BOOK = 0.7
+
+/**
+ * Scenes measured below TIGHT_ENOUGH, with what they score and why.
+ *
+ * These are recorded limitations, not a quieter bar. Both are the floorboard
+ * seam: the fixture draws a dark seam every 130 pixels, and the bottom side of
+ * the crop lands on the seam below the book rather than on the book. Verified
+ * by re-running both scenes with `distractors: 0`, which changes nothing, and
+ * by the arithmetic: `floorboards/back/rot0` crops to a bottom edge of 1050
+ * where the book ends at 941 and a seam sits at 1040, and
+ * `floorboards/glossy/rot-5` crops to 1053 where the book ends at 899 and the
+ * same seam sits at 1040.
+ *
+ * Both keep 1.0000 of the book, so this is a crop with a strip of floor in it
+ * rather than a damaged cover, which is the trade this detector is explicitly
+ * built to make. They are listed so that a change which fixed them shows up as
+ * a scene that no longer needs to be here, and a change which made them worse
+ * still fails at HOLDS_THE_BOOK.
+ */
+const KNOWN_LOOSE: Record<string, string> = {
+  'floorboards/back/rot0': 'iou 0.8234: bottom side snapped to the plank seam at y=1040',
+  'floorboards/glossy/rot-5': 'iou 0.7627: bottom side snapped to the plank seam at y=1040',
+}
 
 interface Scored {
   name: string
   cropped: boolean
   kept: number
+  clearance: number
   iou: number
+  inside: boolean
   refusal?: string
 }
 
@@ -108,7 +212,9 @@ describe('finding a book in a photograph', () => {
             name: `${background}/${subject.label}/rot${rotate}`,
             cropped: Boolean(decision.rect),
             kept: decision.rect ? kept(scene.rect, decision.rect) : 0,
+            clearance: decision.rect ? clearance(scene.rect, decision.rect) : 0,
             iou: decision.rect ? iou(scene.rect, decision.rect) : 0,
+            inside: decision.rect ? inside(decision.rect, 900, 1200) : true,
             refusal: decision.refusal,
           })
         }
@@ -116,24 +222,43 @@ describe('finding a book in a photograph', () => {
     }
 
     const cropped = scored.filter((s) => s.cropped)
-    const cutTheBook = cropped.filter((s) => s.kept < KEEPS_THE_BOOK)
-    const tooLoose = cropped.filter((s) => s.kept >= KEEPS_THE_BOOK && s.iou < TIGHT_ENOUGH)
 
-    // Written out so a run that regresses says which scenes did it, rather
-    // than only that a ratio moved.
+    // Every scene is judged against the bar that applies to it, and a scene
+    // that is a recorded limitation is judged against its own floor rather
+    // than excused. Named, so a run that regresses says which scenes did it
+    // rather than only that a ratio moved.
+    const failures = [
+      ...cropped.filter((s) => s.kept < KEEPS_THE_BOOK)
+        .map((s) => `cut the book: ${s.name} kept ${s.kept.toFixed(4)}`),
+      ...cropped.filter((s) => s.clearance < CLEAR_ENOUGH)
+        .map((s) => `came too near the book: ${s.name} clear ${s.clearance.toFixed(4)}`),
+      ...cropped.filter((s) => !s.inside)
+        .map((s) => `rectangle left the picture: ${s.name}`),
+      ...cropped.filter((s) => s.iou < (s.name in KNOWN_LOOSE ? HOLDS_THE_BOOK : TIGHT_ENOUGH))
+        .map((s) => `kept the room in: ${s.name} iou ${s.iou.toFixed(4)}`
+          + (s.name in KNOWN_LOOSE ? ` (recorded limitation, floor ${HOLDS_THE_BOOK})` : '')),
+    ]
+
     const report = scored
-      .map((s) => `${s.name}: ${s.cropped ? `kept ${s.kept.toFixed(3)} iou ${s.iou.toFixed(2)}` : `declined (${s.refusal})`}`)
+      .map((s) => `${s.name}: ${s.cropped
+        ? `kept ${s.kept.toFixed(4)} clear ${s.clearance.toFixed(4)} iou ${s.iou.toFixed(4)}`
+        : `declined (${s.refusal})`}`)
       .join('\n')
 
     // Printed, not just asserted. The one thing worth knowing about a
     // detector is its accuracy, and a run that only says "pass" hides it.
+    const tightest = Math.min(...cropped.map((s) => s.clearance))
+    const loosest = Math.min(...cropped.map((s) => s.iou))
     console.log(
       `[bookcrop] ${scored.length} scenes: found ${cropped.length}, `
-      + `cut the book ${cutTheBook.length}, kept the room in ${tooLoose.length}`,
+      + `nearest miss clear ${tightest.toFixed(4)}, worst iou ${loosest.toFixed(4)}, `
+      + `${Object.keys(KNOWN_LOOSE).length} recorded limitations`,
     )
 
-    expect(`${cutTheBook.length} cut, ${tooLoose.length} loose\n${report}`)
-      .toContain('0 cut')
+    // The report goes on both sides so a failure prints the whole table next
+    // to the scenes that broke, rather than a bare list of names.
+    expect({ failures, report }).toEqual({ failures: [], report })
+
     // Finding it in three quarters of them is the bar. The measured figure at
     // the time of writing is higher; this is where it stops being worth
     // shipping rather than where it sits.
@@ -146,16 +271,46 @@ describe('finding a book in a photograph', () => {
       create: { width: 4, height: 4, channels: 3, background: '#808080' },
     }).png().toBuffer()
 
-    const refusals: string[] = []
+    const decisions = new Map<SceneBackground, CropDecision>()
     for (const background of ['carpet', 'floorboards', 'rug'] as SceneBackground[]) {
       const scene = await photographedBook(speck, {
         seed: 401, width: 700, height: 900, background, fill: 0.005, shadow: false,
       })
-      const decision = await detectBook(scene.image)
-      refusals.push(`${background}: ${decision.rect ? 'cropped' : decision.refusal}`)
+      decisions.set(background, await detectBook(scene.image))
     }
 
-    expect(refusals.join('\n')).not.toContain('cropped')
+    const outcomes = Object.fromEntries(
+      [...decisions].map(([background, d]) => [background, d.rect ? 'cropped' : d.refusal]),
+    )
+
+    // Which refusal, not just that there was one. The three frames are turned
+    // down by two different parts of the pipeline and the file used to assert
+    // only that none of them cropped, which cannot tell the difference.
+    expect(outcomes).toEqual({
+      carpet: 'weak-edges',
+      floorboards: 'weak-edges',
+      rug: 'low-contrast',
+    })
+
+    // The rug is the case worth spelling out, and it was the fourth thing #131
+    // listed. A rug's repeat gives the snapping search a rectangle it is very
+    // happy with: the weakest side stands 12.6 times above the typical line in
+    // its own band, against a bar of 2.6. Nothing about the geometry rejects
+    // this frame. The only thing that does is the step gate finding no
+    // direction in Lab along which all four sides move the same way, and it
+    // finds exactly none: the frame scores 0 against a bar of 4.
+    //
+    // Asserted here so that a change to that gate fails this test with the
+    // reason attached, rather than quietly removing the one thing keeping a
+    // photograph of somebody's floor from being cropped as a book.
+    const rug = decisions.get('rug')!
+    expect(worstProminence(rug)).toBeGreaterThan(MIN_PROMINENCE)
+    expect(rug.step).toBeLessThan(MIN_STEP)
+
+    // ...and the other two are the opposite case, held up before the step gate
+    // is ever reached, which is why they say `weak-edges` instead.
+    expect(worstProminence(decisions.get('carpet')!)).toBeLessThan(MIN_PROMINENCE)
+    expect(worstProminence(decisions.get('floorboards')!)).toBeLessThan(MIN_PROMINENCE)
   }, 30_000)
 
   /**
@@ -215,9 +370,21 @@ describe('finding a book in a photograph', () => {
       )
 
       const decision = await detectBook(scene.image)
-      // Declining is allowed. Coming back with the part below the rule is not.
-      if (!decision.rect) return
-      expect(kept(scene.rect, decision.rect)).toBeGreaterThanOrEqual(KEEPS_THE_BOOK)
+
+      // This used to return early when there was no rectangle, on the grounds
+      // that declining is allowed here. It is, but nobody had measured which
+      // way this scene goes, so the test asserted nothing on the branch it
+      // actually takes and would also have passed if the detector had started
+      // declining everything. Measured: it crops, and not narrowly. The
+      // weakest side stands 11.3 times above its band against a bar of 2.6,
+      // and the four sides agree to 11.3 in Lab against a bar of 4, so there
+      // is no near-tie here to flip on another machine.
+      expect(decision.refusal ?? 'cropped').toBe('cropped')
+      expect(worstProminence(decision)).toBeGreaterThan(MIN_PROMINENCE)
+      expect(decision.step).toBeGreaterThan(MIN_STEP)
+      // Coming back with the part below the rule is what this is really for.
+      // That crop keeps 0.71 of the book, so the bar catches it with room.
+      expect(kept(scene.rect, decision.rect!)).toBeGreaterThanOrEqual(KEEPS_THE_BOOK)
     }, 30_000)
 
     it('finds a spine in the strip shape the phone really saves', async () => {
@@ -250,25 +417,72 @@ describe('finding a book in a photograph', () => {
 
     const decision = await detectBook(flat)
     expect(decision.rect).toBeNull()
+    expect(decision.refusal).toBe('no-edges')
     expect(decision.confidence).toBe(0)
   })
 
   it('keeps the rectangle inside the photograph', async () => {
-    // The book runs right up to one edge, which is where an outward pad or a
-    // line snapped past the border would put the crop off the canvas and make
-    // sharp throw rather than decline.
     const scene = await photographedBook(
       await frontCover('Edge Case', 'A. Author'),
       { seed: 9, width: 700, height: 950, fill: 0.95, background: 'carpet' },
     )
 
     const decision = await detectBook(scene.image)
-    if (!decision.rect) return // declining is a valid answer here
 
-    expect(decision.rect.left).toBeGreaterThanOrEqual(0)
-    expect(decision.rect.top).toBeGreaterThanOrEqual(0)
-    expect(decision.rect.left + decision.rect.width).toBeLessThanOrEqual(700)
-    expect(decision.rect.top + decision.rect.height).toBeLessThanOrEqual(950)
+    // This used to return early when there was no rectangle, which made every
+    // assertion below optional. It crops, with the weakest side 16.2 times
+    // above its band against a bar of 2.6, so the outcome is asserted rather
+    // than allowed for. `fill: 0.95` asks for a book most of the frame wide,
+    // which the fixture then fits to the frame's height, so the book does not
+    // in fact reach the border here. The scene where it does is the next test,
+    // and the answer there is a refusal.
+    expect(decision.refusal ?? 'cropped').toBe('cropped')
+    expect(kept(scene.rect, decision.rect!)).toBeGreaterThanOrEqual(KEEPS_THE_BOOK)
+
+    expect(decision.rect!.left).toBeGreaterThanOrEqual(0)
+    expect(decision.rect!.top).toBeGreaterThanOrEqual(0)
+    expect(decision.rect!.left + decision.rect!.width).toBeLessThanOrEqual(700)
+    expect(decision.rect!.top + decision.rect!.height).toBeLessThanOrEqual(950)
+  }, 20_000)
+
+  it('declines a book flush against the border rather than snapping past it', async () => {
+    // The hazard the test above describes but does not reach: a book whose edge
+    // is the picture's edge, where an outward pad or a line snapped past the
+    // border would put the crop off the canvas and make sharp throw rather than
+    // decline. Cut out of an ordinary scene so the book's left edge is column
+    // zero.
+    //
+    // Declining is the right answer and is what happens, for a reason in the
+    // detector rather than by luck: a side whose outer sampling band falls off
+    // the picture has not been measured, `labStep` returns null rather than
+    // scoring it as no difference, and a frame with an unmeasured side cannot
+    // clear the step gate. Measured at three placements, the step is 0.00 every
+    // time. Which refusal comes back depends on whether the surviving geometry
+    // still looked like an edge, so both are allowed here.
+    const scene = await photographedBook(
+      await frontCover('Edge Case', 'A. Author'),
+      { seed: 9, width: 900, height: 1200, fill: 0.5, background: 'carpet' },
+    )
+    const height = Math.min(1200, scene.rect.height + 260)
+    const top = Math.max(0, Math.min(1200 - height, scene.rect.top - 130))
+    const flush = await sharp(scene.image)
+      .extract({
+        left: scene.rect.left,
+        top,
+        width: Math.min(900 - scene.rect.left, scene.rect.width + 260),
+        height,
+      })
+      .jpeg({ quality: 92 })
+      .toBuffer()
+
+    const decision = await detectBook(flush)
+    expect(decision.rect).toBeNull()
+    expect(['weak-edges', 'low-contrast']).toContain(decision.refusal)
+    expect(decision.step).toBeLessThan(MIN_STEP)
+
+    // And the caller gets a refusal rather than a thrown extract.
+    const result = await cropBook(flush)
+    expect(result.image).toBeNull()
   }, 20_000)
 
   it('reads the orientation tag, so a portrait photo is not detected sideways', async () => {
@@ -282,13 +496,49 @@ describe('finding a book in a photograph', () => {
     // sharp, which does honour it, would then extract the wrong strip.
     const tagged = await sharp(scene.image).withMetadata({ orientation: 6 }).jpeg().toBuffer()
 
-    const result = await cropBook(tagged)
-    expect(result.rect).not.toBeNull()
+    const upright = await detectBook(scene.image)
+    const turned = await detectBook(tagged)
+    expect(turned.rect).not.toBeNull()
 
-    // .rotate() turns it to 1200 wide by 900 tall before extracting.
+    // The assertion this test used to make was that the cropped image came back
+    // no wider than 1200 and no taller than 900. Every crop of a 1200 by 900
+    // frame satisfies that, including one that misses the book, so it proved
+    // nothing. The axis is the discriminating property: the book stands upright
+    // in the stored pixels and lies on its side once the tag is applied, so the
+    // rectangle has to be landscape here and portrait without the tag.
+    expect(turned.rect!.width).toBeGreaterThan(turned.rect!.height)
+    expect(upright.rect!.height).toBeGreaterThan(upright.rect!.width)
+
+    // ...and it has to be a rectangle in the turned frame, 1200 by 900.
+    expect(inside(turned.rect!, 1200, 900)).toBe(true)
+
+    const result = await cropBook(tagged)
     const meta = await sharp(result.image!).metadata()
-    expect(meta.width).toBeLessThanOrEqual(1200)
-    expect(meta.height).toBeLessThanOrEqual(900)
+    expect(meta.width).toBe(result.rect!.width)
+    expect(meta.height).toBe(result.rect!.height)
+
+    // What is deliberately NOT asserted here, and why.
+    //
+    // The rectangle is in the right axis and inside the frame, but it is too
+    // small: measured, it keeps 0.3973 of the book against the 0.98 every other
+    // scene in this file meets. Rotating the same pixels for real instead of by
+    // tag keeps 1.0000, so the detector locates the book correctly either way
+    // and then scales the answer back to source pixels by the wrong factor.
+    //
+    // The cause is in `toGrey`: `sharp(input).rotate().metadata()` reports the
+    // dimensions as stored, 900 by 1200, not the 1200 by 900 that `.rotate()`
+    // produces. `scale`, `sourceWidth` and `sourceHeight` are therefore
+    // transposed for any EXIF-rotated photograph, and the rectangle comes back
+    // multiplied by 900/480 where it should be 1200/480. Multiplying this
+    // rectangle by 4/3 gives {367, 203, 695, 461}, which is the answer from
+    // rotating the pixels for real, to a pixel.
+    //
+    // Left alone on purpose. Changing `bookcrop.ts` is outside #131, and the
+    // detector's recorded accuracy was measured on 48 photographs that all
+    // carry no orientation tag at all, so none of that measurement covers this
+    // path and none of it is invalidated by the defect either. Asserting the
+    // wrong number here would freeze the bug in place, so this asserts what is
+    // true and says the rest out loud.
   }, 20_000)
 })
 
@@ -320,7 +570,7 @@ describe('cropBook', () => {
 
     const result = await cropBook(flat)
     expect(result.image).toBeNull()
-    expect(result.refusal).toBeTruthy()
+    expect(result.refusal).toBe('no-edges')
   })
 
   it('finds a spine inside the strip the capture guide already saved', async () => {
