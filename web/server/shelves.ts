@@ -9,7 +9,7 @@ import type { Database } from 'better-sqlite3'
 import type { BookRow } from './db'
 import {
   boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange, locationLabel,
-  NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt,
+  NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt, stripWithGap,
   type RangeStart,
   type BoundaryDirection, type BoundaryMove, type BoundaryRefusal, type CarryOn,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
@@ -200,7 +200,7 @@ export class Shelves {
   }
 
   /**
-   * The person says a shelf will not take another book.
+   * What saying "this shelf will not take another book" would do. Read only.
    *
    * Two answers, and the first one is tried first on purpose.
    *
@@ -216,13 +216,18 @@ export class Shelves {
    * whether the next shelf can cope: that is the next question to ask, and the
    * caller walks the chain one answer at a time.
    */
-  async overflow(
+  private async planOverflow(
     range: ShelfRange,
     label: string,
-    kindIfNew: SeparatorKind = 'shelf',
-    placing = '',
-  ): Promise<{ ok: boolean; error?: string; step?: Overflow; carry?: CarryOn; moves?: Move[] }> {
+    kindIfNew: SeparatorKind,
+    placing: string,
+  ): Promise<
+    | { ok: false; error: string }
+    | { ok: true; carry?: CarryOn; step?: Overflow; before: Placed<ShelvedBook>[];
+        separators: Separator[] }
+  > {
     const before = await this.layout(range)
+    const separators = await this.list(range)
 
     /*
      * Before the cascade, and before the label is even checked against the
@@ -232,15 +237,12 @@ export class Shelves {
      */
     if (placing) {
       const carry = carryOn(
-        await this.layoutWith(range, placing), await this.list(range), label, kindIfNew,
+        await this.layoutWith(range, placing), separators, label, kindIfNew,
       )
-      if (carry) {
-        await this.applyBoundary(range, carry)
-        return { ok: true, carry, moves: await this.movesSince(range, before) }
-      }
+      if (carry) return { ok: true, carry, before, separators }
     }
 
-    const known = groupByShelf(before, await this.list(range)).map((g) => g.label)
+    const known = groupByShelf(before, separators).map((g) => g.label)
 
     // Two different failures used to share one message, which sent you looking
     // at the shelf when the real problem was that the label never existed.
@@ -253,7 +255,7 @@ export class Shelves {
       }
     }
 
-    const step = overflow(before, await this.list(range), label, kindIfNew)
+    const step = overflow(before, separators, label, kindIfNew)
     if (!step) {
       return {
         ok: false,
@@ -262,9 +264,121 @@ export class Shelves {
       }
     }
 
+    return { ok: true, step, before, separators }
+  }
+
+  /**
+   * The move a full shelf would need, offered rather than made.
+   *
+   * Nothing here writes. The shelves are the record of where books physically
+   * are, and until somebody has actually carried the book there is nothing to
+   * record: a proposal is not an observation, which is the same rule #87
+   * settled for metadata edits. The boundary used to shift the moment a step
+   * was proposed, which made the book vanish off the plank the person was
+   * still standing at and stay vanished if they walked away (#111).
+   *
+   * The strip is the proposed arrangement drawn: the destination plank as it
+   * will look, with the gap where the book goes. Computed against the
+   * separators the move WOULD produce, held in memory and never saved, so the
+   * picture describes the thing being confirmed without making it true
+   * (#112).
+   */
+  async proposeOverflow(
+    range: ShelfRange,
+    label: string,
+    kindIfNew: SeparatorKind = 'shelf',
+    placing = '',
+  ): Promise<{
+    ok: boolean
+    error?: string
+    carry?: CarryOn
+    step?: Overflow
+    strip?: Strip<ShelvedBook> | null
+  }> {
+    const plan = await this.planOverflow(range, label, kindIfNew, placing)
+    if (!plan.ok) return { ok: false, error: plan.error }
+    if (plan.carry) return { ok: true, carry: plan.carry }
+
+    const step = plan.step!
+    const books = (await this.booksIn(range))
+      .map((row) => ({ ...row, sortKey: row.sort_key }))
+    const after = layoutRange(
+      books, this.separatorsAfter(plan.separators, step), await this.startOf(range),
+    )
+
+    return { ok: true, step, strip: stripWithGap(after, step.moved.id) }
+  }
+
+  /**
+   * The separator list a plan would leave behind, without writing any of it.
+   *
+   * Exactly the edit `applyBoundary` makes, expressed over an array instead of
+   * over the table, so the drawing and the write cannot describe different
+   * shelves. The invented id is never stored and never read back: only
+   * `startsAt` and `kind` reach the layout.
+   */
+  private separatorsAfter(
+    separators: Separator[],
+    plan: { create?: { startsAt: string; kind: SeparatorKind }; shift?: { id: number; startsAt: string } },
+  ): Separator[] {
+    if (plan.create) {
+      return [...separators, {
+        id: 0,
+        range: separators[0]?.range ?? 'fiction',
+        kind: plan.create.kind,
+        startsAt: plan.create.startsAt,
+        position: separators.length,
+      }]
+    }
+    if (plan.shift) {
+      return separators.map((s) =>
+        s.id === plan.shift!.id ? { ...s, startsAt: plan.shift!.startsAt } : s)
+    }
+    return separators
+  }
+
+  /**
+   * The person says they have carried the book, so the shelves change.
+   *
+   * The plan is recomputed here rather than carried over from whatever was
+   * proposed a moment ago. That is the #106 rule applied to the cascade: an
+   * answer is about the shelves as they are now, and a chain unwinding one
+   * frame at a time (#110) confirms its outermost move last, long after the
+   * proposal was drawn. `expectId` is the book the person was told to move,
+   * and a mismatch is refused rather than quietly applied to a different one.
+   *
+   * The carry (#77) is applied without any of this, because there is nothing
+   * to confirm: the book is in your hand, nothing already shelved moves, and
+   * the placing question is simply re-asked against the plank it now goes on.
+   */
+  async overflow(
+    range: ShelfRange,
+    label: string,
+    kindIfNew: SeparatorKind = 'shelf',
+    placing = '',
+    expectId = 0,
+  ): Promise<{ ok: boolean; error?: string; step?: Overflow; carry?: CarryOn; moves?: Move[] }> {
+    const plan = await this.planOverflow(range, label, kindIfNew, placing)
+    if (!plan.ok) return { ok: false, error: plan.error }
+
+    if (plan.carry) {
+      await this.applyBoundary(range, plan.carry)
+      return { ok: true, carry: plan.carry, moves: await this.movesSince(range, plan.before) }
+    }
+
+    const step = plan.step!
+    if (expectId && step.moved.id !== expectId) {
+      return {
+        ok: false,
+        error: `The shelves have changed since that was asked: ${label} now ends ` +
+          'with a different book. Say there is no room again to see the move as ' +
+          'it stands.',
+      }
+    }
+
     await this.applyBoundary(range, step)
 
-    return { ok: true, step, moves: await this.movesSince(range, before) }
+    return { ok: true, step, moves: await this.movesSince(range, plan.before) }
   }
 
   /** Write the one boundary change a plan asks for. Shared by both answers. */

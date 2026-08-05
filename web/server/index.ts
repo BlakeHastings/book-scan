@@ -871,14 +871,76 @@ export function createApp(options: CreateAppOptions): express.Express {
    * and it is what makes the first answer visible at all: a book that is not
    * saved yet appears in no layout the database can produce.
    */
-  app.post('/api/shelves/overflow', asyncRoute(async (req, res) => {
+  /**
+   * The same question asked without answering it: what would move, and what
+   * would the shelf look like afterwards.
+   *
+   * Strictly read only, and it is what the shelving step calls first. The
+   * boundary used to shift the moment a step was proposed, so the book left
+   * the plank the person was still standing at before they had touched it,
+   * and stayed gone if they walked away (#111). A proposal is not an
+   * observation. The strip is that proposal drawn, on the same route the
+   * placing preview uses, because every level of a cascade is the same
+   * question and deserves the same picture (#112).
+   */
+  app.post('/api/shelves/overflow/plan', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const kind = body.kind === 'area' ? 'area' : 'shelf'
     const label = String(body.label ?? '')
     const placing = String(body.sortKey ?? '')
 
-    const result = await shelves.overflow(range, label, kind, placing)
+    const result = await shelves.proposeOverflow(range, label, kind, placing)
+    if (!result.ok) {
+      res.status(400).json({ error: result.error })
+      return
+    }
+
+    const moved = result.step
+      ? (await shelves.layout(range)).find((p) => p.book.id === result.step!.moved.id)?.book
+      : undefined
+
+    res.json({
+      carry: result.carry
+        ? { from: result.carry.from, to: result.carry.to }
+        : null,
+      step: result.step
+        ? {
+            id: result.step.moved.id,
+            from: result.step.from,
+            to: result.step.to,
+            title: moved?.title ?? '',
+            /* Written down the spine hanging under the gap, the same as the
+               book being catalogued. */
+            authorFiling: moved?.author_filing ?? '',
+          }
+        : null,
+      strip: result.strip
+        ? {
+            label: result.strip.label,
+            gapIndex: result.strip.gapIndex,
+            placedIndex: null,
+            books: result.strip.books.map((placed) => stripBook(placed.book, true)),
+          }
+        : null,
+    })
+  }))
+
+  app.post('/api/shelves/overflow', asyncRoute(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+    const kind = body.kind === 'area' ? 'area' : 'shelf'
+    const label = String(body.label ?? '')
+    const placing = String(body.sortKey ?? '')
+    /*
+     * The book the person was told to move, when there was one. A cascade
+     * confirms its outermost frame last (#110), so the shelves can have moved
+     * under a proposal since it was drawn, and applying it to whatever book
+     * happens to be on the end now is exactly the stale answer #106 fixed.
+     */
+    const expectId = Number(body.expectId ?? 0) || 0
+
+    const result = await shelves.overflow(range, label, kind, placing, expectId)
     if (!result.ok) {
       res.status(400).json({ error: result.error })
       return

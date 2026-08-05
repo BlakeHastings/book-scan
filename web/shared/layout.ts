@@ -589,27 +589,41 @@ export interface Strip<T extends LayoutInput> {
 }
 
 /**
- * One physical shelf, seen end on, with the space the new book goes in.
+ * One physical shelf, seen end on, with the space one book goes in.
  *
  * A neighbour pair tells you what to look for but not what you are looking
  * at: five books to the left and two to the right is a different search from
  * the other way round, and the pair alone cannot say which. This returns the
  * whole row so the gap can be drawn in place.
  *
- * Takes a layout that already contains the newcomer under NEWCOMER_ID.
+ * Takes a layout the named book is already positioned in, and lifts it back
+ * out, leaving the hole it would fill. Which book that is depends on the
+ * question: a newcomer being catalogued goes in under NEWCOMER_ID, and a book
+ * a cascade proposes to carry next door is a real shelved book laid out
+ * against the boundary the move would set. The two are the same picture and
+ * are drawn by the same code, because a second way to draw a gap would drift
+ * from the first (#112).
  */
-export function stripAround<T extends LayoutInput>(
+export function stripWithGap<T extends LayoutInput>(
   placed: Placed<T>[],
+  id: number,
 ): Strip<T> | null {
-  const found = stripAt(placed, NEWCOMER_ID)
+  const found = stripAt(placed, id)
   if (!found) return null
 
   return {
     label: found.label,
-    books: found.books.filter((p) => p.book.id !== NEWCOMER_ID),
+    books: found.books.filter((p) => p.book.id !== id),
     // Its index within the row, which is exactly the count to its left.
     gapIndex: found.index,
   }
+}
+
+/** The gap a book being catalogued leaves, which is the commonest case. */
+export function stripAround<T extends LayoutInput>(
+  placed: Placed<T>[],
+): Strip<T> | null {
+  return stripWithGap(placed, NEWCOMER_ID)
 }
 
 /**

@@ -57,6 +57,12 @@ export const BOOK_IN_HAND: StubBook = {
  * is what lets a scenario put the new book at the END of a plank with another
  * book still on it. Without him the only arrangements available are the book
  * in hand in the middle, or alone with nothing to its left.
+ *
+ * Stephenson, Strugatsky and Zusak file after the book in hand and are here
+ * for depth. A cascade that goes several planks deep and then descends again
+ * needs a plank past the one being filled with enough books on it to be asked
+ * twice, and with three books in the range there is only ever one move to
+ * make.
  */
 export const SHELVED_BOOKS: StubBook[] = [
   {
@@ -94,6 +100,42 @@ export const SHELVED_BOOKS: StubBook[] = [
     pages: '387',
     categories: ['Fiction / Science Fiction / General'],
     subjects: ['Science fiction', 'Fiction'],
+  },
+  {
+    isbn13: '9780553380958',
+    isbn10: '0553380958',
+    title: 'Snow Crash',
+    authors: ['Neal Stephenson'],
+    filing: 'Stephenson, Neal',
+    publisher: 'Bantam',
+    published: '2000',
+    pages: '440',
+    categories: ['Fiction / Science Fiction / General'],
+    subjects: ['Science fiction', 'Fiction'],
+  },
+  {
+    isbn13: '9781613743416',
+    isbn10: '1613743416',
+    title: 'Roadside Picnic',
+    authors: ['Arkady Strugatsky'],
+    filing: 'Strugatsky, Arkady',
+    publisher: 'Chicago Review Press',
+    published: '2012',
+    pages: '224',
+    categories: ['Fiction / Science Fiction / General'],
+    subjects: ['Science fiction', 'Fiction'],
+  },
+  {
+    isbn13: '9780375842207',
+    isbn10: '0375842209',
+    title: 'The Book Thief',
+    authors: ['Markus Zusak'],
+    filing: 'Zusak, Markus',
+    publisher: 'Knopf',
+    published: '2006',
+    pages: '552',
+    categories: ['Fiction / General'],
+    subjects: ['Fiction'],
   },
 ]
 

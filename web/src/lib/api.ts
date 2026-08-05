@@ -549,7 +549,15 @@ export const api = {
 
   /**
    * The person at the shelf says it will not take another book. Returns the
-   * single step to perform; ask again if the shelf it lands on is full too.
+   * single step they would have to perform, and draws it, without changing
+   * anything.
+   *
+   * Asking and doing are two calls because they are two different things. The
+   * shelves are the record of where books physically are, so nothing about
+   * them may change until somebody has actually carried a book: proposing a
+   * move used to shift the boundary at once, which took the book off the plank
+   * the person was still standing at and left it off if they walked away
+   * (#111).
    *
    * `sortKey` is the book being placed, and passing it is what lets the server
    * answer with `carry`: when the book belongs at the end of the full shelf it
@@ -557,11 +565,40 @@ export const api = {
    * the server can only see the shelves, so it can only offer to displace a
    * book that is on one, which is the extra handling #77 was about.
    */
+  planOverflow: (
+    range: ShelfRange,
+    label: string,
+    kind: 'shelf' | 'area',
+    sortKey = '',
+  ) =>
+    request<{
+      /** The book in your hand goes on instead. No id: it is not saved yet. */
+      carry: { from: string; to: string } | null
+      /** `id` is the displaced book, so where it lands can be recorded. */
+      step: {
+        id: number; title: string; from: string; to: string; authorFiling: string
+      } | null
+      /** The plank it is going on, with the gap where it goes. */
+      strip: PlacementStrip | null
+    }>('/api/shelves/overflow/plan', {
+      method: 'POST',
+      body: JSON.stringify({ range, label, kind, sortKey }),
+    }),
+
+  /**
+   * The person says they have carried it, so the shelves change to match.
+   *
+   * `expectId` is the book they were told to move. The server recomputes the
+   * step and refuses if the plank now ends with a different book, because a
+   * cascade confirms its outermost move last (#110) and an answer given
+   * against an arrangement that predates the last move is the bug #106 fixed.
+   */
   overflowShelf: (
     range: ShelfRange,
     label: string,
     kind: 'shelf' | 'area',
     sortKey = '',
+    expectId = 0,
   ) =>
     request<{
       /** The book in your hand goes on instead. No id: it is not saved yet. */
@@ -572,7 +609,7 @@ export const api = {
       moves: Move[]
     }>('/api/shelves/overflow', {
       method: 'POST',
-      body: JSON.stringify({ range, label, kind, sortKey }),
+      body: JSON.stringify({ range, label, kind, sortKey, expectId }),
     }),
 
   /**

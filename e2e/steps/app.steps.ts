@@ -232,8 +232,70 @@ Then('it should not ask me to move any other book', async ({ page }) => {
   await expect(page.locator('.moves li')).toHaveCount(1)
 })
 
+/**
+ * Confirming one move, and waiting for it to have been made.
+ *
+ * The answer is three writes and a redraw: the boundary shifts, the book's
+ * location is recorded, the frame comes off the stack. The move only joins the
+ * list of things that have happened once all of that has landed, so waiting
+ * for the list to grow is waiting on the condition rather than on a duration.
+ * Without it a step asserting against the database races the writes it is
+ * asserting about.
+ */
 When('I say the moved book fitted', async ({ page }) => {
+  const made = await page.locator('.moves__placed').count()
   await page.getByRole('button', { name: 'Yes, it fit' }).click()
+  await expect(page.locator('.moves__placed')).toHaveCount(made + 1)
+})
+
+/**
+ * The same answer as "there is no room on the shelf", given about a plank the
+ * cascade has already reached rather than about the one the book started on.
+ *
+ * A separate step because a feature has to be able to say which of the two
+ * questions it is answering; deliberately NOT a separate path through the app,
+ * which is the point of #110. Both are one person at one plank saying it will
+ * not take the book they are holding.
+ */
+When('I say there is no room on that one either', async ({ page }) => {
+  await page.getByRole('button', { name: /^No, .+ is full too$/ }).click()
+})
+
+/**
+ * Where you are in the chain, said on screen.
+ *
+ * Four books deep with a re-descent in it is not something anybody holds in
+ * their head, and every frame looks the same otherwise: two plank labels and a
+ * title. So the screen says which book is being placed and how far in that is.
+ */
+Then(
+  'it should say I am placing {string}, {int} books deep',
+  async ({ page }, title: string, deep: number) => {
+    await expect(page.locator('.shelve__where'))
+      .toContainText(`Placing ${title}, ${deep} books deep`)
+  },
+)
+
+/**
+ * The step drawn rather than described (#112).
+ *
+ * The same strip the placing preview uses, on the plank the book is going on,
+ * with the gap where it goes and the filing name written down the spine
+ * hanging under it. Somebody four levels deep is looking at a shelf, and a
+ * picture of the gap is easier to act on than a sentence naming two planks.
+ */
+Then(
+  'it should draw the gap for {string} on {string}',
+  async ({ page }, authorFiling: string, label: string) => {
+    await expect(page.locator('.strip__label')).toHaveText(label)
+    await expect(page.locator('.strip__new-author')).toHaveText(authorFiling)
+  },
+)
+
+/** Out of the shelving step without answering it, which is #111's case. */
+When('I go back to the book details', async ({ page }) => {
+  await page.getByRole('button', { name: 'Back to book details' }).click()
+  await expect(page.locator('.review')).toBeVisible()
 })
 
 When('I say it fits and save it', async ({ page }) => {
