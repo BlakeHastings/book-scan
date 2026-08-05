@@ -250,8 +250,22 @@ export type ScanResult =
  */
 export interface QueueMatch {
   capture: Capture
-  /** Differing bits out of 64. Held to `QUEUE_LIMIT`, which is much tighter. */
-  distance: number
+  /**
+   * Differing bits out of 64, held to `QUEUE_LIMIT`, which is much tighter
+   * than the shortlist's cutoff.
+   *
+   * Null when the match came from the ISBN rather than from the pictures, and
+   * null rather than 0 on purpose: zero is a measurement and there is no
+   * measurement, because nothing was compared. Printing "looks the same, 100%"
+   * off a fabricated zero would dress an identifier up as a likeness.
+   */
+  distance: number | null
+  /**
+   * What settled it. `isbn` is an exact identifier with its own check digit
+   * and beats any comparison of photographs; `cover` is the perceptual hash,
+   * which is what is left when nothing could be read (#146).
+   */
+  basis: 'isbn' | 'cover'
 }
 
 /** A book off the shelf, with the shelf it would go back on. */
@@ -468,8 +482,20 @@ export const api = {
       body: JSON.stringify({ image }),
     }),
 
+  /**
+   * One capture, and whether it is a second photographing of a book already in
+   * the queue (#146).
+   *
+   * `duplicates` rides along on the poll the camera is already making rather
+   * than being its own request or its own poll. It cannot be answered when the
+   * photograph is handed over, because nothing has read it yet: the ISBN and
+   * the hash both arrive on the background pass, and this is the call that
+   * waits for that pass anyway.
+   */
   getCapture: (id: number) =>
-    request<{ capture: Capture; counts: QueueCounts }>(`/api/captures/${id}`),
+    request<{ capture: Capture; duplicates: QueueMatch[]; counts: QueueCounts }>(
+      `/api/captures/${id}`,
+    ),
 
   listCaptures: () =>
     request<{ captures: Capture[]; counts: QueueCounts }>('/api/captures'),

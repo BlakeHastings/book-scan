@@ -2049,6 +2049,17 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   border: 1px solid var(--good);
 }
 
+/* The same panel over the cataloguing camera, which has a taller bottom band:
+   chips, then the shutter row. It clears them rather than covering them,
+   because the shutter has to stay reachable. This is a finding about a
+   photograph already taken and accepted, not a gate in front of the next one
+   (#146). */
+.isbncam__choices--incam {
+  bottom: 200px;
+  max-height: 44%;
+  z-index: 3;
+}
+
 /* How alike, in words. The distance itself is a Hamming distance over 64
    bits and is deliberately never shown: it reads as precision it does not
    have. Colour repeats what the words say, so it is not the only carrier. */

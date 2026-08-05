@@ -622,3 +622,83 @@ describe('captures still waiting to be shelved', () => {
     expect((await queue.waiting()).map((c) => c.id)).toEqual([id])
   })
 })
+
+/**
+ * The same question asked of the identifier rather than of the pictures (#146).
+ *
+ * `waiting` above is what a photograph gets compared against, and it is a
+ * measurement with a band and a measured error rate. This is the other kind of
+ * evidence: an ISBN-13 either satisfies its check digit or is thrown away, so
+ * two captures carrying the same one are two captures of the same title, and
+ * the filters that make sense for a comparison do not apply to it.
+ */
+describe('captures waiting under the same ISBN', () => {
+  const withIsbn = async (isbn13: string) => {
+    const capture = await add()
+    await db.run('UPDATE captures SET isbn13 = ? WHERE id = ?', [isbn13, capture.id])
+    return capture.id
+  }
+
+  it('finds the other capture of the same book', async () => {
+    const first = await withIsbn(DUNE)
+    const second = await withIsbn(DUNE)
+
+    expect((await queue.sharingIsbn(DUNE, second)).map((c) => c.id)).toEqual([first])
+  })
+
+  it('never reports the capture doing the asking', async () => {
+    // Otherwise every capture with an ISBN is its own duplicate, and the panel
+    // opens over the book somebody is holding to tell them about itself.
+    const only = await withIsbn(DUNE)
+    expect(await queue.sharingIsbn(DUNE, only)).toEqual([])
+  })
+
+  it('ignores a capture of a different book', async () => {
+    await withIsbn(RAMA)
+    const mine = await withIsbn(DUNE)
+    expect(await queue.sharingIsbn(DUNE, mine)).toEqual([])
+  })
+
+  it('answers nothing at all for a capture with no ISBN', async () => {
+    // The case that would be worst if it were wrong. Every capture nobody has
+    // read yet carries an empty string in this column, so an unguarded query
+    // would report each of them as a duplicate of all the others.
+    await add()
+    await add()
+    const mine = await add()
+
+    expect(await queue.sharingIsbn('', mine)).toEqual([])
+  })
+
+  it('leaves out one that has already become a book', async () => {
+    // Same reason `waiting` does: it is on a shelf, and the catalogue answers
+    // for it. Sending somebody to go and finish it sends them nowhere.
+    const shelved = await withIsbn(DUNE)
+    const mine = await withIsbn(DUNE)
+    await queue.markDone(shelved, await addBook())
+
+    expect(await queue.sharingIsbn(DUNE, mine)).toEqual([])
+  })
+
+  it('offers one whose front has not been photographed yet', async () => {
+    // The difference from `waiting`, and the case this exists for. The back
+    // cover is the first shot the Add flow takes and it carries the barcode,
+    // so the likeliest duplicate in the queue is a capture with an ISBN, no
+    // front photograph and no hash. Filtering on either would lose it.
+    const capture = await queue.attach(null, 'back', 'b.jpg')
+    await db.run('UPDATE captures SET isbn13 = ? WHERE id = ?', [DUNE, capture.id])
+    const mine = await withIsbn(DUNE)
+
+    const found = await queue.sharingIsbn(DUNE, mine)
+    expect(found.map((c) => c.id)).toEqual([capture.id])
+    expect(found[0]!.front_image).toBe('')
+    expect(found[0]!.front_hash).toBe('')
+  })
+
+  it('answers for a photograph that is not a capture at all', async () => {
+    // The scan route asks this with no capture of its own, so there is nothing
+    // to exclude and nothing may be excluded by accident.
+    const id = await withIsbn(DUNE)
+    expect((await queue.sharingIsbn(DUNE)).map((c) => c.id)).toEqual([id])
+  })
+})

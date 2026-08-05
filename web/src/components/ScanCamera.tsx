@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, draftFromCapture, type Capture, type CoverMatch, type QueueMatch } from '../lib/api'
+import { api, type Capture, type CoverMatch, type QueueMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
-import { queueThumb } from '../lib/queuePhoto'
+import { QueuedAlready } from './QueuedAlready'
 import { confidenceLine, confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
 import {
   applyFocusHints, listLenses, openCamera, preferredLens,
@@ -200,81 +200,17 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
         <span className="isbncam__mode">Hold a book up to the camera</span>
       </div>
 
-      {waiting.length > 0 && (
-        <div className="isbncam__choices isbncam__choices--queued">
-          <div className="choices__head">
-            {shot
-              ? <img className="choices__shot" src={shot} alt="The shot this is answering" />
-              : <span className="choice__nocover">your shot</span>}
-            <span className="choice__text">
-              {/* Said as a finding, not as an instruction to scan again. The
-                  whole point is that scanning it again is the thing that has
-                  been happening and should stop. */}
-              <span className="choice__title">
-                {waiting.length === 1
-                  ? 'This is already in the queue'
-                  : 'These are already in the queue'}
-              </span>
-              <span className="choice__author">
-                Scanned already and waiting to be shelved. Open it rather than
-                photographing it again.
-              </span>
-            </span>
-          </div>
-
-          {waiting.map(({ capture, distance }) => {
-            // What anybody has worked out about it, over what the worker read,
-            // exactly as the queue draws it. A capture has no catalogue id and
-            // often no title yet, so the number it was given stands in.
-            const draft = draftFromCapture(capture)
-            const title = draft.title || `Book #${capture.id}`
-            const thumb = queueThumb(capture, 'front')
-            const confidence = matchConfidence(distance)
-            return (
-              <button
-                key={capture.id}
-                className="choice choice--close"
-                onClick={() => onWaiting(capture)}
-                disabled={reading}
-                aria-label={`${title}, already in the queue, ${confidenceLine(confidence)}`}
-              >
-                {thumb
-                  ? <img src={coverUrl(thumb)} alt="" loading="lazy" />
-                  : <span className="choice__nocover">no photo</span>}
-                <span className="choice__text">
-                  <span className="choice__title">{title}</span>
-                  {/* Who has been near it, because the person holding the book
-                      needs to know whether they are picking up their own work
-                      or somebody else's half-finished job. */}
-                  <span className="choice__author">
-                    {capture.claimed_by
-                      ? `${capture.claimed_by} has it open`
-                      : capture.edited_at
-                        ? `looked at by ${capture.edited_by || 'someone'}`
-                        : 'nobody has been near it yet'}
-                  </span>
-                  <span className="choice__confidence choice__confidence--close">
-                    {confidence.label}
-                    {confidence.percent !== null && (
-                      <span className="choice__percent"> · {confidence.percent}%</span>
-                    )}
-                  </span>
-                  {capture.status === 'pending' && (
-                    <span className="choice__note">still being read</span>
-                  )}
-                </span>
-              </button>
-            )
-          })}
-
-          {/* The way out, and it has to be here. A wrong answer with no way
-              past it is worse than no answer: the person would photograph the
-              book again to escape it, which is the thing being prevented. */}
-          <button className="btn btn--ghost" onClick={clearChoices}>
-            Not this one, it is a different book
-          </button>
-        </div>
-      )}
+      {/* The panel is shared with the Add flow, which asks the same question
+          from the other end (#146). One wording, one set of affordances. */}
+      <QueuedAlready
+        matches={waiting}
+        shot={shot}
+        note="Open it rather than photographing it again."
+        onOpen={(match) => onWaiting(match.capture)}
+        onDismiss={clearChoices}
+        dismissLabel="Not this one, it is a different book"
+        disabled={reading}
+      />
 
       {choices.length > 0 && (
         <div className="isbncam__choices">

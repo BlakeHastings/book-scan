@@ -1344,6 +1344,183 @@ describe('a book already waiting in the queue', () => {
 })
 
 /**
+ * The same book photographed twice through the Add flow (#146).
+ *
+ * #138 put the queue comparison in the scan route and only where no barcode
+ * read, which left the door people actually use when working through a stack
+ * of new books without a check at all: photographing a back cover whose ISBN
+ * was already queued made a second capture and said nothing.
+ *
+ * Two things are asserted here that the scan route's tests do not cover. The
+ * first is precedence: where a barcode read there is an exact identifier, and
+ * it is used instead of, not alongside, a comparison of photographs. The
+ * second is that the hash half still fails closed at `QUEUE_LIMIT` and has not
+ * quietly been widened to `MATCH_CUTOFF` on the way through.
+ */
+describe('a capture of a book already in the queue', () => {
+  const queueOf = () => new CaptureQueue(running.db, () => null)
+
+  /** A capture carrying an ISBN, as a barcode read would leave it. */
+  async function queuedWith(
+    isbn13: string,
+    options: { hash?: string; status?: string } = {},
+  ): Promise<number> {
+    const queue = queueOf()
+    const capture = await queue.add({ front: 'front.jpg', back: 'back.jpg' })
+    if (options.hash) await queue.setFrontHash(capture.id, options.hash)
+    await running.db.run(
+      'UPDATE captures SET isbn13 = ?, status = ? WHERE id = ?',
+      [isbn13, options.status ?? 'ready', capture.id],
+    )
+    return capture.id
+  }
+
+  const duplicatesFor = async (id: number) =>
+    (await call(`/api/captures/${id}`)).body.duplicates as {
+      capture: { id: number }
+      distance: number | null
+      basis: string
+    }[]
+
+  it('says a barcode already in the queue is already in the queue', async () => {
+    // The reported defect, in one test: two captures of one back cover.
+    const first = await queuedWith(DUNE)
+    const second = await queuedWith(DUNE)
+
+    const found = await duplicatesFor(second)
+
+    expect(found).toHaveLength(1)
+    expect(found[0]!.capture.id).toBe(first)
+    expect(found[0]!.basis).toBe('isbn')
+    // Null rather than 0. Nothing was compared, so there is no measurement,
+    // and a fabricated zero would print as "looks the same, 100%".
+    expect(found[0]!.distance).toBeNull()
+  })
+
+  it('uses the ISBN rather than the pictures when it has one', async () => {
+    // Both kinds of evidence available at once. The identifier carries its own
+    // check digit; the hash is a likeness with a measured error rate. The
+    // answer is the identifier's, and the lookalike is not listed beside it as
+    // though the two were the same kind of claim.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const hash = await coverHash(buffer)
+    const sameIsbn = await queuedWith(DUNE)
+    const lookalike = await queuedWith('', { hash })
+    const mine = await queuedWith(DUNE, { hash })
+
+    const found = await duplicatesFor(mine)
+
+    expect(found.map((match) => match.capture.id)).toEqual([sameIsbn])
+    expect(found.map((match) => match.capture.id)).not.toContain(lookalike)
+  }, 30_000)
+
+  it('falls back to the cover when nothing could be read', async () => {
+    // No barcode, no OCR, nothing typed: the photographs are all there is,
+    // which is the case #138 measured and the bar it set.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const hash = await coverHash(buffer)
+    const other = await queuedWith('', { hash })
+    const mine = await queuedWith('', { hash })
+
+    const found = await duplicatesFor(mine)
+
+    expect(found).toHaveLength(1)
+    expect(found[0]!.capture.id).toBe(other)
+    expect(found[0]!.basis).toBe('cover')
+    expect(found[0]!.distance).toBe(0)
+  }, 30_000)
+
+  it('refuses a cover match the shortlist cutoff would have offered', async () => {
+    // The load-bearing one, and the reason this could not simply reuse the
+    // books comparison. 12 bits is comfortably inside MATCH_CUTOFF, and on the
+    // owner's real photographs a pair of DIFFERENT books lands there often,
+    // because the shared table and carpet pull them together (#122). Saying
+    // two different books are one book ends with a book nobody catalogues, so
+    // it fails closed and the threshold is untouched.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const hash = await coverHash(buffer)
+    await queuedWith('', { hash: nudgeHash(hash, 12) })
+    const mine = await queuedWith('', { hash })
+
+    expect(await duplicatesFor(mine)).toEqual([])
+  }, 30_000)
+
+  it('never reports a capture as its own duplicate', async () => {
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const mine = await queuedWith(DUNE, { hash: await coverHash(buffer) })
+    expect(await duplicatesFor(mine)).toEqual([])
+  }, 30_000)
+
+  it('leaves out a capture that has already become a book', async () => {
+    const other = await queuedWith(DUNE)
+    const mine = await queuedWith(DUNE)
+    const { id: bookId } = await running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    await queueOf().markDone(other, bookId)
+
+    expect(await duplicatesFor(mine)).toEqual([])
+  })
+
+  it('says nothing about two captures nobody has managed to read', async () => {
+    // An empty ISBN is the absence of an identifier, not one they share, and
+    // an unhashed front is the absence of a measurement.
+    await queuedWith('', { status: 'failed' })
+    const mine = await queuedWith('', { status: 'failed' })
+
+    expect(await duplicatesFor(mine)).toEqual([])
+  })
+
+  it('does not block the second capture, or write anything at all', async () => {
+    // Two copies of one book genuinely turn up, so this is a finding to put in
+    // front of a person and never a refusal. The photograph is accepted, both
+    // rows are still there afterwards, and asking the question changes
+    // neither of them.
+    const first = await queuedWith(DUNE)
+    const second = await queuedWith(DUNE)
+    const before = await Promise.all([queueOf().get(first), queueOf().get(second)])
+
+    const { body } = await call(`/api/captures/${second}`)
+
+    expect(body.duplicates).toHaveLength(1)
+    expect(await Promise.all([queueOf().get(first), queueOf().get(second)])).toEqual(before)
+    expect((await queueOf().list()).map((row) => row.id)).toEqual([first, second])
+  })
+
+  it('tells the scanner too, when the barcode names nothing on a shelf', async () => {
+    // The other half of "whichever entry point was used". A barcode that no
+    // catalogued book answers for used to be told "not in the library yet, add
+    // it first", which is an instruction to photograph it a second time.
+    const buffer = await backCover(DUNE)
+    const waiting = await queuedWith(DUNE)
+
+    const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(status).toBe(200)
+    expect(body.outcome).toBe('in-queue')
+    expect(body.matches).toHaveLength(1)
+    expect(body.matches[0].capture.id).toBe(waiting)
+    expect(body.matches[0].basis).toBe('isbn')
+    expect((await running.store.counts()).total).toBe(0)
+  }, 30_000)
+
+  it('still prefers a catalogued book to a queued capture of it', async () => {
+    // A shelved row is a settled fact and a capture is work in progress, so
+    // the queue answer is asked only after the catalogue has said no.
+    const buffer = await backCover(DUNE)
+    await queuedWith(DUNE)
+    const { id } = await running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+    })
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).toBe('identified')
+    expect(body.book.id).toBe(id)
+  }, 30_000)
+})
+
+/**
  * The route the queue was missing, and the workflow it exists for: one person
  * photographs, another resolves details, a third shelves. Asserted through
  * HTTP and read back out of SQLite, because "it stayed on screen" is exactly
