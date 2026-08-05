@@ -575,7 +575,13 @@ Verify: 302 SQLite tests green, plus roughly 71 Postgres tests. Test count rises
 to about 373 across 16 files, and AGENTS.md's number is updated in the same PR.
 
 **Measured on this branch: 856 before, 1030 after, across 50 files.** The extra
-174 are the five files run a second time (149) and `db.pg.test.ts` (25). There
+174 are the five files run a second time (149) and `db.pg.test.ts` (25).
+Both numbers are from the same Windows machine, which is the only way the
+comparison means anything. **CI reports a larger total for the same tree**
+(1054 on Linux for this branch), and that gap predates this stage: some cases
+are generated from what the platform makes available rather than written out.
+Compare like with like, or an ordinary platform difference reads as a
+regression. There
 was no number in AGENTS.md to update: it deliberately carries none, and says
 why. About 40 seconds before, about 47 after, on a machine with the image
 already pulled. Run three times consecutively before pushing, because the
