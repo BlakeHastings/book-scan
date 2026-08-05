@@ -17,7 +17,7 @@ import { join } from 'node:path'
 
 import { WEB_ROOT } from './support/paths.js'
 import { BOOK_IN_HAND } from './support/books.js'
-import { ensureCameraVideo } from './support/camera-fixture.js'
+import { ensureCameraVideo, ensureFrontCameraVideo } from './support/camera-fixture.js'
 import { startCatalogueStub, type CatalogueStub } from './support/catalogue-stub.js'
 import {
   describeResources, startAppHost, stopAppHost, urlOf, waitForResource,
@@ -72,6 +72,11 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
 
   say(`generating the camera video for ${BOOK_IN_HAND.isbn13}`)
   await ensureCameraVideo(BOOK_IN_HAND.isbn13)
+  // The second project's camera. Generated here rather than lazily, because
+  // Chromium is handed the path on the command line and a missing file makes
+  // getUserMedia fail in a way that reads as a broken app.
+  say(`generating the front cover video for ${BOOK_IN_HAND.title}`)
+  await ensureFrontCameraVideo(BOOK_IN_HAND.title, BOOK_IN_HAND.authors[0]!)
 
   stub = await startCatalogueStub()
   say(`catalogue stub on ${stub.url}`)

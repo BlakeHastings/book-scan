@@ -22,7 +22,7 @@ import { PlacementView } from './components/ShelfStrip'
 import { ShelfView, type LibraryReturnAnchor } from './components/ShelfView'
 import { ShelveView } from './components/ShelveView'
 import { HomePane } from './components/HomePane'
-import { QueuePane, type QueueReturnAnchor } from './components/QueuePane'
+import { canShelve, QueuePane, type QueueReturnAnchor } from './components/QueuePane'
 import { ScanCamera } from './components/ScanCamera'
 
 type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue'
@@ -787,6 +787,39 @@ export default function App() {
   }
 
   /**
+   * A book the scanner recognised as one already in the queue (#122).
+   *
+   * Opening the capture somebody made, rather than starting a second one.
+   * That is the whole value of the answer: the photographs already exist and
+   * have already been read, so a second capture adds nothing but a duplicate
+   * row for somebody to notice later, and noticing is the step that fails.
+   * Two rows of the same book end either as the same book catalogued twice or
+   * as a discard that takes the photographs of the real one with it.
+   *
+   * Claimed on the way in, through the same call the queue makes, because the
+   * thing that stops two people filling in one book is the claim and not which
+   * screen they arrived from. A capture still being read cannot be opened at
+   * all, for the same reason the queue refuses: there is nothing yet to
+   * confirm or correct.
+   */
+  const openWaiting = async (capture: Capture) => {
+    if (!canShelve(capture)) {
+      setToast('Still reading its photographs. Give it a moment and open it from the queue.')
+      return
+    }
+    try {
+      const { capture: claimed } = await api.claimCapture(capture.id, deviceName())
+      setScanning(false)
+      // The index is where to land if this capture leaves the queue while it
+      // is open, and the scanner never saw the list it would be an index into.
+      // The top of the queue is the honest answer to "near where it was".
+      openCapture(claimed, { id: capture.id, index: 0 })
+    } catch (caught) {
+      setError((caught as Error).message)
+    }
+  }
+
+  /**
    * Move a boundary book on to the plank next door, through the shelving step.
    *
    * The boundary moves first and the book's recorded location does not, which
@@ -1083,6 +1116,7 @@ export default function App() {
     return (
       <ScanCamera
         onIdentified={(id) => void openScanned(id)}
+        onWaiting={(capture) => void openWaiting(capture)}
         onClose={() => { setScanning(false); setMode('home') }}
       />
     )

@@ -6,8 +6,9 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  CHANCE_DISTANCE, CLOSE_LIMIT, MATCH_CUTOFF, SIMILAR_LIMIT,
-  confidenceLine, confidentPick, hasCloseMatch, matchConfidence, shortlistPrompt,
+  CHANCE_DISTANCE, CLOSE_LIMIT, MATCH_CUTOFF, QUEUE_LIMIT, SIMILAR_LIMIT,
+  closeMatches, confidenceLine, confidentPick, hasCloseMatch, matchConfidence,
+  queueMatches, shortlistPrompt,
 } from './confidence'
 
 describe('matchConfidence', () => {
@@ -172,5 +173,65 @@ describe('confidentPick', () => {
   it('picks nothing for a distance it cannot make sense of', () => {
     expect(confidentPick([{ distance: Number.NaN }])).toBeNull()
     expect(confidentPick([{ distance: undefined as unknown as number }])).toBeNull()
+  })
+})
+
+describe('queueMatches', () => {
+  it('holds a capture to the close band and nothing weaker', () => {
+    // The measurement behind this is written against QUEUE_LIMIT. The short
+    // version: on real photographs, two different books land as close as 16
+    // bits apart, so MATCH_CUTOFF would call nearly one pair in five a match.
+    expect(QUEUE_LIMIT).toBe(CLOSE_LIMIT)
+    expect(queueMatches([{ distance: CLOSE_LIMIT }])).toHaveLength(1)
+    expect(queueMatches([{ distance: CLOSE_LIMIT + 1 }])).toEqual([])
+    expect(queueMatches([{ distance: SIMILAR_LIMIT }])).toEqual([])
+    expect(queueMatches([{ distance: MATCH_CUTOFF }])).toEqual([])
+  })
+
+  it('agrees with the band function on every distance it could be handed', () => {
+    for (let d = 0; d <= 64; d += 1) {
+      const offered = queueMatches([{ distance: d }]).length === 1
+      expect(offered).toBe(matchConfidence(d).strength === 'close')
+    }
+  })
+
+  it('keeps both when two captures are close, unlike confidentPick', () => {
+    // The difference is what happens next. confidentPick opens a page unasked,
+    // so ambiguity there is a coin toss acted on. This only draws a panel, and
+    // two captures that both look like the book in your hands very likely
+    // means the book has already been scanned twice, which is the thing being
+    // reported rather than a reason to say nothing.
+    const first = { id: 1, distance: 2 }
+    const second = { id: 2, distance: 5 }
+    expect(queueMatches([second, first])).toEqual([first, second])
+  })
+
+  it('answers nearest first and never more than a handful', () => {
+    const many = [6, 1, 4, 2, 8].map((distance, i) => ({ id: i, distance }))
+    expect(queueMatches(many).map((m) => m.distance)).toEqual([1, 2, 4])
+    expect(queueMatches(many, 2).map((m) => m.distance)).toEqual([1, 2])
+  })
+
+  it('offers nothing at all when nothing clears the bar', () => {
+    expect(queueMatches([])).toEqual([])
+    expect(queueMatches([{ distance: 9 }, { distance: 30 }])).toEqual([])
+    expect(queueMatches([{ distance: Number.NaN }])).toEqual([])
+  })
+})
+
+describe('closeMatches', () => {
+  it('is the one place the close band is applied', () => {
+    // hasCloseMatch, confidentPick and queueMatches all read the band through
+    // here, so they cannot drift apart by someone changing one of them.
+    const list = [{ distance: 0 }, { distance: CLOSE_LIMIT }, { distance: CLOSE_LIMIT + 1 }]
+    expect(closeMatches(list)).toHaveLength(2)
+    expect(hasCloseMatch(list)).toBe(true)
+    expect(hasCloseMatch([{ distance: CLOSE_LIMIT + 1 }])).toBe(false)
+  })
+
+  it('leaves the list it was given alone', () => {
+    const list = [{ distance: 5 }, { distance: 1 }]
+    queueMatches(list)
+    expect(list.map((m) => m.distance)).toEqual([5, 1])
   })
 })

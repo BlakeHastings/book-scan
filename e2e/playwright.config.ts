@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 import { defineBddConfig } from 'playwright-bdd'
 
 import { BOOK_IN_HAND } from './support/books.js'
-import { cameraVideoFor } from './support/paths.js'
+import { cameraVideoFor, frontCameraVideoFor } from './support/paths.js'
 
 /**
  * The .feature files are the source of truth. bddgen turns them into
@@ -27,13 +27,26 @@ const testDir = defineBddConfig({
  * Playwright project with its own flag, which is a fine thing to add and a
  * bad thing to fake.
  */
-const cameraArgs = [
+const cameraArgs = (video: string) => [
   '--use-fake-device-for-media-stream',
-  `--use-file-for-fake-video-capture=${cameraVideoFor(BOOK_IN_HAND.isbn13)}`,
+  `--use-file-for-fake-video-capture=${video}`,
   // The app calls video.play() on a muted element, which is already allowed,
   // but this removes the gesture question entirely.
   '--autoplay-policy=no-user-gesture-required',
 ]
+
+/**
+ * Scenarios that need a front cover in front of the lens rather than a back.
+ *
+ * The tag is what splits the run. A back cover carries a barcode and the scan
+ * route reads it before it compares anything, so a scenario about recognising
+ * a book by its cover cannot be written against the back cover camera at all:
+ * it would pass by reading the barcode and prove nothing.
+ *
+ * Two projects rather than one, and every scenario in exactly one of them, so
+ * the split costs a browser launch and not a second run of the whole suite.
+ */
+const FRONT_CAMERA = /@front-camera/
 
 export default defineConfig({
   testDir,
@@ -91,12 +104,23 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      grepInvert: FRONT_CAMERA,
       use: {
         // The full Chrome for Testing build rather than the headless shell:
         // this suite is here for the media pipeline, and that is the part the
         // shell trims.
         channel: 'chromium',
-        launchOptions: { args: cameraArgs },
+        launchOptions: { args: cameraArgs(cameraVideoFor(BOOK_IN_HAND.isbn13)) },
+      },
+    },
+    {
+      name: 'chromium-front-cover',
+      grep: FRONT_CAMERA,
+      use: {
+        channel: 'chromium',
+        launchOptions: {
+          args: cameraArgs(frontCameraVideoFor(BOOK_IN_HAND.title)),
+        },
       },
     },
   ],

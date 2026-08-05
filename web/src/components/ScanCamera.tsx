@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type CoverMatch } from '../lib/api'
+import { api, draftFromCapture, type Capture, type CoverMatch, type QueueMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
+import { queueThumb } from '../lib/queuePhoto'
 import { confidenceLine, confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
 import {
   applyFocusHints, listLenses, openCamera, preferredLens,
@@ -11,6 +12,11 @@ import { captureSteadiest } from '../lib/steady'
 interface Props {
   /** Which book is being held up. Opening it is all that follows. */
   onIdentified: (bookId: number) => void
+  /**
+   * The book being held up is already in the queue, and this is the capture
+   * somebody made of it. Opening it is all that follows here too.
+   */
+  onWaiting: (capture: Capture) => void
   onClose: () => void
 }
 
@@ -30,13 +36,22 @@ interface Props {
  * book first about one lookup in ten, and that is not a rate to act on
  * unattended against a catalogue nobody can rebuild.
  */
-export function ScanCamera({ onIdentified, onClose }: Props) {
+export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [error, setError] = useState('')
   const [reading, setReading] = useState(false)
   const [message, setMessage] = useState('')
   const [choices, setChoices] = useState<CoverMatch[]>([])
+  /**
+   * Captures already waiting to be shelved that look like this book.
+   *
+   * Its own panel rather than rows on the shortlist, because it is a
+   * different answer: not "which of these books is it" but "this has already
+   * been scanned, and here is the job somebody started". See the server's
+   * `alreadyInQueue`, and `QUEUE_LIMIT` for why the bar is so much tighter.
+   */
+  const [waiting, setWaiting] = useState<QueueMatch[]>([])
   /**
    * The shot the shortlist is answering, shrunk to a thumbnail.
    *
@@ -51,6 +66,7 @@ export function ScanCamera({ onIdentified, onClose }: Props) {
   /** Drop the shortlist and the frame together. Neither outlives the other. */
   const clearChoices = () => {
     setChoices([])
+    setWaiting([])
     setShot('')
   }
 
@@ -138,6 +154,23 @@ export function ScanCamera({ onIdentified, onClose }: Props) {
           break
         }
 
+        case 'in-queue': {
+          /*
+           * Already scanned by somebody, and not shelved yet.
+           *
+           * Never opened without a tap, however near the match is. The
+           * shortlist may open a book unasked because landing on a book's
+           * page writes nothing and shows the cover immediately; a capture is
+           * an unfinished job somebody else may be holding, opening it claims
+           * it, and the person here has not yet been told the answer they
+           * came for. So this is shown and waited on.
+           */
+          setWaiting(result.matches)
+          setShot(await shrunk)
+          setMessage('')
+          break
+        }
+
         case 'no-isbn':
           setMessage(
             result.barcodes.length
@@ -166,6 +199,82 @@ export function ScanCamera({ onIdentified, onClose }: Props) {
       <div className="isbncam__top">
         <span className="isbncam__mode">Hold a book up to the camera</span>
       </div>
+
+      {waiting.length > 0 && (
+        <div className="isbncam__choices isbncam__choices--queued">
+          <div className="choices__head">
+            {shot
+              ? <img className="choices__shot" src={shot} alt="The shot this is answering" />
+              : <span className="choice__nocover">your shot</span>}
+            <span className="choice__text">
+              {/* Said as a finding, not as an instruction to scan again. The
+                  whole point is that scanning it again is the thing that has
+                  been happening and should stop. */}
+              <span className="choice__title">
+                {waiting.length === 1
+                  ? 'This is already in the queue'
+                  : 'These are already in the queue'}
+              </span>
+              <span className="choice__author">
+                Scanned already and waiting to be shelved. Open it rather than
+                photographing it again.
+              </span>
+            </span>
+          </div>
+
+          {waiting.map(({ capture, distance }) => {
+            // What anybody has worked out about it, over what the worker read,
+            // exactly as the queue draws it. A capture has no catalogue id and
+            // often no title yet, so the number it was given stands in.
+            const draft = draftFromCapture(capture)
+            const title = draft.title || `Book #${capture.id}`
+            const thumb = queueThumb(capture, 'front')
+            const confidence = matchConfidence(distance)
+            return (
+              <button
+                key={capture.id}
+                className="choice choice--close"
+                onClick={() => onWaiting(capture)}
+                disabled={reading}
+                aria-label={`${title}, already in the queue, ${confidenceLine(confidence)}`}
+              >
+                {thumb
+                  ? <img src={coverUrl(thumb)} alt="" loading="lazy" />
+                  : <span className="choice__nocover">no photo</span>}
+                <span className="choice__text">
+                  <span className="choice__title">{title}</span>
+                  {/* Who has been near it, because the person holding the book
+                      needs to know whether they are picking up their own work
+                      or somebody else's half-finished job. */}
+                  <span className="choice__author">
+                    {capture.claimed_by
+                      ? `${capture.claimed_by} has it open`
+                      : capture.edited_at
+                        ? `looked at by ${capture.edited_by || 'someone'}`
+                        : 'nobody has been near it yet'}
+                  </span>
+                  <span className="choice__confidence choice__confidence--close">
+                    {confidence.label}
+                    {confidence.percent !== null && (
+                      <span className="choice__percent"> · {confidence.percent}%</span>
+                    )}
+                  </span>
+                  {capture.status === 'pending' && (
+                    <span className="choice__note">still being read</span>
+                  )}
+                </span>
+              </button>
+            )
+          })}
+
+          {/* The way out, and it has to be here. A wrong answer with no way
+              past it is worse than no answer: the person would photograph the
+              book again to escape it, which is the thing being prevented. */}
+          <button className="btn btn--ghost" onClick={clearChoices}>
+            Not this one, it is a different book
+          </button>
+        </div>
+      )}
 
       {choices.length > 0 && (
         <div className="isbncam__choices">

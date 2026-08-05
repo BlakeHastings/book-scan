@@ -504,3 +504,61 @@ describe('two drains at once', () => {
     expect(await running.counts()).toMatchObject({ pending: 0, ready: 2 })
   })
 })
+
+/**
+ * What the scanner is allowed to compare a photograph against (#122).
+ *
+ * Each exclusion here is the difference between a useful answer and a wrong
+ * one, so each is asserted on its own rather than through the route.
+ */
+describe('captures still waiting to be shelved', () => {
+  const hashed = async (hash = 'p1abcdef0123456789'.slice(0, 18)) => {
+    const capture = await add()
+    await queue.setFrontHash(capture.id, hash)
+    return capture.id
+  }
+
+  it('offers a capture that has a hash and a photograph', async () => {
+    const id = await hashed()
+    expect((await queue.waiting()).map((c) => c.id)).toEqual([id])
+  })
+
+  it('leaves out one that has become a book', async () => {
+    // Not waiting for anybody. It is on a shelf, and the books path answers
+    // for it, so sending somebody to finish it sends them to a dead end.
+    const id = await hashed()
+    await queue.markDone(id, await addBook())
+    expect(await queue.waiting()).toEqual([])
+  })
+
+  it('leaves out one nobody has hashed', async () => {
+    // An empty hash is the absence of a measurement, not a weak one.
+    await add()
+    expect(await queue.waiting()).toEqual([])
+  })
+
+  it('leaves out one whose front photograph was refused as featureless', async () => {
+    // `coverHash` declines a frame with no detail in it, and `deriveCapture`
+    // leaves the column empty rather than storing something that would go on
+    // to be compared. That refusal has to survive all the way to here.
+    const capture = await add()
+    await queue.setFrontHash(capture.id, '')
+    expect(await queue.waiting()).toEqual([])
+  })
+
+  it('keeps a failed capture, which is the one most likely to still be sitting there', async () => {
+    // The read failed. The photographs did not, and neither did the book.
+    const id = await hashed()
+    db.prepare("UPDATE captures SET status = 'failed' WHERE id = ?").run(id)
+    expect((await queue.waiting()).map((c) => c.id)).toEqual([id])
+  })
+
+  it('keeps one still being read, so the answer does not depend on timing', async () => {
+    // A capture photographed thirty seconds ago is the likeliest duplicate
+    // there is. What it cannot do yet is be opened, and the queue already
+    // refuses that; it is not a reason to pretend the book is not there.
+    const id = await hashed()
+    expect((await queue.get(id))?.status).toBe('pending')
+    expect((await queue.waiting()).map((c) => c.id)).toEqual([id])
+  })
+})

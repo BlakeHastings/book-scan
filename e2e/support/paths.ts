@@ -31,3 +31,16 @@ export const FIXTURE_DIR = join(E2E_ROOT, '.fixtures')
 export function cameraVideoFor(isbn: string): string {
   return join(FIXTURE_DIR, `back-cover-${isbn}.y4m`)
 }
+
+/**
+ * The camera file showing a front cover, for the scenarios about a book held
+ * up rather than a barcode presented.
+ *
+ * A separate file and therefore a separate Playwright project, because the
+ * video is a launch argument. It has to be a front: a back cover carries a
+ * barcode, the scan route reads it first and answers from the catalogue, and
+ * nothing that depends on the cover comparison is reached at all.
+ */
+export function frontCameraVideoFor(title: string): string {
+  return join(FIXTURE_DIR, `front-cover-${title.replace(/[^a-z0-9]+/gi, '-')}.y4m`)
+}

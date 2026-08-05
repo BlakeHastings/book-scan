@@ -58,6 +58,19 @@ One book is in front of the camera for every scenario, and it is named in
 `support/books.ts`. A scenario needing a second book needs a second Playwright
 project with its own flag.
 
+**There are two such projects, split by tag.** `chromium` sees the back cover
+and runs everything; `chromium-front-cover` sees the same book's front cover
+and runs the scenarios tagged `@front-camera`. Each scenario runs in exactly
+one of them, so the split costs a browser launch rather than a second pass
+over the suite.
+
+The split is not cosmetic. A back cover carries a barcode, and the scan route
+reads it before it compares any covers, so a scenario about recognising a book
+by its cover cannot be written against the back cover camera at all: it would
+pass by reading the barcode and prove nothing about the comparison. Tag a
+feature `@front-camera` when what it is about is the book being held up rather
+than the barcode being presented.
+
 **The catalogues are local.** Open Library and Google Books are consulted by
 the API process, not the browser, so Playwright's request routing cannot reach
 them. `support/catalogue-stub.ts` starts a small HTTP server that answers as

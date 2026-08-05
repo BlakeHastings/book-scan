@@ -2017,6 +2017,14 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   background: var(--panel-2);
 }
 
+/* "This is already in the queue" is a finding, not a shortlist, and it has to
+   read as one at arm's length while somebody is holding a book. Same panel,
+   edged in the colour the app already uses for a good match, because that is
+   the only band this answer is ever drawn in. */
+.isbncam__choices--queued {
+  border: 1px solid var(--good);
+}
+
 /* How alike, in words. The distance itself is a Hamming distance over 64
    bits and is deliberately never shown: it reads as precision it does not
    have. Colour repeats what the words say, so it is not the only carrier. */

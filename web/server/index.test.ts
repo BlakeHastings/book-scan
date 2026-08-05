@@ -66,6 +66,27 @@ vi.mock('./covers', () => ({
 
 const DUNE = '9780441013593'
 
+/**
+ * A hash a stated number of bits away from another one.
+ *
+ * Seeding a decoy with a distance rather than with a second generated cover
+ * is what makes the band under test the thing the test states: 12 bits is
+ * inside the shortlist cutoff of 24 and well outside the close band of 8, so
+ * it is precisely the weak guess the scan route used to answer with, and
+ * precisely what a queue match has to refuse.
+ */
+function nudgeHash(hash: string, bits: number): string {
+  let out = ''
+  let left = bits
+  for (const character of hash.slice(2)) {
+    // Four bits per hex digit, flipped low bits first.
+    const flip = (1 << Math.min(4, left)) - 1
+    out += (parseInt(character, 16) ^ flip).toString(16)
+    left -= Math.min(4, left)
+  }
+  return hash.slice(0, 2) + out
+}
+
 let dataRoot: string
 
 beforeAll(() => {
@@ -1139,26 +1160,6 @@ describe('scanning a book at the shelf', () => {
     backCover(isbn, { printedIsbn: false })
       .then((cover) => sharp(cover).resize({ width: 420 }).png().toBuffer())
 
-  /**
-   * A hash a stated number of bits away from another one.
-   *
-   * Seeding a decoy with a distance rather than with a second generated cover
-   * is what makes the band under test the thing the test states: 12 bits is
-   * inside the shortlist cutoff of 24 and well outside the close band of 8,
-   * so it is precisely the weak guess this route used to answer with.
-   */
-  function nudgeHash(hash: string, bits: number): string {
-    let out = ''
-    let left = bits
-    for (const character of hash.slice(2)) {
-      // Four bits per hex digit, flipped low bits first.
-      const flip = (1 << Math.min(4, left)) - 1
-      out += (parseInt(character, 16) ^ flip).toString(16)
-      left -= Math.min(4, left)
-    }
-    return hash.slice(0, 2) + out
-  }
-
   it('reads the barcode the fast pass missed instead of offering a lookalike', async () => {
     // The defect in #66: the owner photographs a visible barcode, the fast
     // pass misses it, and a weak cover match returns before the thorough read
@@ -1204,6 +1205,142 @@ describe('scanning a book at the shelf', () => {
     expect(body.isbn13).toBe(DUNE)
     expect((await running.store.counts()).total).toBe(0)
   }, 20_000)
+})
+
+/**
+ * The book somebody else already scanned (#122).
+ *
+ * Three people share this queue: one photographs, one resolves details, one
+ * shelves. A book photographed an hour ago and not yet shelved used to match
+ * nothing at all when the next person held it up, so it went round again.
+ *
+ * The bar here is `QUEUE_LIMIT`, and it is much tighter than the shortlist's,
+ * for reasons measured on real photographs and written down against that
+ * constant. These tests assert the two halves of that: it answers when the
+ * photographs really are of one book, and it refuses at distances the
+ * shortlist would happily have offered.
+ */
+describe('a book already waiting in the queue', () => {
+  const queueOf = () => new CaptureQueue(running.db, () => null)
+
+  /**
+   * A capture of a known photograph, hashed exactly as the worker would hash
+   * it, and marked read so it is a capture somebody could actually go and
+   * finish. The image is `frontCover`, which carries no barcode, so the fast
+   * pass this route opens with reads nothing and the comparison is reached.
+   */
+  async function waitingCapture(
+    buffer: Buffer,
+    options: { bits?: number } = {},
+  ): Promise<number> {
+    const queue = queueOf()
+    const capture = await queue.add({ front: 'dune-front.jpg' })
+    const hash = await coverHash(buffer)
+    await queue.setFrontHash(capture.id, options.bits ? nudgeHash(hash, options.bits) : hash)
+    running.db.prepare("UPDATE captures SET status = 'ready' WHERE id = ?").run(capture.id)
+    return capture.id
+  }
+
+  it('says the book is already in the queue instead of letting it be scanned twice', async () => {
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const id = await waitingCapture(buffer)
+
+    const { status, body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(status).toBe(200)
+    expect(body.outcome).toBe('in-queue')
+    expect(body.matches).toHaveLength(1)
+    expect(body.matches[0].capture.id).toBe(id)
+    expect(body.matches[0].distance).toBe(0)
+    // The whole row, because a capture has no short form: the panel needs the
+    // photograph and whatever anybody has worked out about it so far.
+    expect(body.matches[0].capture.front_image).toBe('dune-front.jpg')
+  }, 30_000)
+
+  it('writes nothing, to the capture or to the catalogue', async () => {
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const id = await waitingCapture(buffer)
+    const before = await queueOf().get(id)
+
+    await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(await queueOf().get(id)).toEqual(before)
+    expect((await running.store.counts()).total).toBe(0)
+  }, 30_000)
+
+  it('refuses a capture the shortlist cutoff would have offered', async () => {
+    // The load-bearing one. 12 bits is comfortably inside MATCH_CUTOFF, which
+    // is what the books shortlist offers on, and on real photographs a pair of
+    // different books lands there often. A wrong answer here tells somebody
+    // two different books are the same book, and the way that ends is a book
+    // nobody ever catalogues. So it fails closed.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    await waitingCapture(buffer, { bits: 12 })
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).not.toBe('in-queue')
+  }, 30_000)
+
+  it('leaves out a capture that has already become a book', async () => {
+    // It is not waiting for anybody: it is on a shelf, and the books path
+    // answers for it. Sending somebody to finish it is sending them nowhere.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    const id = await waitingCapture(buffer)
+    const { id: bookId } = await running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    await queueOf().markDone(id, bookId)
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).not.toBe('in-queue')
+  }, 30_000)
+
+  it('leaves out a capture with no hash rather than scoring it as unalike', async () => {
+    // An empty hash is the absence of a measurement, not a weak one. It is
+    // already scored 64 by `distance`, and this asserts the row never reaches
+    // the comparison at all.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    await queueOf().add({ front: 'dune-front.jpg' })
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).not.toBe('in-queue')
+  }, 30_000)
+
+  it('answers with the catalogue when a shelved book looks the same too', async () => {
+    // A catalogued row is a settled fact and a capture is work in progress.
+    // When both look identical the person gets the shortlist they get today,
+    // rather than being sent off to the queue for a book already on a shelf.
+    const buffer = await frontCover('Dune', 'Frank Herbert')
+    await waitingCapture(buffer)
+    const { id } = await running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+    })
+    await running.store.setHashes(id, await coverHash(buffer), '')
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).toBe('candidates')
+    expect(body.candidates.map((c: { id: number }) => c.id)).toContain(id)
+  }, 30_000)
+
+  it('still identifies by barcode, which is evidence rather than likeness', async () => {
+    // A queue match must never get in front of a read barcode. This capture
+    // is an exact match for the photograph, and the answer is still the row
+    // the check digit named.
+    const buffer = await backCover(DUNE)
+    await waitingCapture(buffer)
+    const { id } = await running.store.addBook({
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+    })
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).toBe('identified')
+    expect(body.book.id).toBe(id)
+  }, 30_000)
 })
 
 /**

@@ -435,6 +435,42 @@ export class CaptureQueue {
   }
 
   /**
+   * Captures that are still waiting to be shelved and can be compared, so a
+   * book held up to the camera can be recognised as one somebody has already
+   * scanned (#122).
+   *
+   * Three filters, and each one is the difference between an answer and a
+   * wrong answer:
+   *
+   *   `status != 'done'` because a capture that became a book is not waiting
+   *   for anybody. Telling somebody to go and finish a capture that is already
+   *   on a shelf sends them to a dead end, and the books path answers for that
+   *   book already.
+   *
+   *   `front_hash != ''` because an empty hash is not a weak match, it is the
+   *   absence of one. `distance` already scores it 64, but leaving the row out
+   *   says why rather than relying on a number.
+   *
+   *   `front_image != ''` because the panel this feeds shows the photograph
+   *   somebody took, and a match nobody can look at is a match nobody can
+   *   check.
+   *
+   * A failed capture is included on purpose. The read failed; the photographs
+   * and the book behind them did not, and it is exactly the capture most
+   * likely to still be sitting in the queue when somebody picks the book up
+   * again.
+   */
+  async waiting(): Promise<CaptureRow[]> {
+    return this.db
+      .prepare(
+        `SELECT * FROM captures
+          WHERE status != 'done' AND front_hash != '' AND front_image != ''
+          ORDER BY id`,
+      )
+      .all() as CaptureRow[]
+  }
+
+  /**
    * Every capture that has a photograph, oldest first.
    *
    * Deliberately unfiltered, for the same reason `Store.photographed` is:

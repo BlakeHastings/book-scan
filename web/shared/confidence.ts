@@ -41,6 +41,51 @@ export const MATCH_CUTOFF = 24
 /** Below this the two images are near enough identical to trust on sight. */
 export const CLOSE_LIMIT = 8
 
+/**
+ * The bar a capture still in the queue has to clear, which is `CLOSE_LIMIT`
+ * and nothing weaker. Measured rather than inherited (#122).
+ *
+ * The bands above were calibrated on a photograph against a publisher's
+ * catalogue artwork. A queue match is a photograph against another
+ * photograph, taken in the same room, in the same light, by the same person,
+ * and the guess was that the distribution would be tighter. It is not. It is
+ * worse, and in the direction that matters.
+ *
+ * Measured on the owner's own photographs, 18 real fronts, no generated
+ * covers, by `npx tsx scripts/queue-match-accuracy.ts <dir>`:
+ *
+ *   two different books, one real photograph against another, 153 pairs
+ *     min 16, median 30, and 22 of the 153 sit at or inside `MATCH_CUTOFF`.
+ *   one book photographed twice, 2160 modelled re-photographs
+ *     median 8 to 20 depending on how steadily the shot is framed.
+ *
+ * The two distributions overlap from 12 upwards. That is the same room
+ * working against the comparison rather than for it, which is the opposite of
+ * what was expected: every one of these photographs has the same dark table
+ * or the same carpet around the book, and the hash keeps the middle 70 per
+ * cent of a frame the book fills about two thirds of, so a shared background
+ * pulls two different books together rather than telling them apart.
+ *
+ * What each cutoff would do, over all 2160 re-photographs and the 36720 pairs
+ * of different books they can be confused with:
+ *
+ *   <= 8    caught  33% of double scans,     0 of 36720 wrong pairs
+ *   <=12    caught  53%,                     3 of 36720
+ *   <=16    caught  70%,                   205 of 36720
+ *   <=24    caught  91%,                  6605 of 36720   (18%)
+ *
+ * So `MATCH_CUTOFF` does not carry over at all: on real photographs it calls
+ * nearly one pair of different books in five a match. 12 was measured and
+ * rejected too, because a wrong queue answer says two different books are the
+ * same book, and the way that ends is a book nobody ever catalogues.
+ *
+ * What 8 buys depends on the person. Framed as steadily as these 18 were, it
+ * catches 69 per cent of double scans; framed carelessly, 5 per cent. Either
+ * is worth having, because the alternative is not a better answer, it is no
+ * answer: when this does not fire the scan proceeds exactly as it does today.
+ */
+export const QUEUE_LIMIT = CLOSE_LIMIT
+
 /** Above this a candidate is nearer to noise than to a likeness. */
 export const SIMILAR_LIMIT = 16
 
@@ -110,13 +155,27 @@ export function confidenceLine(confidence: MatchConfidence): string {
 }
 
 /**
+ * Everything on a list that is near enough identical to trust on sight.
+ *
+ * The one place the `close` band is applied, so the shortlist, the scanner
+ * and the queue match all mean the same thing by it and cannot drift apart.
+ */
+export function closeMatches<T extends { distance: number }>(
+  candidates: readonly T[],
+): T[] {
+  return candidates.filter(
+    (candidate) => matchConfidence(candidate.distance).strength === 'close',
+  )
+}
+
+/**
  * Whether anything on the shortlist is worth trusting at a glance.
  *
  * False means every candidate needs comparing properly, and the panel says
  * so out loud rather than leaving the list looking as usual.
  */
 export function hasCloseMatch(candidates: readonly { distance: number }[]): boolean {
-  return candidates.some((candidate) => matchConfidence(candidate.distance).strength === 'close')
+  return closeMatches(candidates).length > 0
 }
 
 /**
@@ -159,8 +218,33 @@ export function shortlistPrompt(candidates: readonly { distance: number }[]): st
 export function confidentPick<T extends { distance: number }>(
   candidates: readonly T[],
 ): T | null {
-  const close = candidates.filter(
-    (candidate) => matchConfidence(candidate.distance).strength === 'close',
-  )
+  const close = closeMatches(candidates)
   return close.length === 1 ? close[0]! : null
+}
+
+/**
+ * The captures worth telling somebody about before they scan a book twice.
+ *
+ * Same band as everything else here, for the reason `confidentPick` gives and
+ * for the measurement written against `QUEUE_LIMIT`.
+ *
+ * Unlike `confidentPick` this does not refuse when two clear the bar, and the
+ * difference is what happens next. `confidentPick` opens a page unasked, so
+ * ambiguity there means acting on a coin toss. This only draws a panel and
+ * waits, so two captures that both look like the book in your hands is a
+ * thing to show a person, not a thing to resolve for them: it is very likely
+ * that this book has already been scanned twice, which is the exact problem
+ * being reported.
+ *
+ * Nearest first, and never more than a handful. A long list of near-identical
+ * photographs is not a question anybody can answer.
+ */
+export function queueMatches<T extends { distance: number }>(
+  candidates: readonly T[],
+  limit = 3,
+): T[] {
+  return closeMatches(candidates)
+    .slice()
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, limit)
 }
