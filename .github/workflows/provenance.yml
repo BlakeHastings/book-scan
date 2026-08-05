@@ -1,0 +1,41 @@
+name: Provenance
+
+# Detection, not prevention.
+#
+# Branch protection needs a paid plan on a private repo, so nothing at GitHub's
+# end refuses a direct push to master or a merge taken with CI still pending.
+# `scripts/guard-merge.mjs` refuses both locally, but a guard that runs on one
+# machine is silent the moment somebody works from another one, or turns it off.
+#
+# This runs on the result, which is the one thing a bypass cannot avoid
+# producing: for every new commit on master it asks GitHub which pull requests
+# that commit belongs to, and fails when the answer is none.
+#
+# It cannot undo the push. It makes the push visible, which is the difference
+# between a rule and a control.
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  provenance:
+    name: every commit came through a pull request
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The script walks back to a fixed baseline commit. A shallow clone
+          # does not reach it, and the script fails loudly rather than passing
+          # on a history it cannot see.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: node scripts/check-main-provenance.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROVENANCE_BEFORE: ${{ github.event.before }}
+          PROVENANCE_AFTER: ${{ github.sha }}
