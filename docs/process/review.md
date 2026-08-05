@@ -4,20 +4,26 @@ An issue is done when it passes **three lenses**. Mechanical checks are not one
 of the lenses: they are the price of admission, they run in CI, and no human or
 agent should spend judgment on them.
 
-> Template. Replace the bracketed parts with this repo's real commands, then
-> delete this note.
-
 ## Gate 0: mechanical (automated, no judgment)
 
-CI runs these. If they are red, the work is not ready for review.
+CI runs exactly these. If they are red, the work is not ready for review.
 
-- typecheck, lint, format
-- unit and integration tests
-- production build succeeds
-- database migrations apply cleanly to an empty database and are reversible
+- `npm run typecheck`
+- `npm test`, the unit and integration suites
+- the browser journeys in `e2e/`, which gate pull requests
+- no scan data committed (`scripts/check-no-scan-data.sh`)
+- the merge guard and the CI scope rules behave (`scripts/guard-merge.test.mjs`,
+  `scripts/ci-scope.test.mjs`)
 
 Never ask a reviewer to run these by hand. If a mechanical check is missing,
 adding it is cheaper than reviewing for it forever.
+
+**Three things a reviewer might assume are covered and are not.** There is no
+lint or format check: `eslint.config.mjs` exists but nothing runs it. The
+production build is never run in CI, only `tsc --noEmit` via typecheck, so a
+Vite build failure would reach master. And migrations are **not** reversible by
+design: the schema is append only, columns are added and never dropped or
+repurposed, so "reverts cleanly" is not a property to check for.
 
 ## Lens 1: functionality, proven by interaction
 
@@ -77,16 +83,21 @@ Ask on every change:
 5. Is the project's single source of truth still single, or did a parallel one
    just get born?
 
-If a change introduces a new pattern deliberately, record it in
-`docs/architecture/decisions/` as a short ADR. Three sentences is a fine ADR.
-The point is that the decision is findable later, not that it is ceremonious.
+If a change introduces a new pattern deliberately, record the decision where
+somebody will meet it. This repository does not use ADRs. Decisions live in
+three places instead:
 
-Take the next number after everything on the default branch **and** everything
-in an open pull request. Work runs in parallel here, so the next free number on
-your branch is usually already claimed on someone else's.
-`npm run check:collisions` fails a duplicate, and CI runs it on the merge
-commit, so a collision that does not exist on your branch yet still turns the PR
-red.
+- **`docs/shelving.md`** for anything about filing, placement or ordering. It
+  is the authority, and code that disagrees with it is wrong unless the owner
+  has said otherwise in an issue.
+- **`AGENTS.md`** for invariants and for anything an agent could break by not
+  knowing it.
+- **The issue and the pull request** for everything else, including the
+  approaches that were measured and rejected. Several changes here are worth
+  more for what they ruled out than for what they added.
+
+A comment next to the code is usually better than any of them for a decision
+that only makes sense in one place.
 
 ## Recording the review
 
