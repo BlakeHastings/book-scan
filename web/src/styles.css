@@ -1469,6 +1469,25 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .checkedout strong { color: var(--warn); }
 
+/* The same fact the library's "Needs attention" list reports, said on the one
+   book's own page. Coloured like that list rather than like the checked-out
+   banner above, because it is the same report and tapping through from one to
+   the other should not look like arriving somewhere unrelated. */
+.misfile {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  border: 1px solid var(--bad);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.misfile__head { color: var(--bad); }
+.misfile__where strong { color: var(--text); }
+.misfile__hint { color: var(--muted); font-size: 13px; }
+.misfile .btn { margin-top: 4px; }
+
 .offshelf {
   border: 1px solid var(--warn);
   border-radius: var(--radius);
