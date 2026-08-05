@@ -18,8 +18,8 @@ import { BOOK_IN_HAND, stubBookByTitle } from '../support/books.js'
 import type { BookRow } from '../support/database.js'
 
 Given('the catalogue is empty', async ({ catalogue }) => {
-  catalogue.reset()
-  expect(catalogue.books(), 'the catalogue should have been emptied').toHaveLength(0)
+  await catalogue.reset()
+  expect(await catalogue.books(), 'the catalogue should have been emptied').toHaveLength(0)
 })
 
 /**
@@ -240,7 +240,7 @@ Given('{string} was last recorded at {string}', async ({ apiUrl }, title: string
  * about it.
  */
 Given('{string} is off the bookcase', async ({ apiUrl, catalogue }, title: string) => {
-  const book = catalogue.bookByTitle(title)
+  const book = await catalogue.bookByTitle(title)
   expect(book, `no book called "${title}" to take off the bookcase`).toBeTruthy()
 
   const response = await fetch(`${apiUrl}/api/books/${book?.id}/checkout`, {
@@ -260,7 +260,7 @@ Given('{string} is off the bookcase', async ({ apiUrl, catalogue }, title: strin
 Then(
   'the catalogue should record {string} as {word} the bookcase',
   async ({ catalogue }, title: string, where: string) => {
-    const book = catalogue.bookByTitle(title)
+    const book = await catalogue.bookByTitle(title)
     expect(book, `no book called "${title}" in the database`).toBeTruthy()
 
     if (where === 'off') {
@@ -288,7 +288,7 @@ Given('the camera is pointed at the back cover of {string}', async ({}, title: s
 Then(
   'the catalogue should hold {string} recorded as:',
   async ({ catalogue }, title: string, table: DataTable) => {
-    const book = catalogue.bookByTitle(title)
+    const book = await catalogue.bookByTitle(title)
     expect(book, `no book called "${title}" in the database`).toBeTruthy()
 
     const expected = table.rowsHash()
@@ -302,7 +302,7 @@ Then(
 )
 
 Then('the photograph of {string} should be on disk', async ({ catalogue }, title: string) => {
-  const book = catalogue.bookByTitle(title) as BookRow
+  const book = await catalogue.bookByTitle(title) as BookRow
   expect(book?.back_image, 'the book kept no back cover photograph').toBeTruthy()
 
   const file = join(catalogue.coverDir, book.back_image)
@@ -311,7 +311,7 @@ Then('the photograph of {string} should be on disk', async ({ catalogue }, title
 
 Then('the catalogue should be filed in this order:', async ({ catalogue }, table: DataTable) => {
   const wanted = table.raw().map((row) => row[0])
-  expect(catalogue.books().map((book) => book.title)).toEqual(wanted)
+  expect((await catalogue.books()).map((book) => book.title)).toEqual(wanted)
 })
 
 /**
@@ -331,8 +331,8 @@ Then('the catalogue should be filed in this order:', async ({ catalogue }, table
 Then(
   'the boundaries recorded for fiction should be:',
   async ({ catalogue }, table: DataTable) => {
-    const books = catalogue.books()
-    const actual = [...catalogue.separators('fiction')]
+    const books = await catalogue.books()
+    const actual = [...await catalogue.separators('fiction')]
       .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
       .map((separator) => ({
         kind: separator.kind,
@@ -347,10 +347,10 @@ Then(
 Then(
   'a new area should be recorded for fiction, starting at {string}',
   async ({ catalogue }, title: string) => {
-    const moved = catalogue.bookByTitle(title)
+    const moved = await catalogue.bookByTitle(title)
     expect(moved, `no book called "${title}"`).toBeTruthy()
 
-    const separators = catalogue.separators('fiction')
+    const separators = await catalogue.separators('fiction')
     expect(separators, 'no shelf boundary was written').toHaveLength(1)
     expect(separators[0]?.kind).toBe('area')
     // A boundary is recorded as the sort key of the first book on the new

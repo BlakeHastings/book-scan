@@ -460,20 +460,23 @@ export class CaptureQueue {
    *
    * The photo's own column is not touched here, and no statement in this class
    * ever writes a crop filename into one. The original is the record.
+   *
+   * The same single-statement shape as `Store.setCrop`, for the same reason and
+   * found the same way. Stage E's lesson about the missing CAST applies here
+   * too: when a hazard has a shape, look for the other members of the family
+   * rather than assuming the list is complete. This was the second one.
    */
   async setCrop(id: number, slot: CropSlot, name: string): Promise<void> {
-    const row = await this.db.get<{ cropped: string | null }>(
-      'SELECT cropped FROM captures WHERE id = ?',
-      [id],
-    )
-    if (!row) return
-
-    const done = new Set((row.cropped ?? '').split(',').filter(Boolean))
-    done.add(slot)
-
     await this.db.run(
-      `UPDATE captures SET ${slot}_crop = ?, cropped = ? WHERE id = ?`,
-      [name, [...done].join(','), id],
+      `UPDATE captures SET
+         ${slot}_crop = ?,
+         cropped = CASE
+           WHEN ',' || COALESCE(cropped, '') || ',' LIKE ? THEN cropped
+           WHEN COALESCE(cropped, '') = ''                 THEN ?
+           ELSE cropped || ',' || ?
+         END
+       WHERE id = ?`,
+      [name, `%,${slot},%`, slot, slot, id],
     )
   }
 

@@ -20,6 +20,22 @@ import {
   type FiledBook, type ShelfRange, type ShelvingReview,
 } from '../shared/shelving'
 
+/**
+ * The name every transaction that reads a shelf range and then writes to it
+ * serialises on. See `TxOptions` in driver.ts for why a transaction alone is
+ * not enough.
+ *
+ * One name per range, and that is the whole design. Books and separators in a
+ * range are one thing: `addBook` reads the neighbours in a range before
+ * inserting into it, `overflow` reads the layout of a range before adding a
+ * boundary to it, and `moveAcrossBoundary` reads both before moving one. Two of
+ * those in flight over the same range have to take turns or they compute a
+ * placement each from a shelf the other is halfway through changing. Two over
+ * *different* ranges never touch the same rows, and nothing that only reads
+ * waits for either.
+ */
+export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
+
 interface SeparatorRow {
   id: number
   shelf_range: ShelfRange
@@ -362,27 +378,44 @@ export class Shelves {
     placing = '',
     expectId = 0,
   ): Promise<{ ok: boolean; error?: string; step?: Overflow; carry?: CarryOn; moves?: Move[] }> {
-    const plan = await this.planOverflow(range, label, kindIfNew, placing)
-    if (!plan.ok) return { ok: false, error: plan.error }
+    /*
+     * Plan, check and apply are one unit, which they had stopped being.
+     *
+     * `expectId` above is an optimistic-concurrency check, and until stage G it
+     * was performed outside any transaction, so it did not close the window it
+     * names: two people confirming there is no room on the same shelf both read
+     * the same layout, both computed the same last book, both passed the check
+     * and both applied. The result was either one separator shifted twice, so
+     * two books were pushed off a plank when one was physically carried, or two
+     * separators created at the same position, after which `list`'s ORDER BY
+     * returns them in no fixed order and the same shelf label points at
+     * different runs of books between requests.
+     *
+     * Reading and writing the same range now takes turns. See `rangeLock`.
+     */
+    return this.db.tx(async () => {
+      const plan = await this.planOverflow(range, label, kindIfNew, placing)
+      if (!plan.ok) return { ok: false, error: plan.error }
 
-    if (plan.carry) {
-      await this.applyBoundary(range, plan.carry)
-      return { ok: true, carry: plan.carry, moves: await this.movesSince(range, plan.before) }
-    }
-
-    const step = plan.step!
-    if (expectId && step.moved.id !== expectId) {
-      return {
-        ok: false,
-        error: `The shelves have changed since that was asked: ${label} now ends ` +
-          'with a different book. Say there is no room again to see the move as ' +
-          'it stands.',
+      if (plan.carry) {
+        await this.applyBoundary(range, plan.carry)
+        return { ok: true, carry: plan.carry, moves: await this.movesSince(range, plan.before) }
       }
-    }
 
-    await this.applyBoundary(range, step)
+      const step = plan.step!
+      if (expectId && step.moved.id !== expectId) {
+        return {
+          ok: false,
+          error: `The shelves have changed since that was asked: ${label} now ends ` +
+            'with a different book. Say there is no room again to see the move as ' +
+            'it stands.',
+        }
+      }
 
-    return { ok: true, step, moves: await this.movesSince(range, plan.before) }
+      await this.applyBoundary(range, step)
+
+      return { ok: true, step, moves: await this.movesSince(range, plan.before) }
+    }, { serialiseOn: rangeLock(range) })
   }
 
   /** Write the one boundary change a plan asks for. Shared by both answers. */
@@ -428,19 +461,27 @@ export class Shelves {
     bookId: number,
     direction: BoundaryDirection,
   ): Promise<{ ok: boolean; error?: string; move?: BoundaryMove; moves?: Move[] }> {
-    const before = await this.layout(range)
-    const outcome = boundaryMove(before, await this.list(range), bookId, direction)
+    /*
+     * The read that decides the move is inside the transaction with the writes
+     * it decides, which it was not until stage G. The transaction used to open
+     * around the shifts and removals only, which made those atomic with respect
+     * to each other and nothing else: a concurrent overflow landing between the
+     * layout read and the first UPDATE meant `starts_at` was written from a
+     * layout that no longer existed, and the boundary jumped to a book now in
+     * the middle of a plank. That is exactly the state `refusal('not-at-
+     * boundary')` exists to prevent, arrived at from the other side.
+     *
+     * `remove` opens a transaction of its own and is called from inside this
+     * one, which is the nesting `Db.tx` handles with a savepoint.
+     */
+    return this.db.tx(async () => {
+      const before = await this.layout(range)
+      const outcome = boundaryMove(before, await this.list(range), bookId, direction)
 
-    if (!outcome.ok) {
-      return { ok: false, error: refusal(outcome.reason, outcome.at, direction) }
-    }
+      if (!outcome.ok) {
+        return { ok: false, error: refusal(outcome.reason, outcome.at, direction) }
+      }
 
-    // The shifts and the removals are one boundary change and have to land
-    // together. `remove` opens a transaction of its own and is called from
-    // inside this one, which is exactly the nesting `Db.tx` handles with a
-    // savepoint, so it no longer needs a second synchronous body to be reached
-    // from in here.
-    await this.db.tx(async () => {
       for (const shift of outcome.move.shift) {
         await this.db.run(
           'UPDATE separators SET starts_at = ? WHERE id = ?',
@@ -448,19 +489,19 @@ export class Shelves {
         )
       }
       for (const id of outcome.move.remove) await this.remove(id)
-    })
 
-    return {
-      ok: true,
-      move: outcome.move,
-      /*
-       * Everything else that ended up somewhere new, which should be nothing.
-       * The moved book is deliberately absent: it is in somebody's hand, and
-       * where it landed is recorded through the location route rather than
-       * handed back as a job still to do.
-       */
-      moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
-    }
+      return {
+        ok: true,
+        move: outcome.move,
+        /*
+         * Everything else that ended up somewhere new, which should be nothing.
+         * The moved book is deliberately absent: it is in somebody's hand, and
+         * where it landed is recorded through the location route rather than
+         * handed back as a job still to do.
+         */
+        moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
+      }
+    }, { serialiseOn: rangeLock(range) })
   }
 
   /**
@@ -523,26 +564,46 @@ export class Shelves {
   /**
    * Remove a boundary and renumber the rest so positions stay contiguous.
    *
-   * The read is outside the transaction and the two writes are inside it,
-   * exactly as before. Called from inside `moveAcrossBoundary`'s transaction as
-   * well as on its own, and `Db.tx` opens a savepoint rather than a second
-   * transaction when that happens.
+   * **The read is inside the transaction since stage G.** It used to sit
+   * outside it, described there as being "exactly as before", which was an
+   * honest account of the diff and not of the invariant: the row supplies the
+   * `position` the renumber is keyed on, and two removals racing each other
+   * decremented the same tail twice, so positions collided and `list`'s
+   * `ORDER BY position` returned boundaries in an order the shelves did not
+   * have. Every book in the range then derives a wrong plank, and `review`
+   * reports the whole range as misfiled.
+   *
+   * The range is read once before the lock is taken, because the lock name is
+   * about a range and the row is the only thing that knows which one. The read
+   * inside the transaction is the authoritative one: a separator deleted in
+   * between comes back missing there and this does nothing, which is what it
+   * did before.
+   *
+   * Called from inside `moveAcrossBoundary`'s transaction as well as on its
+   * own, and `Db.tx` opens a savepoint rather than a second transaction when
+   * that happens. The advisory lock is re-entrant for the same reason.
    */
   async remove(id: number): Promise<void> {
-    const row = await this.db.get<SeparatorRow>(
-      'SELECT * FROM separators WHERE id = ?',
+    const naming = await this.db.get<{ shelf_range: ShelfRange }>(
+      'SELECT shelf_range FROM separators WHERE id = ?',
       [id],
     )
-    if (!row) return
+    if (!naming) return
 
     await this.db.tx(async (tx) => {
+      const row = await tx.get<SeparatorRow>(
+        'SELECT * FROM separators WHERE id = ?',
+        [id],
+      )
+      if (!row) return
+
       await tx.run('DELETE FROM separators WHERE id = ?', [id])
       await tx.run(
         `UPDATE separators SET position = position - 1
           WHERE shelf_range = ? AND position > ?`,
         [row.shelf_range, row.position],
       )
-    })
+    }, { serialiseOn: rangeLock(naming.shelf_range) })
   }
 
   /**

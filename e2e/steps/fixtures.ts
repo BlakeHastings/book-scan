@@ -23,7 +23,7 @@ function fromEnvironment(name: string): string {
 }
 
 export interface Fixtures {
-  /** The app's SQLite file, opened read-write so a scenario can start clean. */
+  /** The app's Postgres catalogue, so a scenario can start clean and look. */
   catalogue: Catalogue
   /** Base URL of the API, for seeding shelves without photographing them. */
   apiUrl: string
@@ -35,9 +35,17 @@ export interface Fixtures {
 
 export const test = base.extend<Fixtures>({
   catalogue: async ({}, use) => {
-    const catalogue = new Catalogue(fromEnvironment('BOOKSCAN_E2E_DB'))
-    await use(catalogue)
-    catalogue.close()
+    const catalogue = new Catalogue(
+      fromEnvironment('BOOKSCAN_E2E_DB'),
+      fromEnvironment('BOOKSCAN_E2E_COVERS'),
+    )
+    try {
+      await use(catalogue)
+    } finally {
+      // A pool left open holds the worker alive after the last scenario, which
+      // reads as a hung run rather than as a leaked connection.
+      await catalogue.close()
+    }
   },
 
   apiUrl: async ({}, use) => {

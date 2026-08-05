@@ -69,7 +69,7 @@ When('I send it to the queue', async ({ page, catalogue }) => {
   // hash the scan below depends on.
   await expect
     .poll(
-      () => catalogue.captures()[0]?.front_hash ?? '',
+      async () => (await catalogue.captures())[0]?.front_hash ?? '',
       {
         message: 'the queued capture was never hashed, so nothing could match it',
         timeout: QUEUE_TIMEOUT,

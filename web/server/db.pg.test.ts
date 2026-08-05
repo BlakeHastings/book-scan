@@ -21,7 +21,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import { connectionConfig, describeConnection, SORT_KEY_COLUMNS } from './db.pg'
-import type { Db } from './driver'
+import { lockKey, type Db, type TxOptions } from './driver'
 import { Store, type DraftBook } from './store'
 
 let db: Db
@@ -469,5 +469,149 @@ describe('aggregates, which come back as strings without a cast', () => {
     const row = await db.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM books')
 
     expect(typeof row!.n).toBe('string')
+  })
+})
+
+/**
+ * The lock that makes a read-then-write sequence the only one in flight.
+ *
+ * A transaction alone does not do this on Postgres, which is the fact stage G
+ * had to unpick and the reason `TxOptions.serialiseOn` exists at all: READ
+ * COMMITTED gives every statement its own snapshot, so a SELECT and the INSERT
+ * decided from it can still have somebody else's row appear between them. The
+ * first test below is the negative control for that sentence, and it is not
+ * decoration: without it, a suite in which everything happened to be
+ * serialised by something else would read as proof that the lock works.
+ */
+describe('serialising a transaction against another one', () => {
+  /**
+   * Wait long enough for a transaction that is not blocked to have opened.
+   *
+   * Round trips to the same server, not a duration and not a count of event
+   * loop turns. Both of those were tried and both were wrong: fifty
+   * `setImmediate` turns take microseconds and a `BEGIN` takes a millisecond,
+   * so every test here reported "the second transaction waited" and the file
+   * passed while proving nothing. A duration would have worked on this machine
+   * and become flaky on a slower one.
+   *
+   * Five sequential statements is self-calibrating: the probed transaction
+   * issued its own BEGIN before the first of these, on the same server, so if
+   * nothing is holding it back it has answered before these have.
+   */
+  const settle = async () => {
+    for (let i = 0; i < 5; i += 1) await db.get('SELECT 1')
+  }
+
+  /**
+   * Make the pool hold more than one connection before anything is held open.
+   *
+   * Not optional and not a speed-up. A pool with one connection serialises
+   * everything by starvation, so every test here would report "the second
+   * transaction waited" whatever the lock did, and the whole file would pass
+   * while proving nothing. It cost a round of exactly that before it was added.
+   */
+  const warmTheConnections = () =>
+    Promise.all([db.get('SELECT 1'), db.get('SELECT 1'), db.get('SELECT 1'), db.get('SELECT 1')])
+
+  /**
+   * Hold one transaction open, start another alongside it, and answer whether
+   * the second got through while the first was still open.
+   *
+   * The first transaction is released in a `finally` whatever an assertion did,
+   * because a held transaction that outlives its test takes a connection with
+   * it and every test after this one then fails for a reason that is not its
+   * own.
+   */
+  async function ranAlongside(
+    holding: TxOptions | undefined,
+    probing: TxOptions | undefined,
+  ): Promise<boolean> {
+    await warmTheConnections()
+
+    let release = () => {}
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let through = false
+
+    const first = db.tx(async () => { await held }, holding)
+    // Settled before the second one starts, so the first is demonstrably
+    // inside its transaction and holding whatever it was going to hold.
+    await settle()
+
+    const second = db.tx(async () => { through = true }, probing)
+    try {
+      await settle()
+      return through
+    } finally {
+      release()
+      await Promise.allSettled([first, second])
+    }
+  }
+
+  it('lets two transactions naming nothing overlap, which is the point of Postgres', async () => {
+    expect(
+      await ranAlongside(undefined, undefined),
+      'an unlocked transaction waited for an unrelated one, so nothing below means anything',
+    ).toBe(true)
+  })
+
+  it('makes a transaction naming the same string wait for the open one', async () => {
+    expect(
+      await ranAlongside({ serialiseOn: 'shelf:fiction' }, { serialiseOn: 'shelf:fiction' }),
+      'both transactions held shelf:fiction at once',
+    ).toBe(false)
+  })
+
+  it('does not make an unrelated name wait, so the two ranges stay independent', async () => {
+    expect(
+      await ranAlongside({ serialiseOn: 'shelf:fiction' }, { serialiseOn: 'shelf:nonfiction' }),
+      'a nonfiction save waited for a fiction one',
+    ).toBe(true)
+  })
+
+  it('does not make a plain read wait, which is what a range lock must not do', async () => {
+    await warmTheConnections()
+
+    let release = () => {}
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const first = db.tx(async () => { await held }, { serialiseOn: 'shelf:fiction' })
+    try {
+      await expect(db.all('SELECT 1 AS n')).resolves.toHaveLength(1)
+    } finally {
+      release()
+      await first
+    }
+  })
+
+  it('releases the lock when the transaction rolls back, not when the code says so', async () => {
+    // The reason it is pg_advisory_xact_lock and not the session-scoped
+    // spelling. A lock released by a `finally` block outlives a crash, and on a
+    // pool it outlives it on a connection handed to the next request, which
+    // then blocks forever on something it never asked for.
+    await expect(
+      db.tx(async () => { throw new Error('no') }, { serialiseOn: 'shelf:fiction' }),
+    ).rejects.toThrow('no')
+
+    await expect(
+      db.tx(async () => 'through', { serialiseOn: 'shelf:fiction' }),
+    ).resolves.toBe('through')
+  })
+
+  it('lets a nested transaction re-take a lock its outer one already holds', async () => {
+    // Shelves.moveAcrossBoundary calls Shelves.remove and both name the range.
+    // Advisory locks count per transaction rather than blocking, which is what
+    // makes that a savepoint rather than a deadlock against itself.
+    await expect(db.tx(
+      async () => db.tx(async () => 'nested', { serialiseOn: 'shelf:fiction' }),
+      { serialiseOn: 'shelf:fiction' },
+    )).resolves.toBe('nested')
+  })
+
+  it('sends a key Postgres accepts as a bigint, whatever the name', async () => {
+    for (const name of ['shelf:fiction', 'shelf:nonfiction', '', 'a'.repeat(200), '\u{1f4da}']) {
+      const key = lockKey(name)
+      expect(key, name).toBeGreaterThanOrEqual(-(2n ** 63n))
+      expect(key, name).toBeLessThan(2n ** 63n)
+      await expect(db.tx(async () => 'ok', { serialiseOn: name })).resolves.toBe('ok')
+    }
   })
 })

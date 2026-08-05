@@ -93,9 +93,9 @@ When('I leave by the {string} tab', async ({ page }, tab: string) => {
  * away and left the lease running behind it.
  */
 Then('the queued book should be held by somebody', async ({ catalogue }) => {
-  const [capture] = catalogue.captures()
+  const [capture] = await catalogue.captures()
   expect(capture, 'nothing is in the queue').toBeTruthy()
-  expect(capture.claimed_by, 'nobody has claimed the book').not.toBe('')
+  expect(capture?.claimed_by, 'nobody has claimed the book').not.toBe('')
 })
 
 /**
@@ -104,7 +104,7 @@ Then('the queued book should be held by somebody', async ({ catalogue }) => {
  */
 Then('the queued book should be held by nobody', async ({ catalogue }) => {
   await expect
-    .poll(() => catalogue.captures()[0]?.claimed_by ?? 'nothing is in the queue', {
+    .poll(async () => (await catalogue.captures())[0]?.claimed_by ?? 'nothing is in the queue', {
       message: 'the queue is still holding the book for somebody who has left',
     })
     .toBe('')
@@ -129,7 +129,7 @@ Then('the queued book should be listed as {string}', async ({ page }, title: str
 })
 
 Then('the queue should hold one book', async ({ catalogue }) => {
-  expect(catalogue.captureCount(), 'the queue holds more than the one book').toBe(1)
+  expect(await catalogue.captureCount(), 'the queue holds more than the one book').toBe(1)
 })
 
 /**
@@ -141,7 +141,7 @@ Then('the queue should hold one book', async ({ catalogue }) => {
  * softer words (#146).
  */
 Then('the queue should hold {int} books', async ({ catalogue }, count: number) => {
-  expect(catalogue.captureCount(), `the queue does not hold ${count} books`).toBe(count)
+  expect(await catalogue.captureCount(), `the queue does not hold ${count} books`).toBe(count)
 })
 
 /**
@@ -152,7 +152,7 @@ Then('the queue should hold {int} books', async ({ catalogue }, count: number) =
  * behaviour that was broken: work held in a browser and never written down.
  */
 Then('the queued book should be recorded as:', async ({ catalogue }, table: DataTable) => {
-  const captures = catalogue.captures()
+  const captures = await catalogue.captures()
   expect(captures, 'nothing is in the queue').toHaveLength(1)
 
   const expected = table.rowsHash()
