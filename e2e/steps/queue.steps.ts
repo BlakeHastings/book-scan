@@ -42,14 +42,21 @@ When('I go to the queue', async ({ page }) => {
 /**
  * Open the book waiting in the queue.
  *
- * The wait is on the row's action becoming available, which happens when the
- * background worker has finished reading the photographs. Clicking before then
- * would be clicking a disabled button and failing for the wrong reason.
+ * The row itself is the control since #120: there is no "Shelve" button to
+ * aim at any more, because there was no reason for somebody holding a book to
+ * have to hit a target smaller than the line the book is on.
+ *
+ * The wait is on the row becoming available, which happens when the background
+ * worker has finished reading the photographs. Tapping before then does
+ * nothing at all by design, so without the wait this would click into silence
+ * and fail later for the wrong reason. `aria-disabled` rather than `disabled`
+ * is what says so: the row must keep receiving pointer events while it is
+ * pending, since those are what the discard swipe is made of.
  */
 When('I open the queued book', async ({ page }) => {
   const row = page.locator('.queue__row').first()
-  const open = row.getByRole('button', { name: 'Shelve' })
-  await expect(open).toBeEnabled({ timeout: QUEUE_TIMEOUT })
+  const open = row.locator('.queue__open:not([aria-disabled="true"])')
+  await expect(open).toBeVisible({ timeout: QUEUE_TIMEOUT })
   await open.click()
   await expect(page.locator('.isbn-block')).toBeVisible()
 })
