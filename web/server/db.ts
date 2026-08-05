@@ -18,7 +18,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { ShelfRange } from '../shared/shelving'
-import { anonymous, bindParams, type Db, type Params } from './driver'
+import { anonymous, bindParams, type Db, type Params, type TxOptions } from './driver'
 
 const SCHEMA_VERSION = 1
 
@@ -463,7 +463,17 @@ class SqliteDb implements Db {
     })
   }
 
-  async tx<T>(work: (db: Db) => Promise<T>): Promise<T> {
+  /**
+   * `options.serialiseOn` needs nothing here, and that is a fact about this
+   * driver rather than about transactions.
+   *
+   * There is one connection, `exclusive` hands it to one caller at a time, and
+   * a transaction holds it from BEGIN to COMMIT. Every transaction is therefore
+   * already serialised against every other one, whatever they name, which is
+   * strictly stronger than what `serialiseOn` asks for. `PgDb` has to do real
+   * work for the same guarantee because it has real connections.
+   */
+  async tx<T>(work: (db: Db) => Promise<T>, _options?: TxOptions): Promise<T> {
     const open = this.context.getStore()
     if (open) return this.savepoint(open, work)
     return this.exclusive(() => this.transaction(work))

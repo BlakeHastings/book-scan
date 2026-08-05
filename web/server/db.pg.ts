@@ -22,7 +22,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
-import { bindParams, numbered, type Db, type Params } from './driver'
+import { bindParams, lockKey, numbered, type Db, type Params, type TxOptions } from './driver'
 
 const { Pool } = pg
 type PoolClient = pg.PoolClient
@@ -361,14 +361,15 @@ export class PgDb implements Db {
     return { changes: result.rowCount ?? 0 }
   }
 
-  async tx<T>(work: (db: Db) => Promise<T>): Promise<T> {
+  async tx<T>(work: (db: Db) => Promise<T>, options?: TxOptions): Promise<T> {
     const open = this.context.getStore()
-    if (open) return this.savepoint(open, work)
+    if (open) return this.savepoint(open, work, options)
 
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
       try {
+        if (options?.serialiseOn) await this.lock(client, options.serialiseOn)
         const result = await this.context.run({ client, depth: 1 }, () => work(this))
         await client.query('COMMIT')
         return result
@@ -410,8 +411,38 @@ export class PgDb implements Db {
    * outer one's work. `SAVEPOINT` is the spelling that means what the caller
    * asked for, and it is the same word SQLite uses.
    */
-  private async savepoint<T>(open: TxContext, work: (db: Db) => Promise<T>): Promise<T> {
+  /**
+   * Hold an exclusive lock on `name` for the length of the open transaction.
+   *
+   * `pg_advisory_xact_lock` rather than the session-scoped spelling, and the
+   * difference matters on a pool: a session lock is released by the code that
+   * took it, so a crash or a missed `finally` leaks it onto a connection the
+   * pool then hands to the next request, which blocks forever on something it
+   * never asked for. The transaction-scoped one is released by the COMMIT or
+   * the ROLLBACK, which happen whatever the work did.
+   *
+   * Taken as the first statement inside BEGIN, so nothing this transaction
+   * reads was read before the lock was held.
+   *
+   * Re-entrant: a nested transaction naming the same string re-acquires a lock
+   * this transaction already owns, which Postgres counts rather than blocks on.
+   */
+  private async lock(client: PoolClient, name: string): Promise<void> {
+    // The key is sent as text and cast, because a bigint has no JavaScript
+    // number that carries it and node-postgres would otherwise send a float.
+    await client.query({
+      text: 'SELECT pg_advisory_xact_lock(CAST($1 AS bigint))',
+      values: [lockKey(name).toString()],
+    })
+  }
+
+  private async savepoint<T>(
+    open: TxContext,
+    work: (db: Db) => Promise<T>,
+    options?: TxOptions,
+  ): Promise<T> {
     const name = `bookscan_${open.depth}`
+    if (options?.serialiseOn) await this.lock(open.client, options.serialiseOn)
     await open.client.query(`SAVEPOINT ${name}`)
     try {
       const result = await this.context.run(

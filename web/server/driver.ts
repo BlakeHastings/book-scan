@@ -31,6 +31,42 @@
  */
 export type Params = readonly unknown[] | Readonly<Record<string, unknown>>
 
+/**
+ * What a transaction is asked for beyond atomicity.
+ *
+ * **A transaction is not mutual exclusion, and assuming it is was the mistake
+ * stage G had to unpick.** Both drivers commit or roll back as one unit, and
+ * neither of them stops another transaction committing a row in the middle of
+ * this one:
+ *
+ * - Postgres runs at READ COMMITTED, where every statement takes its own fresh
+ *   snapshot. A `SELECT` and the `INSERT` decided from it, inside one
+ *   `BEGIN`/`COMMIT`, can still have somebody else's row appear between them.
+ * - SQLite happens to be safe here, and for a reason that is a property of
+ *   `SqliteDb` rather than of transactions: there is one connection and a
+ *   transaction holds it for its whole length. That is exactly the lock `PgDb`
+ *   deliberately does not carry over, because Postgres has real connections and
+ *   an unrelated statement running alongside is the point of moving to it.
+ *
+ * So a read-then-write that has to be *the only one* in flight has to say so.
+ */
+export interface TxOptions {
+  /**
+   * Serialise this transaction against every other one naming the same string.
+   *
+   * The name is the thing being read and then written, not the statement: two
+   * books being filed into the fiction range contend, a book going into fiction
+   * and a book going into nonfiction do not, and nothing that only reads waits
+   * for either. See `rangeLock` in shelves.ts for the one namespace in use.
+   *
+   * Held for the length of the transaction and released by the commit or the
+   * rollback, never by this code. A lock whose release is somebody's `finally`
+   * block is a lock that outlives a crash, and on a pooled connection it would
+   * outlive it on a connection handed to the next request.
+   */
+  serialiseOn?: string
+}
+
 export interface Db {
   all<Row>(sql: string, params?: Params): Promise<Row[]>
   get<Row>(sql: string, params?: Params): Promise<Row | undefined>
@@ -42,9 +78,35 @@ export interface Db {
    * Nests. `Store.addBook` opens a transaction and a caller may already be
    * inside one, so an implementation opens a savepoint rather than refusing or
    * silently flattening the inner one into the outer.
+   *
+   * `options.serialiseOn` is the part that is about concurrency rather than
+   * atomicity. See `TxOptions`.
    */
-  tx<T>(work: (db: Db) => Promise<T>): Promise<T>
+  tx<T>(work: (db: Db) => Promise<T>, options?: TxOptions): Promise<T>
   close(): Promise<void>
+}
+
+/**
+ * A stable 64-bit signed key for a lock name.
+ *
+ * FNV-1a, because the only properties wanted are that the same name always
+ * produces the same number and that two names rarely collide. A collision is
+ * not a correctness bug here: two unrelated ranges would serialise against each
+ * other, which costs concurrency and nothing else.
+ *
+ * Written here rather than in db.pg.ts so it can be tested without a server,
+ * and so a second driver that needs a lock key spells it the same way.
+ */
+export function lockKey(name: string): bigint {
+  let hash = 0xcbf29ce484222325n
+  for (let i = 0; i < name.length; i += 1) {
+    hash ^= BigInt(name.charCodeAt(i))
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  // Postgres advisory locks take a signed bigint, so the top half of the
+  // unsigned range has to come back as a negative number rather than as a
+  // value the server refuses.
+  return hash >= 0x8000000000000000n ? hash - 0x10000000000000000n : hash
 }
 
 /** A statement with every placeholder rewritten, and the values in order. */

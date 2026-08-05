@@ -16,6 +16,10 @@ import {
   type ShelfRange,
 } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
+// The lock namespace, not the class. `Shelves` owns shelf geography, and a
+// book being filed into a range and a boundary moving inside it are the two
+// halves of the same contention.
+import { rangeLock } from './shelves'
 
 export interface DraftBook {
   isbn13?: string
@@ -216,9 +220,30 @@ export class Store {
   // Writes
   // -----------------------------------------------------------------------
 
+  /**
+   * File a book, and say where it goes.
+   *
+   * **Reading the shelf and writing to it are one unit, which they had stopped
+   * being.** Until stage G this method read the neighbours, resolved the filing
+   * key twice, and only then opened a transaction around the insert. Three
+   * things came of that, and two of them are silent:
+   *
+   * - Two people scanning at once both read the same gap and were each told to
+   *   put their book between the same two neighbours. The rows land in the
+   *   right order either way, because the sort keys decide that; the advice on
+   *   the screen is what was wrong, and it is the advice somebody acts on while
+   *   standing at the shelf.
+   * - `placementFor` and the second `resolveKey` each read `author_filing`
+   *   independently. A filing override saved in between (the route above this
+   *   one saves one, at index.ts) made them disagree, so the row was stored
+   *   under one sort key while the person was shown the position computed from
+   *   the other. That one is now impossible rather than unlikely: the key is
+   *   resolved once and both the placement and the insert use that value.
+   * - The range's start label was a third independent read.
+   *
+   * `serialiseOn` is the part a transaction does not give. See `TxOptions`.
+   */
   async addBook(draft: DraftBook): Promise<{ id: number; placement: Placement }> {
-    const placement = await this.placementFor(draft)
-    const resolved = await this.resolveKey(draft)
     const now = new Date().toISOString()
     const location = draft.location?.trim() ?? ''
 
@@ -227,78 +252,113 @@ export class Store {
     // book scanned from its barcode still matches one entered by ISBN-10.
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
 
+    // Known before anything is read, because it is a property of the draft and
+    // not of the database, which is what lets the lock be taken first.
+    const range: ShelfRange = draft.isFiction ? 'fiction' : 'nonfiction'
+
     // The row and its authors are still one transaction, and it still nests:
     // `Db.tx` opens a savepoint when the caller is already inside one, which is
     // what better-sqlite3's own nested transactions did.
-    const id = await this.db.tx(async (tx) => {
-      // RETURNING id rather than lastInsertRowid: the id comes back from the
-      // statement that produced it, which every dialect can do, instead of from
-      // a driver-specific property of the result object.
-      const inserted = await tx.get<{ id: number }>(
-        `INSERT INTO books (
-           isbn13, isbn10, title, subtitle, authors, publisher, published,
-           pages, notes, shelf_range, is_fiction, classification_source,
-           classification_confidence, author_filing, series_name,
-           series_index, title_filing, sort_key, location, lookup_source,
-           front_image, back_image, edge_image, isbn_source,
-           scanned_at, shelved_at
-         ) VALUES (
-           @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
-           @published, @pages, @notes, @shelf_range, @is_fiction,
-           @classification_source, @classification_confidence,
-           @author_filing, @series_name, @series_index, @title_filing,
-           @sort_key, @location, @lookup_source, @front_image, @back_image,
-           @edge_image, @isbn_source, @scanned_at, @shelved_at
-         )
-         RETURNING id`,
-        {
-          isbn13: isbn.isbn13 || draft.isbn13 || '',
-          isbn10: isbn.isbn10 || draft.isbn10 || '',
-          title: draft.title,
-          subtitle: draft.subtitle ?? '',
-          authors: draft.authors.filter(Boolean).join(', '),
-          publisher: draft.publisher ?? '',
-          published: draft.published ?? '',
-          pages: draft.pages ?? '',
-          notes: draft.notes ?? '',
-          shelf_range: resolved.range,
-          is_fiction: draft.isFiction ? 1 : 0,
-          classification_source: draft.classificationSource ?? 'auto',
-          classification_confidence: draft.classificationConfidence ?? 'unknown',
-          author_filing: resolved.authorFiling,
-          series_name: draft.seriesName ?? '',
-          series_index: draft.seriesIndex ?? null,
-          title_filing: resolved.titleFilingValue,
-          sort_key: resolved.sortKey,
-          location,
-          lookup_source: draft.lookupSource ?? '',
-          front_image: draft.frontImage ?? '',
-          back_image: draft.backImage ?? '',
-          edge_image: draft.edgeImage ?? '',
-          isbn_source: draft.isbnSource ?? '',
-          scanned_at: now,
-          shelved_at: location ? now : null,
-        },
+    const { id, placement } = await this.db.tx(async (tx) => {
+      const resolved = await this.resolveKey(draft)
+      const { predecessor, successor } = await this.neighbours(
+        resolved.range,
+        resolved.sortKey,
       )
-
-      // An INSERT ... RETURNING that inserted a row always has one to return,
-      // so the absence of one is a broken statement rather than a case to
-      // handle: reporting it as a book with no id would be worse.
-      if (!inserted) throw new Error('the insert returned no id')
-
-      const bookId = Number(inserted.id)
-      const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
-      for (const [index, name] of authors.entries()) {
-        await tx.run(
-          'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
-          [bookId, index + 1, name],
-        )
+      const placed = {
+        ...buildPlacement(
+          resolved.range,
+          predecessor,
+          successor,
+          await this.rangeStart(resolved.range),
+        ),
+        ...resolved,
       }
-
-      return bookId
-    })
+      const id = await this.insertBook(tx, draft, resolved, isbn, now, location)
+      return { id, placement: placed }
+    }, { serialiseOn: rangeLock(range) })
 
     return { id, placement }
+  }
+
+  /**
+   * The insert itself, split out only so `addBook` reads as the sequence it is.
+   * Every statement here runs on the handle it is given, which is the open
+   * transaction's.
+   */
+  private async insertBook(
+    tx: Db,
+    draft: DraftBook,
+    resolved: ResolvedKey,
+    isbn: { isbn13: string; isbn10: string },
+    now: string,
+    location: string,
+  ): Promise<number> {
+    // RETURNING id rather than lastInsertRowid: the id comes back from the
+    // statement that produced it, which every dialect can do, instead of from
+    // a driver-specific property of the result object.
+    const inserted = await tx.get<{ id: number }>(
+      `INSERT INTO books (
+         isbn13, isbn10, title, subtitle, authors, publisher, published,
+         pages, notes, shelf_range, is_fiction, classification_source,
+         classification_confidence, author_filing, series_name,
+         series_index, title_filing, sort_key, location, lookup_source,
+         front_image, back_image, edge_image, isbn_source,
+         scanned_at, shelved_at
+       ) VALUES (
+         @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
+         @published, @pages, @notes, @shelf_range, @is_fiction,
+         @classification_source, @classification_confidence,
+         @author_filing, @series_name, @series_index, @title_filing,
+         @sort_key, @location, @lookup_source, @front_image, @back_image,
+         @edge_image, @isbn_source, @scanned_at, @shelved_at
+       )
+       RETURNING id`,
+      {
+        isbn13: isbn.isbn13 || draft.isbn13 || '',
+        isbn10: isbn.isbn10 || draft.isbn10 || '',
+        title: draft.title,
+        subtitle: draft.subtitle ?? '',
+        authors: draft.authors.filter(Boolean).join(', '),
+        publisher: draft.publisher ?? '',
+        published: draft.published ?? '',
+        pages: draft.pages ?? '',
+        notes: draft.notes ?? '',
+        shelf_range: resolved.range,
+        is_fiction: draft.isFiction ? 1 : 0,
+        classification_source: draft.classificationSource ?? 'auto',
+        classification_confidence: draft.classificationConfidence ?? 'unknown',
+        author_filing: resolved.authorFiling,
+        series_name: draft.seriesName ?? '',
+        series_index: draft.seriesIndex ?? null,
+        title_filing: resolved.titleFilingValue,
+        sort_key: resolved.sortKey,
+        location,
+        lookup_source: draft.lookupSource ?? '',
+        front_image: draft.frontImage ?? '',
+        back_image: draft.backImage ?? '',
+        edge_image: draft.edgeImage ?? '',
+        isbn_source: draft.isbnSource ?? '',
+        scanned_at: now,
+        shelved_at: location ? now : null,
+      },
+    )
+
+    // An INSERT ... RETURNING that inserted a row always has one to return,
+    // so the absence of one is a broken statement rather than a case to
+    // handle: reporting it as a book with no id would be worse.
+    if (!inserted) throw new Error('the insert returned no id')
+
+    const bookId = Number(inserted.id)
+    const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
+    for (const [index, name] of authors.entries()) {
+      await tx.run(
+        'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
+        [bookId, index + 1, name],
+      )
+    }
+
+    return bookId
   }
 
   /**
@@ -319,13 +379,20 @@ export class Store {
    * Editing a title, author or the fiction flag moves the book on the shelf,
    * so the sort key and range have to be rebuilt or the row would keep its
    * old position and quietly break the ordering.
+   *
+   * Same shape as `addBook` since stage G, and for the same reasons. The filing
+   * key was resolved outside the transaction and the placement was read after
+   * it committed, so the position the caller was handed back described a shelf
+   * that anything landing in between had already changed. All three are one
+   * unit now, serialised on the range.
    */
   async updateBook(id: number, draft: DraftBook): Promise<Placement & ResolvedKey> {
-    const resolved = await this.resolveKey(draft)
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
     const location = draft.location?.trim() ?? ''
+    const range: ShelfRange = draft.isFiction ? 'fiction' : 'nonfiction'
 
-    await this.db.tx(async (tx) => {
+    return this.db.tx(async (tx) => {
+      const resolved = await this.resolveKey(draft)
       await tx.run(
         `UPDATE books SET
            isbn13 = @isbn13, isbn10 = @isbn10, title = @title,
@@ -388,11 +455,25 @@ export class Store {
           [id, index + 1, name],
         )
       }
-    })
 
-    // Exclude the book from its own neighbour search, or it would be told to
-    // sit next to itself.
-    return this.placementFor(draft, id)
+      // Exclude the book from its own neighbour search, or it would be told to
+      // sit next to itself. Read inside the transaction, and after the update,
+      // so it describes the shelf this edit produced.
+      const { predecessor, successor } = await this.neighbours(
+        resolved.range,
+        resolved.sortKey,
+        id,
+      )
+      return {
+        ...buildPlacement(
+          resolved.range,
+          predecessor,
+          successor,
+          await this.rangeStart(resolved.range),
+        ),
+        ...resolved,
+      }
+    }, { serialiseOn: rangeLock(range) })
   }
 
   async findByIsbn(value: string): Promise<BookRow | undefined> {
@@ -490,27 +571,45 @@ export class Store {
    * The caller still learns the truth either way: `changed` says whether
    * anything happened, and `checkedOutAt` is always the row's real value
    * afterward, so a no-op cannot be mistaken for a fresh checkout.
+   *
+   * **One conditional statement, not a read and then a write.** This used to
+   * SELECT the column, decide from it, and then UPDATE unconditionally, which
+   * had a window in it that destroyed the very thing the paragraph above says
+   * the method exists to protect: two checkouts arriving together both read
+   * NULL, both passed the no-op guard, and the second overwrote the first
+   * person's timestamp with a later one. The moment the book actually left is
+   * not recoverable from anywhere else.
+   *
+   * The `WHERE` carries the decision instead, and `RETURNING` reports what the
+   * row ended up with. A statement that changes no rows either did not match
+   * the id or found the book already in the state asked for, and the follow-up
+   * read tells those two apart without being able to change the answer.
+   *
+   * `CaptureQueue.claim` has had exactly this shape all along, and it is the
+   * pattern to copy rather than a transaction: a compare-and-set inside one
+   * statement is atomic on both drivers under any isolation level.
    */
   async setCheckedOut(
     id: number,
     out: boolean,
   ): Promise<{ changed: boolean; checkedOutAt: string | null }> {
+    const checkedOutAt = out ? new Date().toISOString() : null
+    const changed = await this.db.get<{ checked_out_at: string | null }>(
+      `UPDATE books SET checked_out_at = ?
+        WHERE id = ?
+          AND checked_out_at IS ${out ? '' : 'NOT '}NULL
+        RETURNING checked_out_at`,
+      [checkedOutAt, id],
+    )
+    if (changed) return { changed: true, checkedOutAt: changed.checked_out_at }
+
+    // Nothing changed. Either there is no such book, or it was already in the
+    // state asked for and keeps the moment it actually reached it.
     const row = await this.db.get<{ checked_out_at: string | null }>(
       'SELECT checked_out_at FROM books WHERE id = ?',
       [id],
     )
-
-    if (!row) return { changed: false, checkedOutAt: null }
-
-    const alreadyOut = row.checked_out_at !== null
-    if (alreadyOut === out) return { changed: false, checkedOutAt: row.checked_out_at }
-
-    const checkedOutAt = out ? new Date().toISOString() : null
-    await this.db.run(
-      'UPDATE books SET checked_out_at = ? WHERE id = ?',
-      [checkedOutAt, id],
-    )
-    return { changed: true, checkedOutAt }
+    return { changed: false, checkedOutAt: row?.checked_out_at ?? null }
   }
 
   /**
@@ -610,20 +709,33 @@ export class Store {
    *
    * The photo's own column is not touched here, and no statement in this class
    * ever writes a crop filename into one. The original is the record.
+   *
+   * **`cropped` is added to in SQL rather than read out, edited and written
+   * back**, which is the fix for a lost update that stage G found. Two crop
+   * passes on the same book overlap routinely: one is fired after a save and
+   * the other is the backfill loop. Both read `cropped = ''`, one wrote
+   * `'front'` and the other then wrote `'edge'` over it, so the front slot's
+   * crop column stayed populated while nothing said the front had been looked
+   * at. Every later reader concluded it never had, and re-cropped it forever;
+   * worse, the "looked at and declined" state, which is the whole reason this
+   * column exists, was erased.
+   *
+   * The whole thing is one statement, so there is nothing to interleave with.
    */
   async setCrop(id: number, slot: 'front' | 'back' | 'edge', name: string): Promise<void> {
-    const row = await this.db.get<{ cropped: string | null }>(
-      'SELECT cropped FROM books WHERE id = ?',
-      [id],
-    )
-    if (!row) return
-
-    const done = new Set((row.cropped ?? '').split(',').filter(Boolean))
-    done.add(slot)
-
+    // The slot is a union of three literals, not user input, so the two places
+    // it is interpolated cannot carry anything but a column name and a value
+    // this file wrote. Everything else is a parameter.
     await this.db.run(
-      `UPDATE books SET ${slot}_crop = ?, cropped = ? WHERE id = ?`,
-      [name, [...done].join(','), id],
+      `UPDATE books SET
+         ${slot}_crop = ?,
+         cropped = CASE
+           WHEN ',' || COALESCE(cropped, '') || ',' LIKE ? THEN cropped
+           WHEN COALESCE(cropped, '') = ''                 THEN ?
+           ELSE cropped || ',' || ?
+         END
+       WHERE id = ?`,
+      [name, `%,${slot},%`, slot, slot, id],
     )
   }
 
