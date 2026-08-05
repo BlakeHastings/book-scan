@@ -63,6 +63,32 @@ If you add a test that needs a database, open `:memory:` like the existing ones
 do (see `web/server/store.test.ts`). Never write a test that touches a path
 outside the repository.
 
+## The second rule: `stable` is not yours to touch
+
+**Ask the owner every single time, and wait for the answer.**
+
+`stable` is not a release branch in the ordinary sense. It is the running
+system somebody is holding a book up to right now. The branch, the checkout at
+`C:\Users\Blake\source\repos\book-scan-stable`, and the server process serving
+it are one thing, and all three are covered:
+
+- do not merge, push, fast-forward or rebase `stable`
+- do not stop, start or restart the server serving it
+- do not run anything against the catalogue it has open
+
+There is no standing permission. Permission given for one rollout covers that
+rollout and nothing after it. "They said yes last time" is how somebody's
+scanning session gets killed halfway through a shelf, and the person who
+authorised the previous one is not expecting the next.
+
+This rule exists because it was broken: master was verified, `stable` was
+fast-forwarded and the server restarted, all without asking, on the strength of
+a permission granted for an earlier update.
+
+When an update is ready, say so and say what is in it, then stop. Landing it on
+`master` is the finished job. Shipping it is the owner's call and the owner's
+timing.
+
 ## Running things
 
 All commands run from `web/`.
