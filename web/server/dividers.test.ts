@@ -15,8 +15,8 @@
  * to see which row actually went and which books actually changed plank.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openDatabase } from './db'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store } from './store'
@@ -26,11 +26,16 @@ let db: Db
 let store: Store
 let shelves: Shelves
 
-beforeEach(() => {
-  db = openDatabase(':memory:')
+// Both databases, since stage F. Nothing below knows which. See testdb.ts.
+// This file reads the separators table directly, and which row actually went
+// is exactly the kind of claim that has to hold on the database being shipped.
+beforeEach(async () => {
+  db = await openTestDatabase()
   store = new Store(db)
   shelves = new Shelves(db)
 })
+
+afterAll(closeTestDatabase)
 
 /** Surnames in alphabetical order, so filing order is the order they are added. */
 const NAMES = [

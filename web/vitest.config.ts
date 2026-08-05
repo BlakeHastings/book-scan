@@ -26,12 +26,21 @@ import { defaultExclude, defineConfig } from 'vitest/config'
  * talks to, and nothing under test binds a socket.
  */
 
-/** The files that open a database, and so have something to say on both. */
+/**
+ * The files that open a database, and so have something to say on both.
+ *
+ * The plan named four. `dividers.test.ts` arrived on master during this stage
+ * and is a fifth: it opens the `separators` table through `Db` to assert which
+ * row a Remove actually deleted, which is precisely a claim that has to hold on
+ * the database being shipped. **Anything added here later that opens a database
+ * belongs on this list**, or it guards SQLite only.
+ */
 const BOTH_DRIVERS = [
   'server/store.test.ts',
   'server/shelves.test.ts',
   'server/queue.test.ts',
   'server/rehash.test.ts',
+  'server/dividers.test.ts',
 ]
 
 /** Postgres-only: the driver, the collation and the transaction pinning. */

@@ -121,14 +121,18 @@ database being shipped is how a collation difference passes everything and
 surfaces on somebody's shelf. `web/vitest.config.ts` runs two projects.
 
 - `sqlite` is the suite as it always was: every test file, no services.
-- `postgres` re-runs the four files that open a database, against a real
-  Postgres, plus `server/db.pg.test.ts`.
+- `postgres` re-runs the files that open a database, against a real Postgres,
+  plus `server/db.pg.test.ts`.
+
+**If you add a test file that opens a database, add it to `BOTH_DRIVERS` in
+`web/vitest.config.ts`.** One that is not on that list guards SQLite only, and
+looks entirely green while doing it.
 
 The container is started by `@testcontainers/postgresql`. If you already have a
 Postgres you are willing to have scratch databases created on and dropped from,
 `BOOKSCAN_TEST_DATABASE_URL` points the harness at it and no container starts;
 that is how CI does it. Measured on this machine with `cd web && npm test`:
-about 37 seconds before, about 42 after, with the image already pulled.
+about 40 seconds before, about 47 after, with the image already pulled.
 `npx vitest run --project sqlite` runs the half that needs nothing.
 
 ### Running it under Aspire

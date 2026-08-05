@@ -574,12 +574,26 @@ projects. `npx vitest run --project postgres` runs the Postgres half alone.
 Verify: 302 SQLite tests green, plus roughly 71 Postgres tests. Test count rises
 to about 373 across 16 files, and AGENTS.md's number is updated in the same PR.
 
-**Measured on this branch: 801 before, 968 after, across 44 files.** The extra
-167 are the four files run a second time (142) and `db.pg.test.ts` (25). There
+**Measured on this branch: 856 before, 1030 after, across 50 files.** The extra
+174 are the five files run a second time (149) and `db.pg.test.ts` (25). There
 was no number in AGENTS.md to update: it deliberately carries none, and says
-why. About 37 seconds before, about 42 after, on a machine with the image
+why. About 40 seconds before, about 47 after, on a machine with the image
 already pulled. Run three times consecutively before pushing, because the
 finding below only appeared in one run out of four.
+
+**Five files, not the four the plan names.** `dividers.test.ts` landed on master
+(#157) while this stage was being written, and it opens the `separators` table
+through `Db` to assert which row a Remove actually deleted. That is exactly a
+claim that has to hold on the database being shipped, so it joined the list.
+Note the general point for stages G onward, and it is written at the list in
+`vitest.config.ts` as well: **a new test file that opens a database and is not
+added there guards SQLite only**, silently, and looks entirely green.
+
+That is not hypothetical either. The stage began at 801 tests, which is the
+number stage E reported; five commits landed on master underneath it, and the
+first run of the branch's own CI came back with four test files nobody on this
+branch had written. Rebase before believing a count, and take the base's number
+from the same run as your own.
 
 **And the suite found a production bug on the way, which is the argument for
 building it.** One run reported `db.pg.test.ts` as a **failed file with every

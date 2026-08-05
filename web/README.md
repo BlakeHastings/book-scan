@@ -620,9 +620,11 @@ noticed. The suites worth knowing about:
 - `server/rehash.test.ts` covers the cover rehash: that a dry run writes
   nothing, that a second run finds nothing to do, and that a missing image is
   counted rather than thrown.
-- Those four run **twice**, once against in-memory SQLite and once against a
-  real Postgres in a container, and no assertion in them is conditional on
-  which. That is the verification argument for stage F of the Postgres
+- Those three, plus `server/rehash.test.ts` and `server/dividers.test.ts`, run
+  **twice**: once against in-memory SQLite and once against a real Postgres in
+  a container, with no assertion in them conditional on which. A new test file
+  that opens a database belongs on that list in `vitest.config.ts`, or it
+  guards SQLite only. That is the verification argument for stage F of the Postgres
   migration: the Postgres driver is correct exactly to the extent that the
   tests already guarding SQLite pass unchanged against it. **This is why
   `npm test` needs Docker**; `BOOKSCAN_TEST_DATABASE_URL` points the harness at
