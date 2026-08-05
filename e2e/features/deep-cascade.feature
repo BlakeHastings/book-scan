@@ -1,12 +1,12 @@
-Feature: A cascade asks at every plank, and makes no move early
+Feature: A cascade asks at every plank, shows each move, and makes none of them early
 
   Saying a plank is full takes its last book off and sends it to the plank
   after it, and whether it fits there is a question only the person standing at
   the shelf can answer. So a full bookcase leaves a stack of books in the air,
   and each one is a separate physical observation.
 
-  Two things had been running together, and the owner reported both from the
-  room:
+  Three things had been running together, and the owner reported all three from
+  the room:
 
   #110  A yes at the bottom of the stack settled every move above it, on the
         reasoning that each was only waiting for room below. Books are
@@ -15,6 +15,8 @@ Feature: A cascade asks at every plank, and makes no move early
   #111  The boundary shifted the moment a step was proposed, so the book left
         the plank before anybody touched it, and stayed gone if they walked
         away. Nothing moves until somebody says they moved it.
+  #112  Each step was described in a sentence. Every level is the same
+        question as the first one, so every level gets the same picture.
 
   Background:
     Given the catalogue is empty
@@ -48,9 +50,11 @@ Feature: A cascade asks at every plank, and makes no move early
     Then the shelf drawing should be labelled "1A"
     And the first answer should read "No room, move one along"
 
-    # Down one.
+    # Down one. The step is drawn, not described: 1B as it will look, with the
+    # gap at its start and Le Guin's name on the spine hanging under it.
     When I say there is no room on the shelf
     Then it should ask me to move "The Dispossessed" from "1A" to "1B"
+    And it should draw the gap for "Le Guin, Ursula K." on "1B"
     # And nothing has happened. Le Guin is still on the plank she was on.
     And the bookcase should still show "The Dispossessed" on "1A"
 
@@ -58,6 +62,7 @@ Feature: A cascade asks at every plank, and makes no move early
     When I say there is no room on that one either
     Then it should ask me to move "The Book Thief" from "1B" to "1C"
     And it should say I am placing "The Book Thief", 2 books deep
+    And it should draw the gap for "Zusak, Markus" on "1C"
     And the bookcase should still show "The Book Thief" on "1B"
     And the bookcase should still show "The Dispossessed" on "1A"
 

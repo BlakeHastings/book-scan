@@ -276,6 +276,22 @@ Then(
   },
 )
 
+/**
+ * The step drawn rather than described (#112).
+ *
+ * The same strip the placing preview uses, on the plank the book is going on,
+ * with the gap where it goes and the filing name written down the spine
+ * hanging under it. Somebody four levels deep is looking at a shelf, and a
+ * picture of the gap is easier to act on than a sentence naming two planks.
+ */
+Then(
+  'it should draw the gap for {string} on {string}',
+  async ({ page }, authorFiling: string, label: string) => {
+    await expect(page.locator('.strip__label')).toHaveText(label)
+    await expect(page.locator('.strip__new-author')).toHaveText(authorFiling)
+  },
+)
+
 /** Out of the shelving step without answering it, which is #111's case. */
 When('I go back to the book details', async ({ page }) => {
   await page.getByRole('button', { name: 'Back to book details' }).click()

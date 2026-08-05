@@ -4,7 +4,7 @@ import {
   asking, confirm, depth, emptyCascade, pushCarry, pushFrame, repropose,
   spreadOf, started, whereYouAre, type Proposal,
 } from '../lib/cascade'
-import { PlacementView } from './ShelfStrip'
+import { PlacementView, ShelfStrip } from './ShelfStrip'
 import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
@@ -52,8 +52,9 @@ interface Props {
  *
  * Three things this screen used to run together, now kept apart:
  *
- *   showing    which book is being placed and how far in you are, said above
- *              the question. Drawing each level is #112 and comes next.
+ *   showing    every level draws the plank it is about, with the gap where
+ *              the book goes, on the same component the placing preview uses
+ *              (#112). A sentence is harder to act on than a picture.
  *   applying   a proposal changes nothing. The boundary moves when somebody
  *              says they carried the book, one frame at a time (#111).
  *   recording  where a book physically ended up, written as it is confirmed,
@@ -167,7 +168,7 @@ export function ShelveView({
           title: plan.step!.title || 'the last book',
           authorFiling: plan.step!.authorFiling,
           to: plan.step!.to,
-          strip: null,
+          strip: plan.strip,
         },
       }))
       // No refresh: nothing has moved, so the shelf on screen is still true.
@@ -244,7 +245,7 @@ export function ShelveView({
       title: plan.step.title || 'the last book',
       authorFiling: plan.step.authorFiling,
       to: plan.step.to,
-      strip: null,
+      strip: plan.strip,
     }
   }
 
@@ -256,7 +257,29 @@ export function ShelveView({
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
 
-      <PlacementView placement={placement} pending={busy || stale} />
+      {/* One picture, of the question being asked. Four drawn strips stacked
+          up do not fit a phone, and three of them would be about books
+          nobody is holding yet. */}
+      {pending ? (
+        <div className={busy ? 'placement--stale' : ''}>
+          <p className="placement-view__instruction">
+            {pending.proposal.title}: end of {pending.from} to start of{' '}
+            {pending.proposal.to}
+          </p>
+          {pending.proposal.strip ? (
+            <ShelfStrip
+              strip={pending.proposal.strip}
+              authorFiling={pending.proposal.authorFiling}
+            />
+          ) : (
+            <p className="hint">
+              {pending.proposal.to} has nothing on it yet, so this book starts it.
+            </p>
+          )}
+        </div>
+      ) : (
+        <PlacementView placement={placement} pending={busy || stale} />
+      )}
 
       {started(cascade) && (
         <div className="moves">
