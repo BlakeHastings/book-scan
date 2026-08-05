@@ -51,35 +51,38 @@ export const CLOSE_LIMIT = 8
  * and the guess was that the distribution would be tighter. It is not. It is
  * worse, and in the direction that matters.
  *
- * Measured on the owner's own photographs, 18 fronts, no generated covers:
+ * Measured on the owner's own photographs, 18 real fronts, no generated
+ * covers, by `npx tsx scripts/queue-match-accuracy.ts <dir>`:
  *
- *   two different books, real photograph against real photograph, 153 pairs
- *     min 16, median 30. Twenty two of the 153 sit at or inside
- *     `MATCH_CUTOFF`.
- *   one book photographed twice, 432 modelled re-photographs
- *     min 0, median 12, p95 22.
+ *   two different books, one real photograph against another, 153 pairs
+ *     min 16, median 30, and 22 of the 153 sit at or inside `MATCH_CUTOFF`.
+ *   one book photographed twice, 2160 modelled re-photographs
+ *     median 8 to 20 depending on how steadily the shot is framed.
  *
- * The two overlap from 12 to 26. That is the same room working against the
- * comparison rather than for it: every one of these photographs has the same
- * dark table or the same carpet around the book, and the hash keeps the
- * middle 70 per cent of a frame the book fills about two thirds of, so a
- * shared background pulls two different books together.
+ * The two distributions overlap from 12 upwards. That is the same room
+ * working against the comparison rather than for it, which is the opposite of
+ * what was expected: every one of these photographs has the same dark table
+ * or the same carpet around the book, and the hash keeps the middle 70 per
+ * cent of a frame the book fills about two thirds of, so a shared background
+ * pulls two different books together rather than telling them apart.
  *
- * What each cutoff would do, from `npx tsx scripts/queue-match-accuracy.ts`:
+ * What each cutoff would do, over all 2160 re-photographs and the 36720 pairs
+ * of different books they can be confused with:
  *
- *   <= 8    caught 26% of re-photographs,     0 of 7344 wrong pairs
- *   <=12    caught 51%,                       1 of 7344
- *   <=16    caught 77%,                      43 of 7344
- *   <=24    caught 100%,                   1360 of 7344
+ *   <= 8    caught  33% of double scans,     0 of 36720 wrong pairs
+ *   <=12    caught  53%,                     3 of 36720
+ *   <=16    caught  70%,                   205 of 36720
+ *   <=24    caught  90%,                  6605 of 36720   (18%)
  *
  * So `MATCH_CUTOFF` does not carry over at all: on real photographs it calls
- * roughly one pair of different books in five a match. 12 was measured and
+ * nearly one pair of different books in five a match. 12 was measured and
  * rejected too, because a wrong queue answer says two different books are the
- * same book and the remedy for that is a book nobody catalogues.
+ * same book, and the way that ends is a book nobody ever catalogues.
  *
- * 8 catches about a quarter of double scans and, on this evidence, none of
- * the ones it must not. A quarter is worth having because the alternative is
- * nothing: when it does not fire, the person scans exactly as they do today.
+ * What 8 buys depends on the person. Framed as steadily as these 18 were, it
+ * catches 69 per cent of double scans; framed carelessly, 5 per cent. Either
+ * is worth having, because the alternative is not a better answer, it is no
+ * answer: when this does not fire the scan proceeds exactly as it does today.
  */
 export const QUEUE_LIMIT = CLOSE_LIMIT
 

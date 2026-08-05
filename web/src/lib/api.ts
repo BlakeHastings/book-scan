@@ -224,8 +224,27 @@ export type CheckoutOutcome = 'checked-out' | 'already-out' | 'checked-in' | 'al
 export type ScanResult =
   | { outcome: 'no-isbn'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[] }
+  | { outcome: 'in-queue'; matches: QueueMatch[] }
   | { outcome: 'not-catalogued'; isbn13: string }
   | { outcome: 'identified'; book: BookRow }
+
+/**
+ * A capture already waiting to be shelved that looks like the book being held
+ * up (#122).
+ *
+ * The whole capture row, not a summary of it. A capture has no catalogue id
+ * and may have no title, so there is no short form of it that means anything;
+ * what a person needs to recognise it is the photograph somebody took and
+ * whatever has been worked out about it so far, which is exactly what
+ * `draftFromCapture` already reads off this row for the queue. Handing back
+ * the row means the scanner and the queue describe a capture the same way,
+ * and means opening one costs no second request.
+ */
+export interface QueueMatch {
+  capture: Capture
+  /** Differing bits out of 64. Held to `QUEUE_LIMIT`, which is much tighter. */
+  distance: number
+}
 
 /** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
