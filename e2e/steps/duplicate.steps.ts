@@ -1,10 +1,16 @@
 /**
  * Holding up a book somebody has already photographed.
  *
- * These steps drive the front cover camera, which is a second Playwright
- * project rather than a flag a step can set: Chromium is handed the video file
- * on the command line. Everything tagged `@front-camera` runs there and
- * nothing else does.
+ * The steps that photograph a front cover drive the front cover camera, which
+ * is a second Playwright project rather than a flag a step can set: Chromium is
+ * handed the video file on the command line. Everything tagged `@front-camera`
+ * runs there and nothing else does.
+ *
+ * The steps about the panel itself are shared with the back cover camera, and
+ * that is not an accident of naming. The Add flow asks the same question from
+ * the other end (#146) and draws the same panel, in the same words, with the
+ * same way past it, because it is the same answer: somebody photographed this
+ * book already and has not shelved it yet.
  *
  * The one wait that is not a wait on the screen is the hash. A capture is
  * accepted the moment its photographs exist and read afterwards, and the hash

@@ -71,6 +71,13 @@ pass by reading the barcode and prove nothing about the comparison. Tag a
 feature `@front-camera` when what it is about is the book being held up rather
 than the barcode being presented.
 
+It cuts the other way as well, and `queue-duplicate-barcode.feature` is the
+case. Recognising a book already in the queue is answered by the ISBN where
+there is one and by the cover comparison where there is not, so the two
+questions need the two cameras: the untagged project is what proves the
+identifier is used, because there the barcode is the evidence rather than a way
+of stepping around it (#146).
+
 **The catalogues are local.** Open Library and Google Books are consulted by
 the API process, not the browser, so Playwright's request routing cannot reach
 them. `support/catalogue-stub.ts` starts a small HTTP server that answers as

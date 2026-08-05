@@ -667,7 +667,7 @@ describe('captures waiting under the same ISBN', () => {
     await add()
     const mine = await add()
 
-    expect(await queue.sharingIsbn('', mine)).toEqual([])
+    expect(await queue.sharingIsbn('', mine.id)).toEqual([])
   })
 
   it('leaves out one that has already become a book', async () => {

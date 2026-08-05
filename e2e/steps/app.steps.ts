@@ -123,6 +123,20 @@ Then('the camera should recognise the book as {string}', async ({ page }, title:
   await expect(page.locator('.cam__found')).toContainText(title, { timeout: QUEUE_TIMEOUT })
 })
 
+/**
+ * Put this book down and start the next one off the pile, which is the tap
+ * somebody makes between every two books they photograph.
+ *
+ * The photographs already went to the queue as they were taken, so this clears
+ * the camera and nothing else. Waiting for the banner to go back to saying
+ * nothing is in hand is waiting for that to have happened, rather than for a
+ * duration.
+ */
+When('I start the next book', async ({ page }) => {
+  await page.locator('button.cam__next').click()
+  await expect(page.locator('.cam__found--empty')).toBeVisible()
+})
+
 When('I review what it found', async ({ page }) => {
   const review = page.locator('button.cam__review')
   await expect(review).toBeEnabled({ timeout: QUEUE_TIMEOUT })
