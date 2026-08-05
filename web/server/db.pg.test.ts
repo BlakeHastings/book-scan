@@ -20,7 +20,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
-import { SORT_KEY_COLUMNS } from './db.pg'
+import { connectionConfig, describeConnection, SORT_KEY_COLUMNS } from './db.pg'
 import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 
@@ -33,6 +33,62 @@ beforeEach(async () => {
 })
 
 afterAll(closeTestDatabase)
+
+// ---------------------------------------------------------------------------
+// The connection string, which is not the shape the plan assumed.
+// ---------------------------------------------------------------------------
+
+describe('reading the connection Aspire hands over', () => {
+  /**
+   * Copied from a real run, with the password replaced. Obtained with:
+   *
+   *     aspire start --non-interactive && aspire describe --format Json
+   *
+   * That is the whole reason this test exists. The plan said the connection
+   * "arrives as ConnectionStrings__bookscan ... read it the way PORT is read",
+   * which is true of getting it and not of using it: it is ADO.NET keywords,
+   * not a URL, because Aspire produces connection strings for .NET clients.
+   * node-postgres reads only the URL form and would have taken this entire
+   * string as a hostname.
+   */
+  const FROM_ASPIRE =
+    'Host=localhost;Port=65156;Username=postgres;Password=-sSjngFS4p9gcuDZJPMHFV;Database=bookscan'
+
+  it('reads the keyword form Aspire actually produces', () => {
+    expect(connectionConfig(FROM_ASPIRE)).toEqual({
+      host: 'localhost',
+      port: 65156,
+      user: 'postgres',
+      password: '-sSjngFS4p9gcuDZJPMHFV',
+      database: 'bookscan',
+    })
+  })
+
+  it('passes a URL through, which is what the test harness and a hand-written one are', () => {
+    const url = 'postgres://someone:secret@db.example:5433/bookscan'
+    expect(connectionConfig(url)).toEqual({ connectionString: url })
+  })
+
+  it('takes a quoted value, which is how a password with a separator is spelled', () => {
+    // Splitting on ';' first truncates this password at the separator, which
+    // arrives as an authentication failure saying nothing about the cut.
+    const parsed = connectionConfig("Host=h;Password='a;b';Database=d")
+    expect(parsed.password).toBe('a;b')
+    expect(parsed.database).toBe('d')
+    // Doubling escapes the delimiter that opened the value, and only that one.
+    expect(connectionConfig("Host=h;Password='it''s';Database=d").password).toBe("it's")
+    expect(connectionConfig(`Host=h;Password="it''s";Database=d`).password).toBe("it''s")
+  })
+
+  it('describes a connection without its credentials, because this reaches /api/health', () => {
+    expect(describeConnection(FROM_ASPIRE)).toBe('postgres localhost:65156/bookscan')
+    expect(describeConnection(FROM_ASPIRE)).not.toContain('sSjngFS4p9gcuDZJPMHFV')
+
+    const described = describeConnection('postgres://someone:secret@db.example:5433/bookscan')
+    expect(described).toBe('postgres db.example:5433/bookscan')
+    expect(described).not.toContain('secret')
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Collation. Risk 1 in docs/postgres-migration.md, and the biggest.

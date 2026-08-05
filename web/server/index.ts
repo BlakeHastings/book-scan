@@ -23,7 +23,7 @@ import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 import { openDatabase } from './db'
-import { openPostgres } from './db.pg'
+import { describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 
 import { lookupIsbn, searchTitle } from './lookup'
@@ -1813,11 +1813,7 @@ async function openCatalogue(sqlitePath: string): Promise<{ db: Db; label: strin
   // Host, port and database, never the credentials. This reaches /api/health,
   // and a password on a health endpoint is a password in every log that scrapes
   // one. Stage G makes the same redaction the only thing that endpoint reports.
-  const parsed = new URL(url)
-  return {
-    db: await openPostgres(url),
-    label: `postgres ${parsed.hostname}:${parsed.port || '5432'}${parsed.pathname}`,
-  }
+  return { db: await openPostgres(url), label: describeConnection(url) }
 }
 
 if (isMainModule) {

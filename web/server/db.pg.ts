@@ -197,6 +197,89 @@ export const SORT_KEY_COLUMNS: readonly (readonly [table: string, column: string
   ['separators', 'starts_at'],
 ]
 
+/**
+ * Turn a connection string into something node-postgres understands, in either
+ * of the two spellings this app is handed one in.
+ *
+ * **Aspire does not hand out a URL.** `ConnectionStrings__bookscan` arrives as
+ * ADO.NET keywords, `Host=localhost;Port=65156;Username=postgres;Password=...;
+ * Database=bookscan`, because the connection string is produced for the .NET
+ * clients Aspire was built around. node-postgres reads only the
+ * `postgres://user:pass@host:port/db` URL form and would take the whole
+ * keyword string as a hostname. The plan said to read the variable the way
+ * `PORT` is read, which is true of getting it and not of using it.
+ *
+ * Both are accepted: a URL passes straight through, so
+ * `BOOKSCAN_TEST_DATABASE_URL` and a hand-written connection still work.
+ */
+export function connectionConfig(value: string): pg.PoolConfig {
+  const trimmed = value.trim()
+  if (/^postgres(ql)?:\/\//i.test(trimmed)) return { connectionString: trimmed }
+
+  // Walked rather than split on ';', because ADO allows a quoted value and
+  // that is how a password containing a separator is spelled. Splitting first
+  // truncates such a password at the separator, which surfaces as an
+  // authentication failure that says nothing about the string being cut.
+  const fields = new Map<string, string>()
+  let i = 0
+  while (i < trimmed.length) {
+    const equals = trimmed.indexOf('=', i)
+    if (equals === -1) break
+    const key = trimmed.slice(i, equals).trim().toLowerCase().replace(/\s+/g, '')
+    i = equals + 1
+
+    let field: string
+    const quote = trimmed[i]
+    if (quote === "'" || quote === '"') {
+      i += 1
+      field = ''
+      while (i < trimmed.length) {
+        if (trimmed[i] === quote) {
+          // A doubled quote is an escaped one, as it is in SQL.
+          if (trimmed[i + 1] === quote) { field += quote; i += 2; continue }
+          i += 1
+          break
+        }
+        field += trimmed[i]
+        i += 1
+      }
+      const next = trimmed.indexOf(';', i)
+      i = next === -1 ? trimmed.length : next + 1
+    } else {
+      const next = trimmed.indexOf(';', i)
+      const stop = next === -1 ? trimmed.length : next
+      field = trimmed.slice(i, stop).trim()
+      i = stop + 1
+    }
+
+    if (key) fields.set(key, field)
+  }
+
+  const pick = (...names: string[]) => names.map((n) => fields.get(n)).find((v) => v !== undefined)
+
+  const port = pick('port')
+  return {
+    // The aliases ADO.NET and Npgsql accept for the same four things. Listed
+    // rather than assumed, because which one arrives is a property of whatever
+    // produced the string and not of this app.
+    host: pick('host', 'server', 'datasource'),
+    port: port ? Number(port) : undefined,
+    user: pick('username', 'userid', 'user'),
+    password: pick('password', 'pwd'),
+    database: pick('database', 'initialcatalog'),
+  }
+}
+
+/** Host, port and database. Never the credentials: this reaches /api/health. */
+export function describeConnection(value: string): string {
+  const config = connectionConfig(value)
+  if (config.connectionString) {
+    const url = new URL(config.connectionString)
+    return `postgres ${url.hostname}:${url.port || '5432'}${url.pathname}`
+  }
+  return `postgres ${config.host ?? '?'}:${config.port ?? 5432}/${config.database ?? '?'}`
+}
+
 /** The transaction the calling code is inside, if it is inside one. */
 interface TxContext {
   /**
@@ -370,7 +453,7 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
  * it by the time the module finishes evaluating.
  */
 export async function openPostgres(connectionString: string): Promise<Db> {
-  const pool = new Pool({ connectionString })
+  const pool = new Pool(connectionConfig(connectionString))
   try {
     await applySchema(pool)
   } catch (error) {
