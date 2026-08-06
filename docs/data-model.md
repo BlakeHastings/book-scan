@@ -1,0 +1,249 @@
+# The target data model
+
+Fourteen tables. Settled with the owner on 2026-08-06 across eight revisions,
+and recorded here because the reasoning matters more than the column lists.
+
+**Nothing here is built.** The live schema is the six-table one in
+`web/server/db.pg.ts`. `docs/domain-model.md` is the layering this sits under;
+#170 is the epic that builds it.
+
+The point is not that fourteen is better than six. It is that the current schema
+describes what the code needed and this one describes the collection.
+
+## What the current schema gets wrong
+
+| Today | Problem |
+| --- | --- |
+| `books.authors` is a joined string | Author information lives in three places and none is authoritative. "Everything by this author" is a string match, wrong in both directions. |
+| `shelf_ranges` | Configuration wearing a table's clothes. Its columns exist only to bootstrap counting. |
+| No bookcase anywhere | Bookcases and areas are implied by walking a separator list. Nothing can be said about one. |
+| Eight image columns | Exactly one photograph of each kind, forever. A blurred spine cannot be re-shot. |
+| `is_fiction`, `category` | Two fixed ways to classify, when people want many. |
+| `location`, `shelved_at`, `checked_out_at` | Only the present tense. Where a book has been is not recorded. |
+| Separate `captures` queue | The queue is a state a book is in, not a different kind of thing. |
+
+## Vocabulary
+
+Three words this repository has used interchangeably and should not:
+
+- **Fixture** — the thing that groups areas. A bookshelf, a crate, a windowsill.
+  Its `kind` is the owner's word and nothing branches on it.
+- **Shelf**, or plank — one board. **Not modelled**, deliberately: an area is
+  the unit that matters, and a plank can hold two of them.
+- **Area** — a run of books treated as one place. Chosen by a person, not by the
+  carpentry. A divider or a pot plant halfway along a plank is enough to make
+  two.
+
+`docs/shelving.md` has the fuller note, including that the current code calls a
+bookcase boundary a "shelf".
+
+## Tables
+
+### Collection
+
+One row. `default_sort_strategy`, and the owner when this becomes multi-user.
+
+A default expressed as a rule on every fixture would have to be changed on every
+fixture, and could then disagree with itself. It lives in one place.
+
+### Fixture, Area
+
+`fixture(id, collection_id, kind, name, position, sort_strategy, note)`
+`area(id, fixture_id, position, name, starts_at, sort_strategy, note)`
+
+`area.starts_at` is the sort key of the first book in the run, byte-ordered,
+compared against a book's sort key. **An area is `separators`, grown a parent.**
+
+Setting `sort_strategy` on an area to anything but `inherit` makes it
+self-contained: nothing overflows into it from the area before, because a
+continuous run only works if every area in it orders the same way.
+
+**Labels are derived at read time**, from positions and the two names. A stored
+label goes stale the moment a fixture is renamed.
+
+| fixture name | area name | label |
+| --- | --- | --- |
+| `''` | `''` | `1A` |
+| `Hall shelf` | `''` | `Hall shelf · A` |
+| `Hall shelf` | `Cookery` | `Hall shelf · Cookery` |
+| `''` | `Cookery` | `1 · Cookery` |
+
+### SortStrategy
+
+`sort_strategy(code, label, is_inherit, available, note)`
+
+A lookup table, seeded by the app, not by people. Rows: `inherit`, `author`,
+`title`, `published`, `tag`.
+
+**`inherit` is a row, not a null.** No absence in this schema means anything.
+
+**`available` lets a strategy exist and be unofferable**, which is where colour
+sorting waits until there is a colour to sort by.
+
+**Every strategy carries its own tiebreak chain, fixed in code.** `tag` means
+tag slug, then author filing, then title. It does *not* mean "then whatever the
+global default is": if it did, changing the global setting would silently
+reorder every run that had explicitly chosen `tag`. A run is only reordered by
+somebody changing that run.
+
+### PlacementRule, RuleCondition
+
+`placement_rule(id, area_id, fixture_id, priority, name, enabled)`
+`rule_condition(id, rule_id, field, operator, value)`
+
+Exactly one of `area_id` / `fixture_id`. Area beats fixture beats the global
+default; `priority` settles ties within a level.
+
+**All conditions must hold.** No nesting, no `OR`. Two ways to say a thing are
+two rules, which a UI can build and a person can read when a book lands
+somewhere surprising.
+
+Operators include `is` and `under`, because `tag is genre/fantasy` and
+`tag under genre` are different questions.
+
+### Tag, BookTag
+
+`tag(id, slug, label, note)`
+`book_tag(book_id, tag_id, source, confidence, added_at)`
+
+Replaces `is_fiction`, `category`, `classification_source` and
+`classification_confidence`. Those last two only ever described the fiction
+guess; as columns on `book_tag` they describe every tag.
+
+**Hierarchy lives in the slug, Obsidian style**: `genre/fantasy`,
+`mine/lent-out`. No parent column and no tree to keep consistent, and with
+`COLLATE "C"` a prefix match is an index range.
+
+**`slug` is the identity, `label` is what a person reads.** Catalogues return
+"Fiction", "fiction" and "FICTION" for one idea, and without a normalised slug a
+rule silently matches a fraction of what it should.
+
+**A lookup may take back its own tags and no others.** Re-running it deletes and
+rewrites rows where `source = 'catalogue'`, so a tag the catalogue stopped
+claiming goes away. It must never touch `source = 'person'`.
+
+### Author, AuthorAlias, BookAuthor
+
+`author(id, is_corporate, note)`
+`author_alias(id, author_id, display_name, filing_name, is_primary)`
+`book_author(book_id, position, author_alias_id)`
+
+**An author holds no name.** One person publishes under several: Iain Banks and
+Iain M. Banks, Stephen King and Richard Bachman. Those are one author and
+several aliases.
+
+**A book credits the alias, not the person**, which is what the existing filing
+rule already requires: `docs/shelving.md` settles that a pseudonym files as
+printed. Filing follows the alias; "everything by this person" follows the
+author behind it.
+
+A corporate author is an author with `is_corporate` and one alias. No special
+case.
+
+**The migration has to decide identity 222 times, and should be conservative.**
+When two spellings are not obviously one person, make two authors. Merging two
+rows later is easy; splitting one that swallowed two people is not.
+
+### Book
+
+Loses most of what it currently is: `location`, `shelved_at`,
+`checked_out_at` (ledger), `authors` and `author_filing` (aliases),
+`shelf_range` (rules), `is_fiction` and `category` (tags), the eight image
+columns (captures), `ocr_text` (never used).
+
+Keeps `state`, the bibliographic fields, `title_filing`, and two projection
+columns.
+
+`current_area_id` is the one null that survives, because a book on no shelf is a
+genuine absence rather than a state with a name.
+
+### BookPlacement
+
+`book_placement(id, book_id, kind, area_id, sort_key, rule_id, actor, reason, created_at)`
+
+Append only. One row per move. The latest row is where the book is; the rows
+behind it are where it has been.
+
+`kind` is `assigned`, `placed`, `pinned`, `checked_out`, `checked_in` or
+`withdrawn`.
+
+**`assigned` is what the rules want; `placed` is what somebody did.** They
+disagree exactly when a book needs attention, so the misfile list stops being a
+computation beside the model and becomes a property of it.
+
+**`pinned` beats every rule, forever.** The rule engine skips any book whose
+latest placement is pinned. Unpinning is another row, so even the decision to
+stop pinning is in the history.
+
+`assigned` rows are written only where the answer differs from where the book
+already is.
+
+**Keep a projection, not only the ledger.** Drawing a shelf needs every book's
+current position at once, and scanning the ledger for that is wasteful.
+`book.current_area_id` is written in the same transaction, is rebuildable from
+the ledger, and a check can prove they agree.
+
+### Capture
+
+`capture(id, book_id, kind, file, crop_file, examined, hash, taken_at)`
+
+One photograph. Many per book, and as many of each kind as somebody takes.
+`kind` is front, back, spine or catalogue.
+
+**`book_id` is not null**, because a book exists from its first photograph.
+There is no orphan state and no second parent, which is why the queue table
+disappears rather than being renamed.
+
+**One `book_id` column is the enforcement** that a capture belongs to at most
+one book: there is nowhere to put a second. A join table would permit exactly
+the thing that must not happen.
+
+`cropped` stops being a comma-separated string and becomes `examined` per
+photograph. Its distinction survives: `examined` true with an empty `crop_file`
+means the detector looked and declined, which is different from never having
+looked.
+
+## Book states
+
+```
+scanned → identified → shelved ⇄ checked_out
+   ↓          ↓            ↓
+unidentified  ↓        withdrawn
+   ↓          ↓
+   └──→ discarded ←─────┘
+```
+
+| State | Meaning |
+| --- | --- |
+| `scanned` | Photographs taken, nothing read yet |
+| `unidentified` | Read, and no catalogue has it |
+| `identified` | Confirmed, waiting to be put somewhere |
+| `shelved` | Somebody put it there and said so |
+| `checked_out` | Off the shelf, still owned. Remembers no area: on return it is placed again by the rules. |
+| `withdrawn` | Given away, sold, lost. Terminal and archival. |
+| `discarded` | The scan was a mistake |
+
+**Identified and shelved are two steps.** Knowing what a book is and knowing
+where it went are separate facts, established separately.
+
+**The queue is a query**, not a table: books in an early state.
+
+**This is the risk in the whole remodel.** `books` drives shelf ordering and
+misfile detection, and half-identified rows must never reach either. The current
+schema keeps them apart by having two tables. Collapsing means every ordering
+query needs `WHERE state = 'shelved'`, and forgetting once puts an unidentified
+book between two real ones.
+
+Fix it in one place: a `shelved_books` view and a partial index on
+`(shelf_range, sort_key) WHERE state = 'shelved'`. The ordering code reads the
+view and cannot forget.
+
+## Still open
+
+1. Is a tag's slug immutable once created? If renaming rewrites it, every rule
+   mentioning it must be rewritten in the same transaction, or rules silently
+   stop matching and books drift with nothing to show for it.
+2. Can a book carry `genre/fantasy` without `genre`, and does `under genre` find
+   it?
+3. Does the ledger record tag changes, or only placement? A rule change is
+   explained by both.

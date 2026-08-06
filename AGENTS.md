@@ -481,6 +481,8 @@ teach people to skim past it.
 | `web/instrumentation.ts` | OpenTelemetry setup, preloaded with `--import` |
 | `e2e/` | Gherkin features and the browser suite that runs them |
 | `docs/shelving.md` | The shelving specification |
+| `docs/domain-model.md` | The layering and aggregates the code is moving towards (#169) |
+| `docs/data-model.md` | The schema it is moving towards (#170). Not what exists today. |
 
 ## Conventions
 
