@@ -1,0 +1,21 @@
+{
+  // The separation, as something that can be run rather than asserted.
+  //
+  //     cd web
+  //     git rm -r --cached infrastructure && rm -rf infrastructure
+  //     npx tsc --noEmit -p tsconfig.domain.json
+  //     git checkout infrastructure
+  //
+  // If the domain and the application layer still compile with the whole
+  // infrastructure directory gone, the boundary is real. If they do not, it is
+  // a naming convention, and `npm run lint:layers` is checking the spelling of
+  // something that was never true.
+  //
+  // `server` and `src` are deliberately absent as well: the layers here are
+  // below the express app and the React client, not beside them. `shared` is
+  // not listed and does not need to be. tsc follows the imports, so it is
+  // compiled because the domain reaches it, which is the only reason it should
+  // be.
+  "extends": "./tsconfig.json",
+  "include": ["domain", "application"]
+}

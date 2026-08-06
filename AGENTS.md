@@ -509,6 +509,9 @@ teach people to skim past it.
 
 | Path | What lives there |
 | --- | --- |
+| `web/domain/` | Plain TypeScript rules. Imports nothing but `web/shared/` |
+| `web/application/` | Commands, handlers, and the repository interfaces (ports) |
+| `web/infrastructure/` | Drizzle schema, migrations, repository implementations |
 | `web/src/` | React UI |
 | `web/src/lib/api.ts` | Typed fetch wrapper, the only client to server path |
 | `web/server/index.ts` | Express routes, data directory resolution |
@@ -523,6 +526,60 @@ teach people to skim past it.
 | `docs/shelving.md` | The shelving specification |
 | `docs/domain-model.md` | The layering and aggregates the code is moving towards (#169) |
 | `docs/data-model.md` | The schema it is moving towards (#170). Not what exists today. |
+
+### The layering, and the one table that goes through it
+
+Epic #169 separates the domain from the data store. **Only `separators` has been
+converted** (#172): the pattern is being judged on one slice before it is
+repeated across fourteen tables, so books, captures, shelf ranges and the rest
+still go through `Store`, `Shelves` and `CaptureQueue` exactly as they did. Do
+not convert another table as a side effect of doing something else.
+
+Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
+nothing else, not even an npm package; `application/` adds `application/`;
+`infrastructure/` and `server/` may import anything below the React client.
+`shared/` is the pure domain code the client and the server already share, and
+it must keep importing nothing from any layer.
+
+**This is a check, not a convention.** `cd web && npm run lint:layers` runs
+`dependency-cruiser` and is a step of the `web (typecheck + tests)` job, so a
+domain file that imports from `infrastructure` fails the pull request. It was
+made to fail on purpose before it was trusted.
+
+The domain and the application layer compile with `infrastructure/` deleted,
+which is the test of whether the separation is real rather than a naming
+convention. Demonstrated by doing it, not by reading the imports: move
+`web/infrastructure` out of the tree and `cd web && npx tsc --noEmit -p
+tsconfig.domain.json` still reports nothing, while a full `npm run typecheck`
+reports five errors and every one of them is in `server/`. That comment block at
+the top of `web/tsconfig.domain.json` is the exact sequence.
+
+### Postgres schema changes go through Drizzle
+
+`web/infrastructure/db/schema.ts` describes the Postgres schema, and
+`cd web && npm run db:generate` turns a change to it into a migration under
+`web/infrastructure/db/migrations`. `applySchema` applies them at startup.
+
+Three things about that are worth knowing before touching it.
+
+- **A database that already has these tables is adopted, not rebuilt.** The
+  Postgres container has a persistent volume per checkout, so a database created
+  before migrations existed is the normal case rather than the exception. It has
+  the baseline recorded as applied without being run. A database that has some
+  of the tables, or the tables with different columns, is refused by name rather
+  than stamped.
+- **`SCHEMA` in `web/server/db.pg.ts` is no longer executed and must not be
+  edited to describe a change.** It is the fixed point the baseline is proved
+  against: `web/infrastructure/db/migrate.test.ts` builds one database from each
+  and diffs the catalogue. Change the Drizzle schema and generate a migration.
+- **SQLite has no migrations and is not getting any.** Its schema stays
+  hand-written in `web/server/db.ts` with the two functions that bring the one
+  legacy catalogue file forward. Stage I removes that driver.
+
+There is no `dbCredentials` block in `drizzle.config.ts`, so `drizzle-kit push`,
+`pull` and `studio` are not configured. `generate` needs no database at all, and
+the others are three more ways to have a connection string in scope pointed at a
+catalogue. Do not add one.
 
 ## Conventions
 
