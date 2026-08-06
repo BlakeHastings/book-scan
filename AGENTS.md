@@ -238,8 +238,8 @@ versions (#162): the suite pinned `postgres:17` while the AppHost pinned
 nothing and took Aspire's default, `postgres:18.3`, so from stage G the browser
 suite proved one major version and the unit suite proved another. Verified
 after the change, on this machine: `docker ps` shows `postgres:18` for the
-AppHost's container, its log says `starting PostgreSQL 18.4`, and the test
-container reports the same.
+AppHost's container and its log says `starting PostgreSQL 18.4`, and the
+harness resolves the same image, `POSTGRES_IMAGE = postgres:18`.
 
 **Changing it is a decision, not a refresh.** 18 is what the managed targets in
 #140 actually offer today, checked rather than assumed: PostgreSQL 18 is GA on
