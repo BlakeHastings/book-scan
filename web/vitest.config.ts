@@ -44,11 +44,18 @@ const BOTH_DRIVERS = [
 ]
 
 /**
- * Postgres-only: the driver, the collation and the transaction pinning, and
- * since stage H the data migration, which is about both databases at once and
- * has nothing it could assert with only one of them.
+ * Postgres-only: the driver, the collation and the transaction pinning, since
+ * stage H the data migration, which is about both databases at once and has
+ * nothing it could assert with only one of them, and since #172 the schema
+ * migrations, which exist only for Postgres. SQLite keeps the hand-written
+ * schema in server/db.ts and the two functions that bring an old catalogue file
+ * forward; there is one such file in the world and stage I removes that driver.
  */
-const POSTGRES_ONLY = ['server/db.pg.test.ts', 'server/migrate.test.ts']
+const POSTGRES_ONLY = [
+  'server/db.pg.test.ts',
+  'server/migrate.test.ts',
+  'infrastructure/db/migrate.test.ts',
+]
 
 export default defineConfig({
   plugins: [react()],
