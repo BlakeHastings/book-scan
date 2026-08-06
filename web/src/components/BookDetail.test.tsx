@@ -172,6 +172,22 @@ describe('a queued capture with cover text and no title', () => {
     expect(html).not.toContain('The cover photo reads')
     expect(html).not.toContain('evidence')
   })
+
+  /*
+   * #156. With the guess out of the Title box this button is dead until
+   * somebody names the book, and it was live before, so the page has to say
+   * why rather than leave a person prodding at it. In the page and not only in
+   * the button's tooltip: this runs on a phone, where nothing hovers.
+   */
+  it('says what would let it be shelved, rather than only refusing', () => {
+    const html = capture({ coverText: 'Song of Solomon' })
+    expect(html).toContain('Type the title off the book to shelve it')
+  })
+
+  it('stops saying it the moment there is a title', () => {
+    const html = capture({ draft: { ...emptyDraft, title: 'Song of Solomon' } })
+    expect(html).not.toContain('Type the title off the book to shelve it')
+  })
 })
 
 /** Find a button by its label in an unrendered element tree. */

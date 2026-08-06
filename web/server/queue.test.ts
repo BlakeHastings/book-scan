@@ -191,9 +191,33 @@ describe('editing a capture while it is still in the queue', () => {
     // work survives the browser it was typed into.
     const reopened = (await new CaptureQueue(db, () => null).get(capture.id))!
     expect(editsOn(reopened).title).toBe('Dune')
-    expect(reopened.title_guess).toBe('Dune')
     expect(reopened.edited_by).toBe('alice')
     expect(reopened.edited_at).not.toBeNull()
+  })
+
+  /*
+   * #156. `title_guess` is the first line OCR read off a cover, and it used to
+   * take a stated title on top of that reading. One column holding both means
+   * nothing that reads the row can tell a title somebody confirmed from a
+   * machine's reading of a photograph, which is how the guess got into the
+   * Title box in the first place. What a person stated stays in `edit_json`,
+   * which is where every reader already looks for it.
+   */
+  it('does not write a stated title into the column that holds the guess', async () => {
+    // The capture this is about: read, no ISBN found, and the one thing it
+    // has to show for itself is a line off the cover.
+    const capture = await add()
+    await db.run("UPDATE captures SET title_guess = ?, status = 'failed' WHERE id = ?",
+      ['S0NG 0F SOLOMQN', capture.id])
+
+    await queue.edit(capture.id, 'alice', { title: 'Song of Solomon' })
+
+    const after = (await queue.get(capture.id))!
+    expect(after.title_guess).toBe('S0NG 0F SOLOMQN')
+    expect(editsOn(after).title).toBe('Song of Solomon')
+    // And the edit still settles the capture: a person who has named the book
+    // has resolved it, whatever the photographs did or did not read.
+    expect(after.status).toBe('ready')
   })
 
   it('accumulates edits across a handoff instead of the second wiping the first', async () => {
@@ -419,8 +443,11 @@ describe('precedence between a person and the background worker', () => {
     const after = (await running.get(capture.id))!
     expect(JSON.parse(after.draft_json).title).toBe('Rendezvous with Rama')
     expect(editsOn(after).title).toBe('Dune (Ace edition)')
-    // And what anybody is shown is the person's, because it goes on top.
-    expect(after.title_guess).toBe('Dune (Ace edition)')
+    // And what anybody is shown is the person's, because it goes on top. Read
+    // out of edit_json, not off a column the worker also writes: `title_guess`
+    // is the cover reading and only that, so the two remain tellable apart on
+    // the row itself (#156).
+    expect(after.title_guess).toBe('')
   })
 
   it('drops a "use Change ISBN" note once somebody has', async () => {

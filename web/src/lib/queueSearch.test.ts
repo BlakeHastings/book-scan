@@ -118,6 +118,18 @@ describe('matching a capture against what was typed', () => {
     expect(matchesQuery(unread, 'dune')).toBe(false)
     expect(matchesQuery(unread, '')).toBe(true)
   })
+
+  /*
+   * Search reaches the OCR guess even though no field is filled from it any
+   * more (#156). The guess is the name the row is drawn under, and a search
+   * box that could not find a row by the name beside it would be lying about
+   * the list it filters. Nothing is saved by typing into it.
+   */
+  it('finds a capture by the guess its row is named after', () => {
+    const guessed = blank(5, { title_guess: 'S0NG 0F SOLOMQN' })
+    expect(matchesQuery(guessed, 'solomqn')).toBe(true)
+    expect(matchesQuery(guessed, 'dune')).toBe(false)
+  })
 })
 
 describe('narrowing the queue', () => {

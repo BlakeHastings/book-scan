@@ -573,6 +573,11 @@ async function main(): Promise<void> {
       analysed: 'back,front,edge',
       note: 'No ISBN could be read from these photos.',
       cover_text: book.title,
+      // What the worker actually writes beside cover_text: its first line.
+      // Without it these rows seeded a capture that cannot happen, one the
+      // OCR read a cover for and drew no name from, and the queue drew them
+      // as "Book #12" when the real thing carries a guess (#156).
+      title_guess: book.title,
     })
     captureCount += 1
   }

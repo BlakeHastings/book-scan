@@ -1,4 +1,4 @@
-import { draftFromCapture, type QueueMatch } from '../lib/api'
+import { captureName, type QueueMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { queueThumb } from '../lib/queuePhoto'
 import { confidenceLine, matchConfidence } from '../../shared/confidence'
@@ -79,11 +79,12 @@ export function QueuedAlready({
 
       {matches.map((match) => {
         const { capture, distance, basis } = match
-        // What anybody has worked out about it, over what the worker read,
-        // exactly as the queue draws it. A capture has no catalogue id and
-        // often no title yet, so the number it was given stands in.
-        const draft = draftFromCapture(capture)
-        const title = draft.title || `Book #${capture.id}`
+        // Named exactly as the queue names it, out of the same rule, so the
+        // book offered here and the row it opens read the same. Whether that
+        // name is a guess does not change the answer this panel gives: the
+        // evidence is the hash distance or the ISBN, both said below, and
+        // neither of them came from the cover text.
+        const { text: title } = captureName(capture)
         const thumb = queueThumb(capture, 'front')
         // Two kinds of evidence, said as the two different things they are.
         // An ISBN is exact and carries its own check digit; a hash distance is

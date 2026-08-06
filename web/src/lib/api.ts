@@ -813,7 +813,22 @@ export function editsOn(capture: Capture): CaptureEdit {
   return parseJson<CaptureEdit>(capture.edit_json) ?? {}
 }
 
-/** A queued capture as the worker left it, with nothing a person said on top. */
+/**
+ * A queued capture as the worker left it, with nothing a person said on top.
+ *
+ * `title_guess` is deliberately not in here (#156). It is `coverLines[0]`, the
+ * first line OCR read off a photograph, and this draft is what the review
+ * pane's Title box is filled from and what Save writes to the catalogue. A
+ * guess poured into that box is saved by the next person who agrees with
+ * everything on the screen, and the catalogue then holds a machine's reading
+ * of a photograph that is indistinguishable from a title somebody confirmed.
+ * That is the whole of #147, and it was still true one field over.
+ *
+ * The guess is not thrown away: it names the row in the queue, through
+ * `captureName`, which is a use it is good enough for. An ISBN read off a
+ * barcode is kept because it is self-validating and was confirmed against a
+ * catalogue before it was written.
+ */
 function machineDraft(capture: Capture): Draft {
   const looked = lookupOn(capture)
   return looked?.found
@@ -822,7 +837,6 @@ function machineDraft(capture: Capture): Draft {
         ...emptyDraft,
         isbn13: capture.isbn13,
         isbn10: capture.isbn10,
-        title: capture.title_guess,
         isbnSource: capture.isbn_source,
       }
 }
@@ -857,6 +871,42 @@ export function draftFromCapture(capture: Capture): Draft {
   }
 
   return { ...base, ...patch }
+}
+
+/** What to call a capture on a screen that lists several of them. */
+export interface CaptureName {
+  /** What to draw. Never empty, because a row with no name is unworkable. */
+  text: string
+  /**
+   * True when `text` is the OCR guess and nothing better. Callers draw that
+   * differently, so somebody reading a stack of rows can tell a title the app
+   * was told from one it read off a photograph.
+   *
+   * False for the number, which is not a guess: it is the capture's own id.
+   */
+  guessed: boolean
+}
+
+/**
+ * Naming a capture, which is a different job from filling in its Title box.
+ *
+ * Those two used to be one value and that is the defect in #156. A queue of
+ * unresolved captures that all read "Book #41", "Book #42" is unworkable, so
+ * the machine's reading has to be allowed to name a row; but a name is read
+ * and discarded, and a field is saved. So the guess names rows here, marked as
+ * a guess, and reaches no draft anywhere.
+ *
+ * Order: what anybody stated or a catalogue confirmed, then the guess, then
+ * the number. A capture has no catalogue id and often no title at all.
+ */
+export function captureName(capture: Capture): CaptureName {
+  const confirmed = draftFromCapture(capture).title.trim()
+  if (confirmed) return { text: confirmed, guessed: false }
+
+  const guess = capture.title_guess.trim()
+  if (guess) return { text: guess, guessed: true }
+
+  return { text: `Book #${capture.id}`, guessed: false }
 }
 
 /**

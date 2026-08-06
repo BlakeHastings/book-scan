@@ -175,6 +175,34 @@ describe('what a row says', () => {
     expect(html).toContain('Book #3')
   })
 
+  /*
+   * #156, both halves of it. The row still has to say which book it is, or a
+   * stack of unresolved captures is unworkable; and the name it uses to do
+   * that is a machine's reading of a photograph, so it cannot be drawn as
+   * though somebody had confirmed it.
+   */
+  it('still names a capture whose only title is what OCR read', () => {
+    const html = renderToStaticMarkup(row({ title_guess: 'S0NG 0F SOLOMQN' }).tree)
+    expect(html).toContain('S0NG 0F SOLOMQN')
+    expect(html).not.toContain('Book #3')
+  })
+
+  it('marks that name as a guess, in words and not only in styling', () => {
+    const html = renderToStaticMarkup(row({ title_guess: 'S0NG 0F SOLOMQN' }).tree)
+    expect(html).toContain('OCR guess')
+    expect(find(row({ title_guess: 'S0NG 0F SOLOMQN' }).tree, 'queue__title')?.className)
+      .toContain('queue__title--guess')
+  })
+
+  it('leaves a title somebody stated unmarked', () => {
+    const stated = { edit_json: JSON.stringify({ title: 'Song of Solomon' }) }
+    const html = renderToStaticMarkup(row(stated).tree)
+    expect(html).toContain('Song of Solomon')
+    expect(html).not.toContain('OCR guess')
+    expect(find(row(stated).tree, 'queue__title')?.className)
+      .not.toContain('queue__title--guess')
+  })
+
   it('offers what the gesture is going to do before the finger lifts', () => {
     expect(renderToStaticMarkup(row().tree)).toContain('Discard')
   })
