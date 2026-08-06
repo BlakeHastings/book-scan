@@ -17,15 +17,28 @@
  * dropped from.
  */
 
+import { readFileSync } from 'node:fs'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import type { TestProject } from 'vitest/node'
 
 /**
- * Pinned to the major version the eventual managed target will run, per the
- * plan's decision 3. Changing it is a decision, not a refresh: collation
- * behaviour is a property of the server and of the libc it was built against.
+ * The major version the eventual managed target will run, per the plan's
+ * decision 3. Changing it is a decision, not a refresh: collation behaviour is
+ * a property of the server and of the libc it was built against.
+ *
+ * **Read from `postgres-version.json` at the repository root, which is the one
+ * place it is written.** It used to be a literal here, and the AppHost had no
+ * pin at all and took whatever Aspire defaulted to, so the two drifted two
+ * major versions apart without anything saying so (#162). One file, three
+ * readers: this, `apphost.mts`, and `scripts/check-postgres-version.mjs`, which
+ * holds `.github/workflows/ci.yml` to the same value because a workflow's
+ * `services:` image cannot be an expression over a file.
  */
-export const POSTGRES_IMAGE = 'postgres:17'
+const version = JSON.parse(
+  readFileSync(new URL('../../postgres-version.json', import.meta.url), 'utf8'),
+) as { image: string; tag: string }
+
+export const POSTGRES_IMAGE = `${version.image}:${version.tag}`
 
 let container: StartedPostgreSqlContainer | undefined
 

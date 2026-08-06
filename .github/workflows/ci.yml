@@ -55,10 +55,16 @@ jobs:
     # the BOOKSCAN_TEST_DATABASE_URL escape hatch below. Neither is a code path
     # nobody runs until it breaks.
     #
-    # Pinned to 17, matching web/server/pgcontainer.ts. That is the version the
-    # eventual managed target is expected to run, and collation behaviour is a
-    # property of the server and the libc it was built against, so this is a
-    # decision rather than a default to refresh.
+    # Pinned to the major version in `postgres-version.json`, which is the one
+    # place it is written. That is the version the eventual managed target will
+    # run, and collation behaviour is a property of the server and the libc it
+    # was built against, so this is a decision rather than a default to refresh.
+    #
+    # It is a literal here and nowhere else, because `services.<id>.image` is
+    # evaluated before any step runs and the `env` context is not available to
+    # it, so it cannot be read out of a file. `check-postgres-version.mjs`, run
+    # as a step below, fails the job if this literal and that file disagree.
+    # Change one, change both.
     #
     # A service container starts whatever the steps below decide to do, so a
     # documentation-only run pays for it too. Measured against the alternative
@@ -66,7 +72,7 @@ jobs:
     # job rounded up to a whole minute, so it costs the same minute it did.
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -88,6 +94,15 @@ jobs:
       # steps are about to be skipped as documentation.
       - name: No production data committed
         run: bash scripts/check-no-scan-data.sh
+
+      # Also unconditional, and for the same kind of reason: the service
+      # container above has already started by the time any step runs, so if its
+      # tag disagrees with `postgres-version.json` the tests below would prove a
+      # different database from the one the AppHost runs. That is #162, and this
+      # is what stops it coming back. Node is the runner's preinstalled one, as
+      # for the scope script below, so this costs nothing on a docs-only run.
+      - name: Postgres version is written once
+        run: node scripts/check-postgres-version.mjs
 
       # Runs on the runner's preinstalled node, before setup-node, so a
       # documentation only pull request never pays for a toolchain either.

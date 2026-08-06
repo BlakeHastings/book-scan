@@ -12,12 +12,34 @@
 // ports, and a second checkout then fails to bind them. Do not add one back.
 
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { createBuilder } from './.aspire/modules/aspire.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The Postgres major version, read from the one file that carries it.
+ *
+ * Not a literal here, and not a literal in web/server/pgcontainer.ts either.
+ * Those were two literals and they disagreed for two major versions (#162):
+ * the AppHost ran whatever tag Aspire happened to default to, 18.3, while the
+ * test suite pinned 17, so since stage G the browser suite proved one database
+ * and the unit suite proved another. A suite that does not exercise the
+ * database being shipped is the whole reason there is a Postgres container per
+ * test run at all.
+ *
+ * Read at run time rather than imported, because the two readers are in
+ * different TypeScript projects with different module resolution: the AppHost
+ * is NodeNext at the repo root, `web/` is bundler resolution. A JSON file both
+ * can open, and `scripts/check-postgres-version.mjs` can compare against
+ * `ci.yml`, is the thing all three agree on.
+ */
+const postgresVersion = JSON.parse(
+  readFileSync(join(here, 'postgres-version.json'), 'utf8'),
+) as { image: string; tag: string };
 
 /**
  * An end to end run wants a database of its own, so a suite that assumes an
@@ -77,13 +99,21 @@ const builder = await createBuilder();
  *   more than a clean slate every run, `web/data/books.db` persisted before
  *   this migration and losing that would be a regression in developing here,
  *   and Aspire's own guidance prefers a persistent lifetime for a database.
- * - **No image tag pinned, because it cannot be.** `addPostgres` exposes no
- *   `withImageTag` on the TypeScript surface, only `withHostPort`,
- *   `withDataVolume`, `withPassword` and the two admin UIs. Aspire 13.4.2 runs
- *   `postgres:18.3` here, read off `docker ps` after `aspire start`, while the
- *   test suite deliberately pins `postgres:17` (server/pgcontainer.ts). The two
- *   differ, which is #162, and stage G makes it matter more rather than less:
- *   the browser suite now exercises 18.3 while the unit suite exercises 17.
+ * - **The image tag is pinned, from `postgres-version.json`.** It can be:
+ *   `withImageTag` is declared on `PostgresServerResource` itself in the
+ *   generated TypeScript surface, not only on a bare container, which
+ *   `aspire docs api search withImageTag` finds and
+ *   `aspire docs api list typescript/aspire.hosting.postgresql/postgresserverresource`
+ *   does not, because that listing shows the Postgres-specific members and not
+ *   the container ones the resource also carries. The comment that used to sit
+ *   here said it could not be done, on the strength of that listing, and it was
+ *   wrong: #162. Left unpinned, Aspire 13.4.2 ran `postgres:18.3` while the
+ *   suite pinned `postgres:17`, so the browser suite proved one major version
+ *   and the unit suite proved another.
+ * - **The tag is the major only, so the minor floats.** A managed Postgres
+ *   applies its own minor updates and does not ask, so pinning a minor here
+ *   would be proving a version nothing runs. The major is the thing that is a
+ *   decision.
  *
  * The cost, stated because it is per checkout and not per machine: one
  * Postgres container and one volume for every running checkout. Five worktrees
@@ -128,11 +158,15 @@ const databaseName = e2eRun ? `bookscan_${e2eRun.replace(/-/g, '_')}` : 'booksca
 
 const postgres = await builder
   .addPostgres('postgres')
+  .withImageTag(postgresVersion.tag)
   .withDataVolume({ name: volumeName });
 
 const catalogue = await postgres.addDatabase('bookscan', { databaseName });
 
-console.log(`[apphost] postgres volume ${volumeName}, database ${databaseName}`);
+console.log(
+  `[apphost] ${postgresVersion.image}:${postgresVersion.tag}, ` +
+    `volume ${volumeName}, database ${databaseName}`,
+);
 
 let apiBuilder = builder
   .addNodeApp('api', './web', 'server/index.ts')
