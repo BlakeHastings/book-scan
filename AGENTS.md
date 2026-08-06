@@ -24,17 +24,28 @@ one at a time, in front of a camera. Treat it as irreplaceable, because it is.
 No count is given here on purpose. It grows, and a stale number invites the
 thought that this is a small toy database rather than somebody's afternoons.
 
-It lives outside this repo, at:
+**Since 2026-08-06 it is in two places, not one.** Stage H moved the catalogue
+to Postgres. Both halves are irreplaceable and both are out of bounds:
 
-```
-C:\Users\Blake\book-scan-production-data\live\
-```
+| What | Where |
+| --- | --- |
+| The catalogue | A Postgres database in the container `book-scan-live-pg`, on the named volume `book-scan-live-pgdata`, at `127.0.0.1:5433/bookscan` |
+| The photographs | Files, still, at `C:\Users\Blake\book-scan-production-data\live\covers\` |
+| The old SQLite file | `C:\Users\Blake\book-scan-production-data\live\books.db`, untouched, kept as the way back until at least 2026-09-06 |
+| Backups | `C:\Users\Blake\book-scan-production-data\pg-backups\` |
 
 Agents must never read from, write to, point a dev server at, run a migration
 against, or delete anything in that directory or any sibling under
-`book-scan-production-data\`.
+`book-scan-production-data\`, **and must never connect to
+`127.0.0.1:5433`.** A container is easier to reach by accident than a file
+path: it answers on a port, it is in `docker ps`, and `docker volume rm` is one
+command with no confirmation.
 
-You do not need it. Everything you need to develop and test is generated
+**The SQLite file is not a spare copy you may practise on.** It is the rollback
+path for a migration that is days old, and it is stale the moment somebody
+scans a book. Treat it as read-only history.
+
+You do not need any of it. Everything you need to develop and test is generated
 locally. If you believe a task requires production data, stop and ask the owner
 instead of proceeding.
 
@@ -125,42 +136,67 @@ timing.
 
 ### What `stable` actually runs, and why the command changed
 
-**The live catalogue is still a SQLite file.** Stage G flipped the project's
-default to Postgres, and stage H, which moves the real data, has not happened.
-Until it does, `stable` runs SQLite against
-`C:\Users\Blake\book-scan-production-data\live\`.
-
-So the launch needs **two** environment variables now, not one:
+**Since 2026-08-06 the catalogue is Postgres.** Stage H moved it. `stable` runs
+against the container, and still needs `BOOKSCAN_DATA` because the photographs
+are still files:
 
 ```
-BOOKSCAN_DB=sqlite
+ConnectionStrings__bookscan=postgres://postgres:...@127.0.0.1:5433/bookscan
 BOOKSCAN_DATA=C:\Users\Blake\book-scan-production-data\live
 ```
 
-Started with `BOOKSCAN_DATA` alone, the server **refuses to start** and names
-the missing variable. That is deliberate and it is the good outcome: on this
-revision the default is Postgres, so a deployment with no connection string
-would otherwise come up on an empty database sitting beside a full `books.db`,
-which reads exactly like a catalogue that has lost every book.
+Started with neither a connection string nor `BOOKSCAN_DB`, the server
+**refuses to start** and names what is missing. That is deliberate and it is
+the good outcome: it would otherwise come up on an empty database, which reads
+exactly like a catalogue that has lost every book.
 
 Launch it **detached**, not as a child of an agent session. It has died three
 times because the process was owned by a session that later let go of it:
 
 ```
-powershell -NoProfile -Command "$env:BOOKSCAN_DB='sqlite'; $env:BOOKSCAN_DATA='C:\Users\Blake\book-scan-production-data\live'; Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory 'C:\Users\Blake\source\repos\book-scan-stable\web' -WindowStyle Hidden"
+powershell -NoProfile -Command "$env:ConnectionStrings__bookscan='...'; $env:BOOKSCAN_DATA='C:\Users\Blake\book-scan-production-data\live'; Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory 'C:\Users\Blake\source\repos\book-scan-stable\web' -WindowStyle Hidden"
 ```
+
+**The way back is `BOOKSCAN_DB=sqlite`**, which opens the old file and needs no
+connection string. It costs everything scanned since the cutover, because there
+is no path from Postgres back to SQLite and there should not be one. See
+`docs/stage-h-runbook.md`.
 
 Nothing watches it. If the phone stops loading, check
 `curl http://127.0.0.1:3001/api/health`, which reports the database it opened.
 
-### Backups are verified by opening them, not by checksum
+### Backups are verified by restoring them, not by checking they exist
 
-Before anything touches the live catalogue, copy the whole `live\` directory,
-including `books.db-wal` and `books.db-shm`, and then **open the copy** and
-check `integrity_check` and the row counts. A checksum proves two files match;
-it does not prove either one opens. `docs/postgres-migration.md` records a
+The principle survived the migration; the commands did not. A checksum proves
+two files match and does not prove either one opens, and a dump that exists
+does not prove it restores.
+
+For the catalogue, now Postgres:
+
+```
+docker exec book-scan-live-pg pg_dump -U postgres -d bookscan -Fc -Z 6 > <dated>.dump
+```
+
+**Then restore it into a scratch database and compare**, which is the only
+thing that makes it a backup rather than a file. Counts are not enough on their
+own: compare the shelf order too, because a collation or encoding difference
+changes nothing about how many rows there are.
+
+```sql
+select md5(string_agg(id::text, ',' order by sort_key, id)) from books;
+```
+
+Run on both, they must match. Drop the scratch database afterwards.
+
+**The photographs are not in the dump.** They are over a gigabyte of files and
+they are half of what is irreplaceable. Copy them separately.
+
+`docs/postgres-migration.md` records the near miss this rule comes from: a
 `cp books.db` that silently lost five hours of work because the WAL was newer
-than the `.db`.
+than the `.db`. The shape of the mistake outlives the technology.
+
+**None of this is automated yet.** See #177, which is the most urgent open
+issue in the repository for exactly this reason.
 
 ## Running things
 
@@ -178,11 +214,15 @@ npm run build      # typecheck then vite build
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
 LAN address, so the phone needs HTTPS.
 
-**Postgres is the default database as of stage G.** `BOOKSCAN_DB` picks one and
-defaults to `postgres`; `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db`
-and behaves exactly as this app always has. SQLite is not deprecated and not
-second class until stage I says so: **the owner's catalogue is still a SQLite
-file**, and that variable is the whole of the way back.
+**Postgres is the default database as of stage G, and as of stage H it is where
+the owner's catalogue actually lives.** `BOOKSCAN_DB` picks one and defaults to
+`postgres`; `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db` and behaves
+exactly as this app always has.
+
+SQLite is not deprecated and not second class until stage I (#178) says so, and
+stage I is deliberately blocked: **that variable is the only way back from a
+migration a few days old**, and the file it opens is the catalogue as it stood
+at the cutover. Keep the SQLite half of the suite green.
 
 Under `aspire start` there is nothing to set. The AppHost provisions Postgres
 and hands the api its connection. Running the api on its own with neither
