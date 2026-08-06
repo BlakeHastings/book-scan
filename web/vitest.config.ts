@@ -43,8 +43,12 @@ const BOTH_DRIVERS = [
   'server/dividers.test.ts',
 ]
 
-/** Postgres-only: the driver, the collation and the transaction pinning. */
-const POSTGRES_ONLY = ['server/db.pg.test.ts']
+/**
+ * Postgres-only: the driver, the collation and the transaction pinning, and
+ * since stage H the data migration, which is about both databases at once and
+ * has nothing it could assert with only one of them.
+ */
+const POSTGRES_ONLY = ['server/db.pg.test.ts', 'server/migrate.test.ts']
 
 export default defineConfig({
   plugins: [react()],

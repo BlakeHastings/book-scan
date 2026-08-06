@@ -532,6 +532,31 @@ class SqliteDb implements Db {
   }
 }
 
+/**
+ * Open an existing catalogue for reading and nothing else.
+ *
+ * `openDatabase` below writes to whatever it is given before it returns: WAL
+ * mode is a change to the file header, `CREATE TABLE IF NOT EXISTS` is a write
+ * on an empty file, `addMissingColumns` alters tables and the seed inserts
+ * rows. All of that is correct for a database the server is about to serve, and
+ * none of it is acceptable for the one thing stage H reads: the owner's
+ * catalogue, or a snapshot of it that is the only copy of an afternoon's
+ * scanning. So the migration gets its own opener, and the source is not
+ * writable rather than merely not written to.
+ *
+ * `fileMustExist` matters as much as `readonly`. Without it a mistyped path
+ * produces an empty database and a cheerful report of nothing to migrate, which
+ * is the failure that looks like success.
+ */
+export function openReadOnlyDatabase(path: string): Db {
+  const db = new Database(path, { readonly: true, fileMustExist: true })
+  // Belt and braces on top of `readonly`: `query_only` makes the connection
+  // refuse a write even if something later hands it a statement that is one.
+  db.pragma('query_only = ON')
+  db.pragma('busy_timeout = 5000')
+  return new SqliteDb(db)
+}
+
 export function openDatabase(path: string): Db {
   mkdirSync(dirname(path), { recursive: true })
 

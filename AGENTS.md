@@ -75,6 +75,16 @@ The safety here is structural, not just a request:
   reading the api resource's own environment out of `aspire describe`, so it
   can only ever open the database the AppHost just provisioned. It never reads
   `BOOKSCAN_DATA` or a connection string from a shell.
+- **The stage H migration tool is the one thing here that can write to a
+  catalogue, and it will not take its target from the environment either.**
+  `web/server/migrate-sqlite-to-pg.ts` names the Postgres it writes on its own
+  command line, with `--target`, or reads `BOOKSCAN_MIGRATE_TARGET`. It does not
+  read `ConnectionStrings__bookscan`, so the connection the app is running on
+  cannot become the thing a migration overwrites by being in scope. Its source
+  is opened read-only, through `openReadOnlyDatabase`, and it refuses a source
+  with a `-wal` file beside it. Verified by running it: `--apply` against a
+  scratch Postgres moved 197 books and left the snapshot byte for byte as it
+  was. See `docs/stage-h-runbook.md`.
 - `web/.gitignore` excludes `data/`, so a database or cover photo cannot be
   committed. CI re-checks this on the result, because an ignore rule is silent
   when someone forces past it.
@@ -179,6 +189,13 @@ and hands the api its connection. Running the api on its own with neither
 `BOOKSCAN_DB` nor a connection string is the one combination that refuses to
 start, on purpose: coming up on an empty Postgres beside a `books.db` full of
 scanned books would look exactly like a catalogue that lost every one of them.
+
+**`npm test` empties `web/data/`.** `server/index.test.ts` ends with
+`rmSync(dataRoot, { recursive: true, force: true })`, and `dataRoot` is the whole
+directory rather than the temporary one it made inside it. So a scratch
+catalogue, a downloaded cover, or anything else parked there does not survive a
+test run. Found by losing 1.1 GB of copied cover files to one `npm test` during
+the stage H rehearsal. Do not stage anything there you would mind re-copying.
 
 **`npm test` needs Docker.** That is new as of stage F of the Postgres
 migration and it is a real regression in what it takes to contribute, accepted
