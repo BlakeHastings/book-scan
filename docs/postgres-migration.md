@@ -1,9 +1,10 @@
 # SQLite to Postgres: a staged migration plan
 
-Status: **stages A to G have landed** (#44, #45, #55, #142, #144, #160, #163).
-The app now defaults to Postgres, **and the owner's catalogue is still a SQLite
-file**: nothing has touched the live data, and nothing will until stage H, which
-the owner runs. `BOOKSCAN_DB=sqlite` opens that file and is a fully supported
+Status: **stages A to G have landed** (#44, #45, #55, #142, #144, #160, #163),
+and **stage H's tool and runbook exist and have been rehearsed against a
+snapshot**. The app now defaults to Postgres, **and the owner's catalogue is
+still a SQLite file**: nothing has touched the live data, and nothing will until
+the owner runs stage H themselves, following `docs/stage-h-runbook.md`. `BOOKSCAN_DB=sqlite` opens that file and is a fully supported
 configuration until stage I. Progress is tracked on #140; this document is the
 authority on what each stage is.
 
@@ -714,6 +715,66 @@ read as a check somebody can run.
 The owner runs this. Detailed in section 5. Nothing is committed to the
 repository except a migration script and its runbook.
 
+**The tool and the runbook are written and rehearsed; the live catalogue has
+not moved.** `web/server/migrate.ts` is the migration and the verification,
+`web/server/migrate-sqlite-to-pg.ts` is the command line front end, and
+`docs/stage-h-runbook.md` is the sequence the owner follows.
+
+Rehearsed against a `VACUUM INTO` snapshot of the real catalogue, taken while
+the app was running, with the real cover files beside it. **The live directory
+was never opened.** Measured, on a scratch Postgres provisioned by the AppHost:
+
+| | |
+| --- | --- |
+| rows in and out | books 197, book_authors 222, captures 221, separators 9, shelf_ranges 2, author_filing 0 |
+| the copy | **68 ms** |
+| the verification | **185 ms** |
+| cells compared | 13,774, every one identical, digests equal per table |
+| cover filenames | 1,232 distinct, all 1,232 present |
+| next ids | books 209 (max 208), captures 248 (247), separators 15 (14) |
+
+**Five corrections and findings from doing it.**
+
+- **The plan's row counts were a quarter of the real ones.** Section 5 said 57
+  books and 61 captures; it is 197 and 221, and the cover directory is 1.1 GB
+  rather than 282 MB. The counts below are updated. Nothing about the approach
+  changes, which is the useful part of having measured: the copy is still
+  under a tenth of a second.
+- **`npm test` deletes `web/data/`.** `index.test.ts` does
+  `rmSync(dataRoot, { recursive: true, force: true })` in an `afterAll`, where
+  `dataRoot` is the whole directory rather than the temporary one it made
+  inside it. So a snapshot staged there does not survive a test run. It cost
+  this rehearsal a re-copy of 1.1 GB and it is worth knowing before stage H is
+  run for real, because the runbook would otherwise be an obvious place to
+  suggest putting a snapshot.
+- **The negative control is not vacuous on the real data, and it was worth
+  checking rather than assuming.** 15 of the 197 books change position when the
+  same rows are ordered under the database's own `en_US.utf8` collation instead
+  of the column's `COLLATE "C"`, the first at position 118, where byte order has
+  `O CONNOR FLANNERY` and the collation has `OATES JOYCE CAROL`. That is the
+  same class of difference stage F demonstrated on a fixture, on the owner's
+  actual author names, and it is what makes "the two orders agree" mean
+  something.
+- **Three books share a sort key with another book**, two of them because the
+  same title was scanned twice. So the ordered comparison orders by `(sort_key,
+  id)` rather than `sort_key` alone: a tie is ordered arbitrarily and
+  independently by each database, and comparing it would have produced a
+  failure that was nobody's bug.
+- **The source is opened read-only rather than merely not written to.**
+  `openDatabase` writes to whatever it is handed before it returns: WAL mode,
+  `CREATE TABLE IF NOT EXISTS`, `addMissingColumns` and the seed. `db.ts` gained
+  `openReadOnlyDatabase` for this, with `fileMustExist` so a mistyped path is an
+  error rather than an empty database and a cheerful report of nothing to do.
+  The consequence for the runbook is that the snapshot has to be brought forward
+  by the SQLite code path **before** the migration reads it; the tool refuses
+  rather than doing it, and names the reason. The rehearsal snapshot was already
+  fully forward, so this cost nothing.
+
+The verification is the deliverable and it is written up in the runbook. What is
+worth repeating here is that every check has a negative control: 21 tests in
+`server/migrate.test.ts`, most of which break the migrated copy on purpose and
+assert that the verification says so.
+
 ### Stage I. Remove SQLite
 
 Not before the owner confirms the live catalogue has been on Postgres for at
@@ -841,9 +902,12 @@ being a code path nobody runs until it breaks.
 The owner runs every step. No agent touches
 `C:\Users\Blake\book-scan-production-data\`.
 
-Inputs: one SQLite database, 57 books, 66 author rows, 61 captures, plus
-`separators`, `author_filing` and `shelf_ranges`. 338 cover images on the
-filesystem, which **do not move**.
+Inputs: one SQLite database, 197 books, 222 author rows, 221 captures, 9
+separators, plus `author_filing` and `shelf_ranges`. 1,295 cover images on the
+filesystem, 1.1 GB, which **do not move**. Measured on the stage H rehearsal
+snapshot; the numbers this section carried before it (57 books, 61 captures, 338
+images) were written eight months earlier and were about a quarter of the real
+size. Take a fresh count rather than believing these either.
 
 ### Before anything
 
@@ -874,9 +938,14 @@ Against the **snapshot**, never the live file:
    list** between the two databases. That last comparison is the collation check
    on real data and it is the single most valuable step in the rehearsal.
 4. Point a dev server at the migrated scratch database and look at the shelves.
-   57 books is few enough to read with your eyes. Check fiction and non-fiction,
-   check the checked-out list, check that separators put the boundaries where
-   they were.
+   Check fiction and non-fiction, check the checked-out list, check that
+   separators put the boundaries where they were.
+
+   **Done, and 197 books is more than is comfortable to read with your eyes**,
+   so the eyes were used for what only they can do (the photographs are there,
+   the spines render, the queue reads correctly) and the order was compared by
+   pulling all 148 rendered fiction spines out of the DOM and checking them
+   against `ORDER BY sort_key, id` from the SQLite snapshot. Identical.
 5. Do it a second time from a fresh snapshot, to prove the script is repeatable
    and not something that worked once because of the order things happened to
    run in.
@@ -898,6 +967,28 @@ run, and waits before writing.
 - Refuses a non-empty target unless `--force`.
 - Prints the comparison numbers itself, so the acceptance check is not a
   separate manual step somebody skips at 11pm.
+
+**Built, and in two files rather than one.** `server/migrate.ts` is the
+migration and the verification with no command line in it, which is what lets
+`server/migrate.test.ts` run all of it; `server/migrate-sqlite-to-pg.ts` is the
+front end. Four departures from the list above, each of which the rehearsal
+argued for:
+
+- **It reads through `Db`, not `better-sqlite3` directly**, so `db.ts` is still
+  the only production file importing that package and `driver.test.ts` still
+  says so. What it needed was a read-only opener, `openReadOnlyDatabase`,
+  because `openDatabase` writes to whatever it is handed before it returns.
+- **The whole thing is one transaction, including the sequence restarts and the
+  `--force` truncate.** So there is no half-migrated state to reason about and
+  no cleanup before a re-run.
+- **The comparison is cell by cell and type by type, not a checksum over
+  `books`.** A digest per table is printed as well, for writing down, but it is
+  computed over a serialisation that distinguishes `null` from `''` from `0`
+  from `"0"`, so the coercions this stage is actually worried about change it.
+- **It refuses a schema disagreement in either direction before writing.** A
+  column the target lacks would be dropped silently; a column the source lacks
+  means the source was never brought forward and the rows arrive carrying
+  defaults nobody chose.
 
 ### Cutover
 
@@ -1071,7 +1162,14 @@ unnoticed for months.
   order.
 - In the Stage H rehearsal, compare `SELECT id FROM books ORDER BY sort_key` as
   an ordered list between the SQLite snapshot and the migrated Postgres, on the
-  real 57 books with the real author names.
+  real books with the real author names.
+
+  **Done, on 197 of them, and it is `SELECT id FROM books ORDER BY sort_key, id`
+  rather than by `sort_key` alone**: three books share a key with another book,
+  and a tie is ordered arbitrarily and independently by each database. All 197
+  positions agree, and 15 of them move when the same rows are ordered under the
+  database's own `en_US.utf8` collation, so the agreement is not the agreement
+  of a check that could not fail.
 
 ### Risk 2: moving 57 irreplaceable books.
 
