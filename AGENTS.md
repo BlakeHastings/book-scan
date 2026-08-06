@@ -218,6 +218,59 @@ that is how CI does it. Measured on this machine with `cd web && npm test`:
 about 40 seconds before, about 47 after, with the image already pulled.
 `npx vitest run --project sqlite` runs the half that needs nothing.
 
+### The Postgres version is written in one file
+
+**`postgres-version.json`, at the repository root.** It says `postgres` and
+`18`, and everything that starts a Postgres reads it:
+
+- `apphost.mts` passes the tag to `withImageTag`, so `aspire start` and the
+  browser suite run it.
+- `web/server/pgcontainer.ts` builds the test container's image from it, so
+  `npm test` runs it.
+- `scripts/check-postgres-version.mjs` fails CI when
+  `.github/workflows/ci.yml` disagrees. That workflow has to keep a literal:
+  `services.<id>.image` is evaluated before any step runs and the `env` context
+  is not available to it, so it cannot read a file. The check also fails if
+  either reader above stops reading the file.
+
+This exists because the version was written twice and drifted two major
+versions (#162): the suite pinned `postgres:17` while the AppHost pinned
+nothing and took Aspire's default, `postgres:18.3`, so from stage G the browser
+suite proved one major version and the unit suite proved another. Verified
+after the change, on this machine: `docker ps` shows `postgres:18` for the
+AppHost's container, its log says `starting PostgreSQL 18.4`, and the test
+container reports the same.
+
+**Changing it is a decision, not a refresh.** 18 is what the managed targets in
+#140 actually offer today, checked rather than assumed: PostgreSQL 18 is GA on
+Amazon RDS (since 14 Nov 2025), on Aurora PostgreSQL (since 11 Jun 2026,
+starting at 18.3) and on Azure Database for PostgreSQL flexible server, and new
+servers on RDS and Azure are created at 18.4, which is what `postgres:18`
+resolves to. The tag is the major only, deliberately: a managed service applies
+its own minor updates without asking, so pinning a minor would be proving a
+version nobody runs.
+
+**Going the other way would have been worse than doing nothing**, and this is
+the part that is not obvious. The `postgres:18` image moved `PGDATA` from
+`/var/lib/postgresql/data` to `/var/lib/postgresql/18/docker`. Aspire mounts the
+data volume at the parent, `/var/lib/postgresql`, so both majors persist. But
+every existing checkout's volume was initialised by 18.3, and a 17 server
+pointed at one **starts cleanly and shows an empty catalogue**, because it
+initdb's a second cluster beside the first. Confirmed by doing it: a table
+written under 18 came back `relation "keep" does not exist` under 17, with the
+rows still on the volume.
+
+**`aspire update` or a template refresh can undo the pin.** Aspire's default
+tag is what the AppHost silently ran before, so a lost `withImageTag` looks like
+nothing at all until the suites disagree again. `docker ps` after
+`aspire start` is what says which image is really running. `withImageTag` is
+available on `addPostgres`, whatever an earlier comment in `apphost.mts` said:
+`aspire docs api search withImageTag` finds it, and
+`aspire docs api list typescript/aspire.hosting.postgresql/postgresserverresource`
+does not, because that listing shows the Postgres-specific members and not the
+container ones the resource also carries. Search, do not list, before
+concluding a builder method does not exist.
+
 ### Running it under Aspire
 
 Aspire is the local orchestrator. Use it when you need the app running rather
@@ -291,6 +344,10 @@ else about a checkout is affected.
 `apphost.mts` is the only AppHost file to hand-edit. **Never edit
 `.aspire/modules/`**: it is generated and regenerated on every start, so edits
 are lost. To add an integration, run `aspire add <package>`.
+
+The Postgres image tag it starts is pinned from `postgres-version.json`, not
+left to Aspire's default. See "The Postgres version is written in one file"
+above, and check after an `aspire update` that the pin is still there.
 
 ### Hunting passes
 

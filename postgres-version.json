@@ -1,0 +1,5 @@
+{
+  "image": "postgres",
+  "tag": "18",
+  "why": "The one place the Postgres major version is written. Read at run time by apphost.mts and by web/server/pgcontainer.ts, and checked against .github/workflows/ci.yml by scripts/check-postgres-version.mjs. See the Postgres version section of AGENTS.md before changing it: this is a decision about what the suite proves, not a dependency to refresh."
+}

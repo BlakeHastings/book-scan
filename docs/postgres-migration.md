@@ -442,6 +442,14 @@ apiBuilder = apiBuilder.withReference(catalogue).waitFor(catalogue)
   suite pins `postgres:17` per decision 3. **The two therefore differ**, and
   that is an open owner decision. It costs nothing while this container is
   idle; stage G is where the app starts using it.
+
+  **This correction was itself wrong, and #162 is where it was found.**
+  `withImageTag` is declared on `PostgresServerResource` in the generated
+  TypeScript surface: `aspire docs api search withImageTag` returns it, and
+  `aspire docs api list typescript/aspire.hosting.postgresql/postgresserverresource`
+  does not, because that listing carries the Postgres-specific members and not
+  the container ones the same resource has. The list was read as the whole
+  surface. Search before concluding a builder method does not exist.
 - **The data volume was decided as "none", provisionally.** Decision 2 is still
   the owner's. No volume is the option that cannot be wrong for the wrong
   reason: a fixed volume name is one database shared by every worktree, which
@@ -710,6 +718,11 @@ read as a check somebody can run.
   is idle. Nothing here makes it harder to fix: the tag is still in exactly two
   places, `server/pgcontainer.ts` and whatever `addPostgres` defaults to.
 
+  **Closed after stage H, on 18.** Both now read `postgres-version.json`, which
+  is the only place a version is written, and `scripts/check-postgres-version.mjs`
+  holds the one literal that cannot read a file, `services:` in `ci.yml`, to the
+  same value. See decision 3 below for why 18 rather than 17.
+
 ### Stage H. The real data
 
 The owner runs this. Detailed in section 5. Nothing is committed to the
@@ -862,10 +875,16 @@ vitest `globalSetup`, and an escape hatch.**
   a cold container start measured about four seconds here. Revisit if that
   changes.
 
-CI uses the escape hatch, with `services: postgres:17` in `ci.yml`. That is
+CI uses the escape hatch, with a `services: postgres` block in `ci.yml`. That is
 worth more than saving the pull: it means the container path and the escape
 hatch are each exercised by somebody on every change, rather than one of them
 being a code path nobody runs until it breaks.
+
+Its image is the one literal version left in the repository, because
+`services.<id>.image` is evaluated before any step runs and cannot read a file.
+`scripts/check-postgres-version.mjs` runs as a step in the same job and fails it
+if that literal and `postgres-version.json` disagree, which costs milliseconds
+inside a job that was going to run rather than a whole billed minute of its own.
 
 ### The cost, stated plainly
 
@@ -1355,6 +1374,43 @@ concurrency.
 
    Still open, as #162, and stage G raised the stakes: the browser suite now
    proves 18.3 and the unit suite proves 17.
+
+   **Settled at #162: 18, in `postgres-version.json`, read by the AppHost and by
+   the test harness so they cannot drift apart again.**
+
+   The instruction was to pin to what the managed target will run, so that was
+   checked rather than assumed. PostgreSQL 18 is generally available on all
+   three candidates in #140: Amazon RDS since 14 November 2025, Aurora
+   PostgreSQL-Compatible since 11 June 2026 starting at 18.3, and Azure Database
+   for PostgreSQL flexible server, whose supported-versions page lists 18 as GA
+   and creates new servers at 18.4. 17 is GA on all three as well, so both were
+   genuinely available and the choice is not forced by availability. 18 wins on
+   three counts: it is what new managed servers are created at today, it has the
+   longer support window on both clouds, and it is what a developer's AppHost has
+   in fact been running since Aspire defaulted to 18.3, so the tests move to the
+   database somebody already has rather than the other way round. Only the major
+   is pinned; a managed service applies its own minor updates without asking, so
+   pinning a minor would be proving a version nobody runs.
+
+   **Standardising down on 17 would have been actively worse**, which was not
+   obvious until it was tried. The `postgres:18` image moved `PGDATA` from
+   `/var/lib/postgresql/data` to `/var/lib/postgresql/18/docker`. Aspire mounts
+   the data volume at the parent, `/var/lib/postgresql`, so persistence works on
+   either major, but every existing checkout's volume was initialised by 18.3,
+   and a 17 server pointed at one starts perfectly happily onto a second, empty
+   cluster beside the first. Tried: a table written under 18 came back
+   `relation "keep" does not exist` under 17, rows still on the volume. A
+   developer would have read that as a scratch catalogue that vanished.
+
+   Verified on 18: `docker ps` shows `postgres:18` for the AppHost's container
+   and its log says `starting PostgreSQL 18.4`; `cd web && npm test` is green at
+   1092 tests across 51 files, the same count as on 17; and the stage F ordering
+   proof still holds, which is the check that actually mattered. The test
+   databases are still created `en_US.utf8` on 18, `db.pg.test.ts` still asserts
+   the database it got is not a `C` one, the shelf still comes back in byte
+   order, and the negative control still bites: with `COLLATE "C"` removed from
+   `db.pg.ts`, seven tests fail on 18.4, including the byte-order fixture and the
+   `<` and `>` neighbour seeks.
 4. **When does the live catalogue actually move?** Recommended: flip the local
    default at Stage G, live on scratch data for a week, then do Stage H.
    Migrating live data as soon as Postgres works buys nothing.
