@@ -27,7 +27,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
-import { migrateToLatest } from '../infrastructure/db/migrate'
+import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/migrate'
 import { bindParams, lockKey, numbered, type Db, type Params, type TxOptions } from './driver'
 
 const { Pool } = pg
@@ -478,6 +478,14 @@ export class PgDb implements Db {
   }
 }
 
+/** What each migration outcome means, for the one line the app prints. */
+const OUTCOMES: Record<MigrationOutcome, string> = {
+  created: 'this database was empty, so the schema was created from them',
+  adopted: 'this database already had the schema, so the baseline was recorded ' +
+    'as applied without being run and nothing was rebuilt',
+  migrated: 'this database was already under migration control',
+}
+
 /**
  * Bring the schema up to date and seed it, then hand back a `Db`.
  *
@@ -498,7 +506,13 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
   // `exec`: schema work is the only caller that wants multi-statement SQL, and
   // it is per-dialect. Drizzle's migrator wants a pool for the same reason, and
   // it is given this one rather than opening any of its own.
-  await migrateToLatest(pool)
+  const outcome = await migrateToLatest(pool)
+
+  // Said out loud, because the interesting outcomes are the quiet ones. A
+  // database that was adopted looks exactly like one that was built, right up
+  // until somebody wonders whether the tables they had last week are the tables
+  // they have now. `aspire logs api` is where this shows up.
+  console.log(`[db] postgres migrations: ${OUTCOMES[outcome]}`)
 
   const db = new PgDb(pool)
   const seed = `INSERT INTO shelf_ranges
