@@ -37,15 +37,6 @@
 import type { Separator } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
-// DELIBERATELY WRONG, and removed in the next commit. This is the import the
-// layering exists to prevent: a domain file reaching into infrastructure for
-// the shape of a database table. It is here so the check that forbids it can
-// be watched failing in CI rather than trusted, per #172.
-import type { separators } from '../../infrastructure/db/schema'
-
-/** The leak. If this compiles and CI is green, the boundary is decorative. */
-export type SeparatorTable = typeof separators
-
 /** One boundary given a new ordinal, which is all a renumbering is. */
 export interface Repositioned {
   id: number
