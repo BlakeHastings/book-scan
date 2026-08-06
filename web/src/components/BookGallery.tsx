@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  frameAtScroll, gallery, spineShape,
+  frameAfterSources, frameAtScroll, gallery, samePhotos, spineShape,
   type Frame, type GallerySources, type SpineShape,
 } from '../lib/gallery'
 
@@ -28,15 +28,40 @@ export function BookGallery({ sources, onZoom }: Props) {
   const [shape, setShape] = useState<SpineShape>('unknown')
   const [index, setIndex] = useState(0)
   const track = useRef<HTMLDivElement>(null)
+  // The photographs this gallery was last drawn for. `sources` is built fresh
+  // by the caller on every render, so there is nothing to compare against
+  // without keeping the last one.
+  const shown = useRef<GallerySources>(sources)
 
   const { swipe, beside } = gallery(sources, shape)
 
-  // A book can lose photos while it is open: change the ISBN and the
-  // catalogue cover is replaced. Landing on a frame that no longer exists
-  // would leave the dots pointing past the end.
+  /*
+   * Two things change these pictures, and they want opposite answers.
+   *
+   * A book can lose photos while it is open: change the ISBN and the catalogue
+   * cover is replaced. Landing on a frame that no longer exists would leave
+   * the dots pointing past the end, so the place is kept and pulled back
+   * inside what is left.
+   *
+   * A different book arriving is not that. This component is not remounted
+   * when a neighbour opens from the shelf row (#81), so without this it keeps
+   * the last book's frame index, its scroll position, which is the browser's
+   * and not React's, and its measured spine shape. All three belong to the
+   * book that has just been left.
+   */
   useEffect(() => {
-    if (index > swipe.length - 1) setIndex(Math.max(0, swipe.length - 1))
-  }, [index, swipe.length])
+    const was = shown.current
+    shown.current = sources
+
+    setIndex(frameAfterSources(index, was, sources, swipe.length))
+
+    if (!samePhotos(was, sources)) {
+      // Not smooth: this is a different page, not a move within one, and an
+      // animation back to the start would read as the last book sliding away.
+      track.current?.scrollTo({ left: 0 })
+      setShape('unknown')
+    }
+  })
 
   if (!swipe.length && !beside) return null
 
