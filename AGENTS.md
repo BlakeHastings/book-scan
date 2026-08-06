@@ -25,7 +25,7 @@ No count is given here on purpose. It grows, and a stale number invites the
 thought that this is a small toy database rather than somebody's afternoons.
 
 **Since 2026-08-06 it is in two places, not one.** Stage H moved the catalogue
-to Postgres. Both halves are irreplaceable and both are out of bounds:
+to Postgres. Every row below is irreplaceable and every row is out of bounds:
 
 | What | Where |
 | --- | --- |
@@ -36,14 +36,19 @@ to Postgres. Both halves are irreplaceable and both are out of bounds:
 
 Agents must never read from, write to, point a dev server at, run a migration
 against, or delete anything in that directory or any sibling under
-`book-scan-production-data\`, **and must never connect to
-`127.0.0.1:5433`.** A container is easier to reach by accident than a file
-path: it answers on a port, it is in `docker ps`, and `docker volume rm` is one
-command with no confirmation.
+`book-scan-production-data\`. **The same goes for the database.** Do not connect
+to `127.0.0.1:5433`, do not `docker exec` into `book-scan-live-pg`, and do not
+`docker stop`, `docker rm` or `docker volume rm` it. A read-only connection is
+still a connection to somebody's whole collection, and "it was only a SELECT" is
+not a thing to find out you were wrong about.
+
+The backup job is the one thing that reads it on a schedule, it is registered by
+the owner rather than by an agent, and it never connects to that database from
+an agent session. See `docs/backup-runbook.md`.
 
 **The SQLite file is not a spare copy you may practise on.** It is the rollback
-path for a migration that is days old, and it is stale the moment somebody
-scans a book. Treat it as read-only history.
+path for a migration that is days old, and it is stale the moment somebody scans
+a book. Treat it as read-only history.
 
 You do not need any of it. Everything you need to develop and test is generated
 locally. If you believe a task requires production data, stop and ask the owner
@@ -136,67 +141,83 @@ timing.
 
 ### What `stable` actually runs, and why the command changed
 
-**Since 2026-08-06 the catalogue is Postgres.** Stage H moved it. `stable` runs
-against the container, and still needs `BOOKSCAN_DATA` because the photographs
-are still files:
+**Stage H has happened: the catalogue is Postgres.** It is the database in
+`book-scan-live-pg` on `127.0.0.1:5433`. The SQLite file is still on disk at
+`C:\Users\Blake\book-scan-production-data\live\`, untouched, because the runbook
+says to leave it there for at least a month, and it is the way back.
+
+**The launch lines below were written for the SQLite configuration and have not
+been re-verified since the move.** They are left rather than rewritten from a
+guess, because this file has four times asserted something the code did not do.
+What settles it is one command against the running server, which reports the
+database it opened:
 
 ```
-ConnectionStrings__bookscan=postgres://postgres:...@127.0.0.1:5433/bookscan
+curl http://127.0.0.1:3001/api/health
+```
+
+For the SQLite configuration, the launch needs **two** environment variables,
+not one:
+
+```
+BOOKSCAN_DB=sqlite
 BOOKSCAN_DATA=C:\Users\Blake\book-scan-production-data\live
 ```
 
-Started with neither a connection string nor `BOOKSCAN_DB`, the server
-**refuses to start** and names what is missing. That is deliberate and it is
-the good outcome: it would otherwise come up on an empty database, which reads
-exactly like a catalogue that has lost every book.
+Started with `BOOKSCAN_DATA` alone, the server **refuses to start** and names
+the missing variable. That is deliberate and it is the good outcome: on this
+revision the default is Postgres, so a deployment with no connection string
+would otherwise come up on an empty database sitting beside a full `books.db`,
+which reads exactly like a catalogue that has lost every book.
 
 Launch it **detached**, not as a child of an agent session. It has died three
 times because the process was owned by a session that later let go of it:
 
 ```
-powershell -NoProfile -Command "$env:ConnectionStrings__bookscan='...'; $env:BOOKSCAN_DATA='C:\Users\Blake\book-scan-production-data\live'; Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory 'C:\Users\Blake\source\repos\book-scan-stable\web' -WindowStyle Hidden"
+powershell -NoProfile -Command "$env:BOOKSCAN_DB='sqlite'; $env:BOOKSCAN_DATA='C:\Users\Blake\book-scan-production-data\live'; Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory 'C:\Users\Blake\source\repos\book-scan-stable\web' -WindowStyle Hidden"
 ```
-
-**The way back is `BOOKSCAN_DB=sqlite`**, which opens the old file and needs no
-connection string. It costs everything scanned since the cutover, because there
-is no path from Postgres back to SQLite and there should not be one. See
-`docs/stage-h-runbook.md`.
 
 Nothing watches it. If the phone stops loading, check
 `curl http://127.0.0.1:3001/api/health`, which reports the database it opened.
 
 ### Backups are verified by restoring them, not by checking they exist
 
-The principle survived the migration; the commands did not. A checksum proves
-two files match and does not prove either one opens, and a dump that exists
-does not prove it restores.
+**The catalogue is Postgres now.** It is a database in the container
+`book-scan-live-pg`, on a named volume, bound to `127.0.0.1:5433`. Everything
+this file used to say about backups was about a SQLite file, and those rules,
+which were hard won, now protect the wrong thing.
 
-For the catalogue, now Postgres:
+`docs/backup-runbook.md` is the authority. The short version:
 
-```
-docker exec book-scan-live-pg pg_dump -U postgres -d bookscan -Fc -Z 6 > <dated>.dump
-```
+- A daily `pg_dump`, run by Windows Task Scheduler, with retention bounded twice
+  over: at most 14 dumps and at most 512 MiB of them, whichever bites first. A
+  run refuses to start with less than 1 GiB free.
+- **Every run restores the dump into a scratch database and compares it**, then
+  drops it. A dump nobody has restored is a hypothesis, and the tool exits
+  non-zero and says so when no scratch server was given.
+- The comparison is row counts, a content digest per table, **and the shelf
+  order hash**, `md5(string_agg(id::text, ',' order by sort_key, id))`. The last
+  one is the point: a count does not move when a collation does, and a collation
+  difference does not lose a book, it reorders them.
+- **The cover photographs are not in the dump.** `pg_dump` moves rows, not
+  files. They are over a gigabyte and half of what is irreplaceable, they need
+  their own copy on another disk, and the tool says so on every run.
+- **A dump on the same disk as the volume shares the fate of the volume.** It
+  covers a dropped table, a bad migration and a `docker volume rm`. It does not
+  cover losing the disk or the machine until the directory is copied off it.
 
-**Then restore it into a scratch database and compare**, which is the only
-thing that makes it a backup rather than a file. Counts are not enough on their
-own: compare the shelf order too, because a collation or encoding difference
-changes nothing about how many rows there are.
+`server/backup-catalogue.ts` does not read `ConnectionStrings__bookscan`. Its
+source is named on the command line or in `BOOKSCAN_BACKUP_SOURCE`, for the same
+reason `migrate-sqlite-to-pg.ts` refuses to inherit its target. Neither variable
+belongs in a shell.
 
-```sql
-select md5(string_agg(id::text, ',' order by sort_key, id)) from books;
-```
-
-Run on both, they must match. Drop the scratch database afterwards.
-
-**The photographs are not in the dump.** They are over a gigabyte of files and
-they are half of what is irreplaceable. Copy them separately.
-
-`docs/postgres-migration.md` records the near miss this rule comes from: a
-`cp books.db` that silently lost five hours of work because the WAL was newer
-than the `.db`. The shape of the mistake outlives the technology.
-
-**None of this is automated yet.** See #177, which is the most urgent open
-issue in the repository for exactly this reason.
+**The SQLite rules below still apply to the SQLite file**, which stage H left
+exactly where it was and which is the way back for at least a month. Before
+anything touches it, copy the whole `live\` directory, including `books.db-wal`
+and `books.db-shm`, and then **open the copy** and check `integrity_check` and
+the row counts. A checksum proves two files match; it does not prove either one
+opens. `docs/postgres-migration.md` records a `cp books.db` that silently lost
+five hours of work because the WAL was newer than the `.db`.
 
 ## Running things
 
@@ -214,15 +235,11 @@ npm run build      # typecheck then vite build
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
 LAN address, so the phone needs HTTPS.
 
-**Postgres is the default database as of stage G, and as of stage H it is where
-the owner's catalogue actually lives.** `BOOKSCAN_DB` picks one and defaults to
-`postgres`; `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db` and behaves
-exactly as this app always has.
-
-SQLite is not deprecated and not second class until stage I (#178) says so, and
-stage I is deliberately blocked: **that variable is the only way back from a
-migration a few days old**, and the file it opens is the catalogue as it stood
-at the cutover. Keep the SQLite half of the suite green.
+**Postgres is the default database as of stage G.** `BOOKSCAN_DB` picks one and
+defaults to `postgres`; `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db`
+and behaves exactly as this app always has. SQLite is not deprecated and not
+second class until stage I says so: **the owner's catalogue is still a SQLite
+file**, and that variable is the whole of the way back.
 
 Under `aspire start` there is nothing to set. The AppHost provisions Postgres
 and hands the api its connection. Running the api on its own with neither
@@ -257,59 +274,6 @@ Postgres you are willing to have scratch databases created on and dropped from,
 that is how CI does it. Measured on this machine with `cd web && npm test`:
 about 40 seconds before, about 47 after, with the image already pulled.
 `npx vitest run --project sqlite` runs the half that needs nothing.
-
-### The Postgres version is written in one file
-
-**`postgres-version.json`, at the repository root.** It says `postgres` and
-`18`, and everything that starts a Postgres reads it:
-
-- `apphost.mts` passes the tag to `withImageTag`, so `aspire start` and the
-  browser suite run it.
-- `web/server/pgcontainer.ts` builds the test container's image from it, so
-  `npm test` runs it.
-- `scripts/check-postgres-version.mjs` fails CI when
-  `.github/workflows/ci.yml` disagrees. That workflow has to keep a literal:
-  `services.<id>.image` is evaluated before any step runs and the `env` context
-  is not available to it, so it cannot read a file. The check also fails if
-  either reader above stops reading the file.
-
-This exists because the version was written twice and drifted two major
-versions (#162): the suite pinned `postgres:17` while the AppHost pinned
-nothing and took Aspire's default, `postgres:18.3`, so from stage G the browser
-suite proved one major version and the unit suite proved another. Verified
-after the change, on this machine: `docker ps` shows `postgres:18` for the
-AppHost's container and its log says `starting PostgreSQL 18.4`, and the
-harness resolves the same image, `POSTGRES_IMAGE = postgres:18`.
-
-**Changing it is a decision, not a refresh.** 18 is what the managed targets in
-#140 actually offer today, checked rather than assumed: PostgreSQL 18 is GA on
-Amazon RDS (since 14 Nov 2025), on Aurora PostgreSQL (since 11 Jun 2026,
-starting at 18.3) and on Azure Database for PostgreSQL flexible server, and new
-servers on RDS and Azure are created at 18.4, which is what `postgres:18`
-resolves to. The tag is the major only, deliberately: a managed service applies
-its own minor updates without asking, so pinning a minor would be proving a
-version nobody runs.
-
-**Going the other way would have been worse than doing nothing**, and this is
-the part that is not obvious. The `postgres:18` image moved `PGDATA` from
-`/var/lib/postgresql/data` to `/var/lib/postgresql/18/docker`. Aspire mounts the
-data volume at the parent, `/var/lib/postgresql`, so both majors persist. But
-every existing checkout's volume was initialised by 18.3, and a 17 server
-pointed at one **starts cleanly and shows an empty catalogue**, because it
-initdb's a second cluster beside the first. Confirmed by doing it: a table
-written under 18 came back `relation "keep" does not exist` under 17, with the
-rows still on the volume.
-
-**`aspire update` or a template refresh can undo the pin.** Aspire's default
-tag is what the AppHost silently ran before, so a lost `withImageTag` looks like
-nothing at all until the suites disagree again. `docker ps` after
-`aspire start` is what says which image is really running. `withImageTag` is
-available on `addPostgres`, whatever an earlier comment in `apphost.mts` said:
-`aspire docs api search withImageTag` finds it, and
-`aspire docs api list typescript/aspire.hosting.postgresql/postgresserverresource`
-does not, because that listing shows the Postgres-specific members and not the
-container ones the resource also carries. Search, do not list, before
-concluding a builder method does not exist.
 
 ### Running it under Aspire
 
@@ -384,10 +348,6 @@ else about a checkout is affected.
 `apphost.mts` is the only AppHost file to hand-edit. **Never edit
 `.aspire/modules/`**: it is generated and regenerated on every start, so edits
 are lost. To add an integration, run `aspire add <package>`.
-
-The Postgres image tag it starts is pinned from `postgres-version.json`, not
-left to Aspire's default. See "The Postgres version is written in one file"
-above, and check after an `aspire update` that the pin is still there.
 
 ### Hunting passes
 
@@ -519,13 +479,15 @@ teach people to skim past it.
 | `web/server/paddle.ts` | PaddleOCR, the primary OCR engine |
 | `web/server/lookup.ts` | Open Library primary, Google Books top-up |
 | `web/server/store.ts` | All SQL |
+| `web/server/backup.ts` | The backup digest and retention, and the shelf order hash |
+| `web/server/backup-catalogue.ts` | The dump, the retention sweep and the verifying restore |
+| `scripts/backup-catalogue.ps1` | What the scheduled task runs |
+| `docs/backup-runbook.md` | How the catalogue is backed up, and what is not covered |
 | `web/server/shelves.ts` | Shelf capacity and derived locations |
 | `web/shared/` | Domain rules shared by client and server |
 | `web/instrumentation.ts` | OpenTelemetry setup, preloaded with `--import` |
 | `e2e/` | Gherkin features and the browser suite that runs them |
 | `docs/shelving.md` | The shelving specification |
-| `docs/domain-model.md` | The layering and aggregates the code is moving towards (#169) |
-| `docs/data-model.md` | The schema it is moving towards (#170). Not what exists today. |
 
 ### The layering, and the one table that goes through it
 
@@ -586,14 +548,6 @@ catalogue. Do not add one.
 - `docs/shelving.md` is the authority on filing and placement rules. If code
   and that document disagree, the document wins, unless the owner has said
   otherwise in an issue. Do not silently change behaviour that it specifies.
-- **An area is not a plank.** A bookcase holds planks; a plank can hold more
-  than one area, because a divider or a pot plant halfway along is enough for
-  somebody to treat the two halves as separate places. The code currently
-  models them as one thing and the vocabulary is inconsistent throughout. Read
-  the Vocabulary section of `docs/shelving.md` before touching anything that
-  says `shelf` or `area`, and **do not rename either on your own initiative**:
-  half a codebase in each vocabulary is worse than all of it consistently
-  wrong.
 - Client and server never share a database connection. The client talks to the
   server only through `web/src/lib/api.ts`.
 - Tests run against real dependencies where it is affordable: real SQLite in

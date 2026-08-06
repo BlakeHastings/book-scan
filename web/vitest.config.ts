@@ -46,15 +46,22 @@ const BOTH_DRIVERS = [
 /**
  * Postgres-only: the driver, the collation and the transaction pinning, since
  * stage H the data migration, which is about both databases at once and has
- * nothing it could assert with only one of them, and since #172 the schema
- * migrations, which exist only for Postgres. SQLite keeps the hand-written
- * schema in server/db.ts and the two functions that bring an old catalogue file
- * forward; there is one such file in the world and stage I removes that driver.
+ * nothing it could assert with only one of them; since #172 the schema
+ * migrations, which exist only for Postgres, because SQLite keeps the
+ * hand-written schema in server/db.ts and the two functions that bring an old
+ * catalogue file forward; and since #177 the backup digest, which reads
+ * `md5(string_agg(... order by ...))` out of a real server and exists to catch
+ * a collation failure SQLite cannot have.
+ *
+ * These are not on BOTH_DRIVERS and that is not an oversight. A file belongs
+ * there when it opens a database and its assertions hold on either one. These
+ * would not compile against SQLite, let alone pass.
  */
 const POSTGRES_ONLY = [
   'server/db.pg.test.ts',
   'server/migrate.test.ts',
   'infrastructure/db/migrate.test.ts',
+  'server/backup.pg.test.ts',
 ]
 
 export default defineConfig({
