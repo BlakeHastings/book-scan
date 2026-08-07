@@ -269,6 +269,11 @@ Fix it in one place: a `shelved_books` view and a partial index on
 `(shelf_range, sort_key) WHERE state = 'shelved'`. The ordering code reads the
 view and cannot forget.
 
+**Both are built, by #183.** `books.state` carries the seven names, the view is
+what `Store.neighbours` and `Shelves.booksIn` read, and `idx_books_shelved` is
+what the view is an index seek over. The queue table is **not** dissolved: that
+is the second half and it is described under "What is built".
+
 ## Still open
 
 1. ~~Is a tag's slug immutable once created?~~ **Settled by the owner in #179:
@@ -346,3 +351,31 @@ a scanned-but-unidentified book a state of its own; a queue row that *has* becom
 a book handed its filenames straight to that book, so its photographs are already
 recorded as the book's and a second row would be a second capture of one
 photograph. Both halves want the state model, so both wait for it.
+
+`books.state`, `shelved_books` and `idx_books_shelved` are, by the first half of
+#183: the column with its check constraint over the seven names, the vocabulary
+in `web/domain/books/state.ts`, the migrations `0007` and `0008`, and the two
+statements in `Store.neighbours` and the one in `Shelves.booksIn` reading the
+view instead of the table.
+
+**The state was taken from the data, not assumed.** A row in `books` with
+`checked_out_at` set is `checked_out` and every other row is `shelved`, which is
+exactly the predicate the shelf has always been drawn with. `0008` counts the
+result, refuses to finish if a row is left undecided, and takes the shelf order
+hash either side of itself and refuses if it moved.
+
+**Nothing is cut over and the queue table is untouched**, the same shape as #179,
+#180 and #192. `checked_out_at` is still what the client reads and what
+`Store.setCheckedOut` compares; the state is written in that same statement so
+the two cannot drift. `GET /api/books` still lists the whole range, including
+books that are off the shelf, and reads `books` rather than the view on purpose:
+it is the catalogue rather than a shelf, and what it should say about a book that
+has been scanned and not identified is decided with the change that makes such a
+row possible.
+
+**`identified` has no rows and cannot yet**, which is the honest limit of this
+half. A book that is confirmed and not yet placed is still a row in the queue
+table, so `POST /api/books` writes `shelved` directly. Splitting that into two
+steps is what dissolving the queue is: **still to do**, and it is where
+`captures`'s three image columns and its nullable `book_id` are finally
+answered.

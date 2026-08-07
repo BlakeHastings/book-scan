@@ -50,6 +50,20 @@
       "when": 1786123459087,
       "tag": "0006_photographs_become_capture_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786142806442,
+      "tag": "0007_book_state_and_shelved_view",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786142839660,
+      "tag": "0008_books_get_the_state_they_are_in",
+      "breakpoints": true
     }
   ]
 }

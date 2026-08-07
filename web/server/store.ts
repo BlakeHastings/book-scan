@@ -16,6 +16,7 @@ import {
   type ShelfRange,
 } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
+import { CHECKED_OUT, SHELVED } from '../domain/books/state'
 // The lock namespace, not the class. `Shelves` owns shelf geography, and a
 // book being filed into a range and a boundary moving inside it are the two
 // halves of the same contention.
@@ -159,11 +160,21 @@ export class Store {
   }
 
   /**
-   * The core query pair. Both are covered by idx_books_shelf, so this stays
+   * The core query pair. Both are covered by idx_books_shelved, so this stays
    * two index seeks no matter how large the collection gets.
    *
    * `excludeId` matters when previewing an edit to an already-saved book, so
    * it does not end up as its own neighbour.
+   *
+   * **`shelved_books`, not `books`, and that is not a rename.** These two
+   * statements are what decides which physical books somebody is told to put a
+   * book between, so a row that is not on a shelf reaching them is somebody
+   * standing at a bookcase looking for a book that is not there. The condition
+   * used to be `checked_out_at IS NULL`, written out here and in three other
+   * statements, and #183 gave books six more states that must not reach a shelf.
+   * Saying which states in every query is the arrangement that lasts until the
+   * next query is written, so the view says it once and this cannot forget. See
+   * `shelvedBooks` in infrastructure/db/schema.ts.
    */
   async neighbours(
     range: ShelfRange,
@@ -172,20 +183,16 @@ export class Store {
   ): Promise<{ predecessor: Neighbour | null; successor: Neighbour | null }> {
     const exclude = excludeId ?? -1
 
-    // checked_out_at IS NULL is the whole point of the column here: a book in
-    // a box on the floor is not something to put another book beside.
     const predecessor = await this.db.get<BookRow>(
-      `SELECT * FROM books
+      `SELECT * FROM shelved_books
         WHERE shelf_range = ? AND sort_key < ? AND id != ?
-          AND checked_out_at IS NULL
         ORDER BY sort_key DESC LIMIT 1`,
       [range, sortKey, exclude],
     )
 
     const successor = await this.db.get<BookRow>(
-      `SELECT * FROM books
+      `SELECT * FROM shelved_books
         WHERE shelf_range = ? AND sort_key > ? AND id != ?
-          AND checked_out_at IS NULL
         ORDER BY sort_key ASC LIMIT 1`,
       [range, sortKey, exclude],
     )
@@ -304,14 +311,14 @@ export class Store {
          classification_confidence, author_filing, series_name,
          series_index, title_filing, sort_key, location, lookup_source,
          front_image, back_image, edge_image, isbn_source,
-         scanned_at, shelved_at
+         scanned_at, shelved_at, state
        ) VALUES (
          @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
          @published, @pages, @notes, @shelf_range, @is_fiction,
          @classification_source, @classification_confidence,
          @author_filing, @series_name, @series_index, @title_filing,
          @sort_key, @location, @lookup_source, @front_image, @back_image,
-         @edge_image, @isbn_source, @scanned_at, @shelved_at
+         @edge_image, @isbn_source, @scanned_at, @shelved_at, @state
        )
        RETURNING id`,
       {
@@ -341,6 +348,21 @@ export class Store {
         isbn_source: draft.isbnSource ?? '',
         scanned_at: now,
         shelved_at: location ? now : null,
+        /*
+         * `shelved`, stated rather than left to the column's default.
+         *
+         * This route is reached by somebody confirming what a book is and being
+         * told where it goes, and every row this statement has ever written has
+         * been in the shelf order from the moment it landed. Writing anything
+         * else here would take books off a shelf they are on.
+         *
+         * The two-step docs/data-model.md describes, `identified` and then
+         * `shelved`, needs somewhere to put a book that is confirmed and not yet
+         * placed, and today that somewhere is the queue table. It arrives with
+         * the work that dissolves it; inventing half of it here would mean a
+         * state nothing can leave.
+         */
+        state: SHELVED,
       },
     )
 
@@ -538,6 +560,24 @@ export class Store {
   // Reads
   // -----------------------------------------------------------------------
 
+  /**
+   * Every book in a range, in order. `books`, deliberately, not
+   * `shelved_books`.
+   *
+   * This is the catalogue rather than a shelf. It is what `GET /api/books`
+   * answers with, it has always included the books somebody has taken out, and
+   * a view that dropped them would take them off a listing that is the only
+   * place some of them appear. Nothing here tells anybody where to put a book,
+   * which is what makes it a different question from the two statements in
+   * `neighbours`.
+   *
+   * **On the day this lands the two relations hold the same rows**, because
+   * every row in `books` is `shelved` or `checked_out` and nothing can write
+   * anything else. What this listing should say about a book that has been
+   * scanned and not identified is a question that only has an answer once such a
+   * row can exist, which is the change that dissolves the queue table, and it is
+   * decided there rather than guessed at here.
+   */
   async listRange(range: ShelfRange): Promise<BookRow[]> {
     return this.db.all<BookRow>(
       'SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC',
@@ -588,6 +628,16 @@ export class Store {
    * `CaptureQueue.claim` has had exactly this shape all along, and it is the
    * pattern to copy rather than a transaction: a compare-and-set inside one
    * statement is atomic on both drivers under any isolation level.
+   *
+   * **The state moves in this statement and in no other.** `checked_out_at` and
+   * `state` describe the same fact from #183 onwards, one of them to the client
+   * and the other to every shelf query, and a second statement to keep them in
+   * step is a window in which a book is off the shelf according to one and on it
+   * according to the other. There is nothing to interleave with here.
+   *
+   * Returning is `shelved`, not the area the book came off. A checked-out book
+   * remembers no area on purpose: it is placed again by the rules, from its sort
+   * key, exactly as it was before this column existed.
    */
   async setCheckedOut(
     id: number,
@@ -595,11 +645,11 @@ export class Store {
   ): Promise<{ changed: boolean; checkedOutAt: string | null }> {
     const checkedOutAt = out ? new Date().toISOString() : null
     const changed = await this.db.get<{ checked_out_at: string | null }>(
-      `UPDATE books SET checked_out_at = ?
+      `UPDATE books SET checked_out_at = ?, state = ?
         WHERE id = ?
           AND checked_out_at IS ${out ? '' : 'NOT '}NULL
         RETURNING checked_out_at`,
-      [checkedOutAt, id],
+      [checkedOutAt, out ? CHECKED_OUT : SHELVED, id],
     )
     if (changed) return { changed: true, checkedOutAt: changed.checked_out_at }
 
@@ -775,11 +825,19 @@ export class Store {
     ) as never
   }
 
-  /** Books off the shelf, oldest first, so nothing is quietly forgotten. */
+  /**
+   * Books off the shelf, oldest first, so nothing is quietly forgotten.
+   *
+   * The complement of `shelved_books` is not one relation and there is no view
+   * for it: `checked_out` is one of six states that are not `shelved`, and the
+   * other five are not books somebody has taken out. So this names the state it
+   * means rather than reading "everything the shelf does not show".
+   */
   async checkedOut(): Promise<BookRow[]> {
     return this.db.all<BookRow>(
-      `SELECT * FROM books WHERE checked_out_at IS NOT NULL
+      `SELECT * FROM books WHERE state = ?
         ORDER BY checked_out_at ASC`,
+      [CHECKED_OUT],
     )
   }
 

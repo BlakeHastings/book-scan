@@ -513,6 +513,14 @@ a side effect of doing something else.
 #181; the plural one is the scanning queue and is dissolved by #183. One letter
 apart, and they are not related.
 
+**#183 lands in two, and the queue table is still here.** The first half added
+`books.state`, the `shelved_books` view and the partial index, and moved the
+ordering queries onto the view; the section below is the invariant it leaves
+behind. The queue table, its three image columns and its nullable `book_id` are
+exactly as #192 left them, and dissolving them is the second half. So `identified`
+is a state with no rows in it: a book that is confirmed and not yet placed is
+still a capture.
+
 **Tags and credits are written on every save, unconditionally.** The gate that
 used to decide this from the driver in `createApp` is gone: it existed only
 because the tag tables arrived in a Postgres migration while SQLite's schema was
@@ -553,6 +561,31 @@ convention. Demonstrated by doing it, not by reading the imports: move
 tsconfig.domain.json` still reports nothing, while a full `npm run typecheck`
 reports five errors and every one of them is in `server/`. That comment block at
 the top of `web/tsconfig.domain.json` is the exact sequence.
+
+### A shelf is drawn from `shelved_books`, never from `books`
+
+`books` has a `state` since #183, and only one of the seven states is on a
+shelf. **Any query that orders books, seeks a neighbour, lays out a plank or
+decides a boundary reads the view `shelved_books`.** Three statements do:
+the two in `Store.neighbours` and the one in `Shelves.booksIn`, which every
+layout, strip, label and misfile review is drawn from.
+
+The condition is written in exactly one place, the view's own predicate, and
+`idx_books_shelved` carries the same predicate so the view is an index seek
+rather than a scan. That is deliberate and it is not a style preference:
+spelling `WHERE state = 'shelved'` in each query is an arrangement that works
+until somebody writes the next one, and forgetting once puts a book nobody has
+identified between two real ones on a shelf listing somebody is standing in
+front of. A reviewer cannot check for a missing `WHERE` clause in a query that
+does not exist yet.
+
+Reading `books` directly is right for the catalogue, for a lookup by id, for the
+backfills and for the counts, and `Store.listRange` says why at the statement.
+If you are about to `ORDER BY sort_key` over `books`, you want the view.
+
+**`checked_out_at` is still the column the client reads**, and
+`Store.setCheckedOut` writes it and `state` in one statement so they cannot
+disagree. Nothing else moves a book between those two states.
 
 ### Postgres schema changes go through Drizzle
 

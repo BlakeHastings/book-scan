@@ -19,10 +19,12 @@
  * claim.
  */
 
+import { eq, sql } from 'drizzle-orm'
 import {
-  boolean, customType, doublePrecision, foreignKey, index, integer, pgTable, primaryKey, text,
-  uniqueIndex,
+  boolean, check, customType, doublePrecision, foreignKey, index, integer, pgTable, pgView,
+  primaryKey, text, uniqueIndex,
 } from 'drizzle-orm/pg-core'
+import { BOOK_STATES, SHELVED, type BookState } from '../../domain/books/state'
 
 /**
  * `text COLLATE "C"`, which Drizzle has no column builder for.
@@ -106,10 +108,78 @@ export const books = pgTable('books', {
   scannedAt: text('scanned_at').notNull(),
   shelvedAt: text('shelved_at'),
   checkedOutAt: text('checked_out_at'),
+
+  /**
+   * Where this book is in its life. See `domain/books/state.ts`.
+   *
+   * **`DEFAULT 'scanned'` is a decision and it is the one that fails safe.** A
+   * book exists from its first photograph, so `scanned` is genuinely where one
+   * begins; it is also the value a write that forgot to say anything lands on,
+   * and a forgotten state that reads `scanned` keeps the row out of
+   * `shelved_books` rather than putting it between two real books on somebody's
+   * shelf. `shelved` as the default would have been the opposite: silent, and
+   * wrong in the direction nobody notices.
+   *
+   * The same choice is what makes `0008` provable. The column arrives with
+   * every existing row reading `scanned`, which is true of none of them, so the
+   * backfill has to state a value for every row and the guard can refuse when
+   * one is left behind.
+   *
+   * text, not a pg enum: an enum is a type whose values are altered by DDL, and
+   * the seven names are already written down once in the domain. The check
+   * constraint below is what keeps a typo out.
+   */
+  state: text('state').$type<BookState>().notNull().default('scanned'),
 }, (table) => [
   index('idx_books_shelf').on(table.shelfRange, table.sortKey),
   index('idx_books_isbn13').on(table.isbn13),
+  /**
+   * The index the `shelved_books` view is an index seek over rather than a
+   * filter across the whole catalogue.
+   *
+   * Its predicate is written from the same constant the view's is, because a
+   * partial index whose predicate does not match the query's is not a slower
+   * index: it is an index the planner cannot use at all, silently, and the only
+   * symptom is a sequential scan nobody looks at. `state-backfill.test.ts`
+   * plans the real query against it rather than trusting that.
+   *
+   * `idx_books_shelf` is deliberately left alone. It is what the misfile review
+   * and the catalogue listing walk, and those look at books that are not on a
+   * shelf on purpose.
+   */
+  index('idx_books_shelved')
+    .on(table.shelfRange, table.sortKey)
+    .where(sql.raw(`"state" = '${SHELVED}'`)),
+  check('books_state_check', sql.raw(
+    `"state" IN (${BOOK_STATES.map((state) => `'${state}'`).join(', ')})`,
+  )),
 ])
+
+/**
+ * The books that are on a shelf. Every ordering query reads this and no other.
+ *
+ * **This view is the whole answer to the risk in #183.** `books` drives shelf
+ * ordering and misfile detection, and until now the rows with no business in
+ * either were kept out by being in a different table. Collapsing the two means
+ * every ordering query needs `WHERE state = 'shelved'`, and forgetting once puts
+ * an unidentified book between two real ones on somebody's shelf listing. A
+ * reviewer cannot check for a `WHERE` clause that will be written next month, so
+ * the condition is stated once, here, and `Store.neighbours` and
+ * `Shelves.booksIn` read a relation that cannot contain the wrong rows.
+ *
+ * `checked_out` is out of it too, and always was: a book in a box on the floor
+ * holds no position, so it is absent from the layout and is not something to put
+ * another book beside. That was `checked_out_at IS NULL` and is now one state
+ * among seven, which is the same set of rows on the day this lands.
+ *
+ * **The collation comes through.** A view column has the type, and therefore the
+ * collation, of the expression behind it, so `sort_key` here is still
+ * `COLLATE "C"` and `ORDER BY sort_key` still orders byte by byte. That is not
+ * obvious enough to leave to reading: `migrate.test.ts` reads the collation back
+ * out of the catalogue for this view's columns as well as for the table's.
+ */
+export const shelvedBooks = pgView('shelved_books').as((qb) =>
+  qb.select().from(books).where(eq(books.state, SHELVED)))
 
 export const bookAuthors = pgTable('book_authors', {
   bookId: integer('book_id').notNull(),
