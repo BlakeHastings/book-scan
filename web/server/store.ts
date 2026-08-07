@@ -3,7 +3,7 @@
  * and out of shared/shelving.ts, which stays pure.
  */
 
-import type { BookRow } from './db'
+import type { BookRow } from './db.pg'
 import type { Db } from './driver'
 import {
   buildPlacement,

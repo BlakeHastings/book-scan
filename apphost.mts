@@ -82,12 +82,12 @@ const stubbed = [
 const builder = await createBuilder();
 
 /**
- * Postgres, and as of stage G the database the app actually opens.
+ * Postgres, and since stage I the only database the app can open.
  *
- * `server/index.ts` defaults `BOOKSCAN_DB` to `postgres`, so every request in a
- * run started from here goes to this container. SQLite is one variable away and
- * stays that way until stage I: `BOOKSCAN_DB=sqlite` opens
- * `<BOOKSCAN_DATA>/books.db` exactly as before.
+ * `server/index.ts` reads `ConnectionStrings__bookscan` and nothing else, so
+ * every request in a run started from here goes to this container. There was a
+ * `BOOKSCAN_DB` switch through stages G and H that opened
+ * `<BOOKSCAN_DATA>/books.db` instead; the driver behind it is gone.
  *
  * Three decisions, each one a decision rather than an omission:
  *

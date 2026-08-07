@@ -5,16 +5,18 @@
  *     npx tsx server/rehash-covers.ts --apply    # write the new hashes
  *     npx tsx server/rehash-covers.ts --apply --force
  *
- * It reads BOOKSCAN_DATA exactly as the server does, so the operator chooses
- * the catalogue and nothing here has a default of its own beyond the server's.
+ * It reads ConnectionStrings__bookscan and BOOKSCAN_DATA exactly as the server
+ * does, so the operator chooses the catalogue and the photographs and nothing
+ * here has a default of its own beyond the server's.
  * Because that catalogue is somebody's real book collection, this is a dry run
  * unless told otherwise, it prints the directory it resolved before it touches
  * anything, and it waits before a write so a wrong path can be interrupted.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { openDatabase } from './db'
+import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
+import type { Db } from './driver'
 import { Store } from './store'
 import { rehashCovers } from './rehash'
 
@@ -27,8 +29,9 @@ Usage: npx tsx server/rehash-covers.ts [--apply] [--force]
   --force   Recompute hashes that are already in the current format, instead
             of skipping them.
 
-The catalogue is BOOKSCAN_DATA, or ./data when that is unset, the same as the
-server. Back it up before running with --apply.`
+The catalogue is ConnectionStrings__bookscan and the cover images are under
+BOOKSCAN_DATA, or ./data when that is unset, both the same as the server. Back
+the catalogue up before running with --apply.`
 
 /** Seconds between printing the target and writing to it. */
 const GRACE = 5
@@ -50,17 +53,25 @@ function main(): Promise<number> {
   const apply = args.includes('--apply')
   const force = args.includes('--force')
 
-  // Resolved the way web/server/index.ts resolves it, so an operator who has
-  // one exported for the server gets the same catalogue here.
+  // Both resolved the way web/server/index.ts resolves them, so an operator who
+  // has them exported for the server gets the same catalogue and the same
+  // photographs here. The covers are still files; only the rows moved.
   const dataDir = resolve(process.env.BOOKSCAN_DATA ?? 'data')
-  const dbPath = join(dataDir, 'books.db')
   const coverDir = join(dataDir, 'covers')
+
+  let connection: string
+  try {
+    connection = catalogueConnection()
+  } catch (error) {
+    console.error((error as Error).message)
+    return Promise.resolve(1)
+  }
 
   console.log('')
   console.log('  Rehash stored cover hashes')
   console.log('  ' + '-'.repeat(60))
   console.log(`  data directory  ${dataDir}`)
-  console.log(`  database        ${dbPath}`)
+  console.log(`  database        ${describeConnection(connection)}`)
   console.log(`  cover images    ${coverDir}`)
   console.log(`  BOOKSCAN_DATA   ${process.env.BOOKSCAN_DATA ?? '(unset, using ./data)'}`)
   console.log(`  mode            ${apply ? 'APPLY, rows will be written' : 'DRY RUN, nothing will be written'}`)
@@ -68,18 +79,11 @@ function main(): Promise<number> {
   console.log('  ' + '-'.repeat(60))
   console.log('')
 
-  // openDatabase would create an empty catalogue here, which on a mistyped
-  // path is a confusing "0 books" report instead of an obvious mistake.
-  if (!existsSync(dbPath)) {
-    console.error(`No catalogue at ${dbPath}. Nothing was created or changed.`)
-    return Promise.resolve(1)
-  }
-
-  return run(dbPath, coverDir, apply, force)
+  return run(connection, coverDir, apply, force)
 }
 
 async function run(
-  dbPath: string,
+  connection: string,
   coverDir: string,
   apply: boolean,
   force: boolean,
@@ -90,7 +94,23 @@ async function run(
     console.log('')
   }
 
-  const store = new Store(openDatabase(dbPath))
+  const db = await openPostgres(connection)
+  try {
+    return await work(db, coverDir, apply, force)
+  } finally {
+    // A pool left open holds the process alive after the report is printed,
+    // which a file handle did not.
+    await db.close()
+  }
+}
+
+async function work(
+  db: Db,
+  coverDir: string,
+  apply: boolean,
+  force: boolean,
+): Promise<number> {
+  const store = new Store(db)
   const report = await rehashCovers(store, {
     apply,
     force,

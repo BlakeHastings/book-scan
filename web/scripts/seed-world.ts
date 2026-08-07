@@ -11,33 +11,44 @@
  * same generator the test suite uses. Nothing here calls Open Library,
  * Google Books or any other network origin.
  *
- * Writes only to this checkout's own web/data, never to whatever
+ * The photographs go only to this checkout's own web/data, never to whatever
  * BOOKSCAN_DATA happens to be set to. AGENTS.md is explicit that agents
  * must never set that variable because it is the one thing standing between
  * a dev server and the real catalogue; this script goes a step further and
  * does not even read it, so a shell that has it set for some other reason
  * cannot redirect a seed run anywhere else.
  *
+ * **The rows go to a Postgres named on the command line, and to nothing
+ * else.** It deliberately does not read `ConnectionStrings__bookscan`, for
+ * the same reason `backup-catalogue.ts` does not: this script writes, and a
+ * connection string that happens to be in a shell should not be able to
+ * decide what gets written to. `BOOKSCAN_SEED_TARGET` is accepted instead of
+ * `--target` if you would rather not put a password in shell history.
+ *
  * Usage (from web/):
  *
- *     npx tsx scripts/seed-world.ts --reset
+ *     aspire start --non-interactive      # from the repo root, once
+ *     aspire describe                     # read the api's connection string
+ *     npx tsx scripts/seed-world.ts --reset --target '<connection>'
  *
- * Run it before starting Aspire. This opens its own connection to books.db
- * and closes it when done; it does not coordinate with a server that
- * already has the file open.
+ * Stage I changed the order here. The catalogue used to be a file this could
+ * create before anything was running; it is a database the AppHost
+ * provisions, so the AppHost starts first and hands out the connection.
  *
- *   --reset   Delete web/data first, so a pass always starts from the same
- *             synthetic catalogue rather than piling more of it onto
- *             whatever was already there. Without it, the script refuses to
- *             run if web/data/books.db already exists.
+ *   --reset   Empty the catalogue and delete web/data first, so a pass always
+ *             starts from the same synthetic world rather than piling more of
+ *             it onto whatever was already there. Without it, the script
+ *             refuses to run against a target that already holds books or
+ *             captures.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
-import { openDatabase } from '../server/db'
+import { describeConnection, openPostgres } from '../server/db.pg'
+import type { Db } from '../server/driver'
 import { Store, type DraftBook } from '../server/store'
 import { Shelves } from '../server/shelves'
 import type { ShelfRange } from '../shared/shelving'
@@ -54,8 +65,9 @@ const WEB_DIR = resolve(HERE, '..')
 // writes to this checkout's own web/data, exactly what a plain
 // `aspire start` (outside an e2e run) uses.
 const DATA_DIR = join(WEB_DIR, 'data')
-const DB_PATH = join(DATA_DIR, 'books.db')
 const COVER_DIR = join(DATA_DIR, 'covers')
+
+const USAGE = "Usage: npx tsx scripts/seed-world.ts [--reset] --target '<connection>'"
 
 // Belt and braces: refuse outright if the resolved path is anywhere near the
 // real catalogue's directory name, however that happened.
@@ -65,16 +77,32 @@ if (/book-scan-production-data/i.test(DATA_DIR)) {
 
 const args = process.argv.slice(2)
 const reset = args.includes('--reset')
-const unknown = args.filter((a) => a !== '--reset')
+const targetAt = args.indexOf('--target')
+const unknown = args.filter((a, index) =>
+  a !== '--reset' && a !== '--target' && args[index - 1] !== '--target')
 if (unknown.length) {
-  console.error(`Unrecognised argument: ${unknown.join(' ')}\nUsage: npx tsx scripts/seed-world.ts [--reset]`)
+  console.error(`Unrecognised argument: ${unknown.join(' ')}\n${USAGE}`)
   process.exit(2)
 }
 
-if (existsSync(DB_PATH) && !reset) {
+const TARGET = (targetAt >= 0 ? args[targetAt + 1] : process.env.BOOKSCAN_SEED_TARGET) ?? ''
+if (!TARGET) {
   console.error(
-    `${DB_PATH} already exists.\n` +
-    'Pass --reset to delete web/data and seed a fresh world, or remove it yourself first.',
+    'No target. This writes rows, so it will not take one from the environment ' +
+    'the app is running in.\n' +
+    'Start the AppHost, read the api resource\'s connection out of `aspire describe`, ' +
+    `and pass it.\n${USAGE}`,
+  )
+  process.exit(2)
+}
+
+// The same belt and braces the data directory gets. AGENTS.md names the live
+// catalogue as 127.0.0.1:5433, and a synthetic world written over it is the
+// one mistake this script must not be able to make.
+if (/(?::|Port\s*=\s*)5433\b/i.test(TARGET)) {
+  console.error(
+    'Refusing that target: port 5433 is the live catalogue (see AGENTS.md). ' +
+    'Seed the Postgres the AppHost started for this checkout.',
   )
   process.exit(1)
 }
@@ -308,7 +336,7 @@ interface CaptureFields {
 }
 
 async function insertCapture(
-  db: ReturnType<typeof openDatabase>,
+  db: Db,
   fields: CaptureFields,
 ): Promise<void> {
   const now = new Date().toISOString()
@@ -380,13 +408,37 @@ async function main(): Promise<void> {
   }
   mkdirSync(COVER_DIR, { recursive: true })
 
-  const db = openDatabase(DB_PATH)
+  const db = await openPostgres(TARGET)
+
+  // The same refusal `--reset` used to get from a books.db already being
+  // there, moved to the thing it is now about. A world seeded on top of a
+  // world is two worlds, and neither of them is the one this script describes.
+  const existing = await db.get<{ count: string }>(
+    'SELECT (SELECT COUNT(*) FROM books) + (SELECT COUNT(*) FROM captures) AS count',
+  )
+  if (Number(existing?.count ?? 0) > 0) {
+    if (!reset) {
+      await db.close()
+      console.error(
+        `${describeConnection(TARGET)} already holds books or captures.\n` +
+        'Pass --reset to empty it and seed a fresh world, or point --target ' +
+        'at an empty database.',
+      )
+      process.exitCode = 1
+      return
+    }
+    await db.run(
+      'TRUNCATE books, book_authors, captures, separators, author_filing RESTART IDENTITY CASCADE',
+    )
+  }
+
   const store = new Store(db)
   const shelves = new Shelves(db)
 
   console.log('')
   console.log('  Seeding a throwaway world')
   console.log('  ' + '-'.repeat(60))
+  console.log(`  catalogue       ${describeConnection(TARGET)}`)
   console.log(`  data directory  ${DATA_DIR}`)
   console.log('  ' + '-'.repeat(60))
   console.log('')
@@ -582,7 +634,7 @@ async function main(): Promise<void> {
     captureCount += 1
   }
 
-  db.close()
+  await db.close()
 
   console.log(`  Shelved:  ${fictionIds.length} fiction, ${nonfictionIds.length} non-fiction (${checkedOut.length} checked out)`)
   console.log(`  Queue:    ${captureCount} captures`)

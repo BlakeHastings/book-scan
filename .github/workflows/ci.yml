@@ -44,11 +44,11 @@ jobs:
     name: web (typecheck + tests)
     runs-on: ubuntu-latest
 
-    # Since stage F of the Postgres migration, the four test files that open a
-    # database run twice, once against SQLite and once against a real Postgres.
-    # Locally that container is started by @testcontainers/postgresql; here it
-    # is a service container, so the pull overlaps checkout and `npm ci` instead
-    # of being paid for in series inside the test step.
+    # Since stage I there is one database, and every test file that opens one
+    # opens it here. Locally that container is started by
+    # @testcontainers/postgresql; here it is a service container, so the pull
+    # overlaps checkout and `npm ci` instead of being paid for in series inside
+    # the test step.
     #
     # It also means the two paths into the harness are each exercised by
     # somebody on every change: a developer takes the container path, CI takes
@@ -178,9 +178,12 @@ jobs:
         working-directory: web
         run: npm run lint:layers
 
-      # Tests open :memory: SQLite databases and scratch Postgres databases
-      # created on the service container above, and generate their own barcode
-      # and cover fixtures, so this never reaches real scan data.
+      # Tests open scratch Postgres databases created on the service container
+      # above, dropped when the file that made one finishes, and generate their
+      # own barcode and cover fixtures, so this never reaches real scan data.
+      # They opened :memory: SQLite databases until stage I removed that driver;
+      # what keeps a run off the catalogue is the variable below being the only
+      # connection the harness reads, not a driver that cannot open a path.
       #
       # BOOKSCAN_TEST_DATABASE_URL is the only connection variable the harness
       # reads, deliberately: not DATABASE_URL and not ConnectionStrings__*, so

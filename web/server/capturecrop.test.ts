@@ -13,9 +13,9 @@
  * few seconds rather than mocking the thing being tested.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import sharp from 'sharp'
-import { openDatabase } from './db'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
 import { backfillCaptures, deriveCapture } from './capturecrop'
@@ -34,11 +34,13 @@ vi.mock('./lookup', () => ({ lookupIsbn: vi.fn(), searchTitle: vi.fn() }))
 
 let db: Db
 
-beforeEach(() => {
-  db = openDatabase(':memory:')
+beforeEach(async () => {
+  db = await openTestDatabase()
   vi.mocked(identify).mockReset()
   vi.mocked(lookupIsbn).mockReset()
 })
+
+afterAll(closeTestDatabase)
 
 /** A directory that only exists in memory, so no test writes a photograph. */
 function memory(files: Record<string, Buffer>): CropIo & { files: Record<string, Buffer> } {

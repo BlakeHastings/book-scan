@@ -1,27 +1,28 @@
 /**
- * The seam between the stores and whatever database is underneath them.
+ * The seam between the stores and the database underneath them.
  *
  * Nothing in this file knows what a driver is. It holds the interface the three
- * stores are written against and the placeholder translation both drivers need,
- * so a second implementation is a new file rather than an edit to this one.
+ * stores are written against and the placeholder translation the driver needs.
+ * It stays a separate file from db.pg.ts now that there is one implementation
+ * again, because it is what the stores may see and db.pg.ts is what they may
+ * not.
  *
  * The interface is deliberately the smallest thing that answers what
  * `Store`, `Shelves` and `CaptureQueue` actually ask for. What is missing from
  * it is the point:
  *
  * - No `prepare`, and no statement object. A prepared statement is a handle
- *   whose lifetime the caller then owns, and better-sqlite3's version of it
- *   runs synchronously. Both are properties of one driver, and a store that
- *   could see either would be written to them.
+ *   whose lifetime the caller then owns, and better-sqlite3's version of it ran
+ *   synchronously. Both were properties of one driver, and a store that could
+ *   see either would have been written to them.
  * - No `exec` for arbitrary multi-statement SQL. The only caller that wants it
  *   is schema creation, which is per-dialect and stays with the driver.
- * - No `pragma`. SQLite has them, Postgres does not, and the stores have never
+ * - No `pragma`. SQLite had them, Postgres does not, and the stores never
  *   asked.
  * - No `lastInsertRowid`. Stage D replaced the three reads of it with
  *   `INSERT ... RETURNING id`, so there is nothing left to expose.
- * - No escape hatch to the underlying handle. An escape hatch is how the
- *   driver-specific call that stage F is supposed to find gets to hide until
- *   production.
+ * - No escape hatch to the underlying handle. An escape hatch is how a
+ *   driver-specific call gets to hide until production.
  */
 
 /**
@@ -35,18 +36,18 @@ export type Params = readonly unknown[] | Readonly<Record<string, unknown>>
  * What a transaction is asked for beyond atomicity.
  *
  * **A transaction is not mutual exclusion, and assuming it is was the mistake
- * stage G had to unpick.** Both drivers commit or roll back as one unit, and
- * neither of them stops another transaction committing a row in the middle of
- * this one:
+ * stage G had to unpick.** A transaction commits or rolls back as one unit, and
+ * that does not stop another transaction committing a row in the middle of this
+ * one: Postgres runs at READ COMMITTED, where every statement takes its own
+ * fresh snapshot. A `SELECT` and the `INSERT` decided from it, inside one
+ * `BEGIN`/`COMMIT`, can still have somebody else's row appear between them.
  *
- * - Postgres runs at READ COMMITTED, where every statement takes its own fresh
- *   snapshot. A `SELECT` and the `INSERT` decided from it, inside one
- *   `BEGIN`/`COMMIT`, can still have somebody else's row appear between them.
- * - SQLite happens to be safe here, and for a reason that is a property of
- *   `SqliteDb` rather than of transactions: there is one connection and a
- *   transaction holds it for its whole length. That is exactly the lock `PgDb`
- *   deliberately does not carry over, because Postgres has real connections and
- *   an unrelated statement running alongside is the point of moving to it.
+ * The SQLite driver happened to be safe here, and for a reason that was a
+ * property of that driver rather than of transactions: there was one connection
+ * and a transaction held it for its whole length. That is exactly the lock
+ * `PgDb` deliberately does not carry over, because Postgres has real
+ * connections and an unrelated statement running alongside is the point of
+ * having moved to it.
  *
  * So a read-then-write that has to be *the only one* in flight has to say so.
  */
@@ -94,8 +95,7 @@ export interface Db {
  * not a correctness bug here: two unrelated ranges would serialise against each
  * other, which costs concurrency and nothing else.
  *
- * Written here rather than in db.pg.ts so it can be tested without a server,
- * and so a second driver that needs a lock key spells it the same way.
+ * Written here rather than in db.pg.ts so it can be tested without a server.
  */
 export function lockKey(name: string): bigint {
   let hash = 0xcbf29ce484222325n
@@ -115,35 +115,28 @@ export interface BoundStatement {
   values: unknown[]
 }
 
-/**
- * How one dialect spells the nth placeholder. `position` is 1-based, which is
- * what the numbered style wants and what the anonymous style ignores.
- */
-export type PlaceholderStyle = (position: number) => string
-
-/** SQLite, and the style most of the statements are already written in. */
-export const anonymous: PlaceholderStyle = () => '?'
-
-/** Postgres, which has only this one. Unused until stage F, tested here. */
-export const numbered: PlaceholderStyle = (position) => `$${position}`
-
 const NAME_START = /[A-Za-z_]/
 const NAME_BODY = /[A-Za-z0-9_]/
 
 /**
- * Rewrite every placeholder in `sql` into one dialect's style, and put the
- * values in the order that style will read them.
+ * Rewrite every placeholder in `sql` as `$1`, `$2`, and put the values in the
+ * order Postgres will read them.
  *
- * Three styles reach this function, and they are not a matter of taste. `?` is
- * in most statements; `@name` is in the two big writes, `attach`, `claim`,
+ * Until stage I the output spelling was an argument, because SQLite wanted `?`
+ * where Postgres wants `$n`, and routing SQLite through this translator from
+ * stage E is what got the translation exercised by the whole suite a stage
+ * before the driver that needed it existed. There is one output spelling now.
+ *
+ * Three input styles reach this function, and they are not a matter of taste.
+ * `?` is in most statements; `@name` is in the two big writes, `attach`, `claim`,
  * `edit` and the worker's settle; `:name` is in `findByIsbn` and
  * `missingCovers`. Stage D left them alone on purpose: hand-rewriting a
  * 26-column insert into positional parameters is how an author ends up in a
  * publisher column with nothing noticing.
  *
  * A name that appears twice gets a placeholder and a value each time it
- * appears, because the anonymous style has no way to refer back to an earlier
- * one. `CaptureQueue.attach` mentions `@slot` twice, so this is exercised
+ * appears, rather than a second reference to the first placeholder.
+ * `CaptureQueue.attach` mentions `@slot` twice, so this is exercised
  * rather than theoretical, as is a statement whose placeholder count varies per
  * call: `CaptureQueue.list` builds its `IN (?, ?, ...)` from however many
  * statuses it was asked for, and a translator that walked the placeholders in
@@ -155,11 +148,7 @@ const NAME_BODY = /[A-Za-z0-9_]/
  * A scanner that took either for SQL would either rewrite a comment or lose
  * track of where the string literals end.
  */
-export function bindParams(
-  sql: string,
-  params: Params | undefined,
-  style: PlaceholderStyle,
-): BoundStatement {
+export function bindParams(sql: string, params?: Params): BoundStatement {
   const positional = Array.isArray(params) ? (params as readonly unknown[]) : undefined
   const named = positional === undefined && params !== undefined
     ? (params as Readonly<Record<string, unknown>>)
@@ -229,7 +218,7 @@ export function bindParams(
       }
       values.push(positional[taken])
       taken += 1
-      text += style(values.length)
+      text += `$${values.length}`
       i += 1
       continue
     }
@@ -256,7 +245,7 @@ export function bindParams(
       }
       values.push(named[name])
       seen.add(name)
-      text += style(values.length)
+      text += `$${values.length}`
       i = j
       continue
     }

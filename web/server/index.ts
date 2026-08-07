@@ -22,8 +22,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import sharp from 'sharp'
-import { openDatabase } from './db'
-import { describeConnection, openPostgres, PgDb } from './db.pg'
+import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 
 import { lookupIsbn, searchTitle } from './lookup'
@@ -282,22 +281,10 @@ export function createApp(options: CreateAppOptions): express.Express {
   const removeTag = new RemoveTagHandler(tags)
   const relabelTag = new RelabelTagHandler(tags)
 
-  /*
-   * Whether this catalogue has the tag tables, which is the same question as
-   * whether it is Postgres.
-   *
-   * `tag` and `book_tag` arrive in a migration, and there are migrations only
-   * for Postgres: SQLite's schema is hand-written in db.ts, which stage I (#178)
-   * is deleting along with the driver, so giving it two more tables would be
-   * work whose only product is something to delete next week.
-   *
-   * Written as the driver rather than as a probe for the table, because that is
-   * the actual reason and a probe would read as though a Postgres catalogue
-   * might legitimately not have it. **This goes away with the SQLite driver**,
-   * and until it does, a save against SQLite writes the `is_fiction` column and
-   * no tag. Every test that asserts on a tag runs on Postgres.
-   */
-  const taggable = db instanceof PgDb
+  // Every catalogue has the tag tables now. #188 gated this on the driver,
+  // because `tag` and `book_tag` arrive in a migration and there were
+  // migrations only for Postgres; its comment said the gate goes away with the
+  // SQLite driver, and stage I is where that happens.
 
   /**
    * Keep the tags in step with what was just saved about a book.
@@ -316,7 +303,6 @@ export function createApp(options: CreateAppOptions): express.Express {
    * left behind by a person.
    */
   async function recordGenreTag(bookId: number, draft: DraftBook): Promise<void> {
-    if (!taggable) return
     const decidedByPerson = draft.classificationSource === 'manual'
     const now = new Date().toISOString()
 
@@ -1259,13 +1245,6 @@ export function createApp(options: CreateAppOptions): express.Express {
    * back. `?slug=` costs nothing and cannot be got wrong.
    */
 
-  /** Refuse the tag routes on a catalogue that has no tag tables. */
-  function tagsUnavailable(res: express.Response): boolean {
-    if (taggable) return false
-    res.status(501).json({ error: 'This catalogue has no tags. Tags need Postgres.' })
-    return true
-  }
-
   /** The slug a request means, or a 400 saying what was wrong with it. */
   function slugFrom(raw: unknown, res: express.Response): TagSlug | null {
     const slug = TagSlug.parse(String(raw ?? ''))
@@ -1280,7 +1259,6 @@ export function createApp(options: CreateAppOptions): express.Express {
    * over the slug rather than by filtering here. See the note on the repository.
    */
   app.get('/api/tags', asyncRoute(async (req, res) => {
-    if (tagsUnavailable(res)) return
     const raw = String(req.query.under ?? '')
     const under = raw ? TagSlug.parse(raw) : null
     if (raw && !under) {
@@ -1296,7 +1274,6 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   /** Rename a tag. The label moves; the slug is the identity and does not. */
   app.patch('/api/tags', asyncRoute(async (req, res) => {
-    if (tagsUnavailable(res)) return
     const body = (req.body ?? {}) as Record<string, unknown>
     const slug = slugFrom(body.slug, res)
     if (!slug) return
@@ -1315,7 +1292,6 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   /** What a book is under, and who said so. */
   app.get('/api/books/:id/tags', asyncRoute(async (req, res) => {
-    if (tagsUnavailable(res)) return
     const id = Number(req.params.id)
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
@@ -1332,7 +1308,6 @@ export function createApp(options: CreateAppOptions): express.Express {
    * along with everybody else's spelling of it.
    */
   app.post('/api/books/:id/tags', asyncRoute(async (req, res) => {
-    if (tagsUnavailable(res)) return
     const id = Number(req.params.id)
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
@@ -1355,7 +1330,6 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   /** A person takes a book back out of a tag, whoever put it there. */
   app.delete('/api/books/:id/tags', asyncRoute(async (req, res) => {
-    if (tagsUnavailable(res)) return
     const id = Number(req.params.id)
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
@@ -1383,7 +1357,6 @@ export function createApp(options: CreateAppOptions): express.Express {
    * minute. It is reported as `found: false` and nothing is written.
    */
   app.post('/api/books/:id/tags/refresh', asyncRoute(async (req, res) => {
-    if (tagsUnavailable(res)) return
     const id = Number(req.params.id)
     const book = await store.getBook(id)
     if (!book) {
@@ -2088,53 +2061,26 @@ const isMainModule = process.argv[1] !== undefined
   && import.meta.url === pathToFileURL(process.argv[1]).href
 
 /**
- * Which database, and where.
+ * The catalogue the server opens.
  *
- * **`postgres` is the default as of stage G, and SQLite is one variable away.**
- * `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db` and behaves exactly as
- * this app always has, which is not a courtesy: stage H has not happened, so
- * the owner's catalogue is still a SQLite file, and it stays selectable and
- * supported until stage I says otherwise. The rollback in the migration plan is
- * that one variable.
+ * The connection is `catalogueConnection()` and nothing else. The test harness
+ * deliberately ignores that variable and every other ambient connection
+ * variable (server/testdb.ts), for the same reason as `BOOKSCAN_DATA`.
  *
- * The connection arrives as `ConnectionStrings__bookscan`, which is the name
- * Aspire gives it, read here the way `PORT` is. Note that this is the one place
- * it is read: the test harness deliberately ignores it and every other ambient
- * connection variable (server/testdb.ts), for the same reason as `BOOKSCAN_DATA`.
+ * **There is nothing to choose any more.** Stages G and H each left a
+ * `BOOKSCAN_DB` switch here, and with it a refusal to start when a deployment
+ * had `BOOKSCAN_DATA` and no connection string: on those revisions the default
+ * had flipped to Postgres while the real catalogue was still a file beside it,
+ * so coming up empty would have looked exactly like a catalogue that had lost
+ * every book. The catalogue is in Postgres, the file is not read by anything in
+ * this repository, and a switch with one position is a thing to get wrong.
  *
- * **Flipping a default cannot be allowed to open the wrong database quietly**,
- * and there is exactly one way it could: a deployment that has been started
- * with `BOOKSCAN_DATA` and nothing else, which is how the running system starts
- * today. On this revision that process has no connection string, so rather than
- * creating an empty Postgres catalogue beside a `books.db` full of somebody's
- * afternoons, it refuses to start and says which two things it is choosing
- * between. A process that exits saying so is recoverable in one command. A
- * process that comes up empty looks like a catalogue that lost every book.
+ * What is left is the case that is still worth saying out loud: no connection
+ * at all. A process that exits naming the variable is recoverable in one
+ * command; one that comes up on an empty database is not obviously anything.
  */
-export async function openCatalogue(sqlitePath: string): Promise<{ db: Db; label: string }> {
-  const choice = process.env.BOOKSCAN_DB ?? 'postgres'
-  if (choice === 'sqlite') {
-    return { db: openDatabase(sqlitePath), label: sqlitePath }
-  }
-  if (choice !== 'postgres') {
-    throw new Error(`BOOKSCAN_DB is "${choice}". It is either "postgres" or "sqlite".`)
-  }
-
-  const url = process.env.ConnectionStrings__bookscan ?? ''
-  if (!url) {
-    const existing = existsSync(sqlitePath)
-    throw new Error(
-      'No Postgres connection: ConnectionStrings__bookscan is empty, and ' +
-      `BOOKSCAN_DB ${process.env.BOOKSCAN_DB ? 'is postgres' : 'defaults to postgres'}. ` +
-      (existing
-        ? `There is a SQLite catalogue at ${sqlitePath}. Refusing to start an ` +
-          'empty Postgres one beside it: set BOOKSCAN_DB=sqlite to open that ' +
-          'file, or set ConnectionStrings__bookscan to the Postgres holding the ' +
-          'catalogue. Under Aspire the AppHost sets it.'
-        : 'Under Aspire the AppHost sets it; on its own, set it to the ' +
-          'catalogue, or set BOOKSCAN_DB=sqlite to use a local file.'),
-    )
-  }
+export async function openCatalogue(): Promise<{ db: Db; label: string }> {
+  const url = catalogueConnection()
 
   // Host, port and database, never the credentials. This reaches /api/health,
   // and a password on a health endpoint is a password in every log that scrapes
@@ -2145,7 +2091,6 @@ export async function openCatalogue(sqlitePath: string): Promise<{ db: Db; label
 if (isMainModule) {
   const PORT = Number(process.env.PORT ?? 3001)
   const DATA_DIR = resolve(process.env.BOOKSCAN_DATA ?? 'data')
-  const DB_PATH = join(DATA_DIR, 'books.db')
   const COVER_DIR = join(DATA_DIR, 'covers')
   const GOOGLE_API_KEY = process.env.GOOGLE_BOOKS_API_KEY ?? ''
 
@@ -2156,7 +2101,7 @@ if (isMainModule) {
   // else about the startup path changes: the same createApp with the same
   // options, and listen still happens once.
   const bootstrap = async () => {
-    const { db, label } = await openCatalogue(DB_PATH)
+    const { db, label } = await openCatalogue()
 
     const app = createApp({
       db,

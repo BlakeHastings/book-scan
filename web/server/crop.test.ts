@@ -7,16 +7,25 @@
  * place" has to be a recoverable mistake and not a lost photograph.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import sharp from 'sharp'
-import { openDatabase } from './db'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import { Store, type DraftBook } from './store'
 import { cropCatalogue, cropName, cropPhotos, type CropIo } from './crop'
 import { frontCover, photographedBook } from './fixtures'
 
-function store(): Store {
-  return new Store(openDatabase(':memory:'))
+/**
+ * A `Store` over an empty catalogue.
+ *
+ * One database per file rather than per test, emptied between calls, which is
+ * what `openTestDatabase` does. Each test calls this once, so a test still
+ * starts from nothing.
+ */
+async function store(): Promise<Store> {
+  return new Store(await openTestDatabase())
 }
+
+afterAll(closeTestDatabase)
 
 function draft(overrides: Partial<DraftBook> = {}): DraftBook {
   return {
@@ -76,7 +85,7 @@ describe('cropName', () => {
 
 describe('cropPhotos', () => {
   it('writes a new file and never touches the photograph', async () => {
-    const s = store()
+    const s = await store()
     const original = await photograph()
     const io = memory({ 'a_front.jpg': original })
 
@@ -99,7 +108,7 @@ describe('cropPhotos', () => {
   }, 20_000)
 
   it('records that a photo was looked at even when no book was found', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({ 'b_front.jpg': await blank() })
 
     const { id } = await s.addBook(draft({ frontImage: 'b_front.jpg' } as Partial<DraftBook>))
@@ -118,7 +127,7 @@ describe('cropPhotos', () => {
   })
 
   it('writes nothing at all without apply', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({ 'c_front.jpg': await photograph(2) })
 
     const { id } = await s.addBook(draft({ frontImage: 'c_front.jpg' } as Partial<DraftBook>))
@@ -130,7 +139,7 @@ describe('cropPhotos', () => {
   }, 20_000)
 
   it('does the same photo twice only if told to', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({ 'd_front.jpg': await photograph(3) })
     const { id } = await s.addBook(draft({ frontImage: 'd_front.jpg' } as Partial<DraftBook>))
 
@@ -143,7 +152,7 @@ describe('cropPhotos', () => {
   }, 30_000)
 
   it('skips a photo it cannot read, without claiming it looked at it', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({})
     const { id } = await s.addBook(draft({ frontImage: 'gone.jpg' } as Partial<DraftBook>))
 
@@ -155,7 +164,7 @@ describe('cropPhotos', () => {
   })
 
   it('does each of the three slots that has a photo', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({
       'e_front.jpg': await photograph(4),
       'e_edge.jpg': await photograph(5),
@@ -174,7 +183,7 @@ describe('cropPhotos', () => {
 
 describe('cropCatalogue', () => {
   it('counts what it did and leaves every photograph alone', async () => {
-    const s = store()
+    const s = await store()
     const good = await photograph(6)
     const io = memory({ 'f_front.jpg': good, 'g_front.jpg': await blank() })
 
@@ -192,7 +201,7 @@ describe('cropCatalogue', () => {
   }, 30_000)
 
   it('is resumable: a second run finds nothing left to do', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({ 'h_front.jpg': await photograph(7) })
     await s.addBook(draft({ frontImage: 'h_front.jpg' } as Partial<DraftBook>))
 
@@ -204,7 +213,7 @@ describe('cropCatalogue', () => {
   }, 30_000)
 
   it('stops at the limit, so a cautious operator can look before committing', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({ 'i_front.jpg': await blank(), 'j_front.jpg': await blank() })
     await s.addBook(draft({ title: 'One', frontImage: 'i_front.jpg' } as Partial<DraftBook>))
     await s.addBook(draft({ title: 'Two', frontImage: 'j_front.jpg' } as Partial<DraftBook>))
@@ -214,7 +223,7 @@ describe('cropCatalogue', () => {
   })
 
   it('names a photograph it could not read instead of skipping it silently', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({})
     await s.addBook(draft({ title: 'Lost', frontImage: 'nowhere.jpg' } as Partial<DraftBook>))
 
@@ -227,7 +236,7 @@ describe('cropCatalogue', () => {
 
 describe('a crop is a file the catalogue owns', () => {
   it('counts as in use, so tidying up orphans cannot delete it', async () => {
-    const s = store()
+    const s = await store()
     const io = memory({ 'k_front.jpg': await photograph(8) })
     const { id } = await s.addBook(draft({ frontImage: 'k_front.jpg' } as Partial<DraftBook>))
     await cropPhotos(s, (await s.getBook(id))!, io, { apply: true })

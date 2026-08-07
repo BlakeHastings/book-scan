@@ -11,7 +11,7 @@ confirms the record against Open Library, and tells you which two shelved books
 the new one belongs between.
 
 All the code lives under `web/`. It is a TypeScript project: React 18 and Vite
-on the client, Express and better-sqlite3 on the server.
+on the client, Express and Postgres (node-postgres) on the server.
 
 ## The one rule that matters most
 
@@ -31,7 +31,7 @@ to Postgres. Every row below is irreplaceable and every row is out of bounds:
 | --- | --- |
 | The catalogue | A Postgres database in the container `book-scan-live-pg`, on the named volume `book-scan-live-pgdata`, at `127.0.0.1:5433/bookscan` |
 | The photographs | Files, still, at `C:\Users\Blake\book-scan-production-data\live\covers\` |
-| The old SQLite file | `C:\Users\Blake\book-scan-production-data\live\books.db`, untouched, kept as the way back until at least 2026-09-06 |
+| The old SQLite file | `C:\Users\Blake\book-scan-production-data\live\books.db`, untouched, kept until at least 2026-09-06 |
 | Backups | `C:\Users\Blake\book-scan-production-data\pg-backups\` |
 
 Agents must never read from, write to, point a dev server at, run a migration
@@ -46,9 +46,11 @@ The backup job is the one thing that reads it on a schedule, it is registered by
 the owner rather than by an agent, and it never connects to that database from
 an agent session. See `docs/backup-runbook.md`.
 
-**The SQLite file is not a spare copy you may practise on.** It is the rollback
-path for a migration that is days old, and it is stale the moment somebody scans
-a book. Treat it as read-only history.
+**The SQLite file is not a spare copy you may practise on.** Stage I removed
+the driver that could open it, so nothing in this repository reads it and
+nothing here should learn how. It stays on that disk until at least 2026-09-06.
+Treat it as read-only history: not yours to touch, to name in code, or to tidy
+up.
 
 You do not need any of it. Everything you need to develop and test is generated
 locally. If you believe a task requires production data, stop and ask the owner
@@ -65,42 +67,46 @@ The safety here is structural, not just a request:
   server and the real catalogue. Under Aspire you do not need to: the AppHost
   sets it explicitly to this checkout's own directory, which overrides anything
   inherited from your shell.
-- **Since stage G there is a second variable of the same kind**, and it is the
-  one that now points at the rows: `ConnectionStrings__bookscan`. The app
-  defaults to Postgres and reads its connection from that name and no other,
-  and the AppHost sets it explicitly to the container it just started, so an
-  inherited value cannot win under `aspire start`. **Do not set it in a shell.**
-  Everything AGENTS.md says about `BOOKSCAN_DATA` applies to it word for word,
-  and it is worth more: it names a whole catalogue rather than a directory.
+- **There is a second variable of the same kind**, and it is the one that
+  points at the rows: `ConnectionStrings__bookscan`. The app reads its
+  connection from that name and no other, and the AppHost sets it explicitly to
+  the container it just started, so an inherited value cannot win under
+  `aspire start`. **Do not set it in a shell.** Everything AGENTS.md says about
+  `BOOKSCAN_DATA` applies to it word for word, and it is worth more: it names a
+  whole catalogue rather than a directory.
 - **The covers are still files, so `BOOKSCAN_DATA` did not stop mattering.**
   The database holds bare filenames joined against the data directory at read
   time. Both variables are live at once until the cover storage work lands.
-- No test reads or writes the catalogue, and since stage F of the Postgres
-  migration that sentence needs two halves rather than one. Most server tests
-  still open an in-memory SQLite database (`:memory:`), which cannot reach a
-  file at all. The five that also run against Postgres create a scratch
-  database per test file on a throwaway container and drop it afterwards, and
-  the harness reads **only** `BOOKSCAN_TEST_DATABASE_URL` to find a server:
-  never `DATABASE_URL`, never `ConnectionStrings__*`. That is the same rule as
-  `BOOKSCAN_DATA` and it exists for the same reason, so **do not set
-  `BOOKSCAN_TEST_DATABASE_URL` in a shell** either, except at a scratch server
-  you are content to have databases created on and dropped from. Every test
-  generates its own barcode and cover fixtures.
+- No test reads or writes the catalogue. Every test file that opens a database
+  creates a scratch one of its own on a throwaway container and drops it
+  afterwards, and the harness reads **only** `BOOKSCAN_TEST_DATABASE_URL` to
+  find a server: never `DATABASE_URL`, never `ConnectionStrings__*`. That is
+  the same rule as `BOOKSCAN_DATA` and it exists for the same reason, so **do
+  not set `BOOKSCAN_TEST_DATABASE_URL` in a shell** either, except at a scratch
+  server you are content to have databases created on and dropped from. Every
+  test generates its own barcode and cover fixtures.
+
+  Until stage I most server tests opened an in-memory SQLite database, which
+  could not reach a file at all. That was a real part of the safety story and
+  it is gone: the protection now is the variable the harness refuses to read,
+  not the driver's inability to open a path.
 - The end to end suite opens a real database rather than an in-memory one, and
   has since it existed. It reaches it the same way it reaches the URLs: by
   reading the api resource's own environment out of `aspire describe`, so it
   can only ever open the database the AppHost just provisioned. It never reads
   `BOOKSCAN_DATA` or a connection string from a shell.
-- **The stage H migration tool is the one thing here that can write to a
-  catalogue, and it will not take its target from the environment either.**
-  `web/server/migrate-sqlite-to-pg.ts` names the Postgres it writes on its own
-  command line, with `--target`, or reads `BOOKSCAN_MIGRATE_TARGET`. It does not
-  read `ConnectionStrings__bookscan`, so the connection the app is running on
-  cannot become the thing a migration overwrites by being in scope. Its source
-  is opened read-only, through `openReadOnlyDatabase`, and it refuses a source
-  with a `-wal` file beside it. Verified by running it: `--apply` against a
-  scratch Postgres moved 197 books and left the snapshot byte for byte as it
-  was. See `docs/stage-h-runbook.md`.
+- **The tools that write to a catalogue will not take their target from the
+  environment.** `web/scripts/seed-world.ts` names the Postgres it writes on
+  its own command line, with `--target`, or reads `BOOKSCAN_SEED_TARGET`, and
+  refuses a target on port 5433 outright. Neither it nor
+  `server/backup-catalogue.ts` reads `ConnectionStrings__bookscan`, so the
+  connection the app is running on cannot become the thing a script overwrites
+  by being in scope.
+
+  The stage H migration tool was the third of these and was deleted by stage I
+  along with the driver it read. `docs/stage-h-runbook.md` records what it did
+  and what its verification proved; the tool itself is in history, at the
+  commit before stage I, together with the SQLite driver it needs.
 - `web/.gitignore` excludes `data/`, so a database or cover photo cannot be
   committed. CI re-checks this on the result, because an ignore rule is silent
   when someone forces past it.
@@ -109,9 +115,9 @@ The safety here is structural, not just a request:
   the user's home directory, not the data directory), so it cannot land
   anywhere near the catalogue either.
 
-If you add a test that needs a database, open `:memory:` like the existing ones
-do (see `web/server/store.test.ts`). Never write a test that touches a path
-outside the repository.
+If you add a test that needs a database, take one from `web/server/testdb.ts`
+like the existing ones do (see `web/server/store.test.ts`). Never write a test
+that touches a path outside the repository.
 
 ## The second rule: `stable` is not yours to touch
 
@@ -141,44 +147,40 @@ timing.
 
 ### What `stable` actually runs, and why the command changed
 
-**Stage H has happened: the catalogue is Postgres.** It is the database in
-`book-scan-live-pg` on `127.0.0.1:5433`. The SQLite file is still on disk at
-`C:\Users\Blake\book-scan-production-data\live\`, untouched, because the runbook
-says to leave it there for at least a month, and it is the way back.
+**The catalogue is Postgres.** It is the database in `book-scan-live-pg` on
+`127.0.0.1:5433`. The SQLite file is still on disk at
+`C:\Users\Blake\book-scan-production-data\live\`, untouched. Nothing in this
+repository can open it any more: stage I deleted the driver.
 
-**The launch lines below were written for the SQLite configuration and have not
-been re-verified since the move.** They are left rather than rewritten from a
-guess, because this file has four times asserted something the code did not do.
-What settles it is one command against the running server, which reports the
-database it opened:
+**Two variables were needed to launch `stable` on SQLite, and one of them no
+longer exists.** `BOOKSCAN_DB` is gone, so a launch line carrying it is a
+launch line for a revision that is not this one. What the server needs now is
+the connection, `ConnectionStrings__bookscan`, and `BOOKSCAN_DATA` for the
+cover photographs, which are still files.
+
+**No launch line is written here, because none has been run since the move.**
+This file has four times asserted something the code did not do, and a command
+nobody has executed is a guess with formatting. What settles it is one command
+against the running server, which reports the database it opened:
 
 ```
 curl http://127.0.0.1:3001/api/health
 ```
 
-For the SQLite configuration, the launch needs **two** environment variables,
-not one:
+Started with no connection string, the server **refuses to start** and names
+the variable. That is deliberate and it is the good outcome: a process that
+exits saying which variable is empty is recoverable in one command, where one
+that comes up on an empty database is not obviously anything.
 
-```
-BOOKSCAN_DB=sqlite
-BOOKSCAN_DATA=C:\Users\Blake\book-scan-production-data\live
-```
+Whatever launches it, launch it **detached**, not as a child of an agent
+session. It has died three times because the process was owned by a session
+that later let go of it. Nothing watches it either: if the phone stops loading,
+check `curl http://127.0.0.1:3001/api/health`.
 
-Started with `BOOKSCAN_DATA` alone, the server **refuses to start** and names
-the missing variable. That is deliberate and it is the good outcome: on this
-revision the default is Postgres, so a deployment with no connection string
-would otherwise come up on an empty database sitting beside a full `books.db`,
-which reads exactly like a catalogue that has lost every book.
-
-Launch it **detached**, not as a child of an agent session. It has died three
-times because the process was owned by a session that later let go of it:
-
-```
-powershell -NoProfile -Command "$env:BOOKSCAN_DB='sqlite'; $env:BOOKSCAN_DATA='C:\Users\Blake\book-scan-production-data\live'; Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory 'C:\Users\Blake\source\repos\book-scan-stable\web' -WindowStyle Hidden"
-```
-
-Nothing watches it. If the phone stops loading, check
-`curl http://127.0.0.1:3001/api/health`, which reports the database it opened.
+**The way back is no longer a variable.** Through stages G and H it was
+`BOOKSCAN_DB=sqlite`, one flag against a file that had lost nothing. It is now
+a `git checkout` of a commit before stage I, which brings back the driver, the
+migration tool and the switch together. See `docs/stage-h-runbook.md`.
 
 ### Backups are verified by restoring them, not by checking they exist
 
@@ -208,16 +210,18 @@ which were hard won, now protect the wrong thing.
 
 `server/backup-catalogue.ts` does not read `ConnectionStrings__bookscan`. Its
 source is named on the command line or in `BOOKSCAN_BACKUP_SOURCE`, for the same
-reason `migrate-sqlite-to-pg.ts` refuses to inherit its target. Neither variable
-belongs in a shell.
+reason `scripts/seed-world.ts` refuses to inherit its target, and for the same
+reason the stage H migration tool refused to inherit one before it was deleted.
+Neither variable belongs in a shell.
 
-**The SQLite rules below still apply to the SQLite file**, which stage H left
-exactly where it was and which is the way back for at least a month. Before
-anything touches it, copy the whole `live\` directory, including `books.db-wal`
-and `books.db-shm`, and then **open the copy** and check `integrity_check` and
-the row counts. A checksum proves two files match; it does not prove either one
-opens. `docs/postgres-migration.md` records a `cp books.db` that silently lost
-five hours of work because the WAL was newer than the `.db`.
+**The SQLite rules below still apply to the SQLite file**, which is still
+exactly where stage H left it. Nothing in this repository opens it, and nothing
+here should be taught to. If anything ever does touch it, copy the whole
+`live\` directory first, including `books.db-wal` and `books.db-shm`, and then
+**open the copy** and check `integrity_check` and the row counts. A checksum
+proves two files match; it does not prove either one opens.
+`docs/postgres-migration.md` records a `cp books.db` that silently lost five
+hours of work because the WAL was newer than the `.db`.
 
 ## Running things
 
@@ -235,17 +239,13 @@ npm run build      # typecheck then vite build
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
 LAN address, so the phone needs HTTPS.
 
-**Postgres is the default database as of stage G.** `BOOKSCAN_DB` picks one and
-defaults to `postgres`; `BOOKSCAN_DB=sqlite` opens `<BOOKSCAN_DATA>/books.db`
-and behaves exactly as this app always has. SQLite is not deprecated and not
-second class until stage I says so: **the owner's catalogue is still a SQLite
-file**, and that variable is the whole of the way back.
+**Postgres is the only database, as of stage I.** The connection is
+`ConnectionStrings__bookscan` and there is no other name and no other database.
+`BOOKSCAN_DB`, `SqliteDb` and `better-sqlite3` are all gone.
 
 Under `aspire start` there is nothing to set. The AppHost provisions Postgres
-and hands the api its connection. Running the api on its own with neither
-`BOOKSCAN_DB` nor a connection string is the one combination that refuses to
-start, on purpose: coming up on an empty Postgres beside a `books.db` full of
-scanned books would look exactly like a catalogue that lost every one of them.
+and hands the api its connection. Running the api on its own with no connection
+string refuses to start and names the variable, on purpose.
 
 **`npm test` empties `web/data/`.** `server/index.test.ts` ends with
 `rmSync(dataRoot, { recursive: true, force: true })`, and `dataRoot` is the whole
@@ -254,26 +254,27 @@ catalogue, a downloaded cover, or anything else parked there does not survive a
 test run. Found by losing 1.1 GB of copied cover files to one `npm test` during
 the stage H rehearsal. Do not stage anything there you would mind re-copying.
 
-**`npm test` needs Docker.** That is new as of stage F of the Postgres
-migration and it is a real regression in what it takes to contribute, accepted
-by the owner rather than stumbled into: a suite that does not exercise the
-database being shipped is how a collation difference passes everything and
-surfaces on somebody's shelf. `web/vitest.config.ts` runs two projects.
+**`npm test` needs Docker, for the whole run.** That started at stage F and it
+got worse at stage I. It is a real regression in what it takes to contribute,
+accepted by the owner rather than stumbled into: a suite that does not exercise
+the database being shipped is how a collation difference passes everything and
+surfaces on somebody's shelf.
 
-- `sqlite` is the suite as it always was: every test file, no services.
-- `postgres` re-runs the files that open a database, against a real Postgres,
-  plus `server/db.pg.test.ts`.
+`web/vitest.config.ts` ran two projects through stages F to H, `sqlite` and
+`postgres`, and the five files that opened a database ran under both. That was
+the verification argument for the Postgres driver and it has been made. One
+driver leaves one project, so **there is no `--project sqlite` half that needs
+nothing any more**: a run that touches only `src/lib` still starts a container.
 
-**If you add a test file that opens a database, add it to `BOTH_DRIVERS` in
-`web/vitest.config.ts`.** One that is not on that list guards SQLite only, and
-looks entirely green while doing it.
+If you add a test file that opens a database, take it from
+`web/server/testdb.ts`. There is no list to add it to.
 
 The container is started by `@testcontainers/postgresql`. If you already have a
 Postgres you are willing to have scratch databases created on and dropped from,
 `BOOKSCAN_TEST_DATABASE_URL` points the harness at it and no container starts;
 that is how CI does it. Measured on this machine with `cd web && npm test`:
-about 40 seconds before, about 47 after, with the image already pulled.
-`npx vitest run --project sqlite` runs the half that needs nothing.
+about 42 seconds before stage I and about 44 after, with the image already
+pulled.
 
 ### Running it under Aspire
 
@@ -353,8 +354,9 @@ are lost. To add an integration, run `aspire add <package>`.
 
 After a batch of merges, it is worth having an agent **use** the app rather
 than test it: follow whole journeys, get things wrong, change its mind, and
-report what breaks. `npm run seed -- --reset` builds a throwaway world to do it
-in, and `docs/process/agent-hunting-pass.md` is the brief.
+report what breaks. `npm run seed -- --reset --target '<connection>'` builds a
+throwaway world to do it in, against the Postgres the AppHost started, and
+`docs/process/agent-hunting-pass.md` is the brief.
 
 **This is not a gate**, because a pass is not repeatable. Its value is finding
 what scripted tests cannot, and **its output should become scripted tests.**
@@ -390,7 +392,8 @@ are still set in exactly one place, by the AppHost, and nowhere else.
 
 Two things, because a directory per run stopped being enough at stage G. The
 Postgres container has a **persistent data volume**, named per checkout, so a
-scratch catalogue survives a restart the way `web/data/books.db` used to. That
+scratch catalogue survives a restart the way `web/data/books.db` did before
+stage G. That
 means a run that isolated only its directory would share the developer's rows,
 so the rows get a database of their own too. Old run databases are dropped at
 the start of the next run, the same way old run directories are.
@@ -474,7 +477,9 @@ teach people to skim past it.
 | `web/infrastructure/` | Drizzle schema, migrations, repository implementations |
 | `web/src/` | React UI |
 | `web/src/lib/api.ts` | Typed fetch wrapper, the only client to server path |
-| `web/server/index.ts` | Express routes, data directory resolution |
+| `web/server/index.ts` | Express routes, data directory and connection resolution |
+| `web/server/db.pg.ts` | The Postgres driver, and where every column is explained |
+| `web/server/driver.ts` | The `Db` seam the stores are written against |
 | `web/server/identify.ts` | Barcode decoding then OCR of the printed ISBN |
 | `web/server/paddle.ts` | PaddleOCR, the primary OCR engine |
 | `web/server/lookup.ts` | Open Library primary, Google Books top-up |
@@ -536,13 +541,17 @@ Three things about that are worth knowing before touching it.
   the baseline recorded as applied without being run. A database that has some
   of the tables, or the tables with different columns, is refused by name rather
   than stamped.
-- **`SCHEMA` in `web/server/db.pg.ts` is no longer executed and must not be
-  edited to describe a change.** It is the fixed point the baseline is proved
-  against: `web/infrastructure/db/migrate.test.ts` builds one database from each
-  and diffs the catalogue. Change the Drizzle schema and generate a migration.
-- **SQLite has no migrations and is not getting any.** Its schema stays
-  hand-written in `web/server/db.ts` with the two functions that bring the one
-  legacy catalogue file forward. Stage I removes that driver.
+- **`SCHEMA` in `web/server/db.pg.ts` is not run by the app and must not be
+  edited to describe a change.** It is still executed, by
+  `web/infrastructure/db/migrate.test.ts`, which builds one database from it
+  and one from the migrations and diffs the catalogue. That is the only thing
+  making the baseline a proved transcription rather than a claim, so a schema
+  change goes in the Drizzle schema and gets a migration. **Its comments are
+  the other half of its job**: since stage I deleted `db.ts`, that constant is
+  where each column is explained. Comments do not reach the catalogue, so
+  adding one cannot move the fixed point.
+- **SQLite is gone.** Stage I removed the driver, its hand-written schema and
+  the two functions that brought the one legacy catalogue file forward.
 
 There is no `dbCredentials` block in `drizzle.config.ts`, so `drizzle-kit push`,
 `pull` and `studio` are not configured. `generate` needs no database at all, and
@@ -556,9 +565,9 @@ catalogue. Do not add one.
   otherwise in an issue. Do not silently change behaviour that it specifies.
 - Client and server never share a database connection. The client talks to the
   server only through `web/src/lib/api.ts`.
-- Tests run against real dependencies where it is affordable: real SQLite in
-  memory, real barcode decoding, real OCR against generated images. Prefer that
-  over mocks.
+- Tests run against real dependencies where it is affordable: a real Postgres
+  in a container, real barcode decoding, real OCR against generated images.
+  Prefer that over mocks.
 - `web/server/lookup.ts` and `web/server/covers.ts` read their catalogue origins
   from `BOOKSCAN_OPENLIBRARY_URL`, `BOOKSCAN_GOOGLE_BOOKS_URL` and
   `BOOKSCAN_COVERS_URL`. These are unset in normal use, and exist so a test run

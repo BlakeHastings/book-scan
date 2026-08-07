@@ -1,25 +1,20 @@
 /**
- * Postgres schema and driver. The second implementation of `Db`, and a new
- * file rather than an edit to driver.ts, which is what the seam was for.
+ * Postgres schema and driver. Since stage I the only implementation of `Db`,
+ * and still a separate file from driver.ts, which is what the seam was for.
  *
- * **This is the default as of stage G.** `BOOKSCAN_DB=sqlite` is what reaches
- * db.ts instead, and it stays a supported configuration until stage I: the
- * owner's catalogue is still a SQLite file until stage H moves it.
+ * **This is the only database.** Stage G made it the default, stage H moved the
+ * owner's catalogue onto it, and stage I removed `SqliteDb`, the `BOOKSCAN_DB`
+ * switch and `better-sqlite3` with it. The SQLite file itself is untouched on
+ * the owner's disk and is not this repository's business; the way back is a
+ * `git checkout` of a commit before stage I, which brings back the driver and
+ * the migration tool together.
  *
- * The schema below is a deliberately literal translation of the one in db.ts.
- * That file stays the authority on what each column is for and why it exists;
- * repeating two hundred lines of that prose here would only give it somewhere
- * to drift. What is written here is the part that is about Postgres: every
- * place the type had to be chosen rather than copied, and why the obvious
- * choice was refused.
+ * Three of db.ts's functions went with it and are worth naming so nobody looks
+ * for them. `addMissingColumns` and `migrateSeparators` brought an old SQLite
+ * catalogue file forward, and there was exactly one such file in the world;
+ * `SCHEMA_VERSION` was stored in a SQLite pragma.
  *
- * Two of db.ts's functions are deliberately absent. `addMissingColumns` and
- * `migrateSeparators` bring an old SQLite file forward, and there is exactly
- * one such file in the world; it gets brought forward by the SQLite code path
- * once, immediately before the data migration reads it (stage H).
- * `SCHEMA_VERSION` goes with them: it was stored in a SQLite pragma.
- *
- * Postgres does have a migration chain as of #172, and it is Drizzle's, in
+ * Postgres has a migration chain as of #172, and it is Drizzle's, in
  * `web/infrastructure/db/migrations`. `applySchema` at the bottom of this file
  * runs it. Nothing in this file decides what the schema is any more; the
  * constant below is what the first migration is checked against.
@@ -28,28 +23,35 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
 import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/migrate'
-import { bindParams, lockKey, numbered, type Db, type Params, type TxOptions } from './driver'
+import type { ShelfRange } from '../shared/shelving'
+import { bindParams, lockKey, type Db, type Params, type TxOptions } from './driver'
 
 const { Pool } = pg
 type PoolClient = pg.PoolClient
 
 /**
- * Every column keeps the type that produces the same JavaScript value it
- * produces today, because the API contract and the React client depend on it.
- * The four decisions worth arguing about are marked at the column.
+ * Every column keeps the type that produces the same JavaScript value the
+ * SQLite schema produced, because the API contract and the React client depend
+ * on it. The decisions worth arguing about are marked at the column.
  *
- * **Nothing runs this any more.** Since #172 the schema is created by the
+ * **The app does not run this.** Since #172 the schema is created by the
  * baseline migration under `web/infrastructure/db/migrations`, generated from
- * the Drizzle schema. This is kept, and kept exactly as it was, because it is
- * what that baseline is proved against: `infrastructure/db/migrate.test.ts`
- * builds one database from this constant and one from the migration and diffs
- * them, column for column, index for index and constraint for constraint. A
- * baseline that claims to reproduce today's schema and is only ever compared
- * against itself claims nothing.
+ * the Drizzle schema. It is still executed, by
+ * `infrastructure/db/migrate.test.ts`, which builds one database from this
+ * constant and one from the migration and diffs them, column for column, index
+ * for index and constraint for constraint. A baseline that claims to reproduce
+ * today's schema and is only ever compared against itself claims nothing, so
+ * this constant is that test's fixed point and the reason it means anything.
  *
  * So do not edit it to describe a change. A schema change goes in the Drizzle
- * schema and gets a migration; this constant is the fixed point that says the
- * conversion was faithful, and it stops being useful the moment it moves.
+ * schema and gets a migration; this constant is what says the conversion was
+ * faithful, and it stops being useful the moment it moves.
+ *
+ * **It is also where the columns are explained.** That prose lived in db.ts
+ * until stage I deleted it, and the facts in it are about the product rather
+ * than about SQLite: which photograph is the record, what an empty crop column
+ * means, why a column nobody writes is still here. Comments do not reach the
+ * catalogue, so adding one cannot move the fixed point.
  */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS books (
@@ -85,27 +87,54 @@ CREATE TABLE IF NOT EXISTS books (
     location                  text    DEFAULT '',
     lookup_source             text    DEFAULT '',
 
+    -- Three photos per book: cover, back (barcode and blurb), spine.
     front_image               text    DEFAULT '',
     back_image                text    DEFAULT '',
     edge_image                text    DEFAULT '',
+    -- The publisher's cover, fetched from the catalogue rather than
+    -- photographed. Kept beside the three photos: it is what a matched book is
+    -- supposed to look like, which is the thing worth comparing against.
     cover_image               text    DEFAULT '',
+    -- When a cover was last looked for. Set whether or not one was found, so
+    -- a book with no cover anywhere is not re-fetched on every backfill.
+    --
     -- text, not timestamptz, and the same goes for every _at column below.
     -- node-postgres hands a timestamptz back as a Date, which would change
     -- every JSON payload the client and the end to end suite read. ISO-8601
     -- text sorts correctly anyway, which is the only thing anything does to it.
     cover_checked_at          text,
+    -- Difference hashes of the front photo and the catalogue cover, for
+    -- shortlisting a book held up to the camera. See imagehash.ts.
     front_hash                text    DEFAULT '',
     cover_hash                text    DEFAULT '',
+    -- Versions of the three photos cut down to the book itself, so a view can
+    -- show the book without the room around it. Separate files and separate
+    -- columns, never a replacement: the photograph is the record and a crop is
+    -- derived from it, so a bad crop costs nothing and can be redone.
     front_crop                text    DEFAULT '',
     back_crop                 text    DEFAULT '',
     edge_crop                 text    DEFAULT '',
+    -- Which slots have been through the detector, comma separated, whether or
+    -- not it found a book. A slot named here with an empty crop column was
+    -- looked at and declined, which is what lets a view say "shown whole"
+    -- about that photo without saying it about every photo taken before any
+    -- of this existed.
     cropped                   text    DEFAULT '',
     isbn_source               text    DEFAULT '',
-    -- Vestigial; always ''. See the comment on this column in db.ts.
+    -- Vestigial. Meant to hold the raw OCR text a capture read off a book, so
+    -- a misread ISBN could be explained later without re-photographing. No
+    -- client path ever wrote it (see #36), and the argument for wiring it up
+    -- did not hold: the photos themselves are kept indefinitely and are the
+    -- ground truth, while OCR text is a lossy, engine-version-dependent
+    -- reading of them. The schema is append only, so the column stays and is
+    -- always ''. Do not read or write it.
     ocr_text                  text    DEFAULT '',
 
     scanned_at                text    NOT NULL,
     shelved_at                text,
+    -- Set while the book is physically off the shelf. A checked-out book is
+    -- still catalogued but holds no position, so it neither appears as a
+    -- neighbour nor takes up room in the layout.
     checked_out_at            text
 );
 
@@ -115,6 +144,8 @@ CREATE TABLE IF NOT EXISTS books (
 CREATE INDEX IF NOT EXISTS idx_books_shelf  ON books (shelf_range, sort_key);
 CREATE INDEX IF NOT EXISTS idx_books_isbn13 ON books (isbn13);
 
+-- Ordered authors, so "first-listed author" is unambiguous. Parsing the
+-- comma-joined display string back apart is ambiguous with "Last, First".
 CREATE TABLE IF NOT EXISTS book_authors (
     book_id  integer NOT NULL REFERENCES books(id) ON DELETE CASCADE,
     position integer NOT NULL,
@@ -122,6 +153,7 @@ CREATE TABLE IF NOT EXISTS book_authors (
     PRIMARY KEY (book_id, position)
 );
 
+-- Load-bearing. No heuristic gets Garcia Marquez and Le Guin both right.
 CREATE TABLE IF NOT EXISTS author_filing (
     display_key  text PRIMARY KEY,
     filing_name  text NOT NULL,
@@ -132,13 +164,24 @@ CREATE TABLE IF NOT EXISTS author_filing (
 CREATE TABLE IF NOT EXISTS shelf_ranges (
     shelf_range text    PRIMARY KEY,
     start_label text    NOT NULL,
+    -- Which bookcase this range begins on. Non-fiction has its own, so both
+    -- ranges laid out from bookcase 1 would give two real planks one name.
     start_shelf integer NOT NULL DEFAULT 1,
     start_area  integer NOT NULL DEFAULT 0,
     note        text    DEFAULT ''
 );
 
+-- The work queue. A capture is three photos and nothing else until the
+-- background worker has read them, which is what lets the person holding the
+-- books keep moving instead of waiting on OCR.
+--
+-- Deliberately separate from the books table. That one drives shelf ordering
+-- and misfile detection, and letting half-identified rows into it would
+-- corrupt both.
 CREATE TABLE IF NOT EXISTS captures (
     id           integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    -- pending: not yet read. ready: identified, awaiting confirmation.
+    -- failed: read, but no ISBN or no catalogue match. done: became a book.
     status       text    NOT NULL DEFAULT 'pending',
     front_image  text    DEFAULT '',
     back_image   text    DEFAULT '',
@@ -146,20 +189,55 @@ CREATE TABLE IF NOT EXISTS captures (
     isbn13       text    DEFAULT '',
     isbn10       text    DEFAULT '',
     isbn_source  text    DEFAULT '',
+    -- The first line OCR read off the front cover, and only ever that. A
+    -- title a person stated goes to edit_json and is never mirrored here, so
+    -- a guess and a confirmed title cannot be mistaken for one another (#156).
     title_guess  text    DEFAULT '',
+    -- Largest readable lines off the front cover, newline separated.
     cover_text   text    DEFAULT '',
+    -- Which slots the worker has already read, comma separated. Photos arrive
+    -- one at a time, so the worker needs to know what is new.
     analysed     text    DEFAULT '',
+    -- The looked-up metadata, as a draft the review pane can load directly.
+    -- Written only by the background worker. See edit_json below.
     draft_json   text    DEFAULT '',
+    -- What a person stated about this book while it sat in the queue, as the
+    -- subset of draft fields they actually filled in.
+    --
+    -- Deliberately a second column rather than an edit of draft_json. The
+    -- worker owns draft_json and re-reads photographs whenever a new one
+    -- arrives, so a correction stored there is one re-analysis away from being
+    -- silently overwritten. Two columns means the person and the worker never
+    -- write the same cell, and a capture is read as draft_json with edit_json
+    -- laid over the top. See the precedence comment in queue.ts.
     edit_json    text    DEFAULT '',
+    -- When a person last looked at this capture, and who. Set even by a look
+    -- that changed nothing, because "nobody has been here yet" and "somebody
+    -- read it and left it alone" are different facts and the queue exists to
+    -- tell you which books still want attention.
     edited_by    text    DEFAULT '',
     edited_at    text,
     note         text    DEFAULT '',
+    -- Soft lease, so two people cannot work the same capture at once.
     claimed_by   text    DEFAULT '',
     claimed_at   text,
+    -- The same three-photos-and-a-crop arrangement books carry, and it means
+    -- exactly what it means there: separate files and separate columns, never
+    -- a replacement. The photograph is the record, a crop is derived from it,
+    -- so a bad crop costs nothing and can be redone, and nothing on this path
+    -- ever opens a photograph for writing.
     front_crop   text    DEFAULT '',
     back_crop    text    DEFAULT '',
     edge_crop    text    DEFAULT '',
+    -- Which slots have been through the detector, comma separated, whether or
+    -- not it found a book. Same contract as books.cropped.
     cropped      text    DEFAULT '',
+    -- Frequency hash of the front photo, in the format imagehash.ts writes.
+    -- The same column, the same algorithm and the same format tag as
+    -- books.front_hash, so a book held up to the camera can be compared
+    -- against the queue without anything comparing across two schemes. Left
+    -- empty when the photo could not be hashed: a wrong match is worse than
+    -- no match, so this fails closed exactly as the books path does.
     front_hash   text    DEFAULT '',
     book_id      integer REFERENCES books(id) ON DELETE SET NULL,
     created_at   text    NOT NULL,
@@ -168,14 +246,24 @@ CREATE TABLE IF NOT EXISTS captures (
 
 CREATE INDEX IF NOT EXISTS idx_captures_status ON captures (status, id);
 
+-- Where each shelf begins.
+--
+-- A boundary says WHERE a shelf starts and nothing about how much it holds.
+-- An earlier version stored a capacity, which is not a fact about the
+-- furniture: swap a paperback for a hardback and the same shelf holds one
+-- fewer. Nothing here predicts capacity. A person says when a shelf is full
+-- and the boundary moves.
 CREATE TABLE IF NOT EXISTS separators (
     id          integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     shelf_range text    NOT NULL,
+    -- 'shelf' ends a shelf; 'area' ends the whole bookcase and resets to
+    -- shelf 1 of the next one.
     kind        text    NOT NULL DEFAULT 'shelf',
-    -- Compared against books.sort_key to find shelf boundaries, so it has to
-    -- order the same way sort_key does or a boundary lands between the wrong
-    -- two books.
+    -- Sort key of the first book on this shelf. Compared against
+    -- books.sort_key, so it has to order the same way sort_key does or a
+    -- boundary lands between the wrong two books.
     starts_at   text COLLATE "C" NOT NULL,
+    -- Ordinal within its range: the first separator closes the first shelf.
     position    integer NOT NULL,
     note        text    DEFAULT '',
     created_at  text    NOT NULL
@@ -185,16 +273,76 @@ CREATE INDEX IF NOT EXISTS idx_separators ON separators (shelf_range, position);
 `
 
 /**
+ * A row of `books` as the stores read it back.
+ *
+ * Lived in db.ts until stage I, and moved here rather than into a file of its
+ * own because this is where the columns it names are declared and explained.
+ * It is the shape of a row, not a fact about a driver: `Store` and `Shelves`
+ * both take it and neither can see what is underneath them.
+ */
+export interface BookRow {
+  id: number
+  isbn13: string
+  isbn10: string
+  title: string
+  subtitle: string
+  authors: string
+  publisher: string
+  published: string
+  pages: string
+  notes: string
+  shelf_range: ShelfRange
+  is_fiction: number
+  classification_source: string
+  classification_confidence: string
+  author_filing: string
+  series_name: string
+  series_index: number | null
+  title_filing: string
+  sort_key: string
+  location: string
+  lookup_source: string
+  front_image: string
+  back_image: string
+  edge_image: string
+  isbn_source: string
+  /** Vestigial; always ''. See the comment on this column in SCHEMA above. */
+  ocr_text: string
+  scanned_at: string
+  shelved_at: string | null
+  /** ISO timestamp while the book is off the shelf, null while it is on one. */
+  checked_out_at: string | null
+  /** Publisher cover from the catalogue, as a filename under /api/covers. */
+  cover_image: string
+  /** When a cover was last looked for, found or not. */
+  cover_checked_at: string | null
+  /** Difference hashes, for matching a book held up to the camera. */
+  front_hash: string
+  cover_hash: string
+  /**
+   * The three photos cut to the book, as filenames under /api/covers. Empty
+   * where the detector was never run or could not find the book.
+   */
+  front_crop: string
+  back_crop: string
+  edge_crop: string
+  /** Slots the detector has looked at, comma separated. See SCHEMA above. */
+  cropped: string
+}
+
+/**
  * The columns that must not be compared by a linguistic collation, and the
  * tables they live in.
  *
  * `sort_key` is the spine of the product. `Store.neighbours` seeks either side
  * of one with `<` and `>`, `Shelves.booksIn` orders by it, and
  * `separators.starts_at` is compared against it to find where a shelf begins.
- * SQLite compares text byte by byte with no exceptions; Postgres compares using
- * the collation of the column, and a glibc `en_US.utf8` one ignores punctuation
- * on the first pass, folds case, and files accented characters beside their
- * unaccented forms. Two keys SQLite orders one way come back the other way.
+ * Every key in this catalogue was built to be compared byte by byte, which is
+ * what the SQLite this app grew up on did with no exceptions. Postgres compares
+ * using the collation of the column, and a glibc `en_US.utf8` one ignores
+ * punctuation on the first pass, folds case, and files accented characters
+ * beside their unaccented forms. Two keys that ought to order one way come back
+ * the other way.
  *
  * That does not throw and does not fail a smoke test. It reorders a shelf, or
  * moves one book past a separator, and the app then tells somebody to put a
@@ -287,6 +435,31 @@ export function connectionConfig(value: string): pg.PoolConfig {
     password: pick('password', 'pwd'),
     database: pick('database', 'initialcatalog'),
   }
+}
+
+/**
+ * The catalogue's connection string, from the one variable it is written in.
+ *
+ * `ConnectionStrings__bookscan` is the name Aspire gives it. Read here so the
+ * server and the three maintenance scripts that open the catalogue by hand all
+ * find it the same way, and so "there is exactly one name" is a fact about one
+ * function rather than about four call sites that currently agree.
+ *
+ * Nothing else is consulted. Not `DATABASE_URL`, not `PG*`: the test harness
+ * ignores every ambient connection variable for a reason (server/testdb.ts),
+ * and a second accepted spelling here would be a way for a shell to decide what
+ * gets written to. The migration and backup tools take their target on their
+ * own command lines for the same reason and do not call this.
+ */
+export function catalogueConnection(): string {
+  const url = process.env.ConnectionStrings__bookscan ?? ''
+  if (!url) {
+    throw new Error(
+      'No Postgres connection: ConnectionStrings__bookscan is empty. Under ' +
+      'Aspire the AppHost sets it; on its own, set it to the catalogue.',
+    )
+  }
+  return url
 }
 
 /** Host, port and database. Never the credentials: this reaches /api/health. */
@@ -413,11 +586,11 @@ export class PgDb implements Db {
    * run it alongside anything else.
    */
   private async query(sql: string, params?: Params): Promise<pg.QueryResult> {
-    // `numbered` rather than `anonymous`, and that is the whole of the dialect
-    // difference in this method. Every statement in the three stores has been
-    // going through this translator on SQLite since stage E, so the translation
-    // itself is exercised by the entire existing suite.
-    const { text, values } = bindParams(sql, params, numbered)
+    // The `?`, `@name` and `:name` placeholders the stores are written in,
+    // rewritten as `$1`, `$2`. Stage E routed SQLite through this same
+    // translator so it was exercised by the whole suite a stage before this
+    // driver existed; the suite exercises it here now for the same reason.
+    const { text, values } = bindParams(sql, params)
     const open = this.context.getStore()
     if (open) return open.client.query({ text, values })
     return this.pool.query({ text, values })
@@ -497,9 +670,8 @@ const OUTCOMES: Record<MigrationOutcome, string> = {
  * container has a persistent volume per checkout, so every developer already
  * has one, and so does every scratch catalogue anybody has been seeding into.
  *
- * The seeding is the same two statements db.ts runs, spelled the same way.
- * Stage D made them dialect-neutral against SQLite, which is where that was
- * cheap to prove; this is where it gets used.
+ * The two seed statements were made dialect-neutral in stage D, against SQLite,
+ * where that was cheap to prove. This is where they are run.
  */
 export async function applySchema(pool: pg.Pool): Promise<void> {
   // Straight at the pool, not through `Db.run`, and for the reason `Db` has no
@@ -522,9 +694,9 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
   await db.run(seed, ['fiction', '1A', 1, 0, 'Starts on the first bookcase'])
   await db.run(seed, ['nonfiction', '4A', 4, 0, 'Bookcase 4 is dedicated to non-fiction'])
 
-  // The two repairs db.ts makes to a seed written before ranges had a starting
-  // bookcase. Kept for the same reason the seed is: a scratch Postgres created
-  // by an older revision of this file is a database somebody may still have.
+  // Two repairs to a seed written before ranges had a starting bookcase. Kept
+  // for the same reason the seed is: a scratch Postgres created by an older
+  // revision of this file is a database somebody may still have.
   await db.run(
     "UPDATE shelf_ranges SET start_shelf = 4, start_area = 0, start_label = '4A' " +
     "WHERE shelf_range = 'nonfiction' AND start_label = 'S4'",
@@ -538,8 +710,8 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
 /**
  * Open the catalogue on Postgres.
  *
- * Asynchronous where `openDatabase` is synchronous, which is the one thing this
- * costs the startup path: `index.ts` now awaits its database rather than having
+ * Asynchronous, where opening a SQLite file was not, which is the one thing the
+ * move cost the startup path: `index.ts` awaits its database rather than having
  * it by the time the module finishes evaluating.
  */
 export async function openPostgres(connectionString: string): Promise<Db> {

@@ -1,12 +1,18 @@
 # SQLite to Postgres: a staged migration plan
 
-Status: **stages A to G have landed** (#44, #45, #55, #142, #144, #160, #163),
-and **stage H's tool and runbook exist and have been rehearsed against a
-snapshot**. The app now defaults to Postgres, **and the owner's catalogue is
-still a SQLite file**: nothing has touched the live data, and nothing will until
-the owner runs stage H themselves, following `docs/stage-h-runbook.md`. `BOOKSCAN_DB=sqlite` opens that file and is a fully supported
-configuration until stage I. Progress is tracked on #140; this document is the
-authority on what each stage is.
+Status: **finished. Every stage A to I has landed** (#44, #45, #55, #142, #144,
+#160, #163, #178). The owner ran stage H on 2026-08-06 following
+`docs/stage-h-runbook.md`, and the catalogue is a Postgres database in
+`book-scan-live-pg`. Stage I then removed the SQLite driver, `BOOKSCAN_DB` and
+`better-sqlite3`, so there is one database and no switch.
+
+**The SQLite file is still on the owner's disk** and stays there until at least
+2026-09-06. Nothing in this repository can open it: the way back is a
+`git checkout` of a commit before stage I, which restores the driver, the
+switch and the migration tool together. See "The way back" below.
+
+Progress is tracked on #140; this document is the authority on what each stage
+was.
 
 Decisions below were settled by the owner on 2026-08-03 and should not be
 relitigated without a reason.
@@ -790,20 +796,46 @@ assert that the verification says so.
 
 ### Stage I. Remove SQLite
 
-Not before the owner confirms the live catalogue has been on Postgres for at
-least a week and a Postgres backup has been restored successfully at least once.
+**Built (#178).** The precondition was a week on Postgres and one exercised
+restore. The restore was done and reported `RESTORED AND VERIFIED` twice; **the
+week was waived by the owner, on evidence rather than impatience.** No book has
+been written to Postgres since the cutover, so the newest row in the retained
+SQLite file predates it: the file is not merely intact, it is current, and the
+rollback is a `git checkout` of an older commit against a file that has lost
+nothing. The condition existed to make sure the way back still worked, and what
+it was protecting was already true.
 
-- Delete `SqliteDb`, the SQLite branch of `db.ts`, `addMissingColumns`,
-  `migrateSeparators`, `SCHEMA_VERSION`, the `BOOKSCAN_DB` switch and the
-  dual-driver test parameterisation.
-- Drop `better-sqlite3` and `@types/better-sqlite3` from `web/package.json` and
-  `e2e/package.json`.
-- Rewrite the `:memory:` paragraph in AGENTS.md and the `Tests` step comment in
-  `.github/workflows/ci.yml`, both of which currently assert the old safety
-  story.
-- Keep the `no-production-data` CI job. It greps `git ls-files` for `.db` and
-  `.sqlite` files and for `covers/` and `captures/` directories. The covers half
-  is still live, and the database half costs nothing to keep.
+Done as listed, with four departures worth recording.
+
+- `SqliteDb`, `db.ts`, `addMissingColumns`, `migrateSeparators`,
+  `SCHEMA_VERSION`, the `BOOKSCAN_DB` switch and the two-project test
+  arrangement are all deleted, along with `better-sqlite3` and
+  `@types/better-sqlite3`. `e2e/package.json` never had them.
+- **The migration tool went too**, `server/migrate.ts`,
+  `server/migrate-sqlite-to-pg.ts` and its 21 tests. It reads SQLite through
+  `Db`, so keeping it means keeping the driver, which is the whole of what this
+  stage removes. It cannot run without a source it can open, and a tool that
+  cannot run is documentation with a compile step. What it did is recorded in
+  `docs/stage-h-runbook.md` and in section 5 below, and the tool itself is one
+  `git checkout` away for exactly as long as the file it read is on the disk.
+- **`SCHEMA` in `db.pg.ts` stayed, because something still executes it.**
+  `infrastructure/db/migrate.test.ts` builds one database from that constant
+  and one from the migrations and diffs the catalogue, which is the only thing
+  making the baseline a proved transcription rather than a claim. The column
+  prose deleted with `db.ts` moved into it, since it is now the only place the
+  columns are explained.
+- **The whole suite needs Docker now, not half of it.** `--project sqlite` was
+  the half that needed nothing and there is no such half left.
+- The `no-production-data` check is kept, as planned. It greps `git ls-files`
+  for `.db` and `.sqlite` files and for `covers/` and `captures/` directories.
+  The covers half is still live, and the database half costs nothing to keep.
+
+Measured: 1181 tests across 56 file-runs before, 997 across 50 after. The
+difference is 160 tests that were the second run of five files, 21 in the
+deleted migration tool's suite, 2 in `index.test.ts` that were about the
+`BOOKSCAN_DB` switch, and 1 in `driver.test.ts` where two placeholder-spelling
+tests became one test carrying both bodies. No assertion was lost that was not
+about something this stage deleted.
 
 **Ordering note.** Stages A, B and D are independently useful and carry no
 Postgres risk. If the owner wants to stop at any point, stopping after D leaves
@@ -1020,18 +1052,21 @@ argued for:
 
 ### The way back
 
-This is why SQLite is not deleted until Stage I. Until then the way back is:
-stop the app, set `BOOKSCAN_DB=sqlite`, start the app. **That is a live,
-exercised path, not a hope**: stage G kept it selectable by configuration, the
-SQLite half of the suite runs on every change, and `index.test.ts` asserts that
-`BOOKSCAN_DB=sqlite` opens the file with no connection string anywhere. Note
-that the same variable is now the difference between the default and the file
-rather than between the file and an opt-in, so the rollback is one variable in
-either direction. The SQLite file has not been written to since the cutover, so
-it is the catalogue as of that moment.
-Anything scanned into Postgres since is lost by rolling back, which is why the
-rollback window is measured in hours and the decision to keep going is made the
-same day.
+Through stages G and H it was one variable: stop the app, set
+`BOOKSCAN_DB=sqlite`, start the app. **Stage I removed the variable and the
+driver behind it.** The way back is now a `git checkout` of the commit before
+stage I, which restores the driver, the switch and the migration tool in one
+move, followed by that same variable.
+
+That is a change in cost, not in kind, and it was made deliberately. The SQLite
+file has not been written to since the cutover, so it is the catalogue as of
+that moment and it has lost nothing. What the rollback loses is anything
+scanned into Postgres since, which is why the rollback window is measured in
+hours and the decision to keep going is made the same day.
+
+What is no longer true is that the path is exercised on every change. The
+SQLite half of the suite is gone with the driver, so a rollback would be
+running a revision that CI last proved on the day stage I landed.
 
 There is no path from Postgres back to SQLite and there should not be one.
 Writing one is a day of work to support a scenario the owner should resolve by
@@ -1419,6 +1454,9 @@ concurrency.
 6. **Does SQLite get deleted at Stage I, or kept as a supported path?**
    Recommended deleted. Keeping it is a permanent tax on every future schema
    change, and it guards a configuration nobody runs.
+
+   Deleted at stage I, and the migration tool with it. See stage I above for
+   why keeping the tool was not separable from keeping the driver.
 7. **`/api/health` reports the database path and the e2e suite reads it.**
    Confirm that redacting it to host, port and database name, with the suite
    reading the connection from `aspire describe` instead, is acceptable.

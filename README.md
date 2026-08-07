@@ -52,45 +52,40 @@ BOOKSCAN_DATA="C:\path\to\your\data" npm run dev
 Anyone working on the code, human or agent, should leave `BOOKSCAN_DATA` unset
 so they get a scratch database instead. See [`AGENTS.md`](AGENTS.md).
 
-### Which database
+### The database
 
-`BOOKSCAN_DB` picks one, and **it defaults to `postgres`** as of stage G of the
-migration:
+Postgres, and only Postgres, as of stage I of the migration. The connection is
+read from `ConnectionStrings__bookscan`, which the Aspire AppHost sets, so
+under `aspire start` there is nothing to configure.
 
-```bash
-BOOKSCAN_DB=sqlite  BOOKSCAN_DATA="C:\path\to\your\data" npm run dev
-```
+Started with no connection string, the server refuses to start and names the
+variable. A process that exits saying which variable is empty is recoverable in
+one command; one that comes up on an empty database is not obviously anything.
 
-- `postgres` reads its connection from `ConnectionStrings__bookscan`, which the
-  Aspire AppHost sets. Under `aspire start` there is nothing to configure.
-- `sqlite` opens `<BOOKSCAN_DATA>/books.db` and needs no connection string. It
-  is still fully supported: the catalogue has not moved yet, and moving it is
-  stage H, which the owner runs.
+SQLite was the only database until stage G, the default until stage H and a
+supported configuration until stage I. It is gone, along with `BOOKSCAN_DB` and
+`better-sqlite3`. There is no path back in this tree: an older commit is one.
 
-Running with neither set is the one combination that refuses to start. That is
-deliberate: a process that came up on an empty Postgres beside a `books.db`
-full of scanned books would look exactly like a catalogue that lost every one
-of them, so it says which of the two you meant instead of guessing.
-
-The cover photographs stay on the filesystem under `BOOKSCAN_DATA` whichever
-database is in use. Object storage for them is separate work, deliberately.
+The cover photographs stay on the filesystem under `BOOKSCAN_DATA`. Only the
+rows moved. Object storage for the photographs is separate work, deliberately.
 
 ## Checks
 
 ```bash
 cd web
 npm run typecheck   # tsc --noEmit
-npm test            # vitest, both projects
+npm test            # vitest
 ```
 
 Both run in CI on every pull request, alongside a check that no scan data has
 been committed.
 
-`npm test` runs two projects: `sqlite`, which is every test and needs nothing,
-and `postgres`, which re-runs the five files that open a database against a
-real Postgres in a container. **It therefore needs Docker.** Set
-`BOOKSCAN_TEST_DATABASE_URL` to use a server you already have instead, or run
-`npx vitest run --project sqlite` for the half that needs neither.
+**`npm test` needs Docker.** It starts one Postgres container for the run, and
+every test file that opens a database opens one on it, because that is the
+database being shipped. Set `BOOKSCAN_TEST_DATABASE_URL` to a server you
+already have and no container starts; that is how CI does it. Stages F to H
+also ran a `sqlite` project that needed nothing, and stage I removed the driver
+it was for.
 
 ### End to end
 

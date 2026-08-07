@@ -40,12 +40,25 @@ scaffolding for an occasional check, not a framework and not a CI gate.
 
 All commands from the repo root unless noted.
 
-### 1. Seed a throwaway world
+### 1. Start the app under Aspire, then seed a throwaway world
+
+The order changed at stage I. The catalogue used to be a file the seeder could
+create before anything was running; it is a Postgres database the AppHost
+provisions, so the AppHost starts first and hands out the connection.
 
 ```
+aspire start --non-interactive     # from the repo root
+aspire wait api
+aspire describe api                # read ConnectionStrings__bookscan from this
 cd web
-npm run seed -- --reset
+npm run seed -- --reset --target '<the connection>'
 ```
+
+The seeder takes its target on the command line and will not read
+`ConnectionStrings__bookscan` out of the environment, for the same reason
+`backup-catalogue.ts` will not: it writes, and a connection string that happens
+to be in a shell should not be able to decide what gets written to. It also
+refuses any target on port 5433 outright, which is the live catalogue.
 
 This writes a synthetic catalogue and capture queue to this checkout's own
 `web/data`: about 20 shelved books across two fiction bookcases and one
@@ -60,19 +73,17 @@ synthetic with a valid check digit and every photo is rendered by
 `web/server/fixtures.ts`, the same generator the test suite uses. Nothing in
 it depends on the network.
 
-See `web/scripts/seed-world.ts` for exactly what it builds. `--reset` clears
-`web/data` first; without it the script refuses to run if a catalogue is
-already there, so a re-run cannot silently pile a second world on top of the
-first.
+See `web/scripts/seed-world.ts` for exactly what it builds. `--reset` empties
+the catalogue and clears `web/data` first; without it the script refuses a
+target that already holds books or captures, so a re-run cannot silently pile a
+second world on top of the first.
 
-This never reads or writes `BOOKSCAN_DATA`, and never touches anything
-outside this checkout. See AGENTS.md for why that variable matters.
+This never reads or writes `BOOKSCAN_DATA`: the photographs always go to this
+checkout's own `web/data`. See AGENTS.md for why that variable matters.
 
-### 2. Start the app under Aspire
+### 2. Open the app
 
 ```
-aspire start --non-interactive
-aspire wait api
 aspire wait web
 aspire ps
 ```
