@@ -487,6 +487,14 @@ teach people to skim past it.
 - `docs/shelving.md` is the authority on filing and placement rules. If code
   and that document disagree, the document wins, unless the owner has said
   otherwise in an issue. Do not silently change behaviour that it specifies.
+- **An area is not a plank.** A bookcase holds planks; a plank can hold more
+  than one area, because a divider or a pot plant halfway along is enough for
+  somebody to treat the two halves as separate places. The code currently
+  models them as one thing and the vocabulary is inconsistent throughout. Read
+  the Vocabulary section of `docs/shelving.md` before touching anything that
+  says `shelf` or `area`, and **do not rename either on your own initiative**:
+  half a codebase in each vocabulary is worse than all of it consistently
+  wrong.
 - Client and server never share a database connection. The client talks to the
   server only through `web/src/lib/api.ts`.
 - Tests run against real dependencies where it is affordable: real SQLite in

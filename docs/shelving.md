@@ -17,6 +17,40 @@ rather than the column set sketched under "Schema changes" below, and sorts in
 application code rather than through a flattened indexed key. That divergence
 was a deliberate simplification, not an oversight.
 
+## Vocabulary, and one word this document gets wrong
+
+Three different things, and the difference matters because two of them are
+currently treated as one:
+
+| Word | What it means |
+| --- | --- |
+| **Bookcase** | A piece of furniture standing in a room. |
+| **Shelf**, or **plank** | One horizontal board inside a bookcase. A physical thing you could unscrew. |
+| **Area** | A run of books the owner treats as one place. **Chosen by a person, not by the carpentry.** |
+
+**An area is not the same thing as a plank, and this document says otherwise in
+several places.** One plank can hold two areas, or more: a divider, a bookend,
+or a pot plant halfway along is enough for somebody to treat the two halves as
+separate places, and to want them labelled and filled separately. Nothing stops
+a plank holding one area either, which is why the two got conflated in the first
+place.
+
+The current implementation does not model this. `SeparatorKind` is
+`'shelf' | 'area'` where `'shelf'` means *a new bookcase starts here* and
+`'area'` means *a new plank starts here*, so the plank and the area are the same
+row and neither the bookcase nor the plank exists as a record of its own. That is
+a known modelling gap, not a decision, and it is tracked with the rest of the
+remodel.
+
+Until that lands, read every "plank" in this document as "area", and know that
+the two coming apart is expected rather than a bug to be tidied away.
+
+**Do not rename anything in the code on the strength of this section alone.**
+`shelf` and `area` are in the schema, the API and the client, and renaming them
+piecemeal would leave the codebase half in each vocabulary, which is worse than
+being consistently wrong. The rename belongs with the remodel that introduces
+the missing rows.
+
 ## Scope
 
 The existing app captures a book and writes a row to `books`. This document
