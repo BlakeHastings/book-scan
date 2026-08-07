@@ -34,5 +34,23 @@ export default defineConfig({
     // project. Files that never open a database pay the startup and nothing
     // else; files that do get their own database out of server/testdb.ts.
     globalSetup: ['./server/pgcontainer.ts'],
+
+    /*
+     * Twelve files now create a database of their own and drop it again, where
+     * nine did before stage I and four of those opened `:memory:` instead. They
+     * run in parallel against one container, so a `CREATE DATABASE` or a `DROP
+     * DATABASE` waits behind the others, and vitest's ten second default for a
+     * hook is not enough for the last one in the queue on a laptop.
+     *
+     * Found by watching it: the suite went green, then red in seven files at
+     * once with every test in them passing and `Hook timed out in 10000ms` in
+     * each, which reads like a driver fault and is a queue. CI, on a service
+     * container rather than a Docker Desktop VM, has not hit it.
+     *
+     * Only the hooks. `testTimeout` stays at the default, because a test that
+     * runs long is a test worth being told about, and the files that legitimately
+     * take tens of seconds say so per test already (see bookcrop.test.ts).
+     */
+    hookTimeout: 60_000,
   },
 })

@@ -20,6 +20,11 @@ rather than something you find out about afterwards.
   with `query_only` set on top of that. It is still the catalogue afterwards,
   byte for byte, and it stays that way for at least a month.
 
+**The tool this file describes was deleted by stage I** (#178), because it
+reads SQLite through a driver that stage I removed. This runbook is kept as the
+record of what it did and what its verification proved. To run it again, check
+out a commit before stage I; the tool and the driver come back together.
+
 ## Before anything
 
 1. **Stop the app.** No process holding the database open. The tool refuses to
@@ -127,8 +132,11 @@ each section is a different claim:
 4. Start the app against Postgres and open the library. Look at it: the shelf
    order, the queue, and one book's photographs.
 5. **Leave the SQLite file exactly where it is, untouched, for at least a
-   month.** Stage I does not happen until the owner confirms a week on Postgres
-   and one successful restore of a Postgres backup.
+   month.** Stage I did not happen until the owner confirmed a successful
+   restore of a Postgres backup; the week on Postgres was waived, on the
+   evidence that no book had been written to Postgres since the cutover, so the
+   retained file was current rather than merely intact. See stage I in
+   `docs/postgres-migration.md`.
 
 ## If it fails halfway
 
@@ -140,12 +148,25 @@ what it was before. The recovery is to fix what failed and run it again, with
 
 ## The way back
 
-Stop the app, set `BOOKSCAN_DB=sqlite`, start the app. That is one variable, and
-it is a live exercised path rather than a hope: the SQLite half of the test
-suite runs on every change and `index.test.ts` asserts that `BOOKSCAN_DB=sqlite`
-opens the file with no connection string anywhere.
+**This changed at stage I, which removed the SQLite driver.** What is written
+below was true while that driver was in the tree, and the sequence is still the
+sequence; it now needs one step in front of it.
+
+- **Before stage I:** stop the app, set `BOOKSCAN_DB=sqlite`, start the app.
+  One variable, and a live exercised path rather than a hope.
+- **Now:** stop the app, `git checkout` a commit before stage I (#178), which
+  restores the driver, the `BOOKSCAN_DB` switch and the migration tool
+  together, then set `BOOKSCAN_DB=sqlite` and start the app.
+
+The SQLite file itself is unchanged by any of this and stays on the disk until
+at least 2026-09-06. It has not been written to since the cutover, so it is the
+catalogue as of that moment.
 
 The cost is real and it is measured in hours, not days: **anything scanned into
 Postgres after the cutover is lost by rolling back**, because there is no path
 from Postgres back to SQLite and there should not be one. So the decision to
 keep going is made the same day.
+
+The other cost, added by stage I: the SQLite half of the suite went with the
+driver, so a rollback runs a revision CI last proved on the day stage I landed
+rather than one proved this morning.

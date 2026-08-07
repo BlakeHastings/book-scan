@@ -1611,7 +1611,7 @@ describe('editing a capture that is still in the queue', () => {
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
     })
-    new CaptureQueue(running.db, () => null).markDone(capture.id, id)
+    await new CaptureQueue(running.db, () => null).markDone(capture.id, id)
 
     const { status, body } = await patch(`/api/captures/${capture.id}`, {
       who: 'alice', title: 'Something Else',
@@ -1677,7 +1677,7 @@ describe('putting a claimed capture down', () => {
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
     })
-    new CaptureQueue(running.db, () => null).markDone(capture.id, id)
+    await new CaptureQueue(running.db, () => null).markDone(capture.id, id)
 
     const { status, body } = await patch(`/api/captures/${capture.id}`, {
       who: 'alice', title: 'Too late', release: true,

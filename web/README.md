@@ -337,7 +337,7 @@ both people see the same list.
 | Two simultaneous identifications hitting one tesseract worker, which handles a single job at a time, and zbar-wasm's module-level scanner | Fixed. All identification is serialised process-wide |
 | Placement previewed, then a neighbour inserted by the other person before saving, so the book is filed into a gap that no longer exists | Fixed. The server recomputes placement at save time and the client now shows *that*, not its stale preview |
 | Both people opening the same queued book and filling it in twice | Fixed. Claiming a capture is a single conditional UPDATE, so only one wins. It is a lease, not a lock, so a claim left open does not block the book forever |
-| A contended SQLite write failing instead of waiting | Fixed with `busy_timeout` |
+| A contended SQLite write failing instead of waiting | Fixed with `busy_timeout`, then made moot: the catalogue is Postgres |
 | The same book scanned twice, once by barcode and once by typed ISBN-10 | Already handled: duplicate detection matches on either column |
 
 **Still true, and worth knowing:** two people can be told to put different
@@ -471,11 +471,16 @@ author permanently.
 
 ## Data
 
-Written to `web/data/` by default, override with `BOOKSCAN_DATA`:
+The rows are in Postgres, reached through `ConnectionStrings__bookscan`, which
+the Aspire AppHost sets. The photographs are files, written to `web/data/` by
+default and overridden with `BOOKSCAN_DATA`:
 
-- `books.db`, SQLite
 - `covers/`, captured photos as JPEGs, plus a re-encoded publisher cover per
   book where one was found
+
+`web/data/books.db` was the catalogue until stage H of the Postgres migration
+moved it and stage I removed the driver. Object storage for the photographs is
+separate work, deliberately.
 
 Both OCR engines cache their downloaded models under the user's home
 directory instead, independent of `BOOKSCAN_DATA`, since a model download is
@@ -496,14 +501,15 @@ npx tsx server/rehash-covers.ts            # dry run, writes nothing
 npx tsx server/rehash-covers.ts --apply    # write the new hashes
 ```
 
-It reads `BOOKSCAN_DATA` the same way the server does and prints the directory
-it resolved before doing anything. A dry run is the default, re-running it is
-harmless, and it can be interrupted and started again. Add `--force` to
-recompute hashes that are already current. A cover file that is missing or
-unreadable is counted, named and stepped over, leaving the hash it had rather
-than blanking it, and the run finishes the rest.
+It reads `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` the same way the
+server does and prints both before doing anything. A dry run is the default,
+re-running it is harmless, and it can be interrupted and started again. Add
+`--force` to recompute hashes that are already current. A cover file that is
+missing or unreadable is counted, named and stepped over, leaving the hash it
+had rather than blanking it, and the run finishes the rest.
 
-Back up `books.db` before a run with `--apply`.
+Back the catalogue up before a run with `--apply`. See
+`docs/backup-runbook.md`.
 
 ### Cropping the photographs to the book
 
@@ -620,17 +626,17 @@ noticed. The suites worth knowing about:
 - `server/rehash.test.ts` covers the cover rehash: that a dry run writes
   nothing, that a second run finds nothing to do, and that a missing image is
   counted rather than thrown.
-- Those three, plus `server/rehash.test.ts` and `server/dividers.test.ts`, run
-  **twice**: once against in-memory SQLite and once against a real Postgres in
-  a container, with no assertion in them conditional on which. A new test file
-  that opens a database belongs on that list in `vitest.config.ts`, or it
-  guards SQLite only. That is the verification argument for stage F of the Postgres
-  migration: the Postgres driver is correct exactly to the extent that the
-  tests already guarding SQLite pass unchanged against it. **This is why
-  `npm test` needs Docker**; `BOOKSCAN_TEST_DATABASE_URL` points the harness at
-  a server you already have instead, and `npx vitest run --project sqlite` is
-  the half that needs neither.
-- `server/db.pg.test.ts` covers what those four cannot see, because every item
+- Those three, plus `server/rehash.test.ts` and `server/dividers.test.ts`, ran
+  **twice** through stages F to H: once against in-memory SQLite and once
+  against a real Postgres, with no assertion in them conditional on which. That
+  was the verification argument for the Postgres driver, which was correct
+  exactly to the extent that the tests already guarding SQLite passed unchanged
+  against it. Stage I removed SQLite, so they run once, against the database
+  being shipped, and there is no list to keep them on. **This is why `npm test`
+  needs Docker**, now for the whole run rather than half of it;
+  `BOOKSCAN_TEST_DATABASE_URL` points the harness at a server you already have
+  and no container starts.
+- `server/db.pg.test.ts` covers what those files cannot see, because every item
   on it fails silently rather than loudly: the `COLLATE "C"` declarations that
   keep shelf order in byte order, the connection a transaction is pinned to,
   and the aggregates that come back as strings without a cast.

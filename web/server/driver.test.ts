@@ -13,8 +13,10 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import pg from 'pg'
+import { PgDb } from './db.pg'
 import { bindParams, type Db } from './driver'
-import { closeTestDatabase, openTestDatabase } from './testdb'
+import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 
 describe('translating placeholders', () => {
   it('takes ? placeholders in the order it meets them, and numbers them', () => {
@@ -48,9 +50,10 @@ describe('translating placeholders', () => {
   })
 
   it('gives a name used twice a placeholder and a value each time', () => {
-    // CaptureQueue.attach mentions @slot twice. The anonymous style has no way
-    // to point back at an earlier placeholder, so the value has to be sent
-    // again rather than referred to.
+    // CaptureQueue.attach mentions @slot twice, and the value is sent again
+    // rather than referred back to. Postgres can spell the reference, `$1`
+    // twice; the translator does not, because it walks the statement once and
+    // has nowhere to remember a name it has already bound.
     const bound = bindParams(
       "SELECT REPLACE(a, ',' || @slot || ',', ',' || @slot)",
       { slot: 'back' },
@@ -148,8 +151,9 @@ describe('translating placeholders', () => {
   })
 
   it('refuses a value the statement never asked for', () => {
-    // better-sqlite3 refuses this today, and it is the mistyped-name case: a
-    // value nobody reads is a column that quietly keeps what it had.
+    // better-sqlite3 refused this, and the refusal was worth keeping when it
+    // went: it is the mistyped-name case, and a value nobody reads is a column
+    // that quietly keeps what it had.
     expect(() => bindParams('SELECT @a', { a: 1, tilte: 'Dune' }))
       .toThrow('tilte')
   })
@@ -270,11 +274,14 @@ describe('transactions', () => {
   })
 
   it('closes', async () => {
-    // Through the harness rather than `db.close()`, because this database is
-    // shared by the tests in this file and the harness is what knows that. It
-    // opens another for whatever runs next, so this does not have to be last.
-    await closeTestDatabase()
-    await expect(db.all('SELECT 1')).rejects.toThrow()
+    // A connection of its own to the same database, rather than the one the
+    // rest of this file is sharing. Closing the shared one would take the
+    // harness's database with it, and the harness drops a database on the way
+    // out, which is a `DROP DATABASE` waiting behind every other file's inside
+    // one test's timeout.
+    const own = new PgDb(new pg.Pool({ connectionString: testDatabaseUrl() }))
+    await own.close()
+    await expect(own.all('SELECT 1')).rejects.toThrow()
   })
 })
 
