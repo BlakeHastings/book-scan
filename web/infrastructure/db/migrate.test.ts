@@ -29,10 +29,11 @@
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { inspect } from 'node:util'
 import pg from 'pg'
 import { afterAll, describe, expect, it } from 'vitest'
 import { SCHEMA } from '../../server/db.pg'
-import { migrateToLatest } from './migrate'
+import { MigrationFailed, migrateToLatest } from './migrate'
 import { dropScratchDatabases, scratchDatabase } from './testdb'
 
 /**
@@ -276,5 +277,108 @@ describe('a database that is neither empty nor this schema', () => {
     await pool.query('CREATE TABLE books (id integer)')
 
     await expect(migrateToLatest(pool)).rejects.toThrow(/captures is missing/)
+  })
+})
+
+/**
+ * What a person sees when a migration will not finish (#199).
+ *
+ * These assert on the whole shape of the message rather than only that the
+ * reason appears somewhere in it, and that is the point. Before this, the
+ * reason **did** appear somewhere in it: Drizzle's message is the failing
+ * statement, and the statement contains the `RAISE EXCEPTION` line, so a test
+ * matching `/would have lost a crop/` passed against a message that was the SQL
+ * source of the sentence rather than the sentence. So each case here also says
+ * what must **not** be in the message.
+ *
+ * Two kinds of failure, deliberately. One is raised on purpose by a guard, and
+ * one is an ordinary Postgres error that nothing in this repository wrote. They
+ * arrive through different paths, and a fix that only reads well for the one
+ * that was tested is worse than none, because it looks solved.
+ */
+describe('a migration that will not finish', () => {
+  async function refusalFrom(pool: pg.Pool): Promise<MigrationFailed> {
+    const caught = await migrateToLatest(pool).then(() => undefined, (error: unknown) => error)
+    expect(caught).toBeInstanceOf(MigrationFailed)
+    return caught as MigrationFailed
+  }
+
+  it('says the sentence the guard raised, and not the statement that raised it', async () => {
+    const pool = await scratch()
+    await pool.query(SCHEMA)
+    // A crop naming a file no photograph does. `0006` refuses rather than
+    // losing it; see capture-backfill.test.ts for what that guard is for.
+    await pool.query(
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, scanned_at,
+                          front_image, front_crop)
+       VALUES ('A crop with no photograph', 'fiction', 1, 'k', '2026-08-06', '', 'orphan.jpg')`,
+    )
+
+    const refusal = await refusalFrom(pool)
+
+    expect(refusal.message).toContain(
+      'the capture migration would have lost a crop: books name 1 of them and 0 capture rows carry one',
+    )
+    expect(refusal.message).toContain('SQLSTATE P0001')
+    // Which file to open, so the answer to "and now what" is one file rather
+    // than the whole folder.
+    expect(refusal.message).toContain('0006_photographs_become_capture_rows.sql')
+
+    // Not the statement. This is the assertion the old test could not make.
+    expect(refusal.message).not.toContain('DO $$')
+    expect(refusal.message).not.toContain('RAISE EXCEPTION')
+    expect(refusal.message.split('\n')).toHaveLength(3)
+
+    // Kept, though, and reachable without a debugger.
+    expect(refusal.statement).toContain('RAISE EXCEPTION')
+
+    // And kept out of what a terminal prints, which is what being
+    // non-enumerable buys. `console.error` inspects an error this way.
+    expect(inspect(refusal, { depth: 5 })).not.toContain('DO $$')
+
+    // The error postgres raised, not swallowed: its SQLSTATE, its `where` and
+    // its own stack are all still there for whoever needs them.
+    const cause = refusal.cause as { code?: string; where?: string; stack?: string }
+    expect(cause.code).toBe('P0001')
+    expect(cause.where).toContain('at RAISE')
+    // Its own stack, not one captured while formatting: these are the frames
+    // that were on the way in when postgres answered.
+    expect(cause.stack).toContain('migrateToLatest')
+  })
+
+  it('says as much for a failure nothing raised on purpose', async () => {
+    const pool = await scratch()
+    await pool.query(SCHEMA)
+    // Something already sitting where a migration is about to create a table.
+    // A plain Postgres error, with no `RAISE` anywhere near it.
+    await pool.query('CREATE TABLE "tag" (id integer)')
+
+    const refusal = await refusalFrom(pool)
+
+    expect(refusal.message).toContain('relation "tag" already exists')
+    expect(refusal.message).toContain('SQLSTATE 42P07')
+    expect(refusal.message).toContain('0001_tags.sql')
+    expect(refusal.message).not.toContain('CREATE TABLE')
+    expect(refusal.statement).toContain('CREATE TABLE "tag"')
+    expect((refusal.cause as { code?: string }).code).toBe('42P07')
+  })
+
+  it('leaves the schema where it was, which is what the message claims', async () => {
+    // The message says no migration was applied. Nothing else here checks that,
+    // and it is the sentence somebody deciding whether to roll back reads.
+    const pool = await scratch()
+    await pool.query(SCHEMA)
+    await pool.query('CREATE TABLE "tag" (id integer)')
+
+    const refusal = await refusalFrom(pool)
+    expect(refusal.message).toContain('no migration was applied')
+
+    // `book_tag` is the first thing 0001 creates, and the failure is the
+    // statement after it. The migrator runs the pending migrations in one
+    // transaction, so it went back.
+    const applied = await pool.query<{ table: string | null }>(
+      "SELECT to_regclass('public.book_tag')::text AS table",
+    )
+    expect(applied.rows[0]?.table).toBeNull()
   })
 })
