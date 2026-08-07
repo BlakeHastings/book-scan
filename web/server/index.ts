@@ -40,6 +40,7 @@ import {
   ApplyTagHandler, RelabelTagHandler, RemoveTagHandler,
 } from '../application/tagging/apply-tag'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
+import { ReidentifyBookHandler } from '../application/tagging/reidentify-book'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DbBookTransactions } from '../infrastructure/tagging/transactions'
 import { CreditBookHandler, nameFor } from '../application/authorship/credit-book'
@@ -102,6 +103,36 @@ function asDraft(body: Record<string, unknown>): DraftBook {
       ? String(body.authorFilingOverride)
       : null,
   }
+}
+
+/**
+ * The one ISBN a row names, or '' when it names none.
+ *
+ * Resolved rather than compared as stored, so the ten and thirteen digit forms
+ * of one book are one identity. The fallback to the bare digits is for the row a
+ * failed relookup leaves behind: the client records digits nobody's catalogue
+ * has, and "not a valid ISBN" is still an identity somebody's tags were about.
+ */
+function identityOf(row: { isbn13?: string; isbn10?: string }): string {
+  const named = row.isbn13 || row.isbn10 || ''
+  const pair = resolveIsbnPair(named)
+  return pair.isbn13 || pair.isbn10 || normaliseIsbn(named)
+}
+
+/**
+ * Whether a save is correcting which book a row is, rather than editing the
+ * book it already is.
+ *
+ * A row that named no ISBN cannot have carried anything about a different book,
+ * so filling one in is an identification rather than a correction and takes
+ * nothing away.
+ */
+function namesADifferentBook(
+  before: { isbn13: string; isbn10: string },
+  draft: DraftBook,
+): boolean {
+  const was = identityOf(before)
+  return was !== '' && was !== identityOf(draft)
 }
 
 /** The classifier's confidence, back from a string, defaulting to unknown. */
@@ -286,7 +317,11 @@ export function createApp(options: CreateAppOptions): express.Express {
    * that names a Drizzle repository.
    */
   const tags = new DrizzleTagRepository(db)
-  const restateTags = new RestateTagsHandler(tags, new DbBookTransactions(db))
+  // One instance, because it is a lock namespace as much as a transaction: two
+  // of them are still the same advisory lock, and sharing it says so.
+  const bookTransactions = new DbBookTransactions(db)
+  const restateTags = new RestateTagsHandler(tags, bookTransactions)
+  const reidentifyBook = new ReidentifyBookHandler(tags, bookTransactions)
   const applyTag = new ApplyTagHandler(tags)
   const removeTag = new RemoveTagHandler(tags)
   const relabelTag = new RelabelTagHandler(tags)
@@ -331,6 +366,11 @@ export function createApp(options: CreateAppOptions): express.Express {
     // as both fiction and non-fiction with no way to tell which is current. That
     // is the guess taking back its own claim, which is the only thing it is
     // allowed to do, and it is why the person's row is written first.
+    //
+    // The other way round is not this function's to do and never will be. A
+    // saved guess leaves a person's answer exactly where it is; the only thing
+    // that takes one off is the book turning out to be a different book, which
+    // `PUT /api/books/:id` settles before this runs (#194).
     if (decidedByPerson) {
       await restateTags.handle({ bookId, source: 'guess', claims: [], now })
     }
@@ -1296,7 +1336,8 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   app.put('/api/books/:id', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
-    if (!(await store.getBook(id))) {
+    const before = await store.getBook(id)
+    if (!before) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
@@ -1306,6 +1347,18 @@ export function createApp(options: CreateAppOptions): express.Express {
       res.status(400).json({ error: 'A title is required.' })
       return
     }
+
+    /*
+     * The one place a book stops being the book it was.
+     *
+     * Changing the ISBN is the person telling the app this row is a different
+     * book, so what was on record about the old one is withdrawn here, before
+     * the new record is written over the top of it. `ReidentifyBookHandler`
+     * carries the reasoning and the boundary; the reason it is one call rather
+     * than a rule inside `recordGenreTag` is that genre will not stay the only
+     * thing a person can say about a book.
+     */
+    if (namesADifferentBook(before, draft)) await reidentifyBook.handle({ bookId: id })
 
     const placement = await store.updateBook(id, draft)
     await recordGenreTag(id, draft)

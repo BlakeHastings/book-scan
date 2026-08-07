@@ -52,6 +52,10 @@ vi.mock('./covers', () => ({
 const answers = vi.mocked(lookupIsbn)
 
 const DUNE = '9780441013593'
+/** The same book, as printed inside it. Both forms are one identity. */
+const DUNE_10 = '0441013597'
+/** A different book, for the saves that correct which book a row is. */
+const MOCKINGBIRD = '9780061120084'
 
 let pool: pg.Pool
 // One `Db` for the file, not one per test. Each `PgDb` registers an `error`
@@ -111,6 +115,9 @@ async function call(path: string, init: RequestInit = {}) {
 const post = (path: string, body: unknown) =>
   call(path, { method: 'POST', body: JSON.stringify(body) })
 
+const put = (path: string, body: unknown) =>
+  call(path, { method: 'PUT', body: JSON.stringify(body) })
+
 /** A saved book, and its id. */
 async function aBook(fields: Record<string, unknown> = {}) {
   const { body } = await post('/api/books', {
@@ -134,17 +141,105 @@ describe('saving a book', () => {
 
   it("records a person's answer as a person's, and retires the guess", async () => {
     const id = await aBook({ classificationSource: 'auto' })
-    await call(`/api/books/${id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
-        isFiction: false, classificationSource: 'manual',
-      }),
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
+      isFiction: false, classificationSource: 'manual',
     })
 
     // Not both. A book showing as fiction and non-fiction at once is a book
     // nobody can tell the current answer for.
+    expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
+  })
+})
+
+describe('correcting which book a row is', () => {
+  /** The person's answer, on the book saved as a fiction guess. */
+  async function answeredByHand() {
+    const id = await aBook({ classificationSource: 'auto' })
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
+      isFiction: false, classificationSource: 'manual',
+    })
+    expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
+    return id
+  }
+
+  it('leaves the book under one genre and not two', async () => {
+    /*
+     * The defect #194 exists for.
+     *
+     * A relookup arrives as `auto`, so the save restates the guess and nothing
+     * restates the person's row. Left behind, it is a book filed under fiction
+     * and carrying a person's non-fiction tag, with no screen able to clear it
+     * and nothing to say which is current.
+     */
+    const id = await answeredByHand()
+
+    await put(`/api/books/${id}`, {
+      title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
+      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+    })
+
+    expect(await tagsOf(id)).toEqual(['genre/fiction:guess'])
+  })
+
+  it('takes the old book\'s catalogue headings with it', async () => {
+    // Subjects are about the work as much as the genre is. "Desert life" on a
+    // row that has since turned out to be a different book describes nothing.
+    const id = await aBook()
+    answers.mockResolvedValue({
+      ...empty, found: true,
+      classification: { isFiction: true, confidence: 'high', reason: '' },
+      subjects: ['Desert life'],
+    })
+    await post(`/api/books/${id}/tags/refresh`, {})
+    expect(await tagsOf(id)).toContain('subject/desert-life:catalogue')
+
+    await put(`/api/books/${id}`, {
+      title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
+      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+    })
+
+    expect(await tagsOf(id)).toEqual(['genre/fiction:guess'])
+  })
+
+  it('keeps what somebody said about the copy rather than about the book', async () => {
+    // A corrected ISBN says nothing about where the physical book is. Lending
+    // it out is a fact about the object in the house, and it survives.
+    const id = await answeredByHand()
+    await post(`/api/books/${id}/tags`, { slug: 'mine/lent-out', label: 'Lent out' })
+
+    await put(`/api/books/${id}`, {
+      title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
+      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+    })
+
+    expect(await tagsOf(id)).toEqual(['genre/fiction:guess', 'mine/lent-out:person'])
+  })
+
+  it("leaves a person's answer alone when the book is still the same book", async () => {
+    // The one-directional rule, unweakened: an edit that is not a correction of
+    // identity is still a guess that may not touch what somebody decided.
+    const id = await answeredByHand()
+
+    await put(`/api/books/${id}`, {
+      title: 'Dune Messiah', authors: ['Frank Herbert'], isbn13: DUNE,
+      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+    })
+
+    expect(await tagsOf(id)).toContain('genre/non-fiction:person')
+  })
+
+  it('reads the two ISBN forms of one book as one book', async () => {
+    // The printed ISBN-10 of the book already on file is not a different book,
+    // and typing it in must not throw away the answer somebody gave.
+    const id = await answeredByHand()
+
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isbn13: '', isbn10: DUNE_10,
+      isFiction: false, classificationSource: 'manual',
+    })
+
     expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
   })
 })

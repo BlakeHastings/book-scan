@@ -527,6 +527,14 @@ columns by `Store`, then the tag by `recordGenreTag` and the credits by
 tables belongs with the work that remodels `books`, and is a change worth making
 on its own rather than underneath a schema migration.
 
+**A save that changes the ISBN is a different thing from a save that edits the
+book**, and it is the only one that takes a person's tags off
+(`web/application/tagging/reidentify-book.ts`, #194). Correcting the ISBN is
+somebody saying the row is a different book, so what was on record about the old
+one is withdrawn. That is not the precedence rule being relaxed, and the
+precedence rule is not negotiable: automation may never retract a person's
+judgement.
+
 Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
 nothing else, not even an npm package; `application/` adds `application/`;
 `infrastructure/` and `server/` may import anything below the React client.
