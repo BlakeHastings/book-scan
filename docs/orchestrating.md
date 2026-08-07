@@ -118,11 +118,12 @@ detecting the picture printed on the cover rather than the book.
 Before #184, settle the three questions at the bottom of `docs/data-model.md`.
 The sharpest: **does the ledger record tag changes, or only placement?**
 
-**Not urgent but real:** the backups live on the same machine as the catalogue.
-They protect against a dropped table or a bad migration, not against losing the
-box. And `install-backup-task.ps1` needs an elevated shell for machine-scope
-variables, but registers the task first, so it half-succeeds. User-scope works
-because the task runs as Blake.
+**Not urgent but real:** the backups live on a different disk from the catalogue
+but in the same machine, so they cover a dropped table, a bad migration and a
+dead `C:` drive, and not a fire. `docs/backup-runbook.md` step 6 is the one that
+is still open. And `install-backup-task.ps1` needs an elevated shell for
+machine-scope variables, but registers the task first, so it half-succeeds.
+User-scope works because the task runs as Blake.
 
 ## The thing to keep if you keep nothing else
 
