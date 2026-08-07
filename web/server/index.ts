@@ -40,6 +40,7 @@ import {
   ApplyTagHandler, RelabelTagHandler, RemoveTagHandler,
 } from '../application/tagging/apply-tag'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
+import { ReidentifyBookHandler } from '../application/tagging/reidentify-book'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DbBookTransactions } from '../infrastructure/tagging/transactions'
 import { CreditBookHandler, nameFor } from '../application/authorship/credit-book'
@@ -102,6 +103,36 @@ function asDraft(body: Record<string, unknown>): DraftBook {
       ? String(body.authorFilingOverride)
       : null,
   }
+}
+
+/**
+ * The one ISBN a row names, or '' when it names none.
+ *
+ * Resolved rather than compared as stored, so the ten and thirteen digit forms
+ * of one book are one identity. The fallback to the bare digits is for the row a
+ * failed relookup leaves behind: the client records digits nobody's catalogue
+ * has, and "not a valid ISBN" is still an identity somebody's tags were about.
+ */
+function identityOf(row: { isbn13?: string; isbn10?: string }): string {
+  const named = row.isbn13 || row.isbn10 || ''
+  const pair = resolveIsbnPair(named)
+  return pair.isbn13 || pair.isbn10 || normaliseIsbn(named)
+}
+
+/**
+ * Whether a save is correcting which book a row is, rather than editing the
+ * book it already is.
+ *
+ * A row that named no ISBN cannot have carried anything about a different book,
+ * so filling one in is an identification rather than a correction and takes
+ * nothing away.
+ */
+function namesADifferentBook(
+  before: { isbn13: string; isbn10: string },
+  draft: DraftBook,
+): boolean {
+  const was = identityOf(before)
+  return was !== '' && was !== identityOf(draft)
 }
 
 /** The classifier's confidence, back from a string, defaulting to unknown. */
@@ -246,6 +277,24 @@ export interface CreateAppOptions {
 }
 
 /**
+ * The app, and the one question about it Express has no word for.
+ *
+ * A save answers before the work it started has finished, so "the request is
+ * over" and "the app is idle" are different moments. Anything that takes the
+ * database away, which in practice means a test file's teardown, has to wait
+ * for the second one.
+ */
+export interface BookScanApp extends express.Express {
+  /**
+   * Resolves when nothing the app started is still running.
+   *
+   * Never rejects: the work owns its own failures exactly as it did before it
+   * was tracked, and this reports quiet rather than success.
+   */
+  settled(): Promise<void>
+}
+
+/**
  * Build the Express app.
  *
  * Pulled out of module scope so a test can construct one against an
@@ -254,12 +303,56 @@ export interface CreateAppOptions {
  * and cover-backfill loops. See the bottom of this file for the only other
  * caller, which wires it up for a real run.
  */
-export function createApp(options: CreateAppOptions): express.Express {
+export function createApp(options: CreateAppOptions): BookScanApp {
   const { db, coverDir } = options
   const googleApiKey = options.googleApiKey ?? ''
   const startBackgroundWork = options.startBackgroundWork ?? true
 
   const store = new Store(db)
+
+  /*
+   * The work a save starts and nobody waits for.
+   *
+   * `POST /api/books` answers as soon as the row is written and then fetches a
+   * cover, hashes it and crops the photographs. Not awaiting that is the whole
+   * point: somebody is standing at a shelf holding a book. The consequence is
+   * that the app can still be querying the database after the request that
+   * started it is over, and after the last assertion of a test file has passed.
+   *
+   * Untracked, that is a rejection nobody is waiting for: the pool is closed in
+   * a teardown, the next query fails with "Cannot use a pool after calling end
+   * on the pool", and the run reports an unhandled error beside a full count of
+   * passing tests. A `catch` here would only mean the work still ran late and
+   * said nothing about it, so the work is tracked instead and `settled` is how
+   * a teardown waits for it.
+   */
+  const outstanding = new Set<Promise<unknown>>()
+
+  function inTheBackground(work: Promise<unknown>): void {
+    outstanding.add(work)
+    void work.then(
+      () => outstanding.delete(work),
+      (reason: unknown) => {
+        outstanding.delete(work)
+        /*
+         * Rethrown into a promise nobody holds, which is exactly what `void`
+         * did with it before this was tracked. **Tracking work must not become
+         * handling it.** A rejection swallowed here would mean a save's cover
+         * or crop failing in silence, and in a test it would mean the work
+         * still running after the database went away with nothing saying so,
+         * which is the thing being fixed rather than a way of hiding it.
+         */
+        throw reason
+      },
+    )
+  }
+
+  // `allSettled`, because waiting for the work is not the same as owning how it
+  // failed: the line above still reports that. A loop, because the chain being
+  // waited on adds to the set as it goes.
+  async function settled(): Promise<void> {
+    while (outstanding.size) await Promise.allSettled([...outstanding])
+  }
 
   /*
    * The composition root for the one slice #172 converted.
@@ -286,7 +379,11 @@ export function createApp(options: CreateAppOptions): express.Express {
    * that names a Drizzle repository.
    */
   const tags = new DrizzleTagRepository(db)
-  const restateTags = new RestateTagsHandler(tags, new DbBookTransactions(db))
+  // One instance, because it is a lock namespace as much as a transaction: two
+  // of them are still the same advisory lock, and sharing it says so.
+  const bookTransactions = new DbBookTransactions(db)
+  const restateTags = new RestateTagsHandler(tags, bookTransactions)
+  const reidentifyBook = new ReidentifyBookHandler(tags, bookTransactions)
   const applyTag = new ApplyTagHandler(tags)
   const removeTag = new RemoveTagHandler(tags)
   const relabelTag = new RelabelTagHandler(tags)
@@ -331,6 +428,11 @@ export function createApp(options: CreateAppOptions): express.Express {
     // as both fiction and non-fiction with no way to tell which is current. That
     // is the guess taking back its own claim, which is the only thing it is
     // allowed to do, and it is why the person's row is written first.
+    //
+    // The other way round is not this function's to do and never will be. A
+    // saved guess leaves a person's answer exactly where it is; the only thing
+    // that takes one off is the book turning out to be a different book, which
+    // `PUT /api/books/:id` settles before this runs (#194).
     if (decidedByPerson) {
       await restateTags.handle({ bookId, source: 'guess', claims: [], now })
     }
@@ -612,7 +714,8 @@ export function createApp(options: CreateAppOptions): express.Express {
     return removed
   }
 
-  const app = express()
+  const app = express() as BookScanApp
+  app.settled = settled
   app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
 
   /**
@@ -707,8 +810,10 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
 
     const capture = await queue.attach(captureId, slot, saveImage(buffer, '', slot))
-    // Not awaited: the shutter must not wait on OCR.
-    void queue.drain()
+    // Not awaited: the shutter must not wait on OCR. Tracked for the same
+    // reason the chain after a save is: it is still running when the request
+    // that started it is over, and a teardown has to be able to wait for it.
+    inTheBackground(queue.drain())
 
     res.status(201).json({ capture, counts: await queue.counts() })
   }))
@@ -1056,13 +1161,18 @@ export function createApp(options: CreateAppOptions): express.Express {
     // `recordPhotographs` reads, so it runs once more at the end of the chain.
     // Not instead of the awaited call above: the rows exist from the save, and
     // this fills in only what arrives afterwards.
-    void fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
-      // Caught here and nowhere else this is called. On the awaited path a
-      // failure to record is a failure to save and should be seen; out here
-      // nothing is waiting to be told, and a rejection nobody catches takes the
-      // process down. The columns are still the record while the client reads
-      // them, and `record` is idempotent, so the next save catches up.
-      .then(() => recordPhotographs(id).catch(() => undefined))
+    //
+    // Handed to `inTheBackground` rather than voided, so that a teardown can
+    // wait for it. Nothing about when it runs changes.
+    inTheBackground(
+      fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
+        // Caught here and nowhere else this is called. On the awaited path a
+        // failure to record is a failure to save and should be seen; out here
+        // nothing is waiting to be told, and a rejection nobody catches takes
+        // the process down. The columns are still the record while the client
+        // reads them, and `record` is idempotent, so the next save catches up.
+        .then(() => recordPhotographs(id).catch(() => undefined)),
+    )
 
     res.status(201).json({
       id,
@@ -1296,7 +1406,8 @@ export function createApp(options: CreateAppOptions): express.Express {
 
   app.put('/api/books/:id', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
-    if (!(await store.getBook(id))) {
+    const before = await store.getBook(id)
+    if (!before) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
@@ -1306,6 +1417,18 @@ export function createApp(options: CreateAppOptions): express.Express {
       res.status(400).json({ error: 'A title is required.' })
       return
     }
+
+    /*
+     * The one place a book stops being the book it was.
+     *
+     * Changing the ISBN is the person telling the app this row is a different
+     * book, so what was on record about the old one is withdrawn here, before
+     * the new record is written over the top of it. `ReidentifyBookHandler`
+     * carries the reasoning and the boundary; the reason it is one call rather
+     * than a rule inside `recordGenreTag` is that genre will not stay the only
+     * thing a person can say about a book.
+     */
+    if (namesADifferentBook(before, draft)) await reidentifyBook.handle({ bookId: id })
 
     const placement = await store.updateBook(id, draft)
     await recordGenreTag(id, draft)

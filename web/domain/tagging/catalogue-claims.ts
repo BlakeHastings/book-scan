@@ -25,14 +25,18 @@
 import { TagSlug, type TagClaim, type TagConfidence } from './tags'
 
 /**
- * The two tags the fiction flag becomes.
+ * The two tags the fiction flag becomes, and the namespace they sit in.
  *
  * Named here so the migration, the classifier and any future rule all mean the
  * same slugs. `genre/non-fiction` with the hyphen, because that is what
- * "Non-fiction" normalises to and the normalisation is the identity.
+ * "Non-fiction" normalises to and the normalisation is the identity. Both are
+ * built from `GENRE` rather than spelled out, so the namespace has one spelling:
+ * `application/tagging/reidentify-book.ts` asks about the namespace, and two
+ * spellings of it would be a prefix that matches nothing.
  */
-export const FICTION = TagSlug.of('genre/fiction')
-export const NON_FICTION = TagSlug.of('genre/non-fiction')
+export const GENRE = TagSlug.of('genre')
+export const FICTION = TagSlug.under(GENRE.value, 'fiction')
+export const NON_FICTION = TagSlug.under(GENRE.value, 'non-fiction')
 
 /** Where a catalogue's own subject headings go. */
 export const SUBJECT = TagSlug.of('subject')

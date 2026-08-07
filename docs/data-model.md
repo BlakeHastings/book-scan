@@ -126,6 +126,17 @@ rule silently matches a fraction of what it should.
 rewrites rows where `source = 'catalogue'`, so a tag the catalogue stopped
 claiming goes away. It must never touch `source = 'person'`.
 
+**Re-identifying a book is not a lookup, and it takes off more.** Correcting a
+book's ISBN is the same person saying this row is a different book, so every tag
+about the *work* goes, whoever said it: what a person answered was about the book
+the row used to be, and is not about anything now. Tags about the *copy* stay,
+because the object in the house did not change. The boundary is a list of
+namespaces, `genre` and `subject` today, in
+`web/application/tagging/reidentify-book.ts`, and a new tag kind joins it if a
+tag under it would be wrong about a different book. Settled in #194, which was
+the defect of leaving both `genre/fiction` and `genre/non-fiction` on a corrected
+book.
+
 ### Author, AuthorAlias, BookAuthor
 
 `author(id, is_corporate, note)`
