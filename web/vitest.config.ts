@@ -1,110 +1,38 @@
 import react from '@vitejs/plugin-react'
-import { defaultExclude, defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config'
 
 /**
- * Two projects, because stage F needs the same tests run against two databases.
+ * One project, because stage I left one database.
  *
- * `sqlite` is the suite as it was: every test file, no services, no Docker.
- * `postgres` re-runs only the four files that open a database, against a real
- * Postgres in a container, plus db.pg.test.ts, which is about the driver itself
- * and has nothing to say on SQLite.
+ * Stages F and G ran two: `sqlite`, which was every test file and needed no
+ * services, and `postgres`, which re-ran the five files that opened a database
+ * against a real one. That arrangement was the verification argument for the
+ * Postgres driver, and it was worth what it cost while there were two drivers
+ * to disagree. There is one now, so a second list of files to re-run has
+ * nothing to re-run them against.
  *
- * The four files are not copied and their assertions are not parameterised.
- * They open their database through server/testdb.ts and are otherwise unaware
- * of which one they got, which is the point: the Postgres implementation is
- * correct exactly to the extent that the tests already guarding SQLite pass
- * unchanged against it.
+ * What that costs, said plainly rather than discovered: **every `npm test` now
+ * starts a Postgres container**, including a run that only touches
+ * `src/lib/`. `npx vitest run --project sqlite` used to be the half that needed
+ * nothing and there is no such half any more. `BOOKSCAN_TEST_DATABASE_URL`
+ * still points the harness at a server you already have, and is how CI avoids
+ * the pull. See server/pgcontainer.ts.
  *
- * The `sqlite` project deliberately does not name an `include`. Vitest's
- * default already matched every test in this repository, including the two
- * `.tsx` component tests under src/components, and a hand-written glob here
- * silently dropped them: the run stayed green and the count fell by 21. So the
- * only thing said about that project is what it leaves out.
+ * No `include`, deliberately. Vitest's default already matches every test in
+ * this repository, including the component tests under src/components, and a
+ * hand-written glob silently dropped them once: the run stayed green and the
+ * count fell by 21.
  *
  * Vitest reads this file in preference to vite.config.ts, so the React plugin
- * is named again here. basicSsl is not: it is for the dev server the phone
- * talks to, and nothing under test binds a socket.
+ * is named here. basicSsl is not: it is for the dev server the phone talks to,
+ * and nothing under test binds a socket.
  */
-
-/**
- * The files that open a database, and so have something to say on both.
- *
- * The plan named four. `dividers.test.ts` arrived on master during this stage
- * and is a fifth: it opens the `separators` table through `Db` to assert which
- * row a Remove actually deleted, which is precisely a claim that has to hold on
- * the database being shipped. **Anything added here later that opens a database
- * belongs on this list**, or it guards SQLite only.
- */
-const BOTH_DRIVERS = [
-  'server/store.test.ts',
-  'server/shelves.test.ts',
-  'server/queue.test.ts',
-  'server/rehash.test.ts',
-  'server/dividers.test.ts',
-]
-
-/**
- * Postgres-only: the driver, the collation and the transaction pinning, since
- * stage H the data migration, which is about both databases at once and has
- * nothing it could assert with only one of them; since #172 the schema
- * migrations, which exist only for Postgres, because SQLite keeps the
- * hand-written schema in server/db.ts and the two functions that bring an old
- * catalogue file forward; since #177 the backup digest, which reads
- * `md5(string_agg(... order by ...))` out of a real server and exists to catch
- * a collation failure SQLite cannot have; and since #179 everything about tags,
- * for the same reason as the schema migrations, since `tag` and `book_tag` are
- * created by one and so exist on Postgres and nowhere else.
- *
- * These are not on BOTH_DRIVERS and that is not an oversight. A file belongs
- * there when it opens a database and its assertions hold on either one. These
- * would not compile against SQLite, let alone pass.
- */
-const POSTGRES_ONLY = [
-  'server/db.pg.test.ts',
-  'server/migrate.test.ts',
-  'infrastructure/db/migrate.test.ts',
-  'infrastructure/db/tag-backfill.test.ts',
-  'infrastructure/tagging/tag-repository.test.ts',
-  'server/backup.pg.test.ts',
-  'server/tags.routes.test.ts',
-]
-
 export default defineConfig({
   plugins: [react()],
   test: {
-    projects: [
-      {
-        plugins: [react()],
-        test: {
-          name: 'sqlite',
-          exclude: [...defaultExclude, ...POSTGRES_ONLY],
-        },
-      },
-      {
-        test: {
-          name: 'postgres',
-          include: [...BOTH_DRIVERS, ...POSTGRES_ONLY],
-          env: { BOOKSCAN_TEST_DRIVER: 'postgres' },
-          /*
-           * Teardown gets longer than vitest's ten seconds, and only here.
-           *
-           * Every file in this project makes at least one database on one
-           * shared container and drops it in an `afterAll`. Under a full
-           * parallel run that server is busy, and a drop that takes eleven
-           * seconds is reported as the whole file failing with every test in it
-           * passing, which reads as a broken test rather than a busy server.
-           * Seen on `infrastructure/db/migrate.test.ts` on master before #179,
-           * and on `server/backup.pg.test.ts` on the branch, neither of which
-           * had changed.
-           *
-           * It buys nothing for a test that hangs: a hook that is genuinely
-           * stuck still fails, a minute later.
-           */
-          hookTimeout: 60_000,
-          // Only this project pays for a container.
-          globalSetup: ['./server/pgcontainer.ts'],
-        },
-      },
-    ],
+    // Every file, so the container is started once for the run rather than per
+    // project. Files that never open a database pay the startup and nothing
+    // else; files that do get their own database out of server/testdb.ts.
+    globalSetup: ['./server/pgcontainer.ts'],
   },
 })

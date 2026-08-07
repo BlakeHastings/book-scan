@@ -12,8 +12,9 @@
  * behind it, reading all of them is time only the owner can decide to spend,
  * and a derived file appearing next to every photo he owns is his call.
  *
- * It reads BOOKSCAN_DATA exactly as the server does, so the operator chooses
- * the catalogue and nothing here has a default of its own beyond the server's.
+ * It reads ConnectionStrings__bookscan and BOOKSCAN_DATA exactly as the server
+ * does, so the operator chooses the catalogue and the photographs and nothing
+ * here has a default of its own beyond the server's.
  * Because that catalogue is somebody's real book collection, this is a dry run
  * unless told otherwise, it prints the directory it resolved before it touches
  * anything, and it waits before a write so a wrong path can be interrupted.
@@ -23,9 +24,10 @@
  * worth deleting.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { openDatabase } from './db'
+import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
+import type { Db } from './driver'
 import { Store } from './store'
 import { cropCatalogue } from './crop'
 
@@ -40,8 +42,9 @@ Usage: npx tsx server/crop-books.ts [--apply] [--force] [--limit N]
   --limit N   Stop after N photographs. Useful for seeing what it does to a
               handful before letting it loose on the lot.
 
-The catalogue is BOOKSCAN_DATA, or ./data when that is unset, the same as the
-server. Originals are never written to, but back it up before --apply anyway.`
+The catalogue is ConnectionStrings__bookscan and the photographs are under
+BOOKSCAN_DATA, or ./data when that is unset, both the same as the server.
+Originals are never written to, but back the catalogue up before --apply anyway.`
 
 /** Seconds between printing the target and writing to it. */
 const GRACE = 5
@@ -74,17 +77,25 @@ function main(): Promise<number> {
     }
   }
 
-  // Resolved the way web/server/index.ts resolves it, so an operator who has
-  // one exported for the server gets the same catalogue here.
+  // Both resolved the way web/server/index.ts resolves them, so an operator who
+  // has them exported for the server gets the same catalogue and the same
+  // photographs here. The covers are still files; only the rows moved.
   const dataDir = resolve(process.env.BOOKSCAN_DATA ?? 'data')
-  const dbPath = join(dataDir, 'books.db')
   const coverDir = join(dataDir, 'covers')
+
+  let connection: string
+  try {
+    connection = catalogueConnection()
+  } catch (error) {
+    console.error((error as Error).message)
+    return Promise.resolve(1)
+  }
 
   console.log('')
   console.log('  Crop stored book photographs')
   console.log('  ' + '-'.repeat(60))
   console.log(`  data directory  ${dataDir}`)
-  console.log(`  database        ${dbPath}`)
+  console.log(`  database        ${describeConnection(connection)}`)
   console.log(`  photographs     ${coverDir}`)
   console.log(`  BOOKSCAN_DATA   ${process.env.BOOKSCAN_DATA ?? '(unset, using ./data)'}`)
   console.log(`  mode            ${apply ? 'APPLY, crops and rows will be written' : 'DRY RUN, nothing will be written'}`)
@@ -94,22 +105,15 @@ function main(): Promise<number> {
   console.log('  ' + '-'.repeat(60))
   console.log('')
 
-  // openDatabase would create an empty catalogue here, which on a mistyped
-  // path is a confusing "0 books" report instead of an obvious mistake.
-  if (!existsSync(dbPath)) {
-    console.error(`No catalogue at ${dbPath}. Nothing was created or changed.`)
-    return Promise.resolve(1)
-  }
-
-  return run(dbPath, coverDir, { apply, force, limit })
+  return run(connection, coverDir, { apply, force, limit })
 }
 
 async function run(
-  dbPath: string,
+  connection: string,
   coverDir: string,
   options: { apply: boolean; force: boolean; limit?: number },
 ): Promise<number> {
-  const { apply, force, limit } = options
+  const { apply } = options
 
   if (apply) {
     console.log(`  Writing to the catalogue above in ${GRACE} seconds. Ctrl-C to stop.`)
@@ -117,7 +121,24 @@ async function run(
     console.log('')
   }
 
-  const store = new Store(openDatabase(dbPath))
+  const db = await openPostgres(connection)
+  try {
+    return await work(db, coverDir, options)
+  } finally {
+    // A pool left open holds the process alive after the report is printed,
+    // which a file handle did not.
+    await db.close()
+  }
+}
+
+async function work(
+  db: Db,
+  coverDir: string,
+  options: { apply: boolean; force: boolean; limit?: number },
+): Promise<number> {
+  const { apply, force, limit } = options
+
+  const store = new Store(db)
   const report = await cropCatalogue(store, {
     apply,
     force,

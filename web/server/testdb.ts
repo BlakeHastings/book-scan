@@ -1,17 +1,15 @@
 /**
- * Where the four database-touching test files get their database.
+ * Where every test file that opens a database gets one.
  *
  * Test support only. Nothing under `web/server` that the server runs imports
  * this file, and it imports `vitest`, so it could not be reached from one.
  *
- * `store.test.ts`, `shelves.test.ts`, `queue.test.ts` and `rehash.test.ts` run
- * twice: once against SQLite and once against Postgres, selected by
- * `BOOKSCAN_TEST_DRIVER` and configured in vitest.config.ts. That is the whole
- * verification argument for stage F. The Postgres implementation is correct
- * exactly to the extent that the tests already guarding SQLite pass unchanged
- * against it, so **no assertion in those four files may be made conditional on
- * the driver.** If one has to be, the migration changed behaviour and that is
- * the finding.
+ * Until stage I this file also handed back `openDatabase(':memory:')`, and
+ * which one a caller got was decided by `BOOKSCAN_TEST_DRIVER`, so five files
+ * ran twice and the Postgres driver was correct exactly to the extent that the
+ * tests already guarding SQLite passed unchanged against it. That argument has
+ * been made and there is one driver left, so there is one database here and no
+ * test knows the name of a driver.
  *
  * `BOOKSCAN_TEST_DATABASE_URL` is the only connection variable read here. See
  * pgcontainer.ts for why.
@@ -20,7 +18,6 @@
 import { randomBytes } from 'node:crypto'
 import pg from 'pg'
 import { inject } from 'vitest'
-import { openDatabase } from './db'
 import { applySchema, PgDb } from './db.pg'
 import type { Db } from './driver'
 
@@ -29,11 +26,6 @@ declare module 'vitest' {
     postgresUrl: string
   }
 }
-
-export type TestDriver = 'sqlite' | 'postgres'
-
-export const TEST_DRIVER: TestDriver =
-  process.env.BOOKSCAN_TEST_DRIVER === 'postgres' ? 'postgres' : 'sqlite'
 
 /**
  * A byte order collation would make every check of the `COLLATE "C"`
@@ -49,12 +41,10 @@ const HOSTILE_COLLATIONS = ['en_US.utf8', 'en_US.UTF-8', 'en-US-x-icu']
 
 /**
  * The five tables a test wants back the way it found them. `shelf_ranges` is
- * not among them: it is seeded by `applySchema`, and a fresh SQLite database
- * arrives seeded too, so emptying it would make the two drivers start from
- * different places.
+ * not among them: it is seeded by `applySchema`, and a test that opens a
+ * database expects to find the two ranges in it, exactly as the app does.
  *
- * RESTART IDENTITY because a fresh SQLite database numbers from 1 and some
- * fixtures read ids back.
+ * RESTART IDENTITY because numbering from 1 is what some fixtures read back.
  */
 const TRUNCATE =
   'TRUNCATE books, book_authors, captures, separators, author_filing RESTART IDENTITY CASCADE'
@@ -134,12 +124,11 @@ async function createCatalogue(): Promise<Catalogue> {
 }
 
 /**
- * A database in the state a fresh `openDatabase(':memory:')` hands back:
- * schema applied, shelf ranges seeded, nothing else in it.
+ * A database with the schema applied, the shelf ranges seeded and nothing else
+ * in it. Call it in a `beforeEach`: the second and later calls in a file empty
+ * the tables rather than making another database.
  */
 export async function openTestDatabase(): Promise<Db> {
-  if (TEST_DRIVER === 'sqlite') return openDatabase(':memory:')
-
   if (!catalogue) {
     catalogue = await createCatalogue()
   } else {
@@ -149,9 +138,23 @@ export async function openTestDatabase(): Promise<Db> {
 }
 
 /**
+ * The connection string for the database `openTestDatabase` handed back.
+ *
+ * For the one test that has to hand a connection to the code that resolves one
+ * (`openCatalogue` in index.test.ts). Everything else takes the `Db` and never
+ * learns where it came from.
+ */
+export function testDatabaseUrl(): string {
+  if (!catalogue) throw new Error('open the test database before asking where it is')
+  const url = new URL(catalogue.serverUrl)
+  url.pathname = `/${catalogue.name}`
+  return url.href
+}
+
+/**
  * Give the connections back and drop the database.
  *
- * Called from an `afterAll` in each of the four files. A pool left open holds
+ * Called from an `afterAll` in each file that opens one. A pool left open holds
  * the worker alive; a database left behind matters only on a server the escape
  * hatch pointed at, which is exactly the server somebody has to live with.
  */

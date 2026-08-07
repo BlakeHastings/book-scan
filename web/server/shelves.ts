@@ -5,7 +5,7 @@
  * lives in shared/layout.ts and stays pure.
  */
 
-import type { BookRow } from './db'
+import type { BookRow } from './db.pg'
 import type { Db } from './driver'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'

@@ -77,7 +77,7 @@ export interface CaptureRow {
   front_crop: string
   back_crop: string
   edge_crop: string
-  /** Slots the detector has looked at, comma separated. See db.ts. */
+  /** Slots the detector has looked at, comma separated. See the captures table in db.pg.ts. */
   cropped: string
   /**
    * Hash of the front photograph, in the format imagehash.ts writes. Empty
