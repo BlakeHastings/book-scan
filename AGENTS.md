@@ -493,6 +493,7 @@ teach people to skim past it.
 | `web/instrumentation.ts` | OpenTelemetry setup, preloaded with `--import` |
 | `e2e/` | Gherkin features and the browser suite that runs them |
 | `docs/shelving.md` | The shelving specification |
+| `docs/orchestrating.md` | For whoever is running the backlog: where things stand, what bites, and where to go next |
 
 ### The layering, and the one table that goes through it
 
