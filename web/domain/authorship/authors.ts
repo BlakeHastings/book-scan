@@ -91,6 +91,14 @@ export class PrintedName {
    * The heuristic, and it is knowingly wrong on Spanish compound surnames and on
    * the Dutch particle convention. Those are why an alias stores its filing name
    * rather than deriving it every time: somebody corrects it once.
+   *
+   * **Never empty, and that is not a nicety.** `Store.filingFor` guards its
+   * override lookup with `normalise()` and returns '' when the key is empty,
+   * which is every name written entirely in a non-Latin script, so the heuristic
+   * is skipped and the book files ahead of everything in its range (issue #195).
+   * Nothing here reproduces that: `nameKey` folds on Unicode letters rather than
+   * on `[A-Z0-9 ]`, so such a name is an ordinary name, and the printed name is
+   * the fallback if the heuristic ever answers nothing.
    */
   get derivedFiling(): string {
     return filingName(this.value) || this.value

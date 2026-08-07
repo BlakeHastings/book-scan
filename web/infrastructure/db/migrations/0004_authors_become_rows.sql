@@ -29,11 +29,20 @@
 -- of the `sort_key` the shelf is ordered by today. Taking it from the row means
 -- an alias cannot disagree with where its books actually sit.
 --
--- A name that has never been first-listed on any book has never had a filing
--- name computed for it, and none is invented here: the printed name stands until
--- somebody files it. The alternative is a second copy of `filingName()` written
--- in SQL, and the whole reason that heuristic is one function is that two of it
+-- A name with no computed filing name keeps its printed name, and none is
+-- invented here. The alternative is a second copy of `filingName()` written in
+-- SQL, and the whole reason that heuristic is one function is that two of it
 -- would drift. Which authors those are is recorded in `author.note`.
+--
+-- There are two ways to be one of those, and the second is a defect rather than
+-- an absence. A name that has never been first-listed has never been asked
+-- about. And **issue #195**: `Store.filingFor` returns '' rather than running
+-- the heuristic when a name normalises to nothing, which every name written
+-- entirely in a non-Latin script does, so those books carry an empty
+-- `author_filing`. Taking that empty string would carry a defect into a new
+-- table as data, where it is much harder to fix than in the one function that
+-- causes it, so an empty stored filing name is treated as no answer rather than
+-- as an answer. #180 does not fix #195; it declines to copy it.
 --
 -- ## What it leaves alone
 --
@@ -92,6 +101,10 @@ naming AS (
 -- The filing name the app already computed, from the books this name files.
 -- Same tiebreak, for the same reason: two books can disagree when an override
 -- was saved between saving them.
+--
+-- An empty stored filing name is no answer rather than an answer of ''. See the
+-- note on issue #195 above: that is what a non-Latin name currently gets, and
+-- copying it here would turn a defect in one function into rows.
 filing AS (
   SELECT DISTINCT ON (alias_key) alias_key, author_filing
   FROM (
@@ -121,8 +134,8 @@ seed AS (
     -- `Store.filingFor` consulted it when the book was saved.
     coalesce(o.is_corporate, 0) AS is_corporate,
     CASE WHEN f.author_filing IS NULL
-      THEN 'Backfilled by #180. Never first-listed, so this app has never '
-           || 'computed a filing name for it: the printed name stands.'
+      THEN 'Backfilled by #180. No filing name had ever been computed for this '
+           || 'name, so the printed name stands until somebody files it.'
       ELSE 'Backfilled by #180. Filing name taken from books.author_filing.'
     END || coalesce(' ' || nullif(o.note, ''), '') AS note
   FROM naming n

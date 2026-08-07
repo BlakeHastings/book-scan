@@ -160,7 +160,24 @@ describe('book_authors becoming authors and aliases', () => {
       `SELECT a.note FROM author a JOIN author_alias al ON al.author_id = a.id
         WHERE al.display_name = 'Peter Straub'`,
     )
-    expect(unfiled.rows[0]!.note).toMatch(/never been first-listed|Never first-listed/i)
+    expect(unfiled.rows[0]!.note).toMatch(/No filing name had ever been computed/)
+  })
+
+  it('does not carry an empty stored filing name in as data', async () => {
+    // Issue #195: `Store.filingFor` skips the heuristic when a name normalises
+    // to nothing, which every name written entirely in a non-Latin script does,
+    // so the book was saved with author_filing = ''. Copying that would turn a
+    // defect in one function into rows, where it is much harder to fix. The
+    // printed name stands instead. #180 does not fix #195; it declines to copy
+    // it, so the books themselves are untouched and still file where they did.
+    const pool = await catalogueOf([
+      { title: 'Norwegian Wood', authors: ['村上春樹'], filingOverride: '' },
+    ])
+    await migrateToLatest(pool)
+
+    expect(await aliasesOf(pool)).toEqual(['村上春樹 | 村上春樹 | 0 | 1'])
+    const book = await pool.query<{ author_filing: string }>('SELECT author_filing FROM books')
+    expect(book.rows[0]!.author_filing).toBe('')
   })
 
   it('credits the alias, in the order the names are printed', async () => {

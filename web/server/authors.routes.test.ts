@@ -176,6 +176,21 @@ describe('saving a book', () => {
     expect(authors.map((one) => one.primary)).toEqual(['Iain Banks', 'Iain M. Banks'])
   })
 
+  it('files a name written in a non-Latin script, which the book row does not', async () => {
+    // Issue #195, seen from both sides at once. `Store.filingFor` guards its
+    // override lookup with `normalise()`, which folds a non-Latin name away
+    // entirely, so the heuristic is skipped and the book is stored with an empty
+    // `author_filing` and sorts ahead of everything in its range. The alias gets
+    // a real filing name, because `nameKey` folds on Unicode letters instead.
+    //
+    // The book row is deliberately unchanged: #180 does not fix #195, and this
+    // asserts the defect is still exactly where it was rather than half moved.
+    const id = await aBook({ title: 'Norwegian Wood', authors: ['村上春樹'] })
+
+    expect((await shelving(id)).author_filing).toBe('')
+    expect((await creditsOf(id))[0]!.filingName).toBe('村上春樹')
+  })
+
   it('reuses a name it has seen, however the catalogue spells it', async () => {
     await aBook({ title: 'The Hobbit', authors: ['J. R. R. Tolkien'] })
     await aBook({ title: 'The Silmarillion', authors: ['J.R.R. Tolkien'] })
