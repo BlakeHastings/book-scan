@@ -48,6 +48,17 @@ export interface LookupResult {
   source: string
   classification: Classification
   notes: string[]
+  /**
+   * The headings the catalogues actually sent, kept rather than consumed.
+   *
+   * They already came back in the responses and already drove classification;
+   * what is new since #179 is that a caller can turn them into tags, which needs
+   * the strings and not only the fiction verdict they were reduced to. Optional
+   * because a result assembled before that existed is still a result: the two
+   * are read as "nothing was said", never as "nothing was found".
+   */
+  subjects?: string[]
+  categories?: string[]
 }
 
 function emptyResult(notes: string[] = []): LookupResult {
@@ -299,6 +310,8 @@ async function lookupOne(
     source: sources.join(' + '),
     classification,
     notes,
+    subjects: openLibrary?.subjects ?? [],
+    categories: google?.categories ?? [],
   }
 }
 
@@ -399,5 +412,7 @@ export async function searchTitle(
     source: 'Open Library search',
     classification,
     notes: [`Matched by title "${query}", not by ISBN. Please verify.`],
+    subjects: (doc.subject ?? []).slice(0, 40),
+    categories: [],
   }
 }

@@ -8,6 +8,20 @@
       "when": 1786051837668,
       "tag": "0000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786074155794,
+      "tag": "0001_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786074158327,
+      "tag": "0002_fiction_flag_becomes_tags",
+      "breakpoints": true
     }
   ]
 }
