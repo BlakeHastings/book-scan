@@ -60,10 +60,18 @@ function fold(text: string): string {
  *
  * Not the ISBN, and not the number: those are how the machine talks about a
  * book, and somebody holding one reads the cover.
+ *
+ * The OCR guess is in here even though it reaches no field any more (#156).
+ * Search has its own answer to whether a guess is good enough, and for
+ * finding a book it plainly is: the guess is what the row is called, so a
+ * search that could not find a row by the name it is drawn under would be a
+ * search box that lies about the list beside it. Nothing is saved by typing.
  */
 function haystack(capture: Capture): string {
   const draft = draftFromCapture(capture)
-  return fold(`${draft.title} ${draft.subtitle} ${draft.authors}`)
+  return fold(
+    `${draft.title} ${capture.title_guess} ${draft.subtitle} ${draft.authors}`,
+  )
 }
 
 /**

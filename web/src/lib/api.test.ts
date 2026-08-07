@@ -7,7 +7,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  api, draftFromBook, draftFromCapture, draftFromLookup, editFromDraft, emptyDraft,
+  api, captureName, draftFromBook, draftFromCapture, draftFromLookup,
+  editFromDraft, emptyDraft,
 } from './api'
 import type { BookRow, Capture, LookupResponse } from './api'
 
@@ -94,8 +95,67 @@ describe('draftFromCapture', () => {
   it('survives a corrupt column rather than taking the page down with it', () => {
     const draft = draftFromCapture(capture({
       draft_json: '{not json', edit_json: '{not json either', title_guess: 'Dune',
+      isbn13: '9780441013593',
     }))
-    expect(draft.title).toBe('Dune')
+    // Nothing readable, so nothing claimed: the row's own ISBN column comes
+    // through and the rest is empty rather than the page being taken down.
+    expect(draft.title).toBe('')
+    expect(draft.isbn13).toBe('9780441013593')
+  })
+
+  /*
+   * #156. The Title box is filled from this draft and Save writes the draft to
+   * the catalogue, so a guess reaching it is a guess entering the catalogue
+   * looking exactly like a title somebody read off the book.
+   */
+  it('leaves the title empty when the only one is what OCR read', () => {
+    const draft = draftFromCapture(capture({ title_guess: 'S0NG 0F SOLOMQN' }))
+    expect(draft.title).toBe('')
+  })
+
+  it('still fills the title in once a person has stated one', () => {
+    const draft = draftFromCapture(capture({
+      title_guess: 'S0NG 0F SOLOMQN',
+      edit_json: JSON.stringify({ title: 'Song of Solomon' }),
+    }))
+    expect(draft.title).toBe('Song of Solomon')
+  })
+})
+
+/**
+ * Naming a row and filling in a field are two jobs, and #156 is what happened
+ * while one value did both.
+ */
+describe('captureName', () => {
+  const capture = (fields: Partial<Capture>): Capture => ({
+    id: 41, status: 'ready', front_image: '', back_image: '', edge_image: '',
+    isbn13: '', isbn10: '', isbn_source: '', title_guess: '', cover_text: '',
+    analysed: '', draft_json: '', edit_json: '', edited_by: '', edited_at: null,
+    note: '', claimed_by: '', claimed_at: null, book_id: null,
+    created_at: '', processed_at: null,
+    front_crop: '', back_crop: '', edge_crop: '', cropped: '', ...fields,
+  })
+
+  it('names a capture by what OCR read, and says that is what it is', () => {
+    expect(captureName(capture({ title_guess: 'S0NG 0F SOLOMQN' })))
+      .toEqual({ text: 'S0NG 0F SOLOMQN', guessed: true })
+  })
+
+  it('prefers a stated title, and does not call that a guess', () => {
+    expect(captureName(capture({
+      title_guess: 'S0NG 0F SOLOMQN',
+      edit_json: JSON.stringify({ title: 'Song of Solomon' }),
+    }))).toEqual({ text: 'Song of Solomon', guessed: false })
+  })
+
+  it('prefers what a catalogue confirmed over what the cover read', () => {
+    expect(captureName(capture({
+      title_guess: 'DUNE by FRANK HERBERT', draft_json: JSON.stringify(found),
+    }))).toEqual({ text: 'Dune', guessed: false })
+  })
+
+  it('falls back to the number, which is a fact and not a guess', () => {
+    expect(captureName(capture({}))).toEqual({ text: 'Book #41', guessed: false })
   })
 })
 

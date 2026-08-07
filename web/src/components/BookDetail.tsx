@@ -171,7 +171,16 @@ export function BookDetail({
    * so both buttons come back either way and neither can strand a book.
    */
   const saveBlocked = saving || relookupBusy || !draft.title
-  const whyBlocked = relookupBusy ? 'Waiting for the ISBN lookup to finish' : undefined
+  const whyBlocked = relookupBusy
+    ? 'Waiting for the ISBN lookup to finish'
+    // Reachable since #156, and it was not before: a capture the app could not
+    // identify used to arrive with the OCR guess sitting in the Title box, so
+    // this button was live and one tap shelved that guess. Now the box is
+    // empty, and a disabled button with nothing said about it is the shape
+    // that makes somebody prod at a screen wondering what is broken.
+    : !draft.title
+      ? 'Give it a title first'
+      : undefined
 
   return (
     <>
@@ -315,6 +324,16 @@ export function BookDetail({
           </>
         )}
       </div>
+
+      {/* In the page rather than only in that button's tooltip: this is a
+          phone, there is no hover, and a `title` attribute is never read on
+          one. Says what to do, not what is wrong. */}
+      {editing && !saved && !draft.title && !relookupBusy && (
+        <p className="hint hint--blocked">
+          Type the title off the book to shelve it. Nothing has been filled in
+          from the photographs; what the cover reads is quoted below.
+        </p>
+      )}
 
       {placement}
 

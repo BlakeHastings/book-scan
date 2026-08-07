@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import {
-  api, deviceName, draftFromCapture, editsOn,
+  api, captureName, deviceName, draftFromCapture, editsOn,
   type Capture, type CaptureStatus, type QueueCounts,
 } from '../lib/api'
 import { newestFirst } from '../lib/queueOrder'
@@ -126,9 +126,11 @@ export function QueueRow({
     ? `${stated ? 'worked on' : 'checked'} by ${capture.edited_by || 'someone'}`
     : ''
   const thumb = queueThumb(capture, photo)
-  // A capture is not a book: it has no catalogue id and no title until a
-  // lookup resolves, so the number it was given at the camera stands in.
-  const title = draft.title || `Book #${capture.id}`
+  // A capture is not a book: it has no catalogue id and often no title at all,
+  // so what OCR read off the cover names the row, and the number names the
+  // ones it could not read either. Marked as a guess where it is one: the row
+  // has to say which book it is without that name looking like a settled one.
+  const name = captureName(capture)
   const shelvable = canShelve(capture)
 
   return (
@@ -147,7 +149,7 @@ export function QueueRow({
          */
         <div className="queue__undo">
           <span className="queue__undo-text">
-            Discarding <strong>{title}</strong> and its {photoCount(capture)} photo
+            Discarding <strong>{name.text}</strong> and its {photoCount(capture)} photo
             {photoCount(capture) === 1 ? '' : 's'}. Nothing has been deleted yet.
           </span>
           <button
@@ -187,7 +189,15 @@ export function QueueRow({
               </span>
 
               <span className="queue__body">
-                <span className="queue__title">{title}</span>
+                <span
+                  className={`queue__title${name.guessed ? ' queue__title--guess' : ''}`}
+                >
+                  <span className="queue__title-text">{name.text}</span>
+                  {/* Said in the row rather than only in the styling, because
+                      the difference between a title and a machine's reading of
+                      a cover is not something a shade of grey can carry. */}
+                  {name.guessed && <span className="queue__guessmark">OCR guess</span>}
+                </span>
                 <span className="queue__meta">
                   {draft.authors || draft.isbn13 || 'no ISBN yet'}
                 </span>

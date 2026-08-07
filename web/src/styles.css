@@ -425,6 +425,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .hint { color: var(--muted); font-size: 13px; margin: -6px 0 14px; }
 .hint code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+/* Sits under a disabled button and says what would enable it, so the margin
+   pulling a hint up under a field is wrong here. */
+.hint--blocked { margin: 8px 0 0; }
 
 /* --- Classification toggle -------------------------------------------- */
 
@@ -782,7 +785,21 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .queue__body { display: grid; gap: 2px; min-width: 0; }
 .queue__title {
   font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+  display: flex; align-items: baseline; gap: 6px;
+}
+.queue__title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A row named by OCR looks different from one named by a person or a
+   catalogue. The queue needs a machine guess to name a capture, and nothing
+   downstream may mistake that name for a title anybody confirmed (#156). */
+.queue__title--guess .queue__title-text { font-weight: 400; font-style: italic; }
+.queue__guessmark {
+  flex: none;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 4px;
 }
 .queue__meta { color: var(--muted); font-size: 13px; }
 .queue__status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }

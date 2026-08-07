@@ -144,6 +144,9 @@ CREATE TABLE IF NOT EXISTS captures (
     isbn13       TEXT    DEFAULT '',
     isbn10       TEXT    DEFAULT '',
     isbn_source  TEXT    DEFAULT '',
+    -- The first line OCR read off the front cover, and only ever that. A
+    -- title a person stated goes to edit_json and is never mirrored here, so
+    -- a guess and a confirmed title cannot be mistaken for one another (#156).
     title_guess  TEXT    DEFAULT '',
     -- Largest readable lines off the front cover, newline separated.
     cover_text   TEXT    DEFAULT '',

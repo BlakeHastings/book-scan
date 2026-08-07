@@ -49,6 +49,13 @@ export interface CaptureRow {
   isbn13: string
   isbn10: string
   isbn_source: string
+  /**
+   * The first line OCR read off the front cover. A machine's reading of a
+   * photograph and never anything else: nobody's stated title is written here,
+   * so a caller holding this row can always tell the two apart (#156). Good
+   * enough to name a row in the queue, not good enough to fill in a field
+   * somebody will save.
+   */
   title_guess: string
   cover_text: string
   analysed: string
@@ -399,7 +406,14 @@ export class CaptureQueue {
          isbn13 = COALESCE(@isbn13, isbn13),
          isbn10 = COALESCE(@isbn10, isbn10),
          isbn_source = COALESCE(@isbnSource, isbn_source),
-         title_guess = COALESCE(@title, title_guess),
+         -- title_guess is deliberately not mirrored, and the ISBN columns
+         -- deliberately still are (#156). An ISBN a person typed and one a
+         -- barcode gave are both identifiers, and isbn_source already says
+         -- which; a title somebody stated and a line OCR read off a cover are
+         -- not the same kind of fact at all, and this column has no second one
+         -- to say so. Stated titles live in edit_json and are read back
+         -- through it, so the two stay tellable apart on the row itself.
+         --
          -- A person who has stated a title or an ISBN has resolved this
          -- book, whatever the photographs did or did not read. 'pending'
          -- is left alone: the worker is mid-pass and settles it itself,
@@ -423,7 +437,6 @@ export class CaptureQueue {
         isbn13: merged.isbn13 ?? null,
         isbn10: merged.isbn10 ?? null,
         isbnSource: merged.isbnSource ?? null,
-        title: merged.title ?? null,
         resolved: (merged.title ?? '') || (merged.isbn13 ?? '') ? 1 : 0,
       },
     )
@@ -814,7 +827,12 @@ export class CaptureQueue {
           isbn13: statedIsbn ? stated.isbn13! : isbn13,
           isbn10: statedIsbn ? (stated.isbn10 ?? '') : (lookup?.isbn10 ?? ''),
           source: statedIsbn ? (stated.isbnSource ?? MANUAL_ISBN_SOURCE) : isbnSource,
-          titleGuess: stated.title ?? titleGuess,
+          // No precedence rule to apply: this column is the worker's reading
+          // of the cover and only ever that (#156). A title somebody stated is
+          // not a better value for it, it is a different kind of value, and it
+          // is already durable in `edit_json`, which is read over the top of
+          // this row everywhere a capture is shown.
+          titleGuess,
           coverText: coverLines.join(String.fromCharCode(10)),
           analysed: [...analysed].join(','),
           // The worker's own channel. Written whatever a person has said,
