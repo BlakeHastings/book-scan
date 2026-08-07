@@ -22,6 +22,20 @@
       "when": 1786074158327,
       "tag": "0002_fiction_flag_becomes_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786120370207,
+      "tag": "0003_authors_and_aliases",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786120390485,
+      "tag": "0004_authors_become_rows",
+      "breakpoints": true
     }
   ]
 }

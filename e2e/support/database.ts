@@ -164,7 +164,8 @@ export class Catalogue {
    */
   async reset(): Promise<void> {
     await this.pool.query(
-      'TRUNCATE captures, book_authors, books, separators, author_filing RESTART IDENTITY CASCADE',
+      'TRUNCATE captures, book_authors, books, separators, author_filing, ' +
+      'author, author_alias RESTART IDENTITY CASCADE',
     )
   }
 

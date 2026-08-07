@@ -40,14 +40,19 @@ declare module 'vitest' {
 const HOSTILE_COLLATIONS = ['en_US.utf8', 'en_US.UTF-8', 'en-US-x-icu']
 
 /**
- * The five tables a test wants back the way it found them. `shelf_ranges` is
- * not among them: it is seeded by `applySchema`, and a test that opens a
- * database expects to find the two ranges in it, exactly as the app does.
+ * The tables a test wants back the way it found them. `shelf_ranges` is not
+ * among them: it is seeded by `applySchema`, and a test that opens a database
+ * expects to find the two ranges in it, exactly as the app does.
+ *
+ * `author` and `author_alias` are named even though `book_author` cascades from
+ * `books`, because they do not: a name outlives the last book crediting it, so a
+ * test that saved a book would leave an author behind for the next one.
  *
  * RESTART IDENTITY because numbering from 1 is what some fixtures read back.
  */
 const TRUNCATE =
-  'TRUNCATE books, book_authors, captures, separators, author_filing RESTART IDENTITY CASCADE'
+  'TRUNCATE books, book_authors, captures, separators, author_filing, ' +
+  'author, author_alias RESTART IDENTITY CASCADE'
 
 interface Catalogue {
   db: Db

@@ -428,7 +428,8 @@ async function main(): Promise<void> {
       return
     }
     await db.run(
-      'TRUNCATE books, book_authors, captures, separators, author_filing RESTART IDENTITY CASCADE',
+      'TRUNCATE books, book_authors, captures, separators, author_filing, ' +
+      'author, author_alias RESTART IDENTITY CASCADE',
     )
   }
 

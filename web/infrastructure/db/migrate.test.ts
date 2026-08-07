@@ -177,6 +177,13 @@ describe('the baseline migration on an empty database', () => {
     // a different reason: a prefix range over it is how "everything under
     // genre" is answered, and on a linguistic collation that range is neither
     // an index seek nor dependably the right rows.
+    //
+    // `author_alias.filing_name` is the sixth, added by #180. It is a filing
+    // name, so it is the same kind of column as `books.author_filing`: the first
+    // component of a sort key today and the second tiebreak of every sort
+    // strategy in docs/data-model.md that is not `author`. Nothing orders by it
+    // yet, and it carries the collation now because adding it once a shelf is
+    // ordered by the column means rewriting the column that decides the order.
     const migrated = await scratch()
     await migrateToLatest(migrated)
 
@@ -186,6 +193,7 @@ describe('the baseline migration on an empty database', () => {
         ORDER BY table_name, column_name`,
     )
     expect(collated.rows).toEqual([
+      { table_name: 'author_alias', column_name: 'filing_name' },
       { table_name: 'books', column_name: 'author_filing' },
       { table_name: 'books', column_name: 'sort_key' },
       { table_name: 'books', column_name: 'title_filing' },

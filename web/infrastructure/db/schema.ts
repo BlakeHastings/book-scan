@@ -295,14 +295,131 @@ export const bookTag = pgTable('book_tag', {
 ])
 
 /**
+ * A person, or an organisation, that writes books. It holds no name.
+ *
+ * **The name is on the alias, and that is the whole design.** One person
+ * publishes under several: Iain Banks and Iain M. Banks, Stephen King and
+ * Richard Bachman. Those are one author and several aliases, and putting a name
+ * here would force a choice between the two spellings that `docs/shelving.md`
+ * says must file apart.
+ *
+ * So there is nothing to select on except the aliases, and that is deliberate
+ * rather than an oversight: "everything by this person" is a join through
+ * `author_alias`, which is the query the old comma-joined string could not
+ * answer in either direction.
+ *
+ * `is_corporate` is an integer for the reason `books.is_fiction` is one: this
+ * schema carries 0 and 1 for every flag it has, and `author_filing.is_corporate`,
+ * which this column absorbs, is already an integer. A corporate author is an
+ * author with one alias and no comma inversion; nothing branches on the flag
+ * today, and it is here because the column it replaces held it.
+ */
+export const author = pgTable('author', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  isCorporate: integer('is_corporate').notNull().default(0),
+  note: text('note').notNull().default(''),
+})
+
+/**
+ * One name an author publishes under, and what it files as.
+ *
+ * **`display_name` is the identity.** A book credits a printed name, and a
+ * printed name is all the catalogue has ever recorded, so two aliases with the
+ * same display name would be two rows nothing could tell apart: every lookup
+ * from a book's credit would have to pick one. It is unique for the same reason
+ * `tag.slug` is, and with the same consequence spelled out rather than
+ * discovered: **two different people who print the same name are one alias
+ * here.** No data this app holds separates them, and a model that pretended
+ * otherwise would be inventing the distinction rather than recording it.
+ *
+ * **`filing_name` is `author_filing.filing_name`, grown up.** That table was the
+ * override map, keyed on a normalised spelling of the printed name and holding
+ * the corrected filing name for the two cases no heuristic gets right (Spanish
+ * compound surnames, the Dutch particle convention). An alias is that row with
+ * the printed name kept rather than normalised away, so the override stops being
+ * a side table consulted on the way past and becomes the fact itself.
+ *
+ * `COLLATE "C"`, because a filing name is compared to order a shelf. It is the
+ * first component of `books.sort_key` today, and `docs/data-model.md` makes it
+ * the second tiebreak of every sort strategy that is not `author`. A linguistic
+ * collation folds case and files accented characters beside their unaccented
+ * forms, which does not throw: it reorders a shelf. See `collatedText` above and
+ * `SORT_KEY_COLUMNS` in db.pg.ts.
+ *
+ * **Nothing reads this column yet.** `books.author_filing` still decides where
+ * every book files and is untouched by #180, exactly as `books.is_fiction`
+ * survived #179. The collation is declared now because adding it later means
+ * rewriting a column somebody's shelves are already ordered by.
+ */
+export const authorAlias = pgTable('author_alias', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  authorId: integer('author_id').notNull(),
+  displayName: text('display_name').notNull(),
+  filingName: collatedText('filing_name').notNull(),
+  // Which of an author's names is the one to show when the author is named
+  // rather than one of their books. Integer, as every flag here is.
+  isPrimary: integer('is_primary').notNull().default(0),
+}, (table) => [
+  foreignKey({
+    name: 'author_alias_author_id_fkey',
+    columns: [table.authorId],
+    foreignColumns: [author.id],
+  }).onDelete('cascade'),
+  uniqueIndex('author_alias_display_name_key').on(table.displayName),
+  // "Every name this person publishes under" walks from the author, which the
+  // primary key cannot serve.
+  index('idx_author_alias_author').on(table.authorId),
+])
+
+/**
+ * A book crediting an alias, in the order the credits are printed.
+ *
+ * **The alias, not the author**, which is what `docs/shelving.md` already
+ * requires: a pseudonym files as printed, so Banks and Banks M sit apart on the
+ * shelf while "everything by this person" still finds both by joining one more
+ * table. Crediting the author instead would make that join impossible to undo.
+ *
+ * `(book_id, position)` is the key, so a book cannot credit two people in the
+ * same place, and `position` is what "first-listed author" means. It replaces
+ * `book_authors`, which held the printed name inline and which nothing has ever
+ * read back.
+ *
+ * The alias reference is not `ON DELETE cascade`: deleting a name somebody's
+ * books are credited to should be refused, not silently take the credits with
+ * it. Books cascade, because deleting a book does mean deleting its credits.
+ */
+export const bookAuthor = pgTable('book_author', {
+  bookId: integer('book_id').notNull(),
+  position: integer('position').notNull(),
+  authorAliasId: integer('author_alias_id').notNull(),
+}, (table) => [
+  primaryKey({ name: 'book_author_pkey', columns: [table.bookId, table.position] }),
+  foreignKey({
+    name: 'book_author_book_id_fkey',
+    columns: [table.bookId],
+    foreignColumns: [books.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'book_author_author_alias_id_fkey',
+    columns: [table.authorAliasId],
+    foreignColumns: [authorAlias.id],
+  }),
+  // "Everything credited to this name" starts from the alias, which the primary
+  // key cannot serve: it is prefixed by book_id.
+  index('idx_book_author_alias').on(table.authorAliasId),
+])
+
+/**
  * Every table this schema declares.
  *
  * No longer the same list as "every table the baseline creates": `tag` and
  * `book_tag` arrive in a later migration, because a database that predates them
  * has to be adoptable, and `migrate.ts` decides that by comparing the baseline's
  * own snapshot against the live catalogue. Adding these two to the baseline
- * would make the owner's catalogue refuse adoption by name.
+ * would make the owner's catalogue refuse adoption by name. `author`,
+ * `author_alias` and `book_author` arrive the same way, for the same reason.
  */
 export const ALL_TABLES = [
   books, bookAuthors, authorFiling, shelfRanges, captures, separators, tag, bookTag,
+  author, authorAlias, bookAuthor,
 ] as const
