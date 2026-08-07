@@ -36,6 +36,20 @@
       "when": 1786120390485,
       "tag": "0004_authors_become_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786123456562,
+      "tag": "0005_captures",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786123459087,
+      "tag": "0006_photographs_become_capture_rows",
+      "breakpoints": true
     }
   ]
 }

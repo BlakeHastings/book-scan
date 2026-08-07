@@ -20,7 +20,7 @@
  */
 
 import {
-  customType, doublePrecision, foreignKey, index, integer, pgTable, primaryKey, text,
+  boolean, customType, doublePrecision, foreignKey, index, integer, pgTable, primaryKey, text,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
@@ -410,6 +410,92 @@ export const bookAuthor = pgTable('book_author', {
 ])
 
 /**
+ * One photograph of one book.
+ *
+ * **`capture` is not `captures`.** The plural table above is the scanning queue
+ * and is a different thing entirely: a work item waiting for somebody to confirm
+ * what a book is. This one is a photograph. The names are one letter apart and
+ * that is unfortunate, but it is what `docs/data-model.md` settles on and the
+ * queue table is dissolved by #183 rather than renamed, so the collision is
+ * temporary and inventing a third word for a photograph would outlive it.
+ *
+ * ## What this replaces
+ *
+ * Eight columns on `books`: `front_image`, `back_image`, `edge_image`,
+ * `cover_image`, `front_crop`, `back_crop`, `edge_crop` and `cropped`. Between
+ * them they allow exactly one photograph of each kind, forever, so a blurred
+ * spine can only be re-shot by overwriting the original. The photographs are
+ * half of what is irreplaceable about this catalogue and the app that owns them
+ * should not be the thing that deletes one. A row per photograph lifts that.
+ *
+ * **Nothing is dropped here**, exactly as #179 kept `books.is_fiction` when it
+ * added the tag tables. Those columns are still what `Store`, the crop backfill,
+ * the gallery, the queue panel and the shelf row read, and removing them belongs
+ * with the work that remodels `books` and touches most of the client. Every save
+ * writes both from that day on. See the pull request for #181.
+ *
+ * ## `book_id` is not null, and one column is the enforcement
+ *
+ * A book exists from its first photograph, so there is no orphan state. One
+ * column is also the whole of the guarantee that a photograph belongs to at most
+ * one book: there is nowhere to put a second. A join table would permit exactly
+ * the thing that must not happen, which is why the queue table disappears in
+ * #183 rather than growing a link.
+ *
+ * ## `examined` is a column because two empty crops are two different facts
+ *
+ * `examined` true with an empty `crop_file` means the detector looked at this
+ * photograph and could not find the book in it. `examined` false with an empty
+ * `crop_file` means no detector has ever opened it. A caption may say "the book
+ * could not be picked out of this photo" about the first and must not say it
+ * about the second. Today that lives in `books.cropped`, a comma separated list
+ * of slot names, which is one string per row describing three photographs and
+ * therefore cannot survive a second photograph of a kind at all.
+ *
+ * `boolean`, unlike `books.is_fiction`, which is an integer because the JSON
+ * contract carries 0 and 1 and the client reads them. Nothing reads this column
+ * over the wire yet, so there is no such constraint to inherit and no reason to
+ * carry a second spelling of true.
+ */
+export const capture = pgTable('capture', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  bookId: integer('book_id').notNull(),
+  // 'front', 'back', 'spine' or 'catalogue'. `spine` is what the old columns
+  // call `edge`; see domain/capture/photographs.ts for why it is renamed here
+  // and nowhere above the migration.
+  kind: text('kind').notNull(),
+  // The photograph as taken, and the record. Never overwritten and never
+  // replaced by its crop: a bad crop costs nothing and can be redone, and the
+  // original cannot.
+  file: text('file').notNull(),
+  // The book cut out of the photograph, when the detector found one. Empty when
+  // it declined and when it has not looked, which `examined` tells apart.
+  cropFile: text('crop_file').notNull().default(''),
+  examined: boolean('examined').notNull().default(false),
+  // A difference hash, in the format imagehash.ts writes, for shortlisting a
+  // book held up to the camera. Carries books.front_hash for a front photograph
+  // and books.cover_hash for the catalogue artwork, which are the same
+  // algorithm and the same format tag.
+  hash: text('hash').notNull().default(''),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  takenAt: text('taken_at').notNull(),
+}, (table) => [
+  foreignKey({
+    name: 'capture_book_id_fkey',
+    columns: [table.bookId],
+    foreignColumns: [books.id],
+  }).onDelete('cascade'),
+  // A photograph is identified by the book and the file, so the same file
+  // offered twice is the same photograph rather than a second one. That is what
+  // makes recording idempotent, which the migration and every save both rely on.
+  // Deliberately not unique on `file` alone: that would be a claim about the
+  // whole cover directory, which this table is in no position to make.
+  uniqueIndex('capture_book_file_key').on(table.bookId, table.file),
+  // "This book's photographs, newest first", which is every read there is.
+  index('idx_capture_book').on(table.bookId, table.takenAt),
+])
+
+/**
  * Every table this schema declares.
  *
  * No longer the same list as "every table the baseline creates": `tag` and
@@ -417,9 +503,10 @@ export const bookAuthor = pgTable('book_author', {
  * has to be adoptable, and `migrate.ts` decides that by comparing the baseline's
  * own snapshot against the live catalogue. Adding these two to the baseline
  * would make the owner's catalogue refuse adoption by name. `author`,
- * `author_alias` and `book_author` arrive the same way, for the same reason.
+ * `author_alias` and `book_author` arrive the same way, and `capture` later
+ * still, for the same reason.
  */
 export const ALL_TABLES = [
   books, bookAuthors, authorFiling, shelfRanges, captures, separators, tag, bookTag,
-  author, authorAlias, bookAuthor,
+  author, authorAlias, bookAuthor, capture,
 ] as const
