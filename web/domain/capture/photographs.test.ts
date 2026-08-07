@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  PHOTOGRAPH_KINDS, Photographs, isPhotographKind, shownFile, verdictOf, wantsExamining,
+  PHOTOGRAPH_KINDS, Photographs, isPhotographKind, shownFile, verdictOf,
   type Photograph, type PhotographKind,
 } from './photographs'
 
@@ -50,11 +50,6 @@ describe('what the detector made of a photograph', () => {
     expect(verdictOf(photograph({ examined: true, cropFile: 'front_crop.jpg' }))).toBe('cropped')
   })
 
-  it('offers a declined photograph to the detector no more than once', () => {
-    expect(wantsExamining(photograph())).toBe(true)
-    expect(wantsExamining(photograph({ examined: true }))).toBe(false)
-    expect(wantsExamining(photograph({ cropFile: 'c.jpg' }))).toBe(false)
-  })
 })
 
 describe('which file a view draws', () => {
@@ -125,14 +120,4 @@ describe('a book with several photographs of one kind', () => {
     expect(photographs.kinds()).toEqual(['front', 'spine', 'catalogue'])
   })
 
-  it('never offers the publisher artwork to the detector', () => {
-    // The detector finds a book in a room. A downloaded cover has no room in
-    // it, and a crop of one would be a crop of a picture rather than of this
-    // copy. See PHOTOGRAPHED_KINDS.
-    const photographs = Photographs.of([
-      photograph({ kind: 'catalogue', file: 'cover.jpg' }),
-      photograph({ kind: 'front', file: 'front.jpg' }),
-    ])
-    expect(photographs.wantingExamination().map((one) => one.kind)).toEqual(['front'])
-  })
 })

@@ -66,15 +66,6 @@ export function isPhotographKind(raw: string): raw is PhotographKind {
   return (PHOTOGRAPH_KINDS as readonly string[]).includes(raw)
 }
 
-/**
- * The kinds that are photographs of this copy, so the ones a detector is shown.
- *
- * `src/lib/gallery.ts` has had this same list since #135, spelled in column
- * names. It is here now because it is a statement about what the detector is
- * for rather than about what the client draws.
- */
-export const PHOTOGRAPHED_KINDS: readonly PhotographKind[] = ['front', 'back', 'spine']
-
 /** One photograph, as everything above the store sees it. */
 export interface Photograph {
   kind: PhotographKind
@@ -103,18 +94,6 @@ export type Verdict = 'unexamined' | 'declined' | 'cropped'
 export function verdictOf(photograph: Photograph): Verdict {
   if (photograph.cropFile) return 'cropped'
   return photograph.examined ? 'declined' : 'unexamined'
-}
-
-/**
- * Whether this photograph is still waiting for the detector.
- *
- * The condition the crop backfill walks. A declined photograph is finished
- * business: the detector looked, said no, and asking it the same question again
- * gets the same answer. `force` is how a caller asks anyway, and it belongs to
- * the caller rather than here.
- */
-export function wantsExamining(photograph: Photograph): boolean {
-  return verdictOf(photograph) === 'unexamined'
 }
 
 /**
@@ -182,10 +161,5 @@ export class Photographs {
   /** The kinds this book actually has, in the order `PHOTOGRAPH_KINDS` gives. */
   kinds(): PhotographKind[] {
     return PHOTOGRAPH_KINDS.filter((kind) => this.ofKind(kind).length > 0)
-  }
-
-  /** The photographs still waiting for the detector, newest first. */
-  wantingExamination(): readonly Photograph[] {
-    return this.all.filter((one) => PHOTOGRAPHED_KINDS.includes(one.kind) && wantsExamining(one))
   }
 }
