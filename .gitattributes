@@ -1,0 +1,13 @@
+# Migration files keep LF on every platform.
+#
+# Drizzle records a hash of each migration's text in `drizzle.__drizzle_migrations`
+# when it applies it. With `core.autocrlf=true`, which is the Windows default and
+# what this machine has, a checkout on Windows and a checkout on the Linux CI
+# runner would hand the migrator two different byte sequences for the same file
+# and record two different hashes for the same migration.
+#
+# Nothing reads those hashes back today: Drizzle decides what to run from the
+# folder timestamp, not the hash. This is here so that stays a fact about the
+# migrator's current implementation rather than something the bookkeeping depends
+# on being true.
+web/infrastructure/db/migrations/** text eol=lf

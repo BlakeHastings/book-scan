@@ -164,6 +164,20 @@ jobs:
         working-directory: web
         run: npm run typecheck
 
+      # The layering from #169, checked rather than reviewed. A domain file that
+      # imports from infrastructure is the defect that epic exists to prevent,
+      # and a boundary nobody has watched fail is not enforced. Deliberately a
+      # step of this job rather than a job of its own: it takes about a second,
+      # and GitHub bills a job rounded up to a whole minute.
+      #
+      # Verified by breaking it. The pull request that added this pushed an
+      # import from web/domain into web/infrastructure first and watched this
+      # step go red before taking it out.
+      - name: Layer boundaries
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
+        run: npm run lint:layers
+
       # Tests open :memory: SQLite databases and scratch Postgres databases
       # created on the service container above, and generate their own barcode
       # and cover fixtures, so this never reaches real scan data.

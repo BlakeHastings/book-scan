@@ -16,13 +16,18 @@
  * Two of db.ts's functions are deliberately absent. `addMissingColumns` and
  * `migrateSeparators` bring an old SQLite file forward, and there is exactly
  * one such file in the world; it gets brought forward by the SQLite code path
- * once, immediately before the data migration reads it (stage H). The Postgres
- * schema is created complete, so there is no missing migration to hunt for.
+ * once, immediately before the data migration reads it (stage H).
  * `SCHEMA_VERSION` goes with them: it was stored in a SQLite pragma.
+ *
+ * Postgres does have a migration chain as of #172, and it is Drizzle's, in
+ * `web/infrastructure/db/migrations`. `applySchema` at the bottom of this file
+ * runs it. Nothing in this file decides what the schema is any more; the
+ * constant below is what the first migration is checked against.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
+import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/migrate'
 import { bindParams, lockKey, numbered, type Db, type Params, type TxOptions } from './driver'
 
 const { Pool } = pg
@@ -32,6 +37,19 @@ type PoolClient = pg.PoolClient
  * Every column keeps the type that produces the same JavaScript value it
  * produces today, because the API contract and the React client depend on it.
  * The four decisions worth arguing about are marked at the column.
+ *
+ * **Nothing runs this any more.** Since #172 the schema is created by the
+ * baseline migration under `web/infrastructure/db/migrations`, generated from
+ * the Drizzle schema. This is kept, and kept exactly as it was, because it is
+ * what that baseline is proved against: `infrastructure/db/migrate.test.ts`
+ * builds one database from this constant and one from the migration and diffs
+ * them, column for column, index for index and constraint for constraint. A
+ * baseline that claims to reproduce today's schema and is only ever compared
+ * against itself claims nothing.
+ *
+ * So do not edit it to describe a change. A schema change goes in the Drizzle
+ * schema and gets a migration; this constant is the fixed point that says the
+ * conversion was faithful, and it stops being useful the moment it moves.
  */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS books (
@@ -460,21 +478,41 @@ export class PgDb implements Db {
   }
 }
 
+/** What each migration outcome means, for the one line the app prints. */
+const OUTCOMES: Record<MigrationOutcome, string> = {
+  created: 'this database was empty, so the schema was created from them',
+  adopted: 'this database already had the schema, so the baseline was recorded ' +
+    'as applied without being run and nothing was rebuilt',
+  migrated: 'this database was already under migration control',
+}
+
 /**
- * Create the schema and seed it, then hand back a `Db`.
+ * Bring the schema up to date and seed it, then hand back a `Db`.
+ *
+ * The name and the contract are unchanged; what is underneath is not. Since
+ * #172 the schema comes from the migrations rather than from `SCHEMA` above,
+ * and `migrateToLatest` handles the case that makes this worth doing at all: a
+ * database that already has these tables and has never been migrated is
+ * **adopted**, not rebuilt. That is not hypothetical here. The Postgres
+ * container has a persistent volume per checkout, so every developer already
+ * has one, and so does every scratch catalogue anybody has been seeding into.
  *
  * The seeding is the same two statements db.ts runs, spelled the same way.
  * Stage D made them dialect-neutral against SQLite, which is where that was
  * cheap to prove; this is where it gets used.
  */
 export async function applySchema(pool: pg.Pool): Promise<void> {
-  // Straight at the pool, not through `Db.run`, and for two reasons. `Db` has
-  // no `exec` because schema creation is the only caller that wants
-  // multi-statement SQL and that is per-dialect. And node-postgres picks its
-  // wire protocol from whether values were supplied: the translator always
-  // hands back an array, which selects the extended protocol, and that one
-  // refuses more than one command per statement.
-  await pool.query(SCHEMA)
+  // Straight at the pool, not through `Db.run`, and for the reason `Db` has no
+  // `exec`: schema work is the only caller that wants multi-statement SQL, and
+  // it is per-dialect. Drizzle's migrator wants a pool for the same reason, and
+  // it is given this one rather than opening any of its own.
+  const outcome = await migrateToLatest(pool)
+
+  // Said out loud, because the interesting outcomes are the quiet ones. A
+  // database that was adopted looks exactly like one that was built, right up
+  // until somebody wonders whether the tables they had last week are the tables
+  // they have now. `aspire logs api` is where this shows up.
+  console.log(`[db] postgres migrations: ${OUTCOMES[outcome]}`)
 
   const db = new PgDb(pool)
   const seed = `INSERT INTO shelf_ranges

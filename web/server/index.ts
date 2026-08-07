@@ -33,7 +33,10 @@ import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
-import { Shelves, type ShelvedBook } from './shelves'
+import { rangeLock, Shelves, type ShelvedBook } from './shelves'
+import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
+import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
+import { DbTransactions } from '../infrastructure/shelving/transactions'
 import { Store, type DraftBook } from './store'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
@@ -235,7 +238,22 @@ export function createApp(options: CreateAppOptions): express.Express {
   const startBackgroundWork = options.startBackgroundWork ?? true
 
   const store = new Store(db)
-  const shelves = new Shelves(db)
+
+  /*
+   * The composition root for the one slice #172 converted.
+   *
+   * Assembled here rather than inside `Shelves` because the route below calls
+   * the handler itself: a request to remove a shelf boundary is a command, and
+   * what it needs is a thing that carries it out, not a class that also knows
+   * how to lay out a range. Everything the handler needs arrives through the
+   * two interfaces in `application/shelving/ports.ts`, so this is the only
+   * place in the server that names a Drizzle repository at all.
+   */
+  const separators = new DrizzleSeparatorRepository(db)
+  const removeSeparator = new RemoveSeparatorHandler(
+    separators, new DbTransactions(db, rangeLock),
+  )
+  const shelves = new Shelves(db, separators, removeSeparator)
 
   function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {
     const name = `${Date.now()}_${isbn || 'noisbn'}_${slot}.jpg`
@@ -1097,7 +1115,11 @@ export function createApp(options: CreateAppOptions): express.Express {
   app.delete('/api/shelves/:id', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const before = await shelves.layout(range)
-    await shelves.remove(Number(req.params.id))
+    // The one route that goes through the application layer. It says what was
+    // asked for and nothing about how it is stored, which is the whole of what
+    // #172 is demonstrating; the reads either side of it still go through
+    // `Shelves` because books have not been converted.
+    await removeSeparator.handle({ separatorId: Number(req.params.id) })
     res.json({
       moves: await describeMoves(range, await shelves.movesSince(range, before)),
       groups: await shelfGroups(range),

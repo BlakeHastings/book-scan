@@ -7,6 +7,11 @@
 
 import type { BookRow } from './db'
 import type { Db } from './driver'
+import { RangeSeparators } from '../domain/shelving/separators'
+import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
+import type { SeparatorRepository } from '../application/shelving/ports'
+import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
+import { DbTransactions } from '../infrastructure/shelving/transactions'
 import {
   boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange, locationLabel,
   NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt, stripWithGap,
@@ -36,26 +41,8 @@ import {
  */
 export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
 
-interface SeparatorRow {
-  id: number
-  shelf_range: ShelfRange
-  kind: SeparatorKind
-  starts_at: string
-  position: number
-  note: string
-  created_at: string
-}
-
 /** A book row plus the camelCase key the pure layout code expects. */
 export type ShelvedBook = BookRow & { sortKey: string }
-
-const toSeparator = (row: SeparatorRow): Separator => ({
-  id: row.id,
-  range: row.shelf_range,
-  kind: row.kind,
-  startsAt: row.starts_at,
-  position: row.position,
-})
 
 /** A row as the misfile check sees it: where it is, and where it belongs. */
 const toFiled = (row: BookRow, derived: string, checkedOut: boolean): FiledBook => ({
@@ -109,17 +96,29 @@ function refusal(
  *
  * The driver is behind `Db` (driver.ts) rather than named here, so this file no
  * longer knows which database it is talking to.
+ *
+ * **Separators no longer have any SQL in this file** (#172). They go through
+ * `SeparatorRepository`, and the removal, which is the write with an invariant
+ * to protect, goes through a command handler in `application/`. Books, ranges
+ * and the misfile review still read straight through `Db` here: fourteen tables
+ * are coming and the pattern is being judged on one first.
  */
 export class Shelves {
-  constructor(private readonly db: Db) {}
+  /**
+   * The two collaborators default to the real ones, so `new Shelves(db)` still
+   * means what it did and no existing caller or test had to change. `index.ts`
+   * passes them in because the route that removes a boundary calls the handler
+   * itself rather than going back through this class.
+   */
+  constructor(
+    private readonly db: Db,
+    private readonly separators: SeparatorRepository = new DrizzleSeparatorRepository(db),
+    private readonly removeSeparator: RemoveSeparatorHandler =
+      new RemoveSeparatorHandler(separators, new DbTransactions(db, rangeLock)),
+  ) {}
 
   async list(range: ShelfRange): Promise<Separator[]> {
-    return (
-      await this.db.all<SeparatorRow>(
-        'SELECT * FROM separators WHERE shelf_range = ? ORDER BY position ASC',
-        [range],
-      )
-    ).map(toSeparator)
+    return this.separators.inRange(range)
   }
 
   /** Which bookcase a range begins on. */
@@ -425,19 +424,21 @@ export class Shelves {
   ): Promise<void> {
     if (plan.create) {
       // Counted before the insert, exactly as it was: the new separator takes
-      // the position after the ones already there.
-      const position = (await this.list(range)).length
-      await this.db.run(
-        `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
-         VALUES (?, ?, ?, ?, '', ?)`,
-        [range, plan.create.kind, plan.create.startsAt,
-         position, new Date().toISOString()],
-      )
+      // the position after the ones already there. `nextPosition` is the same
+      // number the length was, and says so in the domain rather than here.
+      const position = RangeSeparators
+        .of(range, await this.separators.inRange(range))
+        .nextPosition
+      await this.separators.add({
+        range,
+        kind: plan.create.kind,
+        startsAt: plan.create.startsAt,
+        position,
+        note: '',
+        createdAt: new Date().toISOString(),
+      })
     } else if (plan.shift) {
-      await this.db.run(
-        'UPDATE separators SET starts_at = ? WHERE id = ?',
-        [plan.shift.startsAt, plan.shift.id],
-      )
+      await this.separators.reanchor(plan.shift.id, plan.shift.startsAt)
     }
   }
 
@@ -483,10 +484,7 @@ export class Shelves {
       }
 
       for (const shift of outcome.move.shift) {
-        await this.db.run(
-          'UPDATE separators SET starts_at = ? WHERE id = ?',
-          [shift.startsAt, shift.id],
-        )
+        await this.separators.reanchor(shift.id, shift.startsAt)
       }
       for (const id of outcome.move.remove) await this.remove(id)
 
@@ -564,46 +562,14 @@ export class Shelves {
   /**
    * Remove a boundary and renumber the rest so positions stay contiguous.
    *
-   * **The read is inside the transaction since stage G.** It used to sit
-   * outside it, described there as being "exactly as before", which was an
-   * honest account of the diff and not of the invariant: the row supplies the
-   * `position` the renumber is keyed on, and two removals racing each other
-   * decremented the same tail twice, so positions collided and `list`'s
-   * `ORDER BY position` returned boundaries in an order the shelves did not
-   * have. Every book in the range then derives a wrong plank, and `review`
-   * reports the whole range as misfiled.
-   *
-   * The range is read once before the lock is taken, because the lock name is
-   * about a range and the row is the only thing that knows which one. The read
-   * inside the transaction is the authoritative one: a separator deleted in
-   * between comes back missing there and this does nothing, which is what it
-   * did before.
-   *
-   * Called from inside `moveAcrossBoundary`'s transaction as well as on its
-   * own, and `Db.tx` opens a savepoint rather than a second transaction when
-   * that happens. The advisory lock is re-entrant for the same reason.
+   * The rule and the transaction now live in
+   * `application/shelving/remove-separator.ts`, where the prose that used to be
+   * here went with them. This stays because `moveAcrossBoundary` below removes
+   * boundaries as part of a larger move, and because the route and the tests
+   * that already say `shelves.remove(id)` are not what this change is about.
    */
   async remove(id: number): Promise<void> {
-    const naming = await this.db.get<{ shelf_range: ShelfRange }>(
-      'SELECT shelf_range FROM separators WHERE id = ?',
-      [id],
-    )
-    if (!naming) return
-
-    await this.db.tx(async (tx) => {
-      const row = await tx.get<SeparatorRow>(
-        'SELECT * FROM separators WHERE id = ?',
-        [id],
-      )
-      if (!row) return
-
-      await tx.run('DELETE FROM separators WHERE id = ?', [id])
-      await tx.run(
-        `UPDATE separators SET position = position - 1
-          WHERE shelf_range = ? AND position > ?`,
-        [row.shelf_range, row.position],
-      )
-    }, { serialiseOn: rangeLock(naming.shelf_range) })
+    await this.removeSeparator.handle({ separatorId: id })
   }
 
   /**
