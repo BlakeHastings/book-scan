@@ -1052,13 +1052,12 @@ export function createApp(options: CreateAppOptions): express.Express {
 
     // Deliberately not awaited. The person is waiting to be told where the
     // book goes, and a cover that arrives a second later costs them
-    // nothing.
-    // The cover, the hash and the crops each write a column `recordPhotographs`
-    // reads, so it runs once more behind them. Deliberately last in the chain
-    // and deliberately not the only call: the rows exist from the save, and this
-    // fills in what only arrives a second later.
+    // nothing. The cover, the hash and the crops each write a column
+    // `recordPhotographs` reads, so it runs once more at the end of the chain.
+    // Not instead of the awaited call above: the rows exist from the save, and
+    // this fills in only what arrives afterwards.
     void fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
-      // Guarded here and nowhere else this is called. On the awaited path a
+      // Caught here and nowhere else this is called. On the awaited path a
       // failure to record is a failure to save and should be seen; out here
       // nothing is waiting to be told, and a rejection nobody catches takes the
       // process down. The columns are still the record while the client reads
