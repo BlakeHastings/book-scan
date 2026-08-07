@@ -33,7 +33,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { openDatabase } from './db'
+import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
 import { lookupIsbn } from './lookup'
@@ -105,7 +105,7 @@ interface Running {
 }
 
 async function startApp(): Promise<Running> {
-  const db = openDatabase(':memory:')
+  const db = await openTestDatabase()
   const coverDir = mkdtempSync(join(dataRoot, 'index-test-'))
   const app = createApp({ db, coverDir, startBackgroundWork: false })
 
@@ -135,7 +135,8 @@ afterEach(async () => {
   rmSync(running.coverDir, { recursive: true, force: true })
 })
 
-afterAll(() => {
+afterAll(async () => {
+  await closeTestDatabase()
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
@@ -1971,69 +1972,48 @@ describe('failure paths', () => {
 })
 
 /**
- * Which database a process opens, which stage G changed the default of.
+ * Which database a process opens.
  *
- * The one thing that must stay true through that flip: **the SQLite path is
- * still selected by configuration and still opens the file it always did.**
- * Stage H has not happened, so the owner's catalogue is a `books.db`, and the
- * way back from Postgres named in docs/postgres-migration.md is exactly the
- * variable asserted here.
+ * There were four tests here through stages G and H, and three of them were
+ * about a choice: `BOOKSCAN_DB`, the SQLite file it selected, and the refusal
+ * to start on an empty Postgres beside a `books.db` full of somebody's
+ * afternoons. Stage I removed the choice, so what is left is the connection
+ * being read from one name and from no other, and the refusal that is still
+ * worth making: none at all.
  *
- * Nothing below opens a path outside this repository, and nothing sets
- * BOOKSCAN_DATA. The file the "there is already a catalogue" case points at is
- * this checkout's own source, chosen because it certainly exists and is
- * certainly never opened: the refusal happens before anything is read.
+ * Nothing below reads a connection out of the ambient environment. The one
+ * that opens a database opens the one this file already has.
  */
 describe('choosing the database', () => {
-  const HERE = fileURLToPath(new URL('.', import.meta.url))
-  const A_FILE_THAT_EXISTS = join(HERE, 'index.ts')
-  const NO_SUCH_FILE = join(HERE, 'no-such-catalogue.db')
-
   afterEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it('opens SQLite when asked, which is how the catalogue is still reached', async () => {
-    vi.stubEnv('BOOKSCAN_DB', 'sqlite')
-    // No connection string anywhere, deliberately: the SQLite path must not
-    // need one, or "set BOOKSCAN_DB=sqlite" would not be a way back.
-    vi.stubEnv('ConnectionStrings__bookscan', '')
+  it('opens the connection it is given, and reports it without the credentials', async () => {
+    const url = testDatabaseUrl()
+    vi.stubEnv('ConnectionStrings__bookscan', url)
 
-    const { db, label } = await openCatalogue(':memory:')
+    const { db, label } = await openCatalogue()
     try {
-      expect(label).toBe(':memory:')
       // A real database, with the schema on it, not a stub.
       await expect(db.all('SELECT * FROM books')).resolves.toEqual([])
+      // Host, port and database. The `user:password@` the URL carries is what
+      // must not be here: this label is served by /api/health, and a password
+      // on a health endpoint is a password in every log that scrapes one.
+      expect(label).toMatch(/^postgres [^@\s]+:\d+\/\w+$/)
+      expect(label).not.toContain('@')
+      expect(label).toContain(new URL(url).pathname)
     } finally {
       await db.close()
     }
   })
 
-  it('defaults to Postgres', async () => {
-    vi.stubEnv('BOOKSCAN_DB', undefined)
+  it('refuses to start with no connection, and names the variable', async () => {
+    // A process that exits saying which variable is empty is recoverable in
+    // one command. One that comes up on an empty database is not obviously
+    // anything, which is why this is a refusal rather than a default.
     vi.stubEnv('ConnectionStrings__bookscan', '')
 
-    await expect(openCatalogue(NO_SUCH_FILE)).rejects.toThrow(/defaults to postgres/)
-  })
-
-  it('refuses to start an empty Postgres beside a catalogue that already exists', async () => {
-    // The case that matters. A deployment started with BOOKSCAN_DATA and
-    // nothing else is how the running system starts today, and on this
-    // revision that process has no connection string. Coming up empty would
-    // look exactly like a catalogue that lost every book.
-    vi.stubEnv('BOOKSCAN_DB', undefined)
-    vi.stubEnv('ConnectionStrings__bookscan', '')
-
-    await expect(openCatalogue(A_FILE_THAT_EXISTS)).rejects.toThrow(
-      /Refusing to start an empty Postgres one beside it/,
-    )
-    // And it says the one command that fixes it, because a refusal nobody can
-    // act on is an outage.
-    await expect(openCatalogue(A_FILE_THAT_EXISTS)).rejects.toThrow(/BOOKSCAN_DB=sqlite/)
-  })
-
-  it('says so when BOOKSCAN_DB is neither, rather than quietly picking one', async () => {
-    vi.stubEnv('BOOKSCAN_DB', 'sqlite3')
-    await expect(openCatalogue(':memory:')).rejects.toThrow(/either "postgres" or "sqlite"/)
+    await expect(openCatalogue()).rejects.toThrow(/ConnectionStrings__bookscan is empty/)
   })
 })

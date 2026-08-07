@@ -3,51 +3,45 @@
  * the stores rely on.
  *
  * Worth its own file rather than being left to the store tests. Those exercise
- * the translator on every statement they run, which is the point of routing
- * SQLite through it, but they exercise it on the statements that happen to
- * exist today. The cases below are the ones that will break stage F if they are
- * wrong and nothing here has ever looked at them: a placeholder inside a
- * comment, a name used twice, an `IN` list whose length is decided at run time,
- * and the numbered spelling Postgres will ask for.
+ * the translator on every statement they run, but they exercise it on the
+ * statements that happen to exist today. The cases below are the ones nothing
+ * else has ever looked at: a placeholder inside a comment, a name used twice,
+ * an `IN` list whose length is decided at run time.
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { anonymous, bindParams, numbered, type Db } from './driver'
-import { openDatabase } from './db'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { bindParams, type Db } from './driver'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 
 describe('translating placeholders', () => {
-  it('takes ? placeholders in the order it meets them', () => {
-    const bound = bindParams(
+  it('takes ? placeholders in the order it meets them, and numbers them', () => {
+    // Two tests until stage I, because there were two output spellings and the
+    // SQLite one had to keep saying `?`. One statement, both assertions, one
+    // spelling left.
+    const three = bindParams(
       'SELECT * FROM books WHERE shelf_range = ? AND sort_key < ? AND id != ?',
       ['fiction', 'k', 7],
-      anonymous,
     )
-    expect(bound.text).toBe(
-      'SELECT * FROM books WHERE shelf_range = ? AND sort_key < ? AND id != ?',
+    expect(three.text).toBe(
+      'SELECT * FROM books WHERE shelf_range = $1 AND sort_key < $2 AND id != $3',
     )
-    expect(bound.values).toEqual(['fiction', 'k', 7])
-  })
+    expect(three.values).toEqual(['fiction', 'k', 7])
 
-  it('spells the same statement in the numbered style, which is what stage F needs', () => {
-    const bound = bindParams(
+    const two = bindParams(
       'SELECT * FROM books WHERE shelf_range = ? AND sort_key < ?',
       ['fiction', 'k'],
-      numbered,
     )
-    expect(bound.text).toBe(
-      'SELECT * FROM books WHERE shelf_range = $1 AND sort_key < $2',
-    )
-    expect(bound.values).toEqual(['fiction', 'k'])
+    expect(two.text).toBe('SELECT * FROM books WHERE shelf_range = $1 AND sort_key < $2')
+    expect(two.values).toEqual(['fiction', 'k'])
   })
 
   it('reads @name and :name from the same map, because both styles are in the SQL', () => {
     const bound = bindParams(
       'UPDATE books SET title = @title WHERE isbn13 = :isbn13',
       { title: 'Dune', isbn13: '9780441013593' },
-      numbered,
     )
     expect(bound.text).toBe('UPDATE books SET title = $1 WHERE isbn13 = $2')
     expect(bound.values).toEqual(['Dune', '9780441013593'])
@@ -60,7 +54,6 @@ describe('translating placeholders', () => {
     const bound = bindParams(
       "SELECT REPLACE(a, ',' || @slot || ',', ',' || @slot)",
       { slot: 'back' },
-      numbered,
     )
     expect(bound.text).toBe("SELECT REPLACE(a, ',' || $1 || ',', ',' || $2)")
     expect(bound.values).toEqual(['back', 'back'])
@@ -74,7 +67,6 @@ describe('translating placeholders', () => {
       const bound = bindParams(
         `SELECT * FROM captures WHERE status IN (${marks})`,
         statuses,
-        numbered,
       )
       const expected = statuses.map((_, i) => `$${i + 1}`).join(', ')
       expect(bound.text).toBe(`SELECT * FROM captures WHERE status IN (${expected})`)
@@ -86,7 +78,6 @@ describe('translating placeholders', () => {
     const bound = bindParams(
       "SELECT ',' || a, '@name', ':name', '?' FROM t WHERE b = ?",
       ['x'],
-      numbered,
     )
     expect(bound.text).toBe("SELECT ',' || a, '@name', ':name', '?' FROM t WHERE b = $1")
     expect(bound.values).toEqual(['x'])
@@ -105,7 +96,6 @@ describe('translating placeholders', () => {
         'WHERE id = @id',
       ].join('\n'),
       { a: 1, b: 2, id: 3 },
-      numbered,
     )
     expect(bound.text).toContain("-- the row's own columns, and a colon: like this")
     expect(bound.text).toContain('a = $1')
@@ -118,7 +108,6 @@ describe('translating placeholders', () => {
     const bound = bindParams(
       'SELECT /* not a ? placeholder, nor @this */ a FROM t WHERE b = ?',
       ['x'],
-      numbered,
     )
     expect(bound.text).toBe(
       'SELECT /* not a ? placeholder, nor @this */ a FROM t WHERE b = $1',
@@ -130,7 +119,6 @@ describe('translating placeholders', () => {
     const bound = bindParams(
       "SELECT 'it''s not @over here', ? FROM t",
       ['x'],
-      numbered,
     )
     expect(bound.text).toBe("SELECT 'it''s not @over here', $1 FROM t")
     expect(bound.values).toEqual(['x'])
@@ -142,7 +130,6 @@ describe('translating placeholders', () => {
     const bound = bindParams(
       'SELECT COUNT(*) AS "checkedOut" FROM books WHERE shelf_range = ?',
       ['fiction'],
-      numbered,
     )
     expect(bound.text).toBe(
       'SELECT COUNT(*) AS "checkedOut" FROM books WHERE shelf_range = $1',
@@ -150,30 +137,30 @@ describe('translating placeholders', () => {
   })
 
   it('leaves a lone colon that is not a name alone', () => {
-    const bound = bindParams('SELECT a::b FROM t', {}, numbered)
+    const bound = bindParams('SELECT a::b FROM t', {})
     expect(bound.text).toBe('SELECT a::b FROM t')
     expect(bound.values).toEqual([])
   })
 
   it('refuses a name the caller gave no value for', () => {
-    expect(() => bindParams('SELECT @a, @b', { a: 1 }, anonymous))
+    expect(() => bindParams('SELECT @a, @b', { a: 1 }))
       .toThrow('no value was given for @b')
   })
 
   it('refuses a value the statement never asked for', () => {
     // better-sqlite3 refuses this today, and it is the mistyped-name case: a
     // value nobody reads is a column that quietly keeps what it had.
-    expect(() => bindParams('SELECT @a', { a: 1, tilte: 'Dune' }, anonymous))
+    expect(() => bindParams('SELECT @a', { a: 1, tilte: 'Dune' }))
       .toThrow('tilte')
   })
 
   it('refuses a positional list that does not match the placeholders', () => {
-    expect(() => bindParams('SELECT ?, ?', ['one'], anonymous)).toThrow('too few')
-    expect(() => bindParams('SELECT ?', ['one', 'two'], anonymous)).toThrow('too many')
+    expect(() => bindParams('SELECT ?, ?', ['one'])).toThrow('too few')
+    expect(() => bindParams('SELECT ?', ['one', 'two'])).toThrow('too many')
   })
 
   it('refuses SQLite numbered placeholders, which have no Postgres spelling', () => {
-    expect(() => bindParams('SELECT ?1, ?1', ['one'], anonymous))
+    expect(() => bindParams('SELECT ?1, ?1', ['one']))
       .toThrow('numbered placeholders')
   })
 })
@@ -182,8 +169,10 @@ describe('transactions', () => {
   let db: Db
 
   beforeEach(async () => {
-    db = openDatabase(':memory:')
+    db = await openTestDatabase()
   })
+
+  afterAll(closeTestDatabase)
 
   const names = async () =>
     (await db.all<{ display_key: string }>(
@@ -281,17 +270,21 @@ describe('transactions', () => {
   })
 
   it('closes', async () => {
-    await db.close()
+    // Through the harness rather than `db.close()`, because this database is
+    // shared by the tests in this file and the harness is what knows that. It
+    // opens another for whatever runs next, so this does not have to be last.
+    await closeTestDatabase()
     await expect(db.all('SELECT 1')).rejects.toThrow()
   })
 })
 
 describe('what imports better-sqlite3', () => {
-  it('is one production file, which is how stage F stays a new file', () => {
-    // The plan makes this the verification for the stage, as a grep. It is
-    // worth being a test as well: the value of the seam is that there is
-    // exactly one place a driver can be reached from, and a grep only says so
-    // on the day somebody runs it.
+  it('is nothing, since stage I', () => {
+    // Through stages E to H this named exactly one file, db.ts, which is what
+    // made the seam worth having: one place a driver could be reached from.
+    // The answer is now none, and the test is kept rather than deleted because
+    // the way SQLite comes back is one import, in one file, added by somebody
+    // who wanted a synchronous database for a script.
     const here = fileURLToPath(new URL('.', import.meta.url))
     const roots = [here, join(here, '..', 'scripts')]
     const imports = /(?:from|require\()\s*['"]better-sqlite3['"]/
@@ -307,6 +300,6 @@ describe('what imports better-sqlite3', () => {
       }
     }
 
-    expect(named).toEqual(['db.ts'])
+    expect(named).toEqual([])
   })
 })
