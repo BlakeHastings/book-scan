@@ -32,7 +32,7 @@ to Postgres. Every row below is irreplaceable and every row is out of bounds:
 | The catalogue | A Postgres database in the container `book-scan-live-pg`, on the named volume `book-scan-live-pgdata`, at `127.0.0.1:5433/bookscan` |
 | The photographs | Files, still, at `C:\Users\Blake\book-scan-production-data\live\covers\` |
 | The old SQLite file | `C:\Users\Blake\book-scan-production-data\live\books.db`, untouched, kept until at least 2026-09-06 |
-| Backups | `C:\Users\Blake\book-scan-production-data\pg-backups\` |
+| Backups | `E:\book-scan-backups`, nightly, on a different physical disk. The photographs are mirrored beside them at `E:\book-scan-covers` |
 
 Agents must never read from, write to, point a dev server at, run a migration
 against, or delete anything in that directory or any sibling under
@@ -202,11 +202,15 @@ which were hard won, now protect the wrong thing.
   one is the point: a count does not move when a collation does, and a collation
   difference does not lose a book, it reorders them.
 - **The cover photographs are not in the dump.** `pg_dump` moves rows, not
-  files. They are over a gigabyte and half of what is irreplaceable, they need
-  their own copy on another disk, and the tool says so on every run.
-- **A dump on the same disk as the volume shares the fate of the volume.** It
-  covers a dropped table, a bad migration and a `docker volume rm`. It does not
-  cover losing the disk or the machine until the directory is copied off it.
+  files. They are over a gigabyte and half of what is irreplaceable, so the
+  scheduled task mirrors them separately, and the tool says so on every run.
+- **The dumps and the photographs are on a different physical disk from the
+  volume.** `C:` is disk 2 and `E:` is disk 1, which is a fact about this
+  machine rather than about the drive letters, and `Get-Partition` is what says
+  so. A dropped table, a bad migration, a `docker volume rm` and losing the `C:`
+  disk are therefore all covered. **Losing the machine is not**, because both
+  disks are inside it. That is the one remaining gap and it is deliberate rather
+  than unnoticed.
 
 `server/backup-catalogue.ts` does not read `ConnectionStrings__bookscan`. Its
 source is named on the command line or in `BOOKSCAN_BACKUP_SOURCE`, for the same
@@ -504,10 +508,15 @@ captures, shelf ranges and the rest still go through `Store`, `Shelves` and
 `CaptureQueue` exactly as they did. Do not convert another table as a side effect
 of doing something else.
 
-The tag tables exist on Postgres only, because they arrive in a migration and
-SQLite's schema is hand-written. A save against SQLite writes `books.is_fiction`
-and no tag, which the routes decide from the driver in `createApp`. That goes
-away with the SQLite driver.
+**Tags are written on every save, unconditionally.** The gate that used to
+decide this from the driver in `createApp` is gone: it existed only because the
+tag tables arrived in a Postgres migration while SQLite's schema was
+hand-written, and stage I removed SQLite.
+
+`books.is_fiction` is still the column the shelf range is derived from and still
+what the client reads, so a save writes both, the column by `Store` and the tag
+by `recordGenreTag` (`web/server/index.ts:305`), from one draft so they cannot
+disagree. Removing the column belongs with the work that remodels `books`.
 
 Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
 nothing else, not even an npm package; `application/` adds `application/`;

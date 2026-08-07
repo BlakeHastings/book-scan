@@ -260,13 +260,50 @@ It protects against a dropped table, a bad migration and a `docker volume rm`.
 It does not protect against the disk or the machine, which are the two failures
 that would cost the whole collection.
 
-So: point `-BackupDir` at a different disk if there is one, and get the
-directory off this machine on some cadence, by whatever means the owner already
-trusts. Until that happens, this is a good recovery path for the likely
-failures and **not** an answer to "somebody could lose the machine and still
-have the catalogue". Saying so is better than implying safety that is not there.
+**One of those two is now covered.** The dumps and the photographs go to `E:`,
+which is a different physical disk from the one the volume is on, not another
+partition of it:
+
+```
+Get-Partition | Where-Object DriveLetter -in 'C','E' |
+  Select-Object DriveLetter, DiskNumber
+
+DriveLetter DiskNumber
+----------- ----------
+          C          2      WDS500G3X0C, NVMe, 466 GB
+          E          1      Samsung SSD 870 EVO 1TB, SATA, 932 GB
+```
+
+**The other is not, and that is the honest state of this.** Both disks are in
+one machine, on one power supply, in one room. A theft, a fire or a flood takes
+the catalogue and every copy of it together. Getting the directory off the
+machine, on whatever cadence the owner already trusts, is the remaining step and
+it is step 6 below.
 
 ## Wiring it to production
+
+**This is installed and running.** The steps are kept because they are how it
+would be rebuilt, not because anything below is outstanding except step 6.
+
+What is registered, read back from Task Scheduler on 2026-08-07:
+
+| | |
+| --- | --- |
+| Task | `book-scan catalogue backup`, daily 03:30 |
+| Backups | `E:\book-scan-backups`, keep 14 dumps or 512 MiB, refuse under 1 GiB free |
+| Photographs | `C:\Users\Blake\book-scan-production-data\live\covers` mirrored to `E:\book-scan-covers` |
+| Last run | 2026-08-07 03:30, result 0, ending `RESTORED AND VERIFIED` |
+
+The connections are on the task, not in the command line, so neither the source
+nor the scratch server appears above. Read the current state with
+`Get-ScheduledTask -TaskName 'book-scan catalogue backup'` and
+`Get-ScheduledTaskInfo` rather than trusting this table, which is a snapshot.
+
+**There is an abandoned directory at
+`C:\Users\Blake\book-scan-production-data\pg-backups\`** holding one dump from
+2026-08-06, taken by hand during stage H before the schedule existed. It is not
+maintained, nothing sweeps it, and it is not a backup of anything current. It
+is also under the production data path, so it is not an agent's to tidy.
 
 The owner runs this. It needs the live connection string.
 
@@ -314,11 +351,16 @@ The owner runs this. It needs the live connection string.
    Get-Content D:\book-scan-backups\logs\backup-*.log -Tail 40
    ```
 
-5. **Decide about the photographs**, and write the decision down in this file.
-   Either re-register the task with `-CoversSource` and `-CoversDestination`
-   pointing at another disk, or record here what covers them instead.
+5. ~~**Decide about the photographs**~~ **Done.** The task carries
+   `-CoversSource` and `-CoversDestination`, and mirrors the covers to `E:` on
+   every run with `robocopy`. The log says `covers: copied (robocopy 0)` when it
+   worked and names the exit code when it did not.
 
-6. **Get the backup directory off the machine**, and record here how.
+6. **Get the backup directory off the machine**, and record here how. **Still
+   open.** `E:` is a different disk but the same machine, so this covers a disk
+   failure and not a fire. Nothing about the current setup is wrong; it is
+   simply not finished, and the gap is worth naming rather than rounding off,
+   because "there are verified nightly backups" reads like the whole answer.
 
 ## When it fails
 
