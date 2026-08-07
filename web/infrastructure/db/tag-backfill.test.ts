@@ -42,24 +42,27 @@ interface Seed {
 async function catalogueOf(books: Seed[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
   await pool.query(SCHEMA)
+  if (!books.length) return pool
 
-  for (const [at, book] of books.entries()) {
-    await pool.query(
-      `INSERT INTO books (
-         title, shelf_range, is_fiction, classification_source,
-         classification_confidence, sort_key, scanned_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        book.title,
-        book.isFiction ? 'fiction' : 'nonfiction',
-        book.isFiction ? 1 : 0,
-        book.source,
-        book.confidence,
-        `key-${String(at).padStart(4, '0')}`,
-        book.scannedAt ?? '2026-01-02T03:04:05.000Z',
-      ],
-    )
-  }
+  // One statement however many books. A round trip per row is what this was,
+  // and against a container shared by a dozen test files that is enough to blow
+  // through vitest's five second default: the 236 book case timed out here
+  // twice while #180 was being written, with nothing wrong but the queue.
+  await pool.query(
+    `INSERT INTO books (title, shelf_range, is_fiction, classification_source,
+                        classification_confidence, sort_key, scanned_at)
+     SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::text[],
+                          $6::text[], $7::text[])`,
+    [
+      books.map((book) => book.title),
+      books.map((book) => (book.isFiction ? 'fiction' : 'nonfiction')),
+      books.map((book) => (book.isFiction ? 1 : 0)),
+      books.map((book) => book.source),
+      books.map((book) => book.confidence),
+      books.map((_, at) => `key-${String(at).padStart(4, '0')}`),
+      books.map((book) => book.scannedAt ?? '2026-01-02T03:04:05.000Z'),
+    ],
+  )
   return pool
 }
 

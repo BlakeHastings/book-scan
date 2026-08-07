@@ -42,6 +42,12 @@ import {
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DbBookTransactions } from '../infrastructure/tagging/transactions'
+import { CreditBookHandler, nameFor } from '../application/authorship/credit-book'
+import {
+  FileAliasHandler, MergeAuthorsHandler,
+} from '../application/authorship/curate-authors'
+import type { StoredAuthor } from '../application/authorship/ports'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { claimsFrom, genreClaim } from '../domain/tagging/catalogue-claims'
 import { TagSlug, type TagConfidence } from '../domain/tagging/tags'
 import { Store, type DraftBook } from './store'
@@ -324,6 +330,36 @@ export function createApp(options: CreateAppOptions): express.Express {
     if (decidedByPerson) {
       await restateTags.handle({ bookId, source: 'guess', claims: [], now })
     }
+  }
+
+  /*
+   * The composition root for the third converted slice, authors (#180).
+   */
+  const authors = new DrizzleAuthorRepository(db)
+  const creditBook = new CreditBookHandler(authors)
+  const fileAlias = new FileAliasHandler(authors)
+  const mergeAuthors = new MergeAuthorsHandler(authors)
+
+  /**
+   * Keep the credits in step with what was just saved about a book.
+   *
+   * The same arrangement `recordGenreTag` has and for the same reason: `Store`
+   * still writes `books.authors`, `books.author_filing` and `book_authors`, all
+   * of which decide where the book files and what the client reads, and #180
+   * drops none of them. So every save writes both, from the same draft, and they
+   * cannot disagree.
+   *
+   * The filing override travels with it, because it is about the first-listed
+   * name and that is what the alias files under. `introduce` ignores it for a
+   * name somebody has already filed, which is the point: re-saving a book must
+   * not undo a correction.
+   */
+  async function recordCredits(bookId: number, draft: DraftBook): Promise<void> {
+    await creditBook.handle({
+      bookId,
+      authors: draft.authors,
+      filingOverride: draft.authorFilingOverride,
+    })
   }
 
   function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {
@@ -952,6 +988,7 @@ export function createApp(options: CreateAppOptions): express.Express {
 
     const { id, placement } = await store.addBook(draft)
     await recordGenreTag(id, draft)
+    await recordCredits(id, draft)
 
     /*
      * Record where the book physically went.
@@ -1222,6 +1259,7 @@ export function createApp(options: CreateAppOptions): express.Express {
 
     const placement = await store.updateBook(id, draft)
     await recordGenreTag(id, draft)
+    await recordCredits(id, draft)
     res.json({
       id,
       placement: await inDerivedScheme(placement.range, placement),
@@ -1409,6 +1447,166 @@ export function createApp(options: CreateAppOptions): express.Express {
       confidence: one.confidence,
     }))
   }
+
+  /*
+   * ---------------------------------------------------------------------
+   * Authors (#180). Every one of these goes through the application layer.
+   * ---------------------------------------------------------------------
+   *
+   * The same shape as the tag routes above: what somebody asked for, and
+   * nothing about how it is stored.
+   *
+   * **Nothing here decides where a book files.** `books.author_filing` and
+   * `books.sort_key` are still what the shelving code reads, and #180 changes
+   * neither, exactly as #179 left `books.is_fiction` in place. These routes are
+   * the vocabulary of names and the two corrections a person makes to it.
+   */
+
+  /** An author and every name they publish under, as a client reads them. */
+  function describeAuthor(stored: StoredAuthor) {
+    return {
+      id: stored.id,
+      isCorporate: stored.author.isCorporate,
+      note: stored.author.note,
+      primary: stored.author.primary.name.value,
+      aliases: stored.aliases.map((alias) => ({
+        id: alias.id,
+        displayName: alias.name.value,
+        filingName: alias.filing,
+        isPrimary: alias.isPrimary,
+      })),
+    }
+  }
+
+  /** A book's credits, said the way a client reads them. */
+  async function describeCredits(bookId: number) {
+    return (await authors.creditsOf(bookId)).map((alias, at) => ({
+      position: at + 1,
+      aliasId: alias.id,
+      authorId: alias.authorId,
+      displayName: alias.name.value,
+      filingName: alias.filing,
+    }))
+  }
+
+  /** Everybody this collection has read, with every name they publish under. */
+  app.get('/api/authors', asyncRoute(async (_req, res) => {
+    res.json({ authors: (await authors.everyone()).map(describeAuthor) })
+  }))
+
+  /**
+   * Everything by this person, which is the question the joined string could not
+   * answer in either direction.
+   *
+   * Asked of the author rather than of one name, so Banks and Banks M come back
+   * together while each still files where it is printed. That is the whole
+   * reason an author holds no name.
+   */
+  app.get('/api/authors/:id/books', asyncRoute(async (req, res) => {
+    const found = await authors.find(Number(req.params.id))
+    if (!found) {
+      res.status(404).json({ error: 'No such author.' })
+      return
+    }
+
+    const ids = await authors.booksCreditedTo(found.aliases.map((alias) => alias.id))
+    const books = await Promise.all(ids.map((id) => store.getBook(id)))
+    res.json({ author: describeAuthor(found), books: books.filter(Boolean) })
+  }))
+
+  /**
+   * Two authors turn out to be one person.
+   *
+   * The route the backfill's conservatism was banking on. It moves names between
+   * authors and nothing else, so no book changes places: the books still credit
+   * the same aliases, and the aliases still file under the same names.
+   */
+  app.post('/api/authors/merge', asyncRoute(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const intoId = Number(body.intoId)
+    const fromId = Number(body.fromId)
+    if (!Number.isInteger(intoId) || !Number.isInteger(fromId)) {
+      res.status(400).json({ error: 'Two author ids are needed.' })
+      return
+    }
+    if (intoId === fromId) {
+      res.status(400).json({ error: 'An author is already themselves.' })
+      return
+    }
+    if (!(await authors.find(intoId)) || !(await authors.find(fromId))) {
+      res.status(404).json({ error: 'No such author.' })
+      return
+    }
+
+    await mergeAuthors.handle({ intoId, fromId })
+    const merged = await authors.find(intoId)
+    res.json({ author: merged ? describeAuthor(merged) : null })
+  }))
+
+  /**
+   * A person says this name files under something else.
+   *
+   * `author_filing`'s override, arrived at its destination. The printed name is
+   * not changeable and is not accepted here: a book credits it, and rewriting it
+   * would change what the book says on its cover.
+   */
+  app.patch('/api/authors/aliases/:id', asyncRoute(async (req, res) => {
+    const aliasId = Number(req.params.id)
+    const filing = String(((req.body ?? {}) as Record<string, unknown>).filingName ?? '').trim()
+    if (!filing) {
+      res.status(400).json({ error: 'A name has to file under something.' })
+      return
+    }
+    if (!(await authors.everyone()).some((one) =>
+      one.aliases.some((alias) => alias.id === aliasId))) {
+      res.status(404).json({ error: 'No such name.' })
+      return
+    }
+
+    await fileAlias.handle({ aliasId, filing })
+    res.json({ authors: (await authors.everyone()).map(describeAuthor) })
+  }))
+
+  /** Who a book credits, in the order the names are printed on it. */
+  app.get('/api/books/:id/authors', asyncRoute(async (req, res) => {
+    const id = Number(req.params.id)
+    if (!(await store.getBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+    res.json({ authors: await describeCredits(id) })
+  }))
+
+  /**
+   * A person restates who wrote a book.
+   *
+   * The whole list, in order, because that is what the question means: an edit
+   * that drops a co-author has to drop the credit, and one that reorders them
+   * has to reorder them. A name nobody has seen gets an author of its own, and
+   * saying it is really somebody already here is `POST /api/authors/merge`.
+   */
+  app.put('/api/books/:id/authors', asyncRoute(async (req, res) => {
+    const id = Number(req.params.id)
+    if (!(await store.getBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const printed = Array.isArray(body.authors) ? body.authors.map(String) : []
+    const unusable = printed.find((name) => name.trim() && !nameFor(name))
+    if (unusable) {
+      res.status(400).json({ error: `"${unusable}" is not a name.` })
+      return
+    }
+
+    await creditBook.handle({
+      bookId: id,
+      authors: printed,
+      filingOverride: body.filingOverride == null ? null : String(body.filingOverride),
+    })
+    res.json({ authors: await describeCredits(id) })
+  }))
 
   /**
    * A person says where this book physically is now.

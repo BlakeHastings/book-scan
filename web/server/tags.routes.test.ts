@@ -70,7 +70,10 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
-  await pool.query('TRUNCATE books, book_authors, captures, book_tag, tag RESTART IDENTITY CASCADE')
+  await pool.query(
+    'TRUNCATE books, book_authors, captures, book_tag, tag, author, author_alias ' +
+    'RESTART IDENTITY CASCADE',
+  )
   answers.mockReset()
   answers.mockResolvedValue({ ...empty })
 

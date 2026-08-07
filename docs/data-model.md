@@ -142,9 +142,25 @@ author behind it.
 A corporate author is an author with `is_corporate` and one alias. No special
 case.
 
-**The migration has to decide identity 222 times, and should be conservative.**
+**The migration has to decide identity 263 times, and should be conservative.**
 When two spellings are not obviously one person, make two authors. Merging two
 rows later is easy; splitting one that swallowed two people is not.
+
+**Settled by #180: it merges no pseudonyms at all.** Every distinct printed name
+gets an author of its own, and the only thing collapsed is spelling: two strings
+that differ by case, punctuation or whitespace are the same name, on the key
+`author_filing.display_key` has always used. Nothing in the catalogue says that
+Iain Banks and Iain M. Banks are one person, and the only evidence available is
+two strings that differ by one initial, which is also how two different people
+differ. `POST /api/authors/merge` is what a person uses to say so, and it moves
+no book, because the books still credit the same aliases.
+
+**A filing name comes from `books.author_filing`**, which is the value the app
+already computed for that name with any override applied, and which is the first
+component of the `sort_key` the shelf is ordered by. A name that has never been
+first-listed has never had one computed, and #180 invents none: the printed name
+stands until somebody files it, because the alternative is a second copy of
+`filingName()` written in SQL. Which authors those are is on `author.note`.
 
 ### Book
 
@@ -267,3 +283,20 @@ It still decides which shelf range a book files into, and it is still in the JSO
 the client reads. The migration copies it into tags, carrying its provenance, and
 every save afterwards writes both. Removing the column belongs with the work that
 remodels `books`, which touches most of the client.
+
+`author`, `author_alias` and `book_author` are, by #180, in the same shape: the
+three tables, `web/domain/authorship/`, `web/application/authorship/`,
+`web/infrastructure/authorship/`, and routes under `/api/authors` and
+`/api/books/:id/authors`.
+
+**Nothing was cut over here either, and this one matters more.**
+`books.authors`, `books.author_filing`, `books.sort_key`, `book_authors` and the
+`author_filing` table are all exactly as they were, and `books.author_filing` is
+still the only thing that decides where a book sits. The new tables are written
+beside them on every save. That is deliberate: `author_filing` is the first
+component of every sort key in the catalogue, and moving the shelving code onto
+a column filled in by a migration is a change worth making on its own rather
+than underneath a schema change.
+
+**Three sources of author information are now four**, and that is the honest
+cost of an append-only migration path. It ends when `books` is remodelled.

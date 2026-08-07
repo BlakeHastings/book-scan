@@ -501,22 +501,27 @@ teach people to skim past it.
 
 ### The layering, and the one table that goes through it
 
-Epic #169 separates the domain from the data store. **Two slices have been
-converted**: `separators` (#172), which is where the pattern was judged, and
-`tag` with `book_tag` (#179), which was built that way from the start. Books,
+Epic #169 separates the domain from the data store. **Three slices have been
+converted**: `separators` (#172), which is where the pattern was judged, `tag`
+with `book_tag` (#179), and `author` with `author_alias` and `book_author`
+(#180), the last two of which were built that way from the start. Books,
 captures, shelf ranges and the rest still go through `Store`, `Shelves` and
 `CaptureQueue` exactly as they did. Do not convert another table as a side effect
 of doing something else.
 
-**Tags are written on every save, unconditionally.** The gate that used to
-decide this from the driver in `createApp` is gone: it existed only because the
-tag tables arrived in a Postgres migration while SQLite's schema was
+**Tags and credits are written on every save, unconditionally.** The gate that
+used to decide this from the driver in `createApp` is gone: it existed only
+because the tag tables arrived in a Postgres migration while SQLite's schema was
 hand-written, and stage I removed SQLite.
 
+**Neither remodelled slice has been cut over, and that is on purpose.**
 `books.is_fiction` is still the column the shelf range is derived from and still
-what the client reads, so a save writes both, the column by `Store` and the tag
-by `recordGenreTag` (`web/server/index.ts:305`), from one draft so they cannot
-disagree. Removing the column belongs with the work that remodels `books`.
+what the client reads, and `books.author_filing` and `books.sort_key` are still
+the only things that decide where a book sits. So a save writes both: the
+columns by `Store`, then the tag by `recordGenreTag` and the credits by
+`recordCredits`, from one draft so they cannot disagree. Reading from the new
+tables belongs with the work that remodels `books`, and is a change worth making
+on its own rather than underneath a schema migration.
 
 Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
 nothing else, not even an npm package; `application/` adds `application/`;
