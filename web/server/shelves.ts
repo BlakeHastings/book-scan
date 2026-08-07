@@ -7,6 +7,7 @@
 
 import type { BookRow } from './db.pg'
 import type { Db } from './driver'
+import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import type { SeparatorRepository } from '../application/shelving/ports'
@@ -131,14 +132,21 @@ export class Shelves {
   }
 
   /**
+   * The books on a shelf in this range, in order. Every layout, every strip,
+   * every boundary decision and the misfile review are drawn from this one
+   * statement, which is why it reads `shelved_books` and not `books` (#183).
+   *
    * A checked-out book holds no position, so it is absent here. The layout
    * then closes up behind it the way the shelf does, which is what lets a
    * book be pulled out and refiled without the boundaries pretending it is
-   * still taking up room.
+   * still taking up room. That used to be `checked_out_at IS NULL` and is now
+   * one state of seven, and the same rows either way: the view's predicate is
+   * the only place the condition is written, so a state that must not reach a
+   * shelf cannot reach one by this statement being forgotten.
    */
   private async booksIn(range: ShelfRange, excludeId = 0): Promise<BookRow[]> {
     const rows = await this.db.all<BookRow>(
-      `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NULL
+      `SELECT * FROM shelved_books WHERE shelf_range = ?
         ORDER BY sort_key ASC`,
       [range],
     )
@@ -550,9 +558,9 @@ export class Shelves {
 
     const off = (
       await this.db.all<BookRow>(
-        `SELECT * FROM books WHERE shelf_range = ? AND checked_out_at IS NOT NULL
+        `SELECT * FROM books WHERE shelf_range = ? AND state = ?
           ORDER BY sort_key ASC`,
-        [range],
+        [range, CHECKED_OUT],
       )
     ).map((row) => toFiled(row, '', true))
 

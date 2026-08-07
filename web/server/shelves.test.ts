@@ -6,15 +6,17 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import type { Db } from './driver'
 import { Shelves } from './shelves'
 import { Store } from './store'
 
 let store: Store
 let shelves: Shelves
+let db: Db
 
 // Both databases, since stage F. Nothing below knows which. See testdb.ts.
 beforeEach(async () => {
-  const db = await openTestDatabase()
+  db = await openTestDatabase()
   store = new Store(db)
   shelves = new Shelves(db)
 })
@@ -445,6 +447,85 @@ describe('a book taken off the shelf', () => {
     expect(await store.counts()).toEqual({
       total: 2, fiction: 2, nonfiction: 0, checkedOut: 1,
     })
+  })
+})
+
+/**
+ * The risk #183 is designed against, asserted rather than argued about.
+ *
+ * `books` drives shelf ordering and misfile detection, and the two tables were
+ * kept apart so that half-identified rows could never reach either. They are one
+ * table now, so a row that is in the catalogue and not on a shelf has to be kept
+ * out of the layout by something. That something is `shelved_books`, and these
+ * are the questions somebody standing at a bookcase actually asks.
+ *
+ * Written straight into `books` on purpose. Nothing in this revision produces an
+ * `unidentified` row, so a test that went through the app could not make one and
+ * would be waiting for the change that dissolves the queue to say anything at
+ * all. This is the row that change will produce, filed between two real books.
+ */
+describe('a book in the catalogue that is not on a shelf', () => {
+  /**
+   * A row filed exactly where a real book would be filed, and not on a shelf.
+   *
+   * The key comes from `resolveKey`, which is what a save uses, so this lands
+   * between two real books by the ordering the app itself computes rather than
+   * by a string chosen to look plausible.
+   */
+  const unidentified = async (author: string, location = '') => {
+    const key = await store.resolveKey({
+      title: 'Something nobody has confirmed', authors: [author], isFiction: true,
+    })
+    await db.run(
+      `INSERT INTO books (title, shelf_range, is_fiction, author_filing, sort_key,
+                          location, scanned_at, state)
+       VALUES ('Something nobody has confirmed', 'fiction', 1, ?, ?, ?,
+               '2026-08-07T00:00:00.000Z', 'unidentified')`,
+      [key.authorFiling, key.sortKey, location],
+    )
+  }
+
+  // Author, Baker, Clark: the unidentified row is always the middle one, which
+  // is the position that does damage.
+  it('is not laid out on a plank', async () => {
+    const ann = await add('Ann Author')
+    const cathy = await add('Cathy Clark')
+    await unidentified('Bob Baker')
+
+    expect((await shelves.layout('fiction')).map((p) => p.book.id)).toEqual([ann, cathy])
+  })
+
+  it('is not offered as the book to put a new one beside', async () => {
+    await add('Ann Author', 'Persuasion')
+    await add('Cathy Clark', 'Nights at the Circus')
+    await unidentified('Bob Baker')
+
+    // Baxter files after Baker and before Clark, so a leak here is somebody
+    // sent to a bookcase to find a book that is not on it.
+    const placement = await store.placementFor({
+      title: 'Middle', authors: ['Bob Baxter'], isFiction: true,
+    })
+    expect(placement.predecessor?.title).toBe('Persuasion')
+    expect(placement.successor?.title).toBe('Nights at the Circus')
+  })
+
+  it('is not judged by the misfile check, nor set aside by it', async () => {
+    const ann = await add('Ann Author', 'On a shelf')
+    await store.setLocation(ann, '1A')
+    // A location on the row, so a leak cannot hide as "never placed".
+    await unidentified('Bob Baker', '3C')
+
+    const review = await shelves.review('fiction')
+    expect(review.misfiles).toEqual([])
+    expect(review.excluded).toEqual([])
+  })
+
+  it('is still in the catalogue, because it is still a book', async () => {
+    await add('Ann Author')
+    await unidentified('Bob Baker')
+
+    expect((await store.listRange('fiction')).map((row) => row.state))
+      .toEqual(['shelved', 'unidentified'])
   })
 })
 

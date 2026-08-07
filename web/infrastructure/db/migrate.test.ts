@@ -185,6 +185,13 @@ describe('the baseline migration on an empty database', () => {
     // strategy in docs/data-model.md that is not `author`. Nothing orders by it
     // yet, and it carries the collation now because adding it once a shelf is
     // ordered by the column means rewriting the column that decides the order.
+    //
+    // The last three are `shelved_books`, added by #183, and they are the reason
+    // this query is not filtered to tables. A view column takes the type, and so
+    // the collation, of the expression behind it, and that view is what every
+    // ordering query reads from now on. If it ever came back uncollated the shelf
+    // would reorder under a linguistic collation exactly as it would have done
+    // before any of this existed, silently, and nothing else here would notice.
     const migrated = await scratch()
     await migrateToLatest(migrated)
 
@@ -199,6 +206,9 @@ describe('the baseline migration on an empty database', () => {
       { table_name: 'books', column_name: 'sort_key' },
       { table_name: 'books', column_name: 'title_filing' },
       { table_name: 'separators', column_name: 'starts_at' },
+      { table_name: 'shelved_books', column_name: 'author_filing' },
+      { table_name: 'shelved_books', column_name: 'sort_key' },
+      { table_name: 'shelved_books', column_name: 'title_filing' },
       { table_name: 'tag', column_name: 'slug' },
     ])
   })
@@ -232,13 +242,26 @@ describe('a database that already has these tables', () => {
     const survivors = await pool.query<{ title: string }>('SELECT title FROM books')
     expect(survivors.rows.map((row) => row.title)).toEqual(['A book somebody scanned'])
 
-    // The baseline did not run: every table it would have created is exactly as
-    // it was, column for column, on a database that already had rows in it.
+    // The baseline did not run: every column it would have created is exactly
+    // as it was, on a database that already had rows in it.
+    //
+    // Not "the tables are untouched", which is what this used to say and what
+    // stopped being true at #183. `0007` adds `books.state`, the first migration
+    // to alter a table the baseline created rather than add one beside it, so
+    // the claim worth making is that a later migration's deliberate addition is
+    // the *only* difference. A baseline that had run would show up as every
+    // column being rebuilt, which this still catches.
     const after = await describeSchema(pool)
     const baseline = baselineTableNames()
     const ofBaseline = (rows: Record<string, unknown>[]) =>
       rows.filter((row) => baseline.includes(String(row.table_name)))
-    expect(ofBaseline(after.columns)).toEqual(ofBaseline(before.columns))
+    const named = (row: Record<string, unknown>) => `${row.table_name}.${row.column_name}`
+    const was = new Set(ofBaseline(before.columns).map(named))
+
+    expect(ofBaseline(after.columns).filter((row) => !was.has(named(row))).map(named))
+      .toEqual(['books.state'])
+    expect(ofBaseline(after.columns).filter((row) => was.has(named(row))))
+      .toEqual(ofBaseline(before.columns))
 
     // What did run is everything after the baseline, which is the point of
     // adopting: this database has now had the migrations it had not had.

@@ -22,6 +22,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
+import type { BookState } from '../domain/books/state'
 import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/migrate'
 import type { ShelfRange } from '../shared/shelving'
 import { bindParams, lockKey, type Db, type Params, type TxOptions } from './driver'
@@ -312,6 +313,15 @@ export interface BookRow {
   shelved_at: string | null
   /** ISO timestamp while the book is off the shelf, null while it is on one. */
   checked_out_at: string | null
+  /**
+   * Where the book is in its life. See `domain/books/state.ts`, and
+   * `shelved_books`, which is the only relation an ordering query reads.
+   *
+   * Added beside `checked_out_at` rather than instead of it (#183). That column
+   * is still what the client reads and what `Store.setCheckedOut` compares and
+   * sets, and the two are written in one statement so they cannot disagree.
+   */
+  state: BookState
   /** Publisher cover from the catalogue, as a filename under /api/covers. */
   cover_image: string
   /** When a cover was last looked for, found or not. */
