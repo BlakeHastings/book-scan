@@ -35,6 +35,13 @@
  * A fourth state, some of the tables but not all of them, is refused with the
  * names of the missing ones. That is not a database this can reason about, and
  * guessing at it means either a failed `CREATE TABLE` or a stamped lie.
+ *
+ * ## And what happens when one of them will not finish
+ *
+ * See `MigrationFailed`. A migration that refuses says why, and until #199 the
+ * saying went nowhere: what reached the terminal was Drizzle's `Failed query:`
+ * and the whole statement, with the raised sentence one property deeper than
+ * anywhere a person looks.
  */
 
 import { readFileSync } from 'node:fs'
@@ -194,6 +201,150 @@ async function adopt(client: pg.PoolClient): Promise<void> {
 }
 
 /**
+ * A migration that would not finish, said in the order a person reads.
+ *
+ * `applySchema` runs at startup, so the audience for this is somebody whose
+ * server has just refused to come up in front of a catalogue that is somebody's
+ * real book collection, deciding in the next minute whether to roll back. The
+ * sentence the migration raised is the whole of what they can act on:
+ * `0006_photographs_become_capture_rows.sql` goes to the trouble of naming the
+ * individual photographs it could not account for.
+ *
+ * None of it used to reach them. Drizzle wraps everything its session throws in
+ * an error whose entire message is `Failed query:` and then the statement, and
+ * for the guard at the end of `0006` that is around a hundred and fifty lines
+ * with the answer nowhere in it. The answer was on `.cause.message`.
+ *
+ * So the cause chain is read and its **messages** are the message here.
+ *
+ * ### Where the statement went, and why
+ *
+ * Onto `statement`, **not enumerable on purpose**. `console.error` prints an
+ * error's own enumerable properties, so a statement left as an ordinary field
+ * is printed in full underneath the summary, and a hundred and fifty lines
+ * underneath the answer scrolls the answer off a terminal just as effectively
+ * as putting it on top did. It is one property lookup away for whoever wants it,
+ * and the message says so rather than leaving it to be discovered.
+ *
+ * Nothing is swallowed. `cause` is the error postgres raised, with its SQLSTATE,
+ * its `where`, its `constraint` and its own stack, and `console.error` prints
+ * that whole object under `[cause]` because Node inspects `cause` whether it is
+ * enumerable or not. What is dropped from the chain is only the link whose
+ * message restates its own `query`, which is to say the link that says nothing
+ * the next one does not.
+ */
+export class MigrationFailed extends Error {
+  /** The statement that was running, when the chain said which. */
+  declare readonly statement?: string
+
+  constructor(message: string, options: { cause: unknown; statement?: string }) {
+    super(message, { cause: options.cause })
+    this.name = 'MigrationFailed'
+    Object.defineProperty(this, 'statement', { value: options.statement, enumerable: false })
+  }
+}
+
+/**
+ * Every error in `error`'s cause chain, outermost first.
+ *
+ * Bounded and cycle-checked because this runs while something has already gone
+ * wrong, and a formatter that hangs on a self-referential `cause` would replace
+ * a migration failure with a worse one.
+ */
+function causeChain(error: unknown): unknown[] {
+  const links: unknown[] = []
+  let link: unknown = error
+  while (link !== undefined && link !== null && !links.includes(link) && links.length < 8) {
+    links.push(link)
+    link = (link as { cause?: unknown }).cause
+  }
+  return links
+}
+
+/** What a link says, whether or not whoever threw it threw an `Error`. */
+function messageOf(link: unknown): string {
+  return link instanceof Error ? link.message : String(link)
+}
+
+/**
+ * The statement a link is blaming, when the link's message is that statement.
+ *
+ * Duck typed, and on the relationship between the two rather than on the words
+ * `Failed query`. What makes this link worth passing over is not that Drizzle
+ * threw it: it is that its message restates its own `query`, so it carries no
+ * sentence the next link down does not. A link that merely *mentions* a query
+ * keeps its message.
+ */
+function restatedQuery(link: unknown): string | undefined {
+  const query = (link as { query?: unknown }).query
+  if (typeof query !== 'string' || !query.trim()) return undefined
+  return messageOf(link).includes(query.trim()) ? query : undefined
+}
+
+/** A SQLSTATE, which is five characters, and not a `code` of any other kind. */
+function sqlstate(link: unknown): string | undefined {
+  const code = (link as { code?: unknown }).code
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? code : undefined
+}
+
+/**
+ * Which file a failing statement came from, so the reader opens one rather than
+ * seven.
+ *
+ * The journal is read for the names, which `readMigrationFiles` does not return,
+ * and the two are index-aligned because it builds its list by walking the same
+ * journal in the same order.
+ */
+function migrationNaming(statement: string): string | undefined {
+  const journal = JSON.parse(
+    readFileSync(fileURLToPath(new URL('./migrations/meta/_journal.json', import.meta.url)), 'utf8'),
+  ) as { entries: { tag: string }[] }
+
+  const files = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER })
+  const at = files.findIndex((migration) => migration.sql.includes(statement))
+  const tag = at < 0 ? undefined : journal.entries[at]?.tag
+  return tag && `${tag}.sql`
+}
+
+/**
+ * Turn whatever the migrator threw into something worth reading.
+ *
+ * General on purpose. A `RAISE EXCEPTION` from a guard, a constraint violation,
+ * a lock timeout, a syntax error and a connection that never opened all arrive
+ * differently, and none of them is recognised here by its wording: the chain is
+ * walked, the messages in it are printed, and anything that turns out to be a
+ * restated query becomes the statement instead.
+ */
+function refusal(error: unknown): MigrationFailed {
+  const links = causeChain(error)
+  const statement = links.map(restatedQuery).find((query) => query !== undefined)
+  const spoken = links.filter((link) => restatedQuery(link) === undefined)
+  const cause = spoken[0] ?? error
+
+  const said = spoken.map(messageOf).filter((message) => message !== '')
+  const lines = [
+    'a migration refused to finish, and no migration was applied: ' +
+    (said[0] ?? 'the migrator gave no reason'),
+  ]
+  for (const also of said.slice(1)) lines.push(`  caused by: ${also}`)
+
+  const code = sqlstate(cause)
+  const file = statement === undefined ? undefined : migrationNaming(statement)
+  const located = [code && `postgres SQLSTATE ${code}`, file && `in ${file}`]
+    .filter((part): part is string => typeof part === 'string')
+  if (located.length) lines.push(`  ${located.join(', ')}`)
+
+  if (statement) {
+    lines.push(
+      `  the ${statement.trim().split('\n').length} line statement is on this error's ` +
+      '`statement` property, deliberately not in this message',
+    )
+  }
+
+  return new MigrationFailed(lines.join('\n'), { cause, statement })
+}
+
+/**
  * Bring `pool`'s database to the schema in `schema.ts`, adopting it first if it
  * already has the baseline tables and has never been migrated.
  *
@@ -227,7 +378,14 @@ export async function migrateToLatest(pool: pg.Pool): Promise<MigrationOutcome> 
       }
     }
 
-    await migrate(drizzle(pool), { migrationsFolder: MIGRATIONS_FOLDER })
+    // Only the migrator's own failures are reworded. The refusals above are
+    // this file's sentences already, and wrapping them would put a second
+    // heading on a message that reads fine.
+    try {
+      await migrate(drizzle(pool), { migrationsFolder: MIGRATIONS_FOLDER })
+    } catch (error) {
+      throw refusal(error)
+    }
     return outcome
   } finally {
     await client.query('SELECT pg_advisory_unlock(CAST($1 AS bigint))', [MIGRATION_LOCK.toString()])
