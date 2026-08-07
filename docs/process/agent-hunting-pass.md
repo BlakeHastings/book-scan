@@ -89,13 +89,30 @@ aspire ps
 ```
 
 Read the web resource's URL from `aspire ps` (or `aspire describe web`).
-Once the app is up, the background worker immediately starts draining the
-pending captures for real: real barcode decoding, a real (network) catalogue
-lookup that the synthetic ISBNs will not be found by, and real OCR on the
-captures that have no barcode at all. That is deliberate — it is the same
-pass the app makes in ordinary use, and it is worth watching happen rather
-than short-circuited, since it is exactly the kind of pass that has crashed
-the API before.
+
+**`aspire ps` prints `http://` for the web resource and the server is HTTPS.**
+Use `https://` or the page will not load, and do not conclude the resource is
+unhealthy from a connection that was refused at the wrong scheme.
+
+Once the app is up, the background worker starts draining the pending captures
+for real: real barcode decoding, a real (network) catalogue lookup that the
+synthetic ISBNs will not be found by, and real OCR on the captures that have no
+barcode at all. That is deliberate. It is the same pass the app makes in
+ordinary use and worth watching happen rather than short-circuited, since it is
+exactly the kind of pass that has crashed the API before.
+
+**But it will not have happened, if you followed the order above.** The drain
+fires once at boot, and at boot the queue was empty because the seeder runs
+afterwards. Following these steps verbatim gives an agent a queue full of
+captures that no worker will ever touch, and the pass then reports the drain as
+untested without knowing why. Restart the api once the seed is in:
+
+```
+aspire resource api restart
+```
+
+Then watch it in `aspire logs api` before going on. Found by the pass of
+2026-08-07, which hit exactly this and worked it out.
 
 ### 3. Give the agent the brief
 
