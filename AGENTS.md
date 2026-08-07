@@ -508,10 +508,15 @@ captures, shelf ranges and the rest still go through `Store`, `Shelves` and
 `CaptureQueue` exactly as they did. Do not convert another table as a side effect
 of doing something else.
 
-The tag tables exist on Postgres only, because they arrive in a migration and
-SQLite's schema is hand-written. A save against SQLite writes `books.is_fiction`
-and no tag, which the routes decide from the driver in `createApp`. That goes
-away with the SQLite driver.
+**Tags are written on every save, unconditionally.** The gate that used to
+decide this from the driver in `createApp` is gone: it existed only because the
+tag tables arrived in a Postgres migration while SQLite's schema was
+hand-written, and stage I removed SQLite.
+
+`books.is_fiction` is still the column the shelf range is derived from and still
+what the client reads, so a save writes both, the column by `Store` and the tag
+by `recordGenreTag` (`web/server/index.ts:305`), from one draft so they cannot
+disagree. Removing the column belongs with the work that remodels `books`.
 
 Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
 nothing else, not even an npm package; `application/` adds `application/`;
