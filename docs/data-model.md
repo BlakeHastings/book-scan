@@ -3,9 +3,11 @@
 Fourteen tables. Settled with the owner on 2026-08-06 across eight revisions,
 and recorded here because the reasoning matters more than the column lists.
 
-**Nothing here is built.** The live schema is the six-table one in
-`web/server/db.pg.ts`. `docs/domain-model.md` is the layering this sits under;
-#170 is the epic that builds it.
+**Almost nothing here is built.** The live schema is the six-table one in
+`web/server/db.pg.ts`, plus `tag` and `book_tag`, which #179 added as the first
+step of the epic and which are described under "What is built" at the end.
+`docs/domain-model.md` is the layering this sits under; #170 is the epic that
+builds the rest.
 
 The point is not that fourteen is better than six. It is that the current schema
 describes what the code needed and this one describes the collection.
@@ -240,10 +242,28 @@ view and cannot forget.
 
 ## Still open
 
-1. Is a tag's slug immutable once created? If renaming rewrites it, every rule
-   mentioning it must be rewritten in the same transaction, or rules silently
-   stop matching and books drift with nothing to show for it.
-2. Can a book carry `genre/fantasy` without `genre`, and does `under genre` find
-   it?
+1. ~~Is a tag's slug immutable once created?~~ **Settled by the owner in #179:
+   it is.** A slug is never shown to a person, `label` is what anybody reads, and
+   renaming changes only the label. There is deliberately no method anywhere that
+   takes a slug to a different slug.
+2. ~~Can a book carry `genre/fantasy` without `genre`, and does `under genre`
+   find it?~~ **Yes to both, since #179.** The question is asked of the path, not
+   of a parent row, so no ancestor has to exist for `under` to find its
+   descendants.
 3. Does the ledger record tag changes, or only placement? A rule change is
-   explained by both.
+   explained by both. Still open: #179 keeps `book_tag.added_at` and the source
+   that wrote each row, which says when a tag arrived and who said so, but not
+   that a person once took one off.
+
+## What is built
+
+`tag` and `book_tag` are, by #179: the two tables, the domain rules in
+`web/domain/tagging/`, the port and handlers in `web/application/tagging/`, the
+Drizzle repository in `web/infrastructure/tagging/`, and the routes under
+`/api/tags` and `/api/books/:id/tags`.
+
+**`books.is_fiction` was not dropped and nothing was cut over to reading tags.**
+It still decides which shelf range a book files into, and it is still in the JSON
+the client reads. The migration copies it into tags, carrying its provenance, and
+every save afterwards writes both. Removing the column belongs with the work that
+remodels `books`, which touches most of the client.
