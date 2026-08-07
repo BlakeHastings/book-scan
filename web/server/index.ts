@@ -50,6 +50,10 @@ import type { StoredAuthor } from '../application/authorship/ports'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { claimsFrom, genreClaim } from '../domain/tagging/catalogue-claims'
 import { TagSlug, type TagConfidence } from '../domain/tagging/tags'
+import { RecordPhotographsHandler } from '../application/capture/record-photographs'
+import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
+import { shownFile, verdictOf } from '../domain/capture/photographs'
+import { photographsOf } from './photographs'
 import { Store, type DraftBook } from './store'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
@@ -360,6 +364,42 @@ export function createApp(options: CreateAppOptions): express.Express {
       authors: draft.authors,
       filingOverride: draft.authorFilingOverride,
     })
+  }
+
+  /*
+   * The composition root for the fourth converted slice, captures (#181).
+   *
+   * Same shape as the three above and for the same reason: the route below and
+   * `recordPhotographs` call handlers, the handler depends on the one interface
+   * in `application/capture/ports.ts`, and this is the only place in the server
+   * that names a Drizzle repository.
+   */
+  const captures = new DrizzleCaptureRepository(db)
+  const recordPhotographsHandler = new RecordPhotographsHandler(captures)
+
+  /**
+   * Keep the capture rows in step with what was just saved about a book.
+   *
+   * The eight image columns on `books` are still what `Store`, the crop
+   * backfill, the gallery, the queue panel and the shelf row read, so every
+   * save writes both: the columns, by `Store`, and the rows, here. They cannot
+   * disagree, because this reads the row that was just written rather than the
+   * draft it was written from. That is the same arrangement #179 left behind for
+   * `books.is_fiction` and the tag tables, and it goes away with the columns.
+   *
+   * Called again after the cover fetch, the hash and the crop, because each of
+   * those writes a column this reads. Repeating it costs a statement per
+   * photograph and cannot lose anything: every field `record` writes moves in
+   * one direction only. See `CaptureRepository.record`.
+   *
+   * A photograph whose file has changed since the last call is a **new
+   * photograph and gets a new row**, which is the whole point of the table: a
+   * blurred spine re-shot after today keeps the blurred one.
+   */
+  async function recordPhotographs(bookId: number): Promise<void> {
+    const book = await store.getBook(bookId)
+    if (!book) return
+    await recordPhotographsHandler.handle({ bookId, photographs: photographsOf(book) })
   }
 
   function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {
@@ -989,6 +1029,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     const { id, placement } = await store.addBook(draft)
     await recordGenreTag(id, draft)
     await recordCredits(id, draft)
+    await recordPhotographs(id)
 
     /*
      * Record where the book physically went.
@@ -1011,8 +1052,17 @@ export function createApp(options: CreateAppOptions): express.Express {
 
     // Deliberately not awaited. The person is waiting to be told where the
     // book goes, and a cover that arrives a second later costs them
-    // nothing.
+    // nothing. The cover, the hash and the crops each write a column
+    // `recordPhotographs` reads, so it runs once more at the end of the chain.
+    // Not instead of the awaited call above: the rows exist from the save, and
+    // this fills in only what arrives afterwards.
     void fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
+      // Caught here and nowhere else this is called. On the awaited path a
+      // failure to record is a failure to save and should be seen; out here
+      // nothing is waiting to be told, and a rejection nobody catches takes the
+      // process down. The columns are still the record while the client reads
+      // them, and `record` is idempotent, so the next save catches up.
+      .then(() => recordPhotographs(id).catch(() => undefined))
 
     res.status(201).json({
       id,
@@ -1260,6 +1310,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     const placement = await store.updateBook(id, draft)
     await recordGenreTag(id, draft)
     await recordCredits(id, draft)
+    await recordPhotographs(id)
     res.json({
       id,
       placement: await inDerivedScheme(placement.range, placement),
@@ -1606,6 +1657,51 @@ export function createApp(options: CreateAppOptions): express.Express {
       filingOverride: body.filingOverride == null ? null : String(body.filingOverride),
     })
     res.json({ authors: await describeCredits(id) })
+  }))
+
+  /*
+   * ---------------------------------------------------------------------
+   * Captures (#181). The photographs of one book, as rows.
+   * ---------------------------------------------------------------------
+   *
+   * Read only, and that is the whole of the route surface this issue adds.
+   * Photographs are written by the paths that already take them, through
+   * `recordPhotographs`, because a photograph arrives as part of saving a book
+   * and never on its own. An endpoint that could post one would be an endpoint
+   * for a workflow nobody has.
+   *
+   * Nothing in the client reads this yet. It is here because `capture` is
+   * otherwise a table with no way to look at it, which is a thing to have to
+   * open a database to review.
+   */
+  app.get('/api/books/:id/captures', asyncRoute(async (req, res) => {
+    const id = Number(req.params.id)
+    if (!(await store.getBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+
+    const photographs = await captures.of(id)
+    res.json({
+      captures: photographs.list.map((one) => ({
+        kind: one.kind,
+        file: one.file,
+        cropFile: one.cropFile,
+        examined: one.examined,
+        /*
+         * The three states, named, so a reader does not have to reconstruct
+         * them from a flag and an empty string. `declined` is the one worth
+         * having: it says a detector looked at this photograph and could not
+         * find the book in it, which is a different fact from `unexamined` and
+         * is what licenses a caption to say so.
+         */
+        verdict: verdictOf(one),
+        /** The crop where there is one, the whole photograph otherwise. */
+        shown: shownFile(one),
+        hash: one.hash,
+        takenAt: one.takenAt,
+      })),
+    })
   }))
 
   /**

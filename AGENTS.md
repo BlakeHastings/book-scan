@@ -501,13 +501,17 @@ teach people to skim past it.
 
 ### The layering, and the one table that goes through it
 
-Epic #169 separates the domain from the data store. **Three slices have been
+Epic #169 separates the domain from the data store. **Four slices have been
 converted**: `separators` (#172), which is where the pattern was judged, `tag`
-with `book_tag` (#179), and `author` with `author_alias` and `book_author`
-(#180), the last two of which were built that way from the start. Books,
-captures, shelf ranges and the rest still go through `Store`, `Shelves` and
-`CaptureQueue` exactly as they did. Do not convert another table as a side effect
-of doing something else.
+with `book_tag` (#179), `author` with `author_alias` and `book_author` (#180),
+and `capture` (#181), the last three of which were built that way from the
+start. Books, the queue, shelf ranges and the rest still go through `Store`,
+`Shelves` and `CaptureQueue` exactly as they did. Do not convert another table as
+a side effect of doing something else.
+
+**`capture` is not `captures`.** The singular one is a photograph, added by
+#181; the plural one is the scanning queue and is dissolved by #183. One letter
+apart, and they are not related.
 
 **Tags and credits are written on every save, unconditionally.** The gate that
 used to decide this from the driver in `createApp` is gone: it existed only

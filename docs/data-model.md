@@ -4,8 +4,10 @@ Fourteen tables. Settled with the owner on 2026-08-06 across eight revisions,
 and recorded here because the reasoning matters more than the column lists.
 
 **Almost nothing here is built.** The live schema is the six-table one in
-`web/server/db.pg.ts`, plus `tag` and `book_tag`, which #179 added as the first
-step of the epic and which are described under "What is built" at the end.
+`web/server/db.pg.ts`, plus `tag` and `book_tag` from #179, `author`,
+`author_alias` and `book_author` from #180, and `capture` from #181, which are
+the first three steps of the epic and are described under "What is built" at the
+end.
 `docs/domain-model.md` is the layering this sits under; #170 is the epic that
 builds the rest.
 
@@ -300,3 +302,36 @@ than underneath a schema change.
 
 **Three sources of author information are now four**, and that is the honest
 cost of an append-only migration path. It ends when `books` is remodelled.
+
+`capture` is, by #181: the table, the domain rules in `web/domain/capture/`, the
+port and handler in `web/application/capture/`, the Drizzle repository in
+`web/infrastructure/capture/`, and `GET /api/books/:id/captures`. The migration
+turns each of the eight image columns on `books` into rows, counts the
+photographs the columns name against the rows it wrote, and refuses to finish
+when they disagree.
+
+**The same shape as #179, for the same reason: nothing is dropped and nothing is
+cut over.** `books.front_image` and the seven columns beside it are still what
+`Store`, the crop backfill, the gallery, the queue panel and the shelf row read,
+and every save writes both from here on. `server/photographs.ts` is the one place
+that says how a column translates, and deleting that file is the last step of the
+cut-over rather than the first.
+
+**The two do not stay in step, and "every save" is the exact limit of the
+claim.** `recordPhotographs` runs from the two book save routes and from the
+background chain behind one of them, and nothing else. The cover backfill
+(`store.setCoverImage`, from `hashInBackground`, `backfillCoversInBackground` and
+`POST /api/backfill/covers`), the hash backfill (`store.setHashes`) and the
+`cropCatalogue` and `rehashCovers` CLIs all write those columns without it. So a
+cover the startup backfill downloads next week lands in `books.cover_image` and
+does not become a capture row until that book is next saved. `capture` tracks
+saves, and it drifts behind the columns between them.
+
+**The queue table's three image columns are not migrated, and that is a
+decision.** `captures.book_id` is nullable, because a capture waiting to be
+confirmed is not a book yet, and `capture.book_id` is not null on purpose. A
+queue row with no book has photographs and nowhere to hang them until #183 gives
+a scanned-but-unidentified book a state of its own; a queue row that *has* become
+a book handed its filenames straight to that book, so its photographs are already
+recorded as the book's and a second row would be a second capture of one
+photograph. Both halves want the state model, so both wait for it.
