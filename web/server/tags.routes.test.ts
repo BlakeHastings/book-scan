@@ -23,7 +23,7 @@ import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
-import { createApp } from './index'
+import { createApp, type BookScanApp } from './index'
 import { lookupIsbn } from './lookup'
 
 /**
@@ -63,6 +63,7 @@ let pool: pg.Pool
 let db: PgDb
 let dataRoot: string
 let coverDir: string
+let app: BookScanApp
 let server: Server
 let baseUrl: string
 
@@ -82,13 +83,28 @@ beforeEach(async () => {
   answers.mockResolvedValue({ ...empty })
 
   coverDir = mkdtempSync(join(dataRoot, 'tags-test-'))
-  const app = createApp({ db, coverDir, startBackgroundWork: false })
+  app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
 
 afterEach(async () => {
+  /*
+   * First, and before anything is taken away.
+   *
+   * A save answers while it is still fetching a cover, hashing it and cropping,
+   * so the app is still querying the database and still writing into `coverDir`
+   * after the last assertion has passed. Pulling either out from under it is an
+   * unhandled rejection in a run where every test passed, which is what this
+   * file did in CI on #194: "Cannot use a pool after calling end on the pool",
+   * beside 1122 passing tests.
+   *
+   * It only shows up under a parallel run, because a worker that goes on to
+   * another file is still alive when the late query lands. On its own the
+   * process exits first and the run looks clean.
+   */
+  await app.settled()
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()))
   })

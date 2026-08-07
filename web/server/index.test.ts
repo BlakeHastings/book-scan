@@ -101,6 +101,14 @@ interface Running {
   store: Store
   coverDir: string
   baseUrl: string
+  /**
+   * Wait for the work a save started and nobody awaited, then close the port.
+   *
+   * Both halves matter and the order does. A cover fetch, a hash and a crop
+   * outlive the request that started them, so closing the database or deleting
+   * the cover directory while they run is a rejection nobody is waiting for.
+   * See `BookScanApp.settled`, and #194, where exactly that reached CI.
+   */
   close: () => Promise<void>
 }
 
@@ -118,9 +126,12 @@ async function startApp(): Promise<Running> {
     store: new Store(db),
     coverDir,
     baseUrl: `http://127.0.0.1:${port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()))
-    }),
+    close: async () => {
+      await app.settled()
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()))
+      })
+    },
   }
 }
 

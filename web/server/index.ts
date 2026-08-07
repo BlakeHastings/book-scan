@@ -277,6 +277,24 @@ export interface CreateAppOptions {
 }
 
 /**
+ * The app, and the one question about it Express has no word for.
+ *
+ * A save answers before the work it started has finished, so "the request is
+ * over" and "the app is idle" are different moments. Anything that takes the
+ * database away, which in practice means a test file's teardown, has to wait
+ * for the second one.
+ */
+export interface BookScanApp extends express.Express {
+  /**
+   * Resolves when nothing the app started is still running.
+   *
+   * Never rejects: the work owns its own failures exactly as it did before it
+   * was tracked, and this reports quiet rather than success.
+   */
+  settled(): Promise<void>
+}
+
+/**
  * Build the Express app.
  *
  * Pulled out of module scope so a test can construct one against an
@@ -285,12 +303,56 @@ export interface CreateAppOptions {
  * and cover-backfill loops. See the bottom of this file for the only other
  * caller, which wires it up for a real run.
  */
-export function createApp(options: CreateAppOptions): express.Express {
+export function createApp(options: CreateAppOptions): BookScanApp {
   const { db, coverDir } = options
   const googleApiKey = options.googleApiKey ?? ''
   const startBackgroundWork = options.startBackgroundWork ?? true
 
   const store = new Store(db)
+
+  /*
+   * The work a save starts and nobody waits for.
+   *
+   * `POST /api/books` answers as soon as the row is written and then fetches a
+   * cover, hashes it and crops the photographs. Not awaiting that is the whole
+   * point: somebody is standing at a shelf holding a book. The consequence is
+   * that the app can still be querying the database after the request that
+   * started it is over, and after the last assertion of a test file has passed.
+   *
+   * Untracked, that is a rejection nobody is waiting for: the pool is closed in
+   * a teardown, the next query fails with "Cannot use a pool after calling end
+   * on the pool", and the run reports an unhandled error beside a full count of
+   * passing tests. A `catch` here would only mean the work still ran late and
+   * said nothing about it, so the work is tracked instead and `settled` is how
+   * a teardown waits for it.
+   */
+  const outstanding = new Set<Promise<unknown>>()
+
+  function inTheBackground(work: Promise<unknown>): void {
+    outstanding.add(work)
+    void work.then(
+      () => outstanding.delete(work),
+      (reason: unknown) => {
+        outstanding.delete(work)
+        /*
+         * Rethrown into a promise nobody holds, which is exactly what `void`
+         * did with it before this was tracked. **Tracking work must not become
+         * handling it.** A rejection swallowed here would mean a save's cover
+         * or crop failing in silence, and in a test it would mean the work
+         * still running after the database went away with nothing saying so,
+         * which is the thing being fixed rather than a way of hiding it.
+         */
+        throw reason
+      },
+    )
+  }
+
+  // `allSettled`, because waiting for the work is not the same as owning how it
+  // failed: the line above still reports that. A loop, because the chain being
+  // waited on adds to the set as it goes.
+  async function settled(): Promise<void> {
+    while (outstanding.size) await Promise.allSettled([...outstanding])
+  }
 
   /*
    * The composition root for the one slice #172 converted.
@@ -652,7 +714,8 @@ export function createApp(options: CreateAppOptions): express.Express {
     return removed
   }
 
-  const app = express()
+  const app = express() as BookScanApp
+  app.settled = settled
   app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
 
   /**
@@ -747,8 +810,10 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
 
     const capture = await queue.attach(captureId, slot, saveImage(buffer, '', slot))
-    // Not awaited: the shutter must not wait on OCR.
-    void queue.drain()
+    // Not awaited: the shutter must not wait on OCR. Tracked for the same
+    // reason the chain after a save is: it is still running when the request
+    // that started it is over, and a teardown has to be able to wait for it.
+    inTheBackground(queue.drain())
 
     res.status(201).json({ capture, counts: await queue.counts() })
   }))
@@ -1096,13 +1161,18 @@ export function createApp(options: CreateAppOptions): express.Express {
     // `recordPhotographs` reads, so it runs once more at the end of the chain.
     // Not instead of the awaited call above: the rows exist from the save, and
     // this fills in only what arrives afterwards.
-    void fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
-      // Caught here and nowhere else this is called. On the awaited path a
-      // failure to record is a failure to save and should be seen; out here
-      // nothing is waiting to be told, and a rejection nobody catches takes the
-      // process down. The columns are still the record while the client reads
-      // them, and `record` is idempotent, so the next save catches up.
-      .then(() => recordPhotographs(id).catch(() => undefined))
+    //
+    // Handed to `inTheBackground` rather than voided, so that a teardown can
+    // wait for it. Nothing about when it runs changes.
+    inTheBackground(
+      fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
+        // Caught here and nowhere else this is called. On the awaited path a
+        // failure to record is a failure to save and should be seen; out here
+        // nothing is waiting to be told, and a rejection nobody catches takes
+        // the process down. The columns are still the record while the client
+        // reads them, and `record` is idempotent, so the next save catches up.
+        .then(() => recordPhotographs(id).catch(() => undefined)),
+    )
 
     res.status(201).json({
       id,
