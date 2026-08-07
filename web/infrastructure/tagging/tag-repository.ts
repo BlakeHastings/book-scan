@@ -33,7 +33,7 @@ import {
   TagSlug, type AppliedTag, type TagConfidence, type TagSource,
 } from '../../domain/tagging/tags'
 import type { Db } from '../../server/driver'
-import { build, statement } from '../db/query'
+import { build, statement, type Statement } from '../db/query'
 import { bookTag, tag } from '../db/schema'
 
 /** A row as the driver hands it back: column names, not domain names. */
@@ -77,6 +77,28 @@ function afterPrefix(prefix: string): string {
   return prefix.slice(0, -1) + String.fromCharCode(last + 1)
 }
 
+/**
+ * The vocabulary query, or the part of it at or under one slug.
+ *
+ * Exported so the test can hand the exact statement to `EXPLAIN` and read the
+ * plan back. A test that built its own equivalent query would prove that some
+ * range query uses the index, which is not the claim being made.
+ */
+export function vocabularyQuery(under?: TagSlug): Statement {
+  const columns = { id: tag.id, slug: tag.slug, label: tag.label, note: tag.note }
+  if (!under) return statement(build.select(columns).from(tag).orderBy(asc(tag.slug)))
+
+  const from = `${under.value}/`
+  return statement(
+    build.select(columns).from(tag)
+      // The tag itself, then everything beneath it. Two conditions rather than
+      // one `LIKE`, so both halves are btree comparisons on the indexed column.
+      .where(sql`${tag.slug} = ${under.value}
+             or (${tag.slug} >= ${from} and ${tag.slug} < ${afterPrefix(from)})`)
+      .orderBy(asc(tag.slug)),
+  )
+}
+
 export class DrizzleTagRepository implements TagRepository {
   constructor(private readonly db: Db) {}
 
@@ -115,16 +137,7 @@ export class DrizzleTagRepository implements TagRepository {
   }
 
   async vocabulary(under?: TagSlug): Promise<Tag[]> {
-    const columns = { id: tag.id, slug: tag.slug, label: tag.label, note: tag.note }
-
-    const query = statement(
-      under
-        ? build.select(columns).from(tag)
-          .where(sql`${tag.slug} = ${under.value} or (${tag.slug} >= ${`${under.value}/`}
-                and ${tag.slug} < ${afterPrefix(`${under.value}/`)})`)
-          .orderBy(asc(tag.slug))
-        : build.select(columns).from(tag).orderBy(asc(tag.slug)),
-    )
+    const query = vocabularyQuery(under)
     return (await this.db.all<TagRow>(query.text, query.values)).map(toTag)
   }
 

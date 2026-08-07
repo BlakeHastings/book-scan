@@ -318,6 +318,8 @@ export function createApp(options: CreateAppOptions): express.Express {
   async function recordGenreTag(bookId: number, draft: DraftBook): Promise<void> {
     if (!taggable) return
     const decidedByPerson = draft.classificationSource === 'manual'
+    const now = new Date().toISOString()
+
     await restateTags.handle({
       bookId,
       source: decidedByPerson ? 'person' : 'guess',
@@ -325,8 +327,17 @@ export function createApp(options: CreateAppOptions): express.Express {
         draft.isFiction,
         decidedByPerson ? 'high' : asConfidence(draft.classificationConfidence),
       )],
-      now: new Date().toISOString(),
+      now,
     })
+
+    // A person having answered, the guess is withdrawn: it was this app's
+    // inference about the same question, and leaving it behind would show a book
+    // as both fiction and non-fiction with no way to tell which is current. That
+    // is the guess taking back its own claim, which is the only thing it is
+    // allowed to do, and it is why the person's row is written first.
+    if (decidedByPerson) {
+      await restateTags.handle({ bookId, source: 'guess', claims: [], now })
+    }
   }
 
   function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {

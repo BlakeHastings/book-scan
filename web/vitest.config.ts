@@ -49,9 +49,11 @@ const BOTH_DRIVERS = [
  * nothing it could assert with only one of them; since #172 the schema
  * migrations, which exist only for Postgres, because SQLite keeps the
  * hand-written schema in server/db.ts and the two functions that bring an old
- * catalogue file forward; and since #177 the backup digest, which reads
+ * catalogue file forward; since #177 the backup digest, which reads
  * `md5(string_agg(... order by ...))` out of a real server and exists to catch
- * a collation failure SQLite cannot have.
+ * a collation failure SQLite cannot have; and since #179 everything about tags,
+ * for the same reason as the schema migrations, since `tag` and `book_tag` are
+ * created by one and so exist on Postgres and nowhere else.
  *
  * These are not on BOTH_DRIVERS and that is not an oversight. A file belongs
  * there when it opens a database and its assertions hold on either one. These
@@ -61,7 +63,10 @@ const POSTGRES_ONLY = [
   'server/db.pg.test.ts',
   'server/migrate.test.ts',
   'infrastructure/db/migrate.test.ts',
+  'infrastructure/db/tag-backfill.test.ts',
+  'infrastructure/tagging/tag-repository.test.ts',
   'server/backup.pg.test.ts',
+  'server/tags.routes.test.ts',
 ]
 
 export default defineConfig({
@@ -80,6 +85,22 @@ export default defineConfig({
           name: 'postgres',
           include: [...BOTH_DRIVERS, ...POSTGRES_ONLY],
           env: { BOOKSCAN_TEST_DRIVER: 'postgres' },
+          /*
+           * Teardown gets longer than vitest's ten seconds, and only here.
+           *
+           * Every file in this project makes at least one database on one
+           * shared container and drops it in an `afterAll`. Under a full
+           * parallel run that server is busy, and a drop that takes eleven
+           * seconds is reported as the whole file failing with every test in it
+           * passing, which reads as a broken test rather than a busy server.
+           * Seen on `infrastructure/db/migrate.test.ts` on master before #179,
+           * and on `server/backup.pg.test.ts` on the branch, neither of which
+           * had changed.
+           *
+           * It buys nothing for a test that hangs: a hook that is genuinely
+           * stuck still fails, a minute later.
+           */
+          hookTimeout: 60_000,
           // Only this project pays for a container.
           globalSetup: ['./server/pgcontainer.ts'],
         },
