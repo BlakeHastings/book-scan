@@ -21,6 +21,7 @@
 
 import {
   customType, doublePrecision, foreignKey, index, integer, pgTable, primaryKey, text,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
 /**
@@ -211,7 +212,97 @@ export const separators = pgTable('separators', {
   index('idx_separators').on(table.shelfRange, table.position),
 ])
 
-/** Every table the baseline creates, for the checks that have to name them all. */
+/**
+ * The vocabulary. One row per idea somebody can put a book under.
+ *
+ * **The slug is the identity and the label is what a person reads.** Catalogues
+ * answer "Fiction", "fiction" and "FICTION" for one idea, so the slug is
+ * normalised on the way in (`domain/tagging/tags.ts`) and a rule that matches
+ * `genre/fiction` then matches all three. Without that a rule silently claims a
+ * fraction of what it should, which is a book quietly filed in the wrong place
+ * rather than an error anybody sees.
+ *
+ * **The slug never changes.** Renaming is a label change. Rules reference slugs
+ * (`rule_condition.value` in docs/data-model.md), and rewriting one would make
+ * every rule mentioning it stop matching, which moves books with nothing to show
+ * for it. The owner settled this: a slug is never shown to a person, so there is
+ * nothing about it worth rewriting.
+ *
+ * **Hierarchy lives in the slug**, Obsidian style: `genre/fantasy`,
+ * `mine/lent-out`. No parent column, so there is no tree to keep consistent and
+ * no way for a parent to disagree with a path. `COLLATE "C"` is what makes that
+ * cheap rather than expensive: on a byte-ordered column the default btree
+ * opclass supports a prefix `LIKE`, so `slug LIKE 'genre/%'` is an index range
+ * rather than a scan of the whole vocabulary. On a linguistic collation it is
+ * neither, and the test databases are created with one on purpose (see
+ * `server/testdb.ts`), so this is checked rather than assumed.
+ */
+export const tag = pgTable('tag', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  slug: collatedText('slug').notNull(),
+  label: text('label').notNull(),
+  note: text('note').notNull().default(''),
+}, (table) => [
+  // Unique, because the slug is the identity: `Collection`'s one invariant in
+  // docs/domain-model.md. It is also the index the prefix range uses, so there
+  // is no second index to keep.
+  uniqueIndex('tag_slug_key').on(table.slug),
+])
+
+/**
+ * A book carrying a tag, and who said so.
+ *
+ * **`source` is part of the key, and that is the whole safety property.** A
+ * lookup may take back its own tags and no others: re-running one deletes and
+ * rewrites the rows where `source = 'catalogue'`, so a tag the catalogue has
+ * stopped claiming goes away, and a person's tag is in a different row that the
+ * delete cannot reach. Were the key `(book_id, tag_id)`, a catalogue and a
+ * person agreeing about one tag would collapse into one row and the catalogue's
+ * retraction would silently throw away somebody's decision.
+ *
+ * `source` is `person`, `catalogue` or `guess`. The last one is what the fiction
+ * classifier produces, and it is separate from `catalogue` because it is this
+ * app's inference over what a catalogue said rather than something a catalogue
+ * claimed.
+ *
+ * `confidence` and `added_at` are `classification_confidence` and its timestamp,
+ * grown up: they used to describe only the fiction guess and now describe every
+ * tag. `added_at` is text for the reason every `_at` column here is text, which
+ * is written out on `books.cover_checked_at`.
+ */
+export const bookTag = pgTable('book_tag', {
+  bookId: integer('book_id').notNull(),
+  tagId: integer('tag_id').notNull(),
+  source: text('source').notNull(),
+  confidence: text('confidence').notNull().default('unknown'),
+  addedAt: text('added_at').notNull(),
+}, (table) => [
+  // Named the way Postgres names them, as book_authors already is.
+  primaryKey({ name: 'book_tag_pkey', columns: [table.bookId, table.tagId, table.source] }),
+  foreignKey({
+    name: 'book_tag_book_id_fkey',
+    columns: [table.bookId],
+    foreignColumns: [books.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'book_tag_tag_id_fkey',
+    columns: [table.tagId],
+    foreignColumns: [tag.id],
+  }).onDelete('cascade'),
+  // "Everything under genre/fantasy" starts from the tag and walks to the
+  // books, which the primary key cannot serve: it is prefixed by book_id.
+  index('idx_book_tag_tag').on(table.tagId),
+])
+
+/**
+ * Every table this schema declares.
+ *
+ * No longer the same list as "every table the baseline creates": `tag` and
+ * `book_tag` arrive in a later migration, because a database that predates them
+ * has to be adoptable, and `migrate.ts` decides that by comparing the baseline's
+ * own snapshot against the live catalogue. Adding these two to the baseline
+ * would make the owner's catalogue refuse adoption by name.
+ */
 export const ALL_TABLES = [
-  books, bookAuthors, authorFiling, shelfRanges, captures, separators,
+  books, bookAuthors, authorFiling, shelfRanges, captures, separators, tag, bookTag,
 ] as const

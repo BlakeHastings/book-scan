@@ -19,77 +19,35 @@
  *
  * Postgres only, and it has to be: every question here is about what a Postgres
  * catalogue says about itself.
+ *
+ * **Since #179 the baseline is not the only migration**, so claim 1 is asked of
+ * the baseline on its own, applied by `applyBaseline` below. Running the folder
+ * and diffing against `SCHEMA` would now compare the schema the app is moving
+ * towards against the schema it came from and report every deliberate change as
+ * a failure.
  */
 
-import { randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import pg from 'pg'
-import { afterAll, describe, expect, inject, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { SCHEMA } from '../../server/db.pg'
 import { migrateToLatest } from './migrate'
+import { dropScratchDatabases, scratchDatabase } from './testdb'
 
 /**
- * Created with a linguistic collation, exactly as `server/testdb.ts` does it.
- * A byte order database would make every `COLLATE "C"` comparison below vacuous
- * by ordering correctly whatever the column said.
+ * An empty database of its own, dropped when the file finishes.
+ *
+ * The making and dropping moved to `testdb.ts` when #179 added two more files
+ * that need the same thing. It is the same database this file always made,
+ * created with a linguistic collation on purpose: a byte ordered one would make
+ * every `COLLATE "C"` comparison below vacuous by ordering correctly whatever
+ * the column said.
  */
-const HOSTILE_COLLATIONS = ['en_US.utf8', 'en_US.UTF-8', 'en-US-x-icu']
-
-const serverUrl = () => process.env.BOOKSCAN_TEST_DATABASE_URL ?? inject('postgresUrl')
-
-const opened: { pool: pg.Pool; name: string }[] = []
-
-function poolFor(connectionString: string): pg.Pool {
-  const pool = new pg.Pool({ connectionString })
-  // node-postgres throws on an `error` event with no listener, which surfaces
-  // as this file failing with every test in it passing. See PgDb.
-  pool.on('error', () => {})
-  return pool
-}
-
-/** An empty database of its own, dropped when the file finishes. */
-async function scratch(): Promise<pg.Pool> {
-  const server = serverUrl()
-  const name = `bookscan_migrate_${randomBytes(6).toString('hex')}`
-
-  const admin = poolFor(server)
-  try {
-    let created = false
-    for (const collation of HOSTILE_COLLATIONS) {
-      try {
-        await admin.query(
-          `CREATE DATABASE ${name} TEMPLATE template0 ENCODING 'UTF8' ` +
-          `LC_COLLATE '${collation}' LC_CTYPE '${collation}'`,
-        )
-        created = true
-        break
-      } catch {
-        // Next spelling; a server with none of them falls through.
-      }
-    }
-    if (!created) await admin.query(`CREATE DATABASE ${name}`)
-  } finally {
-    await admin.end()
-  }
-
-  const target = new URL(server)
-  target.pathname = `/${name}`
-  const pool = poolFor(target.href)
-  opened.push({ pool, name })
-  return pool
-}
+const scratch = scratchDatabase
 
 afterAll(async () => {
-  for (const { pool, name } of opened.splice(0)) {
-    await pool.end().catch(() => undefined)
-    const admin = poolFor(serverUrl())
-    try {
-      await admin.query(`DROP DATABASE IF EXISTS ${name}`)
-    } catch {
-      // A scratch database left behind is not worth failing a green run over.
-    } finally {
-      await admin.end()
-    }
-  }
+  await dropScratchDatabases()
 })
 
 /**
@@ -136,6 +94,47 @@ async function describeSchema(pool: pg.Pool) {
   }
 }
 
+/**
+ * The baseline, run on its own.
+ *
+ * There are migrations after it now, so `migrateToLatest` no longer answers the
+ * question this file's first claim is about: the baseline is a transcription of
+ * `SCHEMA`, and everything after it is a change to that schema on purpose. So
+ * the baseline is applied by hand here, statement by statement, exactly as
+ * Drizzle's migrator would. **This is the only place that does that**, and it is
+ * why the migration folder is read rather than the file named.
+ */
+async function applyBaseline(pool: pg.Pool): Promise<void> {
+  const path = fileURLToPath(new URL('./migrations/0000_baseline.sql', import.meta.url))
+  for (const statement of readFileSync(path, 'utf8').split('--> statement-breakpoint')) {
+    if (statement.trim()) await pool.query(statement)
+  }
+}
+
+/** How many migration files there are, which is how many rows get recorded. */
+function migrationCount(): number {
+  const path = fileURLToPath(new URL('./migrations/meta/_journal.json', import.meta.url))
+  return (JSON.parse(readFileSync(path, 'utf8')) as { entries: unknown[] }).entries.length
+}
+
+/** The tables the baseline creates, read from its own snapshot. */
+function baselineTableNames(): string[] {
+  const path = fileURLToPath(new URL('./migrations/meta/0000_snapshot.json', import.meta.url))
+  const snapshot = JSON.parse(readFileSync(path, 'utf8')) as {
+    tables: Record<string, { name: string }>
+  }
+  return Object.values(snapshot.tables).map((table) => table.name)
+}
+
+/** Every table in a database, which is how a later migration shows up. */
+async function tablesIn(pool: pg.Pool): Promise<string[]> {
+  const result = await pool.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' ORDER BY table_name`,
+  )
+  return result.rows.map((row) => row.table_name)
+}
+
 /** The bookkeeping rows Drizzle keeps, or an empty list when it keeps none. */
 async function recorded(pool: pg.Pool) {
   const result = await pool.query<{ hash: string; created_at: string }>(
@@ -149,7 +148,7 @@ describe('the baseline migration on an empty database', () => {
     const migrated = await scratch()
     const asShipped = await scratch()
 
-    expect(await migrateToLatest(migrated)).toBe('created')
+    await applyBaseline(migrated)
     await asShipped.query(SCHEMA)
 
     const fromMigration = await describeSchema(migrated)
@@ -164,10 +163,15 @@ describe('the baseline migration on an empty database', () => {
     expect(fromMigration.sequences).toEqual(fromCode.sequences)
   })
 
-  it('keeps COLLATE "C" on the four columns that decide shelf order', async () => {
+  it('keeps COLLATE "C" on every column whose byte order is load bearing', async () => {
     // Asserted separately from the diff above, and not because the diff misses
     // it. If both sides ever lost the collation together the diff would still
     // be green, and a shelf would quietly reorder. See SORT_KEY_COLUMNS.
+    //
+    // Four of these decide shelf order. `tag.slug` is the fifth and is here for
+    // a different reason: a prefix range over it is how "everything under
+    // genre" is answered, and on a linguistic collation that range is neither
+    // an index seek nor dependably the right rows.
     const migrated = await scratch()
     await migrateToLatest(migrated)
 
@@ -181,17 +185,21 @@ describe('the baseline migration on an empty database', () => {
       { table_name: 'books', column_name: 'sort_key' },
       { table_name: 'books', column_name: 'title_filing' },
       { table_name: 'separators', column_name: 'starts_at' },
+      { table_name: 'tag', column_name: 'slug' },
     ])
   })
 
-  it('records the baseline, so a second run does nothing', async () => {
+  it('records every migration, so a second run does nothing', async () => {
     const pool = await scratch()
     expect(await migrateToLatest(pool)).toBe('created')
     const after = await describeSchema(pool)
+    const applied = await recorded(pool)
 
     expect(await migrateToLatest(pool)).toBe('migrated')
     expect(await describeSchema(pool)).toEqual(after)
-    expect(await recorded(pool)).toHaveLength(1)
+    // One row per file in the folder, and the same rows as a moment ago.
+    expect(await recorded(pool)).toEqual(applied)
+    expect(applied).toHaveLength(migrationCount())
   })
 })
 
@@ -209,10 +217,19 @@ describe('a database that already has these tables', () => {
 
     const survivors = await pool.query<{ title: string }>('SELECT title FROM books')
     expect(survivors.rows.map((row) => row.title)).toEqual(['A book somebody scanned'])
-    // Nothing ran. The schema is the one that was already there, and it is now
-    // under migration control: the baseline is recorded as applied.
-    expect(await describeSchema(pool)).toEqual(before)
-    expect(await recorded(pool)).toHaveLength(1)
+
+    // The baseline did not run: every table it would have created is exactly as
+    // it was, column for column, on a database that already had rows in it.
+    const after = await describeSchema(pool)
+    const baseline = baselineTableNames()
+    const ofBaseline = (rows: Record<string, unknown>[]) =>
+      rows.filter((row) => baseline.includes(String(row.table_name)))
+    expect(ofBaseline(after.columns)).toEqual(ofBaseline(before.columns))
+
+    // What did run is everything after the baseline, which is the point of
+    // adopting: this database has now had the migrations it had not had.
+    expect(await tablesIn(pool)).toContain('book_tag')
+    expect(await recorded(pool)).toHaveLength(migrationCount())
   })
 
   it('is indistinguishable afterwards from one the baseline built', async () => {

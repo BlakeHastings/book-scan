@@ -491,11 +491,17 @@ teach people to skim past it.
 
 ### The layering, and the one table that goes through it
 
-Epic #169 separates the domain from the data store. **Only `separators` has been
-converted** (#172): the pattern is being judged on one slice before it is
-repeated across fourteen tables, so books, captures, shelf ranges and the rest
-still go through `Store`, `Shelves` and `CaptureQueue` exactly as they did. Do
-not convert another table as a side effect of doing something else.
+Epic #169 separates the domain from the data store. **Two slices have been
+converted**: `separators` (#172), which is where the pattern was judged, and
+`tag` with `book_tag` (#179), which was built that way from the start. Books,
+captures, shelf ranges and the rest still go through `Store`, `Shelves` and
+`CaptureQueue` exactly as they did. Do not convert another table as a side effect
+of doing something else.
+
+The tag tables exist on Postgres only, because they arrive in a migration and
+SQLite's schema is hand-written. A save against SQLite writes `books.is_fiction`
+and no tag, which the routes decide from the driver in `createApp`. That goes
+away with the SQLite driver.
 
 Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
 nothing else, not even an npm package; `application/` adds `application/`;

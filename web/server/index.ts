@@ -23,7 +23,7 @@ import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 import { openDatabase } from './db'
-import { describeConnection, openPostgres } from './db.pg'
+import { describeConnection, openPostgres, PgDb } from './db.pg'
 import type { Db } from './driver'
 
 import { lookupIsbn, searchTitle } from './lookup'
@@ -37,6 +37,14 @@ import { rangeLock, Shelves, type ShelvedBook } from './shelves'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DbTransactions } from '../infrastructure/shelving/transactions'
+import {
+  ApplyTagHandler, RelabelTagHandler, RemoveTagHandler,
+} from '../application/tagging/apply-tag'
+import { RestateTagsHandler } from '../application/tagging/restate-tags'
+import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
+import { DbBookTransactions } from '../infrastructure/tagging/transactions'
+import { claimsFrom, genreClaim } from '../domain/tagging/catalogue-claims'
+import { TagSlug, type TagConfidence } from '../domain/tagging/tags'
 import { Store, type DraftBook } from './store'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
@@ -85,6 +93,11 @@ function asDraft(body: Record<string, unknown>): DraftBook {
       ? String(body.authorFilingOverride)
       : null,
   }
+}
+
+/** The classifier's confidence, back from a string, defaulting to unknown. */
+function asConfidence(raw: string | undefined): TagConfidence {
+  return raw === 'high' || raw === 'medium' || raw === 'weak' ? raw : 'unknown'
 }
 
 /**
@@ -254,6 +267,78 @@ export function createApp(options: CreateAppOptions): express.Express {
     separators, new DbTransactions(db, rangeLock),
   )
   const shelves = new Shelves(db, separators, removeSeparator)
+
+  /*
+   * The composition root for the second converted slice, tags (#179).
+   *
+   * Same shape as the one above and for the same reason: the routes below call
+   * handlers, the handlers depend on the two interfaces in
+   * `application/tagging/ports.ts`, and this is the only place in the server
+   * that names a Drizzle repository.
+   */
+  const tags = new DrizzleTagRepository(db)
+  const restateTags = new RestateTagsHandler(tags, new DbBookTransactions(db))
+  const applyTag = new ApplyTagHandler(tags)
+  const removeTag = new RemoveTagHandler(tags)
+  const relabelTag = new RelabelTagHandler(tags)
+
+  /*
+   * Whether this catalogue has the tag tables, which is the same question as
+   * whether it is Postgres.
+   *
+   * `tag` and `book_tag` arrive in a migration, and there are migrations only
+   * for Postgres: SQLite's schema is hand-written in db.ts, which stage I (#178)
+   * is deleting along with the driver, so giving it two more tables would be
+   * work whose only product is something to delete next week.
+   *
+   * Written as the driver rather than as a probe for the table, because that is
+   * the actual reason and a probe would read as though a Postgres catalogue
+   * might legitimately not have it. **This goes away with the SQLite driver**,
+   * and until it does, a save against SQLite writes the `is_fiction` column and
+   * no tag. Every test that asserts on a tag runs on Postgres.
+   */
+  const taggable = db instanceof PgDb
+
+  /**
+   * Keep the tags in step with what was just saved about a book.
+   *
+   * `books.is_fiction` is still the column the shelf range is derived from, and
+   * still what the client reads, so every save writes both: the column, by
+   * `Store`, and the tag, here. They cannot disagree, because this runs from the
+   * same draft the row was written from.
+   *
+   * The source is the provenance the draft already carries. `manual` is what
+   * `Store.updateBook` records when somebody saved an edit, and that is a
+   * person; anything else is the classifier, and that is a guess. Restating
+   * rather than applying is what makes an edit from fiction to non-fiction take
+   * the old tag off, and it takes off only the tags of the source doing the
+   * restating, so a person's tag is not disturbed by a lookup and a guess is not
+   * left behind by a person.
+   */
+  async function recordGenreTag(bookId: number, draft: DraftBook): Promise<void> {
+    if (!taggable) return
+    const decidedByPerson = draft.classificationSource === 'manual'
+    const now = new Date().toISOString()
+
+    await restateTags.handle({
+      bookId,
+      source: decidedByPerson ? 'person' : 'guess',
+      claims: [genreClaim(
+        draft.isFiction,
+        decidedByPerson ? 'high' : asConfidence(draft.classificationConfidence),
+      )],
+      now,
+    })
+
+    // A person having answered, the guess is withdrawn: it was this app's
+    // inference about the same question, and leaving it behind would show a book
+    // as both fiction and non-fiction with no way to tell which is current. That
+    // is the guess taking back its own claim, which is the only thing it is
+    // allowed to do, and it is why the person's row is written first.
+    if (decidedByPerson) {
+      await restateTags.handle({ bookId, source: 'guess', claims: [], now })
+    }
+  }
 
   function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {
     const name = `${Date.now()}_${isbn || 'noisbn'}_${slot}.jpg`
@@ -880,6 +965,7 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
 
     const { id, placement } = await store.addBook(draft)
+    await recordGenreTag(id, draft)
 
     /*
      * Record where the book physically went.
@@ -1149,12 +1235,207 @@ export function createApp(options: CreateAppOptions): express.Express {
     }
 
     const placement = await store.updateBook(id, draft)
+    await recordGenreTag(id, draft)
     res.json({
       id,
       placement: await inDerivedScheme(placement.range, placement),
       counts: await store.counts(),
     })
   }))
+
+  /*
+   * ---------------------------------------------------------------------
+   * Tags (#179). Every one of these goes through the application layer.
+   * ---------------------------------------------------------------------
+   *
+   * The routes say what somebody asked for and nothing about how it is stored,
+   * the way `DELETE /api/shelves/:id` already does. What is different here is
+   * that the reads go through the port as well, because there is no `Store`
+   * method for tags and there is deliberately never going to be one.
+   *
+   * A slug is a path, so it arrives in the query string rather than in the URL:
+   * `genre/fantasy` in a path segment is two segments, and the alternative is
+   * asking every caller to encode a slash into a route the router then decodes
+   * back. `?slug=` costs nothing and cannot be got wrong.
+   */
+
+  /** Refuse the tag routes on a catalogue that has no tag tables. */
+  function tagsUnavailable(res: express.Response): boolean {
+    if (taggable) return false
+    res.status(501).json({ error: 'This catalogue has no tags. Tags need Postgres.' })
+    return true
+  }
+
+  /** The slug a request means, or a 400 saying what was wrong with it. */
+  function slugFrom(raw: unknown, res: express.Response): TagSlug | null {
+    const slug = TagSlug.parse(String(raw ?? ''))
+    if (!slug) res.status(400).json({ error: `"${String(raw ?? '')}" is not a tag.` })
+    return slug
+  }
+
+  /**
+   * The vocabulary, or the part of it under one slug.
+   *
+   * `?under=genre` is the prefix question, and it is answered as an index range
+   * over the slug rather than by filtering here. See the note on the repository.
+   */
+  app.get('/api/tags', asyncRoute(async (req, res) => {
+    if (tagsUnavailable(res)) return
+    const raw = String(req.query.under ?? '')
+    const under = raw ? TagSlug.parse(raw) : null
+    if (raw && !under) {
+      res.status(400).json({ error: `"${raw}" is not a tag.` })
+      return
+    }
+
+    const vocabulary = await tags.vocabulary(under ?? undefined)
+    res.json({
+      tags: vocabulary.map((one) => ({ slug: one.slug.value, label: one.label, note: one.note })),
+    })
+  }))
+
+  /** Rename a tag. The label moves; the slug is the identity and does not. */
+  app.patch('/api/tags', asyncRoute(async (req, res) => {
+    if (tagsUnavailable(res)) return
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const slug = slugFrom(body.slug, res)
+    if (!slug) return
+
+    const label = String(body.label ?? '').trim()
+    if (!label) {
+      res.status(400).json({ error: 'A tag needs a label somebody can read.' })
+      return
+    }
+
+    await relabelTag.handle({ slug, label })
+    res.json({ tags: (await tags.vocabulary(slug)).map((one) => ({
+      slug: one.slug.value, label: one.label, note: one.note,
+    })) })
+  }))
+
+  /** What a book is under, and who said so. */
+  app.get('/api/books/:id/tags', asyncRoute(async (req, res) => {
+    if (tagsUnavailable(res)) return
+    const id = Number(req.params.id)
+    if (!(await store.getBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+    res.json({ tags: await describeTags(id) })
+  }))
+
+  /**
+   * A person puts a book under a tag.
+   *
+   * The slug is normalised from what they typed, and the label is what they
+   * typed, so "Lent Out" reads back as "Lent Out" and files as `mine/lent-out`
+   * along with everybody else's spelling of it.
+   */
+  app.post('/api/books/:id/tags', asyncRoute(async (req, res) => {
+    if (tagsUnavailable(res)) return
+    const id = Number(req.params.id)
+    if (!(await store.getBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const typed = String(body.slug ?? body.label ?? '')
+    const slug = slugFrom(typed, res)
+    if (!slug) return
+
+    await applyTag.handle({
+      bookId: id,
+      slug,
+      label: String(body.label ?? typed).trim() || slug.value,
+      now: new Date().toISOString(),
+    })
+    res.status(201).json({ tags: await describeTags(id) })
+  }))
+
+  /** A person takes a book back out of a tag, whoever put it there. */
+  app.delete('/api/books/:id/tags', asyncRoute(async (req, res) => {
+    if (tagsUnavailable(res)) return
+    const id = Number(req.params.id)
+    if (!(await store.getBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+
+    const slug = slugFrom(req.query.slug, res)
+    if (!slug) return
+
+    await removeTag.handle({ bookId: id, slug })
+    res.json({ tags: await describeTags(id) })
+  }))
+
+  /**
+   * Re-run the catalogue lookup for a book and restate what it claims.
+   *
+   * The route the retraction rule exists for. A tag the catalogue has stopped
+   * claiming goes away, one it has started claiming appears, and **a tag a
+   * person applied is untouched, because the only rows this can delete are the
+   * ones carrying `source = 'catalogue'`.** See `RestateTagsHandler`.
+   *
+   * A lookup that finds nothing is not an empty claim: the catalogue being down
+   * or the ISBN being unknown says nothing about the book, and treating it as a
+   * retraction would strip a book's subjects because somebody's API had a bad
+   * minute. It is reported as `found: false` and nothing is written.
+   */
+  app.post('/api/books/:id/tags/refresh', asyncRoute(async (req, res) => {
+    if (tagsUnavailable(res)) return
+    const id = Number(req.params.id)
+    const book = await store.getBook(id)
+    if (!book) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+
+    const isbn = book.isbn13 || book.isbn10
+    if (!isbn) {
+      res.status(400).json({ error: 'This book has no ISBN to look up.' })
+      return
+    }
+
+    const found = await lookupIsbn(isbn, { googleApiKey })
+    if (!found.found) {
+      res.json({ found: false, tags: await describeTags(id) })
+      return
+    }
+
+    await restateTags.handle({
+      bookId: id,
+      source: 'catalogue',
+      claims: claimsFrom({
+        isFiction: found.classification.isFiction,
+        confidence: asConfidence(found.classification.confidence),
+        categories: found.categories,
+        subjects: found.subjects,
+      }),
+      now: new Date().toISOString(),
+    })
+
+    res.json({ found: true, source: found.source, tags: await describeTags(id) })
+  }))
+
+  /**
+   * A book's tags, said the way a client reads them: with the label.
+   *
+   * The label is looked up rather than carried on `AppliedTag`, because the
+   * domain rule about who may retract what has no use for a display string and
+   * a type that carried one would invite somebody to match on it. The whole
+   * vocabulary is a few dozen rows and is read once per response.
+   */
+  async function describeTags(bookId: number) {
+    const [applied, vocabulary] = await Promise.all([tags.of(bookId), tags.vocabulary()])
+    const labels = new Map(vocabulary.map((one) => [one.slug.value, one.label]))
+    return applied.map((one) => ({
+      slug: one.slug.value,
+      label: labels.get(one.slug.value) ?? one.slug.value,
+      source: one.source,
+      confidence: one.confidence,
+    }))
+  }
 
   /**
    * A person says where this book physically is now.
