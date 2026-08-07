@@ -274,6 +274,27 @@ what `Store.neighbours` and `Shelves.booksIn` read, and `idx_books_shelved` is
 what the view is an index seek over. The queue table is **not** dissolved: that
 is the second half and it is described under "What is built".
 
+## One repair the cut-over owes
+
+**The work that makes tags authoritative must also clean up #194's rows**, and
+that is the owner's decision of 2026-08-07 rather than an implementer's option.
+
+Before #201, correcting a book's ISBN left the old book's `person` genre row in
+place beside the new book's `guess`, so a book carries two `genre/*` tags and the
+higher-authority one is the wrong one. New occurrences cannot happen. Rows
+written before it are still there, invisible because nothing reads tags, and they
+become visible the moment something does.
+
+They are not being repaired by hand and no agent is to touch the catalogue for
+them. The rule goes in the cut-over, written down and reviewed like any other
+migration, and it must:
+
+- find books with more than one distinct slug under `genre`
+- keep the row that agrees with `books.is_fiction`, which is what the shelf was
+  actually built from, rather than the one with the higher source
+- **count what it changed and say so**, because a repair that silently rewrites
+  a person's answer is the same class of thing as the defect
+
 ## Still open
 
 1. ~~Is a tag's slug immutable once created?~~ **Settled by the owner in #179:
@@ -284,10 +305,25 @@ is the second half and it is described under "What is built".
    find it?~~ **Yes to both, since #179.** The question is asked of the path, not
    of a parent row, so no ancestor has to exist for `under` to find its
    descendants.
-3. Does the ledger record tag changes, or only placement? A rule change is
-   explained by both. Still open: #179 keeps `book_tag.added_at` and the source
-   that wrote each row, which says when a tag arrived and who said so, but not
-   that a person once took one off.
+3. ~~Does the ledger record tag changes, or only placement?~~ **Settled by the
+   owner on 2026-08-07: placement only.**
+
+   `book_placement` stays a record of where books physically went. Tags keep
+   what #179 gives them, `added_at` and the source that wrote each row, which
+   says when a tag arrived and who said so.
+
+   **What that gives up, on purpose:** a removed tag leaves no trace. The model
+   can say what is true about a book now and not that somebody changed their
+   mind. So "did I take this off, or did the app never add it?" has no answer,
+   and a lookup cannot be stopped from re-adding a tag a person removed by
+   consulting history, because there is none to consult.
+
+   The reason to accept that is what it protects: a ledger that recorded both
+   would be one table doing two jobs, and `assigned` against `placed` is a
+   distinction that only means anything while every row in the table is about
+   placement. **If retraction ever needs remembering, it belongs in the tagging
+   model as a tombstone, not in the ledger.** Do not reopen this by widening
+   `book_placement`.
 
 ## What is built
 

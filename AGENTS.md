@@ -499,7 +499,7 @@ teach people to skim past it.
 | `docs/shelving.md` | The shelving specification |
 | `docs/orchestrating.md` | For whoever is running the backlog: where things stand, what bites, and where to go next |
 
-### The layering, and the one table that goes through it
+### The layering, and the tables that go through it
 
 Epic #169 separates the domain from the data store. **Four slices have been
 converted**: `separators` (#172), which is where the pattern was judged, `tag`
