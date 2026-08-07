@@ -7,7 +7,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { frameAtScroll, gallery, spineShape, SPINE_MAX_ASPECT, UNCROPPED_NOTE } from './gallery'
+import {
+  BEFORE_SPINE_CROP, frameAfterSources, frameAtScroll, gallery, samePhotos, spineShape,
+  SPINE_CUT_FROM_WHOLE, SPINE_MAX_ASPECT, SPINE_NOT_FOUND, UNCROPPED_NOTE,
+} from './gallery'
 
 const all = {
   catalogue: '/api/covers/cat.jpg',
@@ -147,10 +150,12 @@ describe('showing the crop but keeping the photograph', () => {
     }
   })
 
-  it('leaves the whole-spine caption alone rather than stacking a second one', () => {
+  it('says one sentence about a whole spine rather than stacking two', () => {
+    // The caption is chosen from the three states rather than concatenated,
+    // so a reader gets the reason that applies and not a list of reasons.
     const { swipe } = gallery({ ...all, examined: ['edge'] }, 'whole')
     const spine = swipe.find((frame) => frame.kind === 'edge')!
-    expect(spine.note).toBe('Shot before spines were cropped, so shown whole')
+    expect(spine.note).toBe(SPINE_NOT_FOUND)
   })
 
   it('crops the spine beside the swipe too', () => {
@@ -174,6 +179,77 @@ describe('showing the crop but keeping the photograph', () => {
     const catalogue = swipe.find((frame) => frame.kind === 'catalogue')!
     expect(catalogue.src).toBe('/api/covers/cat.jpg')
     expect(catalogue.full).toBe('/api/covers/cat.jpg')
+  })
+})
+
+describe('why a spine is a photograph of a whole book', () => {
+  /**
+   * Three states, three sentences (#108). One sentence for all three said
+   * "shot before spines were cropped" about a photo a detector had refused
+   * and about one it had successfully cut down, and only the first of the
+   * three was ever true.
+   */
+  const spine = (sources: Parameters<typeof gallery>[0]) =>
+    gallery(sources, 'whole').swipe.find((frame) => frame.kind === 'edge')!
+
+  it('blames the capture crop only where nothing has looked at the photo', () => {
+    // The oldest rows in the catalogue: photographed before the spine guide
+    // existed, and never put through the detector either, so the shape of the
+    // picture is the whole of the explanation. `cropped` is empty for every
+    // book saved before any of this, and the backfill is run by hand, so this
+    // is still the ordinary case rather than a historical one.
+    expect(spine(all).note).toBe(BEFORE_SPINE_CROP)
+    expect(spine({ ...all, examined: ['front', 'back'] }).note).toBe(BEFORE_SPINE_CROP)
+  })
+
+  it('says the detector refused it, rather than blaming the capture crop', () => {
+    // Named in `cropped` with an empty crop column: looked at and declined.
+    // Saying it was shot before cropping is true of the shape and false about
+    // why it is still whole, which is the wrong reason the issue is about.
+    expect(spine({ ...all, examined: ['edge'] }).note).toBe(SPINE_NOT_FOUND)
+    expect(spine({ ...all, examined: ['edge'] }).note).toContain('could not be picked out')
+  })
+
+  it('does not call a cropped spine whole', () => {
+    const cropped = spine({
+      ...all,
+      crops: { edge: '/api/covers/edge_crop.jpg' },
+      examined: ['edge'],
+    })
+
+    expect(cropped.src).toBe('/api/covers/edge_crop.jpg')
+    expect(cropped.note).toBe(SPINE_CUT_FROM_WHOLE)
+    expect(cropped.note).not.toContain('whole photo')
+  })
+
+  it('still sends the reader to the photograph the crop came from', () => {
+    // The crop is captioned as a crop, so the frame after it, which is the
+    // photograph itself, keeps saying what it is.
+    const { swipe } = gallery({
+      ...all,
+      crops: { edge: '/api/covers/edge_crop.jpg' },
+      examined: ['edge'],
+    }, 'whole')
+
+    expect(swipe.at(-1)?.src).toBe(all.edge)
+    expect(swipe.at(-1)?.note).toBe(UNCROPPED_NOTE)
+  })
+
+  it('says something different in each of the three states', () => {
+    const notes = [
+      spine(all).note,
+      spine({ ...all, examined: ['edge'] }).note,
+      spine({ ...all, crops: { edge: '/api/covers/edge_crop.jpg' }, examined: ['edge'] }).note,
+    ]
+
+    expect(new Set(notes).size).toBe(3)
+    for (const note of notes) expect(note).not.toBe('')
+  })
+
+  it('leaves a spine that really is a strip alone', () => {
+    // A capture made since the spine guide existed needs no explanation at
+    // all, and none of these three sentences is true of it.
+    expect(gallery(all, 'strip').beside?.note).toBe('')
   })
 })
 
@@ -293,5 +369,67 @@ describe('frameAtScroll', () => {
 
   it('answers zero before the element has been laid out', () => {
     expect(frameAtScroll(0, 0, 3)).toBe(0)
+  })
+})
+
+describe('opening another book in a gallery that is already on screen', () => {
+  /** The next book along the shelf: different copy, so different photographs. */
+  const neighbour = {
+    catalogue: '/api/covers/cat2.jpg',
+    front: '/api/covers/front2.jpg',
+    back: '/api/covers/back2.jpg',
+    edge: '/api/covers/edge2.jpg',
+  }
+
+  it('opens a neighbour at its first photograph', () => {
+    // Walking a shelf from the detail row is the common action there (#81),
+    // and the frame index used to carry over, so the next book opened part
+    // way through its own photographs.
+    expect(frameAfterSources(3, all, neighbour, 4)).toBe(0)
+  })
+
+  it('opens a neighbour with fewer photographs at the first, not the last', () => {
+    // Clamping is what the carry-over degraded into: a book with two frames
+    // opened on its second rather than on its first.
+    expect(frameAfterSources(3, all, { front: neighbour.front }, 1)).toBe(0)
+  })
+
+  /** The same copy, after a relookup found no publisher cover for the new ISBN. */
+  const noCover = { front: all.front, back: all.back, edge: all.edge }
+
+  it('keeps your place when the book on screen loses a picture', () => {
+    // Changing an ISBN replaces the catalogue cover. The book in your hand is
+    // the same book, so the photo you were looking at should not move.
+    expect(frameAfterSources(2, all, noCover, 3)).toBe(2)
+  })
+
+  it('pulls a place that no longer exists back inside the frames that are left', () => {
+    expect(frameAfterSources(3, all, noCover, 3)).toBe(2)
+  })
+
+  it('answers zero for a book with nothing to show', () => {
+    expect(frameAfterSources(2, all, {}, 0)).toBe(0)
+  })
+
+  it('starts at the first frame on the very first render', () => {
+    // The gallery has shown nothing yet, so there is no place to keep.
+    expect(frameAfterSources(0, {}, all, 4)).toBe(0)
+  })
+})
+
+describe('samePhotos', () => {
+  it('is the three photographs of this copy and not the catalogue picture', () => {
+    const swapped = { ...all, catalogue: '/api/covers/other.jpg' }
+    expect(samePhotos(all, swapped)).toBe(true)
+    expect(samePhotos(all, { ...all, edge: '/api/covers/edge2.jpg' })).toBe(false)
+  })
+
+  it('does not confuse a book that has no photographs with one that has', () => {
+    expect(samePhotos({ catalogue: all.catalogue }, all)).toBe(false)
+  })
+
+  it('ignores the crops, which are derived from the photographs it compares', () => {
+    // A crop arriving after a backfill is the same book, newly cut down.
+    expect(samePhotos(all, { ...all, crops: { front: '/api/covers/front_crop.jpg' } })).toBe(true)
   })
 })

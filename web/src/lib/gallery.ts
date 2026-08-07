@@ -128,10 +128,55 @@ const BACK: Omit<Frame, 'src' | 'full'> = { kind: 'back', label: 'Back cover', n
 
 const SPINE_STRIP: Omit<Frame, 'src' | 'full'> = { kind: 'edge', label: 'Spine', note: '' }
 
-const SPINE_WHOLE: Omit<Frame, 'src' | 'full'> = {
-  kind: 'edge',
-  label: 'Spine',
-  note: 'Shot before spines were cropped, so shown whole',
+const SPINE_WHOLE: Omit<Frame, 'src' | 'full'> = { kind: 'edge', label: 'Spine', note: '' }
+
+/**
+ * Nothing has been shown this photograph, so the only thing that explains it
+ * is when it was taken.
+ *
+ * A capture made since `SPINE_CROP` existed is a strip, so a spine still shaped
+ * like a whole book is one from before it, and no detector has been offered it
+ * since. That is the sentence this file has always said, and it is the one
+ * state where it is true.
+ */
+export const BEFORE_SPINE_CROP = 'Shot before spines were cropped, so shown whole'
+
+/**
+ * The detector was shown this photograph and would not cut it.
+ *
+ * Both halves are said because both are true and neither is enough on its own:
+ * the shape is explained by when it was taken, and the room still around it is
+ * explained by a detector that declined. Saying only the first blames an old
+ * capture for a decision made since, which is the wrong reason (#108).
+ */
+export const SPINE_NOT_FOUND =
+  'Shot before spines were cropped, and the book could not be picked out of it'
+
+/**
+ * The detector found the book in a whole-book photograph, so this frame is a
+ * crop and not the photograph.
+ *
+ * Said because the frame is labelled Spine and shows a book rather than a
+ * spine, which is what a crop of a pre-`SPINE_CROP` capture looks like. This
+ * frame used to carry the "shown whole" sentence while showing a crop, which
+ * was the plainest of the three lies.
+ */
+export const SPINE_CUT_FROM_WHOLE = 'Cut from a photo of the whole book'
+
+/**
+ * Which of the three things has happened to a whole-book spine photograph.
+ *
+ * The states are already recorded and were never read here. `cropped` lists
+ * the slots the detector has been shown, so a slot named there with no crop
+ * beside it was examined and declined, and a slot not named at all has never
+ * been attempted (see the comment on `books.cropped` in server/db.ts, which is
+ * the contract). One caption for all three said the same thing about a photo
+ * nothing had looked at, a photo a detector had refused, and a photo it had
+ * successfully cut down.
+ */
+function wholeSpineNote(sources: GallerySources): string {
+  if (sources.crops?.edge) return SPINE_CUT_FROM_WHOLE
+  return sources.examined?.includes('edge') ? SPINE_NOT_FOUND : BEFORE_SPINE_CROP
 }
 
 export interface Gallery {
@@ -222,8 +267,12 @@ export function gallery(sources: GallerySources, shape: SpineShape = 'unknown'):
   // A whole-book spine photo is unreadable in a strip two centimetres wide,
   // so it goes in the swipe at full size instead of being squeezed beside it.
   if (shape === 'whole') {
-    swipe.push(photo(SPINE_WHOLE, 'edge', sources.edge))
-    const continuation = uncropped(SPINE_WHOLE, 'edge', sources.edge)
+    // The caption is worked out per book rather than fixed on the constant,
+    // because "why is this photo whole" has three different answers and the
+    // data says which one applies.
+    const whole = { ...SPINE_WHOLE, note: wholeSpineNote(sources) }
+    swipe.push(photo(whole, 'edge', sources.edge))
+    const continuation = uncropped(whole, 'edge', sources.edge)
     if (continuation) tail.push(continuation)
     return { swipe: [...swipe, ...tail], beside: null }
   }
@@ -253,4 +302,44 @@ export function gallery(sources: GallerySources, shape: SpineShape = 'unknown'):
 export function frameAtScroll(scrollLeft: number, frameWidth: number, count: number): number {
   if (frameWidth <= 0 || count <= 0) return 0
   return Math.max(0, Math.min(count - 1, Math.round(scrollLeft / frameWidth)))
+}
+
+/**
+ * Is this the same copy the gallery was already showing?
+ *
+ * The three photographs and deliberately not the catalogue picture: changing
+ * an ISBN replaces the publisher's cover while the book in somebody's hand is
+ * still the book in their hand, and they should not lose the photo they were
+ * looking at over it.
+ */
+export function samePhotos(before: GallerySources, after: GallerySources): boolean {
+  return before.front === after.front
+    && before.back === after.back
+    && before.edge === after.edge
+}
+
+/**
+ * Which frame to be on once the photographs under a mounted gallery change.
+ *
+ * Two changes look alike from in here and mean opposite things. A book that
+ * loses a picture while it is open, which is what changing its ISBN does,
+ * should keep the place it was at, only pulled back inside the frames that are
+ * left. A different book, which is what tapping a neighbour in the shelf row
+ * opens (#81), should start at its first photograph the way it would if it had
+ * been opened from the library.
+ *
+ * Clamping alone gave the second case the first case's answer: the frame index
+ * carried over, so walking along a shelf from the third photo of one book
+ * opened the next one part way through its own, or on its last frame when it
+ * had fewer.
+ */
+export function frameAfterSources(
+  index: number,
+  before: GallerySources,
+  after: GallerySources,
+  count: number,
+): number {
+  if (count <= 0) return 0
+  if (!samePhotos(before, after)) return 0
+  return Math.max(0, Math.min(index, count - 1))
 }
