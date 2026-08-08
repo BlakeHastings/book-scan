@@ -288,8 +288,9 @@ export interface BookScanApp extends express.Express {
   /**
    * Resolves when nothing the app started is still running.
    *
-   * Never rejects: the work owns its own failures exactly as it did before it
-   * was tracked, and this reports quiet rather than success.
+   * Never rejects, and it is not an assertion that the work succeeded. A
+   * failure is reported by `backgroundFailed` at the moment it happens; this
+   * reports quiet.
    */
   settled(): Promise<void>
 }
@@ -322,34 +323,71 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * Untracked, that is a rejection nobody is waiting for: the pool is closed in
    * a teardown, the next query fails with "Cannot use a pool after calling end
    * on the pool", and the run reports an unhandled error beside a full count of
-   * passing tests. A `catch` here would only mean the work still ran late and
-   * said nothing about it, so the work is tracked instead and `settled` is how
-   * a teardown waits for it.
+   * passing tests. #201 tracked the work so `settled` could wait for it, and
+   * deliberately stopped there, because tracking work is not the same decision
+   * as owning how it fails.
+   *
+   * This is that second decision (#203). Every caller below names what its work
+   * is, and a rejection is reported against that name rather than rethrown into
+   * a promise nobody holds. Rethrowing it was the default `void` had, and since
+   * Node 15 the default for a rejection nobody handles is to end the process:
+   * the cover, the hash and the crops each read the catalogue, so a connection
+   * that hiccups in the seconds after a save took the API down with it, in
+   * front of somebody holding a book. Reproduced against a running app in #203
+   * by killing the database container immediately after a save.
    */
   const outstanding = new Set<Promise<unknown>>()
 
-  function inTheBackground(work: Promise<unknown>): void {
+  /**
+   * Say that background work failed, at error level, naming what it was.
+   *
+   * **Reported rather than swallowed**, because a crop or a cover that fails in
+   * silence is the distinction #192 built the `capture` table around being
+   * quietly corrupted: a book with no cover would be indistinguishable from a
+   * book nobody ever looked for a cover for.
+   *
+   * Nothing here is lost by carrying on. The row the person is waiting on is
+   * already committed, and every column this work writes is derived and
+   * refetchable: a cover the save could not stamp stays unstamped, which is
+   * exactly the "never looked" state `missingCovers` selects on, so the backfill
+   * asks again rather than recording a "looked and found nothing" that never
+   * happened.
+   *
+   * **Staying up is only defensible because nothing here answers from
+   * anywhere but the catalogue.** A process that outlives its database and
+   * then serves a stale or empty shelf is worse than one that crashes, because
+   * a wrong answer given confidently is what nobody checks. Nothing is cached:
+   * every listing, every count and `/api/health` itself run a query, so a
+   * database that has gone away for good rather than blinked shows as requests
+   * that fail rather than as a catalogue with no books in it. Checked in #203
+   * by killing the container and asking: `/api/health` and
+   * `GET /api/books?range=fiction` both stopped answering, and neither
+   * answered empty. They hung rather than erroring, which is an Aspire
+   * artifact rather than a design: its proxy keeps accepting on the database
+   * port after the container is gone, so the pool's connect never refuses.
+   *
+   * What that costs: the failure is in this log and in a red health check
+   * rather than on the phone, and a person watching a book fail to grow a
+   * cover has to be told to look here.
+   */
+  function backgroundFailed(what: string, reason: unknown): void {
+    console.error(`[api] background work failed, ${what}:`, reason)
+  }
+
+  function inTheBackground(work: Promise<unknown>, what: string): void {
     outstanding.add(work)
     void work.then(
       () => outstanding.delete(work),
       (reason: unknown) => {
         outstanding.delete(work)
-        /*
-         * Rethrown into a promise nobody holds, which is exactly what `void`
-         * did with it before this was tracked. **Tracking work must not become
-         * handling it.** A rejection swallowed here would mean a save's cover
-         * or crop failing in silence, and in a test it would mean the work
-         * still running after the database went away with nothing saying so,
-         * which is the thing being fixed rather than a way of hiding it.
-         */
-        throw reason
+        backgroundFailed(what, reason)
       },
     )
   }
 
   // `allSettled`, because waiting for the work is not the same as owning how it
-  // failed: the line above still reports that. A loop, because the chain being
-  // waited on adds to the set as it goes.
+  // failed: `backgroundFailed` above is what reports that. A loop, because the
+  // chain being waited on adds to the set as it goes.
   async function settled(): Promise<void> {
     while (outstanding.size) await Promise.allSettled([...outstanding])
   }
@@ -813,7 +851,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // Not awaited: the shutter must not wait on OCR. Tracked for the same
     // reason the chain after a save is: it is still running when the request
     // that started it is over, and a teardown has to be able to wait for it.
-    inTheBackground(queue.drain())
+    inTheBackground(queue.drain(), `reading the photographs of capture ${capture.id}`)
 
     res.status(201).json({ capture, counts: await queue.counts() })
   }))
@@ -1188,15 +1226,22 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // this fills in only what arrives afterwards.
     //
     // Handed to `inTheBackground` rather than voided, so that a teardown can
-    // wait for it. Nothing about when it runs changes.
+    // wait for it and so a failure has an owner. Nothing about when it runs
+    // changes.
+    //
+    // The `.catch(() => undefined)` that used to sit on the last step is gone
+    // (#203). It was there because a rejection nobody caught took the process
+    // down, and swallowing it was the price of staying up; `inTheBackground`
+    // now reports it instead, so the price is no longer worth paying. Carrying
+    // on is still safe for the reason it always was: the columns are the record
+    // while the client reads them, and `record` is idempotent, so the next save
+    // catches up.
     inTheBackground(
-      fetchCoverFor(id).then(() => hashBook(id)).then(() => cropBookPhotos(id))
-        // Caught here and nowhere else this is called. On the awaited path a
-        // failure to record is a failure to save and should be seen; out here
-        // nothing is waiting to be told, and a rejection nobody catches takes
-        // the process down. The columns are still the record while the client
-        // reads them, and `record` is idempotent, so the next save catches up.
-        .then(() => recordPhotographs(id).catch(() => undefined)),
+      fetchCoverFor(id)
+        .then(() => hashBook(id))
+        .then(() => cropBookPhotos(id))
+        .then(() => recordPhotographs(id)),
+      `filling in the cover, hashes and crops of book ${id}`,
     )
 
     res.status(201).json({
@@ -2039,17 +2084,21 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * was the cropped one. The photograph has to land first, whole, and then be
    * cropped from.
    *
-   * Failure is silent on purpose: a crop is derived data, a book with none is
-   * a book shown whole, and nothing about the save it followed should be
-   * disturbed by it.
+   * Failure does not disturb the save: a crop is derived data and a book with
+   * none is a book shown whole. It is no longer silent, though (#203). A crop
+   * that failed and said nothing is indistinguishable from a photograph the
+   * detector looked at and declined, which is the distinction #192 built the
+   * `capture` table around, so the failure is reported and only then dropped.
    */
   async function cropBookPhotos(id: number): Promise<void> {
     const book = await store.getBook(id)
     if (!book) return
     try {
       await cropPhotos(store, book, cropIo, { apply: true })
-    } catch {
-      // Left uncropped, which is a state the views already draw.
+    } catch (reason) {
+      // Left uncropped, which is a state the views already draw, and said out
+      // loud so that "uncropped" never has to stand in for "nobody tried".
+      backgroundFailed(`cropping the photographs of book ${id}`, reason)
     }
   }
 
@@ -2532,7 +2581,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   })
 
   if (startBackgroundWork) {
-    queue.resumeOnStartup()
+    inTheBackground(queue.resumeOnStartup(), 'resuming the captures left pending at startup')
 
     // After the port is open, so a slow or unreachable cover service never
     // delays the server being usable.
