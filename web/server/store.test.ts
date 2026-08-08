@@ -385,44 +385,67 @@ describe('imageInUse', () => {
     expect(await store.imageInUse('cover.jpg')).toBe(true)
   })
 
-  it('reports true when only a capture names the file, across all three of its columns', async () => {
-    // Raw insert: nothing on Store creates a capture, and the fixture only
+  it('reports true when only a queued book names the file, across all three columns', async () => {
+    // Raw insert: nothing on Store creates a queued book, and the fixture only
     // needs the row to exist, not the queue machinery around it.
     for (const column of ['front_image', 'back_image', 'edge_image']) {
       await db.run(
-        `INSERT INTO captures (status, ${column}, created_at) VALUES ('pending', 'shared.jpg', ?)`,
+        `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, ${column}, scanned_at)
+         VALUES ('', '', 0, '', 'scanned', 'shared.jpg', ?)`,
         [new Date().toISOString()],
       )
       expect(await store.imageInUse('shared.jpg')).toBe(true)
-      await db.run('DELETE FROM captures')
+      await db.run("DELETE FROM books WHERE state = 'scanned'")
     }
   })
 
-  it("counts a capture's crop, so a discard cannot delete another capture's copy", async () => {
-    // A crop is named after the photograph it came from, so two captures of
-    // the same photograph produce the same crop filename. Deleting on one
-    // capture's behalf must not take the other's picture with it.
+  it("counts a queued book's crop, so a discard cannot delete another one's copy", async () => {
+    // A crop is named after the photograph it came from, so two scans of the
+    // same photograph produce the same crop filename. Deleting on one scan's
+    // behalf must not take the other's picture with it.
     await db.run(
-      `INSERT INTO captures (status, front_image, front_crop, cropped, created_at)
-       VALUES ('ready', 'shared.jpg', 'shared_crop.jpg', 'front', ?)`,
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
+                          front_image, front_crop, cropped, scanned_at)
+       VALUES ('', '', 0, '', 'identified', 'shared.jpg', 'shared_crop.jpg', 'front', ?)`,
       [new Date().toISOString()],
     )
 
     expect(await store.imageInUse('shared_crop.jpg')).toBe(true)
   })
 
-  it("does not report a book's image as orphaned merely because a finished capture also names it", async () => {
-    // This is the case deleteOrphanedImages exists to protect. A capture
-    // hands its filenames to the book it becomes, so a capture and the book
-    // it produced routinely name the same file. Deleting on the capture's
-    // behalf must not take the book's copy of that file with it.
-    const { id } = await store.addBook(
+  /**
+   * The one judgement in `imageInUse`, and the reason discarding still frees
+   * the photographs it was taken with.
+   *
+   * A discarded scan keeps its filenames, because they are the record of what
+   * was thrown away. Counting them as a claim on the file would mean the sweep
+   * behind a discard found nothing to delete, and deleting the photographs is
+   * most of what discarding a mistaken scan is for.
+   */
+  it('does not count a discarded scan, whose filenames are history rather than a claim', async () => {
+    await db.run(
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
+                          front_image, front_crop, scanned_at)
+       VALUES ('', '', 0, '', 'discarded', 'gone.jpg', 'gone_crop.jpg', ?)`,
+      [new Date().toISOString()],
+    )
+
+    expect(await store.imageInUse('gone.jpg')).toBe(false)
+    expect(await store.imageInUse('gone_crop.jpg')).toBe(false)
+  })
+
+  it("still protects a shelved book's photograph from a discard beside it", async () => {
+    // The case `deleteOrphanedImages` exists for. Two scans of one book name
+    // one file, and deleting on the discarded one's behalf must not take the
+    // shelved one's picture with it.
+    await store.addBook(
       draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
     )
     await db.run(
-      `INSERT INTO captures (status, back_image, created_at, book_id)
-       VALUES ('done', 'shared.jpg', ?, ?)`,
-      [new Date().toISOString(), id],
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
+                          back_image, scanned_at)
+       VALUES ('', '', 0, '', 'discarded', 'shared.jpg', ?)`,
+      [new Date().toISOString()],
     )
 
     expect(await store.imageInUse('shared.jpg')).toBe(true)

@@ -38,8 +38,9 @@
  *   --reset   Empty the catalogue and delete web/data first, so a pass always
  *             starts from the same synthetic world rather than piling more of
  *             it onto whatever was already there. Without it, the script
- *             refuses to run against a target that already holds books or
- *             captures.
+ *             refuses to run against a target that already holds books.
+ *             That is the queue as well as the shelves since #183, which
+ *             dissolved the captures table into early states on `books`.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -53,6 +54,7 @@ import { Store, type DraftBook } from '../server/store'
 import { Shelves } from '../server/shelves'
 import type { ShelfRange } from '../shared/shelving'
 import { backCover, frontCover, spine } from '../server/fixtures'
+import { STATE_OF_QUEUE_STATUS } from '../domain/books/state'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WEB_DIR = resolve(HERE, '..')
@@ -316,7 +318,17 @@ async function isolateTail(store: Store, shelves: Shelves, range: ShelfRange): P
 // ---------------------------------------------------------------------------
 
 interface CaptureFields {
-  status: 'pending' | 'ready' | 'failed' | 'done'
+  /**
+   * The wire vocabulary, not the state, and the same three words every call
+   * site below already passes.
+   *
+   * `done` has gone from the union because a seeded row can never be one. It
+   * meant "this capture became a book", which since #183 is a book that has
+   * been shelved, and the shelved half of this world is seeded through `Store`
+   * where it belongs rather than by writing a row that claims to have been
+   * through a queue it never entered.
+   */
+  status: keyof typeof STATE_OF_QUEUE_STATUS
   front_image?: string
   back_image?: string
   edge_image?: string
@@ -335,23 +347,39 @@ interface CaptureFields {
   claimed_at?: string | null
 }
 
+/**
+ * One book in the queue, which is a book in an early state (#183).
+ *
+ * Empty `title`, `shelf_range` and `sort_key`, exactly as `CaptureQueue.insert`
+ * writes them and for the same reason: nobody has read this book yet, so it has
+ * no title and belongs nowhere. The state keeps it out of `shelved_books` and
+ * the empty shelf range keeps it out of every range there is, which is two
+ * independent protections against a nameless row turning up on a seeded shelf.
+ *
+ * The fields this takes are still the queue's, because that is what a seeded
+ * stage is described in and what the queue pane will show. The translation to
+ * columns happens here, in one place, the way `queue.ts` does it at its own
+ * edge.
+ */
 async function insertCapture(
   db: Db,
   fields: CaptureFields,
 ): Promise<void> {
   const now = new Date().toISOString()
   await db.run(
-    `INSERT INTO captures (
-       status, front_image, back_image, edge_image, isbn13, isbn10,
+    `INSERT INTO books (
+       title, shelf_range, is_fiction, sort_key,
+       state, front_image, back_image, edge_image, isbn13, isbn10,
        isbn_source, title_guess, cover_text, analysed, draft_json, edit_json,
-       edited_by, edited_at, note, claimed_by, claimed_at, created_at
+       edited_by, edited_at, scan_note, claimed_by, claimed_at, scanned_at
      ) VALUES (
+       '', '', 0, '',
        @status, @front_image, @back_image, @edge_image, @isbn13, @isbn10,
        @isbn_source, @title_guess, @cover_text, @analysed, @draft_json, @edit_json,
        @edited_by, @edited_at, @note, @claimed_by, @claimed_at, @created_at
      )`,
     {
-      status: fields.status,
+      status: STATE_OF_QUEUE_STATUS[fields.status],
       front_image: fields.front_image ?? '',
       back_image: fields.back_image ?? '',
       edge_image: fields.edge_image ?? '',
@@ -413,22 +441,31 @@ async function main(): Promise<void> {
   // The same refusal `--reset` used to get from a books.db already being
   // there, moved to the thing it is now about. A world seeded on top of a
   // world is two worlds, and neither of them is the one this script describes.
+  //
+  // One table asked once, where it used to be books plus captures. The queue is
+  // rows in `books` since #183, so the shelved half and the waiting half are
+  // counted by the same COUNT and adding a second one would count the queue
+  // twice.
   const existing = await db.get<{ count: string }>(
-    'SELECT (SELECT COUNT(*) FROM books) + (SELECT COUNT(*) FROM captures) AS count',
+    'SELECT COUNT(*) AS count FROM books',
   )
   if (Number(existing?.count ?? 0) > 0) {
     if (!reset) {
       await db.close()
       console.error(
-        `${describeConnection(TARGET)} already holds books or captures.\n` +
+        `${describeConnection(TARGET)} already holds books.\n` +
         'Pass --reset to empty it and seed a fresh world, or point --target ' +
         'at an empty database.',
       )
       process.exitCode = 1
       return
     }
+    // `captures` is no longer named. The table and its rows are still there and
+    // nothing reads or writes them, so a script that emptied it would be
+    // claiming an interest it does not have. It is emptied regardless: it holds
+    // a foreign key into `books`, which CASCADE follows.
     await db.run(
-      'TRUNCATE books, book_authors, captures, separators, author_filing, ' +
+      'TRUNCATE books, book_authors, separators, author_filing, ' +
       'author, author_alias RESTART IDENTITY CASCADE',
     )
   }

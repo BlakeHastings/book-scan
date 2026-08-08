@@ -24,7 +24,7 @@ describes what the code needed and this one describes the collection.
 | Eight image columns | Exactly one photograph of each kind, forever. A blurred spine cannot be re-shot. |
 | `is_fiction`, `category` | Two fixed ways to classify, when people want many. |
 | `location`, `shelved_at`, `checked_out_at` | Only the present tense. Where a book has been is not recorded. |
-| Separate `captures` queue | The queue is a state a book is in, not a different kind of thing. |
+| ~~Separate `captures` queue~~ | The queue is a state a book is in, not a different kind of thing. **Dissolved by #183.** |
 
 ## Vocabulary
 
@@ -269,10 +269,11 @@ Fix it in one place: a `shelved_books` view and a partial index on
 `(shelf_range, sort_key) WHERE state = 'shelved'`. The ordering code reads the
 view and cannot forget.
 
-**Both are built, by #183.** `books.state` carries the seven names, the view is
-what `Store.neighbours` and `Shelves.booksIn` read, and `idx_books_shelved` is
-what the view is an index seek over. The queue table is **not** dissolved: that
-is the second half and it is described under "What is built".
+**Both are built, by #183, and so is the rest of it.** `books.state` carries the
+seven names, `shelved_books` is what `Store.neighbours` and `Shelves.booksIn`
+read, and `idx_books_shelved` is what it is an index seek over. The queue table
+is dissolved: `queued_books` is the three early states and is the whole of what
+`CaptureQueue` reads. See "What is built".
 
 ## One repair the cut-over owes
 
@@ -379,14 +380,14 @@ cover the startup backfill downloads next week lands in `books.cover_image` and
 does not become a capture row until that book is next saved. `capture` tracks
 saves, and it drifts behind the columns between them.
 
-**The queue table's three image columns are not migrated, and that is a
-decision.** `captures.book_id` is nullable, because a capture waiting to be
-confirmed is not a book yet, and `capture.book_id` is not null on purpose. A
-queue row with no book has photographs and nowhere to hang them until #183 gives
-a scanned-but-unidentified book a state of its own; a queue row that *has* become
-a book handed its filenames straight to that book, so its photographs are already
-recorded as the book's and a second row would be a second capture of one
-photograph. Both halves want the state model, so both wait for it.
+**The queue table's three image columns were not migrated by #192, and that was
+a decision.** `captures.book_id` was nullable, because a capture waiting to be
+confirmed was not a book yet, and `capture.book_id` is not null on purpose. A
+queue row with no book had photographs and nowhere to hang them; a queue row that
+*had* become a book handed its filenames straight to that book, so its
+photographs were already recorded as the book's. Both halves wanted the state
+model. **`0011` is where they resolve**, by making every queue row a book and
+then giving its photographs rows against it.
 
 `books.state`, `shelved_books` and `idx_books_shelved` are, by the first half of
 #183: the column with its check constraint over the seven names, the vocabulary
@@ -400,18 +401,36 @@ exactly the predicate the shelf has always been drawn with. `0008` counts the
 result, refuses to finish if a row is left undecided, and takes the shelf order
 hash either side of itself and refuses if it moved.
 
-**Nothing is cut over and the queue table is untouched**, the same shape as #179,
-#180 and #192. `checked_out_at` is still what the client reads and what
-`Store.setCheckedOut` compares; the state is written in that same statement so
-the two cannot drift. `GET /api/books` still lists the whole range, including
-books that are off the shelf, and reads `books` rather than the view on purpose:
-it is the catalogue rather than a shelf, and what it should say about a book that
-has been scanned and not identified is decided with the change that makes such a
-row possible.
+`checked_out_at` is still what the client reads and what `Store.setCheckedOut`
+compares; the state is written in that same statement so the two cannot drift.
 
-**`identified` has no rows and cannot yet**, which is the honest limit of this
-half. A book that is confirmed and not yet placed is still a row in the queue
-table, so `POST /api/books` writes `shelved` directly. Splitting that into two
-steps is what dissolving the queue is: **still to do**, and it is where
-`captures`'s three image columns and its nullable `book_id` are finally
-answered.
+**The queue table is dissolved by the second half of #183**: `0010` gives `books`
+the eleven columns that were the queue's and adds `queued_books`,
+`catalogued_books` and `idx_books_queued`; `0011` turns every `captures` row into
+a book in the state its status said it was in, links the two with `book_id`,
+turns its three photographs into `capture` rows, counts the result and takes the
+shelf order hash either side of itself. Nothing is dropped: the `captures` table
+and its rows are still there, and nothing reads them.
+
+`identified` has rows now. `POST /api/books` is the second of two steps rather
+than one: the book was created by its first photograph, and saving it at a shelf
+is an update that moves it to `shelved`, in the statement that writes the sort
+key.
+
+**A discarded scan is a state, not a deleted row.** Discarding used to remove the
+row, and with it the record that anybody had photographed the thing. The
+photographs are still deleted, because that is what somebody discarding a scan is
+asking for, and the row keeps their names as the record of what was thrown away.
+
+**`GET /api/books` does not list a queued book**, which is the question the first
+half deferred. `Store.listRange` and the counts, the duplicate checks and the
+cover and hash backfills all read `catalogued_books`, and on the day this landed
+that view held exactly the rows `books` held. A book with no title, no author and
+no shelf range is not a catalogue entry, and it is already on screen in the
+queue, which is the one place anybody can act on it.
+
+**The wire vocabulary did not move.** `GET /api/captures` still answers with
+`pending`, `ready`, `failed` and `done`, so the client, the queue badge and the
+browser suite are unchanged. `domain/books/state.ts` holds the pairing and
+`server/queue.ts` translates at the edge. Collapsing the two vocabularies belongs
+with the work that makes the queue routes book routes.

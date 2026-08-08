@@ -50,7 +50,16 @@ export interface BookRow {
   checked_out_at: string | null
 }
 
-/** A book photographed but not yet filed. */
+/**
+ * A book photographed but not yet filed.
+ *
+ * Not a table any more since #183: the queue was dissolved into `books`, so a
+ * row here is a book in one of the three early states, read back through the
+ * projection below. The field names are unchanged because the app's wire
+ * vocabulary is unchanged, and a suite that had to be rewritten alongside a
+ * table move would stop being independent evidence that the move kept its
+ * promises.
+ */
 export interface CaptureRow {
   id: number
   status: string
@@ -75,6 +84,37 @@ export interface CaptureRow {
    */
   front_hash: string
 }
+
+/**
+ * A queued book in the shape the queue has always handed one over.
+ *
+ * A mirror of `QUEUE_ROW` in web/server/queue.ts, copied rather than imported
+ * for the same reason `connectionConfig` below is a copy: this package is a
+ * separate npm tree, and reaching into the app to save a dozen lines would give
+ * the suite a build dependency on the thing it is testing.
+ *
+ * Four names are aliased back because #183 renamed the columns underneath them.
+ * `status` is derived from `state`, so the four words the steps know survive the
+ * seven states arriving. `note` is `scan_note`, because `books.notes` is already
+ * a person's note about a book. `created_at` is `scanned_at`, the same moment
+ * under the name `books` has always used. And the capture that became a book is
+ * the book, so `book_id` is the row's own id once it has left the queue.
+ */
+const QUEUE_ROW = `
+  id,
+  CASE "state"
+    WHEN 'scanned' THEN 'pending'
+    WHEN 'identified' THEN 'ready'
+    WHEN 'unidentified' THEN 'failed'
+    ELSE 'done'
+  END AS status,
+  front_image, back_image, edge_image,
+  isbn13, isbn10, isbn_source, title_guess, cover_text, analysed,
+  draft_json, edit_json, edited_by, edited_at,
+  scan_note AS note, claimed_by, claimed_at,
+  CASE WHEN "state" IN ('scanned', 'unidentified', 'identified') THEN NULL ELSE id END AS book_id,
+  scanned_at AS created_at, processed_at,
+  front_crop, back_crop, edge_crop, cropped, front_hash`
 
 export interface SeparatorRow {
   id: number
@@ -161,16 +201,31 @@ export class Catalogue {
    *
    * Photographs on disk are left alone. They are named after the moment they
    * were taken so they cannot collide, and no assertion counts them.
+   *
+   * `captures` has dropped off the list since #183. The table is still there
+   * with its rows in it, but nothing reads or writes it, and naming a table this
+   * suite has no opinion about would be asserting that it still matters. It is
+   * emptied anyway: it holds a foreign key into `books`, so CASCADE reaches it.
    */
   async reset(): Promise<void> {
     await this.pool.query(
-      'TRUNCATE captures, book_authors, books, separators, author_filing, ' +
+      'TRUNCATE book_authors, books, separators, author_filing, ' +
       'author, author_alias RESTART IDENTITY CASCADE',
     )
   }
 
+  /**
+   * The catalogue, in shelf order.
+   *
+   * `catalogued_books`, not `books`, since #183 put the queue in the same
+   * table. A book waiting to be identified has no sort key, so it would sort to
+   * the front of this list as a row with no title in it, and the first scenario
+   * that left a book in the queue and then asserted the order would fail for a
+   * reason that had nothing to do with what it was testing. That view holds
+   * exactly the rows `books` held before the queue moved in.
+   */
   async books(): Promise<BookRow[]> {
-    return this.all<BookRow>('SELECT * FROM books ORDER BY sort_key ASC')
+    return this.all<BookRow>('SELECT * FROM catalogued_books ORDER BY sort_key ASC')
   }
 
   async bookByIsbn(isbn13: string): Promise<BookRow | undefined> {
@@ -191,17 +246,30 @@ export class Catalogue {
   /**
    * The work queue itself. Read because #65 is a claim about what reaches the
    * database while a book is still in it, which no screen assertion can make.
+   *
+   * `queued_books` is the queue now, and it is the right relation rather than
+   * merely the working one: the steps that read this all ask about a book
+   * somebody has photographed and not yet shelved, and `books` would hand them
+   * every book in the catalogue as well. Two of the projected columns are
+   * therefore constant here, `status` never reading `done` and `book_id` always
+   * reading null, which is exactly what a capture waiting in the queue always
+   * was.
    */
   async captures(): Promise<CaptureRow[]> {
-    return this.all<CaptureRow>('SELECT * FROM captures ORDER BY id ASC')
+    return this.all<CaptureRow>(`SELECT ${QUEUE_ROW} FROM queued_books ORDER BY id ASC`)
   }
 
   async captureCount(): Promise<number> {
     // CAST for the reason the stores carry one: COUNT is a bigint and
     // node-postgres hands a bigint back as a string rather than lose precision,
     // so `toBe(1)` would fail against "1" and say nothing about why.
+    //
+    // Counted over the queue and not over `books`, because "the queue holds one
+    // book" is a claim about what is still waiting. A book that has been shelved
+    // has left the queue without leaving the table, so counting the table would
+    // make every scenario that shelves anything count it twice.
     const [row] = await this.all<{ n: number }>(
-      'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM captures',
+      'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM queued_books',
     )
     return row!.n
   }

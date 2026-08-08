@@ -16,7 +16,14 @@ import {
   type ShelfRange,
 } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
-import { CHECKED_OUT, SHELVED } from '../domain/books/state'
+import { CHECKED_OUT, DISCARDED, QUEUED_STATES, SHELVED } from '../domain/books/state'
+
+/**
+ * The three early states as a SQL literal list, for the one statement here that
+ * needs them: `updateBook`, which is where a book leaves the queue for a shelf.
+ * Built from the domain rather than typed out, for the reason the view is.
+ */
+const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
 // The lock namespace, not the class. `Shelves` owns shelf geography, and a
 // book being filed into a range and a boundary moving inside it are the two
 // halves of the same contention.
@@ -407,6 +414,11 @@ export class Store {
    * it committed, so the position the caller was handed back described a shelf
    * that anything landing in between had already changed. All three are one
    * unit now, serialised on the range.
+   *
+   * **This is also how a book leaves the queue (#183).** A book exists from its
+   * first photograph, so shelving one is an update rather than an insert: the
+   * row is already there, in an early state, with its photographs on it. The
+   * state moves in the statement below, beside the sort key.
    */
   async updateBook(id: number, draft: DraftBook): Promise<Placement & ResolvedKey> {
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
@@ -440,10 +452,37 @@ export class Store {
            -- where this stage can prove it changes nothing.
            location = COALESCE(NULLIF(CAST(@location AS TEXT), ''), location),
            lookup_source = @lookup_source, isbn_source = @isbn_source,
-           shelved_at = COALESCE(shelved_at, @shelved_at)
+           shelved_at = COALESCE(shelved_at, @shelved_at),
+           -- The photographs, on the same terms as the location above and for
+           -- the same reason: an edit that carries none leaves the row's alone.
+           -- A book saved out of the queue already has its three on the row and
+           -- the client does not re-upload them; a book saved with new ones
+           -- means them.
+           front_image = COALESCE(NULLIF(CAST(@front_image AS TEXT), ''), front_image),
+           back_image  = COALESCE(NULLIF(CAST(@back_image  AS TEXT), ''), back_image),
+           edge_image  = COALESCE(NULLIF(CAST(@edge_image  AS TEXT), ''), edge_image),
+           /*
+            * Saving a book at the shelf is what takes it out of the queue.
+            *
+            * Identified and shelved are two steps, and this is the second
+            * one: knowing what a book is and knowing where it went are separate
+            * facts, and this statement is the moment somebody standing at a
+            * shelf says the second. The state is written in the statement that
+            * writes the sort key, so a book cannot be in the shelf order under
+            * one and out of it under the other.
+            *
+            * The CASE rather than a bare assignment, because this method is
+            * also how a book already on a shelf is edited, and a checked-out
+            * book edited from the library must not be quietly put back. Every
+            * state that is not queued keeps itself.
+            */
+           "state" = CASE WHEN "state" IN (${QUEUED_SQL}) THEN '${SHELVED}' ELSE "state" END
          WHERE id = @id`,
         {
           id,
+          front_image: draft.frontImage ?? '',
+          back_image: draft.backImage ?? '',
+          edge_image: draft.edgeImage ?? '',
           isbn13: isbn.isbn13 || draft.isbn13 || '',
           isbn10: isbn.isbn10 || draft.isbn10 || '',
           title: draft.title,
@@ -503,7 +542,7 @@ export class Store {
     if (!isbn13 && !isbn10) return undefined
 
     return this.db.get<BookRow>(
-      `SELECT * FROM books
+      `SELECT * FROM catalogued_books
         WHERE (isbn13 != '' AND isbn13 = :isbn13)
            OR (isbn10 != '' AND isbn10 = :isbn10)
         ORDER BY id LIMIT 1`,
@@ -523,37 +562,33 @@ export class Store {
   }
 
   /**
-   * Whether any book or capture still names this file in one of its image
-   * columns.
+   * Whether any book still names this file in one of its image columns.
    *
-   * A capture hands its filenames to the book it becomes, so a capture and a
-   * shelved book routinely name the same file on disk. Callers deleting an
-   * orphaned photo must check both tables, or removing a capture's copy of a
-   * filename a book still uses would take the book's photo with it, and
-   * there is no getting that back.
+   * **One table now, where this used to read two.** A capture handed its
+   * filenames to the book it became, so a capture and a shelved book named the
+   * same file on disk and deleting the capture's copy would have taken the
+   * book's photograph with it. There is nothing to get wrong there any more:
+   * the capture and the book are one row, and one row cannot half-name a file.
    *
-   * Crops count on both sides. They are derived from a photograph's name, so
-   * a capture and the book it became produce the same crop filename, and the
-   * same argument applies to it as to the photograph it came from.
+   * **A discarded book does not count, and that is the one judgement here.** Its
+   * filenames are the record of what was thrown away rather than a claim on a
+   * file, and treating them as a claim would mean discarding a scan stopped
+   * freeing the photographs it was taken with, which is most of what discarding
+   * one is for.
+   *
+   * Crops count. They are derived from a photograph's name, so the same argument
+   * applies to a crop as to the photograph it came from.
    */
   async imageInUse(name: string): Promise<boolean> {
     const usedByBook = await this.db.get(
       `SELECT 1 FROM books
-        WHERE front_image = ? OR back_image = ? OR edge_image = ? OR cover_image = ?
-           OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
+        WHERE "state" != ?
+          AND (front_image = ? OR back_image = ? OR edge_image = ? OR cover_image = ?
+            OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?)
         LIMIT 1`,
-      [name, name, name, name, name, name, name],
+      [DISCARDED, name, name, name, name, name, name, name],
     )
-    if (usedByBook) return true
-
-    const usedByCapture = await this.db.get(
-      `SELECT 1 FROM captures
-        WHERE front_image = ? OR back_image = ? OR edge_image = ?
-           OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?
-        LIMIT 1`,
-      [name, name, name, name, name, name],
-    )
-    return Boolean(usedByCapture)
+    return Boolean(usedByBook)
   }
 
   // -----------------------------------------------------------------------
@@ -561,26 +596,39 @@ export class Store {
   // -----------------------------------------------------------------------
 
   /**
-   * Every book in a range, in order. `books`, deliberately, not
-   * `shelved_books`.
+   * Every book in a range, in order. `catalogued_books`, which is neither
+   * `books` nor `shelved_books`.
    *
-   * This is the catalogue rather than a shelf. It is what `GET /api/books`
-   * answers with, it has always included the books somebody has taken out, and
-   * a view that dropped them would take them off a listing that is the only
-   * place some of them appear. Nothing here tells anybody where to put a book,
-   * which is what makes it a different question from the two statements in
-   * `neighbours`.
+   * This is the catalogue rather than a shelf. It has always included the books
+   * somebody has taken out, and a view that dropped them would take them off a
+   * listing that is the only place some of them appear. Nothing here tells
+   * anybody where to put a book, which is what makes it a different question
+   * from the two statements in `neighbours`.
    *
-   * **On the day this lands the two relations hold the same rows**, because
-   * every row in `books` is `shelved` or `checked_out` and nothing can write
-   * anything else. What this listing should say about a book that has been
-   * scanned and not identified is a question that only has an answer once such a
-   * row can exist, which is the change that dissolves the queue table, and it is
-   * decided there rather than guessed at here.
+   * **#204 left the other half of that question open here, and this is the
+   * answer.** What should `GET /api/books` say about a book that has been
+   * scanned and not identified? Nothing, and now that such a row exists the
+   * reason can be stated rather than guessed at: it has no title, no author and
+   * no shelf range, so there is nothing to list and nothing to file it under,
+   * and it is already on screen in the queue, which is the place built to show
+   * it and the only place anybody can act on it. Listing it here would put a
+   * nameless row in the middle of somebody's library and would offer no way to
+   * do anything about it.
+   *
+   * **The rows are unchanged on the day this lands**, because `shelved` and
+   * `checked_out` were the only two states anything could write until now, and
+   * `catalogued_books` holds those two and `withdrawn`. So this listing, the
+   * counts beside it and every duplicate check answer exactly what they answered
+   * yesterday, which is checkable rather than asserted.
+   *
+   * The predicate is the view's and is not repeated here, for the reason
+   * `shelved_books` exists: eight statements in this file mean "the catalogue",
+   * and eight places to remember which states that is are eight places to
+   * forget one.
    */
   async listRange(range: ShelfRange): Promise<BookRow[]> {
     return this.db.all<BookRow>(
-      'SELECT * FROM books WHERE shelf_range = ? ORDER BY sort_key ASC',
+      'SELECT * FROM catalogued_books WHERE shelf_range = ? ORDER BY sort_key ASC',
       [range],
     )
   }
@@ -687,7 +735,7 @@ export class Store {
     // nothing to work it out from. Identity on SQLite, which is the only
     // database this stage can demonstrate it on.
     return this.db.all<{ id: number; isbn13: string; isbn10: string }>(
-      `SELECT id, isbn13, isbn10 FROM books
+      `SELECT id, isbn13, isbn10 FROM catalogued_books
         WHERE (cover_image IS NULL OR cover_image = '')
           AND (isbn13 != '' OR isbn10 != '')
           AND (CAST(:retry AS INTEGER) = 1 OR cover_checked_at IS NULL)
@@ -720,7 +768,7 @@ export class Store {
     return this.db.all(
       `SELECT id, title, author_filing, cover_image, front_image, edge_image,
               back_image, checked_out_at, front_hash, cover_hash
-         FROM books
+         FROM catalogued_books
         WHERE front_hash != '' OR cover_hash != ''`,
     ) as never
   }
@@ -742,7 +790,7 @@ export class Store {
   }[]> {
     return this.db.all(
       `SELECT id, title, front_image, cover_image, front_hash, cover_hash
-         FROM books
+         FROM catalogued_books
         WHERE front_image != '' OR cover_image != ''
            OR front_hash != ''  OR cover_hash != ''
         ORDER BY id`,
@@ -806,7 +854,7 @@ export class Store {
     return this.db.all(
       `SELECT id, title, front_image, back_image, edge_image,
               front_crop, back_crop, edge_crop, cropped
-         FROM books
+         FROM catalogued_books
         WHERE front_image != '' OR back_image != '' OR edge_image != ''
         ORDER BY id`,
     ) as never
@@ -817,7 +865,7 @@ export class Store {
     limit: number,
   ): Promise<{ id: number; front_image: string; cover_image: string }[]> {
     return this.db.all(
-      `SELECT id, front_image, cover_image FROM books
+      `SELECT id, front_image, cover_image FROM catalogued_books
         WHERE (front_image != '' AND front_hash = '')
            OR (cover_image != '' AND cover_hash = '')
         ORDER BY id LIMIT ?`,
@@ -869,7 +917,7 @@ export class Store {
               AS INTEGER)                                            AS nonfiction,
          CAST(SUM(CASE WHEN checked_out_at IS NOT NULL THEN 1 ELSE 0 END)
               AS INTEGER)                                            AS "checkedOut"
-       FROM books`,
+       FROM catalogued_books`,
     )
 
     return {

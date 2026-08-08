@@ -932,6 +932,20 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
   }))
 
+  /**
+   * Discard a scan. **Nothing is deleted (#183).**
+   *
+   * This used to remove the row, and with it the record that somebody had ever
+   * photographed the thing. `discarded` is one of the seven states in
+   * `docs/data-model.md` for exactly that reason: the book stops being in the
+   * queue, cannot reach a shelf, and is still there to be counted and looked at.
+   *
+   * The photographs are still deleted, because deleting them is what somebody
+   * discarding a scan is asking for and they are the bulk of what a mistaken
+   * scan costs. The filenames stay on the row as the record of what was thrown
+   * away, and `Store.imageInUse` does not count a discarded book's filenames as
+   * a claim on a file, which is what lets this sweep still find them.
+   */
   app.delete('/api/captures/:id', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
     const capture = await queue.get(id)
@@ -943,19 +957,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     /*
      * The crops go with the photographs.
      *
-     * They are files this capture caused to exist, named after photographs
-     * that are about to stop being referenced by anything, so leaving them
-     * behind fills the data directory with pictures nobody can attribute to a
-     * capture, a book or anything else. They go through the same orphan check
-     * rather than a second mechanism: a capture that became a book hands its
-     * filenames on, and the crop of a photograph a book still names is the
-     * book's crop too.
+     * They are files this scan caused to exist, named after photographs that are
+     * about to stop being referenced by anything, so leaving them behind fills
+     * the data directory with pictures nobody can attribute to anything. They go
+     * through the same orphan check rather than a second mechanism, which is
+     * what stops a discard taking a photograph a shelved book still names.
      */
     const images = [
       capture.front_image, capture.back_image, capture.edge_image,
       capture.front_crop, capture.back_crop, capture.edge_crop,
     ]
-    await queue.remove(id)
+    await queue.discard(id)
     const removed = await deleteOrphanedImages(images)
 
     res.json({ ok: true, counts: await queue.counts(), photosRemoved: removed.length })
@@ -1103,10 +1115,23 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
     const captureId = Number(body.captureId ?? 0)
 
-    // A book promoted from the queue already has its photos on disk. The
-    // client does not re-upload them, so carry the filenames across here or
-    // the book silently loses every image it was scanned with.
+    /*
+     * A book saved out of the queue is a row that already exists (#183).
+     *
+     * This is the second of the two steps `docs/data-model.md` describes.
+     * `identified` says somebody worked out what the book is; this route is
+     * somebody standing at a shelf saying where it went, and the two are
+     * separate facts established at separate moments by possibly different
+     * people. The row was created by the first photograph, so what happens here
+     * is an update that moves it to `shelved`, not an insert.
+     *
+     * It still carries the photographs across explicitly, because the draft is
+     * what `store` writes from and the client does not re-upload them. The
+     * columns already hold these values; sending them again costs nothing and
+     * means the two paths through this route write the same fields.
+     */
     const capture = captureId ? await queue.get(captureId) : undefined
+    const queued = capture && capture.status !== 'done' ? capture : undefined
     if (capture) {
       draft.frontImage = capture.front_image
       draft.backImage = capture.back_image
@@ -1131,7 +1156,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       if (primary) await store.saveFilingOverride(primary, draft.authorFilingOverride)
     }
 
-    const { id, placement } = await store.addBook(draft)
+    const { id, placement } = queued
+      ? { id: queued.id, placement: await store.updateBook(queued.id, draft) }
+      : await store.addBook(draft)
     await recordGenreTag(id, draft)
     await recordCredits(id, draft)
     await recordPhotographs(id)
@@ -1152,8 +1179,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       const landed = await shelves.labelFor(placement.range, id)
       if (landed) await store.setLocation(id, landed)
     }
-
-    if (captureId) await queue.markDone(captureId, id)
 
     // Deliberately not awaited. The person is waiting to be told where the
     // book goes, and a cover that arrives a second later costs them

@@ -7,6 +7,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
+import { CaptureQueue } from './queue'
 import { Shelves } from './shelves'
 import { Store } from './store'
 
@@ -459,10 +460,16 @@ describe('a book taken off the shelf', () => {
  * out of the layout by something. That something is `shelved_books`, and these
  * are the questions somebody standing at a bookcase actually asks.
  *
- * Written straight into `books` on purpose. Nothing in this revision produces an
- * `unidentified` row, so a test that went through the app could not make one and
- * would be waiting for the change that dissolves the queue to say anything at
- * all. This is the row that change will produce, filed between two real books.
+ * Written straight into `books` on purpose, and this is the harder version of
+ * the row rather than the one the app produces. A book the queue makes has no
+ * shelf range and no sort key, so it is kept off a shelf twice over and a test
+ * of it would prove the weaker protection. This one is given a range and a key
+ * that file it exactly between two real books, so the state is the only thing
+ * standing between it and somebody's bookcase, which is the property worth
+ * asserting.
+ *
+ * Before #204 these rows could not exist at all. `queue.add` makes one now, and
+ * the last test here is that one, made the way the app makes it.
  */
 describe('a book in the catalogue that is not on a shelf', () => {
   /**
@@ -480,7 +487,7 @@ describe('a book in the catalogue that is not on a shelf', () => {
       `INSERT INTO books (title, shelf_range, is_fiction, author_filing, sort_key,
                           location, scanned_at, state)
        VALUES ('Something nobody has confirmed', 'fiction', 1, ?, ?, ?,
-               '2026-08-07T00:00:00.000Z', 'unidentified')`,
+               '2026-08-07T00:00:00.000Z', 'scanned')`,
       [key.authorFiling, key.sortKey, location],
     )
   }
@@ -520,12 +527,66 @@ describe('a book in the catalogue that is not on a shelf', () => {
     expect(review.excluded).toEqual([])
   })
 
-  it('is still in the catalogue, because it is still a book', async () => {
+  it('is not in the strip a person is shown at the shelf', async () => {
+    const ann = await add('Ann Author')
+    const cathy = await add('Cathy Clark')
+    await unidentified('Bob Baker')
+
+    // The run drawn around a newcomer filing exactly where the scanned row
+    // sits. This is the screen somebody holds up next to a plank, so a row
+    // leaking here is a book they will stand and look for.
+    const key = await store.resolveKey({
+      title: 'Middle', authors: ['Bob Baxter'], isFiction: true,
+    })
+    const strip = await shelves.strip('fiction', key.sortKey)
+    expect(strip?.books.map((p) => p.book.id)).toEqual([ann, cathy])
+  })
+
+  it('is not counted when a shelf is asked whether a book can cross a boundary', async () => {
+    const ann = await add('Ann Author')
+    await add('Cathy Clark')
+    await unidentified('Bob Baker')
+    await shelves.overflow('fiction', '1A', 'area')
+
+    // Two books either side of one boundary, so Ann has somewhere to go. A
+    // third row in the layout would change which plank holds what and could
+    // make the offer describe a move nobody can carry out.
+    expect(await shelves.boundaryOptions('fiction', ann)).toEqual({
+      next: '1B', previous: null,
+    })
+  })
+
+  /**
+   * **The answer to the question #204 left open at `Store.listRange`.**
+   *
+   * It asked what `GET /api/books` should say about a book that has been
+   * scanned and not identified, and said the question only has an answer once
+   * such a row can exist. It exists now, and the answer is nothing: the row has
+   * no title, no author and nothing anybody can do to it from a library
+   * listing. It is not missing from the app, it is in the queue, which is the
+   * one screen built to show it and act on it, and the test below is that it is
+   * there.
+   *
+   * This assertion is the reverse of the one #204 left here, deliberately.
+   */
+  it('is not listed as part of the catalogue', async () => {
     await add('Ann Author')
     await unidentified('Bob Baker')
 
-    expect((await store.listRange('fiction')).map((row) => row.state))
-      .toEqual(['shelved', 'unidentified'])
+    expect((await store.listRange('fiction')).map((row) => row.state)).toEqual(['shelved'])
+    expect((await store.counts()).total).toBe(1)
+  })
+
+  it('is in the queue, which is the one place it belongs', async () => {
+    // Made the way the app makes one, rather than written in. A photograph
+    // arrives and a book exists, in `scanned`, with nothing read yet.
+    const queue = new CaptureQueue(db, () => null)
+    await add('Ann Author')
+    const scanned = await queue.add({ front: 'f.jpg' })
+
+    expect((await queue.list()).map((row) => row.id)).toEqual([scanned.id])
+    expect(await shelves.layout('fiction')).toHaveLength(1)
+    expect(await store.listRange('fiction')).toHaveLength(1)
   })
 })
 

@@ -273,13 +273,20 @@ describe('the image columns becoming capture rows', () => {
     })
   })
 
-  it('leaves the queue table and its three image columns alone', async () => {
+  it('leaves the queue table alone, and 0011 is what answers for its photographs', async () => {
     /*
-     * Stated as a test because it is a scope decision somebody will want to
-     * check rather than take on trust. `captures.book_id` is nullable, and
-     * `capture.book_id` is not: a queue row nobody has confirmed yet has
-     * photographs and no book to hang them on, and giving it one needs the
-     * state model #183 is about. See the head of the migration.
+     * This file's own migration deliberately migrates nothing out of the queue
+     * table. `captures.book_id` is nullable, and `capture.book_id` is not: a
+     * queue row nobody has confirmed yet has photographs and no book to hang
+     * them on, and giving it one needs the state model #183 is about. See the
+     * head of `0006`.
+     *
+     * `0011` is where that resolves, by making the queue row a book. The
+     * columns are still exactly where `0006` left them, because nothing in this
+     * schema is ever dropped, and the photographs are rows against the book the
+     * queue row became. Asserted here rather than only in
+     * `queue-backfill.test.ts` so that the deferral and its answer are readable
+     * in one place.
      */
     const pool = await catalogueOf([])
     await pool.query(
@@ -292,7 +299,9 @@ describe('the image columns becoming capture rows', () => {
       'SELECT front_image, cropped FROM captures',
     )
     expect(queue.rows[0]).toEqual({ front_image: 'q_front.jpg', cropped: 'front' })
-    expect(await capturesOf(pool)).toEqual([])
+
+    expect((await capturesOf(pool)).map((row) => [row.kind, row.file]))
+      .toEqual([['back', 'q_back.jpg'], ['front', 'q_front.jpg'], ['spine', 'q_edge.jpg']])
   })
 
   it('is not run twice on a database that has already had it', async () => {

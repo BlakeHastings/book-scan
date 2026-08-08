@@ -75,8 +75,9 @@ it depends on the network.
 
 See `web/scripts/seed-world.ts` for exactly what it builds. `--reset` empties
 the catalogue and clears `web/data` first; without it the script refuses a
-target that already holds books or captures, so a re-run cannot silently pile a
-second world on top of the first.
+target that already holds books, so a re-run cannot silently pile a second world
+on top of the first. That is one condition rather than two since #183: a book
+waiting in the queue is a book.
 
 This never reads or writes `BOOKSCAN_DATA`: the photographs always go to this
 checkout's own `web/data`. See AGENTS.md for why that variable matters.

@@ -260,10 +260,12 @@ describe('the worker does it, so nobody waits', () => {
     })
 
     const capture = await queue.attach(null, 'front', 'p_front.jpg')
-    discard = () => { void queue.remove(capture.id) }
+    discard = () => { void queue.discard(capture.id) }
     await queue.drain()
 
-    expect(await queue.get(capture.id)).toBeUndefined()
+    // The row is still there. A discard is a state now, not a delete (#183),
+    // so what says the scan went is the state rather than the absence of a row.
+    expect((await queue.get(capture.id))?.status).toBe('done')
     // Named to the caller's own sweep rather than deleted here, so the check
     // that a shelved book does not still want the file is the same one.
     expect(orphaned).toEqual([['p_front_crop.jpg']])
