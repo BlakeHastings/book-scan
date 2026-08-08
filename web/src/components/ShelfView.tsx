@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, type BookRow, type CheckedOutAt, type Counts, type Misfile, type Move,
-  type ShelfGroupDto, type ShelvingReview,
+  type ShelfGroupDto, type ShelvingReviewResponse,
 } from '../lib/api'
+import { canTakeBack, takeMoveBack } from '../lib/misfile'
 import { missingFrom, rowOf } from '../lib/shelfRow'
 import {
   LIBRARY_VIEWS, rememberedView, rememberView, VIEW_DESCRIPTION, VIEW_LABEL,
@@ -84,7 +85,7 @@ export function ShelfView({
   const [error, setError] = useState('')
   const [counts, setCounts] = useState<Counts | null>(null)
   const [off, setOff] = useState<CheckedOutAt[]>([])
-  const [review, setReview] = useState<ShelvingReview | null>(null)
+  const [review, setReview] = useState<ShelvingReviewResponse | null>(null)
   const [moving, setMoving] = useState(0)
   const spines = useRef(new Map<number, HTMLElement>())
   /*
@@ -181,6 +182,32 @@ export function ShelfView({
     }
   }
 
+  /**
+   * The person says they never picked this book up, so the move goes back.
+   *
+   * The other end of the same row, and the one thing this list was missing.
+   * "Moved it" closes the gap by recording that somebody walked to a shelf;
+   * this closes it by withdrawing an assignment nobody acted on, and writes no
+   * location at all, because nothing about the room has changed. Without it the
+   * only way out of a mistapped move was to claim the walk and then move the
+   * book back: two false statements to undo one tap (#196).
+   *
+   * Offered only where the server says a move is outstanding. Every other entry
+   * here is the order having moved a book, which no button can undo.
+   */
+  const takeBack = async (misfile: Misfile) => {
+    setMoving(misfile.book.id)
+    setError('')
+    try {
+      await takeMoveBack(range, misfile.book.id)
+      load()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setMoving(0)
+    }
+  }
+
   const misfiles = review?.misfiles ?? []
   const unplaced = (review?.excluded ?? [])
     .filter((entry) => entry.reason === 'never-placed').length
@@ -225,7 +252,7 @@ export function ShelfView({
           <p className="hint">
             Where each book was last seen, against where the order now puts it.
             Nothing has been changed for you. Tap "Moved it" once the book is
-            actually there.
+            actually there, or "Undo the move" if you never picked it up.
           </p>
           {misfiles.map((misfile) => (
             <div key={misfile.book.id} className="attention__row">
@@ -240,6 +267,17 @@ export function ShelfView({
                   {misfile.from} → <strong>{misfile.to}</strong>
                 </span>
               </button>
+              {/* Drawn only where the app made the move, so the two kinds of
+                  entry stay tellable apart at a glance. */}
+              {canTakeBack(review, misfile.book.id) && (
+                <button
+                  className="btn btn--ghost"
+                  disabled={moving === misfile.book.id}
+                  onClick={() => takeBack(misfile)}
+                >
+                  {moving === misfile.book.id ? '...' : 'Undo the move'}
+                </button>
+              )}
               <button
                 className="btn btn--ghost"
                 disabled={moving === misfile.book.id}

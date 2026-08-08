@@ -1,4 +1,5 @@
-import { api, type Misfile, type ShelvingReview } from './api'
+import { api, type Misfile, type ShelvingReview, type ShelvingReviewResponse } from './api'
+import type { ShelfRange } from '../../shared/shelving'
 
 /**
  * This book's entry in a shelving review, or null when it is not flagged.
@@ -33,4 +34,41 @@ export function findMisfile(
  */
 export function recordMoved(misfile: Misfile) {
   return api.setLocation(misfile.book.id, misfile.to)
+}
+
+/**
+ * Whether this book's misfile is one the app opened and can close again.
+ *
+ * The server decides, the same way it decides what a misfile is, and for the
+ * same reason: it is the only side that knows a boundary move was made and
+ * that the shelves have not changed since. The client asks and looks its book
+ * up in the answer.
+ *
+ * The two kinds of misfile look identical on screen and are not the same thing.
+ * One is an assignment this app made and nobody acted on, and withdrawing it
+ * costs nothing because nothing happened. The other is where the order has
+ * genuinely moved a book, and the only thing that closes it is carrying the
+ * book. Offering "take it back" for the second would move the furniture on the
+ * person's behalf and call it an undo.
+ */
+export function canTakeBack(
+  review: ShelvingReviewResponse | null,
+  bookId: number | null,
+): boolean {
+  if (!review || bookId === null) return false
+  return review.outstandingMoves.includes(bookId)
+}
+
+/**
+ * Withdraw a move the person never carried out.
+ *
+ * The mirror of `recordMoved`, and it is worth saying what it does *not* do.
+ * `recordMoved` writes a location, because somebody walked to a shelf and put a
+ * book down. This writes none, because nobody did: the book is on the plank the
+ * catalogue already records, and what needs undoing is the boundary the app
+ * moved. Reaching the same screen by writing a location first would put a
+ * statement about the room into the catalogue that nobody made.
+ */
+export function takeMoveBack(range: ShelfRange, bookId: number) {
+  return api.retractMove(range, bookId)
 }

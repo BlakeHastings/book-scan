@@ -64,6 +64,13 @@
       "when": 1786142839660,
       "tag": "0008_books_get_the_state_they_are_in",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786147240326,
+      "tag": "0009_outstanding_moves",
+      "breakpoints": true
     }
   ]
 }

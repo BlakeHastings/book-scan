@@ -6,7 +6,7 @@ import {
   type LookupResponse, type Misfile, type PlacementResponse, type QueueCounts,
   type QueueMatch,
 } from './lib/api'
-import { findMisfile, recordMoved } from './lib/misfile'
+import { canTakeBack, findMisfile, recordMoved, takeMoveBack } from './lib/misfile'
 import { putDownCapture, putDownOnPageHide, type HeldCapture } from './lib/leaveCapture'
 import {
   applyFocusHints, cameraFacts, cameraFactsText, currentOrigin, describeStream,
@@ -146,6 +146,15 @@ export default function App() {
    * beside this does.
    */
   const [misfile, setMisfile] = useState<Misfile | null>(null)
+  /**
+   * Whether that entry is a boundary move this app made and nobody acted on.
+   *
+   * Kept apart from `misfile` because they are answers to different questions.
+   * The first is where the book is against where it belongs; this is how the
+   * disagreement came about, and only one way of coming about it is anybody's
+   * to withdraw.
+   */
+  const [misfileTakeable, setMisfileTakeable] = useState(false)
   const [misfileMoving, setMisfileMoving] = useState(false)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [relookupBusy, setRelookupBusy] = useState(false)
@@ -581,15 +590,20 @@ export default function App() {
   const loadMisfile = useCallback(() => {
     if (bookId === null) {
       setMisfile(null)
+      setMisfileTakeable(false)
       return Promise.resolve()
     }
     return api.misfiles(draft.isFiction ? 'fiction' : 'nonfiction')
-      .then((review) => setMisfile(findMisfile(review, bookId)))
+      .then((review) => {
+        setMisfile(findMisfile(review, bookId))
+        setMisfileTakeable(canTakeBack(review, bookId))
+      })
       .catch((caught) => {
         // Nothing said rather than a banner nobody can act on: an unanswered
         // review is not evidence the book is fine, and the error already has
         // somewhere to be shown.
         setMisfile(null)
+        setMisfileTakeable(false)
         setError((caught as Error).message)
       })
   }, [bookId, draft.isFiction])
@@ -597,6 +611,7 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'review') {
       setMisfile(null)
+      setMisfileTakeable(false)
       return
     }
     void loadMisfile()
@@ -622,6 +637,30 @@ export default function App() {
     try {
       await recordMoved(misfile)
       await loadMisfile()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setMisfileMoving(false)
+    }
+  }
+
+  /**
+   * The person says they never picked this book up, so the move goes back.
+   *
+   * The way out of the shelving step that was missing (#196), reached from the
+   * same notice as "Moved it" and meaning the opposite of it: not "I have been
+   * to the shelf" but "nobody went anywhere". So it writes no location, and the
+   * placement is asked again afterwards, because the boundaries have moved and
+   * the strip on this page was drawn from where they were.
+   */
+  const takeMisfileBack = async () => {
+    if (!misfile) return
+    setMisfileMoving(true)
+    setError('')
+    try {
+      await takeMoveBack(draft.isFiction ? 'fiction' : 'nonfiction', misfile.book.id)
+      await loadMisfile()
+      await refreshPlacement()
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -1673,6 +1712,7 @@ export default function App() {
             boundaryMoving={boundaryMoving}
             misfile={misfile}
             onMisfileMoved={confirmMisfileMoved}
+            onMisfileTakenBack={misfileTakeable ? takeMisfileBack : undefined}
             misfileMoving={misfileMoving}
           />
 

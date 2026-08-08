@@ -10,7 +10,10 @@ import type { Db } from './driver'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
-import type { SeparatorRepository } from '../application/shelving/ports'
+import type {
+  OutstandingMove, OutstandingMoveRepository, SeparatorRepository,
+} from '../application/shelving/ports'
+import { DrizzleOutstandingMoveRepository } from '../infrastructure/shelving/outstanding-move-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DbTransactions } from '../infrastructure/shelving/transactions'
 import {
@@ -86,6 +89,77 @@ function refusal(
 }
 
 /**
+ * A retraction that will not be carried out, thrown so the transaction rolls
+ * back with it.
+ *
+ * A refusal here has to undo the part of the restore that already ran, which a
+ * returned value cannot do from inside the transaction. It is caught at the one
+ * place it is thrown from and turned back into the same `{ ok: false, error }`
+ * every other refusal in this file returns, so nothing outside sees an
+ * exception.
+ */
+class RetractionRefused extends Error {}
+
+/**
+ * Said when the shelves have changed since the move, so putting them back would
+ * not put the book back.
+ *
+ * One sentence for both ways of finding out, because they are the same fact
+ * from the person's side: something else moved, and the way out is the one that
+ * was always there, which is to say where the book actually is.
+ */
+const SHELVES_MOVED_ON =
+  'The shelves have changed since that move, so it cannot be taken back ' +
+  'without moving something else. Say where the book actually is instead.'
+
+/**
+ * What a move is about to change, said as what it would take to change it back.
+ *
+ * Built from the boundaries as they stand **before** the move, which is the only
+ * moment the answer exists: afterwards the shifted ones carry their new anchor
+ * and the removed ones carry nothing.
+ *
+ * A re-created boundary keeps its kind, its anchor and its position, which is
+ * everything that decides where a book lands. It does not keep a note or a
+ * creation time, because `Separator` carries neither: the shelving code has
+ * never written a note, and a boundary that had to be made again was, in fact,
+ * made again. Faking the original timestamp would be the receipt asserting
+ * something that did not happen.
+ */
+function receiptFor(
+  range: ShelfRange,
+  bookId: number,
+  move: BoundaryMove,
+  before: Separator[],
+  now: string,
+): OutstandingMove {
+  const was = new Map(before.map((one) => [one.id, one]))
+
+  return {
+    bookId,
+    range,
+    from: move.from,
+    to: move.to,
+    reanchor: move.shift.flatMap((shift) => {
+      const original = was.get(shift.id)
+      return original ? [{ id: shift.id, startsAt: original.startsAt }] : []
+    }),
+    recreate: move.remove.flatMap((id) => {
+      const original = was.get(id)
+      if (!original) return []
+      return [{
+        range,
+        kind: original.kind,
+        startsAt: original.startsAt,
+        position: original.position,
+        note: '',
+        createdAt: now,
+      }]
+    }),
+  }
+}
+
+/**
  * Every public method here returns a promise, for the reason given on `Store`:
  * the driver this is heading for is asynchronous, so the shape changes first,
  * while a missed `await` is still a compile error.
@@ -116,6 +190,8 @@ export class Shelves {
     private readonly separators: SeparatorRepository = new DrizzleSeparatorRepository(db),
     private readonly removeSeparator: RemoveSeparatorHandler =
       new RemoveSeparatorHandler(separators, new DbTransactions(db, rangeLock)),
+    private readonly outstanding: OutstandingMoveRepository =
+      new DrizzleOutstandingMoveRepository(db),
   ) {}
 
   async list(range: ShelfRange): Promise<Separator[]> {
@@ -485,11 +561,23 @@ export class Shelves {
      */
     return this.db.tx(async () => {
       const before = await this.layout(range)
-      const outcome = boundaryMove(before, await this.list(range), bookId, direction)
+      const boundaries = await this.list(range)
+      const outcome = boundaryMove(before, boundaries, bookId, direction)
 
       if (!outcome.ok) {
         return { ok: false, error: refusal(outcome.reason, outcome.at, direction) }
       }
+
+      /*
+       * Written before the change, because it is a record of what the change is
+       * about to undo. Reading the boundaries afterwards would give their new
+       * anchors, and reading them for a removal would give nothing at all.
+       */
+      const now = new Date().toISOString()
+      await this.outstanding.record(
+        receiptFor(range, bookId, outcome.move, boundaries, now),
+        now,
+      )
 
       for (const shift of outcome.move.shift) {
         await this.separators.reanchor(shift.id, shift.startsAt)
@@ -532,6 +620,110 @@ export class Shelves {
       next: next.ok ? next.move.to : null,
       previous: previous.ok ? previous.move.to : null,
     }
+  }
+
+  /**
+   * Take back a move nobody acted on, and put the boundaries where they were.
+   *
+   * The counterpart to `moveAcrossBoundary` and deliberately not a second call
+   * to it. A move is an assignment; this is the assignment withdrawn, and the
+   * difference shows up in two places that matter.
+   *
+   * **Nothing here writes a location**, and that is the whole point. The book
+   * never left the plank the catalogue records it on, so there is nothing about
+   * the room to write down. Retracting by recording a placement and moving
+   * again would put a statement in the catalogue that nobody made, which is
+   * exactly the lie #196 exists to stop the app from asking for.
+   *
+   * **"Back" means where the boundaries were, not where the rules would put
+   * them now.** Asking for the opposite boundary move would answer the second
+   * question. After a move that emptied an area, two boundaries sit on the same
+   * anchor, and the opposite move re-anchors both, carrying the book two planks
+   * instead of one (see `boundariesBetween` in shared/layout.ts). So the undo is
+   * replayed from the receipt written when the move was made, and then checked:
+   * if the book does not land back on the plank the catalogue records, the whole
+   * thing rolls back and says so rather than leaving the shelves somewhere
+   * neither the person nor the catalogue asked for.
+   */
+  async retractMove(
+    range: ShelfRange,
+    bookId: number,
+  ): Promise<{
+    ok: boolean
+    error?: string
+    /** Which way the book went back, named the way a move names it. */
+    move?: { from: string; to: string }
+    moves?: Move[]
+  }> {
+    try {
+      return await this.db.tx(async () => {
+        const receipt = await this.outstanding.forBook(bookId)
+        if (!receipt || receipt.range !== range) {
+          throw new RetractionRefused(
+            'There is no move outstanding on that book, so there is nothing to ' +
+            'take back. If it is on the wrong plank, say where it actually is.',
+          )
+        }
+
+        const before = await this.layout(range)
+
+        for (const one of receipt.reanchor) {
+          await this.separators.reanchor(one.id, one.startsAt)
+        }
+
+        // In position order, and only onto the end of the run. A move removes
+        // boundaries only when its book would be past the last one, so what is
+        // being put back is always the tail; anywhere else and `position` would
+        // collide with a boundary somebody added since, which is the invariant
+        // `RangeSeparators` exists to hold.
+        const recreate = [...receipt.recreate].sort((a, b) => a.position - b.position)
+        if (recreate.length) {
+          const next = RangeSeparators.of(range, await this.list(range)).nextPosition
+          if (next !== recreate[0]!.position) throw new RetractionRefused(SHELVES_MOVED_ON)
+          for (const one of recreate) await this.separators.add(one)
+        }
+
+        const landed = (await this.layout(range)).find((placed) => placed.book.id === bookId)
+        if (!landed || landed.label !== receipt.from) {
+          throw new RetractionRefused(SHELVES_MOVED_ON)
+        }
+
+        await this.outstanding.clear(bookId)
+
+        return {
+          ok: true,
+          move: { from: receipt.to, to: receipt.from },
+          /*
+           * The book itself is left out for the opposite reason it is left out
+           * of a move: there, it is in somebody's hand; here, it never left the
+           * shelf, so "carry it back" is not a job. Anything else in this list
+           * is a book that really did end up somewhere new, which is a surprise
+           * worth reporting.
+           */
+          moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
+        }
+      }, { serialiseOn: rangeLock(range) })
+    } catch (error) {
+      if (error instanceof RetractionRefused) return { ok: false, error: error.message }
+      throw error
+    }
+  }
+
+  /** The moves in this range that have been made and not yet acted on. */
+  async outstandingMoves(range: ShelfRange): Promise<OutstandingMove[]> {
+    return this.outstanding.inRange(range)
+  }
+
+  /**
+   * Nothing is outstanding on this book any more.
+   *
+   * Called when a person says where the book physically is, whatever they say.
+   * That closes the gap a move opens from the other end: the catalogue now
+   * records an observation somebody made, and there is no longer an assignment
+   * sitting there unacted on to take back.
+   */
+  async clearOutstandingMove(bookId: number): Promise<void> {
+    await this.outstanding.clear(bookId)
   }
 
   /**

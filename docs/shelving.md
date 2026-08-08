@@ -530,6 +530,37 @@ genuinely not where the catalogue has it, and
 step therefore leaves the move outstanding rather than silently undone, which
 is the truth, and the same list offers the move back.
 
+### Taking the move back is not the opposite move
+
+The sentence above is what #196 implemented, and this records what it turned
+out to mean, because the obvious reading of it is wrong.
+
+Taking a move back **writes no location**. A location is descriptive and says
+where somebody last saw the book; nobody carried this one anywhere, so there is
+nothing about the room to write down. The whole reason the way back exists is
+that the only exit used to be "Moved it", which asserts a walk that did not
+happen, and a flow whose only exit is to lie to the catalogue is worse than a
+missing feature.
+
+And "back" means the boundaries **as they were**, not where the rules would put
+the book now. Asking for the opposite boundary move answers the second
+question, and after a move that emptied an area the two answers differ: the
+emptied area's boundary comes to rest on the same anchor as the next one, both
+lie between the book and the one after it, and the opposite move re-anchors
+both, carrying the book two planks instead of one. At the end of the run the
+opposite move does not exist at all, because the move that removed a boundary
+left no area on that side to go to. So a move records what it changed, and
+taking it back replays that. If the shelves have moved since, putting them back
+would not put the book back: the retraction is refused rather than approximated,
+and the way out is the one that was always there, which is to say where the book
+actually is.
+
+Only a move the app made can be taken back. A book pushed onto the next plank
+by a newcomer is a misfile too, and it is not one anybody can withdraw: there
+is no assignment behind it, and moving the boundary to close it would be a new
+decision about the furniture, made on the person's behalf, wearing the word
+undo.
+
 ### The edge cases
 
 **The only book in an area.** Allowed, in both directions. The plank it leaves

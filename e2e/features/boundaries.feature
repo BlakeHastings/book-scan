@@ -91,3 +91,41 @@ Feature: Adjusting where one area ends
     And the catalogue should hold "The Dispossessed" recorded as:
       | location | 1B |
     And nothing should need attention
+
+  Scenario: A move nobody acted on is taken back, without claiming a walk
+    # The move is offered on a phone, one mistap from a book somebody was only
+    # looking at. Until #196 the only way out of it was to tap "Moved it",
+    # asserting a walk that never happened, and then move the book again: two
+    # false statements about the room to undo one tap.
+    When I open the app
+    And I go to the library
+    And I open "The Dispossessed" from the library
+    Then the book should offer to move it:
+      | Move it back to 1A |
+
+    When I choose to move it back to "1A"
+    And I go back to the book details
+
+    # The furniture moved and nobody carried anything, which is the truth and
+    # is what the list is for. The boundary is not offered again from here: the
+    # book is not where the catalogue says it is, so it is not at an edge of
+    # anything the catalogue can reason about.
+    Then the book should not offer to move it
+
+    When I go to the library
+    Then the list should offer to undo the move for "The Dispossessed"
+
+    When I undo the move for "The Dispossessed"
+    Then nothing should need attention
+
+    # Back on the plank it never left. The area came back with it: sending the
+    # only book of the last area away leaves its boundary describing a place no
+    # book is on, so the move took the boundary out and the undo made it again.
+    And the library should show "The Dispossessed" on shelf "1B"
+    And the library should show "Dune" on shelf "1A"
+
+    # And no location was written by any of it, which is the whole point.
+    And the catalogue should hold "The Dispossessed" recorded as:
+      | location | 1B |
+    And the catalogue should hold "Rendezvous with Rama" recorded as:
+      | location | 1A |
