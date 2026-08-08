@@ -786,6 +786,197 @@ describe('moving a book across an area boundary', () => {
   })
 })
 
+/**
+ * The other way out of the shelving step (#196).
+ *
+ * docs/shelving.md has always said backing out of it leaves the move
+ * outstanding "and the same list offers the move back". Until this existed only
+ * the first half did, and the only route back was to tap "Moved it", asserting a
+ * walk that never happened, and then move the book again.
+ *
+ * What these are really checking is that taking a move back is not the opposite
+ * move. Two of them are cases where the opposite move exists, is allowed, and
+ * lands the book somewhere else.
+ */
+describe('taking a boundary move back', () => {
+  const shelve = async (author: string, title = 'Book') => {
+    const id = await add(author, title)
+    await store.setLocation(id, await shelves.labelFor('fiction', id))
+    return id
+  }
+
+  const locations = async (...ids: number[]) =>
+    Promise.all(ids.map(async (id) => (await store.getBook(id))?.location))
+
+  it('puts the boundary back, and says which way the book came', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', '1A', 'area')       // Cal alone on 1B
+    await store.setLocation(cal, '1B')
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+    expect(await labels()).toEqual(['1A', '1B', '1B'])
+
+    const back = await shelves.retractMove('fiction', bob)
+    expect(back.ok).toBe(true)
+    expect(back.move).toEqual({ from: '1B', to: '1A' })
+    expect(await labels()).toEqual(['1A', '1A', '1B'])
+    // Nobody else ended up anywhere new, which is the whole claim.
+    expect(back.moves).toEqual([])
+  })
+
+  it('writes no location, because nobody carried anything', async () => {
+    /*
+     * The reason this exists at all. Undoing by recording a placement and then
+     * moving again puts two statements about the room into the catalogue that
+     * nobody made, and the catalogue's whole value is that it records what a
+     * person actually did.
+     */
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', '1A', 'area')
+    await store.setLocation(cal, '1B')
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+    await shelves.retractMove('fiction', bob)
+
+    expect(await locations(bob, cal)).toEqual(['1A', '1B'])
+    expect((await shelves.review('fiction')).misfiles).toEqual([])
+  })
+
+  /**
+   * The case that decides how this is implemented.
+   *
+   * Moving the only book of an area back leaves that area empty, which leaves
+   * its boundary sitting on the same anchor as the next one. Asking for the
+   * opposite move then re-anchors **both**, because both lie between the book
+   * and the one after it, and the book lands two planks along instead of back
+   * where it was. So "back" has to mean the arrangement as it was, and the only
+   * thing that knows that is what the move wrote down when it made it.
+   */
+  it('puts a book back on the plank it came off, not the one the rules would pick', async () => {
+    const ann = await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', '1A', 'area')       // Cal on to 1B
+    await store.setLocation(cal, '1B')
+    await shelves.overflow('fiction', '1A', 'area')       // Bob joins him
+    await store.setLocation(bob, '1B')
+    await shelves.overflow('fiction', '1B', 'area')       // Cal on to 1C
+    await store.setLocation(cal, '1C')
+    expect(await labels()).toEqual(['1A', '1B', '1C'])
+
+    // Bob is alone on 1B, so sending him back empties it.
+    await shelves.moveAcrossBoundary('fiction', bob, 'previous')
+    expect(await labels()).toEqual(['1A', '1A', '1C'])
+
+    // The opposite move is available and would answer 1C: the empty area's
+    // boundary and 1C's are on the same anchor, and it moves both.
+    expect(await shelves.boundaryOptions('fiction', bob)).toEqual({ next: '1C', previous: null })
+
+    expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
+    expect(await labels()).toEqual(['1A', '1B', '1C'])
+    expect(await locations(ann, bob, cal)).toEqual(['1A', '1B', '1C'])
+  })
+
+  /**
+   * The other end of the same problem. A move that leaves nothing for a
+   * boundary to start at removes it, and there is then no opposite move at all:
+   * `boundaryMove` refuses, because there is no area past the end of the run.
+   */
+  it('makes again a boundary the move took out', async () => {
+    const ann = await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    await shelves.overflow('fiction', '1A', 'area')       // Bob alone on 1B
+    await store.setLocation(bob, '1B')
+    expect(await shelves.list('fiction')).toHaveLength(1)
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'previous')
+    expect(await labels()).toEqual(['1A', '1A'])
+    expect(await shelves.list('fiction')).toEqual([])
+    expect((await shelves.boundaryOptions('fiction', bob)).next).toBeNull()
+
+    expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
+    expect(await labels()).toEqual(['1A', '1B'])
+    expect(await locations(ann, bob)).toEqual(['1A', '1B'])
+    // Contiguous positions, or `list`'s ORDER BY position stops describing the
+    // shelves. See RangeSeparators.
+    expect((await shelves.list('fiction')).map((one) => one.position)).toEqual([0])
+  })
+
+  it('refuses a book with nothing outstanding on it', async () => {
+    const ann = await shelve('Ann Author')
+
+    const result = await shelves.retractMove('fiction', ann)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('no move outstanding')
+  })
+
+  it('has nothing left to take back once a person says where the book is', async () => {
+    // Whatever they say. The move was outstanding on an observation, and this
+    // is the observation, so the receipt has been answered.
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', '1A', 'area')
+    await store.setLocation(cal, '1B')
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+    await store.setLocation(bob, '1B')
+    await shelves.clearOutstandingMove(bob)
+
+    expect((await shelves.retractMove('fiction', bob)).ok).toBe(false)
+    expect(await labels()).toEqual(['1A', '1B', '1B'])
+  })
+
+  it('reports the outstanding moves of one range and not the other', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', '1A', 'area')
+    await store.setLocation(cal, '1B')
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+
+    expect((await shelves.outstandingMoves('fiction')).map((m) => [m.bookId, m.from, m.to]))
+      .toEqual([[bob, '1A', '1B']])
+    expect(await shelves.outstandingMoves('nonfiction')).toEqual([])
+  })
+
+  it('takes a second move back to where the book actually is, in one go', async () => {
+    /*
+     * The screens do not offer a second move while one is outstanding, but the
+     * route does not know that, and a receipt that recorded only the last one
+     * would undo half a journey and call it an undo. Merging keeps the older
+     * anchor, so what is stored stays "where things were when this book and its
+     * shelf last agreed".
+     */
+    const ann = await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', '1A', 'area')       // Cal on to 1B
+    await store.setLocation(cal, '1B')
+    await shelves.overflow('fiction', '1A', 'area')       // Bob joins him
+    await store.setLocation(bob, '1B')
+    await shelves.overflow('fiction', '1B', 'area')       // Cal on to 1C
+    await store.setLocation(cal, '1C')
+    expect(await labels()).toEqual(['1A', '1B', '1C'])
+
+    // On to 1C, which empties 1B, and then back, which lands him on 1A rather
+    // than the 1B he came off: the emptied area is not drawn any more, so the
+    // area before him is Ann's.
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+    expect(await labels()).toEqual(['1A', '1C', '1C'])
+    await shelves.moveAcrossBoundary('fiction', bob, 'previous')
+    expect(await labels()).toEqual(['1A', '1A', '1C'])
+
+    expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
+    expect(await labels()).toEqual(['1A', '1B', '1C'])
+    expect(await locations(ann, bob, cal)).toEqual(['1A', '1B', '1C'])
+  })
+})
+
 describe('misfile detection', () => {
   /** Add a book and record the shelf it actually landed on, as saving does. */
   const shelve = async (author: string, title = 'Book') => {

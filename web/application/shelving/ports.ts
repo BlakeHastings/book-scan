@@ -8,10 +8,11 @@
  * connection, and that is the property `npm run lint:layers` checks rather than
  * a reviewer.
  *
- * **Only `separators` is here.** Fourteen tables are coming and every one of
- * them will want a port beside this one; the pattern is being judged on one
- * first, so books, captures and the rest are untouched and still go through
- * `Store` and `CaptureQueue`.
+ * **Only the shelving furniture is here**, which is `separators` and, since
+ * #196, the outstanding moves that name them. Fourteen tables are coming and
+ * every one of them will want a port beside this one; the pattern is being
+ * judged on shelving first, so books, captures and the rest are untouched and
+ * still go through `Store` and `CaptureQueue`.
  */
 
 import type { Separator, SeparatorKind } from '../../shared/layout'
@@ -66,6 +67,70 @@ export interface SeparatorRepository {
   reposition(id: number, position: number): Promise<void>
 
   remove(id: number): Promise<void>
+}
+
+/**
+ * A boundary move that has been made and that nobody has acted on yet.
+ *
+ * A move is two statements: the furniture changes, and then a person who has
+ * walked to the shelf says where the book physically is. Only the first one is
+ * the app's to make, so between them the book is genuinely not where the
+ * catalogue has it. This is that gap, written down, so it can be closed from
+ * either end: by carrying the book, or by taking the move back for a book
+ * nobody picked up.
+ *
+ * What it carries is what the move **changed**, not what the shelves look like
+ * now. That distinction is the whole of why this exists. Undoing by asking for
+ * the opposite boundary move reads the shelves as they are and answers with
+ * where the rules would put the book today, and after a move that emptied an
+ * area those are two different planks.
+ */
+export interface OutstandingMove {
+  bookId: number
+  range: ShelfRange
+  /** The plank the book came off, and where the catalogue still records it. */
+  from: string
+  /** The plank the move assigned it to, and where the layout now draws it. */
+  to: string
+  /** Boundaries to point back at the book they were anchored to before. */
+  reanchor: { id: number; startsAt: string }[]
+  /**
+   * Boundaries the move took out, to be made again exactly as they were.
+   *
+   * A move removes a boundary only when the book it re-anchors to would be
+   * past the end of the run, which leaves it describing a place no book is on.
+   * Their ids do not survive the deletion, which is why this holds whole
+   * separators rather than ids.
+   */
+  recreate: NewSeparator[]
+}
+
+/**
+ * Where outstanding moves are kept. One row per book at most.
+ *
+ * A book has one plank it came off, so a second move made before anybody has
+ * carried it is not a second outstanding move: it is the same book, still off
+ * the plank the catalogue records, one boundary further along. `record` says so
+ * by merging.
+ */
+export interface OutstandingMoveRepository {
+  /**
+   * Write down what a move changed, merging with anything already outstanding
+   * for this book.
+   *
+   * Merging keeps the **older** anchor for a boundary named twice, and the
+   * older `from`, so what is stored stays "the arrangement as it was the last
+   * time this book and its shelf agreed" rather than "as it was a moment ago".
+   * Undoing a move to a state that is itself undone is not undoing.
+   */
+  record(move: OutstandingMove, madeAt: string): Promise<void>
+
+  forBook(bookId: number): Promise<OutstandingMove | undefined>
+
+  inRange(range: ShelfRange): Promise<OutstandingMove[]>
+
+  /** Nothing is outstanding for this book any more, however that came about. */
+  clear(bookId: number): Promise<void>
 }
 
 /**

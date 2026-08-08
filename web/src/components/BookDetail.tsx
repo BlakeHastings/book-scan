@@ -73,6 +73,14 @@ interface Props {
   misfile?: Misfile | null
   /** A person says they have carried the book to where the order puts it. */
   onMisfileMoved?: () => void
+  /**
+   * A person says they never picked it up, so the boundary move goes back.
+   *
+   * Absent unless the server reports this misfile as an outstanding move. That
+   * is the difference between an assignment the app made and the order having
+   * genuinely moved a book, and only the first one is anybody's to withdraw.
+   */
+  onMisfileTakenBack?: () => void
   misfileMoving?: boolean
   /**
    * The lines OCR read off this capture's cover photograph, newline
@@ -123,7 +131,7 @@ export function BookDetail({
   onDelete, deleting = false, shelfLabel = '', doneLabel = 'Done', placement,
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
   boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
-  misfile = null, onMisfileMoved, misfileMoving = false,
+  misfile = null, onMisfileMoved, onMisfileTakenBack, misfileMoving = false,
   coverText = '', captureNote = '',
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
@@ -214,6 +222,7 @@ export function BookDetail({
           misfile={misfile}
           moving={misfileMoving}
           onMoved={onMisfileMoved}
+          onTakeBack={onMisfileTakenBack}
         />
       )}
 
@@ -551,17 +560,22 @@ export function CaptureEvidence({ coverText = '', note = '' }: {
  * says where it belongs, so this does not draw that again; what it adds is the
  * disagreement itself.
  *
- * "Moved it" means somebody has physically carried the book, and it is the
- * only control here. There is deliberately no dismiss, no ignore and no clear:
- * the recorded location is the sole record of where the book actually is, and
- * writing it to tidy a screen would throw that record away and leave the book
- * lost. The list is a report, and it can only be closed by a walk to the
- * shelf.
+ * "Moved it" means somebody has physically carried the book. There is
+ * deliberately no dismiss, no ignore and no clear: the recorded location is the
+ * sole record of where the book actually is, and writing it to tidy a screen
+ * would throw that record away and leave the book lost.
+ *
+ * "Undo the move" is not one of those, and it is offered only when the server
+ * says a boundary move is outstanding on this book. It withdraws something the
+ * app did and writes no location at all, so the record of where the book is
+ * survives it untouched. Where it is absent, the list is still a report and can
+ * still only be closed by a walk to the shelf.
  */
-export function MisfileNotice({ misfile, moving, onMoved }: {
+export function MisfileNotice({ misfile, moving, onMoved, onTakeBack }: {
   misfile: Misfile
   moving: boolean
   onMoved: () => void
+  onTakeBack?: (() => void) | undefined
 }) {
   return (
     <div className="misfile">
@@ -572,11 +586,17 @@ export function MisfileNotice({ misfile, moving, onMoved }: {
       </span>
       <span className="misfile__hint">
         Nothing has been changed for you. Tap "Moved it" once the book is
-        actually there.
+        actually there
+        {onTakeBack ? ', or undo the move if you never picked it up.' : '.'}
       </span>
       <button className="btn btn--ghost" disabled={moving} onClick={onMoved}>
         {moving ? '...' : 'Moved it'}
       </button>
+      {onTakeBack && (
+        <button className="btn btn--ghost" disabled={moving} onClick={onTakeBack}>
+          {moving ? '...' : 'Undo the move'}
+        </button>
+      )}
     </div>
   )
 }

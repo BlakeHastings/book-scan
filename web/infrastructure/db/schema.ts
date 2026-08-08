@@ -566,6 +566,55 @@ export const capture = pgTable('capture', {
 ])
 
 /**
+ * A boundary move that has been made and that nobody has acted on yet.
+ *
+ * Moving a book across a boundary is two statements, and the app only makes the
+ * first one: the furniture changes here, and a person says where the book
+ * physically ended up through `PATCH /api/books/:id/location`. Between the two
+ * the book is genuinely not where the catalogue has it, which is what
+ * docs/shelving.md means by leaving the move outstanding. A row here is exactly
+ * that gap, and it exists so the gap can be closed the other way as well: by
+ * taking the move back, for a book nobody ever picked up.
+ *
+ * **This is a receipt, not a second source of truth.** `separators` still says
+ * where every boundary is. What `restore` carries is what this one move changed,
+ * so undoing it can put those boundaries back where they *were*, rather than
+ * where the rules would now put them. Those are different answers: a move that
+ * empties an area leaves two boundaries on the same anchor, and the boundary
+ * move that looks like the opposite of the one just made would carry the book
+ * two planks instead of one. See `Shelves.retractMove`.
+ *
+ * One row per book, because a book has one place it came off. A second move
+ * before anybody has carried it merges into the same row, keeping the older
+ * anchor for any boundary named twice, so the receipt always describes the
+ * arrangement as it stood the last time this book and its shelf agreed.
+ *
+ * The separator ids inside `restore` are deliberately **not** a foreign key.
+ * Half of them name boundaries the move deleted, whose ids are gone, and a
+ * receipt that could not mention them would be a receipt for the wrong subset.
+ * Nothing reads this except the retraction, which checks the shelves afterwards
+ * and refuses rather than trusting what it found here.
+ */
+export const outstandingMove = pgTable('outstanding_move', {
+  bookId: integer('book_id').primaryKey(),
+  shelfRange: text('shelf_range').notNull(),
+  /** The plank the book came off, and where the catalogue still records it. */
+  fromLabel: text('from_label').notNull(),
+  /** The plank the move assigned it to, and where the layout now draws it. */
+  toLabel: text('to_label').notNull(),
+  /** The boundaries this move touched, as JSON. See `OutstandingMove`. */
+  restore: text('restore').notNull(),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  madeAt: text('made_at').notNull(),
+}, (table) => [
+  foreignKey({
+    name: 'outstanding_move_book_id_fkey',
+    columns: [table.bookId],
+    foreignColumns: [books.id],
+  }).onDelete('cascade'),
+])
+
+/**
  * Every table this schema declares.
  *
  * No longer the same list as "every table the baseline creates": `tag` and
@@ -574,9 +623,9 @@ export const capture = pgTable('capture', {
  * own snapshot against the live catalogue. Adding these two to the baseline
  * would make the owner's catalogue refuse adoption by name. `author`,
  * `author_alias` and `book_author` arrive the same way, and `capture` later
- * still, for the same reason.
+ * still, for the same reason, and `outstanding_move` after that.
  */
 export const ALL_TABLES = [
   books, bookAuthors, authorFiling, shelfRanges, captures, separators, tag, bookTag,
-  author, authorAlias, bookAuthor, capture,
+  author, authorAlias, bookAuthor, capture, outstandingMove,
 ] as const

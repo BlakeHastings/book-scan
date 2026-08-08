@@ -276,6 +276,24 @@ export interface CheckedOutAt {
 
 export type { Misfile, Excluded, ExcludedReason, ShelfSlot, ShelvingReview }
 
+/**
+ * The review, plus which of its misfiles the app is responsible for.
+ *
+ * `ShelvingReview` stays exactly what `reviewShelving` returns: a comparison of
+ * where books are with where they belong, decided per book and knowing nothing
+ * about how any of them got that way. Whether a particular disagreement was
+ * opened by a boundary move is a fact about what somebody asked the app to do,
+ * so it arrives beside the review rather than inside it.
+ *
+ * It is what tells "you moved this and have not carried it yet", which can be
+ * taken back, from "a newcomer pushed this along", which cannot: there is no
+ * assignment to withdraw, and closing it is a walk to the shelf.
+ */
+export interface ShelvingReviewResponse extends ShelvingReview {
+  /** Book ids whose misfile is an outstanding boundary move. */
+  outstandingMoves: number[]
+}
+
 export interface IdentifyResult {
   isbn13: string
   isbn10: string
@@ -741,6 +759,30 @@ export const api = {
       body: JSON.stringify({ range, id, direction }),
     }),
 
+  /**
+   * Take a boundary move back, for a book nobody picked up.
+   *
+   * Not `moveAcrossBoundary` with the direction reversed. That asks where the
+   * rules would put the book now; this puts the boundaries back where they were
+   * before the move, which after a move that emptied an area is a different
+   * plank. And it writes no location at all: the book never left the one the
+   * catalogue records, so there is nothing about the room to say.
+   *
+   * Offered only for a misfile the server lists under `outstandingMoves`. The
+   * server checks again, and rolls the whole thing back if putting the
+   * boundaries back does not put the book back.
+   */
+  retractMove: (range: ShelfRange, id: number) =>
+    request<{
+      /** Which way the book went back, or null when nothing was outstanding. */
+      move: { from: string; to: string } | null
+      groups: ShelfGroupDto[]
+      moves: Move[]
+    }>('/api/shelves/retract', {
+      method: 'POST',
+      body: JSON.stringify({ range, id }),
+    }),
+
   removeSeparator: (id: number, range: ShelfRange) =>
     request<{ groups: ShelfGroupDto[]; moves: Move[] }>(
       `/api/shelves/${id}?range=${range}`, { method: 'DELETE' },
@@ -748,7 +790,7 @@ export const api = {
 
   /** Books in this range that are not where they now belong. Read only. */
   misfiles: (range: ShelfRange) =>
-    request<ShelvingReview>(`/api/misfiles?range=${range}`),
+    request<ShelvingReviewResponse>(`/api/misfiles?range=${range}`),
 
   setLocation,
 

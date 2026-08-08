@@ -374,10 +374,18 @@ Then('the gap should be on screen without scrolling the shelf', async ({ page })
   expect(seen.gapRight, `off the right: ${said}`).toBeLessThanOrEqual(seen.visibleRight)
 })
 
-/** Out of the shelving step without answering it, which is #111's case. */
+/**
+ * Out of the shelving step without answering it, which is #111's case.
+ *
+ * Either marker will do, because the page underneath depends on what was being
+ * shelved: a capture still being confirmed lands on the editable fields, and a
+ * catalogued book on its own header. They are mutually exclusive and both mean
+ * the same thing here, which is that the shelving step has been left without
+ * anything being said about where the book is.
+ */
 When('I go back to the book details', async ({ page }) => {
   await page.getByRole('button', { name: 'Back to book details' }).click()
-  await expect(page.locator('.review')).toBeVisible()
+  await expect(page.locator('.review, .detail__head')).toBeVisible()
 })
 
 When('I say it fits and save it', async ({ page }) => {
@@ -520,6 +528,33 @@ When('I say it fits and finish the move', async ({ page }) => {
  */
 Then('nothing should need attention', async ({ page }) => {
   await expect(page.locator('.attention')).toHaveCount(0)
+})
+
+/** One book's line in that list, whichever order the list happens to be in. */
+const attentionRow = (page: Page, title: string) =>
+  page.locator('.attention__row').filter({ hasText: title })
+
+/**
+ * The way back out of a move nobody acted on (#196).
+ *
+ * Asserted next to "Moved it" rather than instead of it, because the two are
+ * different statements and the entry has to offer both: one says somebody
+ * walked to the shelf, the other says nobody went anywhere.
+ */
+Then(
+  'the list should offer to undo the move for {string}',
+  async ({ page }, title: string) => {
+    const row = attentionRow(page, title)
+    await expect(row.getByRole('button', { name: 'Moved it' })).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Undo the move' })).toBeVisible()
+  },
+)
+
+When('I undo the move for {string}', async ({ page }, title: string) => {
+  await attentionRow(page, title).getByRole('button', { name: 'Undo the move' }).click()
+  // The list is re-read from the server afterwards, so the entry going is the
+  // server's answer rather than the screen tidying itself up.
+  await expect(attentionRow(page, title)).toHaveCount(0)
 })
 
 /**

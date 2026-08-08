@@ -1069,6 +1069,68 @@ describe('moving a book across an area boundary', () => {
     expect(on.status).toBe(400)
     expect(on.body.error).toContain('no area after 2A')
   })
+
+  /**
+   * The way back out of the shelving step (#196).
+   *
+   * The move is offered on a phone, one mistap from a book somebody was only
+   * looking at, and until this existed the only exit was to tap "Moved it" and
+   * then move the book again: two statements about the room, both false, to
+   * undo one tap.
+   */
+  it('offers the move back on the same list, and takes it', async () => {
+    const { dune } = await threeOverTwoAreas()
+    await post('/api/shelves/move', { range: 'fiction', id: dune, direction: 'next' })
+
+    // Backing out of the shelving step leaves exactly this, which is the truth.
+    const during = await misfiles()
+    expect(during.misfiles.map((m: { from: string; to: string }) => [m.from, m.to]))
+      .toEqual([['1A', '1B']])
+    expect(during.outstandingMoves).toEqual([dune])
+
+    const { status, body } = await post('/api/shelves/retract', {
+      range: 'fiction', id: dune,
+    })
+
+    expect(status).toBe(200)
+    expect(body.move).toEqual({ from: '1B', to: '1A' })
+    expect(body.moves).toEqual([])
+    // No location was written, because nobody carried anything.
+    expect((await running.store.getBook(dune))?.location).toBe('1A')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('does not offer it for a misfile nobody assigned', async () => {
+    // A location somebody typed for the wrong plank is a real misfile and is
+    // not an undo: there is no assignment to withdraw, and moving a boundary to
+    // close it would be a decision about the furniture made on their behalf.
+    const { rama } = await threeOverTwoAreas()
+    await patch(`/api/books/${rama}/location`, { location: '1B' })
+
+    const review = await misfiles()
+    expect(review.misfiles.map((m: { book: { id: number } }) => m.book.id)).toEqual([rama])
+    expect(review.outstandingMoves).toEqual([])
+
+    const { status, body } = await post('/api/shelves/retract', {
+      range: 'fiction', id: rama,
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('no move outstanding')
+  })
+
+  it('has nothing left to take back once the person says where the book is', async () => {
+    const { dune } = await threeOverTwoAreas()
+    const { body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dune, direction: 'next',
+    })
+    await patch(`/api/books/${dune}/location`, { location: body.move.to })
+
+    const { status } = await post('/api/shelves/retract', { range: 'fiction', id: dune })
+    expect(status).toBe(400)
+    // And the shelves are where the person just said they are.
+    expect((await running.store.getBook(dune))?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
 import { BookDetail, MisfileNotice } from './BookDetail'
 import { emptyDraft, type Misfile } from '../lib/api'
-import { recordMoved } from '../lib/misfile'
+import { recordMoved, takeMoveBack } from '../lib/misfile'
 
 const misfile: Misfile = {
   book: {
@@ -239,5 +239,50 @@ describe('confirming from the detail view', () => {
     const tree = MisfileNotice({ misfile, moving: true, onMoved: () => {} })
     const button = buttonIn(tree, '...') as { disabled?: boolean } | null
     expect(button?.disabled).toBe(true)
+  })
+})
+
+/**
+ * The other way out, for a move nobody acted on (#196).
+ *
+ * The page has to keep the two apart. "Moved it" is a statement about the room
+ * and writes a location; taking the move back withdraws something this app did
+ * and writes none, so it must not reach that endpoint at all.
+ */
+describe('taking a move back from the detail view', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('is absent unless the server says a move is outstanding', () => {
+    const html = detail({ misfile, onMisfileMoved: () => {} })
+    expect(html).toContain('Moved it')
+    expect(html).not.toContain('Undo the move')
+  })
+
+  it('is offered beside "Moved it" when there is one', () => {
+    const html = detail({
+      misfile, onMisfileMoved: () => {}, onMisfileTakenBack: () => {},
+    })
+    expect(html).toContain('Moved it')
+    expect(html).toContain('Undo the move')
+  })
+
+  it('reaches the retraction and never the location write', async () => {
+    const calls: Array<{ path: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', (path: string, init?: RequestInit) => {
+      calls.push({ path, init })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ move: null }) })
+    })
+
+    const tree = MisfileNotice({
+      misfile,
+      moving: false,
+      onMoved: () => {},
+      onTakeBack: () => { void takeMoveBack('fiction', misfile.book.id) },
+    })
+    buttonIn(tree, 'Undo the move')?.onClick?.()
+    await Promise.resolve()
+
+    expect(calls.map((call) => call.path)).toEqual(['/api/shelves/retract'])
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ range: 'fiction', id: 7 })
   })
 })

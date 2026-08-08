@@ -1381,6 +1381,38 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
   }))
 
+  /**
+   * Take back a move nobody acted on.
+   *
+   * The other way out of the shelving step, and the reason the step has one at
+   * all. A move is offered on a phone, one mistap from a book somebody was only
+   * looking at, and until this route existed the only way past it was to tap
+   * "Moved it" and then move the book back: two statements about the room, both
+   * false, to undo one tap. docs/shelving.md has said the list offers the move
+   * back since the move was specified; this is that sentence (#196).
+   *
+   * Nothing here writes a location, and that is what separates it from every
+   * other button near it. The book never moved, so the catalogue has nothing
+   * new to record about where it is; what gets undone is the furniture.
+   */
+  app.post('/api/shelves/retract', asyncRoute(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+    const id = Number(body.id ?? 0)
+
+    const result = await shelves.retractMove(range, id)
+    if (!result.ok) {
+      res.status(400).json({ error: result.error })
+      return
+    }
+
+    res.json({
+      move: result.move ?? null,
+      moves: await describeMoves(range, result.moves ?? []),
+      groups: await shelfGroups(range),
+    })
+  }))
+
   app.delete('/api/shelves/:id', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const before = await shelves.layout(range)
@@ -1851,6 +1883,14 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     await store.setLocation(id, label ? formatLocation(parseLocation(label)!) : '')
+    /*
+     * A person has said where the book is, so a boundary move waiting on them
+     * is no longer waiting: whatever they said, this is the observation the
+     * move was outstanding for. Leaving the receipt would leave "take it back"
+     * on offer for a move that has been answered, and taking it back then would
+     * move the furniture out from under what they just wrote down.
+     */
+    await shelves.clearOutstandingMove(id)
     res.json({ book: await store.getBook(id) })
   }))
 
@@ -2400,7 +2440,30 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    */
   app.get('/api/misfiles', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
-    res.json(await shelves.review(range))
+    const review = await shelves.review(range)
+    const outstanding = await shelves.outstandingMoves(range)
+
+    res.json({
+      ...review,
+      /*
+       * Which of these the app put there, so the list can offer to take those
+       * back and only those. A book pushed onto the next plank by a newcomer is
+       * a misfile too, and it is not one anybody can undo: there is no
+       * assignment to withdraw, and moving the boundary to close it would be a
+       * new decision about the furniture made on the person's behalf.
+       *
+       * Both labels have to still agree with the receipt. If they do not, the
+       * shelves have moved on since the move and taking it back would not put
+       * the book back, which `retractMove` would refuse anyway. Better not to
+       * offer it than to offer it and refuse.
+       */
+      outstandingMoves: review.misfiles
+        .filter((misfile) => outstanding.some((move) =>
+          move.bookId === misfile.book.id
+          && move.from === misfile.from
+          && move.to === misfile.to))
+        .map((misfile) => misfile.book.id),
+    })
   }))
 
   app.get('/api/health', asyncRoute(async (_req, res) => {
