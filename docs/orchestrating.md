@@ -13,14 +13,30 @@ Postgres database in the container `book-scan-live-pg`; the SQLite file is
 retained as history until at least 2026-09-06 and nothing in this repository can
 open it.
 
-**The remodel has started.** `docs/data-model.md` specifies fourteen tables.
-One landed: tags (#179). Five remain (#180, #181, #183, #184, #185), all
-`blocked` and in dependency order under epic #170.
+**The remodel is over half way.** `docs/data-model.md` specifies fourteen
+tables. Landed: `tag` and `book_tag` (#179), `author`, `author_alias` and
+`book_author` (#180), `capture` (#181), and `books.state` with the
+`shelved_books` view (#183, first half). Remaining under epic #170: the rest of
+#183, then #184 and #185.
 
-**The layering exists but is barely used.** #172 introduced Drizzle and a
-`domain` / `application` / `infrastructure` split, proved on one slice
-(separators) and one aggregate since (tags). Twelve tables still live in
-`server/`. A dependency check fails CI if `domain/` imports downward.
+**Nothing has been cut over, and that is deliberate every time.** Each of those
+added its tables and left the old columns authoritative. `books.is_fiction`
+still decides shelf range, `books.author_filing` still feeds `sort_key`, and the
+eight image columns are still what the gallery reads. Two consequences are
+already filed: #200, where `capture` drifts behind the columns because
+background writes do not record one, and the genre repair in `docs/data-model.md`
+that the cut-over owes. **Do not cut a slice over as a side effect of something
+else.**
+
+**The layering is real but partial.** #172 introduced Drizzle and a `domain` /
+`application` / `infrastructure` split; four slices now go through it. Most
+tables still live in `server/`. A dependency check fails CI if `domain/` imports
+downward.
+
+**`shelved_books` protected nothing on the day it landed**, because every row
+was `shelved` or `checked_out` and nothing could write anything else. The second
+half of #183 is what makes non-shelved books real, and it is the first change
+where that view has to hold.
 
 **Two epics are `shaping`**: #171 multi-user, #139 collection management. Both
 name the questions that block them. Do not dispatch either.
@@ -109,20 +125,20 @@ detecting the picture printed on the cover rather than the book.
 
 ## Where I would go next
 
-1. **#180, authors and aliases.** Self-contained, and the migration has a real
-   judgement in it: identity across 263 rows. Conservative is correct, because
-   merging two authors later is easy and splitting one that swallowed two people
-   is not.
-2. **#181, captures as rows.** Also self-contained. Removes a limit nobody chose:
-   one photograph per kind, forever.
-3. **#183, book states**, which dissolves the queue table. The risk is named in
-   the ticket: `books` drives shelf ordering, so every ordering query needs a
-   state filter and forgetting once puts an unidentified book on a shelf. Fix it
-   with a view, not with discipline.
-4. Then **#184 and #185**, the largest and most coupled.
+1. **Finish #183**, dissolving the `captures` queue. In flight at the time of
+   writing. It answers a question #204 left it explicitly: what `GET /api/books`
+   should say about a book scanned and not identified.
+2. **#184 and #185**, the largest and most coupled. #185 depends on the rest of
+   #183.
+3. The defects a hunting pass found on 2026-08-07, none of them blocking the
+   remodel: **#203** (a database hiccup after a save ends the API process, which
+   is the third time unwatched background work has crashed this app), **#200**,
+   **#195** (a non-Latin author name files as nobody) and **#197**.
 
-Before #184, settle the three questions at the bottom of `docs/data-model.md`.
-The sharpest: **does the ledger record tag changes, or only placement?**
+**The three open questions in `docs/data-model.md` are down to none that block
+#184.** The owner settled the ledger's scope on 2026-08-07: placement only, with
+what that gives up written beside it. Read that note before designing
+`book_placement`, and in particular do not solve tag retraction by widening it.
 
 **Not urgent but real:** the backups live on a different disk from the catalogue
 but in the same machine, so they cover a dropped table, a bad migration and a
