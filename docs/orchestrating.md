@@ -71,9 +71,15 @@ taking a whole file from one side, dropped an entire feature's routes, and it
 conflict, read what each side was *for* before choosing. In that case the answer
 was in the losing side's own comment.
 
-**Agent worktrees fill the disk.** C: hit under 2 GB three times in one day.
-Prune worktrees whose branches are gone from origin, but check for uncommitted
-work and unpushed commits first: one worktree in another repo held a month of
+**Agent worktrees fill the disk.** C: hit under 2 GB three times in one day, and
+1.4 GB the day after with eight of them. Each carries its own `node_modules`.
+
+`scripts/merge-pr.mjs` now sweeps them after every merge, and
+`scripts/prune-worktrees.mjs --dry-run` says what would go without doing it. It
+refuses anything locked, dirty, or whose branch is still on origin, and names
+what it kept and why. **It still cannot see commits made locally after a branch
+was pushed and merged**, and the header says why not, so a worktree that matters
+is still worth a look before a big sweep: one in another repo held a month of
 work on a branch with no upstream.
 
 **Measure with `du`, not PowerShell one-liners.** Escaping silently measured the
