@@ -85,6 +85,20 @@
       "when": 1786150188441,
       "tag": "0011_the_queue_becomes_books",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786157989731,
+      "tag": "0012_the_furniture_becomes_rows",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786158088594,
+      "tag": "0013_the_shelves_become_fixtures_and_rules",
+      "breakpoints": true
     }
   ]
 }

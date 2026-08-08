@@ -3,13 +3,15 @@
 Fourteen tables. Settled with the owner on 2026-08-06 across eight revisions,
 and recorded here because the reasoning matters more than the column lists.
 
-**Almost nothing here is built.** The live schema is the six-table one in
-`web/server/db.pg.ts`, plus `tag` and `book_tag` from #179, `author`,
-`author_alias` and `book_author` from #180, and `capture` from #181, which are
-the first three steps of the epic and are described under "What is built" at the
-end.
-`docs/domain-model.md` is the layering this sits under; #170 is the epic that
-builds the rest.
+**Most of this is built and none of it is read.** The live schema is the
+six-table one in `web/server/db.pg.ts`, plus `tag` and `book_tag` from #179,
+`author`, `author_alias` and `book_author` from #180, `capture` from #181,
+`books.state` with its three views from #183, and `collection`, `sort_strategy`,
+`fixture`, `area`, `placement_rule` and `rule_condition` from #184. Every one of
+those was added beside the columns it replaces rather than instead of them, and
+they are described under "What is built" at the end. `book_placement` is what is
+left. `docs/domain-model.md` is the layering this sits under; #170 is the epic
+that builds the rest.
 
 The point is not that fourteen is better than six. It is that the current schema
 describes what the code needed and this one describes the collection.
@@ -428,6 +430,38 @@ cover and hash backfills all read `catalogued_books`, and on the day this landed
 that view held exactly the rows `books` held. A book with no title, no author and
 no shelf range is not a catalogue entry, and it is already on screen in the
 queue, which is the one place anybody can act on it.
+
+`collection`, `sort_strategy`, `fixture`, `area`, `placement_rule` and
+`rule_condition` are, by #184: the six tables, the rules in
+`web/domain/placement/`, the migrations `0012` and `0013`.
+
+**`area` is `separators` grown a parent, and `area.starts_at` is
+`separators.starts_at` under a name that says what it anchors.** It carries
+`COLLATE "C"` for the reason that column does. A fixture is a bookcase, an area
+is a plank-run, and there is no plank row.
+
+**Fiction and non-fiction are two rows in `placement_rule`**, written against
+the `genre/fiction` and `genre/non-fiction` slugs `0002` derived from
+`books.is_fiction`. Each is a *fixture* rule, which is how a run that spans
+bookcases is said: it names where the run begins and the run flows on through
+the areas after it until the next rule's entry point.
+
+**Nothing is cut over, for the fifth time and for the same reason.**
+`shelf_ranges` and `separators` keep every row and are still what
+`Shelves.layout`, `Store.resolveKey` and the misfile review read.
+`books.is_fiction` still decides the shelf range. Nothing in the app reads a
+fixture, an area or a rule.
+
+That is what makes the claim checkable rather than promised: both models are
+live over one catalogue, so every book can be placed twice and the two answers
+compared. `web/infrastructure/db/placement-backfill.test.ts` does that book by
+book over a 236 book, eleven separator catalogue, and three of its tests break
+the model on purpose so the comparison is watched failing.
+
+**A book carrying two `genre` tags files as fiction**, because fiction is rule 1
+and `priority` settles a tie. Those are the rows this document already hands to
+the cut-over to repair; `0013` counts them and says so on every run rather than
+touching them.
 
 **The wire vocabulary did not move.** `GET /api/captures` still answers with
 `pending`, `ready`, `failed` and `done`, so the client, the queue badge and the

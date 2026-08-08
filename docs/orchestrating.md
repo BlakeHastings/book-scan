@@ -13,20 +13,28 @@ Postgres database in the container `book-scan-live-pg`; the SQLite file is
 retained as history until at least 2026-09-06 and nothing in this repository can
 open it.
 
-**The remodel is over half way.** `docs/data-model.md` specifies fourteen
-tables. Landed: `tag` and `book_tag` (#179), `author`, `author_alias` and
-`book_author` (#180), `capture` (#181), and `books.state` with the
-`shelved_books` view (#183, first half). Remaining under epic #170: the rest of
-#183, then #184 and #185.
+**The remodel is nearly all built and none of it is read.**
+`docs/data-model.md` specifies fourteen tables. Landed: `tag` and `book_tag`
+(#179), `author`, `author_alias` and `book_author` (#180), `capture` (#181),
+`books.state` with its three views and the dissolved queue (#183, both halves),
+and `collection`, `sort_strategy`, `fixture`, `area`, `placement_rule` and
+`rule_condition` (#184). Remaining under epic #170: #185, the placement ledger,
+which depends on fixtures and areas existing and now has them.
 
 **Nothing has been cut over, and that is deliberate every time.** Each of those
 added its tables and left the old columns authoritative. `books.is_fiction`
-still decides shelf range, `books.author_filing` still feeds `sort_key`, and the
-eight image columns are still what the gallery reads. Two consequences are
+still decides shelf range, `books.author_filing` still feeds `sort_key`, the
+eight image columns are still what the gallery reads, and `shelf_ranges` and
+`separators` are still where every book actually goes. Two consequences are
 already filed: #200, where `capture` drifts behind the columns because
 background writes do not record one, and the genre repair in `docs/data-model.md`
 that the cut-over owes. **Do not cut a slice over as a side effect of something
 else.**
+
+**Leaving the old model authoritative is what made #184 checkable**, and that is
+worth keeping. Both models were live over one catalogue at once, so every book
+could be placed twice and the two answers compared book by book. A step that
+replaced as it went would have had nothing to compare against.
 
 **The layering is real but partial.** #172 introduced Drizzle and a `domain` /
 `application` / `infrastructure` split; four slices now go through it. Most

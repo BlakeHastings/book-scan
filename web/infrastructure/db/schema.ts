@@ -27,6 +27,12 @@ import {
 import {
   BOOK_STATES, CATALOGUED_STATES, QUEUED_STATES, SHELVED, type BookState,
 } from '../../domain/books/state'
+import {
+  INHERIT, SORT_STRATEGIES, type SortStrategy,
+} from '../../domain/placement/strategies'
+import {
+  RULE_FIELDS, RULE_OPERATORS, type RuleField, type RuleOperator,
+} from '../../domain/placement/rules'
 
 /**
  * `text COLLATE "C"`, which Drizzle has no column builder for.
@@ -746,6 +752,264 @@ export const outstandingMove = pgTable('outstanding_move', {
 ])
 
 /**
+ * The ways a run of books can be ordered. A lookup table, seeded by the app.
+ *
+ * **`inherit` is a row here, not a null**, and that is the owner's decision
+ * rather than a style: no absence in this schema means anything. A fixture or an
+ * area that has not chosen says so by carrying `inherit`, and `strategyFor` in
+ * `domain/placement/strategies.ts` folds the three levels with the nearest
+ * non-inherit answer winning.
+ *
+ * **`available` lets a strategy exist and be unofferable.** That is where colour
+ * sorting waits until there is a colour to sort by: the row can be written, and
+ * referenced, before anything can compute it.
+ *
+ * **The tiebreak chain is not in this table.** `tag` means tag slug, then author
+ * filing, then title filing, and it is fixed in code because it must never be
+ * "then whatever the collection's default is": changing a setting on the
+ * collection would otherwise reorder every run that had explicitly chosen `tag`.
+ * A row here that carried its own tiebreaks would be a second place for that to
+ * be said, and a place a person could edit.
+ *
+ * `code` is the primary key and is what every other table references, so a
+ * strategy is spelled once. The check constraint is written from the same
+ * constant the domain is, for the reason `books_state_check` is.
+ */
+export const sortStrategy = pgTable('sort_strategy', {
+  code: text('code').$type<SortStrategy>().primaryKey(),
+  /** What a person reads. `code` is what everything else references. */
+  label: text('label').notNull(),
+  /** True of exactly one row. Carried so a reader does not have to know which. */
+  isInherit: boolean('is_inherit').notNull().default(false),
+  available: boolean('available').notNull().default(true),
+  note: text('note').notNull().default(''),
+}, () => [
+  check('sort_strategy_code_check', sql.raw(
+    `"code" IN (${SORT_STRATEGIES.map((code) => `'${code}'`).join(', ')})`,
+  )),
+])
+
+/**
+ * The collection. One row, holding what is true of the whole thing.
+ *
+ * `default_sort_strategy` lives here rather than as a rule on every fixture,
+ * because a default expressed on every fixture would have to be changed on every
+ * fixture and could then disagree with itself.
+ *
+ * It may not be `inherit`: there is nothing above a collection to ask, and a
+ * collection inheriting from nowhere would be exactly the absent value this
+ * schema does not have. The check constraint says so rather than the comment.
+ *
+ * `owner` is not here yet. #171 is the multi-user epic and it is `shaping`;
+ * adding a column for a question nobody has answered would be inventing the
+ * answer.
+ */
+export const collection = pgTable('collection', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  name: text('name').notNull().default(''),
+  defaultSortStrategy: text('default_sort_strategy').$type<SortStrategy>()
+    .notNull().default('author'),
+  note: text('note').notNull().default(''),
+}, (table) => [
+  foreignKey({
+    name: 'collection_default_sort_strategy_fkey',
+    columns: [table.defaultSortStrategy],
+    foreignColumns: [sortStrategy.code],
+  }),
+  check('collection_default_sort_strategy_check', sql.raw(
+    `"default_sort_strategy" <> '${INHERIT}'`,
+  )),
+])
+
+/**
+ * The thing that groups areas: a bookshelf, a crate, a windowsill.
+ *
+ * **`kind` is the owner's word and nothing branches on it.** It is here so
+ * somebody can say what a thing is, not so code can behave differently about a
+ * crate.
+ *
+ * `position` is the fixture's ordinal in the collection and is the `1` in `1A`.
+ * It is deliberately **not** unique: `shelf_ranges.start_shelf` puts non-fiction
+ * on bookcase 4 today, so a fiction range that grew to four bookcases would
+ * already have two fixtures called 4, and it would already be drawing two planks
+ * with one label. That is a property of the arrangement this migration copies
+ * rather than one it introduces, and refusing to record it would refuse a
+ * catalogue somebody actually has.
+ *
+ * **There is no plank row and there will not be one.** A plank can hold two
+ * areas, so the plank is not the unit anybody files by. See docs/shelving.md.
+ */
+export const fixture = pgTable('fixture', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  collectionId: integer('collection_id').notNull(),
+  kind: text('kind').notNull().default('bookshelf'),
+  /** Empty when nobody has named it, which is when the position is the label. */
+  name: text('name').notNull().default(''),
+  position: integer('position').notNull(),
+  sortStrategy: text('sort_strategy').$type<SortStrategy>().notNull().default(INHERIT),
+  note: text('note').notNull().default(''),
+}, (table) => [
+  foreignKey({
+    name: 'fixture_collection_id_fkey',
+    columns: [table.collectionId],
+    foreignColumns: [collection.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'fixture_sort_strategy_fkey',
+    columns: [table.sortStrategy],
+    foreignColumns: [sortStrategy.code],
+  }),
+  index('idx_fixture_collection').on(table.collectionId, table.position),
+])
+
+/**
+ * A run of books treated as one place. **`separators`, grown a parent.**
+ *
+ * An area is chosen by a person rather than by the carpentry: a divider, a
+ * bookend or a pot plant halfway along a plank is enough to make two areas out
+ * of one board, and one area can equally be a whole plank. That is why the plank
+ * is not a row and this is.
+ *
+ * ## `starts_at` is `COLLATE "C"`, and that is the load-bearing part
+ *
+ * It holds the sort key of the first book in the run and is compared against
+ * `books.sort_key`, exactly as `separators.starts_at` is. A linguistic collation
+ * ignores punctuation on the first pass, folds case and files accented
+ * characters beside their unaccented forms, so the comparison would still return
+ * a row: a nearly right one. Nothing throws, a boundary lands between the wrong
+ * two books, and somebody is told to put a book where it does not go. See
+ * `collatedText` at the top of this file and the assertion list in
+ * `migrate.test.ts`.
+ *
+ * Empty on the first area of a run, which is how "from the beginning" is said
+ * without a null.
+ *
+ * ## Setting `sort_strategy` makes an area self-contained
+ *
+ * Anything but `inherit` here means nothing overflows into this area from the
+ * area before it, because a continuous run only works if every area in it orders
+ * the same way. `runFrom` in `domain/placement/geography.ts` is where that is
+ * enforced, and it is the second of the two places the sequence of areas is cut
+ * into runs; the other is where a placement rule points.
+ *
+ * ## No label column
+ *
+ * A label is derived from the two positions and the two names at read time
+ * (`labelFor`). A stored one goes stale the moment somebody renames a fixture,
+ * and a stale label on a shelf listing is somebody walking to the wrong plank.
+ */
+export const area = pgTable('area', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  fixtureId: integer('fixture_id').notNull(),
+  /** Ordinal within the fixture, 0-based, which is the `A` in `1A`. */
+  position: integer('position').notNull(),
+  name: text('name').notNull().default(''),
+  startsAt: collatedText('starts_at').notNull().default(''),
+  sortStrategy: text('sort_strategy').$type<SortStrategy>().notNull().default(INHERIT),
+  note: text('note').notNull().default(''),
+}, (table) => [
+  foreignKey({
+    name: 'area_fixture_id_fkey',
+    columns: [table.fixtureId],
+    foreignColumns: [fixture.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'area_sort_strategy_fkey',
+    columns: [table.sortStrategy],
+    foreignColumns: [sortStrategy.code],
+  }),
+  // Two areas in one fixture cannot share an ordinal: unlike `fixture.position`
+  // there is no arrangement in the current schema that produces one, and a
+  // duplicate here would give one fixture two areas called B.
+  uniqueIndex('area_fixture_position_key').on(table.fixtureId, table.position),
+  // The anchor lookup: the last area of a run whose `starts_at` a key has
+  // reached. Byte-ordered, so this is a range scan rather than a filter.
+  index('idx_area_anchor').on(table.fixtureId, table.startsAt),
+])
+
+/**
+ * A rule that claims books and points them at a place.
+ *
+ * **This is the inversion in one table.** Today `books.is_fiction` decides which
+ * of two ranges a book joins, and the two ranges are written into the code. Here
+ * fiction and non-fiction are two rows in this table, and a third question about
+ * the same books is a third row rather than a third column.
+ *
+ * **Exactly one of `area_id` and `fixture_id`**, and the check constraint is
+ * what makes that true rather than a convention. They are different kinds of
+ * answer: an area rule names one place, and a fixture rule names the first area
+ * of that fixture and lets the run flow on through the areas after it. A range
+ * that spans three bookcases is a fixture rule.
+ *
+ * **Area beats fixture**, being the more specific statement, and `priority`
+ * settles ties within a level, lower first. That is not decoration: a book
+ * corrected before #201 can still carry two `genre` tags, so two rules really do
+ * claim some books, and the priority is what says which one wins. See
+ * `docs/data-model.md`, "One repair the cut-over owes".
+ */
+export const placementRule = pgTable('placement_rule', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  areaId: integer('area_id'),
+  fixtureId: integer('fixture_id'),
+  /** Lower is tried first, the way a numbered list is read. */
+  priority: integer('priority').notNull().default(0),
+  name: text('name').notNull().default(''),
+  enabled: boolean('enabled').notNull().default(true),
+}, (table) => [
+  foreignKey({
+    name: 'placement_rule_area_id_fkey',
+    columns: [table.areaId],
+    foreignColumns: [area.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'placement_rule_fixture_id_fkey',
+    columns: [table.fixtureId],
+    foreignColumns: [fixture.id],
+  }).onDelete('cascade'),
+  check('placement_rule_target_check', sql.raw('num_nonnulls("area_id", "fixture_id") = 1')),
+  index('idx_placement_rule_order').on(table.priority, table.id),
+])
+
+/**
+ * One thing a rule asks about a book. **All of a rule's conditions must hold.**
+ *
+ * No nesting and no `OR`. Two ways of saying a thing are two rules, which a
+ * screen can build and a person can read down when a book lands somewhere
+ * surprising; a boolean tree is unreadable at exactly the moment somebody needs
+ * to read it.
+ *
+ * `value` is a tag **slug**, never a label. The slug is the identity and is
+ * normalised, so a rule against `genre/non-fiction` matches the book a catalogue
+ * called "Non-fiction" and the one it called "NONFICTION". It is also why a slug
+ * is never rewritten: renaming one would make every rule mentioning it stop
+ * matching, and books would move with nothing on screen saying why.
+ *
+ * `operator` is `is` or `under`, because `tag is genre/fantasy` and `tag under
+ * genre` are different questions. `under` is strictly beneath and is asked of
+ * the slug's path rather than of a parent row, so no ancestor row has to exist.
+ */
+export const ruleCondition = pgTable('rule_condition', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  ruleId: integer('rule_id').notNull(),
+  field: text('field').$type<RuleField>().notNull(),
+  operator: text('operator').$type<RuleOperator>().notNull(),
+  value: text('value').notNull(),
+}, (table) => [
+  foreignKey({
+    name: 'rule_condition_rule_id_fkey',
+    columns: [table.ruleId],
+    foreignColumns: [placementRule.id],
+  }).onDelete('cascade'),
+  check('rule_condition_field_check', sql.raw(
+    `"field" IN (${RULE_FIELDS.map((field) => `'${field}'`).join(', ')})`,
+  )),
+  check('rule_condition_operator_check', sql.raw(
+    `"operator" IN (${RULE_OPERATORS.map((operator) => `'${operator}'`).join(', ')})`,
+  )),
+  index('idx_rule_condition_rule').on(table.ruleId),
+])
+
+/**
  * Every table this schema declares.
  *
  * No longer the same list as "every table the baseline creates": `tag` and
@@ -759,4 +1023,5 @@ export const outstandingMove = pgTable('outstanding_move', {
 export const ALL_TABLES = [
   books, bookAuthors, authorFiling, shelfRanges, captures, separators, tag, bookTag,
   author, authorAlias, bookAuthor, capture, outstandingMove,
+  sortStrategy, collection, fixture, area, placementRule, ruleCondition,
 ] as const
