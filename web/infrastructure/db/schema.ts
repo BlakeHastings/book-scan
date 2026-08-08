@@ -19,12 +19,14 @@
  * claim.
  */
 
-import { eq, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import {
   boolean, check, customType, doublePrecision, foreignKey, index, integer, pgTable, pgView,
   primaryKey, text, uniqueIndex,
 } from 'drizzle-orm/pg-core'
-import { BOOK_STATES, SHELVED, type BookState } from '../../domain/books/state'
+import {
+  BOOK_STATES, CATALOGUED_STATES, QUEUED_STATES, SHELVED, type BookState,
+} from '../../domain/books/state'
 
 /**
  * `text COLLATE "C"`, which Drizzle has no column builder for.
@@ -130,6 +132,77 @@ export const books = pgTable('books', {
    * constraint below is what keeps a typo out.
    */
   state: text('state').$type<BookState>().notNull().default('scanned'),
+
+  // ---------------------------------------------------------------------
+  // What is known about a book before anybody has said what it is
+  //
+  // Eleven columns that were the `captures` queue table, which #183 dissolves:
+  // a book exists from its first photograph, so the thing in the queue and the
+  // thing on the shelf are one row at two points in its life. Everything the
+  // queue held that `books` already had a column for (the three photographs,
+  // their crops, `cropped`, `front_hash`, both ISBNs and `isbn_source`) uses
+  // that column; these are what was left, and every one of them is about
+  // reading a photograph or about somebody holding the book.
+  //
+  // They are empty for every book that came in before this landed, and they
+  // stay filled in afterwards rather than being cleared when a book is shelved.
+  // A cleared column is a fact destroyed: what OCR read off the cover is the
+  // evidence behind the title somebody typed, `BookDetail` quotes it beside the
+  // fields (#147), and it is the only record of how a book came to be
+  // catalogued the way it is.
+  // ---------------------------------------------------------------------
+
+  /**
+   * The first line OCR read off the front cover, and never anything else.
+   *
+   * Deliberately not `title`. A machine's reading of a photograph and a title a
+   * person typed are different kinds of fact, and #156 is the defect of a
+   * column that could not tell them apart. `title` is what somebody stated;
+   * this is what a camera saw. Good enough to name a row in the queue, not good
+   * enough to fill in a field somebody will save.
+   */
+  titleGuess: text('title_guess').default(''),
+  /** Every line OCR read off the front cover, newline separated. */
+  coverText: text('cover_text').default(''),
+  /** Which of the three photographs the worker has read, comma separated. */
+  analysed: text('analysed').default(''),
+  /**
+   * The catalogue's answer, as JSON. The worker's channel, which no person
+   * writes.
+   */
+  draftJson: text('draft_json').default(''),
+  /**
+   * What a person stated while the book was still in the queue, as JSON. The
+   * person's channel, which the worker never writes.
+   *
+   * The two never share a cell, and that is the whole of the precedence rule
+   * from #65: a re-read cannot lose a correction even in principle. This column
+   * is the one thing here that is temporary. Now that a queue row is a book
+   * row, a stated title has somewhere to go that is not an overlay, and the
+   * overlay ends when the routes stop speaking the queue's vocabulary.
+   */
+  editJson: text('edit_json').default(''),
+  editedBy: text('edited_by').default(''),
+  editedAt: text('edited_at'),
+  /**
+   * What the worker has to say about reading this book's photographs.
+   *
+   * `scan_note`, not `note`, because `books.notes` is already a person's note
+   * about the book. One is "no ISBN could be read from these photos" and the
+   * other is "signed copy", and two columns one letter apart would be read
+   * wrongly by somebody eventually.
+   */
+  scanNote: text('scan_note').default(''),
+  /**
+   * Who is working on this book, and since when. A lease rather than a lock:
+   * somebody who walks away with a book claimed must not block it forever, so
+   * `CaptureQueue.claim` takes a stale claim on exactly the terms it takes a
+   * free one.
+   */
+  claimedBy: text('claimed_by').default(''),
+  claimedAt: text('claimed_at'),
+  /** When the worker last finished reading this book's photographs. */
+  processedAt: text('processed_at'),
 }, (table) => [
   index('idx_books_shelf').on(table.shelfRange, table.sortKey),
   index('idx_books_isbn13').on(table.isbn13),
@@ -150,6 +223,22 @@ export const books = pgTable('books', {
   index('idx_books_shelved')
     .on(table.shelfRange, table.sortKey)
     .where(sql.raw(`"state" = '${SHELVED}'`)),
+  /**
+   * The other end of the same argument, and the index `idx_captures_status`
+   * used to be.
+   *
+   * The queue is read on every shutter, on every poll of the camera and on
+   * every page of the queue pane, and it is a handful of rows in front of a
+   * catalogue that only grows. Without a predicate that matches the view's, the
+   * queue listing degrades into a scan of every book ever catalogued, and the
+   * only symptom is that scanning gets slower every month. Written from
+   * `QUEUED_STATES` for the reason `idx_books_shelved` is written from
+   * `SHELVED`: a partial index whose predicate does not match the query's is
+   * not a slower index, it is one the planner silently cannot use.
+   */
+  index('idx_books_queued')
+    .on(table.state, table.id)
+    .where(sql.raw(`"state" IN (${QUEUED_STATES.map((state) => `'${state}'`).join(', ')})`)),
   check('books_state_check', sql.raw(
     `"state" IN (${BOOK_STATES.map((state) => `'${state}'`).join(', ')})`,
   )),
@@ -180,6 +269,48 @@ export const books = pgTable('books', {
  */
 export const shelvedBooks = pgView('shelved_books').as((qb) =>
   qb.select().from(books).where(eq(books.state, SHELVED)))
+
+/**
+ * The books nobody has put anywhere yet. The queue, which is a query now.
+ *
+ * The same argument as `shelved_books`, made from the other side. That view
+ * exists so a book that is not on a shelf cannot reach one; this one exists so
+ * the queue keeps meaning the same three states in every statement that reads
+ * it. `CaptureQueue` lists, counts, searches and drains through this relation,
+ * and the predicate is written here and nowhere in that class.
+ *
+ * **`discarded` is not in it, and that is the whole reason it is a state.** A
+ * scan somebody threw away used to be a row somebody deleted, so the record of
+ * having scanned the wrong thing went with it. It is a book now, in a state the
+ * queue does not show and no shelf can reach, and it is still there to be
+ * counted and looked at.
+ */
+export const queuedBooks = pgView('queued_books').as((qb) =>
+  qb.select().from(books).where(inArray(books.state, [...QUEUED_STATES])))
+
+/**
+ * The books somebody owns. The catalogue, as opposed to a shelf or a queue.
+ *
+ * Three views and no more, one per question anybody asks of this table, and the
+ * seven states fall into them without overlapping: `shelved` is in this and in
+ * `shelved_books`, `checked_out` and `withdrawn` are in this alone, the three
+ * early states are in `queued_books` alone, and `discarded` is in none of them.
+ *
+ * Why this is a view rather than a condition in the eight statements that want
+ * it: exactly the argument `shelved_books` was built on. `listRange`, `counts`,
+ * `findByIsbn`, `hashIndex`, `imageHashes`, `photographed`, `missingCovers` and
+ * `missingHashes` all mean "the catalogue" and all of them silently started
+ * meaning something else the moment a queue row became a book. Eight places to
+ * remember is eight places to forget, and the failure is quiet in every one:
+ * a cover downloaded for a book nobody has identified, a duplicate check that
+ * matches a photograph in the queue, a library listing with a row that has no
+ * title in it.
+ *
+ * See `CATALOGUED_STATES` for what each state is doing here, and for the
+ * question `Store.listRange` deferred to this change.
+ */
+export const cataloguedBooks = pgView('catalogued_books').as((qb) =>
+  qb.select().from(books).where(inArray(books.state, [...CATALOGUED_STATES])))
 
 export const bookAuthors = pgTable('book_authors', {
   bookId: integer('book_id').notNull(),

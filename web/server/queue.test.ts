@@ -79,9 +79,19 @@ async function add() {
   return await queue.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })
 }
 
-/** A real book, because captures.book_id is a foreign key. */
-async function addBook() {
-  return (await store.addBook({ title: 'A Book', authors: ['Ann Author'], isFiction: true })).id
+/**
+ * Put a queued book on a shelf, which is how a book leaves the queue (#183).
+ *
+ * This used to be `queue.markDone(captureId, bookId)`, pairing a capture with a
+ * book somebody had added separately. There is nothing to pair any more: the
+ * capture and the book are one row, and shelving it is `Store.updateBook`,
+ * which is what the save route calls. Going through the real method rather than
+ * an UPDATE here is the point, since what these tests want to know is that the
+ * queue agrees with the thing that actually shelves books.
+ */
+async function shelve(id: number) {
+  await store.updateBook(id, { title: 'A Book', authors: ['Ann Author'], isFiction: true })
+  return id
 }
 
 describe('queueing', () => {
@@ -109,10 +119,10 @@ describe('queueing', () => {
 
   it('keeps done captures out of the working list', async () => {
     const capture = await add()
-    const bookId = await addBook()
-    await queue.markDone(capture.id, bookId)
+    await shelve(capture.id)
     expect(await queue.list()).toHaveLength(0)
-    expect((await queue.get(capture.id))?.book_id).toBe(bookId)
+    // Its own id, because the capture and the book it became are one row.
+    expect((await queue.get(capture.id))?.book_id).toBe(capture.id)
   })
 
   it('lists oldest first, the order the worker drains them in', async () => {
@@ -166,7 +176,7 @@ describe('claiming, with two people on the same queue', () => {
     await queue.claim(capture.id, 'alice')
 
     // Backdate the claim past the lease window.
-    await db.run('UPDATE captures SET claimed_at = ? WHERE id = ?',
+    await db.run('UPDATE books SET claimed_at = ? WHERE id = ?',
       [new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id])
 
     expect((await queue.claim(capture.id, 'bob')).ok).toBe(true)
@@ -174,7 +184,7 @@ describe('claiming, with two people on the same queue', () => {
 
   it('will not claim a capture that is already shelved', async () => {
     const capture = await add()
-    await queue.markDone(capture.id, await addBook())
+    await shelve(capture.id)
     expect((await queue.claim(capture.id, 'alice')).ok).toBe(false)
   })
 })
@@ -207,7 +217,7 @@ describe('editing a capture while it is still in the queue', () => {
     // The capture this is about: read, no ISBN found, and the one thing it
     // has to show for itself is a line off the cover.
     const capture = await add()
-    await db.run("UPDATE captures SET title_guess = ?, status = 'failed' WHERE id = ?",
+    await db.run("UPDATE books SET title_guess = ?, state = 'unidentified' WHERE id = ?",
       ['S0NG 0F SOLOMQN', capture.id])
 
     await queue.edit(capture.id, 'alice', { title: 'Song of Solomon' })
@@ -255,7 +265,7 @@ describe('editing a capture while it is still in the queue', () => {
     // The case this actually happens in: the photographs failed, so somebody
     // is typing the number off the back of the book.
     const capture = await add()
-    await db.run("UPDATE captures SET status = 'failed' WHERE id = ?", [capture.id])
+    await db.run("UPDATE books SET state = 'unidentified' WHERE id = ?", [capture.id])
 
     const result = await queue.edit(capture.id, 'alice', { isbn13: DUNE })
 
@@ -308,7 +318,7 @@ describe('editing a capture while it is still in the queue', () => {
   it('lets an edit take a claim that has gone stale', async () => {
     const capture = await add()
     await queue.claim(capture.id, 'alice')
-    await db.run('UPDATE captures SET claimed_at = ? WHERE id = ?',
+    await db.run('UPDATE books SET claimed_at = ? WHERE id = ?',
       [new Date(Date.now() - 60 * 60 * 1000).toISOString(), capture.id])
 
     const result = await queue.edit(capture.id, 'bob', { title: 'Dune' })
@@ -321,7 +331,7 @@ describe('editing a capture while it is still in the queue', () => {
     const capture = await add()
     await queue.claim(capture.id, 'alice')
     const stale = new Date(Date.now() - 4 * 60 * 1000).toISOString()
-    await db.run('UPDATE captures SET claimed_at = ? WHERE id = ?', [stale, capture.id])
+    await db.run('UPDATE books SET claimed_at = ? WHERE id = ?', [stale, capture.id])
 
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
 
@@ -330,7 +340,7 @@ describe('editing a capture while it is still in the queue', () => {
 
   it('refuses to edit a capture that has already become a book', async () => {
     const capture = await add()
-    await queue.markDone(capture.id, await addBook())
+    await shelve(capture.id)
 
     const result = await queue.edit(capture.id, 'alice', { title: 'Dune' })
     expect(result.ok === false && result.reason).toBe('done')
@@ -359,7 +369,7 @@ describe('editing a capture while it is still in the queue', () => {
 
   it('stops a resolved capture reading as failed', async () => {
     const capture = await add()
-    await db.run("UPDATE captures SET status = 'failed' WHERE id = ?", [capture.id])
+    await db.run("UPDATE books SET state = 'unidentified' WHERE id = ?", [capture.id])
 
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
 
@@ -492,7 +502,7 @@ describe('photos arriving one at a time', () => {
 
   it('marks a re-taken slot as needing another read', async () => {
     const capture = await queue.attach(null, 'back', 'b.jpg')
-    await db.run("UPDATE captures SET analysed = 'back,front', status = 'failed' WHERE id = ?",
+    await db.run("UPDATE books SET analysed = 'back,front', state = 'unidentified' WHERE id = ?",
       [capture.id])
 
     const again = await queue.attach(capture.id, 'back', 'b2.jpg')
@@ -504,7 +514,7 @@ describe('photos arriving one at a time', () => {
 
   it('leaves a shelved capture alone', async () => {
     const capture = await queue.attach(null, 'back', 'b.jpg')
-    await queue.markDone(capture.id, await addBook())
+    await shelve(capture.id)
     expect((await queue.attach(capture.id, 'front', 'f.jpg')).status).toBe('done')
   })
 })
@@ -617,7 +627,7 @@ describe('captures still waiting to be shelved', () => {
     // Not waiting for anybody. It is on a shelf, and the books path answers
     // for it, so sending somebody to finish it sends them to a dead end.
     const id = await hashed()
-    await queue.markDone(id, await addBook())
+    await shelve(id)
     expect(await queue.waiting()).toEqual([])
   })
 
@@ -639,7 +649,7 @@ describe('captures still waiting to be shelved', () => {
   it('keeps a failed capture, which is the one most likely to still be sitting there', async () => {
     // The read failed. The photographs did not, and neither did the book.
     const id = await hashed()
-    await db.run("UPDATE captures SET status = 'failed' WHERE id = ?", [id])
+    await db.run("UPDATE books SET state = 'unidentified' WHERE id = ?", [id])
     expect((await queue.waiting()).map((c) => c.id)).toEqual([id])
   })
 
@@ -665,7 +675,7 @@ describe('captures still waiting to be shelved', () => {
 describe('captures waiting under the same ISBN', () => {
   const withIsbn = async (isbn13: string) => {
     const capture = await add()
-    await db.run('UPDATE captures SET isbn13 = ? WHERE id = ?', [isbn13, capture.id])
+    await db.run('UPDATE books SET isbn13 = ? WHERE id = ?', [isbn13, capture.id])
     return capture.id
   }
 
@@ -705,7 +715,7 @@ describe('captures waiting under the same ISBN', () => {
     // for it. Sending somebody to go and finish it sends them nowhere.
     const shelved = await withIsbn(DUNE)
     const mine = await withIsbn(DUNE)
-    await queue.markDone(shelved, await addBook())
+    await shelve(shelved)
 
     expect(await queue.sharingIsbn(DUNE, mine)).toEqual([])
   })
@@ -716,7 +726,7 @@ describe('captures waiting under the same ISBN', () => {
     // so the likeliest duplicate in the queue is a capture with an ISBN, no
     // front photograph and no hash. Filtering on either would lose it.
     const capture = await queue.attach(null, 'back', 'b.jpg')
-    await db.run('UPDATE captures SET isbn13 = ? WHERE id = ?', [DUNE, capture.id])
+    await db.run('UPDATE books SET isbn13 = ? WHERE id = ?', [DUNE, capture.id])
     const mine = await withIsbn(DUNE)
 
     const found = await queue.sharingIsbn(DUNE, mine)

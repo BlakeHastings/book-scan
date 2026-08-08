@@ -171,6 +171,23 @@ const del = (path: string) => call(path, { method: 'DELETE' })
 
 const dataUrl = (buffer: Buffer) => `data:image/png;base64,${buffer.toString('base64')}`
 
+/**
+ * Put a queued book on a shelf, which is how a book leaves the queue (#183).
+ *
+ * This used to be `CaptureQueue.markDone(captureId, bookId)`, pairing a capture
+ * with a book added separately. The capture and the book are one row now, so
+ * there is nothing to pair: shelving it is `Store.updateBook`, which is what
+ * `POST /api/books` calls.
+ */
+const shelve = (id: number) =>
+  running.store.updateBook(id, {
+    title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+  })
+
+/** The state a queued book is in, said in the queue's own vocabulary. */
+const stateFor = (status: string) =>
+  ({ pending: 'scanned', ready: 'identified', failed: 'unidentified' }[status] ?? status)
+
 // ---------------------------------------------------------------------------
 // 1. Routes that write to the catalogue
 // ---------------------------------------------------------------------------
@@ -1311,7 +1328,7 @@ describe('a book already waiting in the queue', () => {
     const capture = await queue.add({ front: 'dune-front.jpg' })
     const hash = await coverHash(buffer)
     await queue.setFrontHash(capture.id, options.bits ? nudgeHash(hash, options.bits) : hash)
-    await running.db.run("UPDATE captures SET status = 'ready' WHERE id = ?", [capture.id])
+    await running.db.run("UPDATE books SET state = 'identified' WHERE id = ?", [capture.id])
     return capture.id
   }
 
@@ -1361,10 +1378,7 @@ describe('a book already waiting in the queue', () => {
     // answers for it. Sending somebody to finish it is sending them nowhere.
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const id = await waitingCapture(buffer)
-    const { id: bookId } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
-    })
-    await queueOf().markDone(id, bookId)
+    await shelve(id)
 
     const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
 
@@ -1443,8 +1457,8 @@ describe('a capture of a book already in the queue', () => {
     const capture = await queue.add({ front: 'front.jpg', back: 'back.jpg' })
     if (options.hash) await queue.setFrontHash(capture.id, options.hash)
     await running.db.run(
-      'UPDATE captures SET isbn13 = ?, status = ? WHERE id = ?',
-      [isbn13, options.status ?? 'ready', capture.id],
+      'UPDATE books SET isbn13 = ?, state = ? WHERE id = ?',
+      [isbn13, stateFor(options.status ?? 'ready'), capture.id],
     )
     return capture.id
   }
@@ -1528,10 +1542,7 @@ describe('a capture of a book already in the queue', () => {
   it('leaves out a capture that has already become a book', async () => {
     const other = await queuedWith(DUNE)
     const mine = await queuedWith(DUNE)
-    const { id: bookId } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
-    })
-    await queueOf().markDone(other, bookId)
+    await shelve(other)
 
     expect(await duplicatesFor(mine)).toEqual([])
   })
@@ -1681,10 +1692,7 @@ describe('editing a capture that is still in the queue', () => {
 
   it('409s on a capture that has already become a book', async () => {
     const capture = await queued()
-    const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
-    })
-    await new CaptureQueue(running.db, () => null).markDone(capture.id, id)
+    await shelve(capture.id)
 
     const { status, body } = await patch(`/api/captures/${capture.id}`, {
       who: 'alice', title: 'Something Else',
@@ -1747,10 +1755,7 @@ describe('putting a claimed capture down', () => {
   it('frees the capture even when the edit itself is refused', async () => {
     const capture = await queued()
     await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
-    const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
-    })
-    await new CaptureQueue(running.db, () => null).markDone(capture.id, id)
+    await shelve(capture.id)
 
     const { status, body } = await patch(`/api/captures/${capture.id}`, {
       who: 'alice', title: 'Too late', release: true,

@@ -186,8 +186,10 @@ describe('the baseline migration on an empty database', () => {
     // yet, and it carries the collation now because adding it once a shelf is
     // ordered by the column means rewriting the column that decides the order.
     //
-    // The last three are `shelved_books`, added by #183, and they are the reason
-    // this query is not filtered to tables. A view column takes the type, and so
+    // The last nine are the three views, added by #183, and they are the reason
+    // this query is not filtered to tables. `catalogued_books` and
+    // `queued_books` arrived with the second half of it, alongside
+    // `shelved_books`. A view column takes the type, and so
     // the collation, of the expression behind it, and that view is what every
     // ordering query reads from now on. If it ever came back uncollated the shelf
     // would reorder under a linguistic collation exactly as it would have done
@@ -205,6 +207,12 @@ describe('the baseline migration on an empty database', () => {
       { table_name: 'books', column_name: 'author_filing' },
       { table_name: 'books', column_name: 'sort_key' },
       { table_name: 'books', column_name: 'title_filing' },
+      { table_name: 'catalogued_books', column_name: 'author_filing' },
+      { table_name: 'catalogued_books', column_name: 'sort_key' },
+      { table_name: 'catalogued_books', column_name: 'title_filing' },
+      { table_name: 'queued_books', column_name: 'author_filing' },
+      { table_name: 'queued_books', column_name: 'sort_key' },
+      { table_name: 'queued_books', column_name: 'title_filing' },
       { table_name: 'separators', column_name: 'starts_at' },
       { table_name: 'shelved_books', column_name: 'author_filing' },
       { table_name: 'shelved_books', column_name: 'sort_key' },
@@ -246,11 +254,16 @@ describe('a database that already has these tables', () => {
     // as it was, on a database that already had rows in it.
     //
     // Not "the tables are untouched", which is what this used to say and what
-    // stopped being true at #183. `0007` adds `books.state`, the first migration
-    // to alter a table the baseline created rather than add one beside it, so
-    // the claim worth making is that a later migration's deliberate addition is
-    // the *only* difference. A baseline that had run would show up as every
-    // column being rebuilt, which this still catches.
+    // stopped being true at #183. `0007` adds `books.state` and `0010` adds the
+    // eleven columns that were the queue table, and those are the only
+    // migrations to alter a table the baseline created rather than add one
+    // beside it. So the claim worth making is that a later migration's
+    // deliberate additions are the *only* difference. A baseline that had run
+    // would show up as every column being rebuilt, which this still catches.
+    //
+    // Listed one by one rather than counted, because a column that appeared
+    // here without somebody writing it down is exactly the accident this test
+    // is for.
     const after = await describeSchema(pool)
     const baseline = baselineTableNames()
     const ofBaseline = (rows: Record<string, unknown>[]) =>
@@ -259,7 +272,13 @@ describe('a database that already has these tables', () => {
     const was = new Set(ofBaseline(before.columns).map(named))
 
     expect(ofBaseline(after.columns).filter((row) => !was.has(named(row))).map(named))
-      .toEqual(['books.state'])
+      .toEqual([
+        'books.state',
+        'books.title_guess', 'books.cover_text', 'books.analysed',
+        'books.draft_json', 'books.edit_json', 'books.edited_by',
+        'books.edited_at', 'books.scan_note', 'books.claimed_by',
+        'books.claimed_at', 'books.processed_at',
+      ])
     expect(ofBaseline(after.columns).filter((row) => was.has(named(row))))
       .toEqual(ofBaseline(before.columns))
 

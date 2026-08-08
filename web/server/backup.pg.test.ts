@@ -134,19 +134,25 @@ describe('reading a catalogue digest', () => {
     const correct = await readDigest(ask)
 
     /*
-     * `shelved_books` reads this column, and Postgres will not change the type
+     * All three views read this column, and Postgres will not change the type
      * of a column a view depends on. That is a small guard in its own right and
      * it arrived with #183 rather than being asked for: the collation the whole
-     * shelf rests on cannot be altered out from under the view by accident.
+     * shelf rests on cannot be altered out from under a view by accident, and
+     * there are three of them to get past now rather than one.
      *
-     * It is in the way of damaging the column on purpose, so the view is taken
+     * They are in the way of damaging the column on purpose, so each is taken
      * off and put back from its own definition rather than from a copy written
-     * here, which would be a second place to keep the predicate in step.
+     * here, which would be a second place to keep three predicates in step.
      */
-    const view = await db.get<{ definition: string }>(
-      "SELECT pg_get_viewdef('shelved_books'::regclass, true) AS definition",
+    const views = await Promise.all(
+      ['shelved_books', 'queued_books', 'catalogued_books'].map(async (name) => ({
+        name,
+        definition: (await db.get<{ definition: string }>(
+          `SELECT pg_get_viewdef('${name}'::regclass, true) AS definition`,
+        ))!.definition,
+      })),
     )
-    await db.run('DROP VIEW shelved_books')
+    for (const view of views) await db.run(`DROP VIEW ${view.name}`)
 
     await db.run('ALTER TABLE books ALTER COLUMN sort_key TYPE text COLLATE "en_US.utf8"')
     try {
@@ -164,7 +170,9 @@ describe('reading a catalogue digest', () => {
       // way it was found. Leaving it damaged would make whichever test ran next
       // fail for a reason that has nothing to do with it.
       await db.run('ALTER TABLE books ALTER COLUMN sort_key TYPE text COLLATE "C"')
-      await db.run(`CREATE VIEW shelved_books AS ${view!.definition}`)
+      for (const view of views) {
+        await db.run(`CREATE VIEW ${view.name} AS ${view.definition}`)
+      }
     }
   })
 

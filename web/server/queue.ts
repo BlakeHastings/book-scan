@@ -1,5 +1,5 @@
 /**
- * The capture queue.
+ * The capture queue, which is a query now.
  *
  * Scanning a shelf is a two-handed physical job, and OCR takes seconds. Making
  * the person holding the book wait for it is the wrong trade, so a capture is
@@ -10,17 +10,82 @@
  * so two overlapping identifications on the same process can interleave badly.
  * Draining one at a time removes that whole class of problem, which matters as
  * soon as two people are scanning into the same server.
+ *
+ * ## There is no `captures` table any more (#183)
+ *
+ * A book exists from its first photograph. The queue held the same thing at an
+ * earlier point in its life, in a table of its own, and the only reason for the
+ * separation was that `books` drives shelf ordering and misfile detection and a
+ * half-identified row must never reach either. #204 replaced that separation
+ * with `shelved_books` and the partial index under it, which says the condition
+ * once instead of relying on two tables, so the second table can go.
+ *
+ * Every statement in this class is against `books`, and every statement that
+ * asks for the queue reads `queued_books`: the three early states, said once, in
+ * SQL, for the same reason `shelved_books` says the one late one. Nothing in
+ * this file spells the list of states it means.
+ *
+ * **The wire vocabulary is unchanged on purpose.** `CaptureRow` still has a
+ * `status` of `pending`, `ready`, `failed` or `done`, and `GET /api/captures`
+ * still answers with it, because a change that moves a table and renames every
+ * field the client, the browser suite and the queue badge read is not a change
+ * anybody can review as one thing. `domain/books/state.ts` holds the pairing and
+ * this file translates at the edge.
  */
 
 import type { Db } from './driver'
 import { identify } from './identify'
 import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
 import { deriveCapture, type DerivableCapture } from './capturecrop'
-import type { CropIo, CropSlot } from './crop'
+import { recordCrop, type CropIo, type CropSlot } from './crop'
 import { resolveIsbnPair } from '../shared/isbn'
 import {
   countFailures, PROCESSING_ERROR_NOTE, type FailureCounts,
 } from '../shared/captureFailure'
+import {
+  DISCARDED, QUEUED_STATES, QUEUE_STATUS_OF_STATE, STATE_OF_QUEUE_STATUS,
+} from '../domain/books/state'
+
+/**
+ * The three early states as a SQL literal list, built from the domain rather
+ * than typed out.
+ *
+ * Only ever used where the relation cannot be `queued_books`: in the `WHERE` of
+ * a write, since a view is read and a book is written. A `CASE` that decided the
+ * same thing with the names spelled out beside it would be a fourth copy of the
+ * predicate `queued_books` and `idx_books_queued` already share.
+ */
+const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
+
+/**
+ * The row a caller of this class gets, in the shape the queue has always
+ * returned it, assembled from the book underneath.
+ *
+ * Four columns are renamed on the way out and each rename is a real difference
+ * rather than a spelling. `status` is derived from the state, so the four names
+ * the client knows survive the seven states arriving. `note` is `scan_note`,
+ * because `books.notes` is already a person's note about a book and one letter
+ * is not enough distance between "signed copy" and "no ISBN could be read from
+ * these photos". `created_at` is `scanned_at`, which is the same moment under
+ * the name `books` has always used for it. And `book_id` is the row's own id
+ * once it stops being queued, which is what "this capture became that book"
+ * means when the capture and the book are one row.
+ */
+const QUEUE_ROW = `
+  id,
+  CASE "state"
+    ${Object.entries(QUEUE_STATUS_OF_STATE)
+      .map(([state, status]) => `WHEN '${state}' THEN '${status}'`).join(`
+    `)}
+    ELSE 'done'
+  END AS status,
+  front_image, back_image, edge_image,
+  isbn13, isbn10, isbn_source, title_guess, cover_text, analysed,
+  draft_json, edit_json, edited_by, edited_at,
+  scan_note AS note, claimed_by, claimed_at,
+  CASE WHEN "state" IN (${QUEUED_SQL}) THEN NULL ELSE id END AS book_id,
+  scanned_at AS created_at, processed_at,
+  front_crop, back_crop, edge_crop, cropped, front_hash`
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -40,8 +105,22 @@ export interface QueueCounts extends Record<CaptureStatus, number> {
   failures: FailureCounts
 }
 
+/**
+ * A book in the queue, in the shape the queue has always handed one out.
+ *
+ * There is no row of this shape in the database since #183. It is `books`,
+ * projected by `QUEUE_ROW` below, and the four renames it makes are written out
+ * there. Everything a caller of this class reads is on this interface, so a
+ * caller cannot see the state model underneath and does not have to.
+ */
 export interface CaptureRow {
+  /** The book's own id. There is no second identity for a queued book. */
   id: number
+  /**
+   * Where this book is, in the queue's four names rather than the seven states
+   * underneath. `done` means it has left the queue, whether it was shelved or
+   * discarded, which is what the absence of a row used to mean.
+   */
   status: CaptureStatus
   front_image: string
   back_image: string
@@ -64,10 +143,22 @@ export interface CaptureRow {
   edit_json: string
   edited_by: string
   edited_at: string | null
+  /**
+   * What the worker has to say about reading these photographs. `scan_note` on
+   * the row, because `books.notes` is already a person's note about the book.
+   */
   note: string
   claimed_by: string
   claimed_at: string | null
+  /**
+   * The book this scan became, or null while it is still in the queue.
+   *
+   * Its own id, since a scan and the book it becomes are one row. Kept because
+   * the client tells the two apart by whether this is set, and because "this
+   * scan is now that book" is still the fact it reports.
+   */
   book_id: number | null
+  /** When the first photograph arrived, which is `books.scanned_at`. */
   created_at: string
   processed_at: string | null
   /**
@@ -77,7 +168,7 @@ export interface CaptureRow {
   front_crop: string
   back_crop: string
   edge_crop: string
-  /** Slots the detector has looked at, comma separated. See the captures table in db.pg.ts. */
+  /** Slots the detector has looked at, comma separated. See `books.cropped`. */
   cropped: string
   /**
    * Hash of the front photograph, in the format imagehash.ts writes. Empty
@@ -200,17 +291,28 @@ export class CaptureQueue {
   // Writes
   // -----------------------------------------------------------------------
 
+  /**
+   * The book a photograph has just brought into existence.
+   *
+   * Empty `title`, `shelf_range` and `sort_key`, and that is the point rather
+   * than a placeholder. Nobody has read this book yet, so it has no title and
+   * belongs nowhere. `scanned` keeps it out of `shelved_books` and an empty
+   * shelf range keeps it out of every range there is, which is two independent
+   * protections where the second one is free.
+   */
   async add(images: { front?: string; back?: string; edge?: string }): Promise<CaptureRow> {
     // RETURNING id rather than lastInsertRowid, for the reason given on
     // Store.addBook: the id comes back from the statement that made it.
     const created = await this.db.get<{ id: number }>(
-      `INSERT INTO captures (status, front_image, back_image, edge_image, created_at)
-       VALUES ('pending', ?, ?, ?, ?)
+      `INSERT INTO books
+         (title, shelf_range, is_fiction, sort_key, state,
+          front_image, back_image, edge_image, scanned_at)
+       VALUES ('', '', 0, '', ?, ?, ?, ?, ?)
        RETURNING id`,
-      [images.front ?? '', images.back ?? '', images.edge ?? '',
+      [STATE_OF_QUEUE_STATUS.pending,
+       images.front ?? '', images.back ?? '', images.edge ?? '',
        new Date().toISOString()],
     )
-
     return (await this.get(Number(created!.id)))!
   }
 
@@ -228,9 +330,14 @@ export class CaptureQueue {
 
     if (captureId && (await this.get(captureId))) {
       await this.db.run(
-        `UPDATE captures
+        `UPDATE books
             SET ${column} = @filename,
-                status = CASE WHEN status = 'done' THEN status ELSE 'pending' END,
+                -- A book that has left the queue keeps the state it left for:
+                -- a second photograph of something on a shelf does not put it
+                -- back in the queue, and one of something discarded does not
+                -- undo the discard.
+                state = CASE WHEN "state" IN (${QUEUED_SQL}) THEN '${STATE_OF_QUEUE_STATUS.pending}'
+                             ELSE "state" END,
                 -- Re-taking a slot means it needs reading again.
                 analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
           WHERE id = @id`,
@@ -240,30 +347,57 @@ export class CaptureQueue {
     }
 
     const created = await this.db.get<{ id: number }>(
-      `INSERT INTO captures (status, ${column}, created_at)
-       VALUES ('pending', ?, ?)
+      `INSERT INTO books
+         (title, shelf_range, is_fiction, sort_key, state, ${column}, scanned_at)
+       VALUES ('', '', 0, '', ?, ?, ?)
        RETURNING id`,
-      [filename, now],
+      [STATE_OF_QUEUE_STATUS.pending, filename, now],
     )
     return (await this.get(Number(created!.id)))!
   }
 
+  /**
+   * One row, whatever state it is in.
+   *
+   * `books` rather than `queued_books`, because this is a lookup by id and the
+   * callers ask it about books that have left the queue on purpose: `edit`
+   * refuses one that has been shelved by name rather than by not finding it, and
+   * `POST /api/books` reads the photographs off the row it is about to place.
+   */
   async get(id: number): Promise<CaptureRow | undefined> {
-    return this.db.get<CaptureRow>('SELECT * FROM captures WHERE id = ?', [id])
+    return this.db.get<CaptureRow>(
+      `SELECT ${QUEUE_ROW} FROM books WHERE id = ?`, [id],
+    )
   }
 
   /**
-   * The one statement here whose shape is not known until it is called: the
-   * `IN` list is as long as the caller asked for. The driver walks placeholders
-   * in the order it meets them, so a varying count needs nothing said about it.
+   * The state itself, for the one caller that cannot use `status`.
+   *
+   * `status` folds every state that is not queued into `done`, which is what the
+   * client has always been told and is right for it. `derive` needs to tell a
+   * book that was discarded mid-crop from one that was shelved mid-crop, and
+   * those two are one word to a client and opposite answers to a sweep that is
+   * about to delete files.
    */
-  async list(
-    statuses: CaptureStatus[] = ['pending', 'ready', 'failed'],
-  ): Promise<CaptureRow[]> {
-    const placeholders = statuses.map(() => '?').join(', ')
+  private async stateOf(id: number): Promise<string | undefined> {
+    const row = await this.db.get<{ state: string }>(
+      'SELECT "state" FROM books WHERE id = ?', [id],
+    )
+    return row?.state
+  }
+
+  /**
+   * Everything waiting.
+   *
+   * This used to take the statuses it wanted, defaulting to the three that are
+   * not `done`, and every caller in the repository took the default. The
+   * argument is gone rather than kept for a caller that never arrived: the
+   * relation is what says which rows are queued now, and a parameter that could
+   * ask for `done` would be asking this method for the whole catalogue.
+   */
+  async list(): Promise<CaptureRow[]> {
     return this.db.all<CaptureRow>(
-      `SELECT * FROM captures WHERE status IN (${placeholders}) ORDER BY id ASC`,
-      statuses,
+      `SELECT ${QUEUE_ROW} FROM queued_books ORDER BY id ASC`,
     )
   }
 
@@ -275,23 +409,37 @@ export class CaptureQueue {
    * `failures` breaks the `failed` total into the three things it can mean
    * (#148). Counted in TypeScript over the failed rows rather than in SQL,
    * because the rule is `failureOf` and there must not be a second copy of it
-   * written in SQL for Home while the queue row uses the first. Only failed
-   * rows are read, which is the short end of the table: `done` never joins it.
+   * written in SQL for Home while the queue row uses the first. Only
+   * unidentified rows are read, which is the short end of the queue.
+   *
+   * **`done` means something slightly wider than it did.** It counted captures
+   * that had become books, and it counts books that have left the queue, which
+   * is every catalogued book rather than only the ones that came through a
+   * camera. Nothing reads it: the badge and Home both add up the other three,
+   * which is what the queue is. Reporting the catalogue's own total under a
+   * fourth name here would be a second copy of `Store.counts`, so the number
+   * that is served is the one this relation can answer honestly.
    */
   async counts(): Promise<QueueCounts> {
     const rows = await this.db.all<{ status: CaptureStatus; n: number }>(
       `SELECT status, CAST(COUNT(*) AS INTEGER) AS n
-         FROM captures GROUP BY status`,
+         FROM (SELECT ${QUEUE_ROW} FROM queued_books) queued
+        GROUP BY status`,
+    )
+
+    const shelved = await this.db.get<{ n: number }>(
+      'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM catalogued_books',
     )
 
     const counts: QueueCounts = {
       pending: 0,
       ready: 0,
       failed: 0,
-      done: 0,
+      done: shelved?.n ?? 0,
       failures: countFailures(
         await this.db.all<{ isbn13: string; note: string }>(
-          "SELECT isbn13, note FROM captures WHERE status = 'failed'",
+          `SELECT isbn13, scan_note AS note FROM books WHERE "state" = ?`,
+          [STATE_OF_QUEUE_STATUS.failed],
         ),
       ),
     }
@@ -314,10 +462,13 @@ export class CaptureQueue {
     const cutoff = new Date(Date.now() - CLAIM_LEASE_MS).toISOString()
 
     const result = await this.db.run(
-      `UPDATE captures
+      // `state IN (queued)` where this used to say `status != 'done'`, and it
+      // covers one case more: a scan somebody discarded is not claimable
+      // either. It could not be before because a discard deleted the row.
+      `UPDATE books
           SET claimed_by = @who, claimed_at = @now
         WHERE id = @id
-          AND status != 'done'
+          AND "state" IN (${QUEUED_SQL})
           AND (claimed_by = '' OR claimed_by = @who OR claimed_at IS NULL
                OR claimed_at < @cutoff)`,
       { id, who, now: new Date().toISOString(), cutoff },
@@ -357,7 +508,9 @@ export class CaptureQueue {
   async edit(id: number, who: string, patch: CaptureEdit): Promise<EditOutcome> {
     const before = await this.get(id)
     if (!before) return { ok: false, reason: 'missing' }
-    // A shelved capture is history. Its book is the thing to edit now.
+    // A book that has left the queue is not edited here. `PUT /api/books/:id`
+    // is what edits a book somebody has filed, and it recomputes the sort key,
+    // which this does not and must not.
     if (before.status === 'done') return { ok: false, reason: 'done' }
 
     const held = await this.claim(id, who)
@@ -398,7 +551,7 @@ export class CaptureQueue {
     const now = new Date().toISOString()
 
     await this.db.run(
-      `UPDATE captures SET
+      `UPDATE books SET
          edit_json = @edit, edited_by = @who, edited_at = @now,
          -- Mirrored onto the row's own columns as well as into the overlay:
          -- the queue listing and the worker both read these directly, and a
@@ -415,7 +568,7 @@ export class CaptureQueue {
          -- through it, so the two stay tellable apart on the row itself.
          --
          -- A person who has stated a title or an ISBN has resolved this
-         -- book, whatever the photographs did or did not read. 'pending'
+         -- book, whatever the photographs did or did not read. 'scanned'
          -- is left alone: the worker is mid-pass and settles it itself,
          -- with this overlay applied.
          --
@@ -423,10 +576,11 @@ export class CaptureQueue {
          -- compared against a bare literal, with no column to take a type
          -- from, so a database that types parameters before it plans refuses
          -- the statement rather than guessing. Identity on SQLite.
-         status = CASE
-           WHEN status IN ('ready', 'failed') AND CAST(@resolved AS INTEGER) = 1
-             THEN 'ready'
-           ELSE status
+         state = CASE
+           WHEN "state" IN ('${STATE_OF_QUEUE_STATUS.ready}', '${STATE_OF_QUEUE_STATUS.failed}')
+                AND CAST(@resolved AS INTEGER) = 1
+             THEN '${STATE_OF_QUEUE_STATUS.ready}'
+           ELSE "state"
          END
        WHERE id = @id`,
       {
@@ -446,56 +600,48 @@ export class CaptureQueue {
 
   async release(id: number, who: string): Promise<void> {
     await this.db.run(
-      `UPDATE captures SET claimed_by = '', claimed_at = NULL
+      `UPDATE books SET claimed_by = '', claimed_at = NULL
         WHERE id = ? AND claimed_by = ?`,
       [id, who],
     )
   }
 
-  async markDone(id: number, bookId: number): Promise<void> {
-    await this.db.run(
-      "UPDATE captures SET status = 'done', book_id = ? WHERE id = ?",
-      [bookId, id],
-    )
-  }
-
-  async remove(id: number): Promise<void> {
-    await this.db.run('DELETE FROM captures WHERE id = ?', [id])
-  }
-
   /**
-   * Record what the crop detector made of one of a capture's photos.
+   * The scan was a mistake.
    *
-   * `name` is the derived file, or '' when the book could not be found in the
-   * frame. Either way the slot joins `cropped`, because "looked at and found
-   * nothing" and "never looked at" are different states and only the first is
-   * worth telling a reader about.
+   * **Nothing is deleted, and that is the change.** This used to be
+   * `DELETE FROM captures`, so the record of having photographed the wrong
+   * thing, of having photographed the same book twice, or of a shelf somebody
+   * gave up halfway through went with the row. `discarded` is one of the seven
+   * states in `docs/data-model.md` for that reason: the row stays, out of the
+   * queue and out of every relation a shelf is drawn from, and it can still be
+   * counted and looked at.
    *
-   * The photo's own column is not touched here, and no statement in this class
-   * ever writes a crop filename into one. The original is the record.
+   * Only a queued book can be discarded. A book on a shelf is removed by the
+   * route that removes books, which is a different decision made by a different
+   * person about a different thing.
    *
-   * The same single-statement shape as `Store.setCrop`, for the same reason and
-   * found the same way. Stage E's lesson about the missing CAST applies here
-   * too: when a hazard has a shape, look for the other members of the family
-   * rather than assuming the list is complete. This was the second one.
+   * The photographs are still deleted from disk by the route that calls this,
+   * which is what somebody discarding a scan is asking for. The filenames stay
+   * on the row as the record of what was thrown away, and `Store.imageInUse`
+   * knows not to treat a discarded book's filenames as a claim on a file.
    */
-  async setCrop(id: number, slot: CropSlot, name: string): Promise<void> {
+  async discard(id: number): Promise<void> {
     await this.db.run(
-      `UPDATE captures SET
-         ${slot}_crop = ?,
-         cropped = CASE
-           WHEN ',' || COALESCE(cropped, '') || ',' LIKE ? THEN cropped
-           WHEN COALESCE(cropped, '') = ''                 THEN ?
-           ELSE cropped || ',' || ?
-         END
-       WHERE id = ?`,
-      [name, `%,${slot},%`, slot, slot, id],
+      `UPDATE books SET "state" = ?, claimed_by = '', claimed_at = NULL
+        WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
+      [DISCARDED, id],
     )
+  }
+
+  /** Record what the crop detector made of one of this book's photographs. */
+  async setCrop(id: number, slot: CropSlot, name: string): Promise<void> {
+    await recordCrop(this.db, id, slot, name)
   }
 
   /** Store the front photograph's hash. Only ever a hash of that photograph. */
   async setFrontHash(id: number, hash: string): Promise<void> {
-    await this.db.run('UPDATE captures SET front_hash = ? WHERE id = ?', [hash, id])
+    await this.db.run('UPDATE books SET front_hash = ? WHERE id = ?', [hash, id])
   }
 
   /**
@@ -506,10 +652,12 @@ export class CaptureQueue {
    * Three filters, and each one is the difference between an answer and a
    * wrong answer:
    *
-   *   `status != 'done'` because a capture that became a book is not waiting
-   *   for anybody. Telling somebody to go and finish a capture that is already
-   *   on a shelf sends them to a dead end, and the books path answers for that
-   *   book already.
+   *   `queued_books` because a book that has left the queue is not waiting for
+   *   anybody. Telling somebody to go and finish a scan that is already on a
+   *   shelf sends them to a dead end, and the books path answers for that book
+   *   already. That used to be `status != 'done'` and is now the relation, which
+   *   also takes out the discarded ones: a scan somebody threw away is the last
+   *   thing to offer them when they pick the book up again.
    *
    *   `front_hash != ''` because an empty hash is not a weak match, it is the
    *   absence of one. `distance` already scores it 64, but leaving the row out
@@ -526,8 +674,8 @@ export class CaptureQueue {
    */
   async waiting(): Promise<CaptureRow[]> {
     return this.db.all<CaptureRow>(
-      `SELECT * FROM captures
-        WHERE status != 'done' AND front_hash != '' AND front_image != ''
+      `SELECT ${QUEUE_ROW} FROM queued_books
+        WHERE front_hash != '' AND front_image != ''
         ORDER BY id`,
     )
   }
@@ -549,9 +697,9 @@ export class CaptureQueue {
    * taken yet is exactly the row somebody is about to duplicate, and leaving
    * it out would lose the case this exists for.
    *
-   * `status != 'done'` is kept, for the reason it is kept there: a capture
-   * that became a book is not waiting for anybody, and the catalogue answers
-   * for that book already.
+   * `queued_books` is kept, for the reason it is kept there: a book that has
+   * left the queue is not waiting for anybody, and the catalogue answers for it
+   * already.
    *
    * `exceptId` is the capture being asked about, so a capture never reports
    * itself as its own duplicate. Pass null when asking on behalf of a
@@ -565,8 +713,8 @@ export class CaptureQueue {
     if (!isbn13) return []
 
     return this.db.all<CaptureRow>(
-      `SELECT * FROM captures
-        WHERE status != 'done' AND isbn13 = @isbn13 AND id != @except
+      `SELECT ${QUEUE_ROW} FROM queued_books
+        WHERE isbn13 = @isbn13 AND id != @except
         ORDER BY id`,
       { isbn13, except: exceptId ?? -1 },
     )
@@ -575,19 +723,23 @@ export class CaptureQueue {
   /**
    * Every capture that has a photograph, oldest first.
    *
-   * Deliberately unfiltered, for the same reason `Store.photographed` is:
+   * Unfiltered within the queue, for the same reason `Store.photographed` is:
    * whether a slot still wants cropping depends on `cropped`, on whether the
-   * caller is forcing a redo, and on whether the derived file is still on
-   * disk, none of which belongs in SQL where a later change to the rule would
-   * have to be made twice. Captures that became books are included: they are
-   * still in the queue's table, still name photographs, and a queue view that
-   * looks back over them wants the same crops.
+   * caller is forcing a redo, and on whether the derived file is still on disk,
+   * none of which belongs in SQL where a later change to the rule would have to
+   * be made twice.
+   *
+   * **`queued_books`, so the two crop passes divide the table between them.**
+   * This used to include captures that had become books, because they were rows
+   * in a second table nothing else swept. They are rows in this one now, and
+   * `Store.photographed` reads `catalogued_books`, so between the two every book
+   * is offered to a detector exactly once instead of to both passes.
    */
   async photographed(): Promise<DerivableCapture[]> {
     return this.db.all<DerivableCapture>(
       `SELECT id, front_image, back_image, edge_image,
               front_crop, back_crop, edge_crop, cropped, front_hash
-         FROM captures
+         FROM queued_books
         WHERE front_image != '' OR back_image != '' OR edge_image != ''
         ORDER BY id`,
     )
@@ -611,11 +763,18 @@ export class CaptureQueue {
 
       const outcome = await deriveCapture(this, capture, images, { apply: true })
 
-      // Discarded while this was cropping. `setCrop` wrote nothing, because
-      // there is no row to write to, so the files it produced are already
+      // Discarded while this was cropping, so the crops it produced are already
       // orphans. See CaptureImages above for why the delete arrives here.
+      //
+      // The test used to be "the row has gone", because a discard deleted it.
+      // A discard is a state now, so the row is still there and the question is
+      // whether it was discarded, which the raw state answers and `status`
+      // cannot: it reports `done` for a book that was shelved in the same second
+      // and that book's crops are its own, not orphans. `setCrop` did write, to
+      // a discarded book, which is harmless and is the record of what had been
+      // cropped when somebody said the scan was a mistake.
       const written = outcome.crops.map((slot) => slot.crop).filter(Boolean)
-      if (written.length && !(await this.get(id))) {
+      if (written.length && (await this.stateOf(id)) === DISCARDED) {
         await images.orphaned?.(written)
       }
     } catch {
@@ -629,7 +788,9 @@ export class CaptureQueue {
 
   private async nextPending(): Promise<CaptureRow | undefined> {
     return this.db.get<CaptureRow>(
-      "SELECT * FROM captures WHERE status = 'pending' ORDER BY id ASC LIMIT 1",
+      `SELECT ${QUEUE_ROW} FROM queued_books
+        WHERE "state" = '${STATE_OF_QUEUE_STATUS.pending}'
+        ORDER BY id ASC LIMIT 1`,
     )
   }
 
@@ -702,12 +863,13 @@ export class CaptureQueue {
         // type for a database that wants one before it will plan. Identity on
         // SQLite. Stage D listed three of these; this is the fourth.
         await this.db.run(
-          `UPDATE captures
-              SET status = CASE
-                WHEN isbn13 != '' OR CAST(@statedTitle AS TEXT) != '' THEN 'ready'
-                ELSE 'failed'
+          `UPDATE books
+              SET "state" = CASE
+                WHEN isbn13 != '' OR CAST(@statedTitle AS TEXT) != ''
+                  THEN '${STATE_OF_QUEUE_STATUS.ready}'
+                ELSE '${STATE_OF_QUEUE_STATUS.failed}'
               END
-            WHERE id = @id AND status = 'pending'`,
+            WHERE id = @id AND "state" = '${STATE_OF_QUEUE_STATUS.pending}'`,
           { id: capture.id, statedTitle: editsOn(capture).title ?? '' },
         )
         return
@@ -815,15 +977,22 @@ export class CaptureQueue {
       const resolved = Boolean(lookup?.found) || Boolean(stated.title) || statedIsbn
 
       await this.db.run(
-        `UPDATE captures SET
-           status = @status, isbn13 = @isbn13, isbn10 = @isbn10,
+        // `AND state IN (queued)` is new, and it is the discard window. The
+        // pass above spent seconds on OCR and lookups, which is ample time for
+        // somebody to have swiped this scan away; without the guard this write
+        // would take a discarded book back out of the bin and put it in the
+        // queue as a reading nobody asked for. It could not happen before
+        // because a discard deleted the row and the UPDATE matched nothing,
+        // which is the same protection by accident.
+        `UPDATE books SET
+           "state" = @status, isbn13 = @isbn13, isbn10 = @isbn10,
            isbn_source = @source, title_guess = @titleGuess,
            cover_text = @coverText, analysed = @analysed,
-           draft_json = @draft, note = @note, processed_at = @now
-         WHERE id = @id`,
+           draft_json = @draft, scan_note = @note, processed_at = @now
+         WHERE id = @id AND "state" IN (${QUEUED_SQL})`,
         {
           id: capture.id,
-          status: resolved ? 'ready' : 'failed',
+          status: resolved ? STATE_OF_QUEUE_STATUS.ready : STATE_OF_QUEUE_STATUS.failed,
           isbn13: statedIsbn ? stated.isbn13! : isbn13,
           isbn10: statedIsbn ? (stated.isbn10 ?? '') : (lookup?.isbn10 ?? ''),
           source: statedIsbn ? (stated.isbnSource ?? MANUAL_ISBN_SOURCE) : isbnSource,
@@ -862,15 +1031,20 @@ export class CaptureQueue {
         })
         if (outstanding) {
           await this.db.run(
-            "UPDATE captures SET status = 'pending' WHERE id = ?",
+            `UPDATE books SET "state" = '${STATE_OF_QUEUE_STATUS.pending}'
+              WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
             [capture.id],
           )
         }
       }
     } catch (error) {
       await this.db.run(
-        `UPDATE captures SET status = 'failed', analysed = ?, note = ?, processed_at = ?
-          WHERE id = ?`,
+        // Guarded for the same reason the write above is: a pass that threw
+        // must not resurrect a scan somebody discarded while it was running.
+        `UPDATE books
+            SET "state" = '${STATE_OF_QUEUE_STATUS.failed}',
+                analysed = ?, scan_note = ?, processed_at = ?
+          WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
         [
           [...analysed].join(','),
           // The prefix is the only record that this pass threw rather than

@@ -510,16 +510,19 @@ start. Books, the queue, shelf ranges and the rest still go through `Store`,
 a side effect of doing something else.
 
 **`capture` is not `captures`.** The singular one is a photograph, added by
-#181; the plural one is the scanning queue and is dissolved by #183. One letter
-apart, and they are not related.
+#181; the plural one was the scanning queue and was dissolved by #183. One
+letter apart, and they were never related.
 
-**#183 lands in two, and the queue table is still here.** The first half added
-`books.state`, the `shelved_books` view and the partial index, and moved the
-ordering queries onto the view; the section below is the invariant it leaves
-behind. The queue table, its three image columns and its nullable `book_id` are
-exactly as #192 left them, and dissolving them is the second half. So `identified`
-is a state with no rows in it: a book that is confirmed and not yet placed is
-still a capture.
+**#183 landed in two and is done.** The first half added `books.state`, the
+`shelved_books` view and the partial index, and moved the ordering queries onto
+the view. The second dissolved the queue: **there is no queue table.** A book
+exists from its first photograph, so `CaptureQueue` reads and writes `books`,
+the queue is `queued_books`, and `identified` has rows in it.
+
+**The `captures` table is still in the schema and nothing reads it.** Nothing is
+ever dropped here, so it sits there with its rows, each one naming the book it
+became in `book_id`. Do not add a reader. If you find yourself writing
+`FROM captures`, the answer is `queued_books`.
 
 **Tags and credits are written on every save, unconditionally.** The gate that
 used to decide this from the driver in `createApp` is gone: it existed only
@@ -562,26 +565,40 @@ tsconfig.domain.json` still reports nothing, while a full `npm run typecheck`
 reports five errors and every one of them is in `server/`. That comment block at
 the top of `web/tsconfig.domain.json` is the exact sequence.
 
-### A shelf is drawn from `shelved_books`, never from `books`
+### Three views over `books`, and a query reads one of them
 
-`books` has a `state` since #183, and only one of the seven states is on a
-shelf. **Any query that orders books, seeks a neighbour, lays out a plank or
-decides a boundary reads the view `shelved_books`.** Three statements do:
-the two in `Store.neighbours` and the one in `Shelves.booksIn`, which every
-layout, strip, label and misfile review is drawn from.
+`books` has a `state` since #183 and holds every book at every point in its
+life, including the ones nobody has identified. There is one relation per
+question anybody asks of it, each with its predicate written once, and the seven
+states fall into them without overlapping.
 
-The condition is written in exactly one place, the view's own predicate, and
-`idx_books_shelved` carries the same predicate so the view is an index seek
-rather than a scan. That is deliberate and it is not a style preference:
-spelling `WHERE state = 'shelved'` in each query is an arrangement that works
-until somebody writes the next one, and forgetting once puts a book nobody has
-identified between two real ones on a shelf listing somebody is standing in
-front of. A reviewer cannot check for a missing `WHERE` clause in a query that
-does not exist yet.
+| Relation | Holds | Read by |
+| --- | --- | --- |
+| `shelved_books` | `shelved` | anything that orders, seeks a neighbour, lays out a plank or decides a boundary |
+| `catalogued_books` | `shelved`, `checked_out`, `withdrawn` | the catalogue: listings, counts, duplicate checks, the cover and hash backfills |
+| `queued_books` | `scanned`, `unidentified`, `identified` | the whole of `CaptureQueue` |
 
-Reading `books` directly is right for the catalogue, for a lookup by id, for the
-backfills and for the counts, and `Store.listRange` says why at the statement.
-If you are about to `ORDER BY sort_key` over `books`, you want the view.
+`discarded` is in none of them, which is what makes it a state rather than a
+deleted row.
+
+**Any query that orders books, seeks a neighbour, lays out a plank or decides a
+boundary reads `shelved_books`.** `idx_books_shelved` carries the same
+predicate so the view is an index seek rather than a scan, and `idx_books_queued`
+does the same for the queue. That is deliberate and it is not a style
+preference: spelling `WHERE state = 'shelved'` in each query is an arrangement
+that works until somebody writes the next one, and forgetting once puts a book
+nobody has identified between two real ones on a shelf listing somebody is
+standing in front of. A reviewer cannot check for a missing `WHERE` clause in a
+query that does not exist yet.
+
+Reading `books` directly is right for a lookup by id and for a write, and for
+nothing else. If you are about to `ORDER BY sort_key` over `books`, you want a
+view.
+
+**`GET /api/books` does not list a book that has been scanned and not
+identified.** It has no title, no author and no shelf range, and it is already
+on screen in the queue, which is the one place anybody can act on it. That is
+the question #204 left open at `Store.listRange` and #183 answered.
 
 **`checked_out_at` is still the column the client reads**, and
 `Store.setCheckedOut` writes it and `state` in one statement so they cannot
