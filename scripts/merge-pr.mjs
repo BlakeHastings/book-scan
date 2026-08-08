@@ -29,6 +29,7 @@
 //   node scripts/merge-pr.mjs 42
 import { execFileSync } from 'node:child_process'
 import { isInert } from './ci-scope.mjs'
+import { main as pruneWorktrees } from './prune-worktrees.mjs'
 
 // SETUP: the exact `name:` of each required CI job, as GitHub reports it in
 // the check rollup. Take them from a real run, not from the workflow file:
@@ -274,6 +275,20 @@ function main() {
     console.log(`Merged and deleted branch ${pr.headRefName}.`)
   } catch {
     console.log(`Merged. Branch ${pr.headRefName} could not be deleted; remove it manually.`)
+  }
+
+  // Deleting the branch is the moment its worktree is certainly finished with,
+  // so the sweep happens here rather than being remembered. Each agent worktree
+  // carries its own node_modules; on 2026-08-07 the disk reached 1.4 GB free
+  // with eight of them and work stopped twice while they were cleared by hand.
+  //
+  // It refuses anything locked, dirty, or whose branch is still on origin, and
+  // says so per worktree. A failure here must not fail the merge: the merge has
+  // already happened, and reporting it as failed would be the worse lie.
+  try {
+    pruneWorktrees()
+  } catch (error) {
+    console.log(`Merged. Worktree sweep did not run: ${(error.message || '').split('\n')[0]}`)
   }
 }
 
