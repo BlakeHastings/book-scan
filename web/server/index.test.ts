@@ -230,6 +230,110 @@ describe('saving a book', () => {
   })
 })
 
+/**
+ * A database that drops one statement, the way a connection going away under a
+ * query does.
+ *
+ * Everything else is the real database, because the thing under test is what
+ * the app does with one rejection and not how a store behaves against a fake.
+ */
+function hiccupsOn(db: Db, statement: string): Db {
+  const check = async (sql: string) => {
+    // The message pg-pool actually raises when the server goes away mid-query,
+    // quoted so the log line this produces reads like the one in #203.
+    if (sql.includes(statement)) throw new Error('Connection terminated unexpectedly')
+  }
+  return {
+    all: async <Row>(sql: string, params?: Parameters<Db['all']>[1]) => {
+      await check(sql)
+      return db.all<Row>(sql, params)
+    },
+    get: async <Row>(sql: string, params?: Parameters<Db['get']>[1]) => {
+      await check(sql)
+      return db.get<Row>(sql, params)
+    },
+    run: async (sql: string, params?: Parameters<Db['run']>[1]) => {
+      await check(sql)
+      return db.run(sql, params)
+    },
+    tx: <T>(work: (inner: Db) => Promise<T>, options?: Parameters<Db['tx']>[1]) =>
+      db.tx((inner) => work(hiccupsOn(inner, statement)), options),
+    // Not this wrapper's to close: it does not own the database it borrowed.
+    close: async () => {},
+  }
+}
+
+/**
+ * The defect in #203, reproduced against a running app by killing the Postgres
+ * container in the second after a save and watching the api process end:
+ *
+ *   Error: Connection terminated unexpectedly
+ *       at async PgDb.run (web/server/db.pg.ts:588:20)
+ *       at async Store.setCoverImage (web/server/store.ts:721:5)
+ *       at async fetchCoverFor (web/server/index.ts:1997:5)
+ *   Node.js v22.14.0
+ *
+ * Nothing awaits the chain a save starts, so since Node 15 a rejection in it is
+ * an uncaught exception and the process ends. What that costs is not a cover:
+ * it is the app going away under somebody standing at a bookcase holding a
+ * book, with nothing on screen saying why.
+ */
+describe('a database hiccup in the work a save started', () => {
+  it('says what failed and keeps serving, instead of taking the process down', async () => {
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const coverDir = mkdtempSync(join(dataRoot, 'index-hiccup-'))
+    // `Store.setCoverImage`, the first write the un-awaited chain makes and one
+    // of the four calls #203 names.
+    const app = createApp({
+      db: hiccupsOn(running.db, 'UPDATE books SET cover_image'),
+      coverDir,
+      startBackgroundWork: false,
+    })
+    const server: Server = app.listen(0)
+    await new Promise<void>((resolve) => server.once('listening', resolve))
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+
+    try {
+      const saved = await fetch(`${base}/api/books`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+        }),
+      })
+      expect(saved.status).toBe(201)
+      const { id } = (await saved.json()) as { id: number }
+
+      await app.settled()
+
+      // Loud, and it names the book and the work rather than only the driver.
+      // A cover that failed in silence is indistinguishable from a cover
+      // nobody ever went looking for, which is the distinction #192 exists to
+      // keep.
+      const said = reported.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(said).toContain(
+        `background work failed, filling in the cover, hashes and crops of book ${id}`,
+      )
+
+      // Still answering, which is the whole point: the row is committed and the
+      // person can carry on scanning.
+      const health = await fetch(`${base}/api/health`)
+      expect(health.status).toBe(200)
+
+      // And the book is still on the "never looked for a cover" list rather
+      // than stamped as looked at, so the backfill asks again.
+      expect((await running.store.missingCovers(10)).map((row) => row.id)).toContain(id)
+    } finally {
+      reported.mockRestore()
+      await app.settled()
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()))
+      })
+      rmSync(coverDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('updating a book', () => {
   it('edits an existing book in place', async () => {
     const { id } = await running.store.addBook({

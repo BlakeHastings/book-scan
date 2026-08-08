@@ -642,6 +642,17 @@ catalogue. Do not add one.
   otherwise in an issue. Do not silently change behaviour that it specifies.
 - Client and server never share a database connection. The client talks to the
   server only through `web/src/lib/api.ts`.
+- **Every promise the server starts and does not await goes through
+  `inTheBackground`, and names what it is.** There is no
+  `process.on('unhandledRejection')` under `web/` and none should be added: a
+  net that logs and carries on turns every future ownerless rejection into a
+  line nobody reads, including the ones that should be loud. `inTheBackground`
+  is the one place background work is owned, so a rejection is reported against
+  the work it belongs to instead of ending the process. Twice now this
+  repository's crashes have come from work nobody was waiting for: an API
+  process that died on any OCR pass, and #203, where a database blip in the
+  seconds after a save killed the API in front of somebody holding a book. A
+  bare `void somePromise()` in `server/` is that defect being reintroduced.
 - Tests run against real dependencies where it is affordable: a real Postgres
   in a container, real barcode decoding, real OCR against generated images.
   Prefer that over mocks.

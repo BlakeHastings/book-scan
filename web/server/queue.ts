@@ -1062,10 +1062,15 @@ export class CaptureQueue {
    * Anything left 'pending' when the server stopped will never be picked up
    * otherwise, since the worker only runs in memory.
    */
-  resumeOnStartup(): void {
+  resumeOnStartup(): Promise<void> {
     // Deliberately not awaited and deliberately not async: the server must
     // finish starting whatever the queue is doing. `drain` guards itself
     // against a second pass, so this cannot overlap a drain a shutter starts.
-    void this.drain()
+    //
+    // Returned rather than voided (#203). Handing the promise back does not
+    // make the caller wait for it, and it is what lets the caller own how it
+    // fails: `void` here meant a database that hiccupped during the resume
+    // ended the process, the same defect as the chain after a save.
+    return this.drain()
   }
 }
