@@ -124,20 +124,47 @@ async function catalogueOf(
             ('nonfiction', '4A', 4, 0, 'Bookcase 4 is dedicated to non-fiction')`,
   )
 
-  for (const book of books) {
+  /*
+   * One statement each rather than one per row. A round trip per book is 236 of
+   * them per database and a dozen databases across this file, which is enough
+   * to put it, `state-backfill.test.ts` and `capture-backfill.test.ts` over
+   * vitest's five second default between them when the suite is under load.
+   *
+   * `unnest` keeps it parameterised, so the seed is still data rather than
+   * built SQL. `WITH ORDINALITY` and the `ORDER BY` are what make the ids
+   * follow the array, which two assertions here read: the lowest id is
+   * `Book 000`.
+   */
+  if (books.length) {
     await pool.query(
       `INSERT INTO books (title, shelf_range, is_fiction, sort_key, scanned_at,
                           classification_source, classification_confidence)
-       VALUES ($1, $2, $3, $4, '2026-01-02T03:04:05.000Z', 'auto', 'high')`,
-      [book.title, book.range, book.range === 'fiction' ? 1 : 0, book.sortKey],
+       SELECT title, shelf_range, is_fiction, sort_key,
+              '2026-01-02T03:04:05.000Z', 'auto', 'high'
+         FROM unnest($1::text[], $2::text[], $3::int[], $4::text[])
+              WITH ORDINALITY AS seed(title, shelf_range, is_fiction, sort_key, at)
+        ORDER BY at`,
+      [
+        books.map((book) => book.title),
+        books.map((book) => book.range),
+        books.map((book) => (book.range === 'fiction' ? 1 : 0)),
+        books.map((book) => book.sortKey),
+      ],
     )
   }
 
-  for (const [at, separator] of separators.entries()) {
+  if (separators.length) {
     await pool.query(
       `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
-       VALUES ($1, $2, $3, $4, '', '2026-01-02T03:04:05.000Z')`,
-      [separator.range, separator.kind, separator.startsAt, at],
+       SELECT shelf_range, kind, starts_at, position, '', '2026-01-02T03:04:05.000Z'
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::int[])
+              AS seed(shelf_range, kind, starts_at, position)`,
+      [
+        separators.map((one) => one.range),
+        separators.map((one) => one.kind),
+        separators.map((one) => one.startsAt),
+        separators.map((_, at) => at),
+      ],
     )
   }
 
