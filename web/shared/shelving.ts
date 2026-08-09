@@ -17,18 +17,41 @@ export const SEP = '\x1f'
 // ---------------------------------------------------------------------------
 
 /**
- * Fold text down to `[A-Z0-9 ]` so SQLite's default BINARY collation orders it
- * correctly without the ICU extension.
+ * Fold text down to letters, digits and single spaces, so a byte order
+ * collation orders it correctly without the ICU extension.
  *
  * Space (0x20) sorting below every letter is load-bearing: it is what makes
- * `SMITH ANN` come before `SMITHSON A`.
+ * `SMITH ANN` come before `SMITHSON A`. `SEP` sorts below the space, which is
+ * what makes the flattened sort key reproduce tuple comparison.
+ *
+ * **Letters, not `[A-Z]`, and that is issue #195.** This dropped everything
+ * outside `[A-Z0-9 ]` until then, which is not a fold at all for a name written
+ * in a script that has no `A-Z` in it: `Фёдор Достоевский` came back empty, so
+ * the book's author component of the sort key was empty and it sorted ahead of
+ * every book in its range, its filing name could not be looked up or overridden
+ * (both are keyed on this), and the needs-attention list called it "unknown
+ * author" while its own page named the author. Keeping the letters is the
+ * smallest change that makes all four of those one answer again.
+ *
+ * Accents are still folded away, and only by the combining marks Latin
+ * decomposes into: `Böll` is `BOLL` and `García` is `GARCIA` exactly as before,
+ * so nothing that was already filed moves. `domain/authorship/nameKey` keeps
+ * accents on purpose and says at itself why the two differ.
+ *
+ * **The one place this is not exactly the stored order.** `books.sort_key`
+ * collates `C`, which is UTF-8 byte order, and this code compares the same keys
+ * with `<`, which is UTF-16 code unit order. Those agree for every character in
+ * the basic plane and disagree only for one outside it compared against
+ * U+E000..U+FFFF, which is a rare CJK ideograph filed against a private use
+ * character. Worth knowing rather than worth guarding: the pre-#195 fold agreed
+ * with the collation by having nothing but ASCII in it, and this one does not.
  */
 export function normalise(value: string): string {
   return (value ?? '')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/gu, '') // drop combining marks (accented letters fold to plain ASCII)
     .toUpperCase()
-    .replace(/[^A-Z0-9 ]+/g, ' ')
+    .replace(/[^\p{L}\p{N} ]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -73,9 +96,24 @@ function bare(token: string): string {
  *
  * Neither is separable by heuristic, which is why the author_filing override
  * table exists. Do not try to fix these here.
+ *
+ * **This is the only derivation of a filing name in the app**, and it is in
+ * `shared/` so that it can be. The client renders it as you type, `Store.
+ * filingFor` stores it when no override exists, and `PrintedName.derivedFiling`
+ * is it. Two of those disagreeing is not a cosmetic difference: opening a book
+ * whose stored filing name is not what the client would derive pins the stored
+ * one into the draft as an override (`App.tsx`), so the disagreement is written
+ * back the next time somebody saves.
+ *
+ * **It answers a name for anything with a name in it**, falling back to what was
+ * printed. Nothing that files a book can use an empty answer: the empty string
+ * sorts ahead of every real one, so a book with an author would be shelved as
+ * though it had none (#195).
  */
 export function filingName(display: string): string {
-  let tokens = (display ?? '')
+  const printed = (display ?? '').replace(/\s+/g, ' ').trim()
+
+  let tokens = printed
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -90,7 +128,10 @@ export function filingName(display: string): string {
     suffixes.unshift(tokens.pop()!)
   }
 
-  if (!tokens.length) return ''
+  // Everything that was there was an honorific or a suffix, so the heuristic
+  // has nothing to invert. What is printed on the book is the answer, and an
+  // empty string is not one: see the note above.
+  if (!tokens.length) return printed
 
   const withSuffix = (base: string) =>
     suffixes.length ? `${base} ${suffixes.join(' ')}` : base

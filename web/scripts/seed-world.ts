@@ -129,6 +129,14 @@ interface BookSeed {
   noCover?: boolean
 }
 
+/**
+ * How much of the fiction list is shelved. Everything past it is the queue.
+ *
+ * Named because the boundary is load-bearing: a seed added after it is a
+ * capture, not a book on a shelf, so nothing that orders books ever sees it.
+ */
+const SHELVED_FICTION = 19
+
 const FICTION: BookSeed[] = [
   { title: 'The Left Hand of Darkness', authors: ['Ursula K. Le Guin'], isFiction: true, publisher: 'Ace Books', published: '1969', pages: '304' },
   { title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true, publisher: 'Harper & Row', published: '1974', pages: '341' },
@@ -144,6 +152,20 @@ const FICTION: BookSeed[] = [
   { title: 'Pride and Prejudice', authors: ['Jane Austen'], isFiction: true, publisher: 'T. Egerton', published: '1813', pages: '279' },
   { title: 'Persuasion', authors: ['Jane Austen'], isFiction: true, publisher: 'John Murray', published: '1818', pages: '264' },
   { title: 'One Hundred Years of Solitude', authors: ['Gabriel García Márquez'], isFiction: true, publisher: 'Harper & Row', published: '1967', pages: '417' },
+  // Translated classics, with the author written the way Open Library actually
+  // answers for these editions: in the script the book was written in. Three
+  // scripts and one half-transliterated name, because they behave differently
+  // and the mixed one is the surprising one. #195 was found by a pass over this
+  // world, and a world with none of these in it cannot find it again.
+  //
+  // They are here rather than at the end of the list because everything past
+  // SHELVED_FICTION goes to the queue, and a book in the queue has no sort key
+  // and no shelf to be filed wrongly on.
+  { title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], isFiction: true, publisher: 'Penguin Classics', published: '1866', pages: '671' },
+  { title: 'The Brothers Karamazov', authors: ['Фёдор Достоевский'], isFiction: true, publisher: 'Penguin Classics', published: '1880', pages: '985', noCover: true },
+  { title: 'Norwegian Wood', authors: ['村上春樹'], isFiction: true, publisher: 'Vintage', published: '1987', pages: '389' },
+  { title: 'Zorba the Greek', authors: ['Νίκος Καζαντζάκης'], isFiction: true, publisher: 'Faber and Faber', published: '1946', pages: '320', noSpine: true },
+  { title: 'The Master and Margarita', authors: ['Mikhail Булгаков'], isFiction: true, publisher: 'Penguin Classics', published: '1967', pages: '412' },
   { title: 'Love in the Time of Cholera', authors: ['Gabriel García Márquez'], isFiction: true, publisher: 'Knopf', published: '1985', pages: '348' },
   { title: 'American Gods', authors: ['Neil Gaiman'], isFiction: true, publisher: 'William Morrow', published: '2001', pages: '465' },
   { title: 'Good Omens', authors: ['Neil Gaiman', 'Terry Pratchett'], isFiction: true, publisher: 'Gollancz', published: '1990', pages: '412' },
@@ -482,12 +504,12 @@ async function main(): Promise<void> {
   console.log('')
 
   // -------------------------------------------------------------------------
-  // Shelved library: 14 fiction across two bookcases, 8 non-fiction on one,
+  // Shelved library: 19 fiction across two bookcases, 8 non-fiction on one,
   // several areas each, one book left alone in the last area of each range,
   // a couple checked out.
   // -------------------------------------------------------------------------
 
-  const shelvedFiction = FICTION.slice(0, 14)
+  const shelvedFiction = FICTION.slice(0, SHELVED_FICTION)
   const shelvedNonfiction = NONFICTION.slice(0, 8)
 
   const fictionIds: number[] = []
@@ -532,7 +554,7 @@ async function main(): Promise<void> {
   // copy twice.
   // -------------------------------------------------------------------------
 
-  const queueFiction = FICTION.slice(14)
+  const queueFiction = FICTION.slice(SHELVED_FICTION)
   const queueNonfiction = NONFICTION.slice(8)
   const queuePool = [...queueFiction, ...queueNonfiction]
   let poolIndex = 0

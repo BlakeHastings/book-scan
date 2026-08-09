@@ -19,6 +19,37 @@ describe('normalise', () => {
     // This is the property that makes SMITH ANN precede SMITHSON A.
     expect(normalise('Smith, Ann') < normalise('Smithson, A')).toBe(true)
   })
+
+  it('keeps letters that are not A-Z rather than folding a name to nothing', () => {
+    // Issue #195. Dropping everything outside [A-Z0-9 ] is a fold for a Latin
+    // name and a deletion for one written in another script, and a name that
+    // folds to nothing sorts ahead of every name in the range.
+    // ё and й lose their marks the way é does, because rule 1 does not know
+    // which alphabet it is looking at. Filing Достоевский next to Достоевскии
+    // is the same trade already accepted for Böll and Boll.
+    expect(normalise('Фёдор Достоевский')).toBe('ФЕДОР ДОСТОЕВСКИИ')
+    expect(normalise('村上春樹')).toBe('村上春樹')
+    expect(normalise('Νίκος Καζαντζάκης')).toBe('ΝΙΚΟΣ ΚΑΖΑΝΤΖΑΚΗΣ')
+    expect(normalise('Jens Bjørneboe')).toBe('JENS BJØRNEBOE')
+  })
+
+  it('keeps both halves of a name that mixes scripts', () => {
+    // The one that surprises. The Latin half used to be the whole answer, so
+    // this name and a plain `Smith` folded to the same key and filed together.
+    expect(normalise('Smith, Иван')).toBe('SMITH ИВАН')
+    expect(normalise('Smith, Иван')).not.toBe(normalise('Smith'))
+    // Still governed by the space rule above, so it lands inside the SMITH
+    // block rather than after SMITHSON.
+    expect(normalise('Smith, Ann') < normalise('Smith, Иван')).toBe(true)
+    expect(normalise('Smith, Иван') < normalise('Smithson, A')).toBe(true)
+  })
+
+  it('folds accents the same way it always did, so nothing already filed moves', () => {
+    // The combining marks Latin decomposes into are still dropped. Cyrillic ё
+    // decomposes the same way and loses its diaeresis for the same reason.
+    expect(normalise('García')).toBe('GARCIA')
+    expect(normalise('Фёдор')).toBe(normalise('Федор'))
+  })
 })
 
 describe('filingName', () => {
@@ -59,6 +90,23 @@ describe('filingName', () => {
     expect(filingName('')).toBe('')
     expect(filingName('   ')).toBe('')
   })
+
+  it('inverts a name written in another script the way it inverts any other', () => {
+    // Issue #195. The heuristic never had a problem with these names; nothing
+    // reached it, because the caller folded them away first.
+    expect(filingName('Фёдор Достоевский')).toBe('Достоевский, Фёдор')
+    expect(filingName('Νίκος Καζαντζάκης')).toBe('Καζαντζάκης, Νίκος')
+    // A CJK name is written surname first and has no spaces, so it is a
+    // mononym to this and files as printed, which is right.
+    expect(filingName('村上春樹')).toBe('村上春樹')
+  })
+
+  it('answers what was printed when it has nothing to invert', () => {
+    // Not tidiness. An empty filing name sorts ahead of every real one, so a
+    // book with an author would shelve as though it had none (#195).
+    expect(filingName('Dr.')).toBe('Dr.')
+    expect(filingName('(Various)')).toBe('(Various)')
+  })
 })
 
 describe('titleFiling', () => {
@@ -98,6 +146,16 @@ describe('buildSortKey', () => {
     const half = key('A, B', 'Novella', 'S', 5.5)
     const six = key('A, B', 'Six', 'S', 6)
     expect(five < half && half < six).toBe(true)
+  })
+
+  it('files a non-Latin author in the range rather than ahead of all of it', () => {
+    // Issue #195. The author component was empty for these, which is what
+    // every key starts with, so the book landed first in its range whatever
+    // else was on the shelf.
+    const dostoevsky = key('Достоевский, Фёдор', 'Crime and Punishment')
+    expect(key('Austen, Jane', 'Persuasion') < dostoevsky).toBe(true)
+    expect(key('Zusak, Markus', 'The Book Thief') < dostoevsky).toBe(true)
+    expect(dostoevsky < key('村上春樹', 'Norwegian Wood')).toBe(true)
   })
 
   it('ignores a leading article when ordering standalones', () => {

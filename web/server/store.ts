@@ -75,6 +75,20 @@ export interface ResolvedKey {
   sortKey: string
 }
 
+/** One catalogued book, and everything its sort key is derived from. */
+export interface FilingInput {
+  id: number
+  title: string
+  authors: string
+  author_filing: string
+  title_filing: string
+  sort_key: string
+  series_name: string | null
+  series_index: number | null
+  is_fiction: number
+  printed_author: string
+}
+
 /**
  * Every public method here returns a promise, and the bodies underneath are
  * still synchronous better-sqlite3 calls.
@@ -102,17 +116,29 @@ export class Store {
   // Filing names and keys
   // -----------------------------------------------------------------------
 
-  /** Look up a saved override before falling back to the heuristic. */
+  /**
+   * Look up a saved override before falling back to the heuristic.
+   *
+   * **The heuristic runs whether or not there is a key to look an override up
+   * by.** It used to return '' when the key was empty, which read as a guard
+   * against querying for nothing and was in fact a guard against filing the
+   * book at all: `normalise()` folded a name written in a non-Latin script away
+   * entirely, so the one case that reached the early return was the one case
+   * that most needed an answer (#195). `normalise()` no longer folds those away,
+   * so an empty key now means a name with no letter or digit in it, and even
+   * that gets the heuristic rather than nothing: `filingName` answers what was
+   * printed, and what the client shows is what gets stored.
+   */
   async filingFor(displayName: string): Promise<string> {
     const key = normalise(displayName)
-    if (!key) return ''
+    const override = key
+      ? await this.db.get<{ filing_name: string }>(
+          'SELECT filing_name FROM author_filing WHERE display_key = ?',
+          [key],
+        )
+      : undefined
 
-    const row = await this.db.get<{ filing_name: string }>(
-      'SELECT filing_name FROM author_filing WHERE display_key = ?',
-      [key],
-    )
-
-    return row?.filing_name ?? filingName(displayName)
+    return override?.filing_name ?? filingName(displayName)
   }
 
   async saveFilingOverride(
@@ -150,6 +176,55 @@ export class Store {
         seriesIndex: draft.seriesIndex,
       }),
     }
+  }
+
+  /**
+   * Every catalogued book with what its filing name is derived from.
+   *
+   * For `server/refile-books.ts`, which recomputes the three derived columns
+   * and reports the rows where the answer has changed. A row is only ever as
+   * right as the code that was running the day it was last saved, and #195 is
+   * the case in point: a book saved before it filed under nobody and stays that
+   * way, because nothing recomputes a sort key on its own.
+   *
+   * The printed name comes from `book_authors` rather than from `authors`, which
+   * is a comma-joined display string where comma is both the separator between
+   * two authors and the separator inside `Last, First`. `authors` is the
+   * fallback for a row saved before that table existed, taking everything up to
+   * the first comma, which is what the client does with the same string.
+   */
+  async filingInputs(): Promise<FilingInput[]> {
+    return this.db.all<FilingInput>(
+      `SELECT b.id, b.title, b.authors, b.author_filing, b.title_filing,
+              b.sort_key, b.series_name, b.series_index, b.is_fiction,
+              COALESCE((SELECT name FROM book_authors
+                         WHERE book_id = b.id ORDER BY position LIMIT 1), '') AS printed_author
+         FROM catalogued_books b
+        ORDER BY b.id`,
+    )
+  }
+
+  /**
+   * Write the three derived columns, and nothing else.
+   *
+   * Deliberately not `updateBook`: that one is a person saying what a book is,
+   * and it rewrites the credits, moves a queued book onto a shelf and stamps
+   * `shelved_at`. Recomputing a key states nothing new about the book.
+   *
+   * **Not a fifth writer of where a book is** (#185), which is the thing
+   * `placement-ledger.ts` says would have to be added to this class beside the
+   * four. Nothing here writes `location`, `shelved_at`, `checked_out_at` or
+   * `current_area_id`, and no placement row belongs to it: nobody carried the
+   * book anywhere, and saying they had is the lie `docs/shelving.md` refuses.
+   * What changes is where the rules say it belongs, so the book comes out on the
+   * needs-attention list until somebody moves it and says so.
+   */
+  async refile(id: number, resolved: ResolvedKey): Promise<void> {
+    await this.db.run(
+      `UPDATE books SET author_filing = ?, title_filing = ?, sort_key = ?
+        WHERE id = ?`,
+      [resolved.authorFiling, resolved.titleFilingValue, resolved.sortKey, id],
+    )
   }
 
   // -----------------------------------------------------------------------

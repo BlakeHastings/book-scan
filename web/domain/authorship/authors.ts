@@ -50,6 +50,10 @@ import { filingName } from '../../shared/shelving'
  * names. That is the conservative direction: an alias too many is a row somebody
  * merges in a second, and an alias too few has quietly filed two people's books
  * under one name.
+ *
+ * That is now the only difference between the two. `normalise()` folded to
+ * `[A-Z0-9 ]` when this was written, so it also folded away every name with no
+ * Latin letters in it, and #195 was that. It folds on Unicode letters too now.
  */
 export function nameKey(printed: string): string {
   return printed
@@ -92,16 +96,15 @@ export class PrintedName {
    * the Dutch particle convention. Those are why an alias stores its filing name
    * rather than deriving it every time: somebody corrects it once.
    *
-   * **Never empty, and that is not a nicety.** `Store.filingFor` guards its
-   * override lookup with `normalise()` and returns '' when the key is empty,
-   * which is every name written entirely in a non-Latin script, so the heuristic
-   * is skipped and the book files ahead of everything in its range (issue #195).
-   * Nothing here reproduces that: `nameKey` folds on Unicode letters rather than
-   * on `[A-Z0-9 ]`, so such a name is an ordinary name, and the printed name is
-   * the fallback if the heuristic ever answers nothing.
+   * **Never empty, and that is not a nicety.** The empty string sorts ahead of
+   * every real filing name, so a book given one is shelved as though nobody
+   * wrote it. `filingName` is where that is guaranteed since #195, which is the
+   * defect this used to work around alone: it falls back to what was printed,
+   * so the fallback here would be the same string and is gone rather than
+   * duplicated.
    */
   get derivedFiling(): string {
-    return filingName(this.value) || this.value
+    return filingName(this.value)
   }
 
   equals(other: PrintedName): boolean {
