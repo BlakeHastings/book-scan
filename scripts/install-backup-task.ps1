@@ -24,16 +24,44 @@
 # asleep at 03:30 often enough that a scheduler without it would silently miss
 # most of its runs.
 #
-# ## What it stores
+# ## Where it puts the connections
 #
-# The connections go on the task as environment variables of the action, so they
-# are not in a command line and not in this file. Read them back with:
+# In a file, encrypted with DPAPI for the account running this script, at
+# -ConnectionFile. The task's command line carries the *path*, which is
+# harmless to have in a process listing, and backup-catalogue.ps1 decrypts it
+# and hands the connections to the one child process that needs them.
 #
-#     (Get-ScheduledTask -TaskName 'book-scan catalogue backup').Actions
+# ### What this used to do, and why it is not that
+#
+# Windows Task Scheduler has no per-task environment block. An action is a
+# command, arguments and a working directory, and there is nowhere on a task to
+# hang a variable that only that task sees. This script used to answer that by
+# writing the two connections to `Machine` scope, which reads like "the task's
+# environment" and is not: it is every process on the machine. A live catalogue
+# connection string, password and all, was in every shell and every agent
+# session on the box, and `npx tsx server/backup-catalogue.ts` with no arguments
+# opened the live catalogue. That is #215.
+#
+# The honest statement of what a DPAPI file buys, since it is not "only the task
+# can read it": anything running as this user can read the file if it knows the
+# path and chooses to. What it removes is the *accident*. A machine variable is
+# inherited by everything with no action taken and no path known; a file has to
+# be found and opened on purpose. Literal per-task isolation on Windows needs a
+# separate service account for the task, with the file encrypted under that
+# account, which is a bigger change to the machine than this problem is worth.
 #
 # ## Removing it
 #
 #     Unregister-ScheduledTask -TaskName 'book-scan catalogue backup' -Confirm:$false
+#     Remove-Item <the -ConnectionFile path>
+#
+# And, once, the two variables the old version of this script left at Machine
+# scope. From an ELEVATED PowerShell, because Machine scope is HKLM:
+#
+#     [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SOURCE', $null, 'Machine')
+#     [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SCRATCH', $null, 'Machine')
+#
+# or pass -RemoveLegacyEnvironment to this script, elevated, to do both.
 
 [CmdletBinding()]
 param(
@@ -62,6 +90,18 @@ param(
     [string] $CoversSource = '',
     [string] $CoversDestination = '',
 
+    # Where the two connections are written, encrypted with DPAPI for this
+    # account. Under LOCALAPPDATA rather than in the repository or in BackupDir:
+    # the repository is a place things get committed from, and BackupDir is the
+    # thing that is supposed to be copied to another disk.
+    [string] $ConnectionFile = (Join-Path $env:LOCALAPPDATA 'book-scan\backup-connections.json'),
+
+    # Delete the BOOKSCAN_BACKUP_SOURCE and BOOKSCAN_BACKUP_SCRATCH variables an
+    # older version of this script left at Machine scope. Off by default and
+    # opt-in, because removing a machine-wide variable is not a thing to do to
+    # somebody as a side effect of registering a task. Needs elevation.
+    [switch] $RemoveLegacyEnvironment,
+
     [string] $TaskName = 'book-scan catalogue backup'
 )
 
@@ -76,6 +116,37 @@ if (-not (Test-Path $runner)) { throw "Cannot find $runner" }
 
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
 
+# --- the connections, encrypted for this account ---------------------------
+
+# Written before the task is registered, so a machine that cannot store the
+# secret does not end up with a schedule that will fail every night at 03:30.
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$whoami = "$([Environment]::UserDomainName)\$([Environment]::UserName)"
+
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ConnectionFile) | Out-Null
+
+# ConvertFrom-SecureString with no -Key is DPAPI, CurrentUser scope: the output
+# decrypts only for this account, on this machine.
+$protect = {
+    param([string] $Value)
+    ConvertFrom-SecureString -SecureString (ConvertTo-SecureString -String $Value -AsPlainText -Force)
+}
+
+[pscustomobject]@{
+    writtenBy = $whoami
+    writtenAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    source    = & $protect $Source
+    scratch   = & $protect $Scratch
+} | ConvertTo-Json | Set-Content -LiteralPath $ConnectionFile -Encoding utf8
+
+# Belt and braces on top of DPAPI. DPAPI already means another account cannot
+# decrypt it; this means another account cannot read the ciphertext either, and
+# it drops inherited ACEs so a permissive parent directory does not undo it.
+& icacls "$ConnectionFile" /inheritance:r /grant:r "*$($identity.User.Value):(R,W)" /grant:r '*S-1-5-18:(F)' | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Could not tighten the ACL on $ConnectionFile (icacls exited $LASTEXITCODE). DPAPI still protects the contents."
+}
+
 $arguments = @(
     '-NoProfile'
     '-NonInteractive'
@@ -83,6 +154,10 @@ $arguments = @(
     '-File', "`"$runner`""
     '-BackupDir', "`"$BackupDir`""
     '-RepoRoot', "`"$RepoRoot`""
+    # A path, not a secret. This is the whole reason the connections are in a
+    # file: what goes in the task definition and every process listing is
+    # something it costs nothing to show.
+    '-ConnectionFile', "`"$ConnectionFile`""
     '-Keep', $Keep
     '-MaxMb', $MaxMb
     '-MinFreeMb', $MinFreeMb
@@ -117,16 +192,36 @@ Register-ScheduledTask `
     -Description 'Daily pg_dump of the book-scan catalogue, with retention and a verified restore into a scratch database. See docs/backup-runbook.md.' `
     -Force | Out-Null
 
-# Task Scheduler has no first-class way to set an action's environment, so the
-# two connections are written into the machine-wide environment of the task's
-# own principal instead. Nothing else on the machine reads these two names, and
-# neither is a name the app or the test harness reads: see AGENTS.md.
-[Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SOURCE', $Source, 'Machine')
-[Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SCRATCH', $Scratch, 'Machine')
+# --- the variables the old version of this script left behind --------------
+
+$legacy = @('BOOKSCAN_BACKUP_SOURCE', 'BOOKSCAN_BACKUP_SCRATCH') |
+    Where-Object { [Environment]::GetEnvironmentVariable($_, 'Machine') }
+
+if ($legacy -and $RemoveLegacyEnvironment) {
+    foreach ($name in $legacy) {
+        [Environment]::SetEnvironmentVariable($name, $null, 'Machine')
+        Write-Output "Removed machine-scope $name."
+    }
+    Write-Output "Open a new shell for that to be visible; existing processes keep the old block."
+}
 
 Write-Output "Registered '$TaskName', daily at $At, starting when available if the machine was off."
 Write-Output "Backups go to $BackupDir, keeping $Keep dumps or ${MaxMb} MiB, whichever bites first."
+Write-Output "The connections are in $ConnectionFile, encrypted for $whoami."
+Write-Output "The task runs as $whoami, which is the only account that can decrypt it."
 Write-Output ""
+
+if ($legacy -and -not $RemoveLegacyEnvironment) {
+    Write-Warning "Still set at MACHINE scope, from an older version of this script: $($legacy -join ', ')."
+    Write-Warning "That is every process on this machine, not the task's environment. Remove it from"
+    Write-Warning "an ELEVATED PowerShell, then open a new shell:"
+    foreach ($name in $legacy) {
+        Write-Warning "    [Environment]::SetEnvironmentVariable('$name', `$null, 'Machine')"
+    }
+    Write-Warning "Nothing reads them any more, so removing them cannot break the schedule."
+    Write-Output ""
+}
+
 Write-Output "Run it once now, and read what it prints, before trusting it:"
 Write-Output "    Start-ScheduledTask -TaskName '$TaskName'"
 Write-Output "    Get-Content (Join-Path '$BackupDir' 'logs\backup-*.log') -Tail 40"

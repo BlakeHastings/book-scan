@@ -302,11 +302,92 @@ run that dumped but did not verify also exits non-zero, on purpose:
 - The live container is never used as the runner. `docker exec` into it would
   work and is refused on purpose: it puts a scheduled job inside the process
   namespace of the thing it is meant to be protecting.
-- **`ConnectionStrings__bookscan` is not read.** The source is named on the
-  command line or in `BOOKSCAN_BACKUP_SOURCE`, and in nothing else. This is the
-  same rule the migration tool and the test harness follow, for the same reason:
-  a connection string sitting in a shell must not be able to decide which
-  catalogue a scheduled job touches.
+- **`ConnectionStrings__bookscan` is not read.** This is the same rule the
+  migration tool and the test harness follow, for the same reason: a connection
+  string sitting in a shell must not be able to decide which catalogue a
+  scheduled job touches.
+- **Nor is anything else in the environment, unless asked.** `--source` names a
+  target, and `--source-from-env` says out loud that `BOOKSCAN_BACKUP_SOURCE` is
+  the one meant. With neither, the run refuses. See the next section for why
+  that stopped being a detail.
+
+## Where the live connection lives
+
+The scheduled task needs a password and must not put it in its command line,
+where any process listing would have it. That is the real constraint, and the
+first answer to it leaked.
+
+**What it used to be, and what was wrong with it.** `install-backup-task.ps1`
+wrote `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH` at **`Machine`**
+scope. That reads like "the task's environment" and is not: it is every process
+on the machine. A connection string naming the live catalogue, password
+included, was in every shell, every editor and every agent session on the box,
+and because the tool read the variable whenever `--source` was absent, `npx tsx
+server/backup-catalogue.ts` typed by anybody in any directory opened the live
+catalogue. Nothing was corrupted by that, and AGENTS.md is explicit that "it was
+only a `SELECT`" is not the bar.
+
+**What it is now.** Two independent changes, because the leak had two halves.
+
+1. **The secret is in a file, encrypted with DPAPI for the owner's account**, at
+   `%LOCALAPPDATA%\book-scan\backup-connections.json` by default and wherever
+   `-ConnectionFile` says otherwise. The task's command line carries the
+   **path**, which costs nothing to show. `backup-catalogue.ps1` decrypts it and
+   puts the two connections into the environment of the one child process that
+   needs them, using `$env:`, which in PowerShell is this process and its
+   children and dies with them.
+2. **The tool will not inherit a connection it was not asked to inherit.**
+   `--source-from-env` and `--scratch-from-env` are the only way
+   `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH` are read, and the
+   wrapper is the only caller that passes them. This is the shape
+   `scripts/seed-world.ts` already uses to refuse to inherit its target.
+
+The second is worth having on its own. It is what makes a stray variable, from
+this mistake or the next one, unusable by accident rather than merely unlikely.
+
+### Why a DPAPI file rather than Credential Manager
+
+Both are per-user secret stores on Windows, both are DPAPI underneath, and both
+let the task be pointed at the secret by a harmless name. The file wins on one
+thing that matters for a schedule: **no dependency**. `ConvertFrom-SecureString`
+and `ConvertTo-SecureString` are in the box in Windows PowerShell 5.1 and in
+PowerShell 7. Reading a *generic* credential back out of Credential Manager from
+PowerShell is not: `cmdkey` writes one and cannot read one, so it takes a
+P/Invoke to `CredRead` or a third-party module, and a nightly backup that
+depends on a module somebody installed once is a backup with a way to stop
+working that has nothing to do with backups.
+
+The file is also visible and reversible in the ordinary way. It can be listed,
+copied, and revoked with `Remove-Item`, which is what the removal step in this
+document needs to be able to say.
+
+### What this does not do, said plainly
+
+It does **not** mean only the scheduled task can read the connection. Windows
+Task Scheduler has no per-task environment block; an action is a command,
+arguments and a working directory, and there is nowhere to hang a variable only
+that task sees. Any secret a task can read unattended, as the owner, without a
+human typing a passphrase, is by construction readable by anything else running
+as the owner that knows where to look. Credential Manager has exactly the same
+property.
+
+What changes is that it stops being **ambient**. A machine-scope variable is
+handed to every process with no action taken and nothing known; a file has to be
+found and opened deliberately. The accident is gone, which is the failure that
+actually happened here.
+
+Literal per-task isolation would need the task to run as its own service
+account, with the file encrypted under that account. That is a bigger change to
+the machine than this is worth: the account would need its own password
+management, plus rights to Docker, to `E:` and to the covers directory.
+
+**The DPAPI scope is `CurrentUser`, so the account matters.** The task is
+registered to run as the account that ran the installer, with the `Interactive`
+logon type, and that account is the only one that can decrypt the file. If it is
+ever re-registered to run as `SYSTEM`, as another user, or with the S4U logon
+type ("do not store password", which cannot unlock a user's DPAPI master key),
+the decrypt fails. It fails loudly: the run logs `FAILED: could not decrypt`,
+names both accounts, and exits non-zero, rather than backing up nothing quietly.
 
 ## The client tools run in a container
 
@@ -369,6 +450,15 @@ it is step 6 below.
 **This is installed and running.** The steps are kept because they are how it
 would be rebuilt, not because anything below is outstanding except step 6.
 
+**Except that steps 3 and 3a are outstanding once, now.** Where the connections
+live changed (see "Where the live connection lives" above), so the task has to
+be re-registered with the path to the encrypted file, and the two machine-scope
+variables the old registration left behind have to be removed. Until the
+re-registration, the nightly run will log `FAILED: no -ConnectionFile` and dump
+nothing, because the wrapper refuses to take connections out of the ambient
+environment. Do step 3 before step 3a: the removal cannot break anything, since
+by then nothing reads those names.
+
 What is registered, read back from Task Scheduler on 2026-08-07:
 
 | | |
@@ -378,8 +468,9 @@ What is registered, read back from Task Scheduler on 2026-08-07:
 | Photographs | `C:\Users\Blake\book-scan-production-data\live\covers` mirrored to `E:\book-scan-covers` |
 | Last run | 2026-08-07 03:30, result 0, ending `RESTORED AND VERIFIED` |
 
-The connections are on the task, not in the command line, so neither the source
-nor the scratch server appears above. Read the current state with
+The connections are in an encrypted file the task is given the path to, not in
+the command line, so neither the source nor the scratch server appears above.
+Read the current state with
 `Get-ScheduledTask -TaskName 'book-scan catalogue backup'` and
 `Get-ScheduledTaskInfo` rather than trusting this table, which is a snapshot.
 
@@ -414,26 +505,59 @@ The owner runs this. It needs the live connection string.
 
    It should end `RESTORED AND VERIFIED`. If it does not, stop.
 
-3. **Register the schedule.**
+3. **Register the schedule.** Run this as the account the task should run as,
+   because that is the only account that will be able to decrypt the
+   connections afterwards. It does not need elevation.
 
    ```
    pwsh -File scripts/install-backup-task.ps1 `
      -Source  'postgres://postgres:<live password>@127.0.0.1:5433/bookscan' `
      -Scratch 'postgres://postgres:<scratch password>@127.0.0.1:55432/postgres' `
-     -BackupDir 'D:\book-scan-backups'
+     -BackupDir 'E:\book-scan-backups' `
+     -CoversSource 'C:\Users\Blake\book-scan-production-data\live\covers' `
+     -CoversDestination 'E:\book-scan-covers'
    ```
 
-   The two connections go into machine environment variables named
-   `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH`, so they are not in
-   the task's command line. Nothing else on the machine reads either name.
+   The two connections go into
+   `%LOCALAPPDATA%\book-scan\backup-connections.json`, encrypted with DPAPI for
+   that account, and the task's command line carries only the path to it. Pass
+   `-ConnectionFile` to put it somewhere else.
+
+   Re-running this is how the connections are rotated: it overwrites the file
+   and re-registers the task.
+
+3a. **Remove the two machine-scope variables the old registration left**, once,
+   from an **elevated** PowerShell, because `Machine` scope is `HKLM`:
+
+   ```
+   [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SOURCE', $null, 'Machine')
+   [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SCRATCH', $null, 'Machine')
+   ```
+
+   Or, equivalently, add `-RemoveLegacyEnvironment` to step 3 and run it
+   elevated. Either way, check with a **new** shell, since a running process
+   keeps the environment block it started with:
+
+   ```
+   [Environment]::GetEnvironmentVariable('BOOKSCAN_BACKUP_SOURCE', 'Machine')
+   ```
+
+   That should print nothing. Nothing reads those names any more, so removing
+   them cannot break the schedule.
 
 4. **Force one scheduled run**, so the schedule itself is exercised rather than
    only the script:
 
    ```
    Start-ScheduledTask -TaskName 'book-scan catalogue backup'
-   Get-Content D:\book-scan-backups\logs\backup-*.log -Tail 40
+   Get-Content E:\book-scan-backups\logs\backup-*.log -Tail 40
    ```
+
+   **This is the step that proves the connection still reaches the task.** A
+   good run logs `connections read from <path>`, then a `source` line naming the
+   catalogue, and ends `RESTORED AND VERIFIED`, then `done`. Nothing short of a
+   real scheduled run proves it, because the thing being tested is whether the
+   account the scheduler starts the task under can decrypt the file.
 
 5. ~~**Decide about the photographs**~~ **Done.** The task carries
    `-CoversSource` and `-CoversDestination`, and mirrors the covers to `E:` on
@@ -451,6 +575,14 @@ The owner runs this. It needs the live connection string.
 The log is `<BackupDir>\logs\backup-<yyyymmdd>.log`. The last line of a good run
 is `done`.
 
+- **`FAILED: no -ConnectionFile`** The task is still registered the old way,
+  from before the connections moved out of the machine environment. Re-run
+  step 3.
+- **`FAILED: could not decrypt ...`** The file is DPAPI-encrypted for one
+  account on one machine, and the run was not that account. The log names both.
+  Re-run step 3 as the account the task runs as, or set the task back to that
+  account. This is also what a restored-from-backup or reimaged profile looks
+  like: the ciphertext survives the copy and the master key does not.
 - **`pg_restore: error: ...`** The dump is damaged. The previous day's dump is
   still there and has its own manifest; verify that one:
   `--verify-only --file <name>`.
