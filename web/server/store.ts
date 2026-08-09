@@ -29,6 +29,18 @@ const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
 // book being filed into a range and a boundary moving inside it are the two
 // halves of the same contention.
 import { rangeLock } from './shelves'
+/*
+ * The placement ledger, written beside the three columns below and never
+ * instead of them (#185).
+ *
+ * **The four statements in this file that change where a book is are the four
+ * that call these**, and that is the whole reason the calls are here rather than
+ * in the routes: `capture` drifts behind the image columns because the writes
+ * are in one place and the recording is in another (#200). Each call is made on
+ * the transaction handle that is writing the column, so the row and the column
+ * commit together.
+ */
+import { recordCheckedOut, recordPlaced } from './placement-ledger'
 
 export interface DraftBook {
   isbn13?: string
@@ -388,6 +400,10 @@ export class Store {
       )
     }
 
+    // The first placement, on the same handle as the insert. A save with no
+    // location writes no row, which is right: nobody has said where it is.
+    await recordPlaced(tx, { id: bookId, sortKey: resolved.sortKey, location }, now)
+
     return bookId
   }
 
@@ -518,6 +534,14 @@ export class Store {
         )
       }
 
+      // On the same terms as the `location` assignment above: an edit that
+      // carries no location moved no book, so it records no placement. An edit
+      // that carries one is somebody saying where the book is now, which is the
+      // same statement a book leaving the queue is saved by.
+      await recordPlaced(
+        tx, { id, sortKey: resolved.sortKey, location }, new Date().toISOString(),
+      )
+
       // Exclude the book from its own neighbour search, or it would be told to
       // sit next to itself. Read inside the transaction, and after the update,
       // so it describes the shelf this edit produced.
@@ -551,11 +575,25 @@ export class Store {
     )
   }
 
+  /**
+   * A person says where this book physically is now.
+   *
+   * A transaction since #185, and only for that: the column and the ledger row
+   * are one fact and have to land together. The `RETURNING` is what saves a
+   * second read for the sort key, which the row needs so it can be read back as
+   * a position once an edit has re-keyed the book.
+   */
   async setLocation(id: number, location: string): Promise<void> {
-    await this.db.run(
-      'UPDATE books SET location = ?, shelved_at = ? WHERE id = ?',
-      [location, location ? new Date().toISOString() : null, id],
-    )
+    const at = new Date().toISOString()
+    await this.db.tx(async (tx) => {
+      const moved = await tx.get<{ sort_key: string }>(
+        `UPDATE books SET location = ?, shelved_at = ? WHERE id = ?
+         RETURNING sort_key`,
+        [location, location ? at : null, id],
+      )
+      if (!moved) return
+      await recordPlaced(tx, { id, sortKey: moved.sort_key, location }, at)
+    })
   }
 
   async deleteBook(id: number): Promise<void> {
@@ -692,14 +730,29 @@ export class Store {
     id: number,
     out: boolean,
   ): Promise<{ changed: boolean; checkedOutAt: string | null }> {
-    const checkedOutAt = out ? new Date().toISOString() : null
-    const changed = await this.db.get<{ checked_out_at: string | null }>(
-      `UPDATE books SET checked_out_at = ?, state = ?
-        WHERE id = ?
-          AND checked_out_at IS ${out ? '' : 'NOT '}NULL
-        RETURNING checked_out_at`,
-      [checkedOutAt, out ? CHECKED_OUT : SHELVED, id],
-    )
+    const now = new Date().toISOString()
+    const checkedOutAt = out ? now : null
+    /*
+     * The compare-and-set is still one statement, and the transaction around it
+     * is not a second chance to decide anything: it is what makes the ledger row
+     * commit with the column. A second checkout arriving at once changes no rows
+     * here, so it writes no row there either.
+     */
+    const changed = await this.db.tx(async (tx) => {
+      const moved = await tx.get<{ checked_out_at: string | null; sort_key: string; location: string }>(
+        `UPDATE books SET checked_out_at = ?, state = ?
+          WHERE id = ?
+            AND checked_out_at IS ${out ? '' : 'NOT '}NULL
+          RETURNING checked_out_at, sort_key, location`,
+        [checkedOutAt, out ? CHECKED_OUT : SHELVED, id],
+      )
+      if (!moved) return undefined
+
+      await recordCheckedOut(
+        tx, { id, sortKey: moved.sort_key, location: moved.location ?? '' }, out, now,
+      )
+      return moved
+    })
     if (changed) return { changed: true, checkedOutAt: changed.checked_out_at }
 
     // Nothing changed. Either there is no such book, or it was already in the

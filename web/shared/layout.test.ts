@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  areaLabel, boundaryMove, carryOn, groupByShelf, layoutRange, libraryRows,
+  areaIndex, areaLabel, boundaryMove, carryOn, groupByShelf, layoutRange, libraryRows,
   locationLabel, NEWCOMER_ID, overflow, shelfLoads, stripAt, stripAround,
   type Separator,
 } from './layout'
@@ -32,6 +32,26 @@ describe('labels', () => {
     expect(locationLabel(1, 0)).toBe('1A')
     expect(locationLabel(1, 1)).toBe('1B')
     expect(locationLabel(3, 0)).toBe('3A')
+  })
+
+  it('reads a plank letter back to the plank it names', () => {
+    // The inverse the placement ledger needs, because `books.location` holds a
+    // label and an area is a row: `1A` has to become the first area of the first
+    // fixture again. Asserted over the whole round trip rather than at three
+    // points, because bijective base 26 goes wrong at exactly the boundaries a
+    // handful of examples step over.
+    for (let plank = 0; plank < 800; plank += 1) {
+      expect(areaIndex(areaLabel(plank))).toBe(plank)
+    }
+    expect(areaIndex('a')).toBe(0)
+  })
+
+  it('has no index for a bookcase with no plank on it', () => {
+    // `S4` parses as a location and names no plank, so it is not plank A. Two
+    // different places, and `compareLocations` already sorts them apart.
+    expect(areaIndex('')).toBe(-1)
+    expect(areaIndex('4A')).toBe(-1)
+    expect(areaIndex(' A')).toBe(-1)
   })
 })
 

@@ -33,6 +33,10 @@ import {
 import {
   RULE_FIELDS, RULE_OPERATORS, type RuleField, type RuleOperator,
 } from '../../domain/placement/rules'
+import {
+  KINDS_AT_A_PLACE, PLACEMENT_ACTORS, PLACEMENT_KINDS,
+  type PlacementActor, type PlacementKind,
+} from '../../domain/placement/ledger'
 
 /**
  * `text COLLATE "C"`, which Drizzle has no column builder for.
@@ -209,8 +213,43 @@ export const books = pgTable('books', {
   claimedAt: text('claimed_at'),
   /** When the worker last finished reading this book's photographs. */
   processedAt: text('processed_at'),
+
+  /**
+   * Where this book is, as an area. **A projection of `book_placement`, and not
+   * a second source of truth.**
+   *
+   * Drawing a shelf needs every book's position at once, and asking the ledger
+   * for that means the latest row of each of hundreds of books on every render.
+   * So the answer is kept here, written in the same transaction as the row it
+   * summarises, and `currentAreaOf` in `domain/placement/ledger.ts` is what it
+   * has to equal. **It is a denormalisation, so it will rot if nothing watches
+   * it**: `projectionDisagreements` in `infrastructure/placement/projection.ts`
+   * is what watches, and `applySchema` runs it on every start.
+   *
+   * **The one null in this schema that means something.** A book on no shelf is
+   * a genuine absence rather than a state with a name: a book nobody has placed,
+   * one that is checked out, and one that has been withdrawn are all nowhere,
+   * and each says which it is through `books.state` and through its own rows.
+   *
+   * `ON DELETE SET NULL` rather than cascade or restrict, because this is
+   * derived. Deleting an area cannot be allowed to delete a book, and it cannot
+   * be refused on this column's account when the ledger already refuses it: see
+   * `book_placement.area_id`.
+   */
+  currentAreaId: integer('current_area_id'),
 }, (table) => [
   index('idx_books_shelf').on(table.shelfRange, table.sortKey),
+  foreignKey({
+    name: 'books_current_area_id_fkey',
+    columns: [table.currentAreaId],
+    // `area` is declared at the bottom of this file, which is legal here and
+    // nowhere else in it: the extra-config callback is evaluated when the table
+    // is read rather than when the module is, so the reference is resolved long
+    // after `const area` exists. The alternative is declaring the furniture
+    // above `books`, which would put the six tables nothing reads yet in front
+    // of the one everything does.
+    foreignColumns: [area.id],
+  }).onDelete('set null'),
   index('idx_books_isbn13').on(table.isbn13),
   /**
    * The index the `shelved_books` view is an index seek over rather than a
@@ -248,6 +287,11 @@ export const books = pgTable('books', {
   check('books_state_check', sql.raw(
     `"state" IN (${BOOK_STATES.map((state) => `'${state}'`).join(', ')})`,
   )),
+  /**
+   * "Everything on this plank, in order", which is the query the projection
+   * exists for. Without it, drawing one area is a scan of the catalogue.
+   */
+  index('idx_books_current_area').on(table.currentAreaId, table.sortKey),
 ])
 
 /**
@@ -1010,6 +1054,113 @@ export const ruleCondition = pgTable('rule_condition', {
 ])
 
 /**
+ * Where a book has been. **Append only: one row per move, and nothing is ever
+ * updated or deleted.**
+ *
+ * `books.location`, `books.shelved_at` and `books.checked_out_at` are the
+ * present tense and only the present tense. This is the rest of the sentence:
+ * the latest row is where the book is, and the rows behind it are where it has
+ * been and who said so.
+ *
+ * ## `assigned` against `placed` is the whole design
+ *
+ * **`assigned` is what the rules want; `placed` is what somebody did.** They
+ * disagree exactly when a book needs attention, so the misfile list stops being
+ * `reviewShelving` recomputing a comparison every time anybody asks and becomes
+ * two facts already written down, with a rule that has a name behind one of
+ * them. `domain/placement/ledger.ts` is the fold.
+ *
+ * **That only holds while every row here is about placement.** The owner settled
+ * on 2026-08-07 that this ledger records placement and not tag changes, and
+ * `docs/data-model.md` records what that gives up on purpose and where
+ * retraction belongs if it is ever wanted. Do not widen this table.
+ *
+ * ## What each column is doing
+ *
+ * `area_id` is set on exactly `assigned`, `placed` and `pinned`, which is said
+ * by a check constraint rather than by this paragraph. The other three kinds
+ * take a book out of every area there is, so an area on one of them would be a
+ * claim about where a book that is nowhere is.
+ *
+ * `rule_id` is set on `assigned` rows and on no others: it is which rule wanted
+ * this, which is the answer to "why is the app telling me to move this book",
+ * and a person can read the rule's name and its conditions. A `placed` row has
+ * no rule behind it by definition.
+ *
+ * `sort_key` is the book's key when the row was written, not a foreign key to
+ * anything. An area is anchored to a sort key, so a row that did not carry one
+ * could not be read back as a position once an edit has re-keyed the book.
+ *
+ * `actor` distinguishes a person from the engine from a backfill. The third is
+ * the honest one: every row `0015` wrote says `migration`, because a column read
+ * by a migration is a weaker claim than somebody standing at a shelf.
+ *
+ * ## Deleting an area is refused rather than cascaded
+ *
+ * `ON DELETE RESTRICT`, alone among the foreign keys onto `area`. Everything
+ * else about an area is the present arrangement of the furniture and may be
+ * torn up; this is the record of where books have been, and a cascade here would
+ * quietly erase the history of every book that ever sat on a plank somebody
+ * later removed. `fixture` cascades to `area`, so this refuses that too, which
+ * is the correct answer for an append-only table: the history pins the
+ * furniture it names.
+ */
+export const bookPlacement = pgTable('book_placement', {
+  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
+  bookId: integer('book_id').notNull(),
+  kind: text('kind').$type<PlacementKind>().notNull(),
+  areaId: integer('area_id'),
+  sortKey: collatedText('sort_key').notNull().default(''),
+  ruleId: integer('rule_id'),
+  actor: text('actor').$type<PlacementActor>().notNull(),
+  reason: text('reason').notNull().default(''),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  foreignKey({
+    name: 'book_placement_book_id_fkey',
+    columns: [table.bookId],
+    foreignColumns: [books.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'book_placement_area_id_fkey',
+    columns: [table.areaId],
+    foreignColumns: [area.id],
+  }).onDelete('restrict'),
+  foreignKey({
+    name: 'book_placement_rule_id_fkey',
+    columns: [table.ruleId],
+    foreignColumns: [placementRule.id],
+  }).onDelete('restrict'),
+  check('book_placement_kind_check', sql.raw(
+    `"kind" IN (${PLACEMENT_KINDS.map((kind) => `'${kind}'`).join(', ')})`,
+  )),
+  check('book_placement_actor_check', sql.raw(
+    `"actor" IN (${PLACEMENT_ACTORS.map((actor) => `'${actor}'`).join(', ')})`,
+  )),
+  /**
+   * An area on exactly the kinds that put a book somewhere, written from the
+   * same constant `standingOf` folds. Without it the table can hold a row the
+   * fold has no answer for: a `checked_out` row naming a plank, which would say
+   * a book in a box is on a shelf.
+   */
+  check('book_placement_area_check', sql.raw(
+    `("kind" IN (${KINDS_AT_A_PLACE.map((kind) => `'${kind}'`).join(', ')})) ` +
+    '= ("area_id" IS NOT NULL)',
+  )),
+  check('book_placement_rule_check', sql.raw(
+    `"rule_id" IS NULL OR "kind" = 'assigned'`,
+  )),
+  /**
+   * "This book's rows, newest last", which is every read there is: the fold, the
+   * projection check and the misfile list all want one book's history in id
+   * order, and `DISTINCT ON (book_id) ... ORDER BY book_id, id DESC` is how the
+   * latest row of every book is taken in one pass.
+   */
+  index('idx_book_placement_book').on(table.bookId, table.id),
+])
+
+/**
  * Every table this schema declares.
  *
  * No longer the same list as "every table the baseline creates": `tag` and
@@ -1024,4 +1175,5 @@ export const ALL_TABLES = [
   books, bookAuthors, authorFiling, shelfRanges, captures, separators, tag, bookTag,
   author, authorAlias, bookAuthor, capture, outstandingMove,
   sortStrategy, collection, fixture, area, placementRule, ruleCondition,
+  bookPlacement,
 ] as const

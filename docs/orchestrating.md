@@ -13,13 +13,15 @@ Postgres database in the container `book-scan-live-pg`; the SQLite file is
 retained as history until at least 2026-09-06 and nothing in this repository can
 open it.
 
-**The remodel is nearly all built and none of it is read.**
-`docs/data-model.md` specifies fourteen tables. Landed: `tag` and `book_tag`
-(#179), `author`, `author_alias` and `book_author` (#180), `capture` (#181),
-`books.state` with its three views and the dissolved queue (#183, both halves),
-and `collection`, `sort_strategy`, `fixture`, `area`, `placement_rule` and
-`rule_condition` (#184). Remaining under epic #170: #185, the placement ledger,
-which depends on fixtures and areas existing and now has them.
+**The remodel is all built and none of it is read.** `docs/data-model.md`
+specifies fourteen tables. Landed: `tag` and `book_tag` (#179), `author`,
+`author_alias` and `book_author` (#180), `capture` (#181), `books.state` with its
+three views and the dissolved queue (#183, both halves), `collection`,
+`sort_strategy`, `fixture`, `area`, `placement_rule` and `rule_condition` (#184),
+and `book_placement` with `books.current_area_id` (#185). **Epic #170 is done and
+the cut-over is what is left**, which is the first change in this sequence that
+gets to delete something, and it owes the genre repair `docs/data-model.md`
+names.
 
 **Nothing has been cut over, and that is deliberate every time.** Each of those
 added its tables and left the old columns authoritative. `books.is_fiction`
@@ -30,6 +32,12 @@ already filed: #200, where `capture` drifts behind the columns because
 background writes do not record one, and the genre repair in `docs/data-model.md`
 that the cut-over owes. **Do not cut a slice over as a side effect of something
 else.**
+
+**#185 is the one that does not drift**, and the difference is worth copying:
+its writes are in `Store`, beside the four statements that change where a book
+is, rather than in the routes that call them, so there is no fifth writer to
+forget. Its projection, `books.current_area_id`, is checked against the ledger on
+every start and the check names the books rather than the count.
 
 **Leaving the old model authoritative is what made #184 checkable**, and that is
 worth keeping. Both models were live over one catalogue at once, so every book

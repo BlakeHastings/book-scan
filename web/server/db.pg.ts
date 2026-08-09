@@ -24,6 +24,9 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
 import type { BookState } from '../domain/books/state'
 import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/migrate'
+import {
+  countProjectionDisagreements, projectionDisagreements,
+} from '../infrastructure/placement/projection'
 import type { ShelfRange } from '../shared/shelving'
 import { bindParams, lockKey, type Db, type Params, type TxOptions } from './driver'
 
@@ -743,6 +746,49 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
   await db.run(
     "UPDATE shelf_ranges SET start_label = '1A' WHERE shelf_range = 'fiction' " +
     "AND start_label != '1A'",
+  )
+
+  await sayWhetherThePlacementProjectionHolds(db)
+}
+
+/**
+ * Read `books.current_area_id` back out of `book_placement` and say whether they
+ * agree.
+ *
+ * **This is what lets the projection exist.** It is a denormalisation, asked for
+ * deliberately because drawing a shelf needs every book's position at once, and
+ * a denormalisation nobody checks is a second source of truth waiting to be
+ * discovered wrong. `0015` asks this once, at the moment it writes the
+ * projection; a migration answers for the past and nothing answers for next
+ * month, so it is asked again here, on every start, against whatever catalogue
+ * the app has just opened.
+ *
+ * One indexed pass, beside the migrations that have already run, so it costs
+ * nothing worth measuring on a catalogue of this size.
+ *
+ * **It reports and does not repair, and it does not refuse to start.** A
+ * disagreement means a writer is missing, and the evidence for which one is the
+ * disagreement itself; rebuilding on sight would erase it. Refusing to start
+ * would take the app down in front of somebody holding a book over a column
+ * nothing reads yet, which is the wrong trade in the other direction.
+ * `rebuildProjection` is the repair, and running it is a decision somebody makes
+ * having read this line.
+ */
+async function sayWhetherThePlacementProjectionHolds(db: Db): Promise<void> {
+  const disagreeing = await countProjectionDisagreements(db)
+  if (disagreeing === 0) {
+    console.log('[placement] every book\'s current area agrees with its ledger')
+    return
+  }
+
+  const named = await projectionDisagreements(db)
+  console.error(
+    `[placement] ${disagreeing} books have a current area their ledger does not ` +
+    'agree with, so something wrote a placement without recording it. ' +
+    'rebuildProjection() in infrastructure/placement/projection.ts folds the ' +
+    'ledger again; find the writer first. ' +
+    named.map((one) => `#${one.bookId} ${one.title}: column ${one.projected ?? 'nowhere'}, ` +
+      `ledger ${one.fromLedger ?? 'nowhere'}`).join('; '),
   )
 }
 

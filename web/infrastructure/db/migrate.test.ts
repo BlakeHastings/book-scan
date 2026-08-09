@@ -186,6 +186,12 @@ describe('the baseline migration on an empty database', () => {
     // yet, and it carries the collation now because adding it once a shelf is
     // ordered by the column means rewriting the column that decides the order.
     //
+    // `book_placement.sort_key` is the eighth, added by #185. A ledger row
+    // carries the book's key as it stood, so a row can be read back as a
+    // position against `area.starts_at` after an edit has re-keyed the book, and
+    // a comparison between two differently collated columns is the same nearly
+    // right answer described below.
+    //
     // `area.starts_at` is the seventh, added by #184, and it is the one that
     // would be quietest of all to get wrong. It is `separators.starts_at` under
     // a new name: the sort key of the first book in a run, compared against
@@ -215,6 +221,7 @@ describe('the baseline migration on an empty database', () => {
     expect(collated.rows).toEqual([
       { table_name: 'area', column_name: 'starts_at' },
       { table_name: 'author_alias', column_name: 'filing_name' },
+      { table_name: 'book_placement', column_name: 'sort_key' },
       { table_name: 'books', column_name: 'author_filing' },
       { table_name: 'books', column_name: 'sort_key' },
       { table_name: 'books', column_name: 'title_filing' },
@@ -265,10 +272,11 @@ describe('a database that already has these tables', () => {
     // as it was, on a database that already had rows in it.
     //
     // Not "the tables are untouched", which is what this used to say and what
-    // stopped being true at #183. `0007` adds `books.state` and `0010` adds the
-    // eleven columns that were the queue table, and those are the only
-    // migrations to alter a table the baseline created rather than add one
-    // beside it. So the claim worth making is that a later migration's
+    // stopped being true at #183. `0007` adds `books.state`, `0010` adds the
+    // eleven columns that were the queue table and `0014` adds
+    // `books.current_area_id`, and those are the only migrations to alter a
+    // table the baseline created rather than add one beside it. So the claim
+    // worth making is that a later migration's
     // deliberate additions are the *only* difference. A baseline that had run
     // would show up as every column being rebuilt, which this still catches.
     //
@@ -289,6 +297,7 @@ describe('a database that already has these tables', () => {
         'books.draft_json', 'books.edit_json', 'books.edited_by',
         'books.edited_at', 'books.scan_note', 'books.claimed_by',
         'books.claimed_at', 'books.processed_at',
+        'books.current_area_id',
       ])
     expect(ofBaseline(after.columns).filter((row) => was.has(named(row))))
       .toEqual(ofBaseline(before.columns))

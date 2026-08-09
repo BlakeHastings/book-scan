@@ -3,15 +3,16 @@
 Fourteen tables. Settled with the owner on 2026-08-06 across eight revisions,
 and recorded here because the reasoning matters more than the column lists.
 
-**Most of this is built and none of it is read.** The live schema is the
+**All of this is built and none of it is read.** The live schema is the
 six-table one in `web/server/db.pg.ts`, plus `tag` and `book_tag` from #179,
 `author`, `author_alias` and `book_author` from #180, `capture` from #181,
-`books.state` with its three views from #183, and `collection`, `sort_strategy`,
-`fixture`, `area`, `placement_rule` and `rule_condition` from #184. Every one of
-those was added beside the columns it replaces rather than instead of them, and
-they are described under "What is built" at the end. `book_placement` is what is
-left. `docs/domain-model.md` is the layering this sits under; #170 is the epic
-that builds the rest.
+`books.state` with its three views from #183, `collection`, `sort_strategy`,
+`fixture`, `area`, `placement_rule` and `rule_condition` from #184, and
+`book_placement` with `books.current_area_id` from #185. Every one of those was
+added beside the columns it replaces rather than instead of them, and they are
+described under "What is built" at the end. **What is left is the cut-over**,
+which is where something is finally deleted. `docs/domain-model.md` is the
+layering this sits under; #170 is the epic that built the rest.
 
 The point is not that fourteen is better than six. It is that the current schema
 describes what the code needed and this one describes the collection.
@@ -482,6 +483,51 @@ the model on purpose so the comparison is watched failing.
 and `priority` settles a tie. Those are the rows this document already hands to
 the cut-over to repair; `0013` counts them and says so on every run rather than
 touching them.
+
+`book_placement` and `books.current_area_id` are, by #185: the table, the fold in
+`web/domain/placement/ledger.ts`, the port and the rule engine's writer in
+`web/application/placement/`, the repository and the projection check in
+`web/infrastructure/placement/`, the migrations `0014` and `0015`, and the one
+translation module in `web/server/placement-ledger.ts`.
+
+**Nothing is cut over, for the sixth step and the last one before the cut-over
+itself.** `books.location`, `books.shelved_at` and `books.checked_out_at` keep
+every value and stay authoritative: the client reads them, `reviewShelving` still
+computes the misfile list from `location` against a derived label, and nothing
+anywhere reads a placement row or `current_area_id`.
+
+**This one is written on every move, which the four before it were not.** There
+are exactly four statements in this repository that change where a book is, and
+all four are in `Store`: the insert in `addBook`, the update in `updateBook`,
+`setLocation` and `setCheckedOut`. Each calls `server/placement-ledger.ts` on the
+transaction handle that is writing the column, so a placement cannot be written
+without a row. That is deliberately unlike `capture`, which drifts behind the
+image columns because the recording is in the routes and the writes are not
+(#200).
+
+**Two things the ledger cannot say, and they are written down rather than
+discovered.** A location naming a plank the furniture does not have gets no
+`placed` row, because `PATCH /api/books/:id/location` accepts any label
+`parseLocation` accepts and inventing an area to hold one would invent furniture
+nobody has; `0015` counts those on the way in. And clearing a recorded location,
+which the route describes as taking a book back to never-placed, is not any of
+the six kinds: `withdrawn` means given away and `checked_out` means it is in
+somebody's bag. Both leave the ledger behind `books.location`, which is the
+column that is still authoritative.
+
+**No `assigned` row is written by the migration.** `assigned` is what the rules
+want, the rules are TypeScript, and `0013` already settled that a migration does
+not reimplement them in SQL. `AssignPlacementsHandler` writes them when the
+engine runs, and only where its answer differs from where the book already is.
+
+**The projection is watched from the day it lands.** `books.current_area_id` is a
+denormalisation, and two tables here already drift behind what they shadow before
+anybody noticed. `countProjectionDisagreements` folds the ledger back out in one
+indexed pass and `applySchema` runs it on every start, saying either that every
+book agrees or which ones do not; `0015` asks the same question once, at the
+moment it writes the projection. Neither repairs: `rebuildProjection` is the
+repair and running it is a decision somebody makes having read the line, because
+a projection rebuilt on sight destroys the evidence of which writer is missing.
 
 **The wire vocabulary did not move.** `GET /api/captures` still answers with
 `pending`, `ready`, `failed` and `done`, so the client, the queue badge and the
