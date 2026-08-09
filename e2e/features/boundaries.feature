@@ -129,3 +129,37 @@ Feature: Adjusting where one area ends
       | location | 1B |
     And the catalogue should hold "Rendezvous with Rama" recorded as:
       | location | 1A |
+
+  Scenario: Saying the book has been carried settles the page it was said on
+    # The book's own page is where somebody standing at the bookcase checks
+    # they did it right, and it draws the shelf twice: the banner says the
+    # catalogue and the order disagree, and the strip under it draws the row.
+    # Two reads of one set of shelves, so an action that moves a book has to
+    # re-read both. #197 was re-reading only the banner: it went away, and the
+    # drawing under it went on showing the book as a hole in the shelf and
+    # went on withholding the boundary move, until the page was left and
+    # opened again.
+    When I open the app
+    And I go to the library
+    And I open "Dune" from the library
+    Then the book should offer to move it:
+      | Move it on to 1B |
+
+    When I choose to move it on to "1B"
+    And I go back to the book details
+    Then the book should say it was last seen on "1A" and now belongs on "1B"
+    And the book should not offer to move it
+
+    # Nothing is navigated in between, deliberately. Leaving and coming back
+    # was the workaround, so a scenario that did it would pass either way.
+    When I say I have moved it
+    Then the shelf drawing should draw "Dune" in place on "1B"
+    And the book should offer to move it:
+      | Move it back to 1A |
+
+    # And what the drawing settled into is what actually got written.
+    When I go to the library
+    Then nothing should need attention
+    And the library should show "Dune" on shelf "1B"
+    And the catalogue should hold "Dune" recorded as:
+      | location | 1B |

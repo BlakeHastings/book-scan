@@ -618,13 +618,33 @@ export default function App() {
   }, [mode, loadMisfile])
 
   /**
+   * Re-read everything on this page that describes where the book sits.
+   *
+   * The banner and the strip under it are two reads of one set of shelves:
+   * `api.misfiles` decides whether the book is where it belongs, and the
+   * placement preview draws the row it belongs in and says which boundary
+   * moves are open. So an action that moves a book invalidates both, and
+   * refreshing one leaves the picture contradicting the tap somebody just
+   * made (#197): the book stayed drawn as a dashed hole in the shelf, on the
+   * screen where they are standing at the bookcase checking they did it right.
+   *
+   * One call rather than two lines repeated at each caller, because the list
+   * of things to re-read is exactly the list of things this page derives from
+   * the shelves, and the next action that moves a book should have somewhere
+   * to join rather than a third refresh to remember.
+   */
+  const reloadShelfState = useCallback(async () => {
+    await Promise.all([loadMisfile(), refreshPlacement()])
+  }, [loadMisfile, refreshPlacement])
+
+  /**
    * The person says they have carried this book to where it belongs.
    *
    * Identical in meaning to the library's "Moved it", because it is the same
    * statement: somebody has been to the shelf. Nothing here decides that on
    * their behalf, and the flag is not cleared locally to make the banner go
-   * away. The review is asked again afterwards, so what the page then shows is
-   * the server's answer about the book's new location rather than this screen
+   * away. The page is asked again afterwards, so what it then shows is the
+   * server's answer about the book's new location rather than this screen
    * assuming its own write was the whole story.
    *
    * The library refreshes itself: ShelfView is unmounted while a book is open
@@ -636,7 +656,7 @@ export default function App() {
     setError('')
     try {
       await recordMoved(misfile)
-      await loadMisfile()
+      await reloadShelfState()
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -650,8 +670,8 @@ export default function App() {
    * The way out of the shelving step that was missing (#196), reached from the
    * same notice as "Moved it" and meaning the opposite of it: not "I have been
    * to the shelf" but "nobody went anywhere". So it writes no location, and the
-   * placement is asked again afterwards, because the boundaries have moved and
-   * the strip on this page was drawn from where they were.
+   * page is read again afterwards, because the boundaries have moved and the
+   * strip on it was drawn from where they were.
    */
   const takeMisfileBack = async () => {
     if (!misfile) return
@@ -659,8 +679,7 @@ export default function App() {
     setError('')
     try {
       await takeMoveBack(draft.isFiction ? 'fiction' : 'nonfiction', misfile.book.id)
-      await loadMisfile()
-      await refreshPlacement()
+      await reloadShelfState()
     } catch (caught) {
       setError((caught as Error).message)
     } finally {

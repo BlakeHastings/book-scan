@@ -558,6 +558,51 @@ When('I undo the move for {string}', async ({ page }, title: string) => {
 })
 
 /**
+ * The same disagreement as an attention row, said on the book's own page.
+ *
+ * Both shelves are named, because the sentence has to be actionable by
+ * somebody holding the book: which plank to take it off, and which to put it
+ * on.
+ */
+Then(
+  'the book should say it was last seen on {string} and now belongs on {string}',
+  async ({ page }, from: string, to: string) => {
+    await expect(page.locator('.misfile__where')).toHaveText(
+      `Last seen on ${from}. The order now puts it on ${to}.`,
+    )
+  },
+)
+
+/**
+ * "Moved it", tapped on the book's own page rather than in the library list.
+ *
+ * The banner going is all this waits for, on purpose: that much worked before
+ * #197 and would make this step pass either way. What the fix is about is
+ * asserted separately, by the step below, on the drawing the banner sat above.
+ */
+When('I say I have moved it', async ({ page }) => {
+  await page.locator('.misfile').getByRole('button', { name: 'Moved it' }).click()
+  await expect(page.locator('.misfile')).toHaveCount(0)
+})
+
+/**
+ * The book drawn as a spine in its row, rather than as the gap it goes in.
+ *
+ * Three things at once, because any one of them alone passes on the stale
+ * drawing #197 left up: the row is the right area, there is no hole in it, and
+ * this book is the spine marked as the one being looked at.
+ */
+Then(
+  'the shelf drawing should draw {string} in place on {string}',
+  async ({ page }, title: string, label: string) => {
+    await expect(page.locator('.strip__label')).toHaveText(label)
+    await expect(page.locator('.strip__gap')).toHaveCount(0)
+    await expect(page.locator('.strip .spine--here'))
+      .toHaveAttribute('title', new RegExp(`\\b${title}\\b`))
+  },
+)
+
+/**
  * A catalogued book opened by tapping its spine in the shelf drawing, rather
  * than the off-bookcase list `openLibrary` above already covers. Same
  * destination, a different route in.
