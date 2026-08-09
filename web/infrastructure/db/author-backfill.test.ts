@@ -164,12 +164,15 @@ describe('book_authors becoming authors and aliases', () => {
   })
 
   it('does not carry an empty stored filing name in as data', async () => {
-    // Issue #195: `Store.filingFor` skips the heuristic when a name normalises
-    // to nothing, which every name written entirely in a non-Latin script does,
-    // so the book was saved with author_filing = ''. Copying that would turn a
-    // defect in one function into rows, where it is much harder to fix. The
-    // printed name stands instead. #180 does not fix #195; it declines to copy
-    // it, so the books themselves are untouched and still file where they did.
+    // Issue #195: `Store.filingFor` used to skip the heuristic when a name
+    // normalised to nothing, which every name written entirely in a non-Latin
+    // script did, so the book was saved with author_filing = ''. Copying that
+    // would have turned a defect in one function into rows, where it is much
+    // harder to fix. The printed name stands instead.
+    //
+    // #195 is fixed and this fixture is still worth having: it is a row saved
+    // before the fix, which is exactly what an adopted catalogue holds, and the
+    // migration must read it as no answer rather than as an answer of nothing.
     const pool = await catalogueOf([
       { title: 'Norwegian Wood', authors: ['村上春樹'], filingOverride: '' },
     ])

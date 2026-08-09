@@ -168,9 +168,9 @@ whole key reproduces tuple comparison exactly.
 LE GUIN URSULA K␟0␟EARTHSEA␟000001.000␟WIZARD OF EARTHSEA
 ```
 
-All components are normalised to `[A-Z0-9 ]` first, so SQLite's default
-`BINARY` collation is correct and deterministic. Do not use `NOCASE` (ASCII
-only, and redundant here) and do not require the ICU extension.
+All components are normalised to letters, digits and single spaces first, so a
+byte order collation is correct and deterministic. Do not use a linguistic one
+and do not require the ICU extension.
 
 ### Normalisation
 
@@ -178,12 +178,39 @@ Applied to every text component:
 
 1. Unicode NFKD, then drop combining marks. `Böll` becomes `Boll`.
 2. Uppercase.
-3. Drop everything outside `A-Z`, `0-9`, and space.
+3. Drop everything that is not a letter, a digit or a space.
 4. Collapse runs of whitespace, trim.
 5. Zero-pad digit runs to 6 characters, so `Book 2` sorts before `Book 10`.
 
 Space (`0x20`) sorting below every letter is load-bearing: it makes `SMITH ANN`
 come before `SMITHSON A`, which is what you want.
+
+**Letter means any letter, not `A-Z`.** Rule 3 said `A-Z`, `0-9` and space until
+#195, and for a name written in a script that has no `A-Z` in it that is not a
+fold, it is a deletion: `Фёдор Достоевский` normalised to nothing, so the book
+was stored filing under nobody and sorted ahead of every book in its range, and
+no override could be saved for the author either, because the override table is
+keyed on this. Translated classics carry the native-script name routinely, so
+this is reached by looking a book up rather than by trying to break it.
+
+Accents are still folded by rule 1 and nothing that was already filed moves:
+`García` is `GARCIA` on both sides of the change. Rule 1 does not know which
+alphabet it is looking at, so Cyrillic `ё` and `й` lose their marks exactly as
+`é` does. That is the same trade already accepted for `Böll` and `Boll`, applied
+to an alphabet where the two are further apart. A name that mixes scripts,
+`Иван Smith`, keeps both halves and files under `SMITH ИВАН`, which sorts after
+every `SMITH ` and before `SMITHSON` because of the space rule above.
+
+Every letter outside `A-Z` sorts after `Z`, so a name in another script files in
+a block at the end of its range, Greek before Cyrillic before CJK. That falls out
+of the collation rather than being chosen, and it is a defensible place for such
+a shelf to be. What is not defensible, and is what #195 was, is all of them
+first, ahead of `A`, sharing one position with each other.
+
+The cost, and it is accepted rather than unnoticed: the code compares these keys
+in JavaScript and Postgres compares the stored ones with `COLLATE "C"`, and the
+two agree for every character in the basic multilingual plane but not for one
+outside it. That was vacuously true when the fold left only ASCII behind.
 
 ### Author filing name
 
@@ -209,7 +236,7 @@ def filing_name(display: str) -> str:
     while tokens and bare(tokens[-1]) in SUFFIXES:
         suffix.insert(0, tokens.pop())
     if not tokens:
-        return ""
+        return display              # never empty: see below
     if len(tokens) == 1:
         return tokens[0]                     # mononym: Homer, Voltaire
     i = len(tokens) - 1
@@ -240,6 +267,17 @@ handled the same way: a manual override.
 **Therefore an author override table is mandatory, not optional.** Any design
 that tries to get this fully right in code is wrong. Store the corrected
 filing name once per author and reuse it forever.
+
+**A filing name is never empty, and there is one function that derives it.**
+The empty string sorts ahead of every real filing name, so a book given one is
+shelved as though nobody wrote it, which is what #195 was. Whatever the
+heuristic cannot invert files as printed. And the client renders the filing name
+as somebody types the author, while the server stores it, so the two deriving it
+differently is not a cosmetic difference: opening a book whose stored name is
+not what the client would derive makes the client treat the stored one as a
+hand-typed override and write it back on the next save. `filingName` in
+`web/shared/shelving.ts` is the one derivation, which is what `web/shared/` is
+for.
 
 Also needing overrides:
 

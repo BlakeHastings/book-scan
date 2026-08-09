@@ -131,6 +131,81 @@ describe('author filing overrides', () => {
     expect(placement.predecessor?.title).toBe('A')
     expect(placement.successor?.title).toBe('B')
   })
+
+  it('can be saved for a name written in another script', async () => {
+    // Issue #195 from the other side. `saveFilingOverride` keys on the same
+    // fold, so while that fold deleted the name there was no key to store one
+    // under: the row went nowhere and the correction could not be made at all.
+    // docs/shelving.md calls the override table mandatory, so an author it
+    // cannot hold a row for is the table not existing for that author.
+    await store.saveFilingOverride('村上春樹', 'Murakami, Haruki')
+
+    expect(
+      (await store.resolveKey(draft({ title: 'Norwegian Wood', authors: ['村上春樹'] })))
+        .authorFiling,
+    ).toBe('Murakami, Haruki')
+  })
+})
+
+describe('a name written in a script with no A-Z in it', () => {
+  // Issue #195. `Store.filingFor` guarded its override lookup with the fold and
+  // returned '' when the key came back empty, which is what every such name
+  // folded to, so the book was stored filing under nobody.
+  it('files under the author the reader can see, not under nobody', async () => {
+    const resolved = await store.resolveKey(
+      draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'] }),
+    )
+
+    expect(resolved.authorFiling).toBe('Достоевский, Фёдор')
+    expect(resolved.sortKey.startsWith(SEP)).toBe(false)
+  })
+
+  it('lands among the shelved books instead of ahead of all of them', async () => {
+    await store.addBook(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
+    await store.addBook(draft({ title: 'The Book Thief', authors: ['Markus Zusak'], location: '2C' }))
+
+    const placement = await store.placementFor(
+      draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'] }),
+    )
+
+    // Every letter outside A-Z sorts after Z, so the Cyrillic block is at the
+    // end of the range. Before the fix this was 'first-in-range', ahead of
+    // Austen, which is the one answer that is certainly wrong.
+    expect(placement.kind).not.toBe('first-in-range')
+    expect(placement.predecessor?.title).toBe('The Book Thief')
+    expect(placement.successor).toBeNull()
+  })
+
+  it('keeps a Greek and a CJK name apart instead of stacking them on one key', async () => {
+    const greek = await store.resolveKey(
+      draft({ title: 'Zorba the Greek', authors: ['Νίκος Καζαντζάκης'] }),
+    )
+    const cjk = await store.resolveKey(
+      draft({ title: 'Norwegian Wood', authors: ['村上春樹'] }),
+    )
+
+    expect(greek.authorFiling).toBe('Καζαντζάκης, Νίκος')
+    expect(cjk.authorFiling).toBe('村上春樹')
+    // Two books by two people used to share one sort key prefix, the empty
+    // one, so which came first was decided by the id tiebreak.
+    expect(greek.sortKey).not.toBe(cjk.sortKey)
+    expect(greek.sortKey < cjk.sortKey).toBe(true)
+  })
+
+  it('keeps the Latin half of a mixed name filing where it did', async () => {
+    // The surprising one. `Smith, Иван` folded to `SMITH`, so this book filed
+    // on top of an author called plainly Smith. It now files inside the Smith
+    // block rather than merged into it, which the space rule puts before
+    // Smithson.
+    await store.addBook(draft({ title: 'A', authors: ['Ann Smith'], location: '1A' }))
+    await store.addBook(draft({ title: 'B', authors: ['Ada Smithson'], location: '1B' }))
+
+    const placement = await store.placementFor(
+      draft({ title: 'C', authors: ['Иван Smith'] }),
+    )
+    expect(placement.predecessor?.title).toBe('A')
+    expect(placement.successor?.title).toBe('B')
+  })
 })
 
 describe('bookkeeping', () => {

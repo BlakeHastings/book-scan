@@ -49,10 +49,11 @@ describe('a printed name', () => {
   })
 
   it('files a name written in a non-Latin script rather than skipping it', () => {
-    // Issue #195: `Store.filingFor` returns '' for these, because it guards its
-    // override lookup with `normalise()`, which folds to [A-Z0-9 ] and so folds
-    // the whole name away. The book then files ahead of everything in its range.
-    // Nothing here reproduces that, and this is the test that says so.
+    // Issue #195: `Store.filingFor` returned '' for these, because it guarded
+    // its override lookup with `normalise()`, which folded to [A-Z0-9 ] and so
+    // folded the whole name away, and the book then filed ahead of everything
+    // in its range. This never reproduced it and now says the same thing the
+    // shelving code does.
     expect(PrintedName.of('村上春樹').derivedFiling).toBe('村上春樹')
     expect(PrintedName.of('Пушкин Александр').derivedFiling).toBe('Александр, Пушкин')
     expect(nameKey('村上春樹')).not.toBe('')
