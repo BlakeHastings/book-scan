@@ -9,13 +9,36 @@
 # verification all live in web/server/backup-catalogue.ts. This adds a log, an
 # exit code, and the covers, which pg_dump does not cover.
 #
-# The connections are read from the environment rather than taken as arguments,
-# so a password is not in the task definition, in a command line, or in a
-# process listing. install-backup-task.ps1 stores them on the task itself.
+# ## Where the connections come from
+#
+# From a file, named by path on the command line, encrypted with DPAPI for the
+# account that wrote it. install-backup-task.ps1 writes it; this reads it and
+# puts the two connections into the environment of the one child process that
+# needs them, which is `npx tsx server/backup-catalogue.ts`.
 #
 #   BOOKSCAN_BACKUP_SOURCE   the catalogue to dump. Only ever read from.
 #   BOOKSCAN_BACKUP_SCRATCH  a Postgres the verification may create and drop
 #                            databases on. MUST NOT be the live server.
+#
+# `$env:` in PowerShell is the *current process and its children*. Nothing
+# written here outlives this script, and nothing here writes to `User` or
+# `Machine` scope.
+#
+# These two used to live at `Machine` scope, set by install-backup-task.ps1,
+# because Task Scheduler has no per-task environment block and that looked like
+# the nearest thing. It is not: `Machine` scope is not the task's environment,
+# it is every process on the box. A live catalogue connection string was in the
+# environment of every shell on this machine, and `npx tsx
+# server/backup-catalogue.ts` with no arguments opened it. See #215.
+#
+# A path is harmless to have in a command line, in a process listing and in the
+# task definition, which is why the secret is behind one rather than in one.
+#
+# DPAPI here is `CurrentUser` scope, so the file decrypts only for the account
+# that wrote it, on this machine. The task is registered to run as that same
+# account. If it is ever changed to run as SYSTEM, or as a different user, or
+# with the S4U logon type ("do not store password"), the decrypt fails and this
+# script says so and exits non-zero rather than backing up nothing quietly.
 #
 # ConnectionStrings__bookscan is deliberately not read. See AGENTS.md.
 
@@ -27,6 +50,13 @@ param(
 
     # The repository checkout to run the tool out of.
     [Parameter(Mandatory = $true)][string] $RepoRoot,
+
+    # The DPAPI-encrypted file holding the two connections, written by
+    # install-backup-task.ps1. Not marked Mandatory on purpose: a mandatory
+    # parameter under -NonInteractive prompts into a scheduled task's non
+    # existent console and dies without saying why. It is checked below with a
+    # message instead.
+    [string] $ConnectionFile = '',
 
     [int] $Keep = 14,
     [int] $MaxMb = 512,
@@ -57,16 +87,70 @@ function Write-Log {
 
 Write-Log "starting"
 
-if (-not $env:BOOKSCAN_BACKUP_SOURCE) {
-    Write-Log "FAILED: BOOKSCAN_BACKUP_SOURCE is not set. Nothing was dumped."
+# --- the connections, out of the encrypted file and nowhere else -----------
+
+# Works on Windows PowerShell 5.1 as well as PowerShell 7. ConvertFrom-SecureString
+# -AsPlainText is 7-only, and install-backup-task.ps1 falls back to
+# powershell.exe on a machine without pwsh, so the task can be running either.
+function Unprotect-Connection {
+    param([string] $Protected)
+    $secure = ConvertTo-SecureString -String $Protected
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
+
+if (-not $ConnectionFile) {
+    # Deliberately not "fall back to whatever is in the environment". Falling
+    # back is how the machine-scope variables became load-bearing in the first
+    # place. See the note at the top and #215.
+    Write-Log "FAILED: no -ConnectionFile. This does not take connections from the ambient"
+    Write-Log "FAILED: environment. Re-run scripts/install-backup-task.ps1 to write the file"
+    Write-Log "FAILED: and re-register the task with its path. Nothing was dumped."
     exit 2
 }
-if (-not $env:BOOKSCAN_BACKUP_SCRATCH) {
+
+if (-not (Test-Path -LiteralPath $ConnectionFile)) {
+    Write-Log "FAILED: no connection file at $ConnectionFile. Nothing was dumped."
+    Write-Log "FAILED: Re-run scripts/install-backup-task.ps1 to write it."
+    exit 2
+}
+
+try {
+    $stored = Get-Content -LiteralPath $ConnectionFile -Raw | ConvertFrom-Json
+    $sourceConnection = Unprotect-Connection $stored.source
+    $scratchConnection = Unprotect-Connection $stored.scratch
+} catch {
+    # The likely causes, in the order they are likely, so whoever reads this log
+    # at 07:00 does not have to go and find out what DPAPI is.
+    Write-Log "FAILED: could not decrypt $ConnectionFile. Nothing was dumped."
+    Write-Log "FAILED: It is encrypted with DPAPI for one account on one machine. This ran as"
+    Write-Log "FAILED: $([Environment]::UserDomainName)\$([Environment]::UserName), and the file names $($stored.writtenBy)."
+    Write-Log "FAILED: A task running as SYSTEM, or as another user, or with the S4U logon type"
+    Write-Log "FAILED: ('do not store password'), cannot read it. Re-run install-backup-task.ps1"
+    Write-Log "FAILED: as the account the task runs as."
+    Write-Log "FAILED: $($_.Exception.Message)"
+    exit 2
+}
+
+if (-not $sourceConnection) {
+    Write-Log "FAILED: the connection file holds no source. Nothing was dumped."
+    exit 2
+}
+if (-not $scratchConnection) {
     # Refused rather than run, because a dump this job did not restore is a
     # dump this job has no business reporting success for.
-    Write-Log "FAILED: BOOKSCAN_BACKUP_SCRATCH is not set. A dump nobody restored is a hypothesis."
+    Write-Log "FAILED: the connection file holds no scratch server. A dump nobody restored is a hypothesis."
     exit 2
 }
+
+# Process scope. This is the environment of this script and of the npx child it
+# starts, and of nothing else, and it dies with this process. It also overwrites
+# anything that happened to be inherited, so the file decides and a leftover
+# machine-scope variable cannot.
+$env:BOOKSCAN_BACKUP_SOURCE = $sourceConnection
+$env:BOOKSCAN_BACKUP_SCRATCH = $scratchConnection
+Write-Log "connections read from $ConnectionFile"
 
 $web = Join-Path $RepoRoot 'web'
 if (-not (Test-Path (Join-Path $web 'server/backup-catalogue.ts'))) {
@@ -78,7 +162,12 @@ if (-not (Test-Path (Join-Path $web 'server/backup-catalogue.ts'))) {
 
 Push-Location $web
 try {
+    # --source-from-env and --scratch-from-env are the whole point: the tool
+    # refuses to inherit a connection unless it is asked to, so this is the only
+    # invocation on the machine that gets one. A bare run in a shell refuses.
     $output = & npx tsx server/backup-catalogue.ts `
+        --source-from-env `
+        --scratch-from-env `
         --dir $BackupDir `
         --keep $Keep `
         --max-mb $MaxMb `

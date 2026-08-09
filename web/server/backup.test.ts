@@ -385,6 +385,82 @@ describe('the command line', () => {
     }
   })
 
+  /**
+   * #215. The two variables the scheduled task uses are a real mechanism with a
+   * good reason behind it, and for a while they were also a trapdoor: they were
+   * read whenever the flag was absent, they were set at `Machine` scope so that
+   * a task could carry a password out of its command line, and a bare
+   * `npx tsx server/backup-catalogue.ts` in any shell on that machine therefore
+   * opened the live catalogue.
+   *
+   * These tests set the variables themselves rather than depending on a clean
+   * environment, so they say the same thing on a machine where the old
+   * machine-scope variables are still there as they do in CI where they are not.
+   * That is the difference between a test that guards this and a test that
+   * merely happens to pass.
+   */
+  const withEnv = (values: Record<string, string | undefined>, body: () => void): void => {
+    const previous = new Map(Object.keys(values).map((key) => [key, process.env[key]]))
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    try {
+      body()
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  }
+
+  const LIVE = 'postgres://postgres:live@127.0.0.1:5433/bookscan'
+  const SCRATCH = 'postgres://postgres:scratch@127.0.0.1:55432/postgres'
+
+  it('will not take a source from the environment nobody asked it to read', () => {
+    withEnv({ BOOKSCAN_BACKUP_SOURCE: LIVE, BOOKSCAN_BACKUP_SCRATCH: SCRATCH }, () => {
+      const options = parseArgs([])
+      if ('error' in options) throw new Error(options.error)
+      expect(options.source).toBe('')
+      expect(options.scratch).toBe('')
+    })
+  })
+
+  it('takes it when the flag asks for it by name', () => {
+    withEnv({ BOOKSCAN_BACKUP_SOURCE: LIVE, BOOKSCAN_BACKUP_SCRATCH: SCRATCH }, () => {
+      const options = parseArgs(['--source-from-env', '--scratch-from-env'])
+      if ('error' in options) throw new Error(options.error)
+      expect(options.source).toBe(LIVE)
+      expect(options.scratch).toBe(SCRATCH)
+    })
+  })
+
+  it('keeps --source as the way a human names a target explicitly', () => {
+    withEnv({ BOOKSCAN_BACKUP_SOURCE: LIVE }, () => {
+      const options = parseArgs(['--source', SCRATCH])
+      if ('error' in options) throw new Error(options.error)
+      expect(options.source).toBe(SCRATCH)
+    })
+  })
+
+  it('refuses a source named twice rather than picking one', () => {
+    withEnv({ BOOKSCAN_BACKUP_SOURCE: LIVE }, () => {
+      expect(parseArgs(['--source', SCRATCH, '--source-from-env'])).toEqual({
+        error: '--source and --source-from-env both name a connection. Give one of them.',
+      })
+    })
+  })
+
+  it('refuses when it was asked to inherit and there was nothing to inherit', () => {
+    withEnv({ BOOKSCAN_BACKUP_SOURCE: undefined }, () => {
+      expect(parseArgs(['--source-from-env'])).toEqual({
+        error: '--source-from-env was given and BOOKSCAN_BACKUP_SOURCE is empty, so nothing ' +
+          'was inherited. Set BOOKSCAN_BACKUP_SOURCE in this process, or pass --source.',
+      })
+    })
+  })
+
   it('defaults retention to a bound rather than to unlimited', () => {
     const options = parseArgs([])
     if ('error' in options) throw new Error(options.error)

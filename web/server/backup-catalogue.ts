@@ -8,12 +8,27 @@
  * it prints what it is about to do, refuses rather than guesses, and says which
  * database it is talking to before it talks to it.
  *
- * **The source is named on the command line and is never inherited.** This does
- * not read `ConnectionStrings__bookscan`, the variable the running app reads,
- * for the reason AGENTS.md gives for every other tool here: a connection string
- * sitting in a shell must not be able to decide which catalogue a job touches.
- * `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH` are read instead, so
- * the scheduled task can carry a password without putting it in a command line.
+ * **The source is named on the command line and is never inherited by default.**
+ * This does not read `ConnectionStrings__bookscan`, the variable the running app
+ * reads, for the reason AGENTS.md gives for every other tool here: a connection
+ * string sitting in a shell must not be able to decide which catalogue a job
+ * touches.
+ *
+ * `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH` are read **only when
+ * `--source-from-env` or `--scratch-from-env` asks for them.** They used to be
+ * read whenever `--source` was absent, and that was the same mistake in a
+ * different coat: the variables were set at `Machine` scope so a scheduled task
+ * could carry a password out of its command line, which handed the live
+ * catalogue to every process on the box, and `npx tsx server/backup-catalogue.ts`
+ * with no arguments then opened it. Inheriting is now a thing somebody asks for
+ * by name, the way `scripts/seed-world.ts` refuses to inherit its target.
+ * `scripts/backup-catalogue.ps1` is the only caller that asks, and it puts the
+ * connections into its own child's environment from a DPAPI-encrypted file
+ * rather than finding them lying around. See docs/backup-runbook.md.
+ *
+ * `--dir` still falls back to `BOOKSCAN_BACKUP_DIR` on purpose. A directory
+ * decides where a dump is written, not which catalogue is opened, and an
+ * inherited one cannot point this at somebody's collection.
  *
  * **Nothing here writes to the source.** The dump side opens one read-only
  * repeatable-read transaction, exports its snapshot, and runs `pg_dump` inside
@@ -59,13 +74,17 @@ const USAGE = `Dump the Postgres catalogue, prune old dumps, and prove one resto
 Usage: npx tsx server/backup-catalogue.ts [options]
 
   --source <s>    The catalogue to dump. A postgres:// URL or an ADO.NET
-                  keyword string. BOOKSCAN_BACKUP_SOURCE is read when this is
-                  not given. ConnectionStrings__bookscan is deliberately NOT
-                  read. Only ever read from.
+                  keyword string. Only ever read from. Nothing in the
+                  environment is read unless --source-from-env asks for it, and
+                  ConnectionStrings__bookscan is never read at all.
+  --source-from-env  Take the source from BOOKSCAN_BACKUP_SOURCE. This is how
+                  the scheduled task carries a password that is not in its
+                  command line. A bare run refuses rather than inheriting.
   --scratch <s>   A Postgres the verification may create and drop databases on.
-                  BOOKSCAN_BACKUP_SCRATCH is read when this is not given.
                   Must NOT be the live server. Without it, nothing is verified
                   and the run says so.
+  --scratch-from-env  Take the scratch server from BOOKSCAN_BACKUP_SCRATCH,
+                  on the same terms as --source-from-env.
   --dir <p>       Where dumps and manifests go. BOOKSCAN_BACKUP_DIR is read
                   when this is not given.
   --keep <n>      How many dumps to retain. Default ${DEFAULT_KEEP}.
@@ -103,7 +122,11 @@ interface Options {
 }
 
 export function parseArgs(argv: readonly string[]): Options | { error: string } {
-  const flags = ['--verify-only', '--prune-only', '--keep-scratch', '--help', '-h']
+  const flags = [
+    '--verify-only', '--prune-only', '--keep-scratch',
+    '--source-from-env', '--scratch-from-env',
+    '--help', '-h',
+  ]
   const values = [
     '--source', '--scratch', '--dir', '--keep', '--max-mb', '--min-free-mb',
     '--image', '--runner', '--file',
@@ -144,9 +167,43 @@ export function parseArgs(argv: readonly string[]): Options | { error: string } 
     return { error: '--runner must be auto, docker or local' }
   }
 
+  /**
+   * A connection comes from the command line, or from the environment because
+   * somebody asked for the environment by name. Never from the environment
+   * because the command line was quiet.
+   *
+   * That distinction is the whole of #215. The variables exist so a scheduled
+   * task can carry a password without putting it in a process listing, which is
+   * a good reason, and for a while the reading of them was unconditional, which
+   * meant a bare run in any shell that happened to have them opened whatever
+   * they named. An opt-in keeps the good half.
+   */
+  const connection = (
+    flag: string, option: string, variable: string,
+  ): string | { error: string } => {
+    const explicit = given.get(option)
+    if (!seen.has(flag)) return explicit ?? ''
+    if (explicit !== undefined) {
+      return { error: `${option} and ${flag} both name a connection. Give one of them.` }
+    }
+    const inherited = process.env[variable] ?? ''
+    if (!inherited) {
+      return {
+        error: `${flag} was given and ${variable} is empty, so nothing was inherited. ` +
+          `Set ${variable} in this process, or pass ${option}.`,
+      }
+    }
+    return inherited
+  }
+
+  const source = connection('--source-from-env', '--source', 'BOOKSCAN_BACKUP_SOURCE')
+  if (typeof source === 'object') return source
+  const scratch = connection('--scratch-from-env', '--scratch', 'BOOKSCAN_BACKUP_SCRATCH')
+  if (typeof scratch === 'object') return scratch
+
   return {
-    source: given.get('--source') ?? process.env.BOOKSCAN_BACKUP_SOURCE ?? '',
-    scratch: given.get('--scratch') ?? process.env.BOOKSCAN_BACKUP_SCRATCH ?? '',
+    source,
+    scratch,
     dir: resolve(given.get('--dir') ?? process.env.BOOKSCAN_BACKUP_DIR ?? 'backups'),
     keep,
     maxBytes: maxMb * 1024 * 1024,
@@ -351,6 +408,14 @@ async function takeDump(options: Options, runner: Runner): Promise<string> {
     )
   }
 
+  // Said before the connection is opened rather than after, because "says which
+  // database it is talking to before it talks to it" is what the header of this
+  // file claims and it was only true of the other tools here. It matters most
+  // when the connection fails: a run that cannot reach its source should still
+  // have named the source it was reaching for. describeSource drops the
+  // credentials, so this is safe in a log a scheduled task writes.
+  line('source', describeSource(options.source))
+
   const client = new pg.Client(connectionConfig(options.source))
   await client.connect()
 
@@ -381,7 +446,6 @@ async function takeDump(options: Options, runner: Runner): Promise<string> {
       )
     }
 
-    line('source', describeSource(options.source))
     line('server', String(serverVersionNum))
     line('client', runner === 'docker' ? `docker ${options.image}` : 'pg_dump on PATH')
     line('snapshot', snapshotId)
@@ -679,7 +743,9 @@ async function main(): Promise<number> {
   if (!options.verifyOnly) {
     if (!options.source) {
       console.error(
-        'No source. Pass --source <connection> or set BOOKSCAN_BACKUP_SOURCE.\n' +
+        'No source, and this will not take one from the environment it happens to be\n' +
+        'running in. Pass --source <connection>, or --source-from-env to say out loud\n' +
+        'that BOOKSCAN_BACKUP_SOURCE is the one you mean.\n' +
         'ConnectionStrings__bookscan is deliberately not read; see the top of this file.\n\n' +
         USAGE,
       )
@@ -709,7 +775,8 @@ async function main(): Promise<number> {
   if (!options.scratch) {
     console.log('')
     console.log('  NOT VERIFIED: no --scratch server given, so nothing was restored.')
-    console.log('  An unrestored dump is a hypothesis. Pass --scratch to prove it.')
+    console.log('  An unrestored dump is a hypothesis. Pass --scratch, or --scratch-from-env,')
+    console.log('  to prove it.')
     return 1
   }
 

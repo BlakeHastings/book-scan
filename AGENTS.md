@@ -217,11 +217,25 @@ which were hard won, now protect the wrong thing.
   disks are inside it. That is the one remaining gap and it is deliberate rather
   than unnoticed.
 
-`server/backup-catalogue.ts` does not read `ConnectionStrings__bookscan`. Its
-source is named on the command line or in `BOOKSCAN_BACKUP_SOURCE`, for the same
-reason `scripts/seed-world.ts` refuses to inherit its target, and for the same
-reason the stage H migration tool refused to inherit one before it was deleted.
-Neither variable belongs in a shell.
+`server/backup-catalogue.ts` does not read `ConnectionStrings__bookscan`, and it
+does not read anything else in the environment unless it was asked to by name.
+Its source comes from `--source`, or from `BOOKSCAN_BACKUP_SOURCE` when
+`--source-from-env` says so, and from nothing else. That is the same refusal
+`scripts/seed-world.ts` makes about its target, and the same one the stage H
+migration tool made before it was deleted.
+
+**That is a rule with a scar on it.** The variable used to be read whenever
+`--source` was absent, and `scripts/install-backup-task.ps1` used to set it at
+a persisted scope so a scheduled task could carry a password out of its command
+line. A persisted variable is not a task's environment, it is every process that
+inherits it, so a connection string naming the live catalogue sat in every shell and
+every agent session here, and `npx tsx server/backup-catalogue.ts` with no
+arguments opened the live catalogue. The connections now live in a
+DPAPI-encrypted file the task is given the path to. See #215 and
+`docs/backup-runbook.md`. **If you find either variable set in your shell, do
+not use it and do not treat it as configuration.** Nothing in this repository
+reads it without being told to, and the answer is to remove it, not to lean on
+it.
 
 **The SQLite rules below still apply to the SQLite file**, which is still
 exactly where stage H left it. Nothing in this repository opens it, and nothing
