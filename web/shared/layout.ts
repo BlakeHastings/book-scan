@@ -72,6 +72,30 @@ export function areaLabel(index: number): string {
   return label
 }
 
+/**
+ * `areaLabel` read backwards: which plank a run of letters names.
+ *
+ * Bijective base 26, so `A` is 0, `Z` is 25 and `AA` is 26, and
+ * `areaIndex(areaLabel(n)) === n` for every n. Written here rather than wherever
+ * it is needed because an inverse that lives away from what it inverts is an
+ * inverse that stops being one: the two have to be changed together or a plank
+ * gets one label and answers to another.
+ *
+ * -1 for anything that is not a run of letters, which includes the empty string.
+ * A bare bookcase (`S4`) parses as a location and names no plank, so it has no
+ * index rather than index zero: `4` and `4A` are not the same place, and
+ * `compareLocations` already sorts them apart.
+ */
+export function areaIndex(section: string): number {
+  if (!/^[A-Za-z]+$/.test(section)) return -1
+
+  let n = 0
+  for (const character of section.toUpperCase()) {
+    n = n * 26 + (character.charCodeAt(0) - 64)
+  }
+  return n - 1
+}
+
 /** Shelf first, then area: 1A is the top plank of bookcase 1. */
 export function locationLabel(shelf: number, area: number): string {
   return `${shelf}${areaLabel(area)}`

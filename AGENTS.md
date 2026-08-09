@@ -498,6 +498,7 @@ teach people to skim past it.
 | `scripts/backup-catalogue.ps1` | What the scheduled task runs |
 | `docs/backup-runbook.md` | How the catalogue is backed up, and what is not covered |
 | `web/server/shelves.ts` | Shelf capacity and derived locations |
+| `web/server/placement-ledger.ts` | How a recorded location becomes a `book_placement` row |
 | `web/shared/` | Domain rules shared by client and server |
 | `web/instrumentation.ts` | OpenTelemetry setup, preloaded with `--import` |
 | `e2e/` | Gherkin features and the browser suite that runs them |
@@ -608,6 +609,25 @@ the question #204 left open at `Store.listRange` and #183 answered.
 **`checked_out_at` is still the column the client reads**, and
 `Store.setCheckedOut` writes it and `state` in one statement so they cannot
 disagree. Nothing else moves a book between those two states.
+
+### There are four statements that change where a book is, and there is no fifth
+
+`Store.addBook`'s insert, `Store.updateBook`'s update, `Store.setLocation` and
+`Store.setCheckedOut`. Every one of them writes `books.location`,
+`books.shelved_at` or `books.checked_out_at`, and every one of them also writes a
+row to `book_placement` and the `books.current_area_id` projection, through
+`server/placement-ledger.ts`, **on its own transaction handle** (#185).
+
+**If you add a fifth, it goes in `Store` beside those four and it records a
+placement.** A route that writes a location without one is the defect #200 found
+in `capture`, where the recording lived where the request was handled and the
+writing lived somewhere else, so a background write and two CLIs silently skipped
+it. `applySchema` folds the ledger back out on every start and says whether
+`current_area_id` still agrees, which is how a missing writer is found rather
+than discovered a week later.
+
+`books.location` is still authoritative and still what the client and
+`reviewShelving` read. Nothing reads a placement row yet.
 
 ### Postgres schema changes go through Drizzle
 

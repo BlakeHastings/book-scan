@@ -99,6 +99,20 @@
       "when": 1786158088594,
       "tag": "0013_the_shelves_become_fixtures_and_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786289316117,
+      "tag": "0014_the_placement_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786289342795,
+      "tag": "0015_where_every_book_is_becomes_rows",
+      "breakpoints": true
     }
   ]
 }

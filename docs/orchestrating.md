@@ -13,13 +13,15 @@ Postgres database in the container `book-scan-live-pg`; the SQLite file is
 retained as history until at least 2026-09-06 and nothing in this repository can
 open it.
 
-**The remodel is nearly all built and none of it is read.**
-`docs/data-model.md` specifies fourteen tables. Landed: `tag` and `book_tag`
-(#179), `author`, `author_alias` and `book_author` (#180), `capture` (#181),
-`books.state` with its three views and the dissolved queue (#183, both halves),
-and `collection`, `sort_strategy`, `fixture`, `area`, `placement_rule` and
-`rule_condition` (#184). Remaining under epic #170: #185, the placement ledger,
-which depends on fixtures and areas existing and now has them.
+**The remodel is all built and none of it is read.** `docs/data-model.md`
+specifies fourteen tables. Landed: `tag` and `book_tag` (#179), `author`,
+`author_alias` and `book_author` (#180), `capture` (#181), `books.state` with its
+three views and the dissolved queue (#183, both halves), `collection`,
+`sort_strategy`, `fixture`, `area`, `placement_rule` and `rule_condition` (#184),
+and `book_placement` with `books.current_area_id` (#185). **Epic #170 is done and
+the cut-over is what is left**, which is the first change in this sequence that
+gets to delete something, and it owes the genre repair `docs/data-model.md`
+names.
 
 **Nothing has been cut over, and that is deliberate every time.** Each of those
 added its tables and left the old columns authoritative. `books.is_fiction`
@@ -30,6 +32,18 @@ already filed: #200, where `capture` drifts behind the columns because
 background writes do not record one, and the genre repair in `docs/data-model.md`
 that the cut-over owes. **Do not cut a slice over as a side effect of something
 else.**
+
+**#214 and #185 agree about where a recording belongs**, and between them they
+settle it: on the statement that writes the column, never on the caller. #214
+moved `capture` there after finding five paths that wrote the image columns
+without it, and #185 put the placement ledger there from the start, beside the
+four statements that change where a book is. A caller cannot forget what it
+never had to remember. Copy that shape.
+
+**#185 also brought a check for the thing that rots.** `books.current_area_id`
+is a projection of the ledger, folded back out of it on every start, and the
+check names the books rather than the count. Both drifts above were found long
+after they began; that is what a check is for.
 
 **Leaving the old model authoritative is what made #184 checkable**, and that is
 worth keeping. Both models were live over one catalogue at once, so every book
