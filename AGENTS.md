@@ -619,12 +619,12 @@ row to `book_placement` and the `books.current_area_id` projection, through
 `server/placement-ledger.ts`, **on its own transaction handle** (#185).
 
 **If you add a fifth, it goes in `Store` beside those four and it records a
-placement.** A route that writes a location without one is the defect #200
-already is for `capture`: the recording lives where the request is handled and
-the writing lives somewhere else, so a background write or a CLI silently skips
+placement.** A route that writes a location without one is the defect #200 found
+in `capture`, where the recording lived where the request was handled and the
+writing lived somewhere else, so a background write and two CLIs silently skipped
 it. `applySchema` folds the ledger back out on every start and says whether
 `current_area_id` still agrees, which is how a missing writer is found rather
-than discovered.
+than discovered a week later.
 
 `books.location` is still authoritative and still what the client and
 `reviewShelving` read. Nothing reads a placement row yet.

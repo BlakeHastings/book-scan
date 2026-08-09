@@ -33,11 +33,17 @@ background writes do not record one, and the genre repair in `docs/data-model.md
 that the cut-over owes. **Do not cut a slice over as a side effect of something
 else.**
 
-**#185 is the one that does not drift**, and the difference is worth copying:
-its writes are in `Store`, beside the four statements that change where a book
-is, rather than in the routes that call them, so there is no fifth writer to
-forget. Its projection, `books.current_area_id`, is checked against the ledger on
-every start and the check names the books rather than the count.
+**#214 and #185 agree about where a recording belongs**, and between them they
+settle it: on the statement that writes the column, never on the caller. #214
+moved `capture` there after finding five paths that wrote the image columns
+without it, and #185 put the placement ledger there from the start, beside the
+four statements that change where a book is. A caller cannot forget what it
+never had to remember. Copy that shape.
+
+**#185 also brought a check for the thing that rots.** `books.current_area_id`
+is a projection of the ledger, folded back out of it on every start, and the
+check names the books rather than the count. Both drifts above were found long
+after they began; that is what a check is for.
 
 **Leaving the old model authoritative is what made #184 checkable**, and that is
 worth keeping. Both models were live over one catalogue at once, so every book

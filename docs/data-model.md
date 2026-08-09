@@ -496,14 +496,14 @@ every value and stay authoritative: the client reads them, `reviewShelving` stil
 computes the misfile list from `location` against a derived label, and nothing
 anywhere reads a placement row or `current_area_id`.
 
-**This one is written on every move, which the four before it were not.** There
-are exactly four statements in this repository that change where a book is, and
-all four are in `Store`: the insert in `addBook`, the update in `updateBook`,
-`setLocation` and `setCheckedOut`. Each calls `server/placement-ledger.ts` on the
-transaction handle that is writing the column, so a placement cannot be written
-without a row. That is deliberately unlike `capture`, which drifts behind the
-image columns because the recording is in the routes and the writes are not
-(#200).
+**This one is written on every move, the way #200 taught.** There are exactly
+four statements in this repository that change where a book is, and all four are
+in `Store`: the insert in `addBook`, the update in `updateBook`, `setLocation`
+and `setCheckedOut`. Each calls `server/placement-ledger.ts` on the transaction
+handle that is writing the column, so a placement cannot be written without a
+row. That is the same write-through #200 moved `capture` onto after finding five
+callers that wrote the image columns without recording anything, arrived at from
+the other end: a caller cannot forget what it never had to remember.
 
 **Two things the ledger cannot say, and they are written down rather than
 discovered.** A location naming a plank the furniture does not have gets no

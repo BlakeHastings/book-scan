@@ -47,10 +47,22 @@ export default defineConfig({
      * each, which reads like a driver fault and is a queue. CI, on a service
      * container rather than a Docker Desktop VM, has not hit it.
      *
-     * Only the hooks. `testTimeout` stays at the default, because a test that
-     * runs long is a test worth being told about, and the files that legitimately
-     * take tens of seconds say so per test already (see bookcrop.test.ts).
+     * **The same queue reaches test bodies, which is what #185 found.** Several
+     * backfill files call `scratchDatabase()` inside `it` rather than in a hook,
+     * so they wait in exactly the queue described above and fail at vitest's five
+     * second default instead of the sixty this line buys. It showed up as
+     * `state-backfill.test.ts` and `capture-backfill.test.ts` timing out at the
+     * line that creates their database, in a run where nothing about either had
+     * changed and one more file had joined the queue.
+     *
+     * So `testTimeout` is raised too, and deliberately not to sixty. The reason
+     * it was left alone still holds: a test that runs long is a test worth being
+     * told about, and the files that legitimately take tens of seconds say so per
+     * test already (see bookcrop.test.ts). Twenty seconds is longer than any
+     * queue this container has produced and short enough that a test which has
+     * actually stopped still reports as one.
      */
     hookTimeout: 60_000,
+    testTimeout: 20_000,
   },
 })

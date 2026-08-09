@@ -35,9 +35,10 @@ import { rangeLock } from './shelves'
  *
  * **The four statements in this file that change where a book is are the four
  * that call these**, and that is the whole reason the calls are here rather than
- * in the routes: `capture` drifts behind the image columns because the writes
- * are in one place and the recording is in another (#200). Each call is made on
- * the transaction handle that is writing the column, so the row and the column
+ * in the routes. It is the same write-through #200 moved `capture` onto, after
+ * five callers turned out to write the image columns without recording anything:
+ * a caller cannot forget what it never had to remember. Each call is made on the
+ * transaction handle that is writing the column, so the row and the column
  * commit together.
  */
 import { recordCheckedOut, recordPlaced } from './placement-ledger'

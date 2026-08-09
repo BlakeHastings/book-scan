@@ -33,7 +33,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   labelFor, slotsInOrder, type Area, type Fixture, type Slot,
 } from '../../domain/placement/geography'
@@ -447,21 +447,57 @@ async function migratedCatalogue(books: SeedBook[]): Promise<pg.Pool> {
 
 // ---------------------------------------------------------------------------
 
-describe('where every book is, becoming rows', () => {
-  it('replays to exactly what books.location says, book by book', async () => {
-    const pool = await catalogueOf(asShelved(LIVE_SIZED), LIVE_SEPARATORS)
+/**
+ * The catalogue every read-only assertion below is made against.
+ *
+ * **One database for nine tests, and built in a hook.** Each of these is a
+ * question about the same backfill over the same catalogue, so nine databases
+ * would be nine `CREATE DATABASE`s queueing behind the rest of the suite against
+ * one container. `vitest.config.ts` raised `hookTimeout` for exactly that queue
+ * and deliberately left `testTimeout` alone, so a database made in a hook waits
+ * its turn and one made in a test body fails at five seconds. Two other backfill
+ * files were tipped over that way by this one before it was consolidated.
+ *
+ * Three books carry the arrangements worth asking about: one checked out, one
+ * nobody has placed, and one recorded on a plank the furniture does not have.
+ * All three are states the baseline schema can hold, so nothing here is rewritten
+ * after the migrations and the shelf order hash spans the whole run.
+ */
+const SEED = asShelved(LIVE_SIZED, [
+  { title: 'Book 010', state: 'checked_out' },
+  { title: 'Book 012', location: '' },
+  { title: 'Book 013', location: '9Z' },
+])
 
-    const before = await shelfOrder(pool, 'books WHERE checked_out_at IS NULL')
+describe('where every book is, becoming rows', () => {
+  let pool: pg.Pool
+  let before: string | null
+
+  beforeAll(async () => {
+    pool = await catalogueOf(SEED, LIVE_SEPARATORS)
+    before = await shelfOrder(pool, 'books WHERE checked_out_at IS NULL')
+
     // Adopted, because this database has the baseline tables and has never been
     // migrated. That is the path the real catalogue takes.
     expect(await migrateToLatest(pool)).toBe('adopted')
+  }, 60_000)
 
+  it('replays to exactly what books.location says, book by book', async () => {
     const books = await catalogueBooks(pool)
     const ledger = await ledgerIn(pool)
     const labels = labelsOf((await furnitureIn(pool)).order)
 
     expect(books).toHaveLength(LIVE_SIZED.length)
-    expect(replayDisagreements(books, ledger, labels)).toEqual([])
+    /*
+     * Every book compared, and the residue written down rather than filtered
+     * away. One book disagrees and it is the one recorded on a plank the
+     * furniture does not have, which the ledger has no row to point at and
+     * `0015` counts on the way in. Asserting the exact list rather than
+     * excluding that book keeps the limit visible: if a second kind of book ever
+     * stops replaying, this fails with its title in the message.
+     */
+    expect(replayDisagreements(books, ledger, labels))
+      .toEqual(['Book 013: books.location says 9Z, the ledger says nowhere'])
     expect(projectionDisagreementsInTypeScript(books, ledger)).toEqual([])
     expect(await countProjectionDisagreements(new PgDb(pool))).toBe(0)
 
@@ -480,7 +516,6 @@ describe('where every book is, becoming rows', () => {
     // `placement-backfill.test.ts` asserts the rules produce, which is what makes
     // the two steps comparable. 2B is missing on purpose: two separators on one
     // anchor leave an area with no books on it.
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED))
     const labels = labelsOf((await furnitureIn(pool)).order)
 
     const used = [...new Set(
@@ -501,8 +536,11 @@ describe('where every book is, becoming rows', () => {
      * settled that a migration does not reimplement them in SQL, and a backfill
      * that wrote one per book would be exactly the flood the design forbids: a
      * row per book saying nothing changed.
+     *
+     * 234 placed, not 236: one book nobody has placed and one recorded on a
+     * plank that does not exist. The checked out book carries a second row after
+     * its placement.
      */
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED))
     const counted = await pool.query<Record<string, string>>(
       `SELECT (SELECT count(*) FROM book_placement)::text AS rows,
               (SELECT count(*) FROM book_placement WHERE kind = 'assigned')::text AS assigned,
@@ -510,45 +548,26 @@ describe('where every book is, becoming rows', () => {
               (SELECT count(*) FROM book_placement WHERE actor = 'migration')::text AS backfilled`,
     )
     expect(counted.rows[0]).toEqual({
-      rows: '236', assigned: '0', placed: '236', backfilled: '236',
+      rows: '235', assigned: '0', placed: '234', backfilled: '235',
     })
   })
 
-  it('takes a checked out book off the shelf and leaves a withdrawn one nowhere', async () => {
+  it('takes a checked out book off the shelf, and says so in two rows', async () => {
     /*
      * The one place the ledger deliberately does not reproduce `books.location`.
      * A book in a bag holds no position, so it is nowhere in the ledger while the
      * column still names the plank it came off, and `reviewShelving` excludes
      * such a book from the misfile list for exactly the same reason.
      */
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED, [
-      { title: 'Book 010', state: 'checked_out' },
-      { title: 'Book 011', state: 'withdrawn' },
-    ]))
-
-    const books = await catalogueBooks(pool)
-    const ledger = await ledgerIn(pool)
-    const labels = labelsOf((await furnitureIn(pool)).order)
-    expect(replayDisagreements(books, ledger, labels)).toEqual([])
-    expect(projectionDisagreementsInTypeScript(books, ledger)).toEqual([])
-
-    const out = books.find((book) => book.title === 'Book 010')!
+    const out = (await catalogueBooks(pool)).find((book) => book.title === 'Book 010')!
     expect(out.location).not.toBe('')
     expect(out.currentAreaId).toBeNull()
-    expect((ledger.get(out.id) ?? []).map((row) => row.kind)).toEqual(['placed', 'checked_out'])
-
-    const gone = books.find((book) => book.title === 'Book 011')!
-    expect(gone.currentAreaId).toBeNull()
-    expect((ledger.get(gone.id) ?? []).map((row) => row.kind)).toEqual(['placed', 'withdrawn'])
+    expect(((await ledgerIn(pool)).get(out.id) ?? []).map((row) => row.kind))
+      .toEqual(['placed', 'checked_out'])
   })
 
   it('gives a book nobody has placed no rows at all', async () => {
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED, [
-      { title: 'Book 012', state: 'identified', location: '' },
-    ]))
-
-    const books = await catalogueBooks(pool)
-    const queued = books.find((book) => book.title === 'Book 012')!
+    const queued = (await catalogueBooks(pool)).find((book) => book.title === 'Book 012')!
     expect(queued.currentAreaId).toBeNull()
     expect((await ledgerIn(pool)).get(queued.id)).toBeUndefined()
   })
@@ -560,24 +579,14 @@ describe('where every book is, becoming rows', () => {
      * Refusing would refuse a catalogue the app already handles, so it is counted
      * and named instead, and the book carries no placed row.
      */
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED, [
-      { title: 'Book 013', location: '9Z' },
-    ]))
-
-    const books = await catalogueBooks(pool)
-    const stray = books.find((book) => book.title === 'Book 013')!
+    const stray = (await catalogueBooks(pool)).find((book) => book.title === 'Book 013')!
+    expect(stray.location).toBe('9Z')
     expect(stray.currentAreaId).toBeNull()
     expect((await ledgerIn(pool)).get(stray.id)).toBeUndefined()
-
-    const counted = await pool.query<{ n: string }>(
-      "SELECT count(*)::text AS n FROM book_placement WHERE kind = 'placed'",
-    )
-    expect(counted.rows[0]!.n).toBe('235')
   })
 
   it('is not run twice on a database that has already had it', async () => {
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED))
-    const before = await ledgerIn(pool)
+    const rows = await ledgerIn(pool)
 
     expect(await migrateToLatest(pool)).toBe('migrated')
 
@@ -588,49 +597,93 @@ describe('where every book is, becoming rows', () => {
     await pool.query(migrationSql(BACKFILL))
 
     const after = await ledgerIn(pool)
-    expect([...after.keys()]).toEqual([...before.keys()])
-    expect([...after.values()].flat()).toEqual([...before.values()].flat())
+    expect([...after.keys()]).toEqual([...rows.keys()])
+    expect([...after.values()].flat()).toEqual([...rows.values()].flat())
+  })
+})
+
+describe('a book that has left the collection', () => {
+  let pool: pg.Pool
+
+  // Its own database, because `withdrawn` is a state the baseline schema has no
+  // column for: it can only be written after the migrations, by which time the
+  // backfill has read the catalogue, so this one has the shipped migration run
+  // again over the corrected rows.
+  beforeAll(async () => {
+    pool = await migratedCatalogue(asShelved(LIVE_SIZED, [
+      { title: 'Book 011', state: 'withdrawn' },
+    ]))
+  }, 60_000)
+
+  it('is nowhere, after the placement that says where it used to be', async () => {
+    const gone = (await catalogueBooks(pool)).find((book) => book.title === 'Book 011')!
+    expect(gone.currentAreaId).toBeNull()
+    expect(((await ledgerIn(pool)).get(gone.id) ?? []).map((row) => row.kind))
+      .toEqual(['placed', 'withdrawn'])
   })
 
-  it('says nothing about a catalogue with no books in it', async () => {
-    const pool = await catalogueOf([], [])
-    expect(await migrateToLatest(pool)).toBe('adopted')
-    const counted = await pool.query<{ n: string }>(
+  it('leaves every other book replaying to what books.location says', async () => {
+    const books = await catalogueBooks(pool)
+    const ledger = await ledgerIn(pool)
+    expect(replayDisagreements(books, ledger, labelsOf((await furnitureIn(pool)).order)))
+      .toEqual([])
+    expect(projectionDisagreementsInTypeScript(books, ledger)).toEqual([])
+  })
+})
+
+describe('a catalogue with nothing in it to record', () => {
+  let empty: pg.Pool
+  let fresh: pg.Pool
+
+  beforeAll(async () => {
+    empty = await catalogueOf([], [])
+    expect(await migrateToLatest(empty)).toBe('adopted')
+
+    // The case every developer, every CI run and every end to end run takes, and
+    // the one `0013` originally got wrong by reading a table that was empty at
+    // the moment it ran.
+    fresh = await scratchDatabase()
+    expect(await migrateToLatest(fresh)).toBe('created')
+  }, 60_000)
+
+  it('writes no rows for a catalogue of no books', async () => {
+    const counted = await empty.query<{ n: string }>(
       'SELECT count(*)::text AS n FROM book_placement',
     )
     expect(counted.rows[0]!.n).toBe('0')
   })
 
   it('builds the ledger on a database created from nothing, not only an adopted one', async () => {
-    // The case every developer, every CI run and every end to end run takes, and
-    // the one `0013` originally got wrong by reading a table that was empty at
-    // the moment it ran.
-    const pool = await scratchDatabase()
-    expect(await migrateToLatest(pool)).toBe('created')
-    expect(await countProjectionDisagreements(new PgDb(pool))).toBe(0)
+    expect(await countProjectionDisagreements(new PgDb(fresh))).toBe(0)
   })
 })
 
 describe('a catalogue this migration will not finish on', () => {
-  it('refuses when not one recorded location names an area', async () => {
+  let pool: pg.Pool
+  let refusal: unknown
+
+  beforeAll(async () => {
+    pool = await catalogueOf(
+      LIVE_SIZED.slice(0, 3).map((book) => ({ ...book, location: '9Z' })),
+      [],
+    )
+    refusal = await migrateToLatest(pool).then(() => undefined, (error: unknown) => error)
+  }, 60_000)
+
+  it('refuses when not one recorded location names an area', () => {
     /*
      * The guard `0013` did not have until it was found to have quietly built
      * nothing. A person mistypes a location now and then; all of them at once is
      * this migration failing to read a label, and without this it would add up
      * perfectly, write an empty ledger and say so only in a NOTICE.
      */
-    const pool = await catalogueOf(
-      LIVE_SIZED.slice(0, 3).map((book) => ({ ...book, location: '9Z' })),
-      [],
-    )
-
-    const refusal = await migrateToLatest(pool).then(() => undefined, (error: unknown) => error)
     expect(refusal).toBeInstanceOf(MigrationFailed)
     expect((refusal as MigrationFailed).message)
       .toContain('could not place a single book: 3 recorded locations')
     expect((refusal as MigrationFailed).message).toContain(`${BACKFILL}.sql`)
+  })
 
-    // Refused rather than half done, so there is nothing to unpick.
+  it('leaves nothing half done to unpick', async () => {
     const table = await pool.query<{ table: string | null }>(
       "SELECT to_regclass('public.book_placement')::text AS table",
     )
@@ -639,6 +692,19 @@ describe('a catalogue this migration will not finish on', () => {
 })
 
 describe('the checks, proving they can fail', () => {
+  let moved: pg.Pool
+  let edited: pg.Pool
+  let deleted: pg.Pool
+
+  // Three databases because each test damages the model differently and a
+  // repair between them would be a fourth thing to get right, and all three in
+  // one hook because a `CREATE DATABASE` queues behind the rest of the suite.
+  beforeAll(async () => {
+    moved = await migratedCatalogue(asShelved(LIVE_SIZED))
+    edited = await migratedCatalogue(asShelved(LIVE_SIZED))
+    deleted = await migratedCatalogue(asShelved(LIVE_SIZED))
+  }, 120_000)
+
   it('names the book when one ledger row is moved to another plank', async () => {
     /*
      * The sharpest of the quiet failures: a book the ledger has one plank away
@@ -646,21 +712,20 @@ describe('the checks, proving they can fail', () => {
      * place, and a shelf drawn from the projection would be wrong by one run of
      * books.
      */
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED))
-    const labels = labelsOf((await furnitureIn(pool)).order)
+    const labels = labelsOf((await furnitureIn(moved)).order)
     const target = [...labels].find(([, label]) => label === '1B')![0]
 
     expect(replayDisagreements(
-      await catalogueBooks(pool), await ledgerIn(pool), labels,
+      await catalogueBooks(moved), await ledgerIn(moved), labels,
     )).toEqual([])
 
-    await pool.query(
+    await moved.query(
       `UPDATE book_placement SET area_id = $1
         WHERE book_id = (SELECT id FROM books WHERE title = 'Book 001')`,
       [target],
     )
 
-    expect(replayDisagreements(await catalogueBooks(pool), await ledgerIn(pool), labels))
+    expect(replayDisagreements(await catalogueBooks(moved), await ledgerIn(moved), labels))
       .toEqual(['Book 001: books.location says 1A, the ledger says 1B'])
   })
 
@@ -668,11 +733,10 @@ describe('the checks, proving they can fail', () => {
     // The rot this projection exists to be watched for: a `current_area_id` that
     // no longer folds out of the rows. It is a plausible answer rather than an
     // error, so nothing else in the system would ever notice.
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED))
-    const db: Db = new PgDb(pool)
+    const db: Db = new PgDb(edited)
     expect(await countProjectionDisagreements(db)).toBe(0)
 
-    await pool.query(
+    await edited.query(
       `UPDATE books SET current_area_id = (SELECT min(id) FROM area)
         WHERE title = 'Book 200'`,
     )
@@ -681,7 +745,7 @@ describe('the checks, proving they can fail', () => {
     const named = await projectionDisagreements(db)
     expect(named.map((one) => one.title)).toEqual(['Book 200'])
     expect(projectionDisagreementsInTypeScript(
-      await catalogueBooks(pool), await ledgerIn(pool),
+      await catalogueBooks(edited), await ledgerIn(edited),
     )).toHaveLength(1)
 
     // And the repair puts it back, which is what makes the projection a
@@ -695,18 +759,17 @@ describe('the checks, proving they can fail', () => {
     // The other direction: rows gone rather than rows wrong. Append only is a
     // rule about the writers, not something the database enforces, so the check
     // has to survive somebody breaking it.
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED))
-    const db: Db = new PgDb(pool)
+    const db: Db = new PgDb(deleted)
 
-    await pool.query(
+    await deleted.query(
       `DELETE FROM book_placement
         WHERE book_id IN (SELECT id FROM books WHERE title IN ('Book 001', 'Book 002'))`,
     )
 
     expect(await countProjectionDisagreements(db)).toBe(2)
     const found = replayDisagreements(
-      await catalogueBooks(pool), await ledgerIn(pool),
-      labelsOf((await furnitureIn(pool)).order),
+      await catalogueBooks(deleted), await ledgerIn(deleted),
+      labelsOf((await furnitureIn(deleted)).order),
     )
     expect(found).toEqual([
       'Book 001: books.location says 1A, the ledger says nowhere',
@@ -732,6 +795,23 @@ describe('running the rules over the ledger', () => {
     return rows.map((row) => ({ id: Number(row.id), sortKey: row.sort_key, tagSlugs: row.slugs }))
   }
 
+  let settled: pg.Pool
+  let misfiled: pg.Pool
+  let pinned: pg.Pool
+
+  // Three, and in a hook, for the reason the corruption tests above are: each of
+  // these writes to the ledger, so they cannot share, and a `CREATE DATABASE` in
+  // a test body fails at five seconds when the suite is under load.
+  beforeAll(async () => {
+    settled = await migratedCatalogue(asShelved(LIVE_SIZED))
+    misfiled = await migratedCatalogue(asShelved(LIVE_SIZED, [
+      { title: 'Book 001', location: '3B' },
+    ]))
+    pinned = await migratedCatalogue(asShelved(LIVE_SIZED, [
+      { title: 'Book 001', location: '3B' },
+    ]))
+  }, 120_000)
+
   it('writes an assignment only where the rules disagree with the room', async () => {
     /*
      * The claim that is easy to get subtly wrong, checked by counting rather than
@@ -742,18 +822,17 @@ describe('running the rules over the ledger', () => {
      * An engine comparing the wrong two things would write 236 rows here, which
      * is the flood that makes a ledger useless as history.
      */
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED))
-    const db: Db = new PgDb(pool)
-    const { order, rules } = await furnitureIn(pool)
+    const db: Db = new PgDb(settled)
+    const { order, rules } = await furnitureIn(settled)
     const handler = new AssignPlacementsHandler(new DrizzlePlacementLedger(db))
 
     const report = await handler.handle({
-      books: await assignable(pool), rules, order, actor: 'rules',
+      books: await assignable(settled), rules, order, actor: 'rules',
       now: '2026-08-09T12:00:00.000Z',
     })
 
     expect(report).toEqual({ assigned: 0, unchanged: 236, skipped: 0, unclaimed: [] })
-    const counted = await pool.query<{ n: string }>(
+    const counted = await settled.query<{ n: string }>(
       'SELECT count(*)::text AS n FROM book_placement',
     )
     expect(counted.rows[0]!.n).toBe('236')
@@ -770,14 +849,11 @@ describe('running the rules over the ledger', () => {
      * write the same assignment again on every run for as long as the book sits
      * there.
      */
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED, [
-      { title: 'Book 001', location: '3B' },
-    ]))
-    const db: Db = new PgDb(pool)
-    const { order, rules } = await furnitureIn(pool)
+    const db: Db = new PgDb(misfiled)
+    const { order, rules } = await furnitureIn(misfiled)
     const handler = new AssignPlacementsHandler(new DrizzlePlacementLedger(db))
 
-    const books = await assignable(pool)
+    const books = await assignable(misfiled)
     const first = await handler.handle({
       books, rules, order, actor: 'rules', now: '2026-08-09T12:00:00.000Z',
     })
@@ -788,40 +864,37 @@ describe('running the rules over the ledger', () => {
     })
     expect(second).toEqual({ assigned: 0, unchanged: 236, skipped: 0, unclaimed: [] })
 
-    const misfiled = (await catalogueBooks(pool)).find((book) => book.title === 'Book 001')!
-    const rows = (await ledgerIn(pool)).get(misfiled.id)!
+    const moved = (await catalogueBooks(misfiled)).find((book) => book.title === 'Book 001')!
+    const rows = (await ledgerIn(misfiled)).get(moved.id)!
     expect(rows.map((row) => row.kind)).toEqual(['placed', 'assigned'])
     // The assignment moved nothing: the book is still where the person put it,
     // which is what makes the disagreement the misfile list.
-    expect(misfiled.currentAreaId).toBe(rows[0]!.areaId)
+    expect(moved.currentAreaId).toBe(rows[0]!.areaId)
     expect(await countProjectionDisagreements(db)).toBe(0)
   })
 
   it('leaves a pinned book alone, however wrong the rules think it is', async () => {
     // A pin beats every rule, forever. The engine skips a book whose latest row
     // is a pin, and unpinning is another row rather than a flag anybody clears.
-    const pool = await migratedCatalogue(asShelved(LIVE_SIZED, [
-      { title: 'Book 001', location: '3B' },
-    ]))
-    const db: Db = new PgDb(pool)
-    const { order, rules } = await furnitureIn(pool)
+    const db: Db = new PgDb(pinned)
+    const { order, rules } = await furnitureIn(pinned)
     const ledger = new DrizzlePlacementLedger(db)
 
-    const misfiled = (await catalogueBooks(pool)).find((book) => book.title === 'Book 001')!
+    const stays = (await catalogueBooks(pinned)).find((book) => book.title === 'Book 001')!
     const wrongPlank = [...labelsOf(order)].find(([, label]) => label === '3B')![0]
     await ledger.record({
-      bookId: misfiled.id, kind: 'pinned', areaId: wrongPlank, sortKey: misfiled.sortKey,
+      bookId: stays.id, kind: 'pinned', areaId: wrongPlank, sortKey: stays.sortKey,
       actor: 'person', reason: 'it lives here', createdAt: '2026-08-09T11:00:00.000Z',
     })
 
     const report = await new AssignPlacementsHandler(ledger).handle({
-      books: await assignable(pool), rules, order, actor: 'rules',
+      books: await assignable(pinned), rules, order, actor: 'rules',
       now: '2026-08-09T12:00:00.000Z',
     })
 
     expect(report.skipped).toBe(1)
     expect(report.assigned).toBe(0)
-    const rows = (await ledgerIn(pool)).get(misfiled.id)!
+    const rows = (await ledgerIn(pinned)).get(stays.id)!
     expect(rows.map((row) => row.kind)).toEqual(['placed', 'pinned'])
   })
 })
