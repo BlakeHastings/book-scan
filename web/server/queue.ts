@@ -37,7 +37,8 @@ import type { Db } from './driver'
 import { identify } from './identify'
 import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
 import { deriveCapture, type DerivableCapture } from './capturecrop'
-import { recordCrop, type CropIo, type CropSlot } from './crop'
+import { type CropIo, type CropSlot } from './crop'
+import { recordCrop } from './photographs'
 import { resolveIsbnPair } from '../shared/isbn'
 import {
   countFailures, PROCESSING_ERROR_NOTE, type FailureCounts,

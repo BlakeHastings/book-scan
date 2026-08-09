@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
+import { downloadCover } from './covers'
 import { PgDb } from './db.pg'
 import { createApp } from './index'
 import { lookupIsbn } from './lookup'
@@ -50,6 +51,7 @@ vi.mock('./covers', () => ({
 }))
 
 const answers = vi.mocked(lookupIsbn)
+const covers = vi.mocked(downloadCover)
 
 let pool: pg.Pool
 // One `Db` for the file, not one per test. Each `PgDb` registers an `error`
@@ -59,6 +61,8 @@ let dataRoot: string
 let coverDir: string
 let server: Server
 let baseUrl: string
+/** Kept so a test can wait for the chain a save fires and not race it. */
+let app: ReturnType<typeof createApp>
 
 beforeAll(async () => {
   pool = await migratedDatabase()
@@ -71,9 +75,11 @@ beforeEach(async () => {
   await pool.query('TRUNCATE books, book_authors, captures, capture, book_tag, tag RESTART IDENTITY CASCADE')
   answers.mockReset()
   answers.mockResolvedValue({ ...empty })
+  covers.mockReset()
+  covers.mockResolvedValue('')
 
   coverDir = mkdtempSync(join(dataRoot, 'captures-test-'))
-  const app = createApp({ db, coverDir, startBackgroundWork: false })
+  app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -287,5 +293,38 @@ describe('a book photographed twice', () => {
     // And the column has only the new one, which is the whole problem.
     const book = (await call(`/api/books/${id}`)).body.book
     expect(book.edge_image).toBe('sharp-spine.jpg')
+  })
+})
+
+describe('a column written long after the save that made the row', () => {
+  /*
+   * The drift #200 is about. `capture` used to track saves rather than
+   * photographs: the cover backfill wrote `books.cover_image` and nothing wrote
+   * a row, so the artwork existed as a column and not as a photograph until
+   * somebody happened to save that book again. Nothing reads `capture` yet, so
+   * the only place this could be seen is here.
+   */
+  it('records the cover the backfill downloads, without waiting for a save', async () => {
+    const id = await aBook({ isbn13: '9780441013593' })
+    // The save fires its own cover fetch, which finds nothing and stamps the
+    // row as asked. Waiting for it is what makes the backfill below the only
+    // thing that could have written the cover.
+    await app.settled()
+    expect(await capturesOf(id)).toEqual([])
+
+    covers.mockResolvedValue('9780441013593_cover.jpg')
+    // `retry`, because the save above already recorded that this book was asked
+    // about, and a plain backfill deliberately does not ask twice.
+    const { body } = await post('/api/backfill/covers', { retry: true })
+    expect(body.fetched).toBe(1)
+
+    expect((await capturesOf(id))[0]).toMatchObject({
+      kind: 'catalogue',
+      file: '9780441013593_cover.jpg',
+      // A publisher's artwork has no room in it, so nothing has examined it.
+      // The backfill must not be the thing that says otherwise.
+      examined: false,
+      verdict: 'unexamined',
+    })
   })
 })

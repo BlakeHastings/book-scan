@@ -9,6 +9,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import type { Db } from './driver'
 import { Store } from './store'
 import { frontCover } from './fixtures'
 import { coverHash, distance } from './imagehash'
@@ -18,6 +19,7 @@ import { isCurrentFormat, rehashCovers, type ReadImage } from './rehash'
 const OLD_FRONT = '0f1e2d3c4b5a6978'
 const OLD_COVER = 'ffee00112233ccdd'
 
+let db: Db
 let store: Store
 let images: Map<string, Buffer>
 let read: ReadImage
@@ -58,10 +60,19 @@ async function hashesOf(id: number): Promise<{ front: string; cover: string }> {
 }
 
 beforeEach(async () => {
-  store = new Store(await openTestDatabase())
+  db = await openTestDatabase()
+  store = new Store(db)
   images = new Map()
   read = reader(images)
 })
+
+/** The hashes on the photographs themselves, rather than on the book row. */
+async function photographHashes(id: number): Promise<Record<string, string>> {
+  const rows = await db.all<{ kind: string; hash: string }>(
+    'SELECT kind, hash FROM capture WHERE book_id = ? ORDER BY kind', [id],
+  )
+  return Object.fromEntries(rows.map((row) => [row.kind, row.hash]))
+}
 
 afterAll(closeTestDatabase)
 
@@ -187,6 +198,28 @@ describe('applying', () => {
     const report = await rehashCovers(store, { read, apply: true })
     expect(report.rehashed).toBe(1)
     expect(isCurrentFormat((await hashesOf(id)).front)).toBe(true)
+  })
+
+  /*
+   * The CLI half of #200. `rehash-covers.ts` is argument parsing and a file
+   * reader around exactly the call below, so a hash that reached the column
+   * and not the photograph is the drift that issue is about, arriving from a
+   * tool the server never runs.
+   */
+  it('writes the new hash onto the photograph, not only onto the book row', async () => {
+    const id = await addBook(
+      'Dune', 'Frank Herbert',
+      { front: 'dune_front.jpg', cover: 'dune_cover.jpg' },
+      { front: OLD_FRONT, cover: OLD_COVER },
+    )
+    expect(await photographHashes(id)).toEqual({ catalogue: OLD_COVER, front: OLD_FRONT })
+
+    await rehashCovers(store, { read, apply: true })
+
+    const { front, cover } = await hashesOf(id)
+    expect(await photographHashes(id)).toEqual({ catalogue: cover, front })
+    expect(isCurrentFormat(front)).toBe(true)
+    expect(isCurrentFormat(cover)).toBe(true)
   })
 })
 

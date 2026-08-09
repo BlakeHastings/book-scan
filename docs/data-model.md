@@ -372,15 +372,35 @@ and every save writes both from here on. `server/photographs.ts` is the one plac
 that says how a column translates, and deleting that file is the last step of the
 cut-over rather than the first.
 
-**The two do not stay in step, and "every save" is the exact limit of the
-claim.** `recordPhotographs` runs from the two book save routes and from the
-background chain behind one of them, and nothing else. The cover backfill
-(`store.setCoverImage`, from `hashInBackground`, `backfillCoversInBackground` and
-`POST /api/backfill/covers`), the hash backfill (`store.setHashes`) and the
-`cropCatalogue` and `rehashCovers` CLIs all write those columns without it. So a
-cover the startup backfill downloads next week lands in `books.cover_image` and
-does not become a capture row until that book is next saved. `capture` tracks
-saves, and it drifts behind the columns between them.
+**The two stayed in step only across a save, until #200.** `recordPhotographs`
+ran from the two book save routes and from the background chain behind one of
+them, and nothing else. The cover backfill (`store.setCoverImage`, from
+`hashInBackground`, `backfillCoversInBackground` and `POST /api/backfill/covers`),
+the hash backfill (`store.setHashes`) and the `cropCatalogue` and `rehashCovers`
+CLIs all wrote those columns without it, so a cover the startup backfill
+downloaded landed in `books.cover_image` and did not become a capture row until
+that book was next saved.
+
+**#200 answers it with a write-through rather than a reconciliation**, and the
+cut-over asked for that answer before it could start. The recording moved off
+the five callers and onto the three statements that write those columns:
+`Store.setCoverImage`, `Store.setHashes` and `recordCrop` each hand back the row
+they wrote and record it, in `server/photographs.ts`, beside the derivation that
+turns a column into a photograph. A caller cannot forget what it never had to
+remember, and the two command line tools, which go through none of the server's
+wiring, are covered because they go through the same three statements.
+
+A reconciliation was the alternative and was rejected for one reason: it leaves
+the drift real between its runs, so the answer to "does `capture` describe this
+book" would have stayed "as of the last sweep". What the write-through costs is
+a `RETURNING *` on three statements and up to four upserts per column write,
+which the hash backfill pays over the whole catalogue at startup.
+
+**One repair is still owed**, and it belongs with the cut-over for the reason the
+tag repair below does. Rows written between #192 and #200 drifted, so a book
+whose cover was backfilled in that window has the column and no photograph. The
+sweep is the derivation `0006` already performs, run again over the books whose
+columns name a photograph with no row, counting what it wrote.
 
 **The queue table's three image columns were not migrated by #192, and that was
 a decision.** `captures.book_id` was nullable, because a capture waiting to be
