@@ -186,6 +186,16 @@ describe('the baseline migration on an empty database', () => {
     // yet, and it carries the collation now because adding it once a shelf is
     // ordered by the column means rewriting the column that decides the order.
     //
+    // `area.starts_at` is the seventh, added by #184, and it is the one that
+    // would be quietest of all to get wrong. It is `separators.starts_at` under
+    // a new name: the sort key of the first book in a run, compared against
+    // `books.sort_key` to decide which plank a book is on. Under a linguistic
+    // collation that comparison does not fail, it returns a nearly right answer,
+    // and the whole model would order by a linguistic collation and look almost
+    // correct. It is asserted here rather than left to the fact that
+    // `collatedText` was used, because that is a claim about the source and this
+    // is a reading off the catalogue.
+    //
     // The last nine are the three views, added by #183, and they are the reason
     // this query is not filtered to tables. `catalogued_books` and
     // `queued_books` arrived with the second half of it, alongside
@@ -203,6 +213,7 @@ describe('the baseline migration on an empty database', () => {
         ORDER BY table_name, column_name`,
     )
     expect(collated.rows).toEqual([
+      { table_name: 'area', column_name: 'starts_at' },
       { table_name: 'author_alias', column_name: 'filing_name' },
       { table_name: 'books', column_name: 'author_filing' },
       { table_name: 'books', column_name: 'sort_key' },
