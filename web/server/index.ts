@@ -51,10 +51,9 @@ import type { StoredAuthor } from '../application/authorship/ports'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { claimsFrom, genreClaim } from '../domain/tagging/catalogue-claims'
 import { TagSlug, type TagConfidence } from '../domain/tagging/tags'
-import { RecordPhotographsHandler } from '../application/capture/record-photographs'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
-import { photographsOf } from './photographs'
+import { recordPhotographsOf } from './photographs'
 import { Store, type DraftBook } from './store'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
@@ -509,37 +508,34 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   /*
    * The composition root for the fourth converted slice, captures (#181).
    *
-   * Same shape as the three above and for the same reason: the route below and
-   * `recordPhotographs` call handlers, the handler depends on the one interface
-   * in `application/capture/ports.ts`, and this is the only place in the server
-   * that names a Drizzle repository.
+   * Same shape as the three above: the route below calls this repository
+   * through the one interface in `application/capture/ports.ts`.
+   *
+   * It is not quite the only place in the server that names a Drizzle
+   * repository any more. `server/photographs.ts` names this one too, because
+   * the writing side of `capture` moved there (#200) so that the statements
+   * that write the image columns own it rather than five callers each
+   * remembering to. That file says why at length.
    */
   const captures = new DrizzleCaptureRepository(db)
-  const recordPhotographsHandler = new RecordPhotographsHandler(captures)
 
   /**
    * Keep the capture rows in step with what was just saved about a book.
    *
    * The eight image columns on `books` are still what `Store`, the crop
-   * backfill, the gallery, the queue panel and the shelf row read, so every
-   * save writes both: the columns, by `Store`, and the rows, here. They cannot
+   * backfill, the gallery, the queue panel and the shelf row read, so a save
+   * writes both: the columns, by `Store`, and the rows, here. They cannot
    * disagree, because this reads the row that was just written rather than the
    * draft it was written from. That is the same arrangement #179 left behind for
    * `books.is_fiction` and the tag tables, and it goes away with the columns.
    *
-   * Called again after the cover fetch, the hash and the crop, because each of
-   * those writes a column this reads. Repeating it costs a statement per
-   * photograph and cannot lose anything: every field `record` writes moves in
-   * one direction only. See `CaptureRepository.record`.
-   *
-   * A photograph whose file has changed since the last call is a **new
-   * photograph and gets a new row**, which is the whole point of the table: a
-   * blurred spine re-shot after today keeps the blurred one.
+   * This is the save's own three photographs and nothing else. What arrives
+   * afterwards, the cover, the hashes and the crops, is recorded by the
+   * statements that write those columns. See `recordPhotographsOf`.
    */
   async function recordPhotographs(bookId: number): Promise<void> {
     const book = await store.getBook(bookId)
-    if (!book) return
-    await recordPhotographsHandler.handle({ bookId, photographs: photographsOf(book) })
+    if (book) await recordPhotographsOf(db, book)
   }
 
   function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {
@@ -1219,11 +1215,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     // Deliberately not awaited. The person is waiting to be told where the
-    // book goes, and a cover that arrives a second later costs them
-    // nothing. The cover, the hash and the crops each write a column
-    // `recordPhotographs` reads, so it runs once more at the end of the chain.
-    // Not instead of the awaited call above: the rows exist from the save, and
-    // this fills in only what arrives afterwards.
+    // book goes, and a cover that arrives a second later costs them nothing.
+    //
+    // There is no fourth step recording the photographs again. Each of these
+    // three writes an image column, and the statement that writes one records
+    // it (#200), which is what makes the same true of the backfills and of the
+    // two command line tools. See `recordPhotographsOf`.
     //
     // Handed to `inTheBackground` rather than voided, so that a teardown can
     // wait for it and so a failure has an owner. Nothing about when it runs
@@ -1239,8 +1236,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     inTheBackground(
       fetchCoverFor(id)
         .then(() => hashBook(id))
-        .then(() => cropBookPhotos(id))
-        .then(() => recordPhotographs(id)),
+        .then(() => cropBookPhotos(id)),
       `filling in the cover, hashes and crops of book ${id}`,
     )
 

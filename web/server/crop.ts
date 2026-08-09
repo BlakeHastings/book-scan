@@ -13,58 +13,17 @@
  */
 
 import { cropBook, type CropRefusal } from './bookcrop'
-import type { Db } from './driver'
 import type { Store } from './store'
 
 export const CROP_SLOTS = ['front', 'back', 'edge'] as const
 export type CropSlot = (typeof CROP_SLOTS)[number]
 
-/**
- * Record what the detector made of one photograph, on the one table there is.
- *
- * `Store.setCrop` and `CaptureQueue.setCrop` were the same statement against two
- * tables, and #183 made them the same statement against one. Two identical
- * copies of it is how the next fix gets made in one of them, so there is one,
- * here, where the two classes that call it already share the detector and the
- * naming.
- *
- * `name` is the derived file, or '' when the book could not be found in the
- * frame. Either way the slot joins `cropped`, because "looked at and found
- * nothing" and "never looked at" are different states and only the first is
- * worth telling a reader about.
- *
- * The photograph's own column is not touched, here or anywhere: the original is
- * the record.
- *
- * **`cropped` is added to in SQL rather than read out, edited and written
- * back**, which is the fix for a lost update stage G found. Two crop passes on
- * one book overlap routinely, one fired after a save and one from the backfill
- * loop. Both read `cropped = ''`, one wrote `'front'` and the other wrote
- * `'edge'` over it, so a slot stayed cropped with nothing saying it had been
- * looked at, and the "looked at and declined" state this column exists for was
- * erased. One statement has nothing to interleave with.
+/*
+ * `recordCrop` used to be here. It writes the crop column and the photograph's
+ * row in one place, so it moved to `photographs.ts` beside the derivation that
+ * turns the one into the other (#200). `Store.setCrop` and
+ * `CaptureQueue.setCrop` both call it there.
  */
-export async function recordCrop(
-  db: Db,
-  id: number,
-  slot: CropSlot,
-  name: string,
-): Promise<void> {
-  // The slot is a union of three literals, not user input, so the two places it
-  // is interpolated cannot carry anything but a column name this file wrote.
-  // Everything else is a parameter.
-  await db.run(
-    `UPDATE books SET
-       ${slot}_crop = ?,
-       cropped = CASE
-         WHEN ',' || COALESCE(cropped, '') || ',' LIKE ? THEN cropped
-         WHEN COALESCE(cropped, '') = ''                 THEN ?
-         ELSE cropped || ',' || ?
-       END
-     WHERE id = ?`,
-    [name, `%,${slot},%`, slot, slot, id],
-  )
-}
 
 export interface CropIo {
   read: (name: string) => Buffer | Promise<Buffer>

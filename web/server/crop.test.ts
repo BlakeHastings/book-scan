@@ -10,6 +10,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import sharp from 'sharp'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { cropCatalogue, cropName, cropPhotos, type CropIo } from './crop'
 import { frontCover, photographedBook } from './fixtures'
@@ -21,11 +22,21 @@ import { frontCover, photographedBook } from './fixtures'
  * what `openTestDatabase` does. Each test calls this once, so a test still
  * starts from nothing.
  */
+let db: Db
+
 async function store(): Promise<Store> {
-  return new Store(await openTestDatabase())
+  db = await openTestDatabase()
+  return new Store(db)
 }
 
 afterAll(closeTestDatabase)
+
+/** What the photographs of one book say, rather than what its columns say. */
+async function photographsOf(id: number) {
+  return db.all<{ file: string; crop_file: string; examined: boolean }>(
+    'SELECT file, crop_file, examined FROM capture WHERE book_id = ? ORDER BY file', [id],
+  )
+}
 
 function draft(overrides: Partial<DraftBook> = {}): DraftBook {
   return {
@@ -232,6 +243,32 @@ describe('cropCatalogue', () => {
     expect(report.failures[0]!.image).toBe('nowhere.jpg')
     expect(report.failures[0]!.title).toBe('Lost')
   })
+
+  /*
+   * The CLI half of #200. `crop-books.ts` is argument parsing and a file reader
+   * around exactly the call below, and it is the tool that walks the whole
+   * catalogue, so a decision that reached `books.cropped` and not the
+   * photograph is the drift at its largest.
+   *
+   * Both outcomes, because the distinction is the one #192 built the table
+   * around: examined with a crop and examined without one are different facts,
+   * and neither is "nobody looked".
+   */
+  it('records what the detector decided on the photograph, both ways', async () => {
+    const s = await store()
+    const io = memory({ 'p_front.jpg': await photograph(9), 'q_front.jpg': await blank() })
+    const kept = await s.addBook(draft({ title: 'One', frontImage: 'p_front.jpg' } as Partial<DraftBook>))
+    const whole = await s.addBook(draft({ title: 'Two', frontImage: 'q_front.jpg' } as Partial<DraftBook>))
+
+    await cropCatalogue(s, { ...io, apply: true })
+
+    expect(await photographsOf(kept.id)).toEqual([
+      { file: 'p_front.jpg', crop_file: 'p_front_crop.jpg', examined: true },
+    ])
+    expect(await photographsOf(whole.id)).toEqual([
+      { file: 'q_front.jpg', crop_file: '', examined: true },
+    ])
+  }, 30_000)
 })
 
 describe('a crop is a file the catalogue owns', () => {

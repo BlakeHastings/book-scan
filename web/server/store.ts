@@ -5,6 +5,7 @@
 
 import type { BookRow } from './db.pg'
 import type { Db } from './driver'
+import { recordCrop, recordPhotographsOf } from './photographs'
 import {
   buildPlacement,
   buildSortKey,
@@ -716,12 +717,16 @@ export class Store {
    * The timestamp is set either way. Plenty of books have no cover anywhere,
    * and without a record of having asked, every backfill would spend its whole
    * batch re-asking about the same ones and never reach the rest.
+   *
+   * The artwork becomes a photograph here rather than at the three callers that
+   * download one. See `recordPhotographsOf` for why that is where it lives.
    */
   async setCoverImage(id: number, name: string): Promise<void> {
-    await this.db.run(
-      'UPDATE books SET cover_image = ?, cover_checked_at = ? WHERE id = ?',
+    const row = await this.db.get<BookRow>(
+      'UPDATE books SET cover_image = ?, cover_checked_at = ? WHERE id = ? RETURNING *',
       [name, new Date().toISOString(), id],
     )
+    if (row) await recordPhotographsOf(this.db, row)
   }
 
   /** Books with an ISBN whose cover has never been looked for. */
@@ -744,11 +749,19 @@ export class Store {
     )
   }
 
+  /**
+   * Store the hashes of a book's front photograph and its catalogue artwork.
+   *
+   * A hash is a fact about one photograph, so it lands on that photograph's row
+   * as well as in the column, from the hash backfill and from `rehash-covers`
+   * as much as from a save. See `recordPhotographsOf`.
+   */
   async setHashes(id: number, front: string, cover: string): Promise<void> {
-    await this.db.run(
-      'UPDATE books SET front_hash = ?, cover_hash = ? WHERE id = ?',
+    const row = await this.db.get<BookRow>(
+      'UPDATE books SET front_hash = ?, cover_hash = ? WHERE id = ? RETURNING *',
       [front, cover, id],
     )
+    if (row) await recordPhotographsOf(this.db, row)
   }
 
   /**
@@ -800,41 +813,12 @@ export class Store {
   /**
    * Record what the crop detector made of one photo.
    *
-   * `name` is the derived file, or '' when the book could not be found in the
-   * frame. Either way the slot joins `cropped`, because "looked at and found
-   * nothing" and "never looked at" are different states and only the first one
-   * is worth telling a reader about.
-   *
-   * The photo's own column is not touched here, and no statement in this class
-   * ever writes a crop filename into one. The original is the record.
-   *
-   * **`cropped` is added to in SQL rather than read out, edited and written
-   * back**, which is the fix for a lost update that stage G found. Two crop
-   * passes on the same book overlap routinely: one is fired after a save and
-   * the other is the backfill loop. Both read `cropped = ''`, one wrote
-   * `'front'` and the other then wrote `'edge'` over it, so the front slot's
-   * crop column stayed populated while nothing said the front had been looked
-   * at. Every later reader concluded it never had, and re-cropped it forever;
-   * worse, the "looked at and declined" state, which is the whole reason this
-   * column exists, was erased.
-   *
-   * The whole thing is one statement, so there is nothing to interleave with.
+   * The statement, and the photograph's row beside it, are in
+   * `photographs.ts`. This method and `CaptureQueue.setCrop` are two passes
+   * over one table, and were two copies of one statement until #200 left one.
    */
   async setCrop(id: number, slot: 'front' | 'back' | 'edge', name: string): Promise<void> {
-    // The slot is a union of three literals, not user input, so the two places
-    // it is interpolated cannot carry anything but a column name and a value
-    // this file wrote. Everything else is a parameter.
-    await this.db.run(
-      `UPDATE books SET
-         ${slot}_crop = ?,
-         cropped = CASE
-           WHEN ',' || COALESCE(cropped, '') || ',' LIKE ? THEN cropped
-           WHEN COALESCE(cropped, '') = ''                 THEN ?
-           ELSE cropped || ',' || ?
-         END
-       WHERE id = ?`,
-      [name, `%,${slot},%`, slot, slot, id],
-    )
+    await recordCrop(this.db, id, slot, name)
   }
 
   /**
