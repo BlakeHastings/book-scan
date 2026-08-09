@@ -201,6 +201,11 @@ which were hard won, now protect the wrong thing.
   order hash**, `md5(string_agg(id::text, ',' order by sort_key, id))`. The last
   one is the point: a count does not move when a collation does, and a collation
   difference does not lose a book, it reorders them.
+- **Which tables it compares comes from the catalogue, not from a list**, so
+  adding a table covers it and there is nothing here to keep in step. That is
+  the fix for a hand-maintained six names that the schema outgrew by thirteen
+  without anybody noticing. The views and `drizzle.__drizzle_migrations` are
+  kept out; see `docs/backup-runbook.md`.
 - **The cover photographs are not in the dump.** `pg_dump` moves rows, not
   files. They are over a gigabyte and half of what is irreplaceable, so the
   scheduled task mirrors them separately, and the tool says so on every run.

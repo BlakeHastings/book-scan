@@ -33,8 +33,34 @@ instant, so any difference the comparison finds is a real one.
 
 | | |
 | --- | --- |
-| **Covered** | `books`, `book_authors`, `captures`, `separators`, `author_filing`, `shelf_ranges`. Every row, its content, and the order the shelf comes back in. |
+| **Covered** | **Every table in the catalogue.** Not a list: the tables are read out of the database at the instant the digest is taken, so a table added by a migration is covered without anybody adding its name anywhere. Every row, its content, and the order the shelf comes back in. |
 | **Not covered** | The cover photographs. See below; this is not an oversight and it is not small. |
+
+### Adding a table is not a thing to remember here
+
+**There is nothing to update in this file or in `backup.ts` when the schema
+grows a table.** That is deliberate, and it is deliberate because the opposite
+was tried and failed quietly: `CATALOGUE_TABLES` was six names written when the
+schema had six tables, and by the time anybody looked the schema had nineteen.
+Thirteen tables were dumped every night and checked by nothing, and the run
+still printed `RESTORED AND VERIFIED`. Nothing read those tables yet, which is
+the only reason it cost nothing.
+
+So coverage is asked of the catalogue (`CATALOGUE_TABLES_SQL` in
+`web/server/backup.ts`) rather than written down. Three things are kept out, and
+each is the query rather than a filter applied afterwards:
+
+- **`drizzle.__drizzle_migrations`**, by asking only for the `public` schema. It
+  is the migrator's record of which files it has run, not the catalogue.
+- **`shelved_books`, `catalogued_books` and `queued_books`**, by asking only for
+  ordinary tables. They are views over `books`, so digesting one would count
+  rows a second time and report a difference in four places whenever `books`
+  moved in one.
+- Sequences and indexes, by the same clause. They are not rows anybody owns.
+
+`server/backup.pg.test.ts` asserts the derived list against the Drizzle schema's
+own `ALL_TABLES`, so if that ever stops being true it is a red test rather than
+a quiet gap.
 
 ### The photographs are not in the dump
 
@@ -144,7 +170,8 @@ are the same string.
 
 | Line | The claim |
 | --- | --- |
-| `<table> rows` | Row counts, per table. Catches a restore that lost rows. |
+| `tables` | The set of tables, on both sides. The only line that would catch a table that did not come back **at all** when it happened to be empty, where the count and the content digest are identical either way. |
+| `<table> rows` | Row counts, per table, for every table either side has. Catches a restore that lost rows. |
 | `<table> content` | A digest of the *set* of rows, each row cast to text and hashed. Sensitive to type as well as value, so a number that arrived as a string changes it. Independent of physical row order and of collation, so it does not fire spuriously on a restore that inserted in a different sequence. |
 | `shelf order` | `md5(string_agg(id::text, ',' order by sort_key, id))` on both sides. **This is the collation check.** |
 | `divider order` | The same for `separators.starts_at`, the other `COLLATE "C"` column. An ordering difference too small to change the book list can still move one book past a divider. |
@@ -197,6 +224,63 @@ matches. Every content digest matches. Nothing but the shelf order moved:
 A check that compared only counts would have called that restore good. That
 comparison is guarded by `server/backup.pg.test.ts`, which reproduces it against
 a real Postgres on every run of the suite.
+
+**A restore one `book_tag` row short.** This is the failure that made the
+coverage derived. A dump was taken, a row was dropped from `book_tag`, and the
+verification that carried six hard-coded names restored it and said:
+
+```
+  table               dumped  restored  digest(dumped)  digest(restored)
+  ------------------------------------------------------------------------
+  books                  6         6  00aba3f23636    00aba3f23636
+  book_authors           6         6  d3831687bf71    d3831687bf71
+  captures               0         0
+  separators             1         1  45a4b11331e1    45a4b11331e1
+  author_filing          1         1  157a17bda2b4    157a17bda2b4
+  shelf_ranges           2         2  2fe19a188933    2fe19a188933
+
+  RESTORED AND VERIFIED. bookscan-20260809T152229Z.dump restores to the catalogue it was taken from.
+```
+
+The same dump, against the same restore, once the tables came from the
+catalogue:
+
+```
+  table                 dumped  restored  digest(dumped)  digest(restored)
+  --------------------------------------------------------------------------
+  area                     2         2  6e5ff9d8f3cf    6e5ff9d8f3cf
+  ...
+  book_tag                 9         8  53e7653fef94    2fa02ae5502d
+  ...
+  tag                      4         4  55004e175eb1    55004e175eb1
+
+  DIFFERENCES
+  ------------------------------------------------------------------------
+  book_tag rows       dumped 9
+                      restored 8
+  book_tag content    dumped 53e7653fef94555eb2927c5fe0a13a31
+                      restored 2fa02ae5502d7ebfa09b5466579d6fe3
+
+  VERIFICATION FAILED for bookscan-20260809T152335Z.dump. This dump is not a backup.
+```
+
+### A dump from before this says so rather than failing
+
+The manifests already on disk name six tables and have no table list in them,
+because they were written before the coverage was derived. Such a manifest
+cannot speak for the other thirteen, so it is compared on what it described and
+the run says so out loud:
+
+```
+  PARTIAL: this manifest names 6 tables and was written before the coverage came from the catalogue.
+  Only those are compared: author_filing, book_authors, books, captures, separators, shelf_ranges.
+  A dump taken since then is checked on every table it holds.
+```
+
+Reporting thirteen missing tables instead would be thirteen failures for a dump
+that holds every one of them, printed at the exact moment somebody is verifying
+yesterday's dump because today's failed. It resolves itself: the oldest manifest
+in the directory is fourteen days old at most.
 
 The exit code is non-zero on both, and the wrapper logs `FAILED` and stops. A
 run that dumped but did not verify also exits non-zero, on purpose:

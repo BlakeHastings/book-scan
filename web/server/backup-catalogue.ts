@@ -30,7 +30,6 @@ import { pipeline } from 'node:stream/promises'
 import pg from 'pg'
 import { connectionConfig } from './db.pg'
 import {
-  CATALOGUE_TABLES,
   compareDigests,
   containerConnection,
   DEFAULT_IMAGE,
@@ -43,10 +42,13 @@ import {
   humanBytes,
   imageMajor,
   manifestFileName,
+  manifestPredatesDerivedTables,
   planRetention,
   readDigest,
   scratchDatabaseName,
   serverMajor,
+  tablesCompared,
+  tablesIn,
   type CatalogueDigest,
   type DumpFile,
   type Manifest,
@@ -437,17 +439,17 @@ function printDigest(digest: CatalogueDigest): void {
   console.log('')
   console.log('  As of the snapshot')
   console.log('  ' + '-'.repeat(60))
-  for (const table of CATALOGUE_TABLES) {
+  for (const table of tablesIn(digest)) {
     console.log(
-      `  ${table.padEnd(16)}${String(digest.counts[table] ?? 0).padStart(8)}` +
+      `  ${table.padEnd(18)}${String(digest.counts[table] ?? 0).padStart(8)}` +
       `  ${(digest.digests[table] ?? '').slice(0, 12)}`,
     )
   }
-  console.log(`  ${'shelf order'.padEnd(16)}${' '.repeat(8)}  ${digest.shelfOrder ?? '(no books)'}`)
+  console.log(`  ${'shelf order'.padEnd(18)}${' '.repeat(8)}  ${digest.shelfOrder ?? '(no books)'}`)
   console.log(
-    `  ${'divider order'.padEnd(16)}${' '.repeat(8)}  ${digest.separatorOrder ?? '(no dividers)'}`,
+    `  ${'divider order'.padEnd(18)}${' '.repeat(8)}  ${digest.separatorOrder ?? '(no dividers)'}`,
   )
-  console.log(`  ${'collation'.padEnd(16)}${' '.repeat(8)}  ${digest.collation} / ${digest.encoding}`)
+  console.log(`  ${'collation'.padEnd(18)}${' '.repeat(8)}  ${digest.collation} / ${digest.encoding}`)
   console.log('')
 }
 
@@ -518,6 +520,20 @@ async function verify(options: Options, runner: Runner, dumpName: string): Promi
   line('verifying', dumpName)
   line('scratch server', describeSource(options.scratch))
   line('scratch database', scratchName)
+
+  // Said out loud rather than inferred from a short comparison table. Such a
+  // manifest cannot prove anything about the tables it never described, and a
+  // partial proof that looks like a full one is the thing this whole tool
+  // exists to not be.
+  if (manifestPredatesDerivedTables(manifest.digest)) {
+    const named = tablesIn(manifest.digest)
+    console.log(
+      `  PARTIAL: this manifest names ${named.length} tables and was written before the ` +
+      'coverage came from the catalogue.',
+    )
+    console.log(`  Only those are compared: ${named.join(', ')}.`)
+    console.log('  A dump taken since then is checked on every table it holds.')
+  }
 
   const admin = adminPool(options.scratch)
   try {
@@ -607,11 +623,11 @@ function printComparison(
   differences: ReturnType<typeof compareDigests>,
 ): void {
   console.log('')
-  console.log('  table               dumped  restored  digest(dumped)  digest(restored)')
-  console.log('  ' + '-'.repeat(72))
-  for (const table of CATALOGUE_TABLES) {
+  console.log('  table                 dumped  restored  digest(dumped)  digest(restored)')
+  console.log('  ' + '-'.repeat(74))
+  for (const table of tablesCompared(expected, actual)) {
     console.log(
-      `  ${table.padEnd(18)}` +
+      `  ${table.padEnd(20)}` +
       `${String(expected.counts[table] ?? 0).padStart(6)}` +
       `${String(actual.counts[table] ?? 0).padStart(10)}` +
       `  ${(expected.digests[table] ?? '').slice(0, 12).padEnd(16)}` +

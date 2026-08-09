@@ -60,19 +60,43 @@ export const DEFAULT_MAX_BYTES = 512 * 1024 * 1024
 export const DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
 
 /**
- * Every table the catalogue lives in. Taken from the schema in db.pg.ts, and
- * the same list stage H moves. `shelf_ranges` is included even though it is
- * seeded rather than scanned: the owner edits it, and a restore that lost it
- * would put every shelf label in the wrong place.
+ * Every table the catalogue lives in, asked of the catalogue rather than
+ * written down here.
+ *
+ * **This used to be a list of six names and that is the defect it is fixing.**
+ * The list was written when the schema had six tables. The remodel has since
+ * added thirteen more, and every one of them was dumped by `pg_dump`, which
+ * does not read this file, and then not checked by the verification, which did.
+ * A restore that lost `book_tag` entirely still printed `RESTORED AND VERIFIED`.
+ * Nothing read those tables yet so nothing broke; at the cut-over that inverts,
+ * and the verification would be checking the legacy columns while the
+ * authoritative data went unchecked.
+ *
+ * So the coverage is derived, and **a table added tomorrow is covered by
+ * existing**. There is nothing here for the next person to remember to update,
+ * which is the only property that would have prevented this.
+ *
+ * Three exclusions, each of which is the query rather than a filter applied
+ * afterwards:
+ *
+ * - **`nspname = 'public'`** keeps `drizzle.__drizzle_migrations` out. That is
+ *   the migrator's bookkeeping about which files it has run, not the owner's
+ *   catalogue, and it lives in its own schema precisely so it can be told
+ *   apart. See `infrastructure/db/migrate.ts`.
+ * - **`relkind = 'r'`** keeps `shelved_books`, `catalogued_books` and
+ *   `queued_books` out. They are views over `books`, so digesting one would
+ *   count rows a second time and report a difference in four places whenever
+ *   `books` moved in one. It also excludes sequences and indexes, which are
+ *   not rows anybody owns.
+ * - Partitioned tables (`relkind = 'p'`) are deliberately not matched either.
+ *   This schema has none, and if it grows one its partitions are `'r'` and
+ *   would be digested individually; matching both would count every row twice.
  */
-export const CATALOGUE_TABLES = [
-  'books',
-  'book_authors',
-  'captures',
-  'separators',
-  'author_filing',
-  'shelf_ranges',
-] as const
+export const CATALOGUE_TABLES_SQL =
+  `select c.relname as name, quote_ident(c.relname) as sql_name
+   from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relkind = 'r'
+   order by c.relname`
 
 /**
  * The shelf order, hashed.
@@ -123,6 +147,19 @@ function tableDigestSql(table: string): string {
 
 /** What a catalogue looked like at one instant. */
 export interface CatalogueDigest {
+  /**
+   * Every table the digest covers, in name order, as the catalogue listed them.
+   *
+   * Compared in its own right, and not redundant with `counts`: a table that is
+   * empty on both sides and *missing* on one has the same count and the same
+   * content digest either way, so this line is the only thing that would say a
+   * whole table did not come back.
+   *
+   * **Optional only because a manifest on disk may predate it.** `readDigest`
+   * always fills it in. A manifest written when the six table names were
+   * hard-coded has no such field, and `tablesIn` says what to do about that.
+   */
+  tables?: string[]
   /** Row count per table, keyed by table name. */
   counts: Record<string, number>
   /** Content digest per table, keyed by table name. */
@@ -150,8 +187,13 @@ export interface Queryable {
  * Read a catalogue's digest.
  *
  * **Every statement here reads.** This runs against the live catalogue on the
- * dump side, so it may not write, and there is nothing in it that could: six
- * counts, two aggregates and one catalogue lookup.
+ * dump side, so it may not write, and there is nothing in it that could: two
+ * catalogue lookups, then a count and a digest per table, then two aggregates.
+ *
+ * The table list is read first and everything else follows from it, so a table
+ * that arrived in a migration this file has never heard of is digested anyway.
+ * Read inside the caller's transaction like the rest, so the list describes the
+ * same instant the rows do.
  *
  * Pass the client that holds the repeatable-read transaction the dump's
  * snapshot was exported from, and the digest describes the same instant the
@@ -161,11 +203,19 @@ export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
   const counts: Record<string, number> = {}
   const digests: Record<string, string> = {}
 
-  for (const table of CATALOGUE_TABLES) {
-    const { rows } = await client.query(tableDigestSql(table))
+  const listing = await client.query(CATALOGUE_TABLES_SQL)
+  const tables = listing.rows.map((row) => ({
+    name: String(row.name),
+    // Quoted by the server, so a table name that needs quoting is spelled the
+    // way Postgres would spell it rather than the way this file guesses.
+    sql: String(row.sql_name),
+  }))
+
+  for (const table of tables) {
+    const { rows } = await client.query(tableDigestSql(table.sql))
     const row = rows[0] ?? {}
-    counts[table] = Number(row.count ?? 0)
-    digests[table] = String(row.digest ?? '')
+    counts[table.name] = Number(row.count ?? 0)
+    digests[table.name] = String(row.digest ?? '')
   }
 
   const shelf = await client.query(SHELF_ORDER_SQL)
@@ -178,6 +228,7 @@ export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
   const metaRow = meta.rows[0] ?? {}
 
   return {
+    tables: tables.map((table) => table.name),
     counts,
     digests,
     shelfOrder: (shelf.rows[0]?.hash as string | null) ?? null,
@@ -197,6 +248,40 @@ export interface Difference {
 }
 
 /**
+ * The tables a digest describes.
+ *
+ * A manifest written before the coverage was derived has no `tables` and names
+ * its six tables only as the keys of `counts`. There is nothing in such a
+ * manifest to compare the other thirteen against, so those are left out and
+ * `manifestPredatesDerivedTables` is what makes the run say so. Reporting them
+ * as missing instead would print thirteen failures for a dump that has every
+ * one of them, on a day somebody is already reading this log because something
+ * else went wrong.
+ */
+export function tablesIn(digest: CatalogueDigest): string[] {
+  return digest.tables ?? Object.keys(digest.counts).sort()
+}
+
+/** Whether a manifest was written before the table list came from the catalogue. */
+export function manifestPredatesDerivedTables(digest: CatalogueDigest): boolean {
+  return digest.tables === undefined
+}
+
+/**
+ * Which tables a comparison is about.
+ *
+ * The union of the two sides, so a table on one alone is compared rather than
+ * skipped, except against an older manifest, which can only speak for the
+ * tables it named. Exported so the report prints the same set the comparison
+ * used: a row in that table the comparison never looked at is worse than no row
+ * at all.
+ */
+export function tablesCompared(expected: CatalogueDigest, actual: CatalogueDigest): string[] {
+  if (manifestPredatesDerivedTables(expected)) return tablesIn(expected)
+  return [...new Set([...tablesIn(expected), ...tablesIn(actual)])].sort()
+}
+
+/**
  * Compare a restored catalogue against the manifest taken when it was dumped.
  *
  * An empty array is the only result that means the backup restored. Everything
@@ -207,6 +292,10 @@ export interface Difference {
  * The collation *is* compared. A database restored under a different collation
  * is not the same database, and the whole reason `COLLATE "C"` exists on four
  * columns is that the difference is silent everywhere else.
+ *
+ * **Which tables are compared comes from the two digests**, not from a list
+ * here, and it is the union of them so that a table on either side alone is a
+ * difference rather than a table nobody looked at.
  */
 export function compareDigests(expected: CatalogueDigest, actual: CatalogueDigest): Difference[] {
   const differences: Difference[] = []
@@ -214,7 +303,11 @@ export function compareDigests(expected: CatalogueDigest, actual: CatalogueDiges
     if (String(a) !== String(b)) differences.push({ what, expected: String(a), actual: String(b) })
   }
 
-  for (const table of CATALOGUE_TABLES) {
+  if (!manifestPredatesDerivedTables(expected)) {
+    note('tables', tablesIn(expected).join(', '), tablesIn(actual).join(', '))
+  }
+
+  for (const table of tablesCompared(expected, actual)) {
     note(`${table} rows`, expected.counts[table] ?? 0, actual.counts[table] ?? 0)
     note(`${table} content`, expected.digests[table] ?? '', actual.digests[table] ?? '')
   }
