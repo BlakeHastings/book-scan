@@ -24,21 +24,37 @@ import {
   manifestFileName,
   planRetention,
   serverMajor,
+  tablesIn,
   type CatalogueDigest,
   type DumpFile,
 } from './backup'
 import { parseArgs } from './backup-catalogue'
 
+/**
+ * The tables in the fixture below. A short stand-in for the real list, which
+ * comes out of the catalogue rather than out of any file: `backup.pg.test.ts`
+ * is where the derivation is checked against a real schema. What matters here
+ * is that two of these, `tag` and `book_tag`, are tables the hard-coded six
+ * never named.
+ */
+const TABLES = [
+  'author_filing', 'book_authors', 'book_tag', 'books', 'captures',
+  'separators', 'shelf_ranges', 'tag',
+]
+
 /** A digest with everything matching, to make one thing differ at a time. */
 function digest(overrides: Partial<CatalogueDigest> = {}): CatalogueDigest {
   return {
+    tables: [...TABLES],
     counts: {
       books: 236, book_authors: 266, captures: 281,
       separators: 11, author_filing: 263, shelf_ranges: 2,
+      tag: 9, book_tag: 412,
     },
     digests: {
       books: 'aaa', book_authors: 'bbb', captures: 'ccc',
       separators: 'ddd', author_filing: 'eee', shelf_ranges: 'fff',
+      tag: 'ggg', book_tag: 'hhh',
     },
     shelfOrder: '9ede898a64fcd70cacdfc1f0927d9323',
     separatorOrder: '4e2af9aaa828e7fe2e8f38c22f7a0427',
@@ -48,6 +64,14 @@ function digest(overrides: Partial<CatalogueDigest> = {}): CatalogueDigest {
     serverVersionNum: 180003,
     ...overrides,
   }
+}
+
+/** A digest without one of its tables, the way a restore that lost one reads. */
+function without(table: string, overrides: Partial<CatalogueDigest> = {}): CatalogueDigest {
+  const full = digest(overrides)
+  const { [table]: _count, ...counts } = full.counts
+  const { [table]: _digest, ...digests } = full.digests
+  return { ...full, tables: TABLES.filter((name) => name !== table), counts, digests }
 }
 
 describe('what counts as a difference', () => {
@@ -113,13 +137,93 @@ describe('what counts as a difference', () => {
 
   it('reports every table it looks at, not just the first difference', () => {
     const wrecked = digest({
-      counts: { books: 0, book_authors: 0, captures: 0, separators: 0, author_filing: 0, shelf_ranges: 0 },
+      counts: Object.fromEntries(TABLES.map((table) => [table, 0])),
       digests: {},
       shelfOrder: null,
       separatorOrder: null,
     })
-    // Six counts, six content digests, the shelf order and the divider order.
-    expect(compareDigests(digest(), wrecked)).toHaveLength(14)
+    // A count and a content digest per table, the shelf order and the divider
+    // order. The table list itself matches, so it is not among them.
+    expect(compareDigests(digest(), wrecked)).toHaveLength(TABLES.length * 2 + 2)
+  })
+
+  /**
+   * The defect in #212, as the smallest thing that shows it.
+   *
+   * `book_tag` was not among the six names the comparison used to carry, so a
+   * restore that lost a row from it matched on every line the tool printed and
+   * the run said `RESTORED AND VERIFIED`. Nothing read the table yet, which is
+   * why it was survivable; at the cut-over `tag` replaces `books.is_fiction`
+   * and the unchecked table becomes the authoritative one.
+   */
+  it('fails on a table the hard-coded six never named', () => {
+    const short = digest({
+      counts: { ...digest().counts, book_tag: 411 },
+      digests: { ...digest().digests, book_tag: 'zzz' },
+    })
+    expect(compareDigests(digest(), short)).toEqual([
+      { what: 'book_tag rows', expected: '412', actual: '411' },
+      { what: 'book_tag content', expected: 'hhh', actual: 'zzz' },
+    ])
+  })
+
+  /**
+   * Why the table list is compared in its own right rather than left implicit
+   * in the counts. An empty table that did not come back at all has the same
+   * count and the same content digest as one that did, so this line is the only
+   * thing between a missing table and a green run.
+   */
+  it('notices a table that did not come back, even an empty one', () => {
+    const empty = digest({
+      counts: { ...digest().counts, book_tag: 0 },
+      digests: { ...digest().digests, book_tag: '' },
+    })
+    const lost = without('book_tag', {
+      counts: { ...digest().counts, book_tag: 0 },
+      digests: { ...digest().digests, book_tag: '' },
+    })
+
+    expect(lost.counts.book_tag).toBeUndefined()
+    expect(compareDigests(empty, lost)).toEqual([
+      { what: 'tables', expected: TABLES.join(', '), actual: tablesIn(lost).join(', ') },
+    ])
+  })
+
+  it('notices a table the restore has and the dump did not', () => {
+    expect(compareDigests(without('tag'), digest())).toContainEqual({
+      what: 'tables',
+      expected: tablesIn(without('tag')).join(', '),
+      actual: TABLES.join(', '),
+    })
+  })
+
+  /**
+   * The dumps already on the owner's disk have manifests naming six tables and
+   * no table list at all, because they were written before this. Such a
+   * manifest cannot speak for the other thirteen, and reporting them as missing
+   * would print thirteen failures for a dump that holds every one of them, at
+   * the exact moment somebody is verifying yesterday's dump because today's
+   * failed. So it is compared on what it described, and the run says PARTIAL.
+   */
+  it('compares an older manifest only on the tables it described', () => {
+    const older = digest()
+    delete older.tables
+    for (const table of ['tag', 'book_tag']) {
+      delete older.counts[table]
+      delete older.digests[table]
+    }
+
+    expect(compareDigests(older, digest())).toEqual([])
+    expect(tablesIn(older)).toEqual([
+      'author_filing', 'book_authors', 'books', 'captures', 'separators', 'shelf_ranges',
+    ])
+  })
+
+  it('still fails an older manifest on a table it did describe', () => {
+    const older = digest()
+    delete older.tables
+    expect(compareDigests(older, digest({ counts: { ...digest().counts, books: 235 } })))
+      .toContainEqual({ what: 'books rows', expected: '236', actual: '235' })
   })
 })
 

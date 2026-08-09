@@ -14,9 +14,11 @@
  * order is wrong, which every row count and every content digest calls fine.
  */
 
+import { getTableName } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import { compareDigests, readDigest, type Queryable } from './backup'
+import { ALL_TABLES } from '../infrastructure/db/schema'
 import type { Db } from './driver'
 
 let db: Db
@@ -52,6 +54,16 @@ async function addBooks(keys: readonly string[] = KEYS): Promise<void> {
   }
 }
 
+/** The tag id for `slug`, made if the migrations have not already made it. */
+async function tagId(slug: string): Promise<number> {
+  await db.run(
+    "INSERT INTO tag (slug, label, note) VALUES (?, ?, '') ON CONFLICT (slug) DO NOTHING",
+    [slug, slug],
+  )
+  const row = await db.get<{ id: number }>('SELECT id FROM tag WHERE slug = ?', [slug])
+  return row!.id
+}
+
 describe('reading a catalogue digest', () => {
   it('counts every table the catalogue lives in', async () => {
     await addBooks()
@@ -69,7 +81,89 @@ describe('reading a catalogue digest', () => {
       author_filing: 0,
       // Seeded by applySchema, and the owner edits it, so it is backed up too.
       shelf_ranges: 2,
+      // The remodel's tables, none of which the hard-coded six named. #212.
+      book_tag: 0,
+      author_alias: 0,
+      capture: 0,
+      // Seeded by the migrations, like shelf_ranges, and edited by the owner
+      // for the same reason: it is where the furniture is written down.
+      area: 2,
     })
+  })
+
+  /**
+   * The property the whole change rests on: **a table is covered by existing.**
+   *
+   * The list used to be six names in `backup.ts`, written when the schema had
+   * six tables. Thirteen have arrived since, every one of them dumped and none
+   * of them checked, and two more remodel steps are still to come. Asserting
+   * against the schema rather than against a second list here means the day
+   * somebody adds a table and this stops being true, this test says so.
+   */
+  it('covers every table the schema declares, and nothing else', async () => {
+    const digest = await readDigest(ask)
+    expect(digest.tables).toEqual([...ALL_TABLES].map(getTableName).sort())
+  })
+
+  /**
+   * The two things a derived list is entitled to pick up and must not.
+   *
+   * `drizzle.__drizzle_migrations` is the migrator's record of which files it
+   * has run, not the owner's catalogue, and it is in its own schema so it can
+   * be told apart. The three views are `books` under three predicates:
+   * digesting one would count rows a second time and report a difference in
+   * four places whenever `books` moved in one.
+   */
+  it('leaves the views and the migrator\'s bookkeeping out', async () => {
+    const digest = await readDigest(ask)
+
+    // Present in the database, which is what makes the exclusion worth testing.
+    const views = await db.all<{ name: string }>(
+      "SELECT table_name AS name FROM information_schema.views WHERE table_schema = 'public'",
+    )
+    expect(views.map((view) => view.name).sort())
+      .toEqual(['catalogued_books', 'queued_books', 'shelved_books'])
+    const bookkeeping = await db.get<{ count: string }>(
+      "SELECT count(*)::text AS count FROM pg_tables WHERE schemaname = 'drizzle'",
+    )
+    expect(Number(bookkeeping!.count)).toBeGreaterThan(0)
+
+    for (const view of ['shelved_books', 'queued_books', 'catalogued_books']) {
+      expect(digest.tables).not.toContain(view)
+    }
+    expect(digest.tables?.some((table) => table.includes('drizzle'))).toBe(false)
+  })
+
+  /**
+   * The failure #212 is about, on a real database.
+   *
+   * One row goes missing from `book_tag`, which is a table the six names never
+   * covered. Every one of those six matches, both order hashes match, and the
+   * comparison the tool made until now found nothing to say.
+   */
+  it('catches a row lost from a table the hard-coded six never named', async () => {
+    await addBooks()
+    const fiction = await tagId('genre/fiction')
+    await db.run(
+      `INSERT INTO book_tag (book_id, tag_id, source, confidence, added_at)
+       SELECT id, ?, 'catalogue', 'high', '2026-08-06T00:00:00Z' FROM books`,
+      [fiction],
+    )
+    const correct = await readDigest(ask)
+    expect(correct.counts.book_tag).toBe(KEYS.length)
+
+    await db.run('DELETE FROM book_tag WHERE book_id = (SELECT min(id) FROM books)')
+    const damaged = await readDigest(ask)
+
+    expect(damaged.counts.books).toBe(correct.counts.books)
+    expect(damaged.digests.books).toBe(correct.digests.books)
+    expect(damaged.shelfOrder).toBe(correct.shelfOrder)
+    expect(damaged.separatorOrder).toBe(correct.separatorOrder)
+
+    expect(compareDigests(correct, damaged)).toEqual([
+      { what: 'book_tag rows', expected: String(KEYS.length), actual: String(KEYS.length - 1) },
+      { what: 'book_tag content', expected: correct.digests.book_tag, actual: damaged.digests.book_tag },
+    ])
   })
 
   it('reads the collation and encoding back out of the catalogue', async () => {
