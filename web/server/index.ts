@@ -495,12 +495,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   /**
    * Keep the credits in step with what was just saved about a book.
    *
-   * The same arrangement `settleGenre` had before the cut-over, and for the
-   * same reason, which for authors is still the live one: `Store`
-   * still writes `books.authors`, `books.author_filing` and `book_authors`, all
-   * of which decide where the book files and what the client reads, and #180
-   * drops none of them. So every save writes both, from the same draft, and they
-   * cannot disagree.
+   * The arrangement the genre had until #223, and here it is still the live
+   * one: `Store` still writes `books.authors`, `books.author_filing` and
+   * `book_authors`, all of which decide where the book files and what the
+   * client reads, and #180 drops none of them. So every save writes both, from
+   * the same draft, and they cannot disagree.
    *
    * The filing override travels with it, because it is about the first-listed
    * name and that is what the alias files under. `introduce` ignores it for a
@@ -1226,7 +1225,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       id = queued.id
       placement = await store.updateBook(id, draft, await settleGenre(id, draft))
     } else {
-      ;({ id, placement } = await store.addBook(draft))
+      const added = await store.addBook(draft)
+      id = added.id
+      placement = added.placement
       await settleGenre(id, draft)
     }
 
