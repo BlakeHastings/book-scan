@@ -9,7 +9,8 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
 import { Shelves } from './shelves'
-import { Store } from './store'
+import { Store, type DraftBook } from './store'
+import { genreStatedBy } from '../domain/tagging/genre'
 
 let store: Store
 let shelves: Shelves
@@ -27,6 +28,16 @@ afterAll(closeTestDatabase)
 /** Authors chosen so alphabetical order matches the argument order. */
 const add = async (author: string, title = 'Book') =>
   (await store.addBook({ title, authors: [author], isFiction: true })).id
+
+/**
+ * Where a draft would go, and saving an edit, filed under the genre the draft
+ * states. The range arrives beside the draft since #223; see `store.test.ts`.
+ */
+const placementFor = (of: DraftBook, excludeId?: number) =>
+  store.placementFor(of, genreStatedBy(of).range, excludeId)
+
+const updateBook = (id: number, of: DraftBook) =>
+  store.updateBook(id, of, genreStatedBy(of).range)
 
 const labels = async () => (await shelves.layout('fiction')).map((p) => p.label)
 
@@ -120,7 +131,7 @@ describe('proposing the move without making it', () => {
   it('offers the carry without making that either', async () => {
     const ann = await add('Ann Author')
     await store.setLocation(ann, '1A')
-    const key = (await store.placementFor(
+    const key = (await placementFor(
       { title: 'Book', authors: ['Bob Baker'], isFiction: true } as never,
     )).sortKey
 
@@ -185,7 +196,7 @@ describe('placing a book on a shelf that is full', () => {
 
   /** The sort key of a book that is not saved yet. */
   const keyFor = async (author: string, title = 'Book') =>
-    (await store.placementFor({ title, authors: [author], isFiction: true } as never)).sortKey
+    (await placementFor({ title, authors: [author], isFiction: true } as never)).sortKey
 
   it('sends the book in hand on when nothing on the shelf follows it', async () => {
     // The bug in #77. Ann and Bob fill 1A, Cal is on 1B, and the book being
@@ -412,13 +423,13 @@ describe('a book taken off the shelf', () => {
     const middle = await add('Emily Bronte')
     await add('Angela Carter')
 
-    const before = await store.placementFor({
+    const before = await placementFor({
       title: 'X', authors: ['Ann Baxter'], isFiction: true,
     } as never)
     expect(before.successor?.id).toBe(middle)
 
     await store.setCheckedOut(middle, true)
-    const after = await store.placementFor({
+    const after = await placementFor({
       title: 'X', authors: ['Ann Baxter'], isFiction: true,
     } as never)
     expect(after.successor?.id).not.toBe(middle)
@@ -481,7 +492,7 @@ describe('a book in the catalogue that is not on a shelf', () => {
    */
   const unidentified = async (author: string, location = '') => {
     const key = await store.resolveKey({
-      title: 'Something nobody has confirmed', authors: [author], isFiction: true,
+      title: 'Something nobody has confirmed', authors: [author],
     })
     await db.run(
       `INSERT INTO books (title, shelf_range, is_fiction, author_filing, sort_key,
@@ -509,7 +520,7 @@ describe('a book in the catalogue that is not on a shelf', () => {
 
     // Baxter files after Baker and before Clark, so a leak here is somebody
     // sent to a bookcase to find a book that is not on it.
-    const placement = await store.placementFor({
+    const placement = await placementFor({
       title: 'Middle', authors: ['Bob Baxter'], isFiction: true,
     })
     expect(placement.predecessor?.title).toBe('Persuasion')
@@ -536,7 +547,7 @@ describe('a book in the catalogue that is not on a shelf', () => {
     // sits. This is the screen somebody holds up next to a plank, so a row
     // leaking here is a book they will stand and look for.
     const key = await store.resolveKey({
-      title: 'Middle', authors: ['Bob Baxter'], isFiction: true,
+      title: 'Middle', authors: ['Bob Baxter'],
     })
     const strip = await shelves.strip('fiction', key.sortKey)
     expect(strip?.books.map((p) => p.book.id)).toEqual([ann, cathy])
@@ -1101,7 +1112,7 @@ describe('misfile detection', () => {
     await store.setLocation(id, '1B')
     expect(await flagged()).toEqual([])
 
-    await store.updateBook(id, { title: 'Book', authors: ['Al Adams'], isFiction: true })
+    await updateBook(id, { title: 'Book', authors: ['Al Adams'], isFiction: true })
     expect(await flagged()).toEqual([[id, '1B', '1A']])
   })
 

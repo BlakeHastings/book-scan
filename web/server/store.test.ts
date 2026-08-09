@@ -11,6 +11,7 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { Store, type DraftBook } from './store'
+import { genreStatedBy } from '../domain/tagging/genre'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
   return { isFiction: true, ...over }
@@ -18,6 +19,23 @@ function draft(over: Partial<DraftBook> & { title: string; authors: string[] }):
 
 let store: Store
 let db: Db
+
+/**
+ * Where a draft would go, and saving an edit, both filed under the genre the
+ * draft itself states.
+ *
+ * Since #223 the shelf range arrives beside the draft, because it is settled
+ * against `book_tag` before the row is written and this class does not write
+ * tags. There is no tagging layer in this file, and for a book carrying no
+ * other genre the draft's own claim is the answer `settleGenre` would reach,
+ * which is the same reasoning `Store.addBook` uses for a book that does not
+ * exist yet.
+ */
+const placementFor = (of: DraftBook, excludeId?: number) =>
+  store.placementFor(of, genreStatedBy(of).range, excludeId)
+
+const updateBook = (id: number, of: DraftBook) =>
+  store.updateBook(id, of, genreStatedBy(of).range)
 
 beforeEach(async () => {
   db = await openTestDatabase()
@@ -28,7 +46,7 @@ afterAll(closeTestDatabase)
 
 describe('placement as books arrive one at a time', () => {
   it('calls the very first book the start of its range', async () => {
-    const placement = await store.placementFor(
+    const placement = await placementFor(
       draft({ title: 'Dune', authors: ['Frank Herbert'] }),
     )
     expect(placement.kind).toBe('first-in-range')
@@ -38,7 +56,7 @@ describe('placement as books arrive one at a time', () => {
   it('sends non-fiction to shelf 4, independent of fiction', async () => {
     await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
 
-    const placement = await store.placementFor(
+    const placement = await placementFor(
       draft({ title: 'Sapiens', authors: ['Yuval Noah Harari'], isFiction: false }),
     )
     // Fiction already has a book, but the non-fiction range is still empty,
@@ -53,7 +71,7 @@ describe('placement as books arrive one at a time', () => {
     await store.addBook(draft({ title: 'Neuromancer', authors: ['William Gibson'], location: '1A' }))
 
     // Gibson < Haldeman < Herbert.
-    const placement = await store.placementFor(
+    const placement = await placementFor(
       draft({ title: 'The Forever War', authors: ['Joe Haldeman'] }),
     )
 
@@ -68,7 +86,7 @@ describe('placement as books arrive one at a time', () => {
     await store.addBook(draft({ title: 'Neuromancer', authors: ['William Gibson'], location: '1C' }))
     await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '2A' }))
 
-    const placement = await store.placementFor(
+    const placement = await placementFor(
       draft({ title: 'The Forever War', authors: ['Joe Haldeman'] }),
     )
     expect(placement.kind).toBe('between-different-locations')
@@ -86,7 +104,7 @@ describe('placement as books arrive one at a time', () => {
     }))
 
     // Discworld 2 belongs after Discworld 1 and before the standalone.
-    const placement = await store.placementFor(draft({
+    const placement = await placementFor(draft({
       title: 'The Light Fantastic', authors: ['Terry Pratchett'],
       seriesName: 'Discworld', seriesIndex: 2,
     }))
@@ -123,7 +141,7 @@ describe('author filing overrides', () => {
     await store.addBook(draft({ title: 'B', authors: ['Zoe Nash'], location: '1B' }))
 
     await store.saveFilingOverride('Gabriel García Márquez', 'García Márquez, Gabriel')
-    const placement = await store.placementFor(
+    const placement = await placementFor(
       draft({ title: 'Cien Años', authors: ['Gabriel García Márquez'] }),
     )
     // Garcia sorts between Foster and Nash. Under the raw heuristic (Marquez)
@@ -164,7 +182,7 @@ describe('a name written in a script with no A-Z in it', () => {
     await store.addBook(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
     await store.addBook(draft({ title: 'The Book Thief', authors: ['Markus Zusak'], location: '2C' }))
 
-    const placement = await store.placementFor(
+    const placement = await placementFor(
       draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'] }),
     )
 
@@ -200,7 +218,7 @@ describe('a name written in a script with no A-Z in it', () => {
     await store.addBook(draft({ title: 'A', authors: ['Ann Smith'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['Ada Smithson'], location: '1B' }))
 
-    const placement = await store.placementFor(
+    const placement = await placementFor(
       draft({ title: 'C', authors: ['Иван Smith'] }),
     )
     expect(placement.predecessor?.title).toBe('A')
@@ -252,7 +270,7 @@ describe('bookkeeping', () => {
     const { id } = await store.addBook(
       draft({ title: 'Alpha', authors: ['Ann Author'], location: '2C' }),
     )
-    await store.updateBook(id, draft({ title: 'Alpha', authors: ['Ann Author'] }))
+    await updateBook(id, draft({ title: 'Alpha', authors: ['Ann Author'] }))
     expect((await store.getBook(id))?.location).toBe('2C')
   })
 })
@@ -262,7 +280,7 @@ describe('editing a shelved book', () => {
     const { id } = await store.addBook(
       draft({ title: 'Dark Angel', authors: ['V.C. Andrews'], location: '1A' }),
     )
-    await store.updateBook(id, draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
+    await updateBook(id, draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
 
     expect((await store.counts()).total).toBe(1)
     expect((await store.getBook(id))?.title).toBe('Dune')
@@ -274,7 +292,7 @@ describe('editing a shelved book', () => {
     const { id } = await store.addBook(draft({ title: 'X', authors: ['Zoe Zulu'] }))
     const before = (await store.getBook(id))!.sort_key
 
-    await store.updateBook(id, draft({ title: 'X', authors: ['Ann Author'] }))
+    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'] }))
     const after = (await store.getBook(id))!
 
     expect(after.sort_key).not.toBe(before)
@@ -285,7 +303,7 @@ describe('editing a shelved book', () => {
     const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
     expect((await store.getBook(id))?.shelf_range).toBe('fiction')
 
-    await store.updateBook(id, draft({ title: 'X', authors: ['Ann Author'], isFiction: false }))
+    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'], isFiction: false }))
     expect((await store.getBook(id))?.shelf_range).toBe('nonfiction')
     expect(await store.listRange('fiction')).toHaveLength(0)
     expect(await store.listRange('nonfiction')).toHaveLength(1)
@@ -295,7 +313,7 @@ describe('editing a shelved book', () => {
     await store.addBook(draft({ title: 'Alpha', authors: ['Ann Author'], location: '1A' }))
     const { id } = await store.addBook(draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }))
 
-    const placement = await store.updateBook(
+    const placement = await updateBook(
       id, draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }),
     )
     expect(placement.predecessor?.id).not.toBe(id)
@@ -307,14 +325,14 @@ describe('editing a shelved book', () => {
     const { id } = await store.addBook(
       draft({ title: 'X', authors: ['Ann Author', 'Bob Baker'] }),
     )
-    await store.updateBook(id, draft({ title: 'X', authors: ['Cal Church'] }))
+    await updateBook(id, draft({ title: 'X', authors: ['Cal Church'] }))
     expect((await store.getBook(id))?.authors).toBe('Cal Church')
     expect((await store.getBook(id))?.author_filing).toBe('Church, Cal')
   })
 
   it('fills in both ISBN forms on an edit, as on an insert', async () => {
     const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
-    await store.updateBook(id, draft({
+    await updateBook(id, draft({
       title: 'Dune', authors: ['Frank Herbert'], isbn13: '9780441013593',
     }))
     expect((await store.getBook(id))?.isbn10).toBe('0441013597')

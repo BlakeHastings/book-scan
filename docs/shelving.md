@@ -635,8 +635,8 @@ Additions to `books`:
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `range` | TEXT | `fiction` / `nonfiction`. Indexed with `sort_key`. |
-| `is_fiction` | INTEGER | Redundant with `range` but convenient. |
+| `range` | TEXT | `fiction` / `nonfiction`. Indexed with `sort_key`. Derived from the book's genre tag since #223, not from `is_fiction`. |
+| `is_fiction` | INTEGER | Redundant with `range` and no longer what decides it. Written from the settled range so the client can still read it; see `docs/data-model.md`. |
 | `classification_source` | TEXT | `auto` / `manual`. |
 | `classification_confidence` | TEXT | `high` / `medium` / `weak` / `unknown`. |
 | `author_filing` | TEXT | Derived, overridable. |

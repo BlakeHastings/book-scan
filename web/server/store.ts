@@ -18,6 +18,9 @@ import {
 } from '../shared/shelving'
 import { resolveIsbnPair } from '../shared/isbn'
 import { CHECKED_OUT, DISCARDED, QUEUED_STATES, SHELVED } from '../domain/books/state'
+// Which range a book joins is decided by its genre tags now, and this is the
+// rule that decides it. See docs/data-model.md and #223.
+import { genreStatedBy } from '../domain/tagging/genre'
 
 /**
  * The three early states as a SQL literal list, for the one statement here that
@@ -68,8 +71,21 @@ export interface DraftBook {
   authorFilingOverride?: string | null
 }
 
+/**
+ * What a sort key is derived from, and nothing else.
+ *
+ * The genre is not in here, and that is the point of the type existing (#223).
+ * `resolveKey` used to answer the shelf range as well, computed from
+ * `draft.isFiction`, which made every caller that wanted a filing name also a
+ * caller that decided which bookcase a book went to. The range is now decided by
+ * the genre tag, so it arrives at `addBook` and `updateBook` as its own argument
+ * and `server/refile.ts` does not have to state a genre to recompute a key.
+ */
+export type FilingDraft = Pick<
+  DraftBook, 'title' | 'authors' | 'seriesName' | 'seriesIndex' | 'authorFilingOverride'
+>
+
 export interface ResolvedKey {
-  range: ShelfRange
   authorFiling: string
   titleFilingValue: string
   sortKey: string
@@ -85,7 +101,6 @@ export interface FilingInput {
   sort_key: string
   series_name: string | null
   series_index: number | null
-  is_fiction: number
   printed_author: string
 }
 
@@ -160,13 +175,12 @@ export class Store {
     )
   }
 
-  async resolveKey(draft: DraftBook): Promise<ResolvedKey> {
+  async resolveKey(draft: FilingDraft): Promise<ResolvedKey> {
     const primary = draft.authors.find((n) => n.trim())?.trim() ?? ''
     const authorFiling =
       draft.authorFilingOverride?.trim() || (await this.filingFor(primary))
 
     return {
-      range: draft.isFiction ? 'fiction' : 'nonfiction',
       authorFiling,
       titleFilingValue: titleFiling(draft.title),
       sortKey: buildSortKey({
@@ -196,7 +210,7 @@ export class Store {
   async filingInputs(): Promise<FilingInput[]> {
     return this.db.all<FilingInput>(
       `SELECT b.id, b.title, b.authors, b.author_filing, b.title_filing,
-              b.sort_key, b.series_name, b.series_index, b.is_fiction,
+              b.sort_key, b.series_name, b.series_index,
               COALESCE((SELECT name FROM book_authors
                          WHERE book_id = b.id ORDER BY position LIMIT 1), '') AS printed_author
          FROM catalogued_books b
@@ -299,22 +313,29 @@ export class Store {
     }
   }
 
-  /** Where does this book go? Does not save anything. */
+  /**
+   * Where does this book go? Does not save anything.
+   *
+   * The range arrives rather than being worked out from the draft, because
+   * which range a book joins is decided by its genre tags and this method is a
+   * preview that writes none. See `genreStatedBy` and the preview route.
+   */
   async placementFor(
-    draft: DraftBook,
+    draft: FilingDraft,
+    range: ShelfRange,
     excludeId?: number,
   ): Promise<Placement & ResolvedKey> {
     const resolved = await this.resolveKey(draft)
     const { predecessor, successor } = await this.neighbours(
-      resolved.range,
+      range,
       resolved.sortKey,
       excludeId,
     )
     const placement = buildPlacement(
-      resolved.range,
+      range,
       predecessor,
       successor,
-      await this.rangeStart(resolved.range),
+      await this.rangeStart(range),
     )
     return { ...placement, ...resolved }
   }
@@ -355,29 +376,35 @@ export class Store {
     // book scanned from its barcode still matches one entered by ISBN-10.
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
 
-    // Known before anything is read, because it is a property of the draft and
-    // not of the database, which is what lets the lock be taken first.
-    const range: ShelfRange = draft.isFiction ? 'fiction' : 'nonfiction'
+    /*
+     * The range this book's genre tags put it in.
+     *
+     * **A book this method is inserting carries no tags at all**, so the genre
+     * tags it will have are exactly the one this save states, and reading them
+     * back out of `book_tag` would be reading what the caller is about to write.
+     * Every other way into a shelf range goes through a book that exists, and
+     * those read the rows: see `settleGenre` in `server/index.ts`.
+     *
+     * Known before anything is read, which is what lets the lock be taken first.
+     */
+    const { range } = genreStatedBy(draft)
 
     // The row and its authors are still one transaction, and it still nests:
     // `Db.tx` opens a savepoint when the caller is already inside one, which is
     // what better-sqlite3's own nested transactions did.
     const { id, placement } = await this.db.tx(async (tx) => {
       const resolved = await this.resolveKey(draft)
-      const { predecessor, successor } = await this.neighbours(
-        resolved.range,
-        resolved.sortKey,
-      )
+      const { predecessor, successor } = await this.neighbours(range, resolved.sortKey)
       const placed = {
         ...buildPlacement(
-          resolved.range,
+          range,
           predecessor,
           successor,
-          await this.rangeStart(resolved.range),
+          await this.rangeStart(range),
         ),
         ...resolved,
       }
-      const id = await this.insertBook(tx, draft, resolved, isbn, now, location)
+      const id = await this.insertBook(tx, draft, resolved, range, isbn, now, location)
       return { id, placement: placed }
     }, { serialiseOn: rangeLock(range) })
 
@@ -393,6 +420,7 @@ export class Store {
     tx: Db,
     draft: DraftBook,
     resolved: ResolvedKey,
+    range: ShelfRange,
     isbn: { isbn13: string; isbn10: string },
     now: string,
     location: string,
@@ -427,8 +455,15 @@ export class Store {
         published: draft.published ?? '',
         pages: draft.pages ?? '',
         notes: draft.notes ?? '',
-        shelf_range: resolved.range,
-        is_fiction: draft.isFiction ? 1 : 0,
+        shelf_range: range,
+        /*
+         * Written from the settled range rather than from what the request
+         * said, so the column shadows the genre tag instead of competing with
+         * it (#223). Nothing reads it to decide anything any more; it is here
+         * because the client still reads it out of the JSON, and it goes with
+         * that.
+         */
+        is_fiction: range === 'fiction' ? 1 : 0,
         classification_source: draft.classificationSource ?? 'auto',
         classification_confidence: draft.classificationConfidence ?? 'unknown',
         author_filing: resolved.authorFiling,
@@ -513,10 +548,19 @@ export class Store {
    * row is already there, in an early state, with its photographs on it. The
    * state moves in the statement below, beside the sort key.
    */
-  async updateBook(id: number, draft: DraftBook): Promise<Placement & ResolvedKey> {
+  async updateBook(
+    id: number,
+    draft: DraftBook,
+    /**
+     * The range the book's genre tags put it in, settled by the caller before
+     * this runs (#223). It arrives rather than being derived here because the
+     * answer is in `book_tag`, which is written through the tagging layer and
+     * not through this class.
+     */
+    range: ShelfRange,
+  ): Promise<Placement & ResolvedKey> {
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
     const location = draft.location?.trim() ?? ''
-    const range: ShelfRange = draft.isFiction ? 'fiction' : 'nonfiction'
 
     return this.db.tx(async (tx) => {
       const resolved = await this.resolveKey(draft)
@@ -585,8 +629,9 @@ export class Store {
           published: draft.published ?? '',
           pages: draft.pages ?? '',
           notes: draft.notes ?? '',
-          shelf_range: resolved.range,
-          is_fiction: draft.isFiction ? 1 : 0,
+          shelf_range: range,
+          // From the settled range, for the reason `insertBook` gives.
+          is_fiction: range === 'fiction' ? 1 : 0,
           classification_source: draft.classificationSource ?? 'manual',
           classification_confidence: draft.classificationConfidence ?? 'unknown',
           author_filing: resolved.authorFiling,
@@ -621,17 +666,13 @@ export class Store {
       // Exclude the book from its own neighbour search, or it would be told to
       // sit next to itself. Read inside the transaction, and after the update,
       // so it describes the shelf this edit produced.
-      const { predecessor, successor } = await this.neighbours(
-        resolved.range,
-        resolved.sortKey,
-        id,
-      )
+      const { predecessor, successor } = await this.neighbours(range, resolved.sortKey, id)
       return {
         ...buildPlacement(
-          resolved.range,
+          range,
           predecessor,
           successor,
-          await this.rangeStart(resolved.range),
+          await this.rangeStart(range),
         ),
         ...resolved,
       }

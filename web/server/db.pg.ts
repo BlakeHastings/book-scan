@@ -74,9 +74,17 @@ CREATE TABLE IF NOT EXISTS books (
     pages                     text    DEFAULT '',
     notes                     text    DEFAULT '',
 
+    -- Derived from the book's genre tag since #223, by rangeOfGenre in
+    -- domain/tagging/genre.ts, and written by the save that settled it. Every
+    -- shelf query reads this.
     shelf_range               text    NOT NULL,
     -- integer, not boolean. BookRow.is_fiction is a number, the JSON contract
     -- carries 0 and 1, and the client reads them.
+    --
+    -- It decides nothing since #223: it is written from the settled range
+    -- rather than from what the request said, so it shadows the genre tag
+    -- instead of competing with it, and it goes when the client stops reading
+    -- it.
     is_fiction                integer NOT NULL,
     classification_source     text    DEFAULT 'auto',
     classification_confidence text    DEFAULT 'unknown',
@@ -751,6 +759,7 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
 
   await sayWhetherThePlacementProjectionHolds(db)
   await sayWhetherTheAreasFollowTheSeparators(db)
+  await sayWhetherEveryShelvedBookHasAGenre(db)
 }
 
 /**
@@ -790,6 +799,49 @@ async function sayWhetherTheAreasFollowTheSeparators(db: Db): Promise<void> {
     'recordAreasOf() in infrastructure/shelving/areas.ts writes a range again; ' +
     'find the writer first. ' +
     found.slice(0, 10).map(describeAreaDisagreement).join('; '),
+  )
+}
+
+/**
+ * Say how many shelved books no genre tag claims.
+ *
+ * **The answer to "what happens if a tag goes missing" is: nothing moves, and
+ * this line is how anybody finds out** (#223). `books.shelf_range` is written by
+ * a save and by nothing else, and a save always states a genre, so a book whose
+ * tag is taken off afterwards keeps the range it already had and stays exactly
+ * where it is. It does not become unplaceable and no shelf empties.
+ *
+ * What it does become is a book whose position nothing can justify any more: the
+ * next save will file it under whatever that save states, and `0013`'s placement
+ * rules already claim nothing at all. So it is reported rather than repaired,
+ * for the reason the projection check above is: writing a genre back would
+ * invent an answer nobody gave, and the one thing worth knowing is which books.
+ *
+ * `POST /api/books/:id/tags` and `DELETE /api/books/:id/tags` are the only way
+ * to reach this state, which is a person deliberately taking a tag off. That is
+ * theirs to do, so this does not refuse to start over it.
+ */
+async function sayWhetherEveryShelvedBookHasAGenre(db: Db): Promise<void> {
+  const untagged = await db.all<{ id: number; title: string }>(
+    `SELECT b.id, b.title
+       FROM shelved_books b
+      WHERE NOT EXISTS (
+        SELECT 1 FROM book_tag bt JOIN tag t ON t.id = bt.tag_id
+         WHERE bt.book_id = b.id
+           AND t.slug IN ('genre/fiction', 'genre/non-fiction'))
+      ORDER BY b.id`,
+  )
+
+  if (!untagged.length) {
+    console.log('[tags] every shelved book carries a genre tag that files it')
+    return
+  }
+
+  console.error(
+    `[tags] ${untagged.length} shelved books carry no genre tag, so nothing files ` +
+    'them: they keep the shelf range their last save gave them and no rule claims ' +
+    'them. Put one back through POST /api/books/:id/tags, or save the book. ' +
+    untagged.slice(0, 20).map((one) => `#${one.id} ${one.title}`).join('; '),
   )
 }
 

@@ -168,6 +168,98 @@ describe('saving a book', () => {
   })
 })
 
+/**
+ * The cut-over, over real HTTP: the tag is what files the book.
+ *
+ * `infrastructure/db/genre-cutover.test.ts` compares the two derivations book by
+ * book over a whole catalogue. This is the other half of the same claim, asked
+ * of the running app: what a save writes into `books.shelf_range`, which is what
+ * every shelf query reads.
+ */
+describe('the genre tag deciding which range a book files into', () => {
+  /** The two columns the shelf is drawn from, as the row holds them. */
+  async function filedAs(bookId: number): Promise<{ range: string; isFiction: number }> {
+    const { body } = await call(`/api/books/${bookId}`)
+    return { range: body.book.shelf_range, isFiction: body.book.is_fiction }
+  }
+
+  it('files a book into the range its genre tag names', async () => {
+    const fiction = await aBook({ classificationSource: 'auto' })
+    expect(await tagsOf(fiction)).toEqual(['genre/fiction:guess'])
+    expect(await filedAs(fiction)).toEqual({ range: 'fiction', isFiction: 1 })
+
+    const other = await aBook({ isbn13: '', isFiction: false, classificationSource: 'auto' })
+    expect(await tagsOf(other)).toEqual(['genre/non-fiction:guess'])
+    expect(await filedAs(other)).toEqual({ range: 'nonfiction', isFiction: 0 })
+  })
+
+  it('moves the book when a person changes the genre', async () => {
+    const id = await aBook({ classificationSource: 'auto' })
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
+      isFiction: false, classificationSource: 'manual',
+    })
+
+    expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
+    expect(await filedAs(id)).toEqual({ range: 'nonfiction', isFiction: 0 })
+  })
+
+  it('leaves a book where a person filed it when a lookup says otherwise', async () => {
+    /*
+     * **This is the behaviour that changes**, and it is the reason the shelf
+     * reads the tags rather than the column.
+     *
+     * A person files a book as fiction. A catalogue is asked and claims
+     * non-fiction, which it is entitled to do and which no rule may retract. The
+     * book is then saved again by something that is not a person, carrying the
+     * catalogue's answer. Before the cut-over the column took that answer and
+     * the book moved to non-fiction while still carrying the person's fiction
+     * tag, and nothing anywhere said which was current. Now the person's tag
+     * decides and the book stays where they put it.
+     */
+    const id = await aBook({ isFiction: true, classificationSource: 'manual' })
+    expect(await tagsOf(id)).toEqual(['genre/fiction:person'])
+
+    answers.mockResolvedValue({
+      ...empty, found: true,
+      classification: { isFiction: false, confidence: 'high', reason: '' },
+    })
+    await post(`/api/books/${id}/tags/refresh`, {})
+    expect(await tagsOf(id)).toEqual(['genre/fiction:person', 'genre/non-fiction:catalogue'])
+
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
+      isFiction: false, classificationSource: 'auto', classificationConfidence: 'high',
+    })
+
+    // The guess is on record and is not what files it. The column shadows the
+    // answer the tags gave rather than the one the request stated, so the two
+    // things the client reads cannot disagree with the shelf.
+    expect(await tagsOf(id)).toEqual([
+      'genre/fiction:person', 'genre/non-fiction:catalogue', 'genre/non-fiction:guess',
+    ])
+    expect(await filedAs(id)).toEqual({ range: 'fiction', isFiction: 1 })
+  })
+
+  it("files a corrected book under the new book's genre and not the old one's", async () => {
+    /*
+     * The ordering #201 established is load bearing now rather than tidy: the
+     * old book's genre has to be off the row before the new one is read back,
+     * or a corrected book files under what it used to be.
+     */
+    const id = await aBook({ isFiction: true, classificationSource: 'manual' })
+    expect(await filedAs(id)).toEqual({ range: 'fiction', isFiction: 1 })
+
+    await put(`/api/books/${id}`, {
+      title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
+      isFiction: false, classificationSource: 'auto', classificationConfidence: 'medium',
+    })
+
+    expect(await tagsOf(id)).toEqual(['genre/non-fiction:guess'])
+    expect(await filedAs(id)).toEqual({ range: 'nonfiction', isFiction: 0 })
+  })
+})
+
 describe('correcting which book a row is', () => {
   /** The person's answer, on the book saved as a fiction guess. */
   async function answeredByHand() {
