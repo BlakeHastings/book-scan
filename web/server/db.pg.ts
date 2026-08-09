@@ -27,6 +27,7 @@ import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/mig
 import {
   countProjectionDisagreements, projectionDisagreements,
 } from '../infrastructure/placement/projection'
+import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
 import type { ShelfRange } from '../shared/shelving'
 import { bindParams, lockKey, type Db, type Params, type TxOptions } from './driver'
 
@@ -749,6 +750,47 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
   )
 
   await sayWhetherThePlacementProjectionHolds(db)
+  await sayWhetherTheAreasFollowTheSeparators(db)
+}
+
+/**
+ * Place every shelved book twice, by the separators and by the areas, and say
+ * whether the two answers are the same book for book.
+ *
+ * **This is #184's comparison, asked again.** That test placed 236 books both
+ * ways and proved the answers identical at the moment `0013` ran, and #213 is
+ * what that proof expires to: the first divider somebody moves, it is a claim
+ * about a catalogue that no longer exists. So it is asked here instead, against
+ * whatever catalogue the app has just opened, every time it opens one.
+ *
+ * The write-through in `infrastructure/shelving/areas.ts` is what keeps the
+ * answer empty. This is what says whether it did, and it is worth more than the
+ * write-through: a comparison that can fail is the only thing that turns
+ * "written on the same statement" from a claim about the code into a fact about
+ * the rows.
+ *
+ * **It reports, does not repair, and does not refuse to start**, for the reasons
+ * given above about the projection. A catalogue that drifted before the
+ * write-through existed reports here until the next boundary is written in that
+ * range, which is `recordAreasOf` closing it, and that line is the evidence of
+ * how far it had drifted.
+ */
+async function sayWhetherTheAreasFollowTheSeparators(db: Db): Promise<void> {
+  const found = await areaDisagreements(db)
+  if (!found.length) {
+    console.log('[placement] every book lands in the area its separators put it in')
+    return
+  }
+
+  // Bounded, because a line per book is not a report, it is a reason to stop
+  // reading the log. The count is the number that matters.
+  console.error(
+    `[placement] ${found.length} books are drawn on one plank by the separators and ` +
+    'another by the areas, so a boundary was written without its area. ' +
+    'recordAreasOf() in infrastructure/shelving/areas.ts writes a range again; ' +
+    'find the writer first. ' +
+    found.slice(0, 10).map(describeAreaDisagreement).join('; '),
+  )
 }
 
 /**

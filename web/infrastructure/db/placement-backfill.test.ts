@@ -23,6 +23,14 @@
  * A check nobody has watched fail is not a check, so three tests here break the
  * model on purpose and watch the comparison name exactly the books it should.
  *
+ * **The comparison is `areaDisagreements`, which is production code** and is run
+ * on every start by `applySchema`. It was local to this file until #213, which
+ * is the defect that says why it could not stay: the claim above holds at the
+ * moment of the backfill and expires the first time anybody moves a divider, so
+ * a comparison that only a migration's test can make is a comparison about a
+ * catalogue that no longer exists. The last describe here moves dividers and
+ * asks it again.
+ *
  * Nothing in this file connects to anything but a scratch database it made, and
  * nothing anywhere here reads, writes or deletes a cover file.
  */
@@ -36,8 +44,11 @@ import {
 } from '../../domain/placement/geography'
 import { placementOf, type PlacementRule } from '../../domain/placement/rules'
 import type { SortStrategy } from '../../domain/placement/strategies'
-import { SCHEMA } from '../../server/db.pg'
-import { layoutRange, type Separator, type SeparatorKind } from '../../shared/layout'
+import { PgDb, SCHEMA } from '../../server/db.pg'
+import { Shelves } from '../../server/shelves'
+import { areaDisagreements, describeAreaDisagreement } from '../shelving/area-drift'
+import { DrizzleSeparatorRepository } from '../shelving/separator-repository'
+import type { SeparatorKind } from '../../shared/layout'
 import { MigrationFailed, migrateToLatest } from './migrate'
 import { dropScratchDatabases, scratchDatabase } from './testdb'
 
@@ -200,49 +211,6 @@ interface Placement {
   label: string
 }
 
-/** Where the app puts every book today: `Shelves.layout`, range by range. */
-async function underSeparators(pool: pg.Pool): Promise<Placement[]> {
-  const placed: Placement[] = []
-
-  const ranges = await pool.query<{ shelf_range: Range; start_shelf: number; start_area: number }>(
-    'SELECT shelf_range, start_shelf, start_area FROM shelf_ranges ORDER BY shelf_range',
-  )
-
-  for (const range of ranges.rows) {
-    const books = await pool.query<{ id: number; title: string; sort_key: string }>(
-      'SELECT id, title, sort_key FROM shelved_books WHERE shelf_range = $1 ORDER BY sort_key ASC',
-      [range.shelf_range],
-    )
-    // Ordered by position, which is how `DrizzleSeparatorRepository.inRange`
-    // reads them and therefore the order `layoutRange`'s stable sort keeps for
-    // two boundaries sharing an anchor.
-    const separators = await pool.query<{
-      id: number; kind: SeparatorKind; starts_at: string; position: number
-    }>(
-      'SELECT id, kind, starts_at, position FROM separators WHERE shelf_range = $1 ORDER BY position',
-      [range.shelf_range],
-    )
-
-    const layout = layoutRange(
-      books.rows.map((row) => ({ id: row.id, title: row.title, sortKey: row.sort_key })),
-      separators.rows.map((row): Separator => ({
-        id: row.id,
-        range: range.shelf_range,
-        kind: row.kind,
-        startsAt: row.starts_at,
-        position: row.position,
-      })),
-      { shelf: range.start_shelf, area: range.start_area },
-    )
-
-    for (const one of layout) {
-      placed.push({ id: one.book.id, title: one.book.title, label: one.label })
-    }
-  }
-
-  return placed.sort((a, b) => a.id - b.id)
-}
-
 /** The furniture and the rules, read back out of the rows `0013` wrote. */
 async function furnitureIn(pool: pg.Pool): Promise<{ order: Slot[]; rules: PlacementRule[] }> {
   const fixtures = await pool.query<{
@@ -322,15 +290,15 @@ async function underRules(pool: pg.Pool): Promise<Placement[]> {
   })
 }
 
-/** The books the two models disagree about, said the way a reviewer reads it. */
-function disagreements(old: Placement[], now: Placement[]): string[] {
-  const byId = new Map(now.map((one) => [one.id, one]))
-  return old.flatMap((one) => {
-    const other = byId.get(one.id)
-    return other && other.label === one.label
-      ? []
-      : [`${one.title}: separators say ${one.label}, rules say ${other?.label || 'nowhere'}`]
-  })
+/**
+ * The books the two models disagree about, said the way a reviewer reads it.
+ *
+ * The comparison itself is `areaDisagreements`, in
+ * `infrastructure/shelving/area-drift.ts`, which is what `applySchema` runs on
+ * every start. This is the one line of formatting the assertions read.
+ */
+async function disagreements(pool: pg.Pool): Promise<string[]> {
+  return (await areaDisagreements(new PgDb(pool))).map(describeAreaDisagreement)
 }
 
 /**
@@ -366,11 +334,10 @@ describe('the shelves becoming fixtures, areas and rules', () => {
     // migrated. That is the path the real catalogue takes.
     expect(await migrateToLatest(pool)).toBe('adopted')
 
-    const old = await underSeparators(pool)
     const now = await underRules(pool)
 
-    expect(old).toHaveLength(LIVE_SIZED.length)
-    expect(disagreements(old, now)).toEqual([])
+    expect(now).toHaveLength(LIVE_SIZED.length)
+    expect(await disagreements(pool)).toEqual([])
 
     // Printed rather than only asserted, because these are the two strings the
     // pull request quotes. Nothing in `0013` writes to `books`, so they are the
@@ -378,7 +345,7 @@ describe('the shelves becoming fixtures, areas and rules', () => {
     // that view replaced before.
     const after = await shelfOrder(pool, 'shelved_books')
     console.log(`[placement] shelf order ${before} before, ${after} after; ` +
-      `${old.length} books compared across ${new Set(old.map((one) => one.label)).size} areas`)
+      `${now.length} books compared across ${new Set(now.map((one) => one.label)).size} areas`)
     expect(after).toBe(before)
   })
 
@@ -531,11 +498,11 @@ describe('the comparison, proving it can fail', () => {
      */
     const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
     await migrateToLatest(pool)
-    expect(disagreements(await underSeparators(pool), await underRules(pool))).toEqual([])
+    expect(await disagreements(pool)).toEqual([])
 
     await pool.query("UPDATE area SET starts_at = 'key-0020' WHERE starts_at = 'key-0022'")
 
-    expect(disagreements(await underSeparators(pool), await underRules(pool)))
+    expect(await disagreements(pool))
       .toEqual(['Book 020: separators say 1A, rules say 1B'])
   })
 
@@ -558,11 +525,11 @@ describe('the comparison, proving it can fail', () => {
     // As it stands, fiction is rule 1, so a doubly tagged fiction book files as
     // fiction and agrees with `books.is_fiction`. That is the migration's own
     // NOTICE turned into an assertion.
-    expect(disagreements(await underSeparators(pool), await underRules(pool))).toEqual([])
+    expect(await disagreements(pool)).toEqual([])
 
     await pool.query("UPDATE placement_rule SET priority = 3 WHERE name = 'Fiction'")
 
-    expect(disagreements(await underSeparators(pool), await underRules(pool))).toEqual([
+    expect(await disagreements(pool)).toEqual([
       'Book 040: separators say 1B, rules say 4A',
       'Book 041: separators say 1B, rules say 4A',
     ])
@@ -579,7 +546,7 @@ describe('the comparison, proving it can fail', () => {
       "UPDATE rule_condition SET value = 'genre/reference' WHERE value = 'genre/non-fiction'",
     )
 
-    const found = disagreements(await underSeparators(pool), await underRules(pool))
+    const found = await disagreements(pool)
     expect(found).toHaveLength(LIVE_SIZED.filter((book) => book.range === 'nonfiction').length)
     expect(found[0]).toBe('Book 000: separators say 4A, rules say nowhere')
   })
@@ -620,5 +587,299 @@ describe('a catalogue this migration will not finish on', () => {
       "SELECT to_regclass('public.fixture')::text AS table",
     )
     expect(table.rows[0]?.table).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The same comparison, after somebody moves a divider
+// ---------------------------------------------------------------------------
+
+/**
+ * The claim above expires the moment the shelves change, which is #213.
+ *
+ * Every test here starts from the backfilled catalogue, changes a boundary the
+ * way the app does, and asks the same book-by-book question again. The first one
+ * is the control: a boundary written **around** the repository is the defect,
+ * and it has to be watched failing or nothing below means anything.
+ */
+describe('the areas following the separators after a divider moves', () => {
+  /** A catalogue with the furniture built, and the thing that changes it. */
+  async function backfilled(): Promise<{ pool: pg.Pool; boundaries: DrizzleSeparatorRepository }> {
+    const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
+    await migrateToLatest(pool)
+    return { pool, boundaries: new DrizzleSeparatorRepository(new PgDb(pool)) }
+  }
+
+  const counted = async (pool: pg.Pool, table: 'area' | 'fixture'): Promise<number> => {
+    const { rows } = await pool.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`)
+    return Number(rows[0]!.n)
+  }
+
+  const boundaryAt = async (
+    pool: pg.Pool,
+    anchor: string,
+    kind: SeparatorKind = 'area',
+  ): Promise<number> => {
+    const { rows } = await pool.query<{ id: number }>(
+      'SELECT id FROM separators WHERE starts_at = $1 AND kind = $2 ORDER BY id LIMIT 1',
+      [anchor, kind],
+    )
+    return rows[0]!.id
+  }
+
+  /** How many areas each bookcase carries, which is the shape a walk produces. */
+  const shape = async (pool: pg.Pool): Promise<Record<string, number>> => {
+    const { rows } = await pool.query<{ position: number; n: string }>(
+      `SELECT f.position, count(a.id)::text AS n
+         FROM fixture f LEFT JOIN area a ON a.fixture_id = f.id
+        GROUP BY f.position ORDER BY f.position`,
+    )
+    return Object.fromEntries(rows.map((row) => [String(row.position), Number(row.n)]))
+  }
+
+  const added = (range: Range, kind: SeparatorKind, startsAt: string, position: number) => ({
+    range,
+    kind,
+    startsAt,
+    position,
+    note: '',
+    createdAt: '2026-08-09T00:00:00.000Z',
+  })
+
+  /** Fiction books from an anchor on, which is the stretch a boundary shifts. */
+  const fictionFrom = (from: string, until?: string) =>
+    LIVE_SIZED.filter((book) => book.range === 'fiction'
+      && book.sortKey >= from
+      && (until === undefined || book.sortKey < until)).length
+
+  it('drifts, and is caught drifting, when a boundary is written around them', async () => {
+    /*
+     * The defect itself, reproduced. This is the statement the repository makes,
+     * made without it, and it is what every boundary write in this repository did
+     * between #170 and #213: `separators` gains a row, `area` gains nothing, and
+     * a plank's worth of books is drawn on the plank before.
+     */
+    const { pool } = await backfilled()
+    expect(await disagreements(pool)).toEqual([])
+
+    await pool.query(
+      `INSERT INTO separators (shelf_range, kind, starts_at, position, note, created_at)
+       VALUES ('fiction', 'area', 'key-0030', 20, '', '2026-08-09T00:00:00.000Z')`,
+    )
+
+    const found = await disagreements(pool)
+    // Everything from the new boundary to the next bookcase break is one area
+    // further along than the areas say. The books past `key-0088` are on a new
+    // bookcase either way, so the shift stops there.
+    expect(found[0]).toBe('Book 031: separators say 1C, rules say 1B')
+    expect(found).toHaveLength(fictionFrom('key-0030', 'key-0088'))
+  })
+
+  it('gains an area when a plank boundary is added', async () => {
+    const { pool, boundaries } = await backfilled()
+    const before = await counted(pool, 'area')
+
+    await boundaries.add(added('fiction', 'area', 'key-0030', 20))
+
+    expect(await counted(pool, 'area')).toBe(before + 1)
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('gains a bookcase when a bookcase boundary is added', async () => {
+    const { pool, boundaries } = await backfilled()
+    const fixtures = await counted(pool, 'fixture')
+
+    // Non-fiction, because it is the range with room: it is the last one on the
+    // floor, so a bookcase after its own is a bookcase nothing else numbers.
+    await boundaries.add(added('nonfiction', 'shelf', 'key-0180', 20))
+
+    expect(await counted(pool, 'fixture')).toBe(fixtures + 1)
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('will not number a bookcase another range already has, and says what that costs', async () => {
+    /*
+     * Fiction fills bookcases 1 to 3 and non-fiction starts on 4, so a fourth
+     * bookcase in fiction is two runs sharing a number. `0013` refuses that
+     * arrangement outright; the write-through cannot, because `separators` is
+     * authoritative and a shadow table does not get to veto the shelves.
+     *
+     * So the area is not written and the disagreement is reported, which is the
+     * pre-existing ambiguity becoming visible rather than a new one: that
+     * catalogue is already drawing two planks with the label `4A`. Moving
+     * non-fiction's starting bookcase in `shelf_ranges` is the way out, and it is
+     * what the migration's own refusal says.
+     */
+    const { pool, boundaries } = await backfilled()
+    const fixtures = await counted(pool, 'fixture')
+
+    await boundaries.add(added('fiction', 'shelf', 'key-0230', 20))
+
+    expect(await counted(pool, 'fixture')).toBe(fixtures)
+    const found = await disagreements(pool)
+    expect(found[0]).toBe('Book 230: separators say 4A, rules say 3B')
+    expect(found).toHaveLength(fictionFrom('key-0230'))
+  })
+
+  it('re-anchors the area when a boundary is pointed at a different book', async () => {
+    const { pool, boundaries } = await backfilled()
+
+    await boundaries.reanchor(await boundaryAt(pool, 'key-0022'), 'key-0020')
+
+    const { rows } = await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM area WHERE starts_at = 'key-0020'",
+    )
+    expect(rows[0]!.n).toBe('1')
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('keeps the two in step when two boundaries on one anchor swap places', async () => {
+    /*
+     * `position` decides exactly one thing, and this is it: which of two
+     * boundaries sharing an anchor is stepped over first. A bookcase break and a
+     * plank break on one key are two different arrangements depending on their
+     * order, so renumbering them moves an area from one bookcase to the next.
+     * Non-fiction, because it is the range with room for another bookcase.
+     */
+    const { pool, boundaries } = await backfilled()
+    await boundaries.add(added('nonfiction', 'shelf', 'key-0150', 11))
+    expect(await shape(pool)).toEqual({ 1: 3, 2: 4, 3: 2, 4: 3, 5: 2 })
+    expect(await disagreements(pool)).toEqual([])
+
+    // The bookcase break stepped over first, so the plank break opens a plank on
+    // the new bookcase rather than the last one of the old.
+    await boundaries.reposition(await boundaryAt(pool, 'key-0150', 'area'), 12)
+
+    expect(await shape(pool)).toEqual({ 1: 3, 2: 4, 3: 2, 4: 2, 5: 3 })
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('loses the last area of the run when a boundary is removed', async () => {
+    const { pool, boundaries } = await backfilled()
+    const before = await counted(pool, 'area')
+
+    await boundaries.remove(await boundaryAt(pool, 'key-0055'))
+
+    expect(await counted(pool, 'area')).toBe(before - 1)
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('keeps an area a book was placed in, rather than orphaning the placement', async () => {
+    /*
+     * The interesting case, and the one the schema has already decided. Removing
+     * a boundary makes the run one area shorter, so the **last** area of the
+     * range is the one with nothing left to describe. `book_placement.area_id` is
+     * `ON DELETE RESTRICT` on purpose: a placement is a record of where a book
+     * actually was, and furniture taken out later must not quietly rewrite it.
+     *
+     * So the area stays, the two models then disagree about the books on it, and
+     * the check says which books by name. Nothing is orphaned, nothing is
+     * silent, and nobody's history is edited to make a shadow table tidy.
+     */
+    const { pool, boundaries } = await backfilled()
+
+    const tail = await pool.query<{ id: number }>(
+      "SELECT id FROM area WHERE starts_at = 'key-0205'",
+    )
+    const areaId = tail.rows[0]!.id
+    const book = await pool.query<{ id: number }>(
+      "SELECT id FROM books WHERE title = 'Book 205'",
+    )
+    const bookId = book.rows[0]!.id
+
+    await pool.query(
+      `INSERT INTO book_placement (book_id, kind, area_id, sort_key, actor, reason, created_at)
+       VALUES ($1, 'placed', $2, 'key-0205', 'person', 'recorded at 3B',
+               '2026-08-09T00:00:00.000Z')`,
+      [bookId, areaId],
+    )
+    await pool.query('UPDATE books SET current_area_id = $1 WHERE id = $2', [areaId, bookId])
+
+    await boundaries.remove(await boundaryAt(pool, 'key-0205'))
+
+    const kept = await pool.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM area WHERE id = $1',
+      [areaId],
+    )
+    expect(kept.rows[0]!.n).toBe('1')
+
+    const found = await disagreements(pool)
+    expect(found[0]).toBe('Book 205: separators say 3A, rules say 3B')
+    expect(found).toHaveLength(fictionFrom('key-0205'))
+  })
+})
+
+/**
+ * The same question, asked after the journeys a person actually makes.
+ *
+ * `Shelves` is not touched by #213 and that is the point being asserted: the
+ * overflow cascade, the boundary move and Remove all reach the four statements
+ * in `DrizzleSeparatorRepository`, so they are covered without knowing they are,
+ * exactly as #214's two command line tools were.
+ */
+describe('the areas following the separators after a person moves a book', () => {
+  async function backfilled(): Promise<{ pool: pg.Pool; shelves: Shelves }> {
+    const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
+    await migrateToLatest(pool)
+    return { pool, shelves: new Shelves(new PgDb(pool)) }
+  }
+
+  const areas = async (pool: pg.Pool): Promise<number> => {
+    const { rows } = await pool.query<{ n: string }>('SELECT count(*)::text AS n FROM area')
+    return Number(rows[0]!.n)
+  }
+
+  const bookNamed = async (pool: pg.Pool, title: string): Promise<number> => {
+    const { rows } = await pool.query<{ id: number }>(
+      'SELECT id FROM books WHERE title = $1',
+      [title],
+    )
+    return rows[0]!.id
+  }
+
+  it('follows the boundary a full plank at the end of the run makes', async () => {
+    const { pool, shelves } = await backfilled()
+    const before = await areas(pool)
+
+    expect((await shelves.overflow('fiction', '3B', 'area')).ok).toBe(true)
+
+    expect(await areas(pool)).toBe(before + 1)
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('follows the boundary a full plank in the middle of the run shifts', async () => {
+    const { pool, shelves } = await backfilled()
+    const before = await areas(pool)
+
+    // 1B exists already, so this re-anchors the boundary that opens it rather
+    // than making one.
+    expect((await shelves.overflow('fiction', '1A', 'area')).ok).toBe(true)
+
+    expect(await areas(pool)).toBe(before)
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('follows a book carried across a boundary', async () => {
+    const { pool, shelves } = await backfilled()
+
+    // The last fiction book before the boundary at `key-0022`, so it is the one
+    // book of 1A that is allowed to cross.
+    const moved = await shelves.moveAcrossBoundary(
+      'fiction', await bookNamed(pool, 'Book 020'), 'next',
+    )
+    expect(moved.ok).toBe(true)
+
+    expect(await disagreements(pool)).toEqual([])
+  })
+
+  it('follows Remove on a boundary, renumbering and all', async () => {
+    const { pool, shelves } = await backfilled()
+    const before = await areas(pool)
+    const boundary = (await shelves.list('fiction'))[1]!
+
+    await shelves.remove(boundary.id)
+
+    expect(await areas(pool)).toBe(before - 1)
+    expect(await disagreements(pool)).toEqual([])
   })
 })

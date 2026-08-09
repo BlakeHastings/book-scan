@@ -87,7 +87,11 @@ describe('the statements the separators repository generates', () => {
     await repository.reposition(4, 1)
     await repository.remove(4)
 
-    expect(said(db)).toHaveLength(6)
+    // Ten rather than six: since #213 each write also asks which range it is
+    // in and hands the range to `recordAreasOf`, which reads `shelf_ranges`
+    // first and finds nothing here, because this database answers every
+    // question with the same empty list.
+    expect(said(db)).toHaveLength(10)
     for (const statement of said(db)) expect(statement).not.toMatch(/\$\d/)
   })
 
@@ -120,12 +124,20 @@ describe('the statements the separators repository generates', () => {
     await repository.reposition(7, 3)
     await repository.remove(7)
 
+    // The range is asked for **before** each statement, which is what makes
+    // `remove` able to record at all: the row it deletes is the only thing that
+    // knows which range the boundary was in.
+    const asked = 'select "shelf_range" from "separators" where "separators"."id" = ?'
     expect(said(db)).toEqual([
+      asked,
       'update "separators" set "starts_at" = ? where "separators"."id" = ?',
+      asked,
       'update "separators" set "position" = ? where "separators"."id" = ?',
+      asked,
       'delete from "separators" where "separators"."id" = ?',
     ])
-    expect(db.seen.map((one) => one.params)).toEqual([['later', 7], [3, 7], [7]])
+    expect(db.seen.map((one) => one.params))
+      .toEqual([[7], ['later', 7], [7], [3, 7], [7], [7]])
   })
 })
 

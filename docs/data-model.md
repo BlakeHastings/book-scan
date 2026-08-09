@@ -505,14 +505,60 @@ row. That is the same write-through #200 moved `capture` onto after finding five
 callers that wrote the image columns without recording anything, arrived at from
 the other end: a caller cannot forget what it never had to remember.
 
-**`area` is the table that drifts here, and it is #184's rather than #185's.**
-It is built once, by `0013`, from `separators`, and nothing keeps the two in step
-afterwards: the overflow cascade and a boundary move both write separators, so a
-plank that came into existence since the migration has no area row. A location on
-such a plank cannot be recorded as a placement, which is the ceiling on how much
-of `books.location` the ledger can follow. Closing it means writing an area
-wherever a separator is written, and that belongs with whatever cuts `Shelves`
-over to the furniture.
+**`area` was the table that drifted here, and #213 closes it.** It was built
+once, by `0013`, from `separators`, and nothing kept the two in step afterwards:
+the overflow cascade and a boundary move both write separators, so a plank that
+came into existence since the migration had no area row and no location on it
+could be recorded as a placement. That was the ceiling on how much of
+`books.location` the ledger could follow, and it is gone.
+
+**#213 answers it the way #200 answered `capture`: a write-through, at the
+statements, not a reconciliation.** There are exactly four statements in this
+repository that write `separators`, and all four are in
+`DrizzleSeparatorRepository`: `add`, `reanchor`, `reposition` and `remove`. Each
+runs `recordAreasOf` in `web/infrastructure/shelving/areas.ts` on its own
+transaction handle, so `Shelves.applyBoundary`, `moveAcrossBoundary`,
+`retractMove`, `RemoveSeparatorHandler` and the routes above them are covered
+without one of them being touched, and `SeparatorRepository` is unchanged, so
+nothing above infrastructure learned a new word. A reconciliation was rejected
+for the reason #200 rejected it: a sweep leaves the drift real between its runs.
+
+**The unit is the range, not the boundary**, which is the one way this is not
+shaped like `capture`. A photograph is a fact about one book; an area's
+`position` counts boundaries from the start of a run, so moving the first
+boundary re-anchors every area after it. So the areas of a range are re-derived
+from the separators as the statement left them and **reconciled** against the
+rows rather than rebuilt: `book_placement.area_id` and `books.current_area_id`
+name area rows, and an area that survives a boundary change has to keep its id.
+
+**Removing a boundary makes the run one area shorter, and the surplus area is
+deleted only when nothing names it.** `book_placement.area_id` is
+`ON DELETE RESTRICT` on purpose, so an area a book was ever placed in is kept,
+the two models then disagree about the books on it, and the check below says
+which books by name. Nothing is orphaned and nothing is silent. The alternative
+was letting the foreign key refuse, which would roll back a boundary change
+somebody had already made at a shelf.
+
+**A range's run stops where the next range's begins.** Non-fiction starts on
+bookcase 4, so a fiction range grown to a fourth bookcase is two runs sharing a
+number, which is the arrangement `0013` refuses outright. The write-through
+cannot refuse it, because `separators` is authoritative and a shadow table does
+not get to veto the shelves, so the areas past that bound are not written and the
+disagreement is reported. That is a pre-existing ambiguity becoming visible: such
+a catalogue is already drawing two planks with the label `4A`. Moving a range's
+starting bookcase in `shelf_ranges` is the way out.
+
+**The check is worth more than the write-through, and it is #184's comparison
+made continuous.** `areaDisagreements` in
+`web/infrastructure/shelving/area-drift.ts` places every shelved book twice, by
+`layoutRange` and by `placementOf`, and names the ones the two answers differ
+about. `applySchema` runs it on every start, and
+`placement-backfill.test.ts` runs it after a divider is added, re-anchored,
+renumbered and removed rather than only after the backfill, because the
+backfill's proof expires the first time anybody moves one. Like the projection
+check it **reports and does not repair**: `recordAreasOf` is the repair, and a
+range that drifted before #213 existed closes itself the next time a boundary is
+written in it.
 
 **Two things the ledger cannot say, and they are written down rather than
 discovered.** A location naming a plank the furniture does not have gets no
