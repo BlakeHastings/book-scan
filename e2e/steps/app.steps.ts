@@ -576,11 +576,26 @@ Then(
 /**
  * "Moved it", tapped on the book's own page rather than in the library list.
  *
- * The banner going is all this waits for, on purpose: that much worked before
- * #197 and would make this step pass either way. What the fix is about is
- * asserted separately, by the step below, on the drawing the banner sat above.
+ * **The wait before the tap is the whole scenario.** Arriving on this page
+ * schedules a placement read 250ms later, and a browser driven at machine
+ * speed taps inside that window, so the arrival read lands after the write and
+ * redraws the shelf that the write itself failed to redraw. Written without
+ * this wait, the scenario passed against the defect it was written for: the
+ * drawing settled about 120ms after the tap, from a request that had nothing
+ * to do with the tap. Somebody who reads the banner before answering it waits
+ * longer than 250ms, and then nothing is left to hide the missing read.
+ *
+ * `.placement--stale` is the app saying so itself: it marks the drawing while
+ * a placement read is outstanding, so its absence is the page having caught up
+ * with where it is.
+ *
+ * The banner going is all this waits for afterwards, on purpose: that much
+ * worked before #197 and would make this step pass either way. What the fix is
+ * about is asserted separately, by the step below, on the drawing the banner
+ * sat above.
  */
 When('I say I have moved it', async ({ page }) => {
+  await expect(page.locator('.placement--stale')).toHaveCount(0)
   await page.locator('.misfile').getByRole('button', { name: 'Moved it' }).click()
   await expect(page.locator('.misfile')).toHaveCount(0)
 })
