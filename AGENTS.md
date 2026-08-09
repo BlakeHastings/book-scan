@@ -643,6 +643,27 @@ than discovered a week later.
 `books.location` is still authoritative and still what the client and
 `reviewShelving` read. Nothing reads a placement row yet.
 
+### There are four statements that write a boundary, and they write the areas too
+
+`DrizzleSeparatorRepository.add`, `.reanchor`, `.reposition` and `.remove`. Every
+one of them re-derives that range's areas through `recordAreasOf`
+(`web/infrastructure/shelving/areas.ts`) on its own transaction handle, which is
+why `Shelves`, `RemoveSeparatorHandler` and the routes above them are covered
+without knowing they are (#213). **If you add a fifth, it goes in that class
+beside the four that do.** A boundary written straight into `separators` is the
+defect `0013` left behind: the table grew a row, `area` did not, and a plank's
+worth of books was drawn on the plank before.
+
+`separators` is still authoritative and still decides where every book goes.
+Nothing reads an area to place a book yet; cutting that over is #220's fourth
+step.
+
+`areaDisagreements` (`web/infrastructure/shelving/area-drift.ts`) is what says
+whether it worked: it places every shelved book by both models and names the ones
+they differ about, and `applySchema` runs it on every start. Like the projection
+check it **reports and does not repair**, because rebuilding on sight erases the
+evidence of which writer is missing.
+
 ### Postgres schema changes go through Drizzle
 
 `web/infrastructure/db/schema.ts` describes the Postgres schema, and
