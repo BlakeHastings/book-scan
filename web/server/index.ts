@@ -49,8 +49,9 @@ import {
 } from '../application/authorship/curate-authors'
 import type { StoredAuthor } from '../application/authorship/ports'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
-import { claimsFrom, genreClaim } from '../domain/tagging/catalogue-claims'
-import { TagSlug, type TagConfidence } from '../domain/tagging/tags'
+import { claimsFrom } from '../domain/tagging/catalogue-claims'
+import { asConfidence, genreStatedBy, rangeOfGenre } from '../domain/tagging/genre'
+import { TagSlug } from '../domain/tagging/tags'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { recordPhotographsOf } from './photographs'
@@ -59,7 +60,7 @@ import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
   bookCover, buildPlacement, compareLocations, formatLocation, parseLocation, shelfImage,
-  type ShelfSlot,
+  type Placement, type ShelfRange, type ShelfSlot,
 } from '../shared/shelving'
 
 export type Slot = 'front' | 'back' | 'edge'
@@ -132,11 +133,6 @@ function namesADifferentBook(
 ): boolean {
   const was = identityOf(before)
   return was !== '' && was !== identityOf(draft)
-}
-
-/** The classifier's confidence, back from a string, defaulting to unknown. */
-function asConfidence(raw: string | undefined): TagConfidence {
-  return raw === 'high' || raw === 'medium' || raw === 'weak' ? raw : 'unknown'
 }
 
 /**
@@ -431,32 +427,35 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   // SQLite driver, and stage I is where that happens.
 
   /**
-   * Keep the tags in step with what was just saved about a book.
+   * Write what this save says a book is under, and answer the range that puts
+   * it in.
    *
-   * `books.is_fiction` is still the column the shelf range is derived from, and
-   * still what the client reads, so every save writes both: the column, by
-   * `Store`, and the tag, here. They cannot disagree, because this runs from the
-   * same draft the row was written from.
+   * **This is the cut-over (#223).** Until now the genre was written twice from
+   * one draft, into `books.is_fiction` by `Store` and into `book_tag` here, and
+   * the column was what decided the shelf range. Now the tag decides: this runs
+   * *before* the row is written, and the range it returns is what the row is
+   * written with. `books.is_fiction` is still written, from that same answer,
+   * because the client still reads it; it decides nothing.
    *
-   * The source is the provenance the draft already carries. `manual` is what
-   * `Store.updateBook` records when somebody saved an edit, and that is a
-   * person; anything else is the classifier, and that is a guess. Restating
-   * rather than applying is what makes an edit from fiction to non-fiction take
-   * the old tag off, and it takes off only the tags of the source doing the
-   * restating, so a person's tag is not disturbed by a lookup and a guess is not
-   * left behind by a person.
+   * The source is the provenance the draft already carries, mapped by
+   * `genreStatedBy`. Restating rather than applying is what makes an edit from
+   * fiction to non-fiction take the old tag off, and it takes off only the tags
+   * of the source doing the restating, so a person's tag is not disturbed by a
+   * lookup and a guess is not left behind by a person.
+   *
+   * Reading the tags back rather than returning the range of the claim is the
+   * point of the whole exercise: a book can carry a person's genre and a
+   * catalogue's, and which of them the shelf follows is `rangeOfGenre`'s answer
+   * rather than whatever this particular save happened to say.
    */
-  async function recordGenreTag(bookId: number, draft: DraftBook): Promise<void> {
-    const decidedByPerson = draft.classificationSource === 'manual'
+  async function settleGenre(bookId: number, draft: DraftBook): Promise<ShelfRange> {
+    const { tag } = genreStatedBy(draft)
     const now = new Date().toISOString()
 
     await restateTags.handle({
       bookId,
-      source: decidedByPerson ? 'person' : 'guess',
-      claims: [genreClaim(
-        draft.isFiction,
-        decidedByPerson ? 'high' : asConfidence(draft.classificationConfidence),
-      )],
+      source: tag.source,
+      claims: [{ slug: tag.slug, confidence: tag.confidence }],
       now,
     })
 
@@ -470,9 +469,19 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // saved guess leaves a person's answer exactly where it is; the only thing
     // that takes one off is the book turning out to be a different book, which
     // `PUT /api/books/:id` settles before this runs (#194).
-    if (decidedByPerson) {
+    if (tag.source === 'person') {
       await restateTags.handle({ bookId, source: 'guess', claims: [], now })
     }
+
+    const settled = rangeOfGenre(await tags.of(bookId))
+    // The claim above was either written or already there, so the book carries
+    // a genre tag by the time this reads. Nothing here is guarding against a
+    // state the model allows: an absence would mean the restatement did not
+    // land, which is a broken write and not a book to file somewhere anyway.
+    if (!settled) {
+      throw new Error(`book ${bookId} carries no genre tag after a save that stated one`)
+    }
+    return settled
   }
 
   /*
@@ -486,7 +495,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   /**
    * Keep the credits in step with what was just saved about a book.
    *
-   * The same arrangement `recordGenreTag` has and for the same reason: `Store`
+   * The same arrangement `settleGenre` had before the cut-over, and for the
+   * same reason, which for authors is still the live one: `Store`
    * still writes `books.authors`, `books.author_filing` and `book_authors`, all
    * of which decide where the book files and what the client reads, and #180
    * drops none of them. So every save writes both, from the same draft, and they
@@ -1131,7 +1141,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
     // When editing a saved book, it must not turn up as its own neighbour.
     const excludeId = Number(body.excludeId ?? 0) || undefined
-    const placement = await store.placementFor(draft, excludeId)
+    /*
+     * The range this draft states, rather than the one the book's tags settle
+     * on. Nothing is written here, so there is no restatement to read back, and
+     * what the person is being shown is the answer to what they have typed.
+     *
+     * The two differ only for a book carrying a person's genre tag that no save
+     * put there, applied through `POST /api/books/:id/tags` and disagreeing with
+     * what the review pane says. That book's save follows the person's tag and
+     * the preview is one step behind it, which is the trade of not writing.
+     */
+    const placement = await store.placementFor(draft, genreStatedBy(draft).range, excludeId)
     res.json(await inDerivedScheme(placement.range, placement, excludeId))
   }))
 
@@ -1190,10 +1210,26 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       if (primary) await store.saveFilingOverride(primary, draft.authorFilingOverride)
     }
 
-    const { id, placement } = queued
-      ? { id: queued.id, placement: await store.updateBook(queued.id, draft) }
-      : await store.addBook(draft)
-    await recordGenreTag(id, draft)
+    /*
+     * The genre is settled before the row, because `books.shelf_range` is
+     * derived from the tags now rather than from `books.is_fiction` (#223).
+     *
+     * A queued book already exists and may already carry a genre somebody
+     * applied, so its tags are restated and read back and that answer is what
+     * the row is written with. A book that does not exist yet carries none, so
+     * `addBook` files it under the one claim this save makes and the tag is
+     * written the moment there is a row to hang it on.
+     */
+    let id: number
+    let placement: Placement
+    if (queued) {
+      id = queued.id
+      placement = await store.updateBook(id, draft, await settleGenre(id, draft))
+    } else {
+      ;({ id, placement } = await store.addBook(draft))
+      await settleGenre(id, draft)
+    }
+
     await recordCredits(id, draft)
     await recordPhotographs(id)
 
@@ -1523,13 +1559,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * book, so what was on record about the old one is withdrawn here, before
      * the new record is written over the top of it. `ReidentifyBookHandler`
      * carries the reasoning and the boundary; the reason it is one call rather
-     * than a rule inside `recordGenreTag` is that genre will not stay the only
+     * than a rule inside `settleGenre` is that genre will not stay the only
      * thing a person can say about a book.
+     *
+     * It runs before the genre is settled, and now that the genre decides the
+     * shelf range that ordering is load bearing rather than tidy: the old
+     * book's genre tag has to be off the row before the new one is read back,
+     * or a corrected book would file under what it used to be.
      */
     if (namesADifferentBook(before, draft)) await reidentifyBook.handle({ bookId: id })
 
-    const placement = await store.updateBook(id, draft)
-    await recordGenreTag(id, draft)
+    const placement = await store.updateBook(id, draft, await settleGenre(id, draft))
     await recordCredits(id, draft)
     await recordPhotographs(id)
     res.json({

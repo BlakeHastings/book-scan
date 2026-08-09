@@ -511,6 +511,7 @@ teach people to skim past it.
 | `web/server/backup-catalogue.ts` | The dump, the retention sweep and the verifying restore |
 | `scripts/backup-catalogue.ps1` | What the scheduled task runs |
 | `docs/backup-runbook.md` | How the catalogue is backed up, and what is not covered |
+| `web/domain/tagging/genre.ts` | Which shelf range a book's genre tags file it into |
 | `web/server/shelves.ts` | Shelf capacity and derived locations |
 | `web/server/placement-ledger.ts` | How a recorded location becomes a `book_placement` row |
 | `web/shared/` | Domain rules shared by client and server |
@@ -549,14 +550,26 @@ used to decide this from the driver in `createApp` is gone: it existed only
 because the tag tables arrived in a Postgres migration while SQLite's schema was
 hand-written, and stage I removed SQLite.
 
-**Neither remodelled slice has been cut over, and that is on purpose.**
-`books.is_fiction` is still the column the shelf range is derived from and still
-what the client reads, and `books.author_filing` and `books.sort_key` are still
-the only things that decide where a book sits. So a save writes both: the
-columns by `Store`, then the tag by `recordGenreTag` and the credits by
-`recordCredits`, from one draft so they cannot disagree. Reading from the new
-tables belongs with the work that remodels `books`, and is a change worth making
-on its own rather than underneath a schema migration.
+**Tags have been cut over and authors have not.** `book_tag` is what decides
+which shelf range a book files into, since the first half of #223:
+`settleGenre` in `server/index.ts` writes the genre **before** the row, and
+`rangeOfGenre` in `web/domain/tagging/genre.ts` reads the book's tags back and
+answers the range that `Store` then writes. **`books.is_fiction` decides
+nothing.** It is still written, from that settled range rather than from what
+the request said, so it shadows the tag instead of competing with it, and it is
+still in the JSON the client reads; dropping it and taking the boolean off the
+wire is the second half of #223.
+
+Three things about that rule are settled and are in `docs/data-model.md` rather
+than only here: a person's genre tag outranks a machine's, `genre/fiction` beats
+`genre/non-fiction` otherwise (which is the order `0013` writes its rules in),
+and a book carrying no genre tag keeps the range it has and does not move.
+`applySchema` counts those books on every start and names them.
+
+**`books.author_filing` and `books.sort_key` are still the only things that
+decide where a book sits**, so a save still writes the columns by `Store` and the
+credits by `recordCredits` from one draft. Reading from `book_author` belongs
+with the work that remodels `books`.
 
 **A save that changes the ISBN is a different thing from a save that edits the
 book**, and it is the only one that takes a person's tags off
@@ -565,6 +578,10 @@ somebody saying the row is a different book, so what was on record about the old
 one is withdrawn. That is not the precedence rule being relaxed, and the
 precedence rule is not negotiable: automation may never retract a person's
 judgement.
+
+**That withdrawal runs before the genre is settled, and the order is now load
+bearing rather than tidy.** The old book's genre tag has to be off the row before
+the new one is read back, or a corrected book files under what it used to be.
 
 Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
 nothing else, not even an npm package; `application/` adds `application/`;

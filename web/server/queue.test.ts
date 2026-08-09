@@ -17,6 +17,7 @@ import { identify } from './identify'
 import { lookupIsbn } from './lookup'
 import type { LookupResult } from './lookup'
 import { Store } from './store'
+import { genreStatedBy } from '../domain/tagging/genre'
 
 vi.mock('./identify', () => ({ identify: vi.fn() }))
 vi.mock('./lookup', () => ({ lookupIsbn: vi.fn(), searchTitle: vi.fn() }))
@@ -90,7 +91,10 @@ async function add() {
  * queue agrees with the thing that actually shelves books.
  */
 async function shelve(id: number) {
-  await store.updateBook(id, { title: 'A Book', authors: ['Ann Author'], isFiction: true })
+  const draft = { title: 'A Book', authors: ['Ann Author'], isFiction: true }
+  // The range arrives beside the draft since #223, settled from the genre. See
+  // `store.test.ts` for why a draft's own claim is the answer here.
+  await store.updateBook(id, draft, genreStatedBy(draft).range)
   return id
 }
 

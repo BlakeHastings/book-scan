@@ -38,6 +38,7 @@ import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
 import { lookupIsbn } from './lookup'
 import { Store } from './store'
+import { genreStatedBy } from '../domain/tagging/genre'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
 import { backCover, frontCover, photographedBook } from './fixtures'
@@ -179,10 +180,13 @@ const dataUrl = (buffer: Buffer) => `data:image/png;base64,${buffer.toString('ba
  * there is nothing to pair: shelving it is `Store.updateBook`, which is what
  * `POST /api/books` calls.
  */
-const shelve = (id: number) =>
-  running.store.updateBook(id, {
-    title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
-  })
+const shelve = (id: number) => {
+  const draft = { title: 'Dune', authors: ['Frank Herbert'], isFiction: true }
+  // The range comes in beside the draft since #223, because it is settled
+  // against `book_tag` before the row is written. This shelves a book without
+  // going through the route, so it states the genre the draft states.
+  return running.store.updateBook(id, draft, genreStatedBy(draft).range)
+}
 
 /** The state a queued book is in, said in the queue's own vocabulary. */
 const stateFor = (status: string) =>

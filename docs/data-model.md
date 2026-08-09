@@ -278,7 +278,7 @@ read, and `idx_books_shelved` is what it is an index seek over. The queue table
 is dissolved: `queued_books` is the three early states and is the whole of what
 `CaptureQueue` reads. See "What is built".
 
-## One repair the cut-over owes
+## One repair the cut-over owed, and `0016` is it
 
 **The work that makes tags authoritative must also clean up #194's rows**, and
 that is the owner's decision of 2026-08-07 rather than an implementer's option.
@@ -298,6 +298,21 @@ migration, and it must:
   actually built from, rather than the one with the higher source
 - **count what it changed and say so**, because a repair that silently rewrites
   a person's answer is the same class of thing as the defect
+
+**Done by #223, as `0016_one_genre_tag_per_book.sql`, and it runs while
+`is_fiction` is still authoritative**, which is the whole reason it is the first
+half of that change rather than the second. Afterwards there is nothing left to
+be right.
+
+Two things about it are narrower than the sentence above and both are deliberate.
+It repairs only the `genre/fiction` and `genre/non-fiction` pair, because those
+are the two slugs a shelf range is built from and the two #194 left together, and
+`books.is_fiction` can neither agree nor disagree with `genre/fantasy`. A book
+left carrying a third genre beside the pair is **counted and left alone**, on the
+same terms `0013` counted these before there was a repair to hand them to. And
+the counts are three: the books repaired, the rows removed, and how many of those
+rows were a person's, which is the accounting for the part that rewrites somebody
+else's answer.
 
 ## Still open
 
@@ -336,11 +351,35 @@ migration, and it must:
 Drizzle repository in `web/infrastructure/tagging/`, and the routes under
 `/api/tags` and `/api/books/:id/tags`.
 
-**`books.is_fiction` was not dropped and nothing was cut over to reading tags.**
-It still decides which shelf range a book files into, and it is still in the JSON
-the client reads. The migration copies it into tags, carrying its provenance, and
-every save afterwards writes both. Removing the column belongs with the work that
-remodels `books`, which touches most of the client.
+**The genre tag is what decides a shelf range, since #223.** `0002` copied
+`books.is_fiction` into tags carrying its provenance and left the column
+authoritative; the first half of #223 turns that round. A save settles the genre
+first, through `settleGenre` in `server/index.ts`, and the range it writes is
+`rangeOfGenre`'s answer over what `book_tag` holds afterwards.
+`domain/tagging/genre.ts` is the whole of the rule.
+
+**The column is still written and decides nothing.** `Store` writes `is_fiction`
+from the settled range rather than from what the request said, so it shadows the
+tag instead of competing with it, and it is still in the JSON the client reads.
+Dropping it and taking the boolean off the wire is the second half of #223.
+
+Three parts of the rule are worth knowing before touching it:
+
+- **A person's genre tag outranks a machine's.** A catalogue refresh may put
+  `genre/non-fiction` on a book somebody filed as fiction, because a lookup may
+  not retract a person's row, and settling that pair on tag order rather than on
+  who said so would let the lookup move the book. That is the one-directional
+  rule read rather than written. It differs from `0013`'s rules, which settle
+  every tie on `priority`; the placement cut-over inherits the question and the
+  answer it wants is a `source` condition on a rule.
+- **Otherwise `genre/fiction` before `genre/non-fiction`**, which is the order
+  `0013` writes its two rules in, so a book carrying both files the same way
+  under either model.
+- **A book no genre tag claims keeps the range it has and does not move.**
+  `books.shelf_range` is written by a save and by nothing else, and a save always
+  states a genre, so the only way in is somebody taking a tag off by hand.
+  `applySchema` counts those on every start and names them; nothing repairs them,
+  for the reason nothing repairs the placement projection.
 
 `author`, `author_alias` and `book_author` are, by #180, in the same shape: the
 three tables, `web/domain/authorship/`, `web/application/authorship/`,

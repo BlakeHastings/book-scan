@@ -58,10 +58,13 @@ export async function refileBooks(
     // which is what the client does with the same joined string.
     const printed = row.printed_author || (row.authors.split(',')[0] ?? '').trim()
 
+    // No genre in here, and there used to be one. `resolveKey` answered the
+    // shelf range as well until #223, so recomputing a filing name meant
+    // restating what the book was about; the range is decided by the genre tag
+    // now, and recomputing a key still states nothing new about the book.
     const resolved = await store.resolveKey({
       title: row.title,
       authors: [printed],
-      isFiction: Boolean(row.is_fiction),
       seriesName: row.series_name,
       seriesIndex: row.series_index,
     })
