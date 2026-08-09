@@ -113,6 +113,13 @@
       "when": 1786289342795,
       "tag": "0015_where_every_book_is_becomes_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786310516365,
+      "tag": "0016_one_genre_tag_per_book",
+      "breakpoints": true
     }
   ]
 }
