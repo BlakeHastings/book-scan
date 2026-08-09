@@ -55,13 +55,18 @@
 #     Unregister-ScheduledTask -TaskName 'book-scan catalogue backup' -Confirm:$false
 #     Remove-Item <the -ConnectionFile path>
 #
-# And, once, the two variables the old version of this script left at Machine
-# scope. From an ELEVATED PowerShell, because Machine scope is HKLM:
+# And, once, the two variables the old version of this script persisted. It
+# wrote them at Machine scope; on the owner's machine they are at User scope,
+# so look in both. User needs no elevation, Machine does:
 #
-#     [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SOURCE', $null, 'Machine')
-#     [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SCRATCH', $null, 'Machine')
+#     foreach ($n in 'BOOKSCAN_BACKUP_SOURCE','BOOKSCAN_BACKUP_SCRATCH') {
+#       foreach ($s in 'Machine','User') {
+#         [Environment]::SetEnvironmentVariable($n, $null, $s)
+#       }
+#     }
 #
-# or pass -RemoveLegacyEnvironment to this script, elevated, to do both.
+# or pass -RemoveLegacyEnvironment to this script, which does both scopes and
+# says which ones it managed.
 
 [CmdletBinding()]
 param(
@@ -97,9 +102,10 @@ param(
     [string] $ConnectionFile = (Join-Path $env:LOCALAPPDATA 'book-scan\backup-connections.json'),
 
     # Delete the BOOKSCAN_BACKUP_SOURCE and BOOKSCAN_BACKUP_SCRATCH variables an
-    # older version of this script left at Machine scope. Off by default and
-    # opt-in, because removing a machine-wide variable is not a thing to do to
-    # somebody as a side effect of registering a task. Needs elevation.
+    # older version of this script persisted, in whichever of User and Machine
+    # scope they are in. Off by default and opt-in, because removing a persisted
+    # variable is not a thing to do to somebody as a side effect of registering
+    # a task. Machine scope needs elevation; User scope does not.
     [switch] $RemoveLegacyEnvironment,
 
     [string] $TaskName = 'book-scan catalogue backup'
@@ -194,13 +200,31 @@ Register-ScheduledTask `
 
 # --- the variables the old version of this script left behind --------------
 
-$legacy = @('BOOKSCAN_BACKUP_SOURCE', 'BOOKSCAN_BACKUP_SCRATCH') |
-    Where-Object { [Environment]::GetEnvironmentVariable($_, 'Machine') }
+# Both scopes, because the observed state does not match what the old code did.
+# It called SetEnvironmentVariable with 'Machine', and on the owner's machine
+# the two names are at 'User'. Whichever way that happened, "still in every
+# process this account starts" is the same problem, so look in both places
+# rather than in the one the code says.
+$legacy = foreach ($name in 'BOOKSCAN_BACKUP_SOURCE', 'BOOKSCAN_BACKUP_SCRATCH') {
+    foreach ($scope in 'Machine', 'User') {
+        if ([Environment]::GetEnvironmentVariable($name, $scope)) {
+            [pscustomobject]@{ Name = $name; Scope = $scope }
+        }
+    }
+}
 
 if ($legacy -and $RemoveLegacyEnvironment) {
-    foreach ($name in $legacy) {
-        [Environment]::SetEnvironmentVariable($name, $null, 'Machine')
-        Write-Output "Removed machine-scope $name."
+    foreach ($item in $legacy) {
+        # Machine scope is HKLM and needs elevation; User scope does not. Said
+        # per variable rather than assumed, so a half-elevated run reports what
+        # it actually managed.
+        try {
+            [Environment]::SetEnvironmentVariable($item.Name, $null, $item.Scope)
+            Write-Output "Removed $($item.Scope)-scope $($item.Name)."
+        } catch {
+            Write-Warning "Could not remove $($item.Scope)-scope $($item.Name): $($_.Exception.Message)"
+            Write-Warning "Machine scope needs an elevated PowerShell."
+        }
     }
     Write-Output "Open a new shell for that to be visible; existing processes keep the old block."
 }
@@ -212,11 +236,15 @@ Write-Output "The task runs as $whoami, which is the only account that can decry
 Write-Output ""
 
 if ($legacy -and -not $RemoveLegacyEnvironment) {
-    Write-Warning "Still set at MACHINE scope, from an older version of this script: $($legacy -join ', ')."
-    Write-Warning "That is every process on this machine, not the task's environment. Remove it from"
-    Write-Warning "an ELEVATED PowerShell, then open a new shell:"
-    foreach ($name in $legacy) {
-        Write-Warning "    [Environment]::SetEnvironmentVariable('$name', `$null, 'Machine')"
+    Write-Warning "Left over from an older version of this script, and still handing the live"
+    Write-Warning "catalogue to every process that inherits them:"
+    foreach ($item in $legacy) {
+        Write-Warning "    $($item.Name) at $($item.Scope) scope"
+    }
+    Write-Warning "Remove them, then open a NEW shell to check. Machine scope needs elevation;"
+    Write-Warning "User scope does not:"
+    foreach ($item in $legacy) {
+        Write-Warning "    [Environment]::SetEnvironmentVariable('$($item.Name)', `$null, '$($item.Scope)')"
     }
     Write-Warning "Nothing reads them any more, so removing them cannot break the schedule."
     Write-Output ""

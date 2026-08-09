@@ -327,6 +327,12 @@ server/backup-catalogue.ts` typed by anybody in any directory opened the live
 catalogue. Nothing was corrupted by that, and AGENTS.md is explicit that "it was
 only a `SELECT`" is not the bar.
 
+On the owner's machine the two names turned out to be at **`User`** scope rather
+than `Machine`, whatever the script said. It makes no difference to the leak:
+`User` scope is every process this account starts, which is every shell and
+every agent session here. It does make a difference to the removal, so step 3a
+below looks in both places.
+
 **What it is now.** Two independent changes, because the leak had two halves.
 
 1. **The secret is in a file, encrypted with DPAPI for the owner's account**, at
@@ -526,20 +532,30 @@ The owner runs this. It needs the live connection string.
    Re-running this is how the connections are rotated: it overwrites the file
    and re-registers the task.
 
-3a. **Remove the two machine-scope variables the old registration left**, once,
-   from an **elevated** PowerShell, because `Machine` scope is `HKLM`:
+3a. **Remove the two persisted variables the old registration left.** Look in
+   both scopes: the old code wrote `Machine`, and on this machine they are at
+   `User`, which is the same problem for every process this account starts.
 
    ```
-   [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SOURCE', $null, 'Machine')
-   [Environment]::SetEnvironmentVariable('BOOKSCAN_BACKUP_SCRATCH', $null, 'Machine')
+   foreach ($n in 'BOOKSCAN_BACKUP_SOURCE','BOOKSCAN_BACKUP_SCRATCH') {
+     foreach ($s in 'Machine','User') {
+       if ([Environment]::GetEnvironmentVariable($n, $s)) {
+         [Environment]::SetEnvironmentVariable($n, $null, $s)
+         "removed $n at $s"
+       }
+     }
+   }
    ```
 
-   Or, equivalently, add `-RemoveLegacyEnvironment` to step 3 and run it
-   elevated. Either way, check with a **new** shell, since a running process
-   keeps the environment block it started with:
+   `User` scope needs no elevation; `Machine` scope is `HKLM` and does. Step 3
+   reports which scope each one is in, and `-RemoveLegacyEnvironment` on step 3
+   does the removal for you.
+
+   Check from a **new** shell, since a running process keeps the environment
+   block it started with:
 
    ```
-   [Environment]::GetEnvironmentVariable('BOOKSCAN_BACKUP_SOURCE', 'Machine')
+   $env:BOOKSCAN_BACKUP_SOURCE
    ```
 
    That should print nothing. Nothing reads those names any more, so removing

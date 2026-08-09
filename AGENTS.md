@@ -226,9 +226,9 @@ migration tool made before it was deleted.
 
 **That is a rule with a scar on it.** The variable used to be read whenever
 `--source` was absent, and `scripts/install-backup-task.ps1` used to set it at
-`Machine` scope so a scheduled task could carry a password out of its command
-line. `Machine` scope is not a task's environment, it is every process on the
-box, so a connection string naming the live catalogue sat in every shell and
+a persisted scope so a scheduled task could carry a password out of its command
+line. A persisted variable is not a task's environment, it is every process that
+inherits it, so a connection string naming the live catalogue sat in every shell and
 every agent session here, and `npx tsx server/backup-catalogue.ts` with no
 arguments opened the live catalogue. The connections now live in a
 DPAPI-encrypted file the task is given the path to. See #215 and
