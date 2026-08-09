@@ -33,6 +33,16 @@
  * `books.location`, which is the invariant that is not, because `location`
  * stays authoritative until the cut-over. `0015` counts these on the way in.
  *
+ * That is a wider hole than a mistyped label, and it is inherited rather than
+ * introduced here. **`area` is built once, by `0013`, from `separators`, and
+ * nothing keeps the two in step afterwards.** The overflow cascade and a
+ * boundary move both write separators, so a plank that came into existence after
+ * the migration has no area row and no location on it can be recorded as a
+ * placement. Watched live: on a catalogue with no boundaries the only areas are
+ * `1A` and `4A`, and a book moved to `1B` kept its previous placement. Closing
+ * it means writing an area wherever a separator is written, which belongs with
+ * whatever cuts `Shelves` over to the furniture rather than underneath this.
+ *
  * **Clearing a recorded location**, which the route describes as taking a book
  * back to never-placed. None of the six kinds says that: `withdrawn` means given
  * away, and `checked_out` means it is out of the house in somebody's bag. So no

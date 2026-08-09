@@ -505,6 +505,15 @@ row. That is the same write-through #200 moved `capture` onto after finding five
 callers that wrote the image columns without recording anything, arrived at from
 the other end: a caller cannot forget what it never had to remember.
 
+**`area` is the table that drifts here, and it is #184's rather than #185's.**
+It is built once, by `0013`, from `separators`, and nothing keeps the two in step
+afterwards: the overflow cascade and a boundary move both write separators, so a
+plank that came into existence since the migration has no area row. A location on
+such a plank cannot be recorded as a placement, which is the ceiling on how much
+of `books.location` the ledger can follow. Closing it means writing an area
+wherever a separator is written, and that belongs with whatever cuts `Shelves`
+over to the furniture.
+
 **Two things the ledger cannot say, and they are written down rather than
 discovered.** A location naming a plank the furniture does not have gets no
 `placed` row, because `PATCH /api/books/:id/location` accepts any label
