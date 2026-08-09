@@ -26,13 +26,32 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { rangeOfGenre } from '../../domain/tagging/genre'
 import { TagSlug, type AppliedTag, type TagConfidence, type TagSource } from '../../domain/tagging/tags'
 import { SCHEMA } from '../../server/db.pg'
 import type { ShelfRange } from '../../shared/shelving'
 import { migrateToLatest } from './migrate'
 import { dropScratchDatabases, scratchDatabase } from './testdb'
+
+/**
+ * The catalogues open right now, given back as each test finishes with one.
+ *
+ * `dropScratchDatabases` closes every pool a file made and drops the databases,
+ * and for a file that makes half a dozen that is the whole story. This one makes
+ * a dozen, and a dozen pools alive at once beside the dozen
+ * `placement-backfill.test.ts` keeps open ran the container out of connections
+ * under a full parallel run: `sorry, too many clients already`, raised by
+ * `CREATE DATABASE` in a third file that had done nothing wrong. Handing the
+ * connections back per test holds one catalogue open instead of twelve. The
+ * `afterAll` still drops them, and a second `end()` on a closed pool is caught
+ * there.
+ */
+const openHere: pg.Pool[] = []
+
+afterEach(async () => {
+  await Promise.all(openHere.splice(0).map((pool) => pool.end().catch(() => undefined)))
+})
 
 afterAll(async () => {
   await dropScratchDatabases()
@@ -78,6 +97,7 @@ const LIVE_SIZED: SeedBook[] = Array.from({ length: 236 }, (_, at) => ({
  */
 async function catalogueOf(books: SeedBook[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
+  openHere.push(pool)
   await pool.query(SCHEMA)
 
   if (books.length) {
@@ -274,15 +294,12 @@ describe('the genre tag deciding which range a book files into', () => {
     console.log(`[genre] shelf order ${before} before, ${after} after; ` +
       `${old.length} books filed twice and compared one at a time`)
     expect(after).toBe(before)
-  })
 
-  it('carries the provenance across, so a person is still a person', async () => {
     // The precedence in `rangeOfGenre` is worth nothing if every row arrives as
     // a guess. `0002` maps `manual` to `person`, and a quarter of this
-    // catalogue was decided by one.
-    const pool = await catalogueOf(LIVE_SIZED)
-    await migrateToLatest(pool)
-
+    // catalogue was decided by one, so the comparison above ran over both.
+    // Asserted here rather than on a catalogue of its own, because a database
+    // costs connections the container has not many of; see `openHere`.
     const { rows } = await pool.query<{ source: string; n: string }>(
       `SELECT bt.source, count(*)::text AS n
          FROM book_tag bt JOIN tag t ON t.id = bt.tag_id
@@ -374,7 +391,9 @@ describe('the repair the cut-over owes', () => {
       { slug: 'genre/non-fiction', source: 'person' },
     ])
 
-    await pool.query(repairStatement())
+    const before = await shelfOrder(pool, 'shelved_books')
+    const said = await noticesFrom(pool, repairStatement())
+    const after = await shelfOrder(pool, 'shelved_books')
 
     // The guess survives and the person's row goes, because the column is what
     // the shelf was built from and the person's answer was about a different
@@ -385,11 +404,6 @@ describe('the repair the cut-over owes', () => {
     expect(await genreRowsOf(pool, 'Book 000')).toEqual([
       { slug: 'genre/non-fiction', source: 'person' },
     ])
-  })
-
-  it('counts what it changed, including how much of it was a person', async () => {
-    const pool = await withCorrectedBooks()
-    const said = await noticesFrom(pool, repairStatement())
 
     // Two books, two rows removed, and both of them somebody's answer. A repair
     // that silently rewrites a person's answer is the same class of thing as
@@ -397,16 +411,11 @@ describe('the repair the cut-over owes', () => {
     expect(said.some((line) =>
       line.includes('2 books carried both range genres, 2 rows removed, 2 of them a person'),
     )).toBe(true)
-  })
 
-  it('says so plainly when there is nothing to repair', async () => {
-    const pool = await catalogueOf(LIVE_SIZED)
-    await migrateToLatest(pool)
-
-    const said = await noticesFrom(pool, repairStatement())
-    expect(said.some((line) =>
-      line.includes('no book carried both genre/fiction and genre/non-fiction'),
-    )).toBe(true)
+    // And not one book moved, which the migration checks itself and refuses on.
+    expect(after).toBe(before)
+    expect(said.some((line) => line.startsWith('shelf order unchanged'))).toBe(true)
+    console.log(`[genre] repair shelf order ${before} before, ${after} after`)
   })
 
   it('leaves a genre that is not one of the two ranges exactly where it is', async () => {
@@ -431,23 +440,14 @@ describe('the repair the cut-over owes', () => {
       .toBe(true)
   })
 
-  it('moves no book, and the migration says so itself', async () => {
-    const pool = await withCorrectedBooks()
-
-    const before = await shelfOrder(pool, 'shelved_books')
-    const said = await noticesFrom(pool, repairStatement())
-    const after = await shelfOrder(pool, 'shelved_books')
-
-    expect(after).toBe(before)
-    expect(said.some((line) => line.startsWith('shelf order unchanged'))).toBe(true)
-    console.log(`[genre] repair shelf order ${before} before, ${after} after`)
-  })
-
-  it('is safe to run again when somebody is not sure it finished', async () => {
+  it('is safe to run again, and says plainly when there is nothing to repair', async () => {
     const pool = await withCorrectedBooks()
     await pool.query(repairStatement())
     const repaired = await genreRowsOf(pool, 'Book 041')
 
+    // A migration somebody is not sure finished should be safe to set going
+    // again, and a run with nothing to do has to say so rather than going
+    // quiet: silence and success look the same in a log.
     const said = await noticesFrom(pool, repairStatement())
     expect(await genreRowsOf(pool, 'Book 041')).toEqual(repaired)
     expect(said.some((line) =>

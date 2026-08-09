@@ -32,7 +32,20 @@ const serverUrl = () => process.env.BOOKSCAN_TEST_DATABASE_URL ?? inject('postgr
 const opened: { pool: pg.Pool; name: string }[] = []
 
 export function poolFor(connectionString: string): pg.Pool {
-  const pool = new pg.Pool({ connectionString })
+  /*
+   * `idleTimeoutMillis` is a second rather than node-postgres's ten, and it is
+   * about the whole run rather than about this pool.
+   *
+   * Every file here holds a pool per scratch database until its `afterAll`, and
+   * a pool that has run one query parks that connection for as long as the
+   * timeout says. Postgres allows a hundred at once. With a dozen files in
+   * parallel, several of them making a dozen databases each, the run reached
+   * that number and whichever file asked next failed with `sorry, too many
+   * clients already` — in a file that had done nothing wrong, which is the worst
+   * kind of failure to read. Giving an idle connection back after a second costs
+   * a reconnect the next test would have paid for anyway.
+   */
+  const pool = new pg.Pool({ connectionString, idleTimeoutMillis: 1_000 })
   // node-postgres throws on an `error` event with no listener, which surfaces as
   // a file failing with every test in it passing. See PgDb.
   pool.on('error', () => {})
