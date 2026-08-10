@@ -49,12 +49,11 @@ const scratch = scratchDatabase
 
 afterAll(async () => {
   await dropScratchDatabases()
-  // Four or five databases, each with a connection of its own to open and a
-  // DROP to wait for, and vitest's default hook timeout is ten seconds. That
-  // is enough against the service container CI uses and not always enough
-  // against a container on a laptop, where this file failed with every test
-  // in it passing.
-}, 60_000)
+  // Four or five databases, each with a DROP to wait for behind whatever
+  // checkpoint Postgres is already running for somebody else's. Takes the
+  // repository's default hook timeout rather than pinning one here; see
+  // vitest.config.ts for what that default now buys and why (#226).
+})
 
 /**
  * Everything about the shape of a database that anything depends on.

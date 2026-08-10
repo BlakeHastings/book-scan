@@ -98,13 +98,30 @@ export async function migratedDatabase(): Promise<pg.Pool> {
  * left behind matters on a server the escape hatch pointed at, which is exactly
  * the server somebody has to live with.
  *
- * Three things here are about the ten second hook timeout rather than about
- * correctness, and they were each measured: **one admin connection for every
- * drop** instead of a pool per database, the pools closed **together** rather
- * than one after another, and `WITH (FORCE)`, so a drop does not wait on a
- * connection something else has not finished closing. A file that makes half a
- * dozen databases was timing out in its teardown under a full parallel run and
- * failing with every test in it passing.
+ * **Four connections, not ten and not one.** This used to run the drops through
+ * `Promise.all` over a bare `poolFor` pool, which is what the comment here
+ * called "one admin connection for every drop" without being one: a `Pool`
+ * serving several concurrent queries opens a connection per query, up to its
+ * default of ten, exactly because nothing here waits for the previous drop to
+ * finish before issuing the next. Measured against a real server with
+ * `pg_stat_activity` (#226): at the tail of a full run, dozens of connections
+ * per file sitting on `postgres`, `active`, waiting on `IPC/CheckpointStart`.
+ * `DROP DATABASE` forces a checkpoint, so a burst of concurrent drops queues
+ * behind the same one, and every drop waiting in that queue is a connection
+ * held open rather than a connection doing anything.
+ *
+ * **Serialising onto one connection was tried and measured worse, not just
+ * cautious.** Postgres coalesces concurrent checkpoint requests: several drops
+ * in flight together are satisfied by one checkpoint pass, where the same
+ * drops sent one at a time each wait for a fresh round with the housekeeping
+ * cost of a full ledger checkpoint paid every time. A single connection took
+ * seven files past the sixty second hook timeout that were fine before, with
+ * every test in them passing right up to the hook. `max: 4` keeps most of that
+ * batching (measured: peak concurrent connections held around 40 on a 16 core
+ * machine, where ten per file measured near 80) without opening the flood a
+ * bare `Pool` did. `WITH (FORCE)` stays: it is what stops a drop waiting on a
+ * connection something else has not finished closing, a different wait from
+ * the checkpoint one above.
  */
 export async function dropScratchDatabases(): Promise<void> {
   const made = opened.splice(0)
@@ -112,7 +129,8 @@ export async function dropScratchDatabases(): Promise<void> {
 
   await Promise.all(made.map(({ pool }) => pool.end().catch(() => undefined)))
 
-  const admin = poolFor(serverUrl())
+  const admin = new pg.Pool({ connectionString: serverUrl(), max: 4 })
+  admin.on('error', () => {})
   try {
     await Promise.all(made.map(({ name }) =>
       admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`)

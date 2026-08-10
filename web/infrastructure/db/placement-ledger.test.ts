@@ -57,7 +57,7 @@ import { dropScratchDatabases, scratchDatabase } from './testdb'
 
 afterAll(async () => {
   await dropScratchDatabases()
-}, 60_000)
+})
 
 // ---------------------------------------------------------------------------
 // A catalogue in the state the owner's is in
