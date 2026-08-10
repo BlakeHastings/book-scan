@@ -224,8 +224,24 @@ export interface CaptureEdit {
  */
 export const MANUAL_ISBN_SOURCE = 'manual'
 
+/** The book already on record for an ISBN, in the shape a lookup names it. */
+export interface DuplicateBook {
+  id: number
+  title: string
+  location: string
+}
+
+/**
+ * A catalogue lookup, with the answer to a second question `lookupIsbn` on
+ * its own cannot give: whether this catalogue already has a book under this
+ * ISBN. `GET /api/lookup/isbn/:isbn` (`server/index.ts`) asks both questions
+ * together and this is the same pairing, so every door that reaches a lookup
+ * answers it the same way (#233).
+ */
+export type LookupWithDuplicate = LookupResult & { duplicateOf: DuplicateBook | null }
+
 export type EditOutcome =
-  | { ok: true; row: CaptureRow; lookup: LookupResult | null }
+  | { ok: true; row: CaptureRow; lookup: LookupWithDuplicate | null }
   | { ok: false; reason: 'missing' }
   | { ok: false; reason: 'done' }
   | { ok: false; reason: 'claimed'; heldBy: string }
@@ -296,7 +312,35 @@ export class CaptureQueue {
      * cropped and hashed.
      */
     private readonly images?: CaptureImages,
+    /**
+     * Whether an ISBN is already on a shelved, checked-out or withdrawn book.
+     *
+     * `Store.findByIsbn` bound in by `server/index.ts`, so this class asks
+     * the one question of the catalogue it needs rather than depending on the
+     * whole of `Store`. Optional so a test can build a queue with no
+     * catalogue behind it at all, in which case a duplicate is never named,
+     * the same answer every caller got before this existed.
+     */
+    private readonly findCatalogued?: (isbn: string) => Promise<DuplicateBook | undefined>,
   ) {}
+
+  /**
+   * The book already on record for this ISBN, or null when there is not one.
+   *
+   * The same question the sibling route asks of `store.findByIsbn`
+   * (`GET /api/lookup/isbn/:isbn`, `server/index.ts:1121`), asked here too so
+   * a corrected or auto-identified ISBN gets the same warning a fresh lookup
+   * does (#233). `queue.edit` and the background worker both call this rather
+   * than each querying the catalogue their own way.
+   */
+  private async duplicateOf(isbn: string): Promise<DuplicateBook | null> {
+    if (!isbn || !this.findCatalogued) return null
+    const existing = await this.findCatalogued(isbn)
+    // Narrowed to the three fields a warning names, not the whole row `Store`
+    // hands back: the same shape the sibling route answers with, and the only
+    // one `LookupWithDuplicate.duplicateOf` promises a caller.
+    return existing ? { id: existing.id, title: existing.title, location: existing.location } : null
+  }
 
   // -----------------------------------------------------------------------
   // Writes
@@ -639,7 +683,15 @@ export class CaptureQueue {
       },
     )
 
-    return { ok: true, row: (await this.get(id))!, lookup }
+    // The same isbn a fresh lookup would have been asked about: what the
+    // catalogue answered, falling back to the digits typed when nothing
+    // answered at all. Computed here rather than trusted to whatever called
+    // `lookupIsbn` above, for the reason `duplicateOf` exists (#233).
+    const withDuplicate: LookupWithDuplicate | null = lookup
+      ? { ...lookup, duplicateOf: await this.duplicateOf(lookup.isbn13 || typed?.isbn13 || '') }
+      : null
+
+    return { ok: true, row: (await this.get(id))!, lookup: withDuplicate }
   }
 
   async release(id: number, who: string): Promise<void> {
@@ -1029,6 +1081,16 @@ export class CaptureQueue {
       const statedIsbn = stated.isbn13 !== undefined
       const resolved = Boolean(lookup?.found) || Boolean(stated.title) || statedIsbn
 
+      // `lookup` is only ever set here on a confirmed match (see the loop
+      // above), so whenever it is truthy there is a real ISBN worth asking
+      // the catalogue about. Computed fresh on every pass rather than carried
+      // over from a stale draft_json, the same as a corrected ISBN gets in
+      // `edit` (#233): a person scanning a book the catalogue already holds
+      // must see that on the very first read, not only after correcting it.
+      const draftWithDuplicate: LookupWithDuplicate | null = lookup
+        ? { ...lookup, duplicateOf: await this.duplicateOf(lookup.isbn13 || isbn13) }
+        : null
+
       await this.db.run(
         // `AND state IN (queued)` is new, and it is the discard window. The
         // pass above spent seconds on OCR and lookups, which is ample time for
@@ -1061,7 +1123,7 @@ export class CaptureQueue {
           // because it is not the thing shown to them: the capture is read as
           // this with the overlay on top, so a fresher lookup underneath is
           // an improvement rather than a conflict.
-          draft: lookup ? JSON.stringify(lookup) : '',
+          draft: draftWithDuplicate ? JSON.stringify(draftWithDuplicate) : '',
           // "Could not confirm an ISBN, use Change ISBN" stops being true the
           // moment somebody has. Leaving it would send the next person to a
           // book that has already been dealt with.
