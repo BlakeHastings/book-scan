@@ -13,23 +13,27 @@ Postgres database in the container `book-scan-live-pg`; the SQLite file is
 retained as history until at least 2026-09-06 and nothing in this repository can
 open it.
 
-**The remodel is all built and none of it is read.** `docs/data-model.md`
+**The remodel is all built, and half of it is read.** `docs/data-model.md`
 specifies fourteen tables. Landed: `tag` and `book_tag` (#179), `author`,
 `author_alias` and `book_author` (#180), `capture` (#181), `books.state` with its
 three views and the dissolved queue (#183, both halves), `collection`,
 `sort_strategy`, `fixture`, `area`, `placement_rule` and `rule_condition` (#184),
 and `book_placement` with `books.current_area_id` (#185). **Epic #170 is done and
-the cut-over is what is left**, which is the first change in this sequence that
-gets to delete something, and it owes the genre repair `docs/data-model.md`
-names.
+the cut-over, #220, is what is left.** It is the first work in this sequence that
+gets to delete anything, it owed three repairs, and all three are landed: `0016`
+for the books carrying two genre tags (#225), `0017` for the photographs the
+write-through missed (#228) and `0020` for the aliases that drifted behind
+`books.author_filing` (#227).
 
-**The cut-over has started, and photographs are the first thing it has actually
-dropped.** #228 took the ten image columns off `books`, so `capture` is the
-record and there is no second answer about what a book has been photographed
-with; the repair the window between #192 and #214 left is `0017` and ran before
-any column went. Tags went first (#223, first half). `books.author_filing` still
-feeds `sort_key`, and `shelf_ranges` and `separators` are still where every book
-actually goes. **Do not cut a slice over as a side effect of something else.**
+**Three of the four slices are cut over, and the largest is not.** Each step
+added its tables and left the old columns authoritative; #223 and #227 turned
+tags and authors round, and #228 turned photographs round. `books.is_fiction`,
+`books.author_filing` and the ten image columns are dropped, and each drop ran
+after a repair and a comparison over a catalogue that still had the column:
+`0017` for the photographs the write-through missed, `0020` for the aliases that
+drifted behind `books.author_filing`. **`shelf_ranges` and `separators` are still
+where every book actually goes**, and that is the fourth step and the biggest.
+**Do not cut a slice over as a side effect of something else.**
 
 **#214 and #185 agree about where a recording belongs**, and between them they
 settle it: on the statement that writes the column, never on the caller. #214

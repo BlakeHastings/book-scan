@@ -567,9 +567,9 @@ the view. The second dissolved the queue: **there is no queue table.** A book
 exists from its first photograph, so `CaptureQueue` reads and writes `books`,
 the queue is `queued_books`, and `identified` has rows in it.
 
-**The `captures` table is still in the schema and nothing reads it.** Nothing is
-ever dropped here, so it sits there with its rows, each one naming the book it
-became in `book_id`. Do not add a reader. If you find yourself writing
+**The `captures` table is still in the schema and nothing reads it.** No *table*
+has ever been dropped here, so it sits there with its rows, each one naming the
+book it became in `book_id`. Do not add a reader. If you find yourself writing
 `FROM captures`, the answer is `queued_books`.
 
 **Tags and credits are written on every save, unconditionally.** The gate that
@@ -577,15 +577,28 @@ used to decide this from the driver in `createApp` is gone: it existed only
 because the tag tables arrived in a Postgres migration while SQLite's schema was
 hand-written, and stage I removed SQLite.
 
-**Tags have been cut over and authors have not.** `book_tag` is what decides
-which shelf range a book files into, since the first half of #223:
+**Tags and authors are both cut over, and two columns are gone.** `book_tag` is
+what decides which shelf range a book files into, since the first half of #223:
 `settleGenre` in `server/index.ts` writes the genre **before** the row, and
 `rangeOfGenre` in `web/domain/tagging/genre.ts` reads the book's tags back and
-answers the range that `Store` then writes. **`books.is_fiction` decides
-nothing.** It is still written, from that settled range rather than from what
-the request said, so it shadows the tag instead of competing with it, and it is
-still in the JSON the client reads; dropping it and taking the boolean off the
-wire is the second half of #223.
+answers the range that `Store` then writes. `author_alias.filing_name` is what
+the first component of every `sort_key` is built from, since #227:
+`Store.filingFor` asks the authorship port what the first-listed name files
+under, and falls back to `filingName` only for a name this collection has never
+seen, which is the value the alias is about to be given anyway.
+
+**`books.is_fiction` and `books.author_filing` no longer exist.** #227 dropped
+them, each in its own migration and its own commit, beside the ten image columns
+#228 dropped in the same fortnight. A book's genre is `book_tag`, a book's filing
+name is its first credit's alias, and the wire carries a genre **slug** rather
+than a boolean.
+
+**`author_filing` is still a column, on the three views.** `shelved_books`,
+`catalogued_books` and `queued_books` join the credit at position 1 back on, in
+one place, `filed` in `infrastructure/db/schema.ts`, so every listing, shelf row
+and neighbour reads what it always read. `books` itself does not have it, and the
+types say which is which: `FiledBookRow` is a view row and `BookRow` is the
+table's. `GET /api/books/:id` answers the book with its credits beside it.
 
 Three things about that rule are settled and are in `docs/data-model.md` rather
 than only here: a person's genre tag outranks a machine's, `genre/fiction` beats
@@ -593,10 +606,18 @@ than only here: a person's genre tag outranks a machine's, `genre/fiction` beats
 and a book carrying no genre tag keeps the range it has and does not move.
 `applySchema` counts those books on every start and names them.
 
-**`books.author_filing` and `books.sort_key` are still the only things that
-decide where a book sits**, so a save still writes the columns by `Store` and the
-credits by `recordCredits` from one draft. Reading from `book_author` belongs
-with the work that remodels `books`.
+**`books.sort_key` is still the only thing that decides where a book sits**, and
+a save still writes it by `Store`, from the filing name the alias answers. The
+credits are written by `recordCredits` from the same draft, immediately after,
+and that is also where a filing name somebody typed reaches the alias:
+`Store.saveFilingOverride` is gone and its job is `FileAliasHandler`.
+
+**Filing a name does not move a book, and that sentence changed meaning.**
+`books.sort_key` is written by a save and by `server/refile-books.ts` and by
+nothing else, so correcting an alias leaves every shelf exactly as it was; what
+changes at once is what the catalogue *says* the book files under, because that
+is read from the alias. The next save of that book puts it where the corrected
+name says.
 
 **A save that changes the ISBN is a different thing from a save that edits the
 book**, and it is the only one that takes a person's tags off

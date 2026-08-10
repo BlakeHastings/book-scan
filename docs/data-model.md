@@ -3,18 +3,22 @@
 Fourteen tables. Settled with the owner on 2026-08-06 across eight revisions,
 and recorded here because the reasoning matters more than the column lists.
 
-**All of this is built and none of it is read.** The live schema is the
-six-table one in `web/server/db.pg.ts`, plus `tag` and `book_tag` from #179,
-`author`, `author_alias` and `book_author` from #180, `capture` from #181,
-`books.state` with its three views from #183, `collection`, `sort_strategy`,
-`fixture`, `area`, `placement_rule` and `rule_condition` from #184, and
-`book_placement` with `books.current_area_id` from #185. Every one of those was
-added beside the columns it replaces rather than instead of them, and they are
-described under "What is built" at the end. **What is left is the cut-over**,
-which is where something is finally deleted, and #228 is the first step of it to
-delete anything: the ten photograph columns on `books` are gone and `capture` is
-what the app reads. `docs/domain-model.md` is the
-layering this sits under; #170 is the epic that built the rest.
+**All of this is built, and three of the four slices are now read.** The live
+schema is the six-table one in `web/server/db.pg.ts`, plus `tag` and `book_tag`
+from #179, `author`, `author_alias` and `book_author` from #180, `capture` from
+#181, `books.state` with its three views from #183, `collection`,
+`sort_strategy`, `fixture`, `area`, `placement_rule` and `rule_condition` from
+#184, and `book_placement` with `books.current_area_id` from #185. Every one of
+those was added beside the columns it replaces rather than instead of them, and
+they are described under "What is built" at the end.
+
+**The cut-over is where something is finally deleted, and twelve columns have
+gone.** #223 and #227 made the genre tag decide a shelf range and the credited
+alias decide what a book files under, and #227 dropped `books.is_fiction` and
+`books.author_filing`; #228 made `capture` the record of a photograph and dropped
+the ten image columns. The placement half is what is left, and #220 is the epic
+that tracks it. `docs/domain-model.md` is the layering this sits under; #170 is
+the epic that built the rest.
 
 The point is not that fourteen is better than six. It is that the current schema
 describes what the code needed and this one describes the collection.
@@ -173,12 +177,16 @@ two strings that differ by one initial, which is also how two different people
 differ. `POST /api/authors/merge` is what a person uses to say so, and it moves
 no book, because the books still credit the same aliases.
 
-**A filing name comes from `books.author_filing`**, which is the value the app
-already computed for that name with any override applied, and which is the first
-component of the `sort_key` the shelf is ordered by. A name that has never been
-first-listed has never had one computed, and #180 invents none: the printed name
-stands until somebody files it, because the alternative is a second copy of
+**A filing name came from `books.author_filing`**, which was the value the app
+had already computed for that name with any override applied, and which was the
+first component of the `sort_key` the shelf is ordered by. A name that has never
+been first-listed has never had one computed, and #180 invents none: the printed
+name stands until somebody files it, because the alternative is a second copy of
 `filingName()` written in SQL. Which authors those are is on `author.note`.
+
+**Since #227 it is the other way round.** `author_alias.filing_name` is what a
+sort key's first component is built from, the column it was copied from is gone,
+and `0020` is the repair that made the two agree before it went.
 
 ### Book
 
@@ -346,9 +354,9 @@ the counts are three: the books repaired, the rows removed, and how many of thos
 rows were a person's, which is the accounting for the part that rewrites somebody
 else's answer.
 
-## A second repair the cut-over owed, and `0017` is it
+## The repair the authors' half owed, and `0020` is it
 
-The authors' half owes one for the same reason the genre half did: something
+The authors' half owed one for the same reason the genre half did: something
 drifted behind the column it shadows, and nothing read it, so nothing noticed.
 
 `author_alias.filing_name` was filled by #180 from `books.author_filing`, which
@@ -360,7 +368,7 @@ column and never the alias. And `AuthorRepository.introduce` deliberately never
 rewrites an existing alias's filing name, because re-saving a book must not undo
 somebody's correction, so the save carrying that override left the alias alone.
 
-`0017` is the repair, and it is `0016`'s rule with the nouns changed: **the alias
+`0020` is the repair, and it is `0016`'s rule with the nouns changed: **the alias
 files under what `books.author_filing` says**, because that is what the book is
 physically shelved by. It runs while the column is still authoritative, for the
 reason `0016` ran while `is_fiction` was, and it counts what it changed.
@@ -427,10 +435,12 @@ first, through `settleGenre` in `server/index.ts`, and the range it writes is
 `rangeOfGenre`'s answer over what `book_tag` holds afterwards.
 `domain/tagging/genre.ts` is the whole of the rule.
 
-**The column is still written and decides nothing.** `Store` writes `is_fiction`
-from the settled range rather than from what the request said, so it shadows the
-tag instead of competing with it, and it is still in the JSON the client reads.
-Dropping it and taking the boolean off the wire is the second half of #223.
+**The column is gone, and so is the boolean** (#227). `books.is_fiction` was
+written from the settled range so that it shadowed the tag rather than competing
+with it, which is what made it droppable; the client now sends and reads a genre
+**slug**, `GenreSlug` in `domain/tagging/catalogue-claims.ts`, from the
+classifier's ladder through to the field beside the title. `books.shelf_range`
+is the run the genre settled on and is what every shelf query reads.
 
 Three parts of the rule are worth knowing before touching it:
 
@@ -455,17 +465,25 @@ three tables, `web/domain/authorship/`, `web/application/authorship/`,
 `web/infrastructure/authorship/`, and routes under `/api/authors` and
 `/api/books/:id/authors`.
 
-**Nothing was cut over here either, and this one matters more.**
-`books.authors`, `books.author_filing`, `books.sort_key`, `book_authors` and the
-`author_filing` table are all exactly as they were, and `books.author_filing` is
-still the only thing that decides where a book sits. The new tables are written
-beside them on every save. That is deliberate: `author_filing` is the first
-component of every sort key in the catalogue, and moving the shelving code onto
-a column filled in by a migration is a change worth making on its own rather
-than underneath a schema change.
+**Cut over by #227, and `books.author_filing` is gone.** `Store.filingFor` asks
+the authorship port what the first-listed name files under, and the sort key is
+built from that answer; the heuristic is the fallback for a name this collection
+has never seen, which is the value `AuthorRepository.introduce` is about to store
+against it anyway, so there is still one derivation. `Store.saveFilingOverride`
+is gone and its job is `FileAliasHandler`, called from the save routes on every
+save that carries a filing name, where the flag it used to need was on
+`POST /api/books` alone.
 
-**Three sources of author information are now four**, and that is the honest
-cost of an append-only migration path. It ends when `books` is remodelled.
+**The value did not leave the wire.** `shelved_books`, `catalogued_books` and
+`queued_books` join the credit at position 1 back on and answer `author_filing`
+from the alias, in one place (`filed` in `infrastructure/db/schema.ts`), so every
+listing and shelf row reads what it always read. `books` itself does not have it:
+`FiledBookRow` is a view row and `BookRow` is the table's, and
+`GET /api/books/:id` answers a book with its credits beside it.
+
+**Four sources of author information are three.** `books.authors` is still the
+joined display string and `book_authors` is still written beside `book_author`;
+both go with the work that remodels `books`.
 
 `capture` is, by #181: the table, the domain rules in `web/domain/capture/`, the
 port and handler in `web/application/capture/`, the Drizzle repository in
