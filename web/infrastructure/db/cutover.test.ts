@@ -378,6 +378,7 @@ describe('the tags and the aliases deciding where every book files', () => {
     console.log(`[cutover] shelf order ${before} before, ${after} after; ` +
       `${old.length} books placed twice and compared one at a time; ` +
       `${moving.length} named as moving, all of them #195`)
+    for (const line of moving) console.log(`[cutover]   ${line}`)
     expect(after).toBe(before)
   })
 
@@ -413,6 +414,8 @@ describe('the tags and the aliases deciding where every book files', () => {
         `${book.title}: the column files it under Le Guin, Ursula K., ` +
         'the alias files it under Guin, Ursula K. Le')
 
+    console.log(`[cutover] one tag swapped and one alias refiled: ${named.length} books named`)
+    for (const line of named.slice(0, 4)) console.log(`[cutover]   ${line}`)
     expect(named).toContain('Book 041: the column says fiction, the tags say nonfiction')
     expect(byLeGuin.every((line) => named.includes(line))).toBe(true)
     // And nothing else moved: the whole list is the swapped tag, the refiled
@@ -473,6 +476,8 @@ describe('the repair the authors half of the cut-over owes', () => {
     for (const printed of FILED_UNDER_NOBODY) {
       expect(await filesUnder(pool, printed)).toBe(printed)
       expect(filingName(printed)).not.toBe(printed)
+      console.log(`[cutover] ${printed}: the alias says "${await filesUnder(pool, printed)}", ` +
+        `the fold says "${filingName(printed)}"`)
     }
 
     expect(said.some((line) =>
