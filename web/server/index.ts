@@ -304,7 +304,20 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const googleApiKey = options.googleApiKey ?? ''
   const startBackgroundWork = options.startBackgroundWork ?? true
 
-  const store = new Store(db)
+  /*
+   * The composition root for the third converted slice, authors (#180).
+   *
+   * Above `Store` rather than beside the other three, because since #227 the
+   * class that writes `books` asks this one what the first-listed name files
+   * under. That is the whole of the coupling: `Store` reads through the port and
+   * writes nothing here. See `Store.filingFor`.
+   */
+  const authors = new DrizzleAuthorRepository(db)
+  const creditBook = new CreditBookHandler(authors)
+  const fileAlias = new FileAliasHandler(authors)
+  const mergeAuthors = new MergeAuthorsHandler(authors)
+
+  const store = new Store(db, authors)
 
   /*
    * The work a save starts and nobody waits for.
@@ -484,27 +497,26 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     return settled
   }
 
-  /*
-   * The composition root for the third converted slice, authors (#180).
-   */
-  const authors = new DrizzleAuthorRepository(db)
-  const creditBook = new CreditBookHandler(authors)
-  const fileAlias = new FileAliasHandler(authors)
-  const mergeAuthors = new MergeAuthorsHandler(authors)
-
   /**
-   * Keep the credits in step with what was just saved about a book.
+   * Keep the credits in step with what was just saved about a book, and file
+   * the first-listed name when somebody has said what it files under.
    *
-   * The arrangement the genre had until #223, and here it is still the live
-   * one: `Store` still writes `books.authors`, `books.author_filing` and
-   * `book_authors`, all of which decide where the book files and what the
-   * client reads, and #180 drops none of them. So every save writes both, from
-   * the same draft, and they cannot disagree.
+   * **This is `Store.saveFilingOverride`, arrived at the alias** (#227). That
+   * method wrote the `author_filing` override table, which `Store.filingFor`
+   * consulted on the next save; the alias holds the same fact now, so the
+   * correction is written where the shelf reads it.
    *
-   * The filing override travels with it, because it is about the first-listed
-   * name and that is what the alias files under. `introduce` ignores it for a
-   * name somebody has already filed, which is the point: re-saving a book must
-   * not undo a correction.
+   * Two calls, because they are two different statements about a name.
+   * `introduce`, inside `creditBook`, sets a filing name only when the name is
+   * new, which is what stops a re-save undoing somebody's correction. Filing one
+   * is somebody saying so, and it has to reach a name this collection has
+   * already met, which is the case `introduce` deliberately will not touch.
+   *
+   * **Every save carries it now, where only `POST /api/books` used to**, and
+   * only when the client asked. An override typed against an already-saved book
+   * used to reach `books.author_filing` and stop there, which was survivable
+   * while that column decided where the book went and is not survivable once the
+   * alias does: the correction would have applied to one book and then vanished.
    */
   async function recordCredits(bookId: number, draft: DraftBook): Promise<void> {
     await creditBook.handle({
@@ -512,6 +524,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       authors: draft.authors,
       filingOverride: draft.authorFilingOverride,
     })
+
+    const filing = draft.authorFilingOverride?.trim()
+    if (!filing) return
+    // The first-listed credit, because that is the one the shelf orders by and
+    // the one the review pane's field is about. A save with no usable name
+    // credits nobody, and there is then nothing to file.
+    const [files] = await authors.creditsOf(bookId)
+    if (files && files.filing !== filing) {
+      await fileAlias.handle({ aliasId: files.id, filing })
+    }
   }
 
   /*
@@ -1191,11 +1213,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       if (slot === 'front') draft.frontImage = name
       if (slot === 'back') draft.backImage = name
       if (slot === 'edge') draft.edgeImage = name
-    }
-
-    if (body.saveFilingOverride && draft.authorFilingOverride) {
-      const primary = draft.authors[0] ?? ''
-      if (primary) await store.saveFilingOverride(primary, draft.authorFilingOverride)
     }
 
     /*

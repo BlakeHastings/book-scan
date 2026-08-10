@@ -23,13 +23,14 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import { connectionConfig, describeConnection, SORT_KEY_COLUMNS } from './db.pg'
 import { lockKey, type Db, type TxOptions } from './driver'
 import { Store, type DraftBook } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 
 let db: Db
 let store: Store
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
 })
 
 afterAll(closeTestDatabase)

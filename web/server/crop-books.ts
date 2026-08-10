@@ -29,6 +29,7 @@ import { join, resolve } from 'node:path'
 import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { cropCatalogue } from './crop'
 
 const USAGE = `Crop stored book photographs to the book, keeping every original.
@@ -138,7 +139,7 @@ async function work(
 ): Promise<number> {
   const { apply, force, limit } = options
 
-  const store = new Store(db)
+  const store = new Store(db, new DrizzleAuthorRepository(db))
   const report = await cropCatalogue(store, {
     apply,
     force,

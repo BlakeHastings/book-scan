@@ -38,6 +38,7 @@ import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
 import { lookupIsbn } from './lookup'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
@@ -124,7 +125,7 @@ async function startApp(): Promise<Running> {
 
   return {
     db,
-    store: new Store(db),
+    store: new Store(db, new DrizzleAuthorRepository(db)),
     coverDir,
     baseUrl: `http://127.0.0.1:${port}`,
     close: async () => {

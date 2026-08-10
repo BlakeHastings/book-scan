@@ -17,6 +17,7 @@ import { identify } from './identify'
 import { lookupIsbn } from './lookup'
 import type { LookupResult } from './lookup'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 
 vi.mock('./identify', () => ({ identify: vi.fn() }))
@@ -68,7 +69,7 @@ beforeEach(async () => {
   vi.mocked(lookupIsbn).mockResolvedValue(nothingFound())
 
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
   // No image reader: most of these tests never run the worker. The ones that
   // do build their own queue with a reader below.
   queue = new CaptureQueue(db, () => null)

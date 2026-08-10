@@ -51,6 +51,7 @@ import sharp from 'sharp'
 import { describeConnection, openPostgres } from '../server/db.pg'
 import type { Db } from '../server/driver'
 import { Store, type DraftBook } from '../server/store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { Shelves } from '../server/shelves'
 import { photographsTaken } from '../server/photographs'
 import type { ShelfRange } from '../shared/shelving'
@@ -500,7 +501,7 @@ async function main(): Promise<void> {
     )
   }
 
-  const store = new Store(db)
+  const store = new Store(db, new DrizzleAuthorRepository(db))
   const shelves = new Shelves(db)
 
   console.log('')

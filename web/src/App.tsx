@@ -850,9 +850,7 @@ export default function App() {
     try {
       const result = bookId
         ? await api.updateAndShelve(bookId, draft, shelvedAt)
-        : await api.saveBook(
-            draft, shots, Boolean(draft.authorFilingOverride), captureId ?? undefined,
-          )
+        : await api.saveBook(draft, shots, captureId ?? undefined)
       setCounts(result.counts)
       // Only the insert path reports queue counts; an edit does not touch it.
       if ('queue' in result) setQueueCounts(result.queue as QueueCounts)

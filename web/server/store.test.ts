@@ -12,6 +12,8 @@ import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { photographTaken, recordCrop } from './photographs'
 import { Store, type DraftBook } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { PrintedName } from '../domain/authorship/authors'
 import { genreStatedBy } from '../domain/tagging/genre'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
@@ -40,7 +42,7 @@ const updateBook = (id: number, of: DraftBook) =>
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
 })
 
 afterAll(closeTestDatabase)
@@ -121,15 +123,31 @@ describe('placement as books arrive one at a time', () => {
   })
 })
 
-describe('author filing overrides', () => {
-  it('prefers a saved override over the heuristic', async () => {
+describe('a name somebody has filed by hand', () => {
+  /*
+   * The override table's job, on the alias it moved to (#227).
+   *
+   * `Store.saveFilingOverride` used to write `author_filing`, keyed on a
+   * normalised spelling, and `Store.filingFor` consulted it on the way past.
+   * The same fact is a column on the name now, so filing one is the two
+   * statements the save routes make: introduce the name, then file it. What
+   * this file checks is the half that decides where a book goes, which is that
+   * `Store` reads the alias rather than the heuristic when there is one.
+   */
+  const fileAs = async (printed: string, filing: string): Promise<void> => {
+    const authors = new DrizzleAuthorRepository(db)
+    const alias = await authors.introduce(PrintedName.of(printed), filing)
+    await authors.file(alias.id, filing)
+  }
+
+  it('prefers what the alias files under over the heuristic', async () => {
     // The documented failure case: the heuristic files this under M.
     expect(
       (await store.resolveKey(draft({ title: 'x', authors: ['Gabriel García Márquez'] })))
         .authorFiling,
     ).toBe('Márquez, Gabriel García')
 
-    await store.saveFilingOverride('Gabriel García Márquez', 'García Márquez, Gabriel')
+    await fileAs('Gabriel García Márquez', 'García Márquez, Gabriel')
 
     expect(
       (await store.resolveKey(draft({ title: 'x', authors: ['Gabriel García Márquez'] })))
@@ -137,11 +155,23 @@ describe('author filing overrides', () => {
     ).toBe('García Márquez, Gabriel')
   })
 
-  it('applies the override to placement, moving the book on the shelf', async () => {
+  it('reads the alias however the name is spelled on the book', async () => {
+    // A lookup folds case, punctuation and whitespace, so a book printed
+    // `J.R.R. Tolkien` files under the name somebody filed as `J. R. R.
+    // Tolkien` rather than starting a second one beside it.
+    await fileAs('J. R. R. Tolkien', 'Tolkien, John Ronald Reuel')
+
+    expect(
+      (await store.resolveKey(draft({ title: 'The Hobbit', authors: ['J.R.R. Tolkien'] })))
+        .authorFiling,
+    ).toBe('Tolkien, John Ronald Reuel')
+  })
+
+  it('applies it to placement, moving the book on the shelf', async () => {
     await store.addBook(draft({ title: 'A', authors: ['Ann Foster'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['Zoe Nash'], location: '1B' }))
 
-    await store.saveFilingOverride('Gabriel García Márquez', 'García Márquez, Gabriel')
+    await fileAs('Gabriel García Márquez', 'García Márquez, Gabriel')
     const placement = await placementFor(
       draft({ title: 'Cien Años', authors: ['Gabriel García Márquez'] }),
     )
@@ -151,13 +181,13 @@ describe('author filing overrides', () => {
     expect(placement.successor?.title).toBe('B')
   })
 
-  it('can be saved for a name written in another script', async () => {
-    // Issue #195 from the other side. `saveFilingOverride` keys on the same
-    // fold, so while that fold deleted the name there was no key to store one
-    // under: the row went nowhere and the correction could not be made at all.
-    // docs/shelving.md calls the override table mandatory, so an author it
-    // cannot hold a row for is the table not existing for that author.
-    await store.saveFilingOverride('村上春樹', 'Murakami, Haruki')
+  it('can be filed for a name written in another script', async () => {
+    // Issue #195 from the other side. The override table keyed on a fold that
+    // deleted such a name entirely, so there was no key to store one under: the
+    // row went nowhere and the correction could not be made at all.
+    // `author_alias` is keyed on the printed name, so there is nowhere for that
+    // to happen.
+    await fileAs('村上春樹', 'Murakami, Haruki')
 
     expect(
       (await store.resolveKey(draft({ title: 'Norwegian Wood', authors: ['村上春樹'] })))

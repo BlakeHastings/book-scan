@@ -23,12 +23,15 @@ import {
   buildPlacement,
   buildSortKey,
   filingName,
-  normalise,
   titleFiling,
   type Neighbour,
   type Placement,
   type ShelfRange,
 } from '../shared/shelving'
+// What a name files under is a fact about the alias now, and this is the port
+// that answers it. See `filingFor`, and #227.
+import type { AuthorRepository } from '../application/authorship/ports'
+import { PrintedName } from '../domain/authorship/authors'
 import { resolveIsbnPair } from '../shared/isbn'
 import { CHECKED_OUT, DISCARDED, QUEUED_STATES, SHELVED } from '../domain/books/state'
 // Which range a book joins is decided by its genre tags now, and this is the
@@ -145,54 +148,52 @@ export interface FilingInput {
  * written in are translated by the driver rather than rewritten here.
  */
 export class Store {
-  constructor(private readonly db: Db) {}
+  /**
+   * The authorship port is here for one question and writes nothing.
+   *
+   * A sort key's first component is what the first-listed name files under, and
+   * since #227 that fact lives on `author_alias` rather than in the
+   * `author_filing` override table this class used to keep. So the class that
+   * writes `books` asks the slice that owns names, through the port rather than
+   * with SQL of its own, and **nothing here changes a filing name**: that is
+   * `FileAliasHandler`, called from the save routes, and two writers of one
+   * column is the defect #200 and #213 each spent a change closing.
+   */
+  constructor(
+    private readonly db: Db,
+    private readonly authors: AuthorRepository,
+  ) {}
 
   // -----------------------------------------------------------------------
   // Filing names and keys
   // -----------------------------------------------------------------------
 
   /**
-   * Look up a saved override before falling back to the heuristic.
+   * What this name files under: the alias's answer, or the heuristic's.
    *
-   * **The heuristic runs whether or not there is a key to look an override up
-   * by.** It used to return '' when the key was empty, which read as a guard
-   * against querying for nothing and was in fact a guard against filing the
-   * book at all: `normalise()` folded a name written in a non-Latin script away
-   * entirely, so the one case that reached the early return was the one case
-   * that most needed an answer (#195). `normalise()` no longer folds those away,
-   * so an empty key now means a name with no letter or digit in it, and even
-   * that gets the heuristic rather than nothing: `filingName` answers what was
-   * printed, and what the client shows is what gets stored.
+   * **The alias is the answer, and the heuristic is what a name nobody has met
+   * yet gets** (#227). `author_alias.filing_name` is `author_filing.filing_name`
+   * grown up: it holds the correction somebody made once, for the two cases no
+   * heuristic gets right, and it holds the derived answer for everybody else.
+   * The fallback is not a second opinion, it is the same one arriving a moment
+   * early: `addBook` files a book before its credits are written, so a name this
+   * collection has never seen has no alias to ask, and the value here is exactly
+   * what `AuthorRepository.introduce` is about to store against it.
+   *
+   * **There is still one derivation.** `PrintedName.derivedFiling` is
+   * `filingName` in `shared/shelving.ts`, which is the rule #195 left as the one
+   * place a filing name comes from, and the client renders the same function as
+   * somebody types.
+   *
+   * A string with no letter or digit in it is not a name and gets no alias, so
+   * it falls through to `filingName`, which answers what was printed. That is
+   * the case #195 turned into an empty answer and it is deliberately not one
+   * now: the empty string sorts ahead of every real filing name.
    */
   async filingFor(displayName: string): Promise<string> {
-    const key = normalise(displayName)
-    const override = key
-      ? await this.db.get<{ filing_name: string }>(
-          'SELECT filing_name FROM author_filing WHERE display_key = ?',
-          [key],
-        )
-      : undefined
-
-    return override?.filing_name ?? filingName(displayName)
-  }
-
-  async saveFilingOverride(
-    displayName: string,
-    filing: string,
-    isCorporate = false,
-    note = '',
-  ): Promise<void> {
-    const key = normalise(displayName)
-    if (!key) return
-    await this.db.run(
-      `INSERT INTO author_filing (display_key, filing_name, is_corporate, note)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(display_key) DO UPDATE SET
-         filing_name  = excluded.filing_name,
-         is_corporate = excluded.is_corporate,
-         note         = excluded.note`,
-      [key, filing, isCorporate ? 1 : 0, note],
-    )
+    const printed = PrintedName.parse(displayName)
+    if (!printed) return filingName(displayName)
+    return (await this.authors.aliasFor(printed))?.filing ?? printed.derivedFiling
   }
 
   async resolveKey(draft: FilingDraft): Promise<ResolvedKey> {
@@ -496,6 +497,13 @@ export class Store {
         is_fiction: range === 'fiction' ? 1 : 0,
         classification_source: draft.classificationSource ?? 'auto',
         classification_confidence: draft.classificationConfidence ?? 'unknown',
+        /*
+         * Written from the alias's answer rather than from a lookup of its own,
+         * so this column shadows `author_alias.filing_name` instead of competing
+         * with it (#227), exactly as `is_fiction` shadows the genre tag. Nothing
+         * decides anything by it any more; it is here because the client still
+         * reads it out of the JSON, and it goes with that.
+         */
         author_filing: resolved.authorFiling,
         series_name: draft.seriesName ?? '',
         series_index: draft.seriesIndex ?? null,

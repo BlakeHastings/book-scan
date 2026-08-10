@@ -166,6 +166,48 @@ describe('saving a book', () => {
     expect((await creditsOf(id))[0]!.filingName).toBe('García Márquez, Gabriel')
   })
 
+  it('files a name this collection has already met, which introduce will not', async () => {
+    /*
+     * `Store.saveFilingOverride`, arrived at the alias (#227).
+     *
+     * The correction usually arrives on the second book, because the first one
+     * is where somebody notices the heuristic got it wrong. `introduce` will not
+     * touch a name it has seen, deliberately, so this is the case that used to
+     * reach the `author_filing` table and now has to reach the alias, or the
+     * next book by that author files under the heuristic again.
+     */
+    await aBook({ title: 'No One Writes to the Colonel', authors: ['Gabriel García Márquez'] })
+    expect((await everyone())[0]!.aliases[0]!.filingName).toBe('Márquez, Gabriel García')
+
+    const second = await aBook({
+      title: 'Love in the Time of Cholera',
+      authors: ['Gabriel García Márquez'],
+      authorFilingOverride: 'García Márquez, Gabriel',
+    })
+
+    expect((await creditsOf(second))[0]!.filingName).toBe('García Márquez, Gabriel')
+    // And the book that follows files under it without anybody typing it again,
+    // which is the whole reason a filing name belongs to the name.
+    const third = await aBook({
+      title: 'The Autumn of the Patriarch', authors: ['Gabriel García Márquez'],
+    })
+    expect((await shelving(third)).author_filing).toBe('García Márquez, Gabriel')
+  })
+
+  it('files it on an edit as well as on the first save', async () => {
+    // The path that used to lose it entirely: the flag that saved an override
+    // was on `POST /api/books` alone, so a filing name typed against a book
+    // already in the catalogue moved that one book and vanished.
+    const id = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      authorFilingOverride: 'Herbert, Franklin Patrick',
+    })
+
+    expect((await everyone())[0]!.aliases[0]!.filingName).toBe('Herbert, Franklin Patrick')
+    expect((await shelving(id)).author_filing).toBe('Herbert, Franklin Patrick')
+  })
+
   it('gives a name nobody has seen an author of its own', async () => {
     await aBook({ title: 'The Wasp Factory', authors: ['Iain Banks'] })
     await aBook({ title: 'Consider Phlebas', authors: ['Iain M. Banks'] })

@@ -572,19 +572,25 @@ export const api = {
       `/api/captures/${id}`, { method: 'DELETE' },
     ),
 
+  /**
+   * There is no `saveFilingOverride` flag any more (#227).
+   *
+   * It used to decide whether a filing name somebody typed was kept for the
+   * next book by the same author or applied to this one and forgotten, and the
+   * client set it whenever the field had anything in it, so the two were never
+   * really separate answers. A filing name belongs to the name now, on
+   * `author_alias`, and every save that carries one files it.
+   */
   saveBook: (
     draft: Draft,
     images: Partial<Record<'front' | 'back' | 'edge', string>>,
-    saveFilingOverride: boolean,
     captureId?: number,
   ) =>
     request<{ id: number; placement: PlacementResponse; counts: Counts; queue: QueueCounts }>(
       '/api/books',
       {
         method: 'POST',
-        body: JSON.stringify({
-          ...draftBody(draft), images, saveFilingOverride, captureId,
-        }),
+        body: JSON.stringify({ ...draftBody(draft), images, captureId }),
       },
     ),
 

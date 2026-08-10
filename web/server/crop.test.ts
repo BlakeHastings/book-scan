@@ -12,6 +12,7 @@ import sharp from 'sharp'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { cropCatalogue, cropName, cropPhotos, type CropIo } from './crop'
 import { frontCover, photographedBook } from './fixtures'
 
@@ -26,7 +27,7 @@ let db: Db
 
 async function store(): Promise<Store> {
   db = await openTestDatabase()
-  return new Store(db)
+  return new Store(db, new DrizzleAuthorRepository(db))
 }
 
 afterAll(closeTestDatabase)

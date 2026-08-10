@@ -11,6 +11,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { frontCover } from './fixtures'
 import { coverHash, distance } from './imagehash'
 import { isCurrentFormat, rehashCovers, type ReadImage } from './rehash'
@@ -61,7 +62,7 @@ async function hashesOf(id: number): Promise<{ front: string; cover: string }> {
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
   images = new Map()
   read = reader(images)
 })

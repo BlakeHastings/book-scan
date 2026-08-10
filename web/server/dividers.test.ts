@@ -20,6 +20,7 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { libraryRows, type LibraryRow, type ShelfGroup } from '../shared/layout'
 
 let db: Db
@@ -31,7 +32,7 @@ let shelves: Shelves
 // is exactly the kind of claim that has to hold on the database being shipped.
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
 })
 

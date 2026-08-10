@@ -18,6 +18,7 @@ import { join, resolve } from 'node:path'
 import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { rehashCovers } from './rehash'
 
 const USAGE = `Recompute the stored cover hashes with the current algorithm.
@@ -110,7 +111,7 @@ async function work(
   apply: boolean,
   force: boolean,
 ): Promise<number> {
-  const store = new Store(db)
+  const store = new Store(db, new DrizzleAuthorRepository(db))
   const report = await rehashCovers(store, {
     apply,
     force,

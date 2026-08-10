@@ -14,6 +14,8 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { Store, type DraftBook } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { PrintedName } from '../domain/authorship/authors'
 import { refileBooks } from './refile'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
@@ -25,7 +27,7 @@ let db: Db
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
 })
 
 afterAll(closeTestDatabase)
@@ -101,12 +103,15 @@ describe('recomputing the keys of books saved by older code', () => {
     expect(after).toEqual(['Persuasion', 'Crime and Punishment'])
   })
 
-  it('honours an override the same way a save would', async () => {
+  it('honours a name somebody has filed, the same way a save would', async () => {
     const { id } = await store.addBook(
       draft({ title: 'Norwegian Wood', authors: ['村上春樹'], location: '3A' }),
     )
     await asOldCodeSavedIt(id, '')
-    await store.saveFilingOverride('村上春樹', 'Murakami, Haruki')
+    // What the override table used to hold, on the alias it moved to (#227).
+    const authors = new DrizzleAuthorRepository(db)
+    const alias = await authors.introduce(PrintedName.of('村上春樹'), 'Murakami, Haruki')
+    await authors.file(alias.id, 'Murakami, Haruki')
 
     await refileBooks(store, { apply: true })
 

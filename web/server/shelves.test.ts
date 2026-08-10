@@ -10,6 +10,7 @@ import type { Db } from './driver'
 import { CaptureQueue } from './queue'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 
 let store: Store
@@ -19,7 +20,7 @@ let db: Db
 // Both databases, since stage F. Nothing below knows which. See testdb.ts.
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
 })
 
