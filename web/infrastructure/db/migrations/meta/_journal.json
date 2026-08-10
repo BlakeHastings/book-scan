@@ -169,6 +169,13 @@
       "when": 1786397140887,
       "tag": "0023_the_areas_and_the_ledger_catch_up",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786397207949,
+      "tag": "0024_books_lose_the_recorded_location",
+      "breakpoints": true
     }
   ]
 }
