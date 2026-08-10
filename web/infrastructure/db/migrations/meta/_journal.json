@@ -183,6 +183,13 @@
       "when": 1786397219888,
       "tag": "0025_books_lose_when_they_were_shelved",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786397232212,
+      "tag": "0026_books_lose_when_they_went_out",
+      "breakpoints": true
     }
   ]
 }
