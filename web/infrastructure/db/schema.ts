@@ -85,14 +85,13 @@ export const books = pgTable('books', {
 
   // Derived from the book's genre tag since #223, by `rangeOfGenre`, and
   // written by the save that settled it. Every shelf query reads this.
-  shelfRange: text('shelf_range').notNull(),
-  // integer, not boolean. BookRow.is_fiction is a number, the JSON contract
-  // carries 0 and 1, and the client reads them.
   //
-  // **It decides nothing since #223.** It is written from the settled range
-  // rather than from what the request said, so it shadows the genre tag instead
-  // of competing with it, and it goes when the client stops reading it.
-  isFiction: integer('is_fiction').notNull(),
+  // **There is no `is_fiction` beside it any more** (#227). That column decided
+  // this one until #223 and shadowed it afterwards, and the second half of the
+  // cut-over dropped it: a book's genre is `book_tag`, this is the run the genre
+  // settled on, and a second question about the same books is a second tag
+  // rather than a second column.
+  shelfRange: text('shelf_range').notNull(),
   classificationSource: text('classification_source').default('auto'),
   classificationConfidence: text('classification_confidence').default('unknown'),
 

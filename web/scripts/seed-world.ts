@@ -395,12 +395,12 @@ async function insertCapture(
   const now = new Date().toISOString()
   const created = await db.get<{ id: number }>(
     `INSERT INTO books (
-       title, shelf_range, is_fiction, sort_key,
+       title, shelf_range, sort_key,
        state, isbn13, isbn10,
        isbn_source, title_guess, cover_text, analysed, draft_json, edit_json,
        edited_by, edited_at, scan_note, claimed_by, claimed_at, scanned_at
      ) VALUES (
-       '', '', 0, '',
+       '', '', '',
        @status, @isbn13, @isbn10,
        @isbn_source, @title_guess, @cover_text, @analysed, @draft_json, @edit_json,
        @edited_by, @edited_at, @note, @claimed_by, @claimed_at, @created_at

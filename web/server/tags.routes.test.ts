@@ -178,20 +178,26 @@ describe('saving a book', () => {
  * every shelf query reads.
  */
 describe('the genre tag deciding which range a book files into', () => {
-  /** The two columns the shelf is drawn from, as the row holds them. */
-  async function filedAs(bookId: number): Promise<{ range: string; isFiction: number }> {
+  /**
+   * The column the shelf is drawn from, as the row holds it.
+   *
+   * One column, where this used to read two. `books.is_fiction` was the second
+   * and it is gone (#227): a book's genre is `book_tag` and `shelf_range` is the
+   * run the genre settled on.
+   */
+  async function filedAs(bookId: number): Promise<string> {
     const { body } = await call(`/api/books/${bookId}`)
-    return { range: body.book.shelf_range, isFiction: body.book.is_fiction }
+    return body.book.shelf_range as string
   }
 
   it('files a book into the range its genre tag names', async () => {
     const fiction = await aBook({ classificationSource: 'auto' })
     expect(await tagsOf(fiction)).toEqual(['genre/fiction:guess'])
-    expect(await filedAs(fiction)).toEqual({ range: 'fiction', isFiction: 1 })
+    expect(await filedAs(fiction)).toBe('fiction')
 
     const other = await aBook({ isbn13: '', genre: NON_FICTION_SLUG, classificationSource: 'auto' })
     expect(await tagsOf(other)).toEqual(['genre/non-fiction:guess'])
-    expect(await filedAs(other)).toEqual({ range: 'nonfiction', isFiction: 0 })
+    expect(await filedAs(other)).toBe('nonfiction')
   })
 
   it('moves the book when a person changes the genre', async () => {
@@ -202,7 +208,7 @@ describe('the genre tag deciding which range a book files into', () => {
     })
 
     expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
-    expect(await filedAs(id)).toEqual({ range: 'nonfiction', isFiction: 0 })
+    expect(await filedAs(id)).toBe('nonfiction')
   })
 
   it('leaves a book where a person filed it when a lookup says otherwise', async () => {
@@ -239,7 +245,7 @@ describe('the genre tag deciding which range a book files into', () => {
     expect(await tagsOf(id)).toEqual([
       'genre/fiction:person', 'genre/non-fiction:catalogue', 'genre/non-fiction:guess',
     ])
-    expect(await filedAs(id)).toEqual({ range: 'fiction', isFiction: 1 })
+    expect(await filedAs(id)).toBe('fiction')
   })
 
   it("files a corrected book under the new book's genre and not the old one's", async () => {
@@ -249,7 +255,7 @@ describe('the genre tag deciding which range a book files into', () => {
      * or a corrected book files under what it used to be.
      */
     const id = await aBook({ genre: FICTION_SLUG, classificationSource: 'manual' })
-    expect(await filedAs(id)).toEqual({ range: 'fiction', isFiction: 1 })
+    expect(await filedAs(id)).toBe('fiction')
 
     await put(`/api/books/${id}`, {
       title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
@@ -257,7 +263,7 @@ describe('the genre tag deciding which range a book files into', () => {
     })
 
     expect(await tagsOf(id)).toEqual(['genre/non-fiction:guess'])
-    expect(await filedAs(id)).toEqual({ range: 'nonfiction', isFiction: 0 })
+    expect(await filedAs(id)).toBe('nonfiction')
   })
 })
 

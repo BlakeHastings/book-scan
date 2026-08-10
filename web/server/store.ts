@@ -471,13 +471,13 @@ export class Store {
     const inserted = await tx.get<{ id: number }>(
       `INSERT INTO books (
          isbn13, isbn10, title, subtitle, authors, publisher, published,
-         pages, notes, shelf_range, is_fiction, classification_source,
+         pages, notes, shelf_range, classification_source,
          classification_confidence, author_filing, series_name,
          series_index, title_filing, sort_key, location, lookup_source,
          isbn_source, scanned_at, shelved_at, state
        ) VALUES (
          @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
-         @published, @pages, @notes, @shelf_range, @is_fiction,
+         @published, @pages, @notes, @shelf_range,
          @classification_source, @classification_confidence,
          @author_filing, @series_name, @series_index, @title_filing,
          @sort_key, @location, @lookup_source,
@@ -495,14 +495,6 @@ export class Store {
         pages: draft.pages ?? '',
         notes: draft.notes ?? '',
         shelf_range: range,
-        /*
-         * Written from the settled range rather than from what the request
-         * said, so the column shadows the genre tag instead of competing with
-         * it (#223). Nothing reads it to decide anything any more; it is here
-         * because the client still reads it out of the JSON, and it goes with
-         * that.
-         */
-        is_fiction: range === 'fiction' ? 1 : 0,
         classification_source: draft.classificationSource ?? 'auto',
         classification_confidence: draft.classificationConfidence ?? 'unknown',
         /*
@@ -631,7 +623,7 @@ export class Store {
            isbn13 = @isbn13, isbn10 = @isbn10, title = @title,
            subtitle = @subtitle, authors = @authors, publisher = @publisher,
            published = @published, pages = @pages, notes = @notes,
-           shelf_range = @shelf_range, is_fiction = @is_fiction,
+           shelf_range = @shelf_range,
            classification_source = @classification_source,
            classification_confidence = @classification_confidence,
            author_filing = @author_filing, series_name = @series_name,
@@ -681,8 +673,6 @@ export class Store {
           pages: draft.pages ?? '',
           notes: draft.notes ?? '',
           shelf_range: range,
-          // From the settled range, for the reason `insertBook` gives.
-          is_fiction: range === 'fiction' ? 1 : 0,
           classification_source: draft.classificationSource ?? 'manual',
           classification_confidence: draft.classificationConfidence ?? 'unknown',
           author_filing: resolved.authorFiling,

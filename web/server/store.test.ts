@@ -533,8 +533,8 @@ describe('imageInUse', () => {
     // needs the row to exist, not the queue machinery around it.
     for (const slot of ['front', 'back', 'edge'] as const) {
       const created = await db.get<{ id: number }>(
-        `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-         VALUES ('', '', 0, '', 'scanned', ?) RETURNING id`,
+        `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+         VALUES ('', '', '', 'scanned', ?) RETURNING id`,
         [new Date().toISOString()],
       )
       await photographTaken(db, created!.id, slot, 'shared.jpg', new Date().toISOString())
@@ -548,8 +548,8 @@ describe('imageInUse', () => {
     // same photograph produce the same crop filename. Deleting on one scan's
     // behalf must not take the other's picture with it.
     const created = await db.get<{ id: number }>(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-       VALUES ('', '', 0, '', 'identified', ?) RETURNING id`,
+      `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+       VALUES ('', '', '', 'identified', ?) RETURNING id`,
       [new Date().toISOString()],
     )
     await photographTaken(db, created!.id, 'front', 'shared.jpg', new Date().toISOString())
@@ -569,8 +569,8 @@ describe('imageInUse', () => {
    */
   it('does not count a discarded scan, whose filenames are history rather than a claim', async () => {
     const created = await db.get<{ id: number }>(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
+      `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+       VALUES ('', '', '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
     await photographTaken(db, created!.id, 'front', 'gone.jpg', new Date().toISOString())
@@ -588,8 +588,8 @@ describe('imageInUse', () => {
       draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
     )
     const created = await db.get<{ id: number }>(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
+      `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+       VALUES ('', '', '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
     await photographTaken(db, created!.id, 'back', 'shared.jpg', new Date().toISOString())

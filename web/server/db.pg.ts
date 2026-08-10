@@ -337,7 +337,6 @@ export interface BookRow {
   pages: string
   notes: string
   shelf_range: ShelfRange
-  is_fiction: number
   classification_source: string
   classification_confidence: string
   author_filing: string

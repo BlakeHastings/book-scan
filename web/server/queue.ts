@@ -327,8 +327,8 @@ export class CaptureQueue {
       // Store.addBook: the id comes back from the statement that made it.
       const created = await tx.get<{ id: number }>(
         `INSERT INTO books
-           (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-         VALUES ('', '', 0, '', ?, ?)
+           (title, shelf_range, sort_key, state, scanned_at)
+         VALUES ('', '', '', ?, ?)
          RETURNING id`,
         [STATE_OF_QUEUE_STATUS.pending, now],
       )
@@ -388,8 +388,8 @@ export class CaptureQueue {
     const id = await this.db.tx(async (tx) => {
       const created = await tx.get<{ id: number }>(
         `INSERT INTO books
-           (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-         VALUES ('', '', 0, '', ?, ?)
+           (title, shelf_range, sort_key, state, scanned_at)
+         VALUES ('', '', '', ?, ?)
          RETURNING id`,
         [STATE_OF_QUEUE_STATUS.pending, now],
       )
