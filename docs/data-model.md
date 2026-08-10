@@ -346,6 +346,43 @@ the counts are three: the books repaired, the rows removed, and how many of thos
 rows were a person's, which is the accounting for the part that rewrites somebody
 else's answer.
 
+## A second repair the cut-over owed, and `0017` is it
+
+The authors' half owes one for the same reason the genre half did: something
+drifted behind the column it shadows, and nothing read it, so nothing noticed.
+
+`author_alias.filing_name` was filled by #180 from `books.author_filing`, which
+is the first component of every `sort_key` the shelf is ordered by. Two things
+have been able to move the column since without moving the alias.
+`Store.saveFilingOverride` writes the `author_filing` **table**, which
+`Store.filingFor` then consults on the next save, so an override reaches the
+column and never the alias. And `AuthorRepository.introduce` deliberately never
+rewrites an existing alias's filing name, because re-saving a book must not undo
+somebody's correction, so the save carrying that override left the alias alone.
+
+`0017` is the repair, and it is `0016`'s rule with the nouns changed: **the alias
+files under what `books.author_filing` says**, because that is what the book is
+physically shelved by. It runs while the column is still authoritative, for the
+reason `0016` ran while `is_fiction` was, and it counts what it changed.
+
+**It invents no filing name**, which is the part worth knowing. An alias whose
+books all carry an empty `books.author_filing` keeps the printed name #180 gave
+it. Those are #195: `Store.filingFor` returned '' rather than running the
+heuristic for a name written in a script with no `A-Z` in it, #222 fixed the
+function and rewrote no rows, and a second copy of `filingName()` written in SQL
+is exactly what #180 refused to write. So those aliases are counted and named,
+and the books they file are the books the cut-over's comparison reports as
+placed differently by the two models.
+
+**What `author_alias.filing_name` holds for such a name is the printed name, and
+that is not what the current fold produces.** `filingName('Νίκος Καζαντζάκης')`
+answers `Καζαντζάκης, Νίκος` since #222. The alias answers `Νίκος Καζαντζάκης`,
+because #180 treated an empty stored filing name as no answer and fell back to
+what was printed. Both are better than the empty string those books are actually
+shelved under, and neither is applied to a stored key by this change: a sort key
+is written by a save and by `server/refile-books.ts`, and the way to correct one
+name is to file it, through `PATCH /api/authors/aliases/:id`.
+
 ## Still open
 
 1. ~~Is a tag's slug immutable once created?~~ **Settled by the owner in #179:
