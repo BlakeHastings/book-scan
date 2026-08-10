@@ -19,7 +19,8 @@
  * claim.
  */
 
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
+import type { QueryBuilder } from 'drizzle-orm/pg-core'
 import {
   boolean, check, customType, doublePrecision, foreignKey, index, integer, pgTable, pgView,
   primaryKey, text, uniqueIndex,
@@ -95,7 +96,6 @@ export const books = pgTable('books', {
   classificationSource: text('classification_source').default('auto'),
   classificationConfidence: text('classification_confidence').default('unknown'),
 
-  authorFiling: collatedText('author_filing').default(''),
   seriesName: text('series_name').default(''),
   seriesIndex: doublePrecision('series_index'),
   titleFiling: collatedText('title_filing').default(''),
@@ -309,73 +309,6 @@ export const books = pgTable('books', {
   index('idx_books_current_area').on(table.currentAreaId, table.sortKey),
 ])
 
-/**
- * The books that are on a shelf. Every ordering query reads this and no other.
- *
- * **This view is the whole answer to the risk in #183.** `books` drives shelf
- * ordering and misfile detection, and until now the rows with no business in
- * either were kept out by being in a different table. Collapsing the two means
- * every ordering query needs `WHERE state = 'shelved'`, and forgetting once puts
- * an unidentified book between two real ones on somebody's shelf listing. A
- * reviewer cannot check for a `WHERE` clause that will be written next month, so
- * the condition is stated once, here, and `Store.neighbours` and
- * `Shelves.booksIn` read a relation that cannot contain the wrong rows.
- *
- * `checked_out` is out of it too, and always was: a book in a box on the floor
- * holds no position, so it is absent from the layout and is not something to put
- * another book beside. That was `checked_out_at IS NULL` and is now one state
- * among seven, which is the same set of rows on the day this lands.
- *
- * **The collation comes through.** A view column has the type, and therefore the
- * collation, of the expression behind it, so `sort_key` here is still
- * `COLLATE "C"` and `ORDER BY sort_key` still orders byte by byte. That is not
- * obvious enough to leave to reading: `migrate.test.ts` reads the collation back
- * out of the catalogue for this view's columns as well as for the table's.
- */
-export const shelvedBooks = pgView('shelved_books').as((qb) =>
-  qb.select().from(books).where(eq(books.state, SHELVED)))
-
-/**
- * The books nobody has put anywhere yet. The queue, which is a query now.
- *
- * The same argument as `shelved_books`, made from the other side. That view
- * exists so a book that is not on a shelf cannot reach one; this one exists so
- * the queue keeps meaning the same three states in every statement that reads
- * it. `CaptureQueue` lists, counts, searches and drains through this relation,
- * and the predicate is written here and nowhere in that class.
- *
- * **`discarded` is not in it, and that is the whole reason it is a state.** A
- * scan somebody threw away used to be a row somebody deleted, so the record of
- * having scanned the wrong thing went with it. It is a book now, in a state the
- * queue does not show and no shelf can reach, and it is still there to be
- * counted and looked at.
- */
-export const queuedBooks = pgView('queued_books').as((qb) =>
-  qb.select().from(books).where(inArray(books.state, [...QUEUED_STATES])))
-
-/**
- * The books somebody owns. The catalogue, as opposed to a shelf or a queue.
- *
- * Three views and no more, one per question anybody asks of this table, and the
- * seven states fall into them without overlapping: `shelved` is in this and in
- * `shelved_books`, `checked_out` and `withdrawn` are in this alone, the three
- * early states are in `queued_books` alone, and `discarded` is in none of them.
- *
- * Why this is a view rather than a condition in the eight statements that want
- * it: exactly the argument `shelved_books` was built on. `listRange`, `counts`,
- * `findByIsbn`, `hashIndex`, `imageHashes`, `photographed`, `missingCovers` and
- * `missingHashes` all mean "the catalogue" and all of them silently started
- * meaning something else the moment a queue row became a book. Eight places to
- * remember is eight places to forget, and the failure is quiet in every one:
- * a cover downloaded for a book nobody has identified, a duplicate check that
- * matches a photograph in the queue, a library listing with a row that has no
- * title in it.
- *
- * See `CATALOGUED_STATES` for what each state is doing here, and for the
- * question `Store.listRange` deferred to this change.
- */
-export const cataloguedBooks = pgView('catalogued_books').as((qb) =>
-  qb.select().from(books).where(inArray(books.state, [...CATALOGUED_STATES])))
 
 export const bookAuthors = pgTable('book_authors', {
   bookId: integer('book_id').notNull(),
@@ -674,6 +607,103 @@ export const bookAuthor = pgTable('book_author', {
   // key cannot serve: it is prefixed by book_id.
   index('idx_book_author_alias').on(table.authorAliasId),
 ])
+
+/**
+ * A book with the name it files under, which is its first credit's alias.
+ *
+ * **The one place that join is written**, and it is why the three views below
+ * live down here rather than beside `books` where they used to. `sort_key`'s
+ * first component is what the first-listed name files under, `books.author_filing`
+ * was a copy of that answer, and #227 dropped the copy: the fact is
+ * `author_alias.filing_name` now, reached through the credit at position 1.
+ *
+ * `position = 1` rather than the lowest position, which `0004` was careful about
+ * over the same join. Every writer of a credit numbers from 1, in `Store` and in
+ * `AuthorRepository.credit`, so a book with any credit has that one; a book with
+ * none, which is every book still in the queue, files under ''.
+ *
+ * **The collation comes through the `coalesce`.** `author_alias.filing_name` is
+ * `COLLATE "C"` and a string literal has no collation of its own, so the result
+ * keeps the column's. That is not obvious enough to leave to reading:
+ * `migrate.test.ts` reads the collation of these view columns back out of the
+ * catalogue.
+ */
+const filed = (qb: QueryBuilder) => qb
+  .select({
+    ...getTableColumns(books),
+    authorFiling: sql<string>`coalesce(${authorAlias.filingName}, '')`.as('author_filing'),
+  })
+  .from(books)
+  .leftJoin(bookAuthor, and(eq(bookAuthor.bookId, books.id), eq(bookAuthor.position, 1)))
+  .leftJoin(authorAlias, eq(authorAlias.id, bookAuthor.authorAliasId))
+
+/**
+ * The books that are on a shelf. Every ordering query reads this and no other.
+ *
+ * **This view is the whole answer to the risk in #183.** `books` drives shelf
+ * ordering and misfile detection, and until now the rows with no business in
+ * either were kept out by being in a different table. Collapsing the two means
+ * every ordering query needs `WHERE state = 'shelved'`, and forgetting once puts
+ * an unidentified book between two real ones on somebody's shelf listing. A
+ * reviewer cannot check for a `WHERE` clause that will be written next month, so
+ * the condition is stated once, here, and `Store.neighbours` and
+ * `Shelves.booksIn` read a relation that cannot contain the wrong rows.
+ *
+ * `checked_out` is out of it too, and always was: a book in a box on the floor
+ * holds no position, so it is absent from the layout and is not something to put
+ * another book beside. That was `checked_out_at IS NULL` and is now one state
+ * among seven, which is the same set of rows on the day this lands.
+ *
+ * **The collation comes through.** A view column has the type, and therefore the
+ * collation, of the expression behind it, so `sort_key` here is still
+ * `COLLATE "C"` and `ORDER BY sort_key` still orders byte by byte. That is not
+ * obvious enough to leave to reading: `migrate.test.ts` reads the collation back
+ * out of the catalogue for this view's columns as well as for the table's.
+ */
+export const shelvedBooks = pgView('shelved_books').as((qb) =>
+  filed(qb).where(eq(books.state, SHELVED)))
+
+/**
+ * The books nobody has put anywhere yet. The queue, which is a query now.
+ *
+ * The same argument as `shelved_books`, made from the other side. That view
+ * exists so a book that is not on a shelf cannot reach one; this one exists so
+ * the queue keeps meaning the same three states in every statement that reads
+ * it. `CaptureQueue` lists, counts, searches and drains through this relation,
+ * and the predicate is written here and nowhere in that class.
+ *
+ * **`discarded` is not in it, and that is the whole reason it is a state.** A
+ * scan somebody threw away used to be a row somebody deleted, so the record of
+ * having scanned the wrong thing went with it. It is a book now, in a state the
+ * queue does not show and no shelf can reach, and it is still there to be
+ * counted and looked at.
+ */
+export const queuedBooks = pgView('queued_books').as((qb) =>
+  filed(qb).where(inArray(books.state, [...QUEUED_STATES])))
+
+/**
+ * The books somebody owns. The catalogue, as opposed to a shelf or a queue.
+ *
+ * Three views and no more, one per question anybody asks of this table, and the
+ * seven states fall into them without overlapping: `shelved` is in this and in
+ * `shelved_books`, `checked_out` and `withdrawn` are in this alone, the three
+ * early states are in `queued_books` alone, and `discarded` is in none of them.
+ *
+ * Why this is a view rather than a condition in the eight statements that want
+ * it: exactly the argument `shelved_books` was built on. `listRange`, `counts`,
+ * `findByIsbn`, `hashIndex`, `imageHashes`, `photographed`, `missingCovers` and
+ * `missingHashes` all mean "the catalogue" and all of them silently started
+ * meaning something else the moment a queue row became a book. Eight places to
+ * remember is eight places to forget, and the failure is quiet in every one:
+ * a cover downloaded for a book nobody has identified, a duplicate check that
+ * matches a photograph in the queue, a library listing with a row that has no
+ * title in it.
+ *
+ * See `CATALOGUED_STATES` for what each state is doing here, and for the
+ * question `Store.listRange` deferred to this change.
+ */
+export const cataloguedBooks = pgView('catalogued_books').as((qb) =>
+  filed(qb).where(inArray(books.state, [...CATALOGUED_STATES])))
 
 /**
  * One photograph of one book.

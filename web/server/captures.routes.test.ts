@@ -34,6 +34,7 @@ import { createApp } from './index'
 import { lookupIsbn } from './lookup'
 import { photographTaken } from './photographs'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 const empty = {
@@ -168,7 +169,7 @@ async function saveAgain(id: number) {
  * is where the detector is judged.
  */
 function cropped(id: number, slot: 'front' | 'back' | 'edge', name: string) {
-  return new Store(db).setCrop(id, slot, name)
+  return new Store(db, new DrizzleAuthorRepository(db)).setCrop(id, slot, name)
 }
 
 describe('saving a photographed book', () => {
@@ -256,7 +257,7 @@ describe('what the detector decided, carried onto the row', () => {
 
   it('carries the publisher artwork as a photograph nothing has examined', async () => {
     const id = await aBook()
-    const store = new Store(db)
+    const store = new Store(db, new DrizzleAuthorRepository(db))
     await store.setCoverImage(id, 'cover.jpg')
     await store.setHashes(id, '', 'd:cover')
 

@@ -95,7 +95,7 @@ async function work(db: Db, apply: boolean): Promise<number> {
 
   for (const book of report.moved) {
     console.log(`  book ${book.id}  ${book.title}`)
-    console.log(`    files under  ${book.authorFiling[0] || '(nobody)'}  ->  ${book.authorFiling[1]}`)
+    console.log(`    files under  ${book.filesUnder || '(nobody)'}`)
     console.log(`    sorts at     ${readable(book.sortKey[0])}`)
     console.log(`                 ${readable(book.sortKey[1])}`)
   }

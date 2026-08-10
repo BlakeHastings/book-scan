@@ -139,7 +139,6 @@ export interface BookRow {
   title: string
   subtitle: string
   authors: string
-  author_filing: string
   publisher: string
   published: string
   pages: string
@@ -181,6 +180,34 @@ export interface BookRow {
   sort_key: string
 }
 
+/**
+ * A book as a listing answers it: the row, and the name it files under.
+ *
+ * **One column `books` does not have**, since #227 dropped
+ * `books.author_filing`. What a book files under is a fact about its first
+ * credit's alias, and the three views on the server join it back on, so every
+ * listing and every shelf row reads exactly what it read before. A lookup of one
+ * book answers a `BookRow` with its credits beside it: see `getBook`.
+ */
+export interface FiledBookRow extends BookRow {
+  author_filing: string
+}
+
+/**
+ * One name a book credits, in the order the names are printed on it.
+ *
+ * The first is the one the shelf orders by, and `filingName` is what it files
+ * under: the alias's own answer, which is either the heuristic's or the
+ * correction somebody made to it.
+ */
+export interface Credit {
+  position: number
+  aliasId: number
+  authorId: number
+  displayName: string
+  filingName: string
+}
+
 export interface Move {
   id: number
   from: string
@@ -193,7 +220,7 @@ export interface ShelfGroupDto {
   area: number
   shelf: number
   label: string
-  books: { book: BookRow }[]
+  books: { book: FiledBookRow }[]
   /**
    * The boundary this area begins at, if it is not the first.
    *
@@ -251,7 +278,7 @@ export type ScanResult =
   | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'in-queue'; matches: QueueMatch[] }
   | { outcome: 'not-catalogued'; isbn13: string }
-  | { outcome: 'identified'; book: BookRow }
+  | { outcome: 'identified'; book: FiledBookRow }
 
 /**
  * A capture already waiting to be shelved that looks like the book being held
@@ -287,7 +314,7 @@ export interface QueueMatch {
 
 /** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
-  book: BookRow
+  book: FiledBookRow
   label: string
 }
 
@@ -463,7 +490,7 @@ const updateBook = (id: number, draft: Draft) =>
  * this and nothing writes it on their behalf.
  */
 const setLocation = (id: number, location: string) =>
-  request<{ book: BookRow }>(`/api/books/${id}/location`, {
+  request<{ book: FiledBookRow }>(`/api/books/${id}/location`, {
     method: 'PATCH',
     body: JSON.stringify({ location }),
   })
@@ -475,7 +502,7 @@ const setLocation = (id: number, location: string) =>
  * anything changed, and `book` always carries the real, unmodified value.
  */
 const setCheckedOut = (id: number, out: boolean) =>
-  request<{ outcome: CheckoutOutcome; book: BookRow; counts: Counts }>(
+  request<{ outcome: CheckoutOutcome; book: FiledBookRow; counts: Counts }>(
     `/api/books/${id}/checkout`,
     { method: 'POST', body: JSON.stringify({ out }) },
   )
@@ -611,11 +638,19 @@ export const api = {
       },
     ),
 
-  getBook: (id: number) => request<{ book: BookRow }>(`/api/books/${id}`),
+  /**
+   * One book, and who it credits.
+   *
+   * The credits come with it because the review pane's filing field is about the
+   * first-listed name, and what that name files under is a fact about the alias
+   * rather than a column on the book (#227). A listing answers a `FiledBookRow`
+   * because a listing joins it back on; a lookup of one book reads the model.
+   */
+  getBook: (id: number) => request<{ book: BookRow; authors: Credit[] }>(`/api/books/${id}`),
 
   setCheckedOut,
 
-  checkedOut: () => request<{ books: BookRow[] }>('/api/checked-out'),
+  checkedOut: () => request<{ books: FiledBookRow[] }>('/api/checked-out'),
 
   backfillCovers: (limit = 10) =>
     request<{ tried: number; fetched: number; remaining: number }>(
@@ -676,7 +711,7 @@ export const api = {
   },
 
   listBooks: (range: ShelfRange) =>
-    request<{ books: BookRow[]; counts: Counts }>(`/api/books?range=${range}`),
+    request<{ books: FiledBookRow[]; counts: Counts }>(`/api/books?range=${range}`),
 
   deleteBook: (id: number) =>
     request<{ ok: true; counts: Counts; photosRemoved: number }>(

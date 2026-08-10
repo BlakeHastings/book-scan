@@ -126,10 +126,17 @@ async function everyone(): Promise<AuthorView[]> {
   return body.authors as AuthorView[]
 }
 
-/** What the shelf actually orders by, straight from the row. */
+/**
+ * What the shelf actually orders by.
+ *
+ * `catalogued_books` rather than `books`, because `author_filing` is a column on
+ * the view now (#227): what a book files under is a fact about its first
+ * credit's alias, joined back on so that every listing reads what it always
+ * read. `sort_key` is still the row's, and is what a shelf is ordered by.
+ */
 async function shelving(bookId: number) {
   const row = await pool.query<{ author_filing: string; sort_key: string; authors: string }>(
-    'SELECT author_filing, sort_key, authors FROM books WHERE id = $1', [bookId],
+    'SELECT author_filing, sort_key, authors FROM catalogued_books WHERE id = $1', [bookId],
   )
   return row.rows[0]!
 }
@@ -269,6 +276,7 @@ describe('filing a name differently', () => {
       title: 'One Hundred Years of Solitude', authors: ['Gabriel García Márquez'],
     })
     const alias = (await everyone())[0]!.aliases[0]!
+    const before = await shelving(id)
 
     const { status } = await patch(`/api/authors/aliases/${alias.id}`, {
       filingName: 'García Márquez, Gabriel',
@@ -278,8 +286,23 @@ describe('filing a name differently', () => {
     const after = (await everyone())[0]!.aliases[0]!
     expect([after.displayName, after.filingName])
       .toEqual(['Gabriel García Márquez', 'García Márquez, Gabriel'])
-    // And it did not move the book, because the book files by its own column.
-    expect((await shelving(id)).author_filing).toBe('Márquez, Gabriel García')
+
+    /*
+     * The book has not moved, and this is where #227 changes what that sentence
+     * means.
+     *
+     * `books.sort_key` is written by a save and by `server/refile-books.ts`, and
+     * filing a name is neither, so the row is exactly where it was and so is
+     * every book around it. What does change is what the catalogue says the book
+     * files under, because that is read from the alias now rather than from a
+     * copy taken when the book was last saved. The two disagreeing is the
+     * ordinary state of a name somebody has just corrected: the next save of
+     * that book puts it where the corrected name says.
+     */
+    const now = await shelving(id)
+    expect(now.sort_key).toBe(before.sort_key)
+    expect(before.author_filing).toBe('Márquez, Gabriel García')
+    expect(now.author_filing).toBe('García Márquez, Gabriel')
   })
 
   it('refuses an empty filing name and a name that is not there', async () => {

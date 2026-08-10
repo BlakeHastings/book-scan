@@ -1112,15 +1112,22 @@ export default function App() {
     setNotice('')
     setOrigin(from)
     try {
-      const { book } = await api.getBook(id)
+      const { book, authors } = await api.getBook(id)
       const loaded = draftFromBook(book)
-      // A stored filing name that the heuristic would not produce is an
-      // override, and must survive the round trip or the book moves on save.
+      /*
+       * A filing name the heuristic would not produce is an override, and must
+       * survive the round trip or the book moves on save.
+       *
+       * Read off the credit rather than off the row (#227). What the
+       * first-listed name files under is a fact about the alias, so this is the
+       * model rather than a copy of it, and it is the same value the shelf is
+       * ordered by.
+       */
       const derived = filingName(loaded.authors.split(',')[0]?.trim() ?? '')
+      const files = authors[0]?.filingName ?? ''
       setDraft({
         ...loaded,
-        authorFilingOverride:
-          book.author_filing && book.author_filing !== derived ? book.author_filing : '',
+        authorFilingOverride: files && files !== derived ? files : '',
       })
       setBookId(id)
       setCheckedOutAt(book.checked_out_at)

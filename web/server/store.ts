@@ -3,7 +3,7 @@
  * and out of shared/shelving.ts, which stays pure.
  */
 
-import type { BookRow } from './db.pg'
+import type { BookRow, FiledBookRow } from './db.pg'
 import type { Db } from './driver'
 /*
  * Photographs are rows in `capture` and are not columns on `books` (#228).
@@ -17,7 +17,7 @@ import type { Db } from './driver'
 import {
   coverDownloaded, photographsTaken, recordCrop, recordHashes,
   withPhotographs, withPhotographsOf,
-  type PhotographedBook, type PhotographFields,
+  type FiledPhotographedBook, type PhotographedBook, type PhotographFields,
 } from './photographs'
 import {
   buildPlacement,
@@ -67,7 +67,7 @@ import { recordCheckedOut, recordPlaced } from './placement-ledger'
  * derivation, in `server/photographs.ts`, and re-exported here because this is
  * where callers meet it.
  */
-export type { PhotographedBook }
+export type { FiledPhotographedBook, PhotographedBook }
 
 export interface DraftBook {
   isbn13?: string
@@ -127,7 +127,6 @@ export interface FilingInput {
   id: number
   title: string
   authors: string
-  author_filing: string
   title_filing: string
   sort_key: string
   series_name: string | null
@@ -238,7 +237,7 @@ export class Store {
    */
   async filingInputs(): Promise<FilingInput[]> {
     return this.db.all<FilingInput>(
-      `SELECT b.id, b.title, b.authors, b.author_filing, b.title_filing,
+      `SELECT b.id, b.title, b.authors, b.title_filing,
               b.sort_key, b.series_name, b.series_index,
               COALESCE((SELECT name FROM book_authors
                          WHERE book_id = b.id ORDER BY position LIMIT 1), '') AS printed_author
@@ -264,9 +263,8 @@ export class Store {
    */
   async refile(id: number, resolved: ResolvedKey): Promise<void> {
     await this.db.run(
-      `UPDATE books SET author_filing = ?, title_filing = ?, sort_key = ?
-        WHERE id = ?`,
-      [resolved.authorFiling, resolved.titleFilingValue, resolved.sortKey, id],
+      'UPDATE books SET title_filing = ?, sort_key = ? WHERE id = ?',
+      [resolved.titleFilingValue, resolved.sortKey, id],
     )
   }
 
@@ -282,7 +280,7 @@ export class Store {
     return row?.start_label ?? (range === 'nonfiction' ? 'S4' : '1A')
   }
 
-  private toNeighbour(row: PhotographedBook | undefined): Neighbour | null {
+  private toNeighbour(row: FiledPhotographedBook | undefined): Neighbour | null {
     if (!row) return null
     return {
       id: row.id,
@@ -322,14 +320,14 @@ export class Store {
   ): Promise<{ predecessor: Neighbour | null; successor: Neighbour | null }> {
     const exclude = excludeId ?? -1
 
-    const predecessor = await this.db.get<BookRow>(
+    const predecessor = await this.db.get<FiledBookRow>(
       `SELECT * FROM shelved_books
         WHERE shelf_range = ? AND sort_key < ? AND id != ?
         ORDER BY sort_key DESC LIMIT 1`,
       [range, sortKey, exclude],
     )
 
-    const successor = await this.db.get<BookRow>(
+    const successor = await this.db.get<FiledBookRow>(
       `SELECT * FROM shelved_books
         WHERE shelf_range = ? AND sort_key > ? AND id != ?
         ORDER BY sort_key ASC LIMIT 1`,
@@ -344,7 +342,7 @@ export class Store {
      */
     const drawn = await withPhotographs(
       this.db,
-      [predecessor, successor].filter((row): row is BookRow => Boolean(row)),
+      [predecessor, successor].filter((row): row is FiledBookRow => Boolean(row)),
     )
 
     return {
@@ -472,14 +470,14 @@ export class Store {
       `INSERT INTO books (
          isbn13, isbn10, title, subtitle, authors, publisher, published,
          pages, notes, shelf_range, classification_source,
-         classification_confidence, author_filing, series_name,
+         classification_confidence, series_name,
          series_index, title_filing, sort_key, location, lookup_source,
          isbn_source, scanned_at, shelved_at, state
        ) VALUES (
          @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
          @published, @pages, @notes, @shelf_range,
          @classification_source, @classification_confidence,
-         @author_filing, @series_name, @series_index, @title_filing,
+         @series_name, @series_index, @title_filing,
          @sort_key, @location, @lookup_source,
          @isbn_source, @scanned_at, @shelved_at, @state
        )
@@ -497,14 +495,6 @@ export class Store {
         shelf_range: range,
         classification_source: draft.classificationSource ?? 'auto',
         classification_confidence: draft.classificationConfidence ?? 'unknown',
-        /*
-         * Written from the alias's answer rather than from a lookup of its own,
-         * so this column shadows `author_alias.filing_name` instead of competing
-         * with it (#227), exactly as `is_fiction` shadows the genre tag. Nothing
-         * decides anything by it any more; it is here because the client still
-         * reads it out of the JSON, and it goes with that.
-         */
-        author_filing: resolved.authorFiling,
         series_name: draft.seriesName ?? '',
         series_index: draft.seriesIndex ?? null,
         title_filing: resolved.titleFilingValue,
@@ -626,7 +616,7 @@ export class Store {
            shelf_range = @shelf_range,
            classification_source = @classification_source,
            classification_confidence = @classification_confidence,
-           author_filing = @author_filing, series_name = @series_name,
+           series_name = @series_name,
            series_index = @series_index, title_filing = @title_filing,
            sort_key = @sort_key,
            -- An edit that carries no location leaves the recorded one alone
@@ -675,7 +665,6 @@ export class Store {
           shelf_range: range,
           classification_source: draft.classificationSource ?? 'manual',
           classification_confidence: draft.classificationConfidence ?? 'unknown',
-          author_filing: resolved.authorFiling,
           series_name: draft.seriesName ?? '',
           series_index: draft.seriesIndex ?? null,
           title_filing: resolved.titleFilingValue,
@@ -735,11 +724,11 @@ export class Store {
     }, { serialiseOn: rangeLock(range) })
   }
 
-  async findByIsbn(value: string): Promise<PhotographedBook | undefined> {
+  async findByIsbn(value: string): Promise<FiledPhotographedBook | undefined> {
     const { isbn13, isbn10 } = resolveIsbnPair(value)
     if (!isbn13 && !isbn10) return undefined
 
-    return withPhotographsOf(this.db, await this.db.get<BookRow>(
+    return withPhotographsOf(this.db, await this.db.get<FiledBookRow>(
       `SELECT * FROM catalogued_books
         WHERE (isbn13 != '' AND isbn13 = :isbn13)
            OR (isbn10 != '' AND isbn10 = :isbn10)
@@ -844,8 +833,8 @@ export class Store {
    * and eight places to remember which states that is are eight places to
    * forget one.
    */
-  async listRange(range: ShelfRange): Promise<PhotographedBook[]> {
-    return withPhotographs(this.db, await this.db.all<BookRow>(
+  async listRange(range: ShelfRange): Promise<FiledPhotographedBook[]> {
+    return withPhotographs(this.db, await this.db.all<FiledBookRow>(
       'SELECT * FROM catalogued_books WHERE shelf_range = ? ORDER BY sort_key ASC',
       [range],
     ))
@@ -1118,9 +1107,11 @@ export class Store {
    * other five are not books somebody has taken out. So this names the state it
    * means rather than reading "everything the shelf does not show".
    */
-  async checkedOut(): Promise<PhotographedBook[]> {
-    return withPhotographs(this.db, await this.db.all<BookRow>(
-      `SELECT * FROM books WHERE state = ?
+  async checkedOut(): Promise<FiledPhotographedBook[]> {
+    return withPhotographs(this.db, await this.db.all<FiledBookRow>(
+      // `catalogued_books`, not `books`, and only for the joined filing name:
+      // the state is stated here as it always was. See `FiledBookRow`.
+      `SELECT * FROM catalogued_books WHERE state = ?
         ORDER BY checked_out_at ASC`,
       [CHECKED_OUT],
     ))

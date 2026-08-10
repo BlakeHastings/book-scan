@@ -1,4 +1,4 @@
-import type { BookRow, CheckedOutAt, ShelfGroupDto, StripBook } from './api'
+import type { CheckedOutAt, FiledBookRow, ShelfGroupDto, StripBook } from './api'
 import { bookCover, shelfImage, type CoverSlot, type ShelfSlot } from '../../shared/shelving'
 
 /**
@@ -13,7 +13,7 @@ import { bookCover, shelfImage, type CoverSlot, type ShelfSlot } from '../../sha
  */
 
 /** One catalogued book as it is drawn standing on a shelf. */
-export function spineOf(book: BookRow): StripBook {
+export function spineOf(book: FiledBookRow): StripBook {
   const photo = shelfImage({
     front: book.front_image ?? '',
     back: book.back_image ?? '',
@@ -57,7 +57,7 @@ export function rowOf(group: ShelfGroupDto): StripBook[] {
 
 /** One line of the vertical list: a book, its position, and whether it is there. */
 export interface ListRow {
-  book: BookRow
+  book: FiledBookRow
   /** What you count along to. Zero for a book that is not on the bookcase. */
   n: number
   here: boolean
@@ -117,7 +117,7 @@ export interface GridBook {
  * book, and so the answer arrives saying what it is rather than leaving the
  * caller to assume.
  */
-export function coverOf(book: BookRow): GridBook {
+export function coverOf(book: FiledBookRow): GridBook {
   const picture = bookCover({
     front: book.front_image ?? '',
     back: book.back_image ?? '',

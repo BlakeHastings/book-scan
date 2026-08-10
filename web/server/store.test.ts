@@ -264,7 +264,12 @@ describe('bookkeeping', () => {
       draft({ title: 'Good Omens', authors: ['Terry Pratchett', 'Neil Gaiman'] }),
     )
     const row = (await store.listRange('fiction')).find((b) => b.id === id)
-    expect(row?.author_filing).toBe('Pratchett, Terry')
+    // The first-listed name is the one the key is built from, and the joined
+    // string keeps both in the order they are printed. The view's
+    // `author_filing` is empty here because nothing in this file credits a book:
+    // that is `CreditBookHandler`, from the save routes, and
+    // `authors.routes.test.ts` is where the two are asserted together.
+    expect(row?.sort_key.split(SEP)[0]).toBe('PRATCHETT TERRY')
     expect(row?.authors).toBe('Terry Pratchett, Neil Gaiman')
   })
 
@@ -328,7 +333,9 @@ describe('editing a shelved book', () => {
     const after = (await store.getBook(id))!
 
     expect(after.sort_key).not.toBe(before)
-    expect(after.author_filing).toBe('Author, Ann')
+    // The key's first component is what the book files under, and there is no
+    // column beside it holding a copy any more (#227).
+    expect(after.sort_key.split(SEP)[0]).toBe('AUTHOR ANN')
   })
 
   it('moves the book between ranges when the fiction flag flips', async () => {
@@ -359,7 +366,7 @@ describe('editing a shelved book', () => {
     )
     await updateBook(id, draft({ title: 'X', authors: ['Cal Church'] }))
     expect((await store.getBook(id))?.authors).toBe('Cal Church')
-    expect((await store.getBook(id))?.author_filing).toBe('Church, Cal')
+    expect((await store.getBook(id))?.sort_key.split(SEP)[0]).toBe('CHURCH CAL')
   })
 
   it('fills in both ISBN forms on an edit, as on an insert', async () => {

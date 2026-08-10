@@ -1537,13 +1537,23 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
   }))
 
+  /**
+   * One book, and who it credits.
+   *
+   * The credits travel with it because the review pane's filing field is about
+   * the first-listed name, and what that name files under is a fact about the
+   * alias rather than a column on the book since #227. A listing answers rows
+   * that carry `author_filing`, joined on from the same place; this is the one
+   * route that reads a single book, and it reads the model.
+   */
   app.get('/api/books/:id', asyncRoute(async (req, res) => {
-    const book = await store.getBook(Number(req.params.id))
+    const id = Number(req.params.id)
+    const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
-    res.json({ book })
+    res.json({ book, authors: await describeCredits(id) })
   }))
 
   app.put('/api/books/:id', asyncRoute(async (req, res) => {

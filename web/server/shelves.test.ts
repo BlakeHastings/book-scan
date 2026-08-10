@@ -497,11 +497,11 @@ describe('a book in the catalogue that is not on a shelf', () => {
       title: 'Something nobody has confirmed', authors: [author],
     })
     await db.run(
-      `INSERT INTO books (title, shelf_range, author_filing, sort_key,
+      `INSERT INTO books (title, shelf_range, sort_key,
                           location, scanned_at, state)
-       VALUES ('Something nobody has confirmed', 'fiction', ?, ?, ?,
+       VALUES ('Something nobody has confirmed', 'fiction', ?, ?,
                '2026-08-07T00:00:00.000Z', 'scanned')`,
-      [key.authorFiling, key.sortKey, location],
+      [key.sortKey, location],
     )
   }
 
