@@ -57,6 +57,9 @@ import { photographsTaken } from '../server/photographs'
 import type { ShelfRange } from '../shared/shelving'
 import { backCover, frontCover, spine } from '../server/fixtures'
 import { STATE_OF_QUEUE_STATUS } from '../domain/books/state'
+import {
+  FICTION_SLUG, NON_FICTION_SLUG, type GenreSlug,
+} from '../domain/tagging/catalogue-claims'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WEB_DIR = resolve(HERE, '..')
@@ -119,7 +122,7 @@ interface BookSeed {
   title: string
   subtitle?: string
   authors: string[]
-  isFiction: boolean
+  genre: GenreSlug
   publisher: string
   published: string
   pages: string
@@ -140,20 +143,20 @@ interface BookSeed {
 const SHELVED_FICTION = 19
 
 const FICTION: BookSeed[] = [
-  { title: 'The Left Hand of Darkness', authors: ['Ursula K. Le Guin'], isFiction: true, publisher: 'Ace Books', published: '1969', pages: '304' },
-  { title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true, publisher: 'Harper & Row', published: '1974', pages: '341' },
-  { title: 'A Wizard of Earthsea', authors: ['Ursula K. Le Guin'], isFiction: true, publisher: 'Parnassus Press', published: '1968', pages: '183', seriesName: 'Earthsea', seriesIndex: 1 },
-  { title: 'Neuromancer', authors: ['William Gibson'], isFiction: true, publisher: 'Ace Books', published: '1984', pages: '271', noCover: true },
-  { title: 'Snow Crash', authors: ['Neal Stephenson'], isFiction: true, publisher: 'Bantam Books', published: '1992', pages: '470' },
-  { title: 'The Player of Games', authors: ['Iain M. Banks'], isFiction: true, publisher: 'Macmillan', published: '1988', pages: '325', seriesName: 'Culture', seriesIndex: 2 },
-  { title: 'Dune', authors: ['Frank Herbert'], isFiction: true, publisher: 'Chilton Books', published: '1965', pages: '412', seriesName: 'Dune', seriesIndex: 1 },
-  { title: 'Dune Messiah', authors: ['Frank Herbert'], isFiction: true, publisher: 'Putnam', published: '1969', pages: '256', seriesName: 'Dune', seriesIndex: 2 },
-  { title: 'Children of Dune', authors: ['Frank Herbert'], isFiction: true, publisher: 'Putnam', published: '1976', pages: '444', seriesName: 'Dune', seriesIndex: 3, noSpine: true },
-  { title: 'Mary Barton', authors: ['Elizabeth Gaskell'], isFiction: true, publisher: 'Chapman and Hall', published: '1848', pages: '480' },
-  { title: 'Cranford', authors: ['Elizabeth Gaskell'], isFiction: true, publisher: 'Chapman and Hall', published: '1853', pages: '256', noCover: true },
-  { title: 'Pride and Prejudice', authors: ['Jane Austen'], isFiction: true, publisher: 'T. Egerton', published: '1813', pages: '279' },
-  { title: 'Persuasion', authors: ['Jane Austen'], isFiction: true, publisher: 'John Murray', published: '1818', pages: '264' },
-  { title: 'One Hundred Years of Solitude', authors: ['Gabriel García Márquez'], isFiction: true, publisher: 'Harper & Row', published: '1967', pages: '417' },
+  { title: 'The Left Hand of Darkness', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG, publisher: 'Ace Books', published: '1969', pages: '304' },
+  { title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG, publisher: 'Harper & Row', published: '1974', pages: '341' },
+  { title: 'A Wizard of Earthsea', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG, publisher: 'Parnassus Press', published: '1968', pages: '183', seriesName: 'Earthsea', seriesIndex: 1 },
+  { title: 'Neuromancer', authors: ['William Gibson'], genre: FICTION_SLUG, publisher: 'Ace Books', published: '1984', pages: '271', noCover: true },
+  { title: 'Snow Crash', authors: ['Neal Stephenson'], genre: FICTION_SLUG, publisher: 'Bantam Books', published: '1992', pages: '470' },
+  { title: 'The Player of Games', authors: ['Iain M. Banks'], genre: FICTION_SLUG, publisher: 'Macmillan', published: '1988', pages: '325', seriesName: 'Culture', seriesIndex: 2 },
+  { title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, publisher: 'Chilton Books', published: '1965', pages: '412', seriesName: 'Dune', seriesIndex: 1 },
+  { title: 'Dune Messiah', authors: ['Frank Herbert'], genre: FICTION_SLUG, publisher: 'Putnam', published: '1969', pages: '256', seriesName: 'Dune', seriesIndex: 2 },
+  { title: 'Children of Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, publisher: 'Putnam', published: '1976', pages: '444', seriesName: 'Dune', seriesIndex: 3, noSpine: true },
+  { title: 'Mary Barton', authors: ['Elizabeth Gaskell'], genre: FICTION_SLUG, publisher: 'Chapman and Hall', published: '1848', pages: '480' },
+  { title: 'Cranford', authors: ['Elizabeth Gaskell'], genre: FICTION_SLUG, publisher: 'Chapman and Hall', published: '1853', pages: '256', noCover: true },
+  { title: 'Pride and Prejudice', authors: ['Jane Austen'], genre: FICTION_SLUG, publisher: 'T. Egerton', published: '1813', pages: '279' },
+  { title: 'Persuasion', authors: ['Jane Austen'], genre: FICTION_SLUG, publisher: 'John Murray', published: '1818', pages: '264' },
+  { title: 'One Hundred Years of Solitude', authors: ['Gabriel García Márquez'], genre: FICTION_SLUG, publisher: 'Harper & Row', published: '1967', pages: '417' },
   // Translated classics, with the author written the way Open Library actually
   // answers for these editions: in the script the book was written in. Three
   // scripts and one half-transliterated name, because they behave differently
@@ -163,46 +166,46 @@ const FICTION: BookSeed[] = [
   // They are here rather than at the end of the list because everything past
   // SHELVED_FICTION goes to the queue, and a book in the queue has no sort key
   // and no shelf to be filed wrongly on.
-  { title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], isFiction: true, publisher: 'Penguin Classics', published: '1866', pages: '671' },
-  { title: 'The Brothers Karamazov', authors: ['Фёдор Достоевский'], isFiction: true, publisher: 'Penguin Classics', published: '1880', pages: '985', noCover: true },
-  { title: 'Norwegian Wood', authors: ['村上春樹'], isFiction: true, publisher: 'Vintage', published: '1987', pages: '389' },
-  { title: 'Zorba the Greek', authors: ['Νίκος Καζαντζάκης'], isFiction: true, publisher: 'Faber and Faber', published: '1946', pages: '320', noSpine: true },
-  { title: 'The Master and Margarita', authors: ['Mikhail Булгаков'], isFiction: true, publisher: 'Penguin Classics', published: '1967', pages: '412' },
-  { title: 'Love in the Time of Cholera', authors: ['Gabriel García Márquez'], isFiction: true, publisher: 'Knopf', published: '1985', pages: '348' },
-  { title: 'American Gods', authors: ['Neil Gaiman'], isFiction: true, publisher: 'William Morrow', published: '2001', pages: '465' },
-  { title: 'Good Omens', authors: ['Neil Gaiman', 'Terry Pratchett'], isFiction: true, publisher: 'Gollancz', published: '1990', pages: '412' },
-  { title: 'Small Gods', authors: ['Terry Pratchett'], isFiction: true, publisher: 'Gollancz', published: '1992', pages: '373', seriesName: 'Discworld', seriesIndex: 13 },
-  { title: 'Guards! Guards!', authors: ['Terry Pratchett'], isFiction: true, publisher: 'Gollancz', published: '1989', pages: '350', seriesName: 'Discworld', seriesIndex: 8, noSpine: true },
-  { title: 'The Hobbit', authors: ['J. R. R. Tolkien'], isFiction: true, publisher: 'George Allen & Unwin', published: '1937', pages: '310' },
-  { title: 'The Fellowship of the Ring', authors: ['J. R. R. Tolkien'], isFiction: true, publisher: 'George Allen & Unwin', published: '1954', pages: '423', seriesName: 'The Lord of the Rings', seriesIndex: 1 },
-  { title: 'The Two Towers', authors: ['J. R. R. Tolkien'], isFiction: true, publisher: 'George Allen & Unwin', published: '1954', pages: '352', seriesName: 'The Lord of the Rings', seriesIndex: 2 },
-  { title: 'The Return of the King', authors: ['J. R. R. Tolkien'], isFiction: true, publisher: 'George Allen & Unwin', published: '1955', pages: '416', seriesName: 'The Lord of the Rings', seriesIndex: 3 },
-  { title: 'Kindred', authors: ['Octavia E. Butler'], isFiction: true, publisher: 'Doubleday', published: '1979', pages: '287' },
-  { title: 'Parable of the Sower', authors: ['Octavia E. Butler'], isFiction: true, publisher: 'Four Walls Eight Windows', published: '1993', pages: '299', noCover: true },
-  { title: 'The Remains of the Day', authors: ['Kazuo Ishiguro'], isFiction: true, publisher: 'Faber and Faber', published: '1989', pages: '245' },
-  { title: 'Never Let Me Go', authors: ['Kazuo Ishiguro'], isFiction: true, publisher: 'Faber and Faber', published: '2005', pages: '288' },
-  { title: 'Beloved', authors: ['Toni Morrison'], isFiction: true, publisher: 'Alfred A. Knopf', published: '1987', pages: '324' },
-  { title: 'Song of Solomon', authors: ['Toni Morrison'], isFiction: true, publisher: 'Alfred A. Knopf', published: '1977', pages: '337' },
-  { title: 'Slaughterhouse-Five', authors: ['Kurt Vonnegut'], isFiction: true, publisher: 'Delacorte Press', published: '1969', pages: '275' },
-  { title: "Cat's Cradle", authors: ['Kurt Vonnegut'], isFiction: true, publisher: 'Holt, Rinehart and Winston', published: '1963', pages: '287' },
+  { title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], genre: FICTION_SLUG, publisher: 'Penguin Classics', published: '1866', pages: '671' },
+  { title: 'The Brothers Karamazov', authors: ['Фёдор Достоевский'], genre: FICTION_SLUG, publisher: 'Penguin Classics', published: '1880', pages: '985', noCover: true },
+  { title: 'Norwegian Wood', authors: ['村上春樹'], genre: FICTION_SLUG, publisher: 'Vintage', published: '1987', pages: '389' },
+  { title: 'Zorba the Greek', authors: ['Νίκος Καζαντζάκης'], genre: FICTION_SLUG, publisher: 'Faber and Faber', published: '1946', pages: '320', noSpine: true },
+  { title: 'The Master and Margarita', authors: ['Mikhail Булгаков'], genre: FICTION_SLUG, publisher: 'Penguin Classics', published: '1967', pages: '412' },
+  { title: 'Love in the Time of Cholera', authors: ['Gabriel García Márquez'], genre: FICTION_SLUG, publisher: 'Knopf', published: '1985', pages: '348' },
+  { title: 'American Gods', authors: ['Neil Gaiman'], genre: FICTION_SLUG, publisher: 'William Morrow', published: '2001', pages: '465' },
+  { title: 'Good Omens', authors: ['Neil Gaiman', 'Terry Pratchett'], genre: FICTION_SLUG, publisher: 'Gollancz', published: '1990', pages: '412' },
+  { title: 'Small Gods', authors: ['Terry Pratchett'], genre: FICTION_SLUG, publisher: 'Gollancz', published: '1992', pages: '373', seriesName: 'Discworld', seriesIndex: 13 },
+  { title: 'Guards! Guards!', authors: ['Terry Pratchett'], genre: FICTION_SLUG, publisher: 'Gollancz', published: '1989', pages: '350', seriesName: 'Discworld', seriesIndex: 8, noSpine: true },
+  { title: 'The Hobbit', authors: ['J. R. R. Tolkien'], genre: FICTION_SLUG, publisher: 'George Allen & Unwin', published: '1937', pages: '310' },
+  { title: 'The Fellowship of the Ring', authors: ['J. R. R. Tolkien'], genre: FICTION_SLUG, publisher: 'George Allen & Unwin', published: '1954', pages: '423', seriesName: 'The Lord of the Rings', seriesIndex: 1 },
+  { title: 'The Two Towers', authors: ['J. R. R. Tolkien'], genre: FICTION_SLUG, publisher: 'George Allen & Unwin', published: '1954', pages: '352', seriesName: 'The Lord of the Rings', seriesIndex: 2 },
+  { title: 'The Return of the King', authors: ['J. R. R. Tolkien'], genre: FICTION_SLUG, publisher: 'George Allen & Unwin', published: '1955', pages: '416', seriesName: 'The Lord of the Rings', seriesIndex: 3 },
+  { title: 'Kindred', authors: ['Octavia E. Butler'], genre: FICTION_SLUG, publisher: 'Doubleday', published: '1979', pages: '287' },
+  { title: 'Parable of the Sower', authors: ['Octavia E. Butler'], genre: FICTION_SLUG, publisher: 'Four Walls Eight Windows', published: '1993', pages: '299', noCover: true },
+  { title: 'The Remains of the Day', authors: ['Kazuo Ishiguro'], genre: FICTION_SLUG, publisher: 'Faber and Faber', published: '1989', pages: '245' },
+  { title: 'Never Let Me Go', authors: ['Kazuo Ishiguro'], genre: FICTION_SLUG, publisher: 'Faber and Faber', published: '2005', pages: '288' },
+  { title: 'Beloved', authors: ['Toni Morrison'], genre: FICTION_SLUG, publisher: 'Alfred A. Knopf', published: '1987', pages: '324' },
+  { title: 'Song of Solomon', authors: ['Toni Morrison'], genre: FICTION_SLUG, publisher: 'Alfred A. Knopf', published: '1977', pages: '337' },
+  { title: 'Slaughterhouse-Five', authors: ['Kurt Vonnegut'], genre: FICTION_SLUG, publisher: 'Delacorte Press', published: '1969', pages: '275' },
+  { title: "Cat's Cradle", authors: ['Kurt Vonnegut'], genre: FICTION_SLUG, publisher: 'Holt, Rinehart and Winston', published: '1963', pages: '287' },
 ]
 
 const NONFICTION: BookSeed[] = [
-  { title: 'Sapiens', subtitle: 'A Brief History of Humankind', authors: ['Yuval Noah Harari'], isFiction: false, publisher: 'Harvill Secker', published: '2011', pages: '443' },
-  { title: 'Homo Deus', subtitle: 'A Brief History of Tomorrow', authors: ['Yuval Noah Harari'], isFiction: false, publisher: 'Harvill Secker', published: '2015', pages: '450' },
-  { title: 'The Selfish Gene', authors: ['Richard Dawkins'], isFiction: false, publisher: 'Oxford University Press', published: '1976', pages: '224' },
-  { title: 'A Brief History of Time', authors: ['Stephen Hawking'], isFiction: false, publisher: 'Bantam Books', published: '1988', pages: '212', noCover: true },
-  { title: 'Cosmos', authors: ['Carl Sagan'], isFiction: false, publisher: 'Random House', published: '1980', pages: '365' },
-  { title: 'The Demon-Haunted World', subtitle: 'Science as a Candle in the Dark', authors: ['Carl Sagan'], isFiction: false, publisher: 'Random House', published: '1995', pages: '457', noSpine: true },
-  { title: 'Silent Spring', authors: ['Rachel Carson'], isFiction: false, publisher: 'Houghton Mifflin', published: '1962', pages: '368' },
-  { title: 'The Sixth Extinction', subtitle: 'An Unnatural History', authors: ['Elizabeth Kolbert'], isFiction: false, publisher: 'Henry Holt', published: '2014', pages: '319' },
-  { title: 'Braiding Sweetgrass', authors: ['Robin Wall Kimmerer'], isFiction: false, publisher: 'Milkweed Editions', published: '2013', pages: '408' },
-  { title: 'The Immortal Life of Henrietta Lacks', authors: ['Rebecca Skloot'], isFiction: false, publisher: 'Crown', published: '2010', pages: '381' },
-  { title: 'Educated', authors: ['Tara Westover'], isFiction: false, publisher: 'Random House', published: '2018', pages: '334' },
-  { title: 'Born a Crime', authors: ['Trevor Noah'], isFiction: false, publisher: 'Spiegel & Grau', published: '2016', pages: '304', noCover: true },
-  { title: 'On Writing', subtitle: 'A Memoir of the Craft', authors: ['Stephen King'], isFiction: false, publisher: 'Scribner', published: '2000', pages: '288' },
-  { title: 'Bird by Bird', subtitle: 'Some Instructions on Writing and Life', authors: ['Anne Lamott'], isFiction: false, publisher: 'Anchor Books', published: '1994', pages: '237' },
-  { title: 'The Elements of Style', authors: ['William Strunk Jr.', 'E. B. White'], isFiction: false, publisher: 'Macmillan', published: '1959', pages: '105' },
+  { title: 'Sapiens', subtitle: 'A Brief History of Humankind', authors: ['Yuval Noah Harari'], genre: NON_FICTION_SLUG, publisher: 'Harvill Secker', published: '2011', pages: '443' },
+  { title: 'Homo Deus', subtitle: 'A Brief History of Tomorrow', authors: ['Yuval Noah Harari'], genre: NON_FICTION_SLUG, publisher: 'Harvill Secker', published: '2015', pages: '450' },
+  { title: 'The Selfish Gene', authors: ['Richard Dawkins'], genre: NON_FICTION_SLUG, publisher: 'Oxford University Press', published: '1976', pages: '224' },
+  { title: 'A Brief History of Time', authors: ['Stephen Hawking'], genre: NON_FICTION_SLUG, publisher: 'Bantam Books', published: '1988', pages: '212', noCover: true },
+  { title: 'Cosmos', authors: ['Carl Sagan'], genre: NON_FICTION_SLUG, publisher: 'Random House', published: '1980', pages: '365' },
+  { title: 'The Demon-Haunted World', subtitle: 'Science as a Candle in the Dark', authors: ['Carl Sagan'], genre: NON_FICTION_SLUG, publisher: 'Random House', published: '1995', pages: '457', noSpine: true },
+  { title: 'Silent Spring', authors: ['Rachel Carson'], genre: NON_FICTION_SLUG, publisher: 'Houghton Mifflin', published: '1962', pages: '368' },
+  { title: 'The Sixth Extinction', subtitle: 'An Unnatural History', authors: ['Elizabeth Kolbert'], genre: NON_FICTION_SLUG, publisher: 'Henry Holt', published: '2014', pages: '319' },
+  { title: 'Braiding Sweetgrass', authors: ['Robin Wall Kimmerer'], genre: NON_FICTION_SLUG, publisher: 'Milkweed Editions', published: '2013', pages: '408' },
+  { title: 'The Immortal Life of Henrietta Lacks', authors: ['Rebecca Skloot'], genre: NON_FICTION_SLUG, publisher: 'Crown', published: '2010', pages: '381' },
+  { title: 'Educated', authors: ['Tara Westover'], genre: NON_FICTION_SLUG, publisher: 'Random House', published: '2018', pages: '334' },
+  { title: 'Born a Crime', authors: ['Trevor Noah'], genre: NON_FICTION_SLUG, publisher: 'Spiegel & Grau', published: '2016', pages: '304', noCover: true },
+  { title: 'On Writing', subtitle: 'A Memoir of the Craft', authors: ['Stephen King'], genre: NON_FICTION_SLUG, publisher: 'Scribner', published: '2000', pages: '288' },
+  { title: 'Bird by Bird', subtitle: 'Some Instructions on Writing and Life', authors: ['Anne Lamott'], genre: NON_FICTION_SLUG, publisher: 'Anchor Books', published: '1994', pages: '237' },
+  { title: 'The Elements of Style', authors: ['William Strunk Jr.', 'E. B. White'], genre: NON_FICTION_SLUG, publisher: 'Macmillan', published: '1959', pages: '105' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -281,7 +284,7 @@ function draftFor(book: BookSeed, isbn13: string, photos: Photos): DraftBook {
     publisher: book.publisher,
     published: book.published,
     pages: book.pages,
-    isFiction: book.isFiction,
+    genre: book.genre,
     classificationSource: 'manual',
     classificationConfidence: 'high',
     seriesName: book.seriesName ?? '',
@@ -449,7 +452,7 @@ function lookupJson(book: BookSeed, isbn13: string): string {
     coverUrl: '',
     source: 'seed',
     classification: {
-      isFiction: book.isFiction,
+      genre: book.genre,
       confidence: 'high',
       reason: 'Seeded for a hunting pass.',
     },

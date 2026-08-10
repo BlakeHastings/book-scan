@@ -43,6 +43,7 @@ import {
   withPhotographs, withPhotographsOf, type PhotographFields,
 } from './photographs'
 import { resolveIsbnPair } from '../shared/isbn'
+import type { GenreSlug } from '../domain/tagging/genre'
 import {
   countFailures, PROCESSING_ERROR_NOTE, type FailureCounts,
 } from '../shared/captureFailure'
@@ -205,7 +206,7 @@ export interface CaptureEdit {
   published?: string
   pages?: string
   notes?: string
-  isFiction?: boolean
+  genre?: GenreSlug
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string
@@ -257,7 +258,7 @@ function fromLookup(lookup: LookupResult): CaptureEdit {
     publisher: lookup.publisher,
     published: lookup.published,
     pages: lookup.pages,
-    isFiction: lookup.classification.isFiction,
+    genre: lookup.classification.genre,
     classificationSource: 'auto',
     classificationConfidence: lookup.classification.confidence,
     seriesName: lookup.seriesName,

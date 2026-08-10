@@ -17,9 +17,10 @@ import { Store, type DraftBook } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { PrintedName } from '../domain/authorship/authors'
 import { refileBooks } from './refile'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
-  return { isFiction: true, ...over }
+  return { genre: FICTION_SLUG, ...over }
 }
 
 let store: Store

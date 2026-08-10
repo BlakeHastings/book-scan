@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseSeries } from './lookup'
 import { classify } from './classify'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 describe('parseSeries', () => {
   it('handles the real Open Library value for Dune', () => {
@@ -34,16 +35,16 @@ describe('parseSeries', () => {
 describe('classify', () => {
   it('trusts a Google BISAC category above everything else', () => {
     expect(classify({ categories: ['Fiction / Fantasy / Epic'] }))
-      .toMatchObject({ isFiction: true, confidence: 'high' })
+      .toMatchObject({ genre: FICTION_SLUG, confidence: 'high' })
     expect(classify({ categories: ['Biography & Autobiography / Personal Memoirs'] }))
-      .toMatchObject({ isFiction: false, confidence: 'high' })
+      .toMatchObject({ genre: NON_FICTION_SLUG, confidence: 'high' })
   })
 
   it('falls back to Open Library subjects', () => {
     expect(classify({ subjects: ['Science fiction', 'Fiction'] }))
-      .toMatchObject({ isFiction: true, confidence: 'medium' })
+      .toMatchObject({ genre: FICTION_SLUG, confidence: 'medium' })
     expect(classify({ subjects: ['Technology and civilization', 'History'] }))
-      .toMatchObject({ isFiction: false, confidence: 'medium' })
+      .toMatchObject({ genre: NON_FICTION_SLUG, confidence: 'medium' })
   })
 
   it('refuses to guess when two confident sources disagree', () => {
@@ -63,8 +64,8 @@ describe('classify', () => {
 
   it('reads Dewey when the catalogues are quiet', () => {
     expect(classify({ deweyDecimal: ['813.54'] }))
-      .toMatchObject({ isFiction: true, confidence: 'medium' })
+      .toMatchObject({ genre: FICTION_SLUG, confidence: 'medium' })
     expect(classify({ deweyDecimal: ['973.7'] }))
-      .toMatchObject({ isFiction: false, confidence: 'medium' })
+      .toMatchObject({ genre: NON_FICTION_SLUG, confidence: 'medium' })
   })
 })

@@ -3,6 +3,8 @@ import type {
   ShelvingReview,
 } from '../../shared/shelving'
 import type { FailureCounts } from '../../shared/captureFailure'
+import { genreOfRange, type GenreSlug } from '../../domain/tagging/genre'
+import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 /**
  * Naming boundary, recorded here because this file is the only client to
@@ -22,7 +24,15 @@ import type { FailureCounts } from '../../shared/captureFailure'
  */
 
 export interface Classification {
-  isFiction: boolean
+  /**
+   * Which genre the classifier guessed, as the tag it means.
+   *
+   * A slug rather than a boolean since #227. `books.is_fiction` is gone and the
+   * genre tag is what decides a shelf range, so there is one vocabulary for a
+   * book's genre from the ladder in `server/classify.ts` through to the field
+   * beside the title.
+   */
+  genre: GenreSlug
   confidence: 'high' | 'medium' | 'weak' | 'unknown'
   reason: string
 }
@@ -57,7 +67,8 @@ export interface Draft {
   published: string
   pages: string
   notes: string
-  isFiction: boolean
+  /** The genre this draft states, as a slug. See `Classification.genre`. */
+  genre: GenreSlug
   classificationSource: string
   classificationConfidence: string
   seriesName: string
@@ -136,8 +147,14 @@ export interface BookRow {
   series_name: string
   series_index: number | null
   location: string
+  /**
+   * Which run this book is in, which is what its genre tag settled on.
+   *
+   * There is no `is_fiction` beside it any more (#227). The column is dropped,
+   * and this is the answer the genre tag gave, so the field beside the title
+   * comes up from here: see `draftFromBook`.
+   */
   shelf_range: ShelfRange
-  is_fiction: number
   classification_source: string
   classification_confidence: string
   isbn13: string
@@ -374,7 +391,7 @@ export interface CaptureEdit {
   published?: string
   pages?: string
   notes?: string
-  isFiction?: boolean
+  genre?: GenreSlug
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string
@@ -805,7 +822,7 @@ export const api = {
 
 export const emptyDraft: Draft = {
   isbn13: '', isbn10: '', title: '', subtitle: '', authors: '', publisher: '',
-  published: '', pages: '', notes: '', isFiction: true,
+  published: '', pages: '', notes: '', genre: FICTION_SLUG,
   classificationSource: 'auto', classificationConfidence: 'unknown',
   seriesName: '', seriesIndex: '', location: '', lookupSource: '',
   isbnSource: '', authorFilingOverride: '',
@@ -832,7 +849,7 @@ export function draftFromLookup(result: LookupResponse, isbnSource = ''): Draft 
     publisher: result.publisher,
     published: result.published,
     pages: result.pages,
-    isFiction: result.classification.isFiction,
+    genre: result.classification.genre,
     classificationSource: 'auto',
     classificationConfidence: result.classification.confidence,
     seriesName: result.seriesName,
@@ -910,7 +927,7 @@ export function draftFromCapture(capture: Capture): Draft {
     if (stated[key] !== undefined) patch[key] = stated[key] as string
   }
   if (stated.authors !== undefined) patch.authors = stated.authors.join(', ')
-  if (stated.isFiction !== undefined) patch.isFiction = stated.isFiction
+  if (stated.genre !== undefined) patch.genre = stated.genre
   if (stated.seriesIndex !== undefined) {
     patch.seriesIndex = stated.seriesIndex === null ? '' : String(stated.seriesIndex)
   }
@@ -984,7 +1001,7 @@ export function editFromDraft(draft: Draft, shown: Draft): CaptureEdit {
   if (draft.authors !== shown.authors) {
     edit.authors = draft.authors.split(',').map((a) => a.trim()).filter(Boolean)
   }
-  if (draft.isFiction !== shown.isFiction) edit.isFiction = draft.isFiction
+  if (draft.genre !== shown.genre) edit.genre = draft.genre
   if (draft.seriesIndex !== shown.seriesIndex) {
     edit.seriesIndex = draft.seriesIndex.trim() === '' ? null : Number(draft.seriesIndex)
   }
@@ -1008,7 +1025,9 @@ export function draftFromBook(book: BookRow): Draft {
     published: book.published ?? '',
     pages: book.pages ?? '',
     notes: book.notes ?? '',
-    isFiction: book.is_fiction === 1,
+    // The genre tag's own answer, read back off the range it settled on. The
+    // client sends a slug and reads one, and `books.is_fiction` is gone (#227).
+    genre: genreOfRange(book.shelf_range),
     classificationSource: book.classification_source || 'manual',
     classificationConfidence: book.classification_confidence || 'unknown',
     seriesName: book.series_name ?? '',

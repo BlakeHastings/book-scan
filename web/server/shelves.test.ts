@@ -12,6 +12,7 @@ import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let store: Store
 let shelves: Shelves
@@ -28,7 +29,7 @@ afterAll(closeTestDatabase)
 
 /** Authors chosen so alphabetical order matches the argument order. */
 const add = async (author: string, title = 'Book') =>
-  (await store.addBook({ title, authors: [author], isFiction: true })).id
+  (await store.addBook({ title, authors: [author], genre: FICTION_SLUG })).id
 
 /**
  * Where a draft would go, and saving an edit, filed under the genre the draft
@@ -133,7 +134,7 @@ describe('proposing the move without making it', () => {
     const ann = await add('Ann Author')
     await store.setLocation(ann, '1A')
     const key = (await placementFor(
-      { title: 'Book', authors: ['Bob Baker'], isFiction: true } as never,
+      { title: 'Book', authors: ['Bob Baker'], genre: FICTION_SLUG } as never,
     )).sortKey
 
     const plan = await shelves.proposeOverflow('fiction', '1A', 'area', key)
@@ -197,7 +198,7 @@ describe('placing a book on a shelf that is full', () => {
 
   /** The sort key of a book that is not saved yet. */
   const keyFor = async (author: string, title = 'Book') =>
-    (await placementFor({ title, authors: [author], isFiction: true } as never)).sortKey
+    (await placementFor({ title, authors: [author], genre: FICTION_SLUG } as never)).sortKey
 
   it('sends the book in hand on when nothing on the shelf follows it', async () => {
     // The bug in #77. Ann and Bob fill 1A, Cal is on 1B, and the book being
@@ -367,7 +368,7 @@ describe('ranges are independent', () => {
   it('does not let a fiction boundary move non-fiction books', async () => {
     await add('Ann Author')
     await add('Bob Baker')
-    await store.addBook({ title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false })
+    await store.addBook({ title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG })
 
     await shelves.overflow('fiction', '1A', 'shelf')
     expect((await shelves.layout('nonfiction')).map((p) => p.label)).toEqual(['4A'])
@@ -425,13 +426,13 @@ describe('a book taken off the shelf', () => {
     await add('Angela Carter')
 
     const before = await placementFor({
-      title: 'X', authors: ['Ann Baxter'], isFiction: true,
+      title: 'X', authors: ['Ann Baxter'], genre: FICTION_SLUG,
     } as never)
     expect(before.successor?.id).toBe(middle)
 
     await store.setCheckedOut(middle, true)
     const after = await placementFor({
-      title: 'X', authors: ['Ann Baxter'], isFiction: true,
+      title: 'X', authors: ['Ann Baxter'], genre: FICTION_SLUG,
     } as never)
     expect(after.successor?.id).not.toBe(middle)
   })
@@ -522,7 +523,7 @@ describe('a book in the catalogue that is not on a shelf', () => {
     // Baxter files after Baker and before Clark, so a leak here is somebody
     // sent to a bookcase to find a book that is not on it.
     const placement = await placementFor({
-      title: 'Middle', authors: ['Bob Baxter'], isFiction: true,
+      title: 'Middle', authors: ['Bob Baxter'], genre: FICTION_SLUG,
     })
     expect(placement.predecessor?.title).toBe('Persuasion')
     expect(placement.successor?.title).toBe('Nights at the Circus')
@@ -822,7 +823,7 @@ describe('moving a book across an area boundary', () => {
   it('never lets a fiction move touch non-fiction', async () => {
     await shelve('Ann Author')
     const harari = (await store.addBook({
-      title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false,
+      title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG,
     })).id
 
     const result = await shelves.moveAcrossBoundary('fiction', harari, 'next')
@@ -1113,7 +1114,7 @@ describe('misfile detection', () => {
     await store.setLocation(id, '1B')
     expect(await flagged()).toEqual([])
 
-    await updateBook(id, { title: 'Book', authors: ['Al Adams'], isFiction: true })
+    await updateBook(id, { title: 'Book', authors: ['Al Adams'], genre: FICTION_SLUG })
     expect(await flagged()).toEqual([[id, '1B', '1A']])
   })
 
@@ -1145,7 +1146,7 @@ describe('misfile detection', () => {
     // of or behind a fiction book at 1A; the two runs never interact.
     await shelve('Ann Author')
     const harari = (await store.addBook({
-      title: 'Sapiens', authors: ['Yuval Harari'], isFiction: false,
+      title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG,
     })).id
     await store.setLocation(harari, await shelves.labelFor('nonfiction', harari))
 

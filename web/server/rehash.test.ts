@@ -15,6 +15,7 @@ import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-rep
 import { frontCover } from './fixtures'
 import { coverHash, distance } from './imagehash'
 import { isCurrentFormat, rehashCovers, type ReadImage } from './rehash'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 /** What the difference hash used to write: sixteen hex characters, no tag. */
 const OLD_FRONT = '0f1e2d3c4b5a6978'
@@ -43,7 +44,7 @@ async function addBook(
   const { id } = await store.addBook({
     title,
     authors: [author],
-    isFiction: true,
+    genre: FICTION_SLUG,
     frontImage: names.front ?? '',
   })
   if (names.cover) await store.setCoverImage(id, names.cover)

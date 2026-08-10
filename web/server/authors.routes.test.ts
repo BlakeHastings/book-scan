@@ -28,12 +28,13 @@ import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/tes
 import { PgDb } from './db.pg'
 import { createApp } from './index'
 import { lookupIsbn } from './lookup'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 const empty = {
   found: false, title: '', subtitle: '', authors: [] as string[], publisher: '',
   published: '', pages: '', isbn13: '', isbn10: '', seriesName: '', seriesIndex: null,
   coverUrl: '', source: '',
-  classification: { isFiction: true, confidence: 'unknown' as const, reason: 'stub' },
+  classification: { genre: FICTION_SLUG, confidence: 'unknown' as const, reason: 'stub' },
   notes: [] as string[], subjects: [] as string[], categories: [] as string[],
 }
 
@@ -106,7 +107,7 @@ const patch = send('PATCH')
 /** A saved book, and its id. */
 async function aBook(fields: Record<string, unknown> = {}) {
   const { body } = await post('/api/books', {
-    title: 'Dune', authors: ['Frank Herbert'], isFiction: true, ...fields,
+    title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, ...fields,
   })
   return Number(body.id)
 }
@@ -200,7 +201,7 @@ describe('saving a book', () => {
     // already in the catalogue moved that one book and vanished.
     const id = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
     await put(`/api/books/${id}`, {
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       authorFilingOverride: 'Herbert, Franklin Patrick',
     })
 

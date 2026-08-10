@@ -43,15 +43,20 @@ import { genreStatedBy } from '../domain/tagging/genre'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
 import { backCover, frontCover, photographedBook } from './fixtures'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 // Both routes that would otherwise reach the real catalogues. Saving a book
 // starts an un-awaited `fetchCoverFor`, which calls both.
-vi.mock('./lookup', () => {
+// The factory is async so it can import the slug rather than spell it a second
+// time: `vi.mock` is hoisted above every import in this file, so the one at the
+// top is not in scope inside it.
+vi.mock('./lookup', async () => {
+  const { FICTION_SLUG } = await import('../domain/tagging/catalogue-claims')
   const empty = {
     found: false, title: '', subtitle: '', authors: [] as string[], publisher: '',
     published: '', pages: '', isbn13: '', isbn10: '', seriesName: '', seriesIndex: null,
     coverUrl: '', source: '',
-    classification: { isFiction: true, confidence: 'unknown' as const, reason: 'stub' },
+    classification: { genre: FICTION_SLUG, confidence: 'unknown' as const, reason: 'stub' },
     notes: [] as string[],
   }
   return {
@@ -182,7 +187,7 @@ const dataUrl = (buffer: Buffer) => `data:image/png;base64,${buffer.toString('ba
  * `POST /api/books` calls.
  */
 const shelve = (id: number) => {
-  const draft = { title: 'Dune', authors: ['Frank Herbert'], isFiction: true }
+  const draft = { title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG }
   // The range comes in beside the draft since #223, because it is settled
   // against `book_tag` before the row is written. This shelves a book without
   // going through the route, so it states the genre the draft states.
@@ -200,7 +205,7 @@ const stateFor = (status: string) =>
 describe('saving a book', () => {
   it('persists it and answers with where it landed', async () => {
     const { status, body } = await post('/api/books', {
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
 
     expect(status).toBe(201)
@@ -216,7 +221,7 @@ describe('saving a book', () => {
   })
 
   it('refuses a book with no title rather than saving a blank one', async () => {
-    const { status, body } = await post('/api/books', { authors: ['Nobody'], isFiction: true })
+    const { status, body } = await post('/api/books', { authors: ['Nobody'], genre: FICTION_SLUG })
 
     expect(status).toBe(400)
     expect(body.error).toContain('title')
@@ -228,7 +233,7 @@ describe('saving a book', () => {
     // 1C proves the client's answer wins rather than being silently
     // overwritten by the derived one.
     const { body } = await post('/api/books', {
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, location: '1C',
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '1C',
     })
 
     expect((await running.store.getBook(body.id))?.location).toBe('1C')
@@ -303,7 +308,7 @@ describe('a database hiccup in the work a save started', () => {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+          title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
         }),
       })
       expect(saved.status).toBe(201)
@@ -342,11 +347,11 @@ describe('a database hiccup in the work a save started', () => {
 describe('updating a book', () => {
   it('edits an existing book in place', async () => {
     const { id } = await running.store.addBook({
-      title: 'Old Title', authors: ['Ann Author'], isFiction: true,
+      title: 'Old Title', authors: ['Ann Author'], genre: FICTION_SLUG,
     })
 
     const { status, body } = await put(`/api/books/${id}`, {
-      title: 'New Title', authors: ['Ann Author'], isFiction: true,
+      title: 'New Title', authors: ['Ann Author'], genre: FICTION_SLUG,
     })
 
     expect(status).toBe(200)
@@ -357,7 +362,7 @@ describe('updating a book', () => {
 
   it('404s on a book that does not exist, and writes nothing', async () => {
     const { status, body } = await put('/api/books/999', {
-      title: 'X', authors: ['Y'], isFiction: true,
+      title: 'X', authors: ['Y'], genre: FICTION_SLUG,
     })
 
     expect(status).toBe(404)
@@ -367,10 +372,10 @@ describe('updating a book', () => {
 
   it('400s when the edit drops the title, and leaves the row untouched', async () => {
     const { id } = await running.store.addBook({
-      title: 'Keep Me', authors: ['Ann Author'], isFiction: true,
+      title: 'Keep Me', authors: ['Ann Author'], genre: FICTION_SLUG,
     })
 
-    const { status } = await put(`/api/books/${id}`, { authors: ['Ann Author'], isFiction: true })
+    const { status } = await put(`/api/books/${id}`, { authors: ['Ann Author'], genre: FICTION_SLUG })
 
     expect(status).toBe(400)
     expect((await running.store.getBook(id))?.title).toBe('Keep Me')
@@ -395,7 +400,7 @@ describe('cropping a saved book to the book', () => {
     )
 
     const { body } = await post('/api/books', {
-      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
       images: { front: `data:image/jpeg;base64,${scene.image.toString('base64')}` },
     })
 
@@ -423,7 +428,7 @@ describe('cropping a saved book to the book', () => {
     }).jpeg().toBuffer()
 
     const { body } = await post('/api/books', {
-      title: 'Nothing There', authors: ['Ann Author'], isFiction: true,
+      title: 'Nothing There', authors: ['Ann Author'], genre: FICTION_SLUG,
       images: { front: `data:image/jpeg;base64,${flat.toString('base64')}` },
     })
 
@@ -442,7 +447,7 @@ describe('cropping a saved book to the book', () => {
     )
 
     const { body } = await post('/api/books', {
-      title: 'Short Lived', authors: ['Ann Author'], isFiction: true,
+      title: 'Short Lived', authors: ['Ann Author'], genre: FICTION_SLUG,
       images: { front: `data:image/jpeg;base64,${scene.image.toString('base64')}` },
     })
 
@@ -461,7 +466,7 @@ describe('cropping a saved book to the book', () => {
 describe('deleting a book', () => {
   it('removes it from the catalogue', async () => {
     const { id } = await running.store.addBook({
-      title: 'Gone Soon', authors: ['Ann Author'], isFiction: true,
+      title: 'Gone Soon', authors: ['Ann Author'], genre: FICTION_SLUG,
     })
 
     const { status, body } = await del(`/api/books/${id}`)
@@ -482,7 +487,7 @@ describe('deleting a book', () => {
 describe('updating a location', () => {
   it('records where a person says the book actually is', async () => {
     const { id } = await running.store.addBook({
-      title: 'X', authors: ['Ann Author'], isFiction: true, location: '1A',
+      title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
     const { status, body } = await patch(`/api/books/${id}/location`, { location: '2C' })
@@ -494,7 +499,7 @@ describe('updating a location', () => {
 
   it('takes the book back to never-placed on an empty label', async () => {
     const { id } = await running.store.addBook({
-      title: 'X', authors: ['Ann Author'], isFiction: true, location: '1A',
+      title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
     const { body } = await patch(`/api/books/${id}/location`, { location: '' })
@@ -503,7 +508,7 @@ describe('updating a location', () => {
 
   it('refuses a label that is not a real location, and does not touch the row', async () => {
     const { id } = await running.store.addBook({
-      title: 'X', authors: ['Ann Author'], isFiction: true, location: '1A',
+      title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
     const { status, body } = await patch(`/api/books/${id}/location`, { location: 'the loft' })
@@ -521,7 +526,7 @@ describe('updating a location', () => {
 
 describe('checking a book out and back in by id', () => {
   it('takes it off the shelf the first time', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
 
     const { status, body } = await post(`/api/books/${id}/checkout`, { out: true })
 
@@ -532,7 +537,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('reports already-out on a second checkout and keeps the original timestamp', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
     const first = await post(`/api/books/${id}/checkout`, { out: true })
 
     const second = await post(`/api/books/${id}/checkout`, { out: true })
@@ -542,7 +547,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('checks it back in, clearing the timestamp', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
     await post(`/api/books/${id}/checkout`, { out: true })
 
     const { status, body } = await post(`/api/books/${id}/checkout`, { out: false })
@@ -553,7 +558,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('reports already-in for a book already on the shelf, as a no-op', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], isFiction: true })
+    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
 
     const { body } = await post(`/api/books/${id}/checkout`, { out: false })
 
@@ -584,7 +589,7 @@ describe('checking a book out and back in by id', () => {
 describe('shelving a book onto a bookcase', () => {
   const seed = async (title: string, author: string): Promise<number> => {
     const { status, body } = await post('/api/books', {
-      title, authors: [author], isFiction: true,
+      title, authors: [author], genre: FICTION_SLUG,
     })
     expect(status, `seeding ${title}`).toBe(201)
     return body.id as number
@@ -611,7 +616,7 @@ describe('shelving a book onto a bookcase', () => {
     // the confirmed shelf goes through the location route.
     await post(`/api/books/${dispossessed}/checkout`, { out: true })
     const { status } = await put(`/api/books/${dispossessed}`, {
-      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
       location: '2A',
     })
     expect(status).toBe(200)
@@ -646,7 +651,7 @@ describe('shelving a book onto a bookcase', () => {
    */
   const previewKey = async (title: string, author: string): Promise<string> => {
     const { status, body } = await post('/api/placement/preview', {
-      title, authors: [author], isFiction: true,
+      title, authors: [author], genre: FICTION_SLUG,
     })
     expect(status, `previewing ${title}`).toBe(200)
     return body.sortKey as string
@@ -683,7 +688,7 @@ describe('shelving a book onto a bookcase', () => {
 
     // And saving it puts it exactly where the answer said it would go.
     const saved = await post('/api/books', {
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
     })
     expect((await running.store.getBook(saved.body.id))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
@@ -725,7 +730,7 @@ describe('shelving a book onto a bookcase', () => {
     expect(body.moves).toEqual([])
 
     const saved = await post('/api/books', {
-      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
     })
     expect((await running.store.getBook(saved.body.id))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
@@ -761,12 +766,12 @@ describe('shelving a book onto a bookcase', () => {
     // and the empty string. Neither one was made by somebody standing at a
     // shelf, so neither may touch the column that says where the book is.
     await put(`/api/books/${id}`, {
-      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
     })
     expect((await running.store.getBook(id))?.location).toBe('2C')
 
     await put(`/api/books/${id}`, {
-      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
       location: '',
     })
     expect((await running.store.getBook(id))?.location).toBe('2C')
@@ -788,7 +793,7 @@ describe('shelving a book onto a bookcase', () => {
     const takenDown = out.book.checked_out_at as string
 
     await put(`/api/books/${id}`, {
-      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], isFiction: true,
+      title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
       notes: 'signed by the author',
     })
 
@@ -824,7 +829,7 @@ describe('shelving a book onto a bookcase', () => {
 
     // Renaming the author to Adams sorts the book back to the front of the
     // range. Nobody has carried it there, so it is still, physically, on 1B.
-    await put(`/api/books/${zola}`, { title: 'Book', authors: ['Al Adams'], isFiction: true })
+    await put(`/api/books/${zola}`, { title: 'Book', authors: ['Al Adams'], genre: FICTION_SLUG })
 
     const library = await misfiles()
     expect(library.misfiles).toHaveLength(1)
@@ -833,7 +838,7 @@ describe('shelving a book onto a bookcase', () => {
     expect(library.misfiles[0].to).toBe('1A')
 
     const { status, body } = await post('/api/placement/preview', {
-      title: 'Book', authors: ['Al Adams'], isFiction: true, excludeId: zola,
+      title: 'Book', authors: ['Al Adams'], genre: FICTION_SLUG, excludeId: zola,
     })
     expect(status).toBe(200)
     expect(body.derivedLocation).toBe('1A')
@@ -859,7 +864,7 @@ describe('the row a shelved book stands in', () => {
   }) => (await running.store.addBook({
     title,
     authors: [author],
-    isFiction: true,
+    genre: FICTION_SLUG,
     frontImage: images.front ?? '',
     backImage: images.back ?? '',
     edgeImage: images.edge ?? '',
@@ -868,7 +873,7 @@ describe('the row a shelved book stands in', () => {
   /** The row as the detail view receives it, for the book with this id. */
   const rowFor = async (id: number, title: string, author: string) => {
     const { status, body } = await post('/api/placement/preview', {
-      title, authors: [author], isFiction: true, excludeId: id,
+      title, authors: [author], genre: FICTION_SLUG, excludeId: id,
     })
     expect(status, `previewing ${title}`).toBe(200)
     return body.strip as {
@@ -961,7 +966,7 @@ describe('the row a shelved book stands in', () => {
 describe('moving a book across an area boundary', () => {
   const seed = async (title: string, author: string): Promise<number> => {
     const { status, body } = await post('/api/books', {
-      title, authors: [author], isFiction: true,
+      title, authors: [author], genre: FICTION_SLUG,
     })
     expect(status, `seeding ${title}`).toBe(201)
     return body.id as number
@@ -1052,7 +1057,7 @@ describe('moving a book across an area boundary', () => {
 
     const boundaryFor = async (title: string, author: string, excludeId: number) => {
       const { status, body } = await post('/api/placement/preview', {
-        title, authors: [author], isFiction: true, excludeId,
+        title, authors: [author], genre: FICTION_SLUG, excludeId,
       })
       expect(status, `previewing ${title}`).toBe(200)
       return body.strip.boundary as { next: string | null; previous: string | null }
@@ -1157,7 +1162,7 @@ describe('moving a book across an area boundary', () => {
     // "It fits, save" at the end of the shelving step, which is a PUT of the
     // record followed by the one route that changes a location.
     await put(`/api/books/${dune}`, {
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
     })
     await patch(`/api/books/${dune}/location`, { location: body.move.to })
 
@@ -1279,7 +1284,7 @@ describe('scanning a book at the shelf', () => {
     // lands on that photograph's row (#228). A book with no photographs has
     // nowhere to put one and is not something a camera can recognise.
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'dune_front.jpg',
     })
     await running.store.setHashes(id, hash, '')
@@ -1319,7 +1324,7 @@ describe('scanning a book at the shelf', () => {
 
   it('identifies a catalogued book by its barcode and leaves it exactly as it was', async () => {
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
     const before = await running.store.getBook(id)
     const buffer = await backCover(DUNE)
@@ -1340,7 +1345,7 @@ describe('scanning a book at the shelf', () => {
     // Belt and braces on the shape: the old route wrote when told to, and a
     // client left on the old contract must not be able to reach that again.
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
     const buffer = await backCover(DUNE)
 
@@ -1370,10 +1375,10 @@ describe('scanning a book at the shelf', () => {
     // ever runs. A barcode validates; a hash distance is a guess.
     const buffer = await distantBackCover(DUNE)
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
     const decoy = await running.store.addBook({
-      title: 'Children of Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Children of Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
     })
     await running.store.setHashes(decoy.id, nudgeHash(await coverHash(buffer), 12), '')
 
@@ -1389,7 +1394,7 @@ describe('scanning a book at the shelf', () => {
     // person the shortlist when there was never a barcode to read.
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'dune_front.jpg',
     })
     await running.store.setHashes(id, nudgeHash(await coverHash(buffer), 12), '')
@@ -1518,7 +1523,7 @@ describe('a book already waiting in the queue', () => {
     const buffer = await frontCover('Dune', 'Frank Herbert')
     await waitingCapture(buffer)
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'dune_front.jpg',
     })
     await running.store.setHashes(id, await coverHash(buffer), '')
@@ -1536,7 +1541,7 @@ describe('a book already waiting in the queue', () => {
     const buffer = await backCover(DUNE)
     await waitingCapture(buffer)
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
 
     const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
@@ -1710,7 +1715,7 @@ describe('a capture of a book already in the queue', () => {
     const buffer = await backCover(DUNE)
     await queuedWith(DUNE)
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true, isbn13: DUNE,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
 
     const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
@@ -1757,7 +1762,7 @@ describe('editing a capture that is still in the queue', () => {
       publisher: 'Ace Books', published: '1965', pages: '412', isbn13: DUNE,
       isbn10: '0441013597', seriesName: '', seriesIndex: null, coverUrl: '',
       source: 'Open Library',
-      classification: { isFiction: true, confidence: 'high', reason: 'stub' },
+      classification: { genre: FICTION_SLUG, confidence: 'high', reason: 'stub' },
       notes: [],
     })
     const capture = await queued()
@@ -1996,7 +2001,7 @@ describe('discarding a capture', () => {
     await queue.setCrop(capture.id, 'front', 'r_front_crop.jpg')
 
     const { id } = await running.store.addBook({
-      title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'r_front.jpg',
     })
     await running.store.setCrop(id, 'front', 'r_front_crop.jpg')

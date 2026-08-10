@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { filterQueue, matchesQuery } from './queueSearch'
 import type { Capture, LookupResponse } from './api'
+import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 /** A capture the worker has resolved, which is where a title comes from. */
 function found(id: number, title: string, authors: string[]): Capture {
@@ -28,7 +29,7 @@ function found(id: number, title: string, authors: string[]): Capture {
     seriesIndex: null,
     coverUrl: '',
     source: 'openlibrary',
-    classification: { isFiction: true, confidence: 'high', reason: '' },
+    classification: { genre: FICTION_SLUG, confidence: 'high', reason: '' },
     notes: [],
     duplicateOf: null,
   }

@@ -37,7 +37,6 @@ export interface BookRow {
   published: string
   pages: string
   shelf_range: string
-  is_fiction: number
   author_filing: string
   sort_key: string
   location: string

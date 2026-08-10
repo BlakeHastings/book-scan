@@ -50,7 +50,9 @@ import {
 import type { StoredAuthor } from '../application/authorship/ports'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { claimsFrom } from '../domain/tagging/catalogue-claims'
-import { asConfidence, genreStatedBy, rangeOfGenre } from '../domain/tagging/genre'
+import {
+  asConfidence, genreStatedBy, rangeOfGenre, statedGenre,
+} from '../domain/tagging/genre'
 import { TagSlug } from '../domain/tagging/tags'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
@@ -88,7 +90,7 @@ function asDraft(body: Record<string, unknown>): DraftBook {
     published: String(body.published ?? ''),
     pages: String(body.pages ?? ''),
     notes: String(body.notes ?? ''),
-    isFiction: Boolean(body.isFiction),
+    genre: statedGenre(body.genre),
     classificationSource: String(body.classificationSource ?? 'auto'),
     classificationConfidence: String(body.classificationConfidence ?? 'unknown'),
     seriesName: body.seriesName ? String(body.seriesName) : '',
@@ -165,7 +167,7 @@ function asCaptureEdit(body: Record<string, unknown>): CaptureEdit {
       : String(body.authors ?? '').split(',').map((a) => a.trim())
     ).filter(Boolean)
   }
-  if (body.isFiction !== undefined) edit.isFiction = Boolean(body.isFiction)
+  if (body.genre !== undefined) edit.genre = statedGenre(body.genre)
   if (body.seriesIndex !== undefined) {
     edit.seriesIndex =
       body.seriesIndex === null || body.seriesIndex === '' ? null : Number(body.seriesIndex)
@@ -1735,7 +1737,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       bookId: id,
       source: 'catalogue',
       claims: claimsFrom({
-        isFiction: found.classification.isFiction,
+        genre: found.classification.genre,
         confidence: asConfidence(found.classification.confidence),
         categories: found.categories,
         subjects: found.subjects,

@@ -1,4 +1,5 @@
 import type { Draft, LookupResponse } from '../lib/api'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 interface Props {
   draft: Draft
@@ -57,15 +58,15 @@ export function BookFields({ draft, lookup, derivedFiling, onChange }: Props) {
         <div className="classify__row">
           <button
             type="button"
-            className={draft.isFiction ? 'seg seg--on' : 'seg'}
-            onClick={() => onChange({ isFiction: true, classificationSource: 'manual' })}
+            className={draft.genre === FICTION_SLUG ? 'seg seg--on' : 'seg'}
+            onClick={() => onChange({ genre: FICTION_SLUG, classificationSource: 'manual' })}
           >
             Fiction
           </button>
           <button
             type="button"
-            className={!draft.isFiction ? 'seg seg--on' : 'seg'}
-            onClick={() => onChange({ isFiction: false, classificationSource: 'manual' })}
+            className={draft.genre === NON_FICTION_SLUG ? 'seg seg--on' : 'seg'}
+            onClick={() => onChange({ genre: NON_FICTION_SLUG, classificationSource: 'manual' })}
           >
             Non-fiction
           </button>

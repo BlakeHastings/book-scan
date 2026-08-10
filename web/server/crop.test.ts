@@ -15,6 +15,7 @@ import { Store, type DraftBook } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { cropCatalogue, cropName, cropPhotos, type CropIo } from './crop'
 import { frontCover, photographedBook } from './fixtures'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 /**
  * A `Store` over an empty catalogue.
@@ -45,7 +46,7 @@ function draft(overrides: Partial<DraftBook> = {}): DraftBook {
     isbn10: '',
     title: 'The Dispossessed',
     authors: ['Ursula K. Le Guin'],
-    isFiction: true,
+    genre: FICTION_SLUG,
     ...overrides,
   } as DraftBook
 }

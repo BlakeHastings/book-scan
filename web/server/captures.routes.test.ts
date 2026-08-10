@@ -34,12 +34,13 @@ import { createApp } from './index'
 import { lookupIsbn } from './lookup'
 import { photographTaken } from './photographs'
 import { Store } from './store'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 const empty = {
   found: false, title: '', subtitle: '', authors: [] as string[], publisher: '',
   published: '', pages: '', isbn13: '', isbn10: '', seriesName: '', seriesIndex: null,
   coverUrl: '', source: '',
-  classification: { isFiction: true, confidence: 'unknown' as const, reason: 'stub' },
+  classification: { genre: FICTION_SLUG, confidence: 'unknown' as const, reason: 'stub' },
   notes: [] as string[], subjects: [] as string[], categories: [] as string[],
 }
 
@@ -139,7 +140,7 @@ async function capturesOf(bookId: number): Promise<Capture[]> {
 /** A saved book, and its id. */
 async function aBook(fields: Record<string, unknown> = {}) {
   const { body } = await post('/api/books', {
-    title: 'Dune', authors: ['Frank Herbert'], isFiction: true, ...fields,
+    title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, ...fields,
   })
   return Number(body.id)
 }
@@ -154,7 +155,7 @@ async function saveAgain(id: number) {
   return call(`/api/books/${id}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'Dune', authors: ['Frank Herbert'], isFiction: true }),
+    body: JSON.stringify({ title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG }),
   })
 }
 

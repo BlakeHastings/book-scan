@@ -24,6 +24,7 @@ import { connectionConfig, describeConnection, SORT_KEY_COLUMNS } from './db.pg'
 import { lockKey, type Db, type TxOptions } from './driver'
 import { Store, type DraftBook } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let db: Db
 let store: Store
@@ -103,14 +104,14 @@ describe('reading the connection Aspire hands over', () => {
  * the sort of character a linguistic collation is entitled to ignore.
  */
 const FIXTURE: DraftBook[] = [
-  { title: 'Nana', authors: ['Émile Zola'], isFiction: true },
-  { title: 'Alpha', authors: ['Ed Smithers'], isFiction: true },
-  { title: 'Zenith', authors: ['Zoe Smith'], isFiction: true },
-  { title: 'Beta', authors: ["Ann O'Brien"], isFiction: true },
-  { title: 'The Alpha', authors: ["Ann O'Brien"], isFiction: true },
-  { title: 'Chapter 10', authors: ['Ian McEwan'], isFiction: true },
-  { title: 'Chapter 2', authors: ['Ian McEwan'], isFiction: true },
-  { title: 'Flowers in the Attic', authors: ['V.C. Andrews'], isFiction: true },
+  { title: 'Nana', authors: ['Émile Zola'], genre: FICTION_SLUG },
+  { title: 'Alpha', authors: ['Ed Smithers'], genre: FICTION_SLUG },
+  { title: 'Zenith', authors: ['Zoe Smith'], genre: FICTION_SLUG },
+  { title: 'Beta', authors: ["Ann O'Brien"], genre: FICTION_SLUG },
+  { title: 'The Alpha', authors: ["Ann O'Brien"], genre: FICTION_SLUG },
+  { title: 'Chapter 10', authors: ['Ian McEwan'], genre: FICTION_SLUG },
+  { title: 'Chapter 2', authors: ['Ian McEwan'], genre: FICTION_SLUG },
+  { title: 'Flowers in the Attic', authors: ['V.C. Andrews'], genre: FICTION_SLUG },
 ]
 
 const byBytes = (keys: string[]) =>
@@ -384,7 +385,7 @@ describe('the parameters with nothing to take a type from', () => {
    * repeated here so a failure names the statement rather than the feature.
    */
   it('Store.updateBook: NULLIF(CAST(@location AS TEXT), \'\')', async () => {
-    const { id } = await store.addBook({ title: 'A', authors: ['Ann Author'], isFiction: true })
+    const { id } = await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
     await expect(db.run(
       "UPDATE books SET location = COALESCE(NULLIF(CAST(@location AS TEXT), ''), location) WHERE id = @id",
       { location: '', id },
@@ -452,7 +453,7 @@ describe('the parameters with nothing to take a type from', () => {
 
 describe('aggregates, which come back as strings without a cast', () => {
   it('hands back numbers from the statements the stores actually run', async () => {
-    await store.addBook({ title: 'A', authors: ['Ann Author'], isFiction: true })
+    await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
     const counts = await store.counts()
 
     expect(counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0 })
@@ -466,7 +467,7 @@ describe('aggregates, which come back as strings without a cast', () => {
     // will not narrow a bigint to a JavaScript number because it does not fit,
     // and /api/health and every save response carry these. A total of "57"
     // renders identically and fails every piece of arithmetic downstream.
-    await store.addBook({ title: 'A', authors: ['Ann Author'], isFiction: true })
+    await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
     const row = await db.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM books')
 
     expect(typeof row!.n).toBe('string')

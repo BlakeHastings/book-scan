@@ -30,7 +30,6 @@ function book(overrides: Partial<BookRow> = {}): BookRow {
     series_index: null,
     location: '1A',
     shelf_range: 'fiction',
-    is_fiction: 1,
     classification_source: 'auto',
     classification_confidence: 'high',
     isbn13: '',

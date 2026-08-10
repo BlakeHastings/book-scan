@@ -36,7 +36,7 @@ import { resolveIsbnPair } from '../shared/isbn'
 import { CHECKED_OUT, DISCARDED, QUEUED_STATES, SHELVED } from '../domain/books/state'
 // Which range a book joins is decided by its genre tags now, and this is the
 // rule that decides it. See docs/data-model.md and #223.
-import { genreStatedBy } from '../domain/tagging/genre'
+import { genreStatedBy, type GenreSlug } from '../domain/tagging/genre'
 
 /**
  * The three early states as a SQL literal list, for the one statement here that
@@ -79,7 +79,15 @@ export interface DraftBook {
   published?: string
   pages?: string
   notes?: string
-  isFiction: boolean
+  /**
+   * The genre this save states, as the tag it means (#227).
+   *
+   * A slug rather than a boolean, because the tag is what decides the shelf
+   * range and a boolean had room for exactly one question. Nothing in this class
+   * reads it: `settleGenre` in `server/index.ts` writes it and hands back the
+   * range, which arrives separately.
+   */
+  genre: GenreSlug
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string | null

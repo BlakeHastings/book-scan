@@ -15,9 +15,10 @@ import { Store, type DraftBook } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { PrintedName } from '../domain/authorship/authors'
 import { genreStatedBy } from '../domain/tagging/genre'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
-  return { isFiction: true, ...over }
+  return { genre: FICTION_SLUG, ...over }
 }
 
 let store: Store
@@ -60,7 +61,7 @@ describe('placement as books arrive one at a time', () => {
     await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
 
     const placement = await placementFor(
-      draft({ title: 'Sapiens', authors: ['Yuval Noah Harari'], isFiction: false }),
+      draft({ title: 'Sapiens', authors: ['Yuval Noah Harari'], genre: NON_FICTION_SLUG }),
     )
     // Fiction already has a book, but the non-fiction range is still empty,
     // so this must not be told to go next to Herbert.
@@ -273,7 +274,7 @@ describe('bookkeeping', () => {
     // unshelved. Two of these carry no location and still count normally.
     await store.addBook(draft({ title: 'A', authors: ['X Y'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['X Z'] }))
-    await store.addBook(draft({ title: 'C', authors: ['Q R'], isFiction: false }))
+    await store.addBook(draft({ title: 'C', authors: ['Q R'], genre: NON_FICTION_SLUG }))
 
     expect(await store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0 })
   })
@@ -334,7 +335,7 @@ describe('editing a shelved book', () => {
     const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
     expect((await store.getBook(id))?.shelf_range).toBe('fiction')
 
-    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'], isFiction: false }))
+    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'], genre: NON_FICTION_SLUG }))
     expect((await store.getBook(id))?.shelf_range).toBe('nonfiction')
     expect(await store.listRange('fiction')).toHaveLength(0)
     expect(await store.listRange('nonfiction')).toHaveLength(1)

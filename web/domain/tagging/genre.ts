@@ -42,8 +42,12 @@
  */
 
 import type { ShelfRange } from '../../shared/shelving'
-import { FICTION, NON_FICTION } from './catalogue-claims'
+import {
+  FICTION, FICTION_SLUG, NON_FICTION, NON_FICTION_SLUG, type GenreSlug,
+} from './catalogue-claims'
 import type { AppliedTag, TagConfidence } from './tags'
+
+export type { GenreSlug }
 
 /**
  * The slug and the range that go together, in the order `0013` tries its rules.
@@ -59,18 +63,45 @@ export const GENRE_RANGES = [
 ] as const satisfies readonly { slug: typeof FICTION; range: ShelfRange }[]
 
 /**
- * What a save says about a book's genre, in the vocabulary the wire still uses.
+ * What a save says about a book's genre.
  *
- * The boolean survives here and nowhere else. `web/src/lib/api.ts` still sends
- * `isFiction` and `books.is_fiction` is still written, so this is the one place
- * that translation happens; when the client sends a slug instead, this function
- * is what changes and nothing downstream of it does.
+ * The boolean is gone. A save states the tag it means, so there is no
+ * translation left to get wrong between what the client sends and what
+ * `book_tag` ends up holding.
  */
 export interface StatedGenre {
-  isFiction: boolean
+  genre: GenreSlug
   /** `manual` when somebody saved an edit. Anything else is the classifier. */
   classificationSource?: string
   classificationConfidence?: string
+}
+
+/**
+ * The slug a request means, or `genre/non-fiction` when it means nothing.
+ *
+ * Total, and the default is deliberate rather than convenient: it is the answer
+ * `Boolean(body.isFiction)` gave a request that carried no genre, so a caller
+ * that has never stated one keeps being read the way it always was. Every save
+ * the client makes states one.
+ */
+export function statedGenre(raw: unknown): GenreSlug {
+  return String(raw ?? '') === FICTION_SLUG ? FICTION_SLUG : NON_FICTION_SLUG
+}
+
+/**
+ * The slug that goes with a range.
+ *
+ * The inverse of the table above, and the one direction a screen needs: a book
+ * row carries the range its genre settled on, and the field beside the title
+ * has to come up showing the tag that agrees with it.
+ */
+export function genreOfRange(range: ShelfRange): GenreSlug {
+  return range === GENRE_RANGES[0].range ? FICTION_SLUG : NON_FICTION_SLUG
+}
+
+/** The range a stated slug files into. Total, by the same default as above. */
+export function rangeOfSlug(genre: GenreSlug): ShelfRange {
+  return genre === FICTION_SLUG ? GENRE_RANGES[0].range : GENRE_RANGES[1].range
 }
 
 /**
@@ -88,7 +119,8 @@ export interface StatedGenre {
  */
 export function genreStatedBy(stated: StatedGenre): { tag: AppliedTag; range: ShelfRange } {
   const decidedByPerson = stated.classificationSource === 'manual'
-  const { slug, range } = GENRE_RANGES[stated.isFiction ? 0 : 1]
+  const { slug, range } =
+    GENRE_RANGES.find((one) => one.slug.value === stated.genre) ?? GENRE_RANGES[1]
 
   return {
     tag: {
