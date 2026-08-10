@@ -5,7 +5,20 @@
 
 import type { BookRow } from './db.pg'
 import type { Db } from './driver'
-import { recordCrop, recordPhotographsOf } from './photographs'
+/*
+ * Photographs are rows in `capture` and are not columns on `books` (#228).
+ *
+ * Nothing in this file names a photograph column, because there are none. What
+ * a caller still gets is the flat one-per-slot shape the wire and the two crop
+ * backfills speak in, derived from the rows by `withPhotographs`, and what a
+ * caller writes goes through the four functions there. `server/photographs.ts`
+ * is the one place the two vocabularies meet, in both directions.
+ */
+import {
+  coverDownloaded, photographsTaken, recordCrop, recordHashes,
+  withPhotographs, withPhotographsOf,
+  type PhotographedBook, type PhotographFields,
+} from './photographs'
 import {
   buildPlacement,
   buildSortKey,
@@ -45,6 +58,13 @@ import { rangeLock } from './shelves'
  * commit together.
  */
 import { recordCheckedOut, recordPlaced } from './placement-ledger'
+
+/**
+ * A book as everything above this class reads one. Declared beside the
+ * derivation, in `server/photographs.ts`, and re-exported here because this is
+ * where callers meet it.
+ */
+export type { PhotographedBook }
 
 export interface DraftBook {
   isbn13?: string
@@ -253,7 +273,7 @@ export class Store {
     return row?.start_label ?? (range === 'nonfiction' ? 'S4' : '1A')
   }
 
-  private toNeighbour(row: BookRow | undefined): Neighbour | null {
+  private toNeighbour(row: PhotographedBook | undefined): Neighbour | null {
     if (!row) return null
     return {
       id: row.id,
@@ -262,9 +282,9 @@ export class Store {
       location: row.location,
       sortKey: row.sort_key,
       images: {
-        front: row.front_image ?? '',
-        back: row.back_image ?? '',
-        edge: row.edge_image ?? '',
+        front: row.front_image,
+        back: row.back_image,
+        edge: row.edge_image,
       },
     }
   }
@@ -307,9 +327,20 @@ export class Store {
       [range, sortKey, exclude],
     )
 
+    /*
+     * One statement for both, because a neighbour is drawn with the photograph
+     * it is recognised by and the photographs are rows now. Asking per book
+     * would be two more statements on the path a person waits on while holding a
+     * book, where this is one.
+     */
+    const drawn = await withPhotographs(
+      this.db,
+      [predecessor, successor].filter((row): row is BookRow => Boolean(row)),
+    )
+
     return {
-      predecessor: this.toNeighbour(predecessor),
-      successor: this.toNeighbour(successor),
+      predecessor: this.toNeighbour(drawn.find((row) => row.id === predecessor?.id)),
+      successor: this.toNeighbour(drawn.find((row) => row.id === successor?.id)),
     }
   }
 
@@ -434,15 +465,14 @@ export class Store {
          pages, notes, shelf_range, is_fiction, classification_source,
          classification_confidence, author_filing, series_name,
          series_index, title_filing, sort_key, location, lookup_source,
-         front_image, back_image, edge_image, isbn_source,
-         scanned_at, shelved_at, state
+         isbn_source, scanned_at, shelved_at, state
        ) VALUES (
          @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
          @published, @pages, @notes, @shelf_range, @is_fiction,
          @classification_source, @classification_confidence,
          @author_filing, @series_name, @series_index, @title_filing,
-         @sort_key, @location, @lookup_source, @front_image, @back_image,
-         @edge_image, @isbn_source, @scanned_at, @shelved_at, @state
+         @sort_key, @location, @lookup_source,
+         @isbn_source, @scanned_at, @shelved_at, @state
        )
        RETURNING id`,
       {
@@ -473,9 +503,6 @@ export class Store {
         sort_key: resolved.sortKey,
         location,
         lookup_source: draft.lookupSource ?? '',
-        front_image: draft.frontImage ?? '',
-        back_image: draft.backImage ?? '',
-        edge_image: draft.edgeImage ?? '',
         isbn_source: draft.isbnSource ?? '',
         scanned_at: now,
         shelved_at: location ? now : null,
@@ -503,6 +530,22 @@ export class Store {
     if (!inserted) throw new Error('the insert returned no id')
 
     const bookId = Number(inserted.id)
+
+    /*
+     * The photographs this save carries, on the same handle as the insert, so a
+     * book and its photographs commit together or neither does.
+     *
+     * Dated from the save because that is all this path knows: a book reached
+     * here without going through the queue was photographed by the request that
+     * is creating it. A book that came through the queue already has its rows,
+     * written as each shutter went, and takes this branch not at all.
+     */
+    await photographsTaken(tx, bookId, {
+      front: draft.frontImage,
+      back: draft.backImage,
+      edge: draft.edgeImage,
+    }, now)
+
     const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
     for (const [index, name] of authors.entries()) {
       await tx.run(
@@ -526,8 +569,11 @@ export class Store {
    * ISBN-10, or an edition the catalogue reports under only one of the two.
    * Both columns are populated on save, so both are worth searching.
    */
-  async getBook(id: number): Promise<BookRow | undefined> {
-    return this.db.get<BookRow>('SELECT * FROM books WHERE id = ?', [id])
+  async getBook(id: number): Promise<PhotographedBook | undefined> {
+    return withPhotographsOf(
+      this.db,
+      await this.db.get<BookRow>('SELECT * FROM books WHERE id = ?', [id]),
+    )
   }
 
   /**
@@ -590,14 +636,6 @@ export class Store {
            location = COALESCE(NULLIF(CAST(@location AS TEXT), ''), location),
            lookup_source = @lookup_source, isbn_source = @isbn_source,
            shelved_at = COALESCE(shelved_at, @shelved_at),
-           -- The photographs, on the same terms as the location above and for
-           -- the same reason: an edit that carries none leaves the row's alone.
-           -- A book saved out of the queue already has its three on the row and
-           -- the client does not re-upload them; a book saved with new ones
-           -- means them.
-           front_image = COALESCE(NULLIF(CAST(@front_image AS TEXT), ''), front_image),
-           back_image  = COALESCE(NULLIF(CAST(@back_image  AS TEXT), ''), back_image),
-           edge_image  = COALESCE(NULLIF(CAST(@edge_image  AS TEXT), ''), edge_image),
            /*
             * Saving a book at the shelf is what takes it out of the queue.
             *
@@ -617,9 +655,6 @@ export class Store {
          WHERE id = @id`,
         {
           id,
-          front_image: draft.frontImage ?? '',
-          back_image: draft.backImage ?? '',
-          edge_image: draft.edgeImage ?? '',
           isbn13: isbn.isbn13 || draft.isbn13 || '',
           isbn10: isbn.isbn10 || draft.isbn10 || '',
           title: draft.title,
@@ -645,6 +680,21 @@ export class Store {
           shelved_at: location ? new Date().toISOString() : null,
         },
       )
+
+      /*
+       * The photographs, on the same terms as the location above and for the
+       * same reason: an edit that carries none says nothing about them and
+       * writes nothing. A book saved out of the queue already has a row per
+       * shutter and the client does not re-upload the files; a book saved with
+       * new ones means them, and a file this book has no row for is a new
+       * photograph and gets one rather than replacing what it was shot to
+       * improve on.
+       */
+      await photographsTaken(tx, id, {
+        front: draft.frontImage,
+        back: draft.backImage,
+        edge: draft.edgeImage,
+      }, new Date().toISOString())
 
       await tx.run('DELETE FROM book_authors WHERE book_id = ?', [id])
       const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
@@ -679,17 +729,17 @@ export class Store {
     }, { serialiseOn: rangeLock(range) })
   }
 
-  async findByIsbn(value: string): Promise<BookRow | undefined> {
+  async findByIsbn(value: string): Promise<PhotographedBook | undefined> {
     const { isbn13, isbn10 } = resolveIsbnPair(value)
     if (!isbn13 && !isbn10) return undefined
 
-    return this.db.get<BookRow>(
+    return withPhotographsOf(this.db, await this.db.get<BookRow>(
       `SELECT * FROM catalogued_books
         WHERE (isbn13 != '' AND isbn13 = :isbn13)
            OR (isbn10 != '' AND isbn10 = :isbn10)
         ORDER BY id LIMIT 1`,
       { isbn13, isbn10 },
-    )
+    ))
   }
 
   /**
@@ -718,7 +768,13 @@ export class Store {
   }
 
   /**
-   * Whether any book still names this file in one of its image columns.
+   * Whether any book still names this file as a photograph or a crop of one.
+   *
+   * **`capture` is what says so now (#228).** It used to be seven columns on
+   * `books`, which could name at most one photograph of a kind, so a spine
+   * re-shot yesterday and the blurred one it replaced could not both be a claim
+   * on a file. Every photograph there has ever been is a row, so the question is
+   * asked of the rows and the answer covers all of them.
    *
    * **One table now, where this used to read two.** A capture handed its
    * filenames to the book it became, so a capture and a shelved book named the
@@ -737,12 +793,12 @@ export class Store {
    */
   async imageInUse(name: string): Promise<boolean> {
     const usedByBook = await this.db.get(
-      `SELECT 1 FROM books
-        WHERE "state" != ?
-          AND (front_image = ? OR back_image = ? OR edge_image = ? OR cover_image = ?
-            OR front_crop = ?  OR back_crop = ?  OR edge_crop = ?)
+      `SELECT 1 FROM capture c
+         JOIN books b ON b.id = c.book_id
+        WHERE b."state" != ?
+          AND (c.file = ? OR c.crop_file = ?)
         LIMIT 1`,
-      [DISCARDED, name, name, name, name, name, name, name],
+      [DISCARDED, name, name],
     )
     return Boolean(usedByBook)
   }
@@ -782,11 +838,11 @@ export class Store {
    * and eight places to remember which states that is are eight places to
    * forget one.
    */
-  async listRange(range: ShelfRange): Promise<BookRow[]> {
-    return this.db.all<BookRow>(
+  async listRange(range: ShelfRange): Promise<PhotographedBook[]> {
+    return withPhotographs(this.db, await this.db.all<BookRow>(
       'SELECT * FROM catalogued_books WHERE shelf_range = ? ORDER BY sort_key ASC',
       [range],
-    )
+    ))
   }
 
   /**
@@ -889,14 +945,21 @@ export class Store {
    * batch re-asking about the same ones and never reach the rest.
    *
    * The artwork becomes a photograph here rather than at the three callers that
-   * download one. See `recordPhotographsOf` for why that is where it lives.
+   * download one. See `coverDownloaded` for why that is where it lives.
+   *
+   * **`cover_checked_at` is still a column and the artwork is not.** They are
+   * two different facts: one is about a search, which happened whether or not it
+   * found anything, and the other is about a photograph, which exists or does
+   * not. A book with no cover anywhere gets the stamp and no row, which is
+   * exactly what stops the backfill asking about it forever.
    */
   async setCoverImage(id: number, name: string): Promise<void> {
-    const row = await this.db.get<BookRow>(
-      'UPDATE books SET cover_image = ?, cover_checked_at = ? WHERE id = ? RETURNING *',
-      [name, new Date().toISOString(), id],
+    const at = new Date().toISOString()
+    const row = await this.db.get<{ id: number }>(
+      'UPDATE books SET cover_checked_at = ? WHERE id = ? RETURNING id',
+      [at, id],
     )
-    if (row) await recordPhotographsOf(this.db, row)
+    if (row) await coverDownloaded(this.db, id, name, at)
   }
 
   /** Books with an ISBN whose cover has never been looked for. */
@@ -910,8 +973,10 @@ export class Store {
     // nothing to work it out from. Identity on SQLite, which is the only
     // database this stage can demonstrate it on.
     return this.db.all<{ id: number; isbn13: string; isbn10: string }>(
-      `SELECT id, isbn13, isbn10 FROM catalogued_books
-        WHERE (cover_image IS NULL OR cover_image = '')
+      `SELECT id, isbn13, isbn10 FROM catalogued_books b
+        WHERE NOT EXISTS (
+                SELECT 1 FROM capture c
+                 WHERE c.book_id = b.id AND c.kind = 'catalogue')
           AND (isbn13 != '' OR isbn10 != '')
           AND (CAST(:retry AS INTEGER) = 1 OR cover_checked_at IS NULL)
         ORDER BY id LIMIT :limit`,
@@ -923,15 +988,11 @@ export class Store {
    * Store the hashes of a book's front photograph and its catalogue artwork.
    *
    * A hash is a fact about one photograph, so it lands on that photograph's row
-   * as well as in the column, from the hash backfill and from `rehash-covers`
-   * as much as from a save. See `recordPhotographsOf`.
+   * and there is nowhere else for it to land: from the hash backfill and from
+   * `rehash-covers` as much as from a save. See `recordHashes`.
    */
   async setHashes(id: number, front: string, cover: string): Promise<void> {
-    const row = await this.db.get<BookRow>(
-      'UPDATE books SET front_hash = ?, cover_hash = ? WHERE id = ? RETURNING *',
-      [front, cover, id],
-    )
-    if (row) await recordPhotographsOf(this.db, row)
+    await recordHashes(this.db, id, front, cover)
   }
 
   /**
@@ -941,19 +1002,30 @@ export class Store {
    * books is nothing, and an index that let us skip comparisons would have to
    * approximate the very thing being measured.
    */
-  async hashIndex(): Promise<{
+  async hashIndex(): Promise<({
     id: number; title: string; author_filing: string
-    cover_image: string; front_image: string
-    edge_image: string; back_image: string
     checked_out_at: string | null
-    front_hash: string; cover_hash: string
-  }[]> {
-    return this.db.all(
-      `SELECT id, title, author_filing, cover_image, front_image, edge_image,
-              back_image, checked_out_at, front_hash, cover_hash
-         FROM catalogued_books
-        WHERE front_hash != '' OR cover_hash != ''`,
-    ) as never
+  } & PhotographFields)[]> {
+    /*
+     * The rows are narrowed in SQL and the photographs are joined on afterwards,
+     * which is one statement each rather than a statement per book. The `EXISTS`
+     * is the same filter the two hash columns used to be: a book nothing has
+     * hashed has nothing to compare and belongs out of the index rather than in
+     * it scoring 64 against everything.
+     */
+    const rows = await this.db.all<{
+      id: number; title: string; author_filing: string; checked_out_at: string | null
+    }>(
+      `SELECT id, title, author_filing, checked_out_at
+         FROM catalogued_books b
+        WHERE EXISTS (
+                SELECT 1 FROM capture c WHERE c.book_id = b.id AND c.hash != '')`,
+    )
+    // Narrowed again on the way out, because the hashes that matter are the ones
+    // on the current front photograph and the current artwork: a hash on a spine
+    // is not something anything compares against.
+    return (await withPhotographs(this.db, rows))
+      .filter((row) => row.front_hash !== '' || row.cover_hash !== '')
   }
 
   /**
@@ -966,18 +1038,14 @@ export class Store {
    * neither. This makes no judgement about the hashes at all and lets the
    * caller decide what is stale.
    */
-  async imageHashes(): Promise<{
-    id: number; title: string
-    front_image: string; cover_image: string
-    front_hash: string; cover_hash: string
-  }[]> {
-    return this.db.all(
-      `SELECT id, title, front_image, cover_image, front_hash, cover_hash
-         FROM catalogued_books
-        WHERE front_image != '' OR cover_image != ''
-           OR front_hash != ''  OR cover_hash != ''
+  async imageHashes(): Promise<({ id: number; title: string } & PhotographFields)[]> {
+    return withPhotographs(this.db, await this.db.all<{ id: number; title: string }>(
+      `SELECT id, title FROM catalogued_books b
+        WHERE EXISTS (
+                SELECT 1 FROM capture c
+                 WHERE c.book_id = b.id AND c.kind IN ('front', 'catalogue'))
         ORDER BY id`,
-    ) as never
+    ))
   }
 
   /**
@@ -999,30 +1067,39 @@ export class Store {
    * derived file is still on disk, and none of that belongs in SQL where a
    * later change to the rule would have to be made twice.
    */
-  async photographed(): Promise<{
-    id: number; title: string
-    front_image: string; back_image: string; edge_image: string
-    front_crop: string; back_crop: string; edge_crop: string
-    cropped: string
-  }[]> {
-    return this.db.all(
-      `SELECT id, title, front_image, back_image, edge_image,
-              front_crop, back_crop, edge_crop, cropped
-         FROM catalogued_books
-        WHERE front_image != '' OR back_image != '' OR edge_image != ''
+  async photographed(): Promise<({ id: number; title: string } & PhotographFields)[]> {
+    return withPhotographs(this.db, await this.db.all<{ id: number; title: string }>(
+      `SELECT id, title FROM catalogued_books b
+        WHERE EXISTS (
+                SELECT 1 FROM capture c
+                 WHERE c.book_id = b.id AND c.kind IN ('front', 'back', 'spine'))
         ORDER BY id`,
-    ) as never
+    ))
   }
 
-  /** Books whose images have not been hashed yet. */
+  /**
+   * Books whose current photographs have not been hashed yet.
+   *
+   * **`current_photograph`, and it has to be.** The detector hashes the front
+   * photograph and the artwork, which means the newest of each, so a question
+   * about "a photograph with no hash" would keep answering with a spine nobody
+   * hashes or with a superseded front, and `hashInBackground` loops until this
+   * comes back empty. Asking about the same photograph the hasher will reach for
+   * is what makes the loop terminate.
+   */
   async missingHashes(
     limit: number,
   ): Promise<{ id: number; front_image: string; cover_image: string }[]> {
     return this.db.all(
-      `SELECT id, front_image, cover_image FROM catalogued_books
-        WHERE (front_image != '' AND front_hash = '')
-           OR (cover_image != '' AND cover_hash = '')
-        ORDER BY id LIMIT ?`,
+      `SELECT b.id,
+              COALESCE(f.file, '') AS front_image,
+              COALESCE(a.file, '') AS cover_image
+         FROM catalogued_books b
+         LEFT JOIN current_photograph f ON f.book_id = b.id AND f.kind = 'front'
+         LEFT JOIN current_photograph a ON a.book_id = b.id AND a.kind = 'catalogue'
+        WHERE (f.file IS NOT NULL AND f.hash = '')
+           OR (a.file IS NOT NULL AND a.hash = '')
+        ORDER BY b.id LIMIT ?`,
       [limit],
     ) as never
   }
@@ -1035,12 +1112,12 @@ export class Store {
    * other five are not books somebody has taken out. So this names the state it
    * means rather than reading "everything the shelf does not show".
    */
-  async checkedOut(): Promise<BookRow[]> {
-    return this.db.all<BookRow>(
+  async checkedOut(): Promise<PhotographedBook[]> {
+    return withPhotographs(this.db, await this.db.all<BookRow>(
       `SELECT * FROM books WHERE state = ?
         ORDER BY checked_out_at ASC`,
       [CHECKED_OUT],
-    )
+    ))
   }
 
   /**

@@ -269,15 +269,23 @@ describe('images that cannot be read', () => {
     expect(cover).toBe(OLD_COVER)
   })
 
-  it('reports a stale hash that has no image left to rehash from', async () => {
+  it('cannot be left with a stale hash and no photograph to rehash it from', async () => {
+    /*
+     * This used to be a state, and it used to be reported: a hash was a column
+     * on the book, so a book could carry one for a photograph it no longer
+     * named, which no run of this tool could ever fix. Somebody had to be told.
+     *
+     * A hash is a fact about a photograph now and lives on that photograph's
+     * row (#228), so there is nowhere for one to sit without an image behind
+     * it. Offering one for a book with no artwork records nothing at all, which
+     * is the honest answer rather than a refusal.
+     */
     const id = await addBook('Dune', 'Frank Herbert', {}, { cover: OLD_COVER })
+    expect(await photographHashes(id)).toEqual({})
 
     const report = await rehashCovers(store, { read, apply: true })
-    expect(report.rows).toBe(1)
-    expect(report.images).toBe(0)
-    expect(report.failed).toBe(1)
-    expect(report.failures[0]!.image).toBe('')
-    expect(report.failures[0]!.reason).toContain('no cover image')
-    expect((await hashesOf(id)).cover).toBe(OLD_COVER)
+    expect(report.rows).toBe(0)
+    expect(report.failed).toBe(0)
+    expect((await hashesOf(id)).cover).toBe('')
   })
 })

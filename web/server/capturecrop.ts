@@ -11,12 +11,12 @@
  * by using its code rather than by copying its behaviour:
  *
  *   - The photograph is the record. `cropPhotos` writes new files with derived
- *     names into their own columns, and nothing anywhere in this path opens a
- *     photograph for writing.
- *   - A slot named in `cropped` with an empty crop column was looked at and
+ *     names onto the photograph's own row, and nothing anywhere in this path
+ *     opens a photograph for writing.
+ *   - A slot named in `cropped` with no crop beside it was looked at and
  *     declined, which is a different fact from never having been looked at.
  *   - Hashing fails closed. A frame with no detail in it is refused by
- *     `coverHash`, and a refusal leaves the column exactly as it was rather
+ *     `coverHash`, and a refusal leaves the stored hash exactly as it was rather
  *     than storing something that would go on to be compared. A wrong match is
  *     worse than no match.
  *

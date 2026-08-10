@@ -3,9 +3,10 @@
  *
  * `bookcrop.ts` decides where the book is. This decides what happens to the
  * answer, and it has exactly one rule that matters: **the original is never
- * written to.** A crop is a new file with a derived name, recorded in its own
- * column, and every path through this file either adds one or records that it
- * could not. There is no branch here that opens a photograph for writing.
+ * written to.** A crop is a new file with a derived name, recorded on the
+ * photograph's own row, and every path through this file either adds one or
+ * records that it could not. There is no branch here that opens a photograph
+ * for writing.
  *
  * The reader and writer are injected rather than opened here, so the caller
  * decides which directory is being touched and a test needs no directory at
@@ -19,9 +20,9 @@ export const CROP_SLOTS = ['front', 'back', 'edge'] as const
 export type CropSlot = (typeof CROP_SLOTS)[number]
 
 /*
- * `recordCrop` used to be here. It writes the crop column and the photograph's
- * row in one place, so it moved to `photographs.ts` beside the derivation that
- * turns the one into the other (#200). `Store.setCrop` and
+ * `recordCrop` used to be here. It writes what the detector made of one
+ * photograph onto that photograph's row, so it lives in `photographs.ts` beside
+ * everything else that writes one (#200, #228). `Store.setCrop` and
  * `CaptureQueue.setCrop` both call it there.
  */
 
@@ -74,9 +75,16 @@ export interface CropOptions {
 }
 
 /**
- * A row with photographs in it. A book or a queued capture: both carry the
- * same three slots, the same three crop columns and the same `cropped` list,
- * so both are croppable on exactly the same terms.
+ * A row with photographs in it. A book or a queued capture: both are books in
+ * different states, and both arrive with the current photograph of each slot
+ * flattened onto them, so both are croppable on exactly the same terms.
+ *
+ * **These are not columns any more (#228).** They are derived from `capture` by
+ * `withPhotographs`, which means the detector is offered the newest photograph
+ * of each slot rather than the only one there was room for. `cropped` names the
+ * slots whose current photograph has been examined, so a re-shot spine is a slot
+ * that wants looking at again, which is exactly right: nothing has looked at
+ * *this* photograph.
  */
 export interface CroppableBook {
   id: number

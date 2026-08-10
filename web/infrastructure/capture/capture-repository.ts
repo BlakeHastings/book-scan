@@ -27,7 +27,7 @@
  * three of them.
  */
 
-import { asc, eq, sql } from 'drizzle-orm'
+import { asc, eq, inArray, sql } from 'drizzle-orm'
 import type { CaptureRepository, NewPhotograph } from '../../application/capture/ports'
 import {
   Photographs, isPhotographKind, type Photograph,
@@ -44,6 +44,11 @@ interface CaptureRow {
   examined: boolean
   hash: string
   taken_at: string
+}
+
+/** The same row when several books' photographs arrive in one answer. */
+interface OwnedCaptureRow extends CaptureRow {
+  book_id: number
 }
 
 /**
@@ -91,6 +96,48 @@ export class DrizzleCaptureRepository implements CaptureRepository {
     )
     const rows = await this.db.all<CaptureRow>(query.text, query.values)
     return Photographs.of(rows.map(toPhotograph))
+  }
+
+  /**
+   * Many books' photographs in one statement, ordered exactly as `of` orders
+   * one book's.
+   *
+   * The ordering matters and is not incidental: `Photographs.of` sorts newest
+   * first with a stable sort, so the tiebreak between two photographs taken in
+   * the same second is the order the rows arrive in. Reading them by id here is
+   * what makes the answer for a book identical whether it was asked for on its
+   * own or alongside a hundred others.
+   */
+  async ofMany(bookIds: readonly number[]): Promise<Map<number, Photographs>> {
+    const found = new Map<number, Photographs>()
+    // Not a query with an empty list in it. `IN ()` is a syntax error in some
+    // dialects and an always-false predicate in others, and neither is worth
+    // finding out about from a shelf with no books on it.
+    if (!bookIds.length) return found
+
+    const query = statement(
+      build.select({
+        bookId: capture.bookId,
+        kind: capture.kind,
+        cropFile: capture.cropFile,
+        examined: capture.examined,
+        hash: capture.hash,
+        takenAt: capture.takenAt,
+        file: capture.file,
+      }).from(capture)
+        .where(inArray(capture.bookId, [...bookIds]))
+        .orderBy(asc(capture.id)),
+    )
+    const rows = await this.db.all<OwnedCaptureRow>(query.text, query.values)
+
+    const byBook = new Map<number, Photograph[]>()
+    for (const row of rows) {
+      const list = byBook.get(row.book_id) ?? []
+      list.push(toPhotograph(row))
+      byBook.set(row.book_id, list)
+    }
+    for (const [bookId, list] of byBook) found.set(bookId, Photographs.of(list))
+    return found
   }
 
   /**

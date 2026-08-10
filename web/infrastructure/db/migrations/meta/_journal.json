@@ -127,6 +127,13 @@
       "when": 1786400000000,
       "tag": "0017_the_photographs_the_write_through_missed",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786369608209,
+      "tag": "0018_the_current_photograph_of_each_kind",
+      "breakpoints": true
     }
   ]
 }

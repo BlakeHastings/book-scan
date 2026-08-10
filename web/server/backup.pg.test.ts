@@ -110,9 +110,10 @@ describe('reading a catalogue digest', () => {
    *
    * `drizzle.__drizzle_migrations` is the migrator's record of which files it
    * has run, not the owner's catalogue, and it is in its own schema so it can
-   * be told apart. The three views are `books` under three predicates:
-   * digesting one would count rows a second time and report a difference in
-   * four places whenever `books` moved in one.
+   * be told apart. Three of the views are `books` under three predicates and the
+   * fourth is `capture` under one: digesting one would count rows a second time
+   * and report a difference in several places whenever the table under it moved
+   * in one.
    */
   it('leaves the views and the migrator\'s bookkeeping out', async () => {
     const digest = await readDigest(ask)
@@ -122,13 +123,15 @@ describe('reading a catalogue digest', () => {
       "SELECT table_name AS name FROM information_schema.views WHERE table_schema = 'public'",
     )
     expect(views.map((view) => view.name).sort())
-      .toEqual(['catalogued_books', 'queued_books', 'shelved_books'])
+      .toEqual(['catalogued_books', 'current_photograph', 'queued_books', 'shelved_books'])
     const bookkeeping = await db.get<{ count: string }>(
       "SELECT count(*)::text AS count FROM pg_tables WHERE schemaname = 'drizzle'",
     )
     expect(Number(bookkeeping!.count)).toBeGreaterThan(0)
 
-    for (const view of ['shelved_books', 'queued_books', 'catalogued_books']) {
+    for (const view of [
+      'shelved_books', 'queued_books', 'catalogued_books', 'current_photograph',
+    ]) {
       expect(digest.tables).not.toContain(view)
     }
     expect(digest.tables?.some((table) => table.includes('drizzle'))).toBe(false)
