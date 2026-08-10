@@ -55,7 +55,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   await dropScratchDatabases()
-}, 60_000)
+})
 
 // ---------------------------------------------------------------------------
 // A catalogue in the state the owner's is in

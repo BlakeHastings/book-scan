@@ -28,7 +28,7 @@ import { dropScratchDatabases, scratchDatabase } from './testdb'
 
 afterAll(async () => {
   await dropScratchDatabases()
-}, 60_000)
+})
 
 interface Seed {
   title: string

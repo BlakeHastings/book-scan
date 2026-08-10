@@ -39,7 +39,7 @@ import { dropScratchDatabases, scratchDatabase } from './testdb'
 
 afterAll(async () => {
   await dropScratchDatabases()
-}, 60_000)
+})
 
 /** One row of the queue as stage H left it, in the queue's own vocabulary. */
 interface Queued {

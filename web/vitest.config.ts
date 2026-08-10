@@ -61,8 +61,40 @@ export default defineConfig({
      * test already (see bookcrop.test.ts). Twenty seconds is longer than any
      * queue this container has produced and short enough that a test which has
      * actually stopped still reports as one.
+     *
+     * **Raised again to 120 seconds (#226), and the queue it buys for is a
+     * different one from the sentence above.** `dropScratchDatabases` in
+     * `infrastructure/db/testdb.ts` used to run every drop for a file
+     * concurrently against a bare `pg.Pool`, which is what pushed the suite over
+     * Postgres's hundred connections: measured with `pg_stat_activity`, up to
+     * ten connections per file, all `active` and waiting on the same
+     * `IPC/CheckpointStart`, because `DROP DATABASE` forces a checkpoint and
+     * Postgres runs one at a time. Capping that pool at four connections cut the
+     * measured peak from 79-80 down to the 40s, and was chosen over a single
+     * connection: a single connection was tried first and measured worse, not
+     * just more cautious, because Postgres coalesces concurrent checkpoint
+     * requests into one pass and a fully serial drop pays for a fresh checkpoint
+     * on every database instead of sharing one with whichever other drops
+     * happen to be in flight. Even at four, a file dropping a dozen databases
+     * under a heavily loaded parallel run can still queue behind that
+     * checkpoint for longer than sixty seconds, seen directly: several
+     * `infrastructure/db/*-backfill.test.ts` files timing out in their
+     * `afterAll` with every test in them passing. Sixty seconds bought that
+     * margin at nine files; it does not at the file count and the per-file
+     * connection cap this repository has now, so this buys it again the same
+     * way: measured longer than anything the capped pool produced, not raised
+     * until the failure stopped showing up. `testTimeout` is deliberately left
+     * at twenty: hooks are what wait on the checkpoint queue, individual tests
+     * are not.
+     *
+     * Six files under `infrastructure/db/` used to pin their own `afterAll` to
+     * a literal `60_000` that matched this constant by agreement rather than by
+     * reference. Removed rather than raised to match: a number that has to be
+     * kept equal to this one by a human noticing is the same defect the CI and
+     * local Postgres versions have a shared file to avoid (`postgres-version.json`),
+     * at file-config scale rather than repo scale. They now take the default.
      */
-    hookTimeout: 60_000,
+    hookTimeout: 120_000,
     testTimeout: 20_000,
   },
 })
