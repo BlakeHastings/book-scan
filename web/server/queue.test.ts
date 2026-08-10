@@ -384,6 +384,66 @@ describe('editing a capture while it is still in the queue', () => {
 })
 
 /**
+ * #233: correcting a queued capture's ISBN to one already on a shelved book
+ * used to shelve a silent duplicate, because `edit` called `lookupIsbn` and
+ * never asked the catalogue whether it already held that ISBN. The background
+ * worker's own automatic identification had the same gap, so a book that
+ * auto-identifies from its barcode against an ISBN already on a shelf never
+ * warned either.
+ *
+ * A queue built without the fifth constructor argument (the default `queue`
+ * from `beforeEach`) never learns about a duplicate at all, which is the
+ * behaviour every other test in this file already exercises unchanged.
+ */
+describe('naming a duplicate already on the shelf (#233)', () => {
+  function withCatalogue(reader: (name: string) => Buffer | null = () => null) {
+    return new CaptureQueue(db, reader, {}, undefined, (isbn) => store.findByIsbn(isbn))
+  }
+
+  it('names it when a person corrects the ISBN on a queued capture', async () => {
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+    const { id: shelvedId } = await store.addBook({
+      isbn13: DUNE, title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '2B',
+    })
+    const running = withCatalogue()
+    const capture = await running.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })
+
+    const result = await running.edit(capture.id, 'alice', { isbn13: DUNE })
+
+    expect(result.ok && result.lookup?.duplicateOf).toEqual({
+      id: shelvedId, title: 'Dune', location: '2B',
+    })
+  })
+
+  it('says nothing is a duplicate when the shelves hold nothing under that ISBN', async () => {
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+    const running = withCatalogue()
+    const capture = await running.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })
+
+    const result = await running.edit(capture.id, 'alice', { isbn13: DUNE })
+
+    expect(result.ok && result.lookup?.duplicateOf).toBeNull()
+  })
+
+  it('names it on the automatic pass too, not only a manual correction', async () => {
+    const { id: shelvedId } = await store.addBook({
+      isbn13: DUNE, title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '2B',
+    })
+    vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+    const running = withCatalogue(() => Buffer.from('a photograph'))
+
+    const capture = await running.attach(null, 'back', 'b.jpg')
+    await running.drain()
+
+    const after = (await running.get(capture.id))!
+    expect(JSON.parse(after.draft_json).duplicateOf).toEqual({
+      id: shelvedId, title: 'Dune', location: '2B',
+    })
+  })
+})
+
+/**
  * The sharp edge of #65.
  *
  * A person corrects an ISBN, another photograph arrives or the server

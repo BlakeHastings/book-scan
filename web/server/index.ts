@@ -51,13 +51,14 @@ import type { StoredAuthor } from '../application/authorship/ports'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { claimsFrom } from '../domain/tagging/catalogue-claims'
 import {
-  asConfidence, genreStatedBy, rangeOfGenre, statedGenre,
+  asConfidence, genreStatedBy, statedGenre,
 } from '../domain/tagging/genre'
 import { TagSlug } from '../domain/tagging/tags'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { filesOf } from './photographs'
 import { Store, type DraftBook } from './store'
+import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
@@ -445,97 +446,30 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * Write what this save says a book is under, and answer the range that puts
    * it in.
    *
-   * **This is the cut-over (#223).** Until now the genre was written twice from
-   * one draft, into `books.is_fiction` by `Store` and into `book_tag` here, and
-   * the column was what decided the shelf range. Now the tag decides: this runs
-   * *before* the row is written, and the range it returns is what the row is
-   * written with. `books.is_fiction` is still written, from that same answer,
-   * because the client still reads it; it decides nothing.
-   *
-   * The source is the provenance the draft already carries, mapped by
-   * `genreStatedBy`. Restating rather than applying is what makes an edit from
-   * fiction to non-fiction take the old tag off, and it takes off only the tags
-   * of the source doing the restating, so a person's tag is not disturbed by a
-   * lookup and a guess is not left behind by a person.
-   *
-   * Reading the tags back rather than returning the range of the claim is the
-   * point of the whole exercise: a book can carry a person's genre and a
-   * catalogue's, and which of them the shelf follows is `rangeOfGenre`'s answer
-   * rather than whatever this particular save happened to say.
+   * A thin binding of `settleGenre` in `server/book-save.ts` to this app's own
+   * `restateTags` handler and `tags` repository. The function itself moved
+   * there (#234) so `scripts/seed-world.ts` can call the exact same steps
+   * rather than restate them: **`books.is_fiction` is still written, from that
+   * same answer, because the client still reads it; it decides nothing.**
    */
   async function settleGenre(bookId: number, draft: DraftBook): Promise<ShelfRange> {
-    const { tag } = genreStatedBy(draft)
-    const now = new Date().toISOString()
-
-    await restateTags.handle({
-      bookId,
-      source: tag.source,
-      claims: [{ slug: tag.slug, confidence: tag.confidence }],
-      now,
-    })
-
-    // A person having answered, the guess is withdrawn: it was this app's
-    // inference about the same question, and leaving it behind would show a book
-    // as both fiction and non-fiction with no way to tell which is current. That
-    // is the guess taking back its own claim, which is the only thing it is
-    // allowed to do, and it is why the person's row is written first.
-    //
-    // The other way round is not this function's to do and never will be. A
-    // saved guess leaves a person's answer exactly where it is; the only thing
-    // that takes one off is the book turning out to be a different book, which
-    // `PUT /api/books/:id` settles before this runs (#194).
-    if (tag.source === 'person') {
-      await restateTags.handle({ bookId, source: 'guess', claims: [], now })
-    }
-
-    const settled = rangeOfGenre(await tags.of(bookId))
-    // The claim above was either written or already there, so the book carries
-    // a genre tag by the time this reads. Nothing here is guarding against a
-    // state the model allows: an absence would mean the restatement did not
-    // land, which is a broken write and not a book to file somewhere anyway.
-    if (!settled) {
-      throw new Error(`book ${bookId} carries no genre tag after a save that stated one`)
-    }
-    return settled
+    return settleGenreStep(restateTags, tags, bookId, draft)
   }
 
   /**
    * Keep the credits in step with what was just saved about a book, and file
    * the first-listed name when somebody has said what it files under.
    *
-   * **This is `Store.saveFilingOverride`, arrived at the alias** (#227). That
-   * method wrote the `author_filing` override table, which `Store.filingFor`
-   * consulted on the next save; the alias holds the same fact now, so the
-   * correction is written where the shelf reads it.
-   *
-   * Two calls, because they are two different statements about a name.
-   * `introduce`, inside `creditBook`, sets a filing name only when the name is
-   * new, which is what stops a re-save undoing somebody's correction. Filing one
-   * is somebody saying so, and it has to reach a name this collection has
-   * already met, which is the case `introduce` deliberately will not touch.
-   *
-   * **Every save carries it now, where only `POST /api/books` used to**, and
-   * only when the client asked. An override typed against an already-saved book
-   * used to reach `books.author_filing` and stop there, which was survivable
-   * while that column decided where the book went and is not survivable once the
-   * alias does: the correction would have applied to one book and then vanished.
+   * A thin binding of `recordCredits` in `server/book-save.ts` to this app's
+   * own `creditBook`, `authors` and `fileAlias`. **Every save carries it now,
+   * where only `POST /api/books` used to**, and only when the client asked. An
+   * override typed against an already-saved book used to reach
+   * `books.author_filing` and stop there, which was survivable while that
+   * column decided where the book went and is not survivable once the alias
+   * does: the correction would have applied to one book and then vanished.
    */
   async function recordCredits(bookId: number, draft: DraftBook): Promise<void> {
-    await creditBook.handle({
-      bookId,
-      authors: draft.authors,
-      filingOverride: draft.authorFilingOverride,
-    })
-
-    const filing = draft.authorFilingOverride?.trim()
-    if (!filing) return
-    // The first-listed credit, because that is the one the shelf orders by and
-    // the one the review pane's field is about. A save with no usable name
-    // credits nobody, and there is then nothing to file.
-    const [files] = await authors.creditsOf(bookId)
-    if (files && files.filing !== filing) {
-      await fileAlias.handle({ aliasId: files.id, filing })
-    }
+    return recordCreditsStep(creditBook, authors, fileAlias, bookId, draft)
   }
 
   /*
@@ -741,6 +675,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // sweep the discard itself uses; `deleteOrphanedImages` is a function
     // declaration below and so is hoisted into scope here.
     { ...cropIo, orphaned: deleteOrphanedImages },
+    // So the queue can name a duplicate the same way GET /api/lookup/isbn/:isbn
+    // does below, on both the doors it reads a lookup through: the automatic
+    // pass that identifies a fresh scan and a person correcting one with
+    // Change ISBN (#233).
+    (isbn) => store.findByIsbn(isbn),
   )
 
   /**
