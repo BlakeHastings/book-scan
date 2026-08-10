@@ -52,6 +52,7 @@ import { describeConnection, openPostgres } from '../server/db.pg'
 import type { Db } from '../server/driver'
 import { Store, type DraftBook } from '../server/store'
 import { Shelves } from '../server/shelves'
+import { photographsTaken } from '../server/photographs'
 import type { ShelfRange } from '../shared/shelving'
 import { backCover, frontCover, spine } from '../server/fixtures'
 import { STATE_OF_QUEUE_STATUS } from '../domain/books/state'
@@ -388,23 +389,21 @@ async function insertCapture(
   fields: CaptureFields,
 ): Promise<void> {
   const now = new Date().toISOString()
-  await db.run(
+  const created = await db.get<{ id: number }>(
     `INSERT INTO books (
        title, shelf_range, is_fiction, sort_key,
-       state, front_image, back_image, edge_image, isbn13, isbn10,
+       state, isbn13, isbn10,
        isbn_source, title_guess, cover_text, analysed, draft_json, edit_json,
        edited_by, edited_at, scan_note, claimed_by, claimed_at, scanned_at
      ) VALUES (
        '', '', 0, '',
-       @status, @front_image, @back_image, @edge_image, @isbn13, @isbn10,
+       @status, @isbn13, @isbn10,
        @isbn_source, @title_guess, @cover_text, @analysed, @draft_json, @edit_json,
        @edited_by, @edited_at, @note, @claimed_by, @claimed_at, @created_at
-     )`,
+     )
+     RETURNING id`,
     {
       status: STATE_OF_QUEUE_STATUS[fields.status],
-      front_image: fields.front_image ?? '',
-      back_image: fields.back_image ?? '',
-      edge_image: fields.edge_image ?? '',
       isbn13: fields.isbn13 ?? '',
       isbn10: fields.isbn10 ?? '',
       isbn_source: fields.isbn_source ?? '',
@@ -421,6 +420,15 @@ async function insertCapture(
       created_at: now,
     },
   )
+
+  // The photographs are rows in `capture` (#228), written the same way the
+  // shutter writes them, so a seeded queue is a queue rather than a set of
+  // columns nothing reads.
+  await photographsTaken(db, Number(created!.id), {
+    front: fields.front_image,
+    back: fields.back_image,
+    edge: fields.edge_image,
+  }, now)
 }
 
 /** The shape queue.ts stores under draft_json: a LookupResult. */

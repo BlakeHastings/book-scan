@@ -289,7 +289,7 @@ describe('a database hiccup in the work a save started', () => {
     // `Store.setCoverImage`, the first write the un-awaited chain makes and one
     // of the four calls #203 names.
     const app = createApp({
-      db: hiccupsOn(running.db, 'UPDATE books SET cover_image'),
+      db: hiccupsOn(running.db, 'UPDATE books SET cover_checked_at'),
       coverDir,
       startBackgroundWork: false,
     })
@@ -1274,8 +1274,12 @@ describe('scanning a book at the shelf', () => {
   async function seedRecognisable(): Promise<{ id: number; buffer: Buffer }> {
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const hash = await coverHash(buffer)
+    // With a front photograph, because a hash is a fact about a photograph and
+    // lands on that photograph's row (#228). A book with no photographs has
+    // nowhere to put one and is not something a camera can recognise.
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      frontImage: 'dune_front.jpg',
     })
     await running.store.setHashes(id, hash, '')
     return { id, buffer }
@@ -1385,6 +1389,7 @@ describe('scanning a book at the shelf', () => {
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      frontImage: 'dune_front.jpg',
     })
     await running.store.setHashes(id, nudgeHash(await coverHash(buffer), 12), '')
 
@@ -1513,6 +1518,7 @@ describe('a book already waiting in the queue', () => {
     await waitingCapture(buffer)
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], isFiction: true,
+      frontImage: 'dune_front.jpg',
     })
     await running.store.setHashes(id, await coverHash(buffer), '')
 

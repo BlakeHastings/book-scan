@@ -11,7 +11,9 @@ six-table one in `web/server/db.pg.ts`, plus `tag` and `book_tag` from #179,
 `book_placement` with `books.current_area_id` from #185. Every one of those was
 added beside the columns it replaces rather than instead of them, and they are
 described under "What is built" at the end. **What is left is the cut-over**,
-which is where something is finally deleted. `docs/domain-model.md` is the
+which is where something is finally deleted, and #228 is the first step of it to
+delete anything: the ten photograph columns on `books` are gone and `capture` is
+what the app reads. `docs/domain-model.md` is the
 layering this sits under; #170 is the epic that built the rest.
 
 The point is not that fourteen is better than six. It is that the current schema
@@ -24,7 +26,7 @@ describes what the code needed and this one describes the collection.
 | `books.authors` is a joined string | Author information lives in three places and none is authoritative. "Everything by this author" is a string match, wrong in both directions. |
 | `shelf_ranges` | Configuration wearing a table's clothes. Its columns exist only to bootstrap counting. |
 | No bookcase anywhere | Bookcases and areas are implied by walking a separator list. Nothing can be said about one. |
-| Eight image columns | Exactly one photograph of each kind, forever. A blurred spine cannot be re-shot. |
+| ~~Eight image columns~~ | Exactly one photograph of each kind, forever. A blurred spine cannot be re-shot. **Ten of them, and dropped by #228:** `capture` is the record. |
 | `is_fiction`, `category` | Two fixed ways to classify, when people want many. |
 | `location`, `shelved_at`, `checked_out_at` | Only the present tense. Where a book has been is not recorded. |
 | ~~Separate `captures` queue~~ | The queue is a state a book is in, not a different kind of thing. **Dissolved by #183.** |
@@ -182,8 +184,17 @@ stands until somebody files it, because the alternative is a second copy of
 
 Loses most of what it currently is: `location`, `shelved_at`,
 `checked_out_at` (ledger), `authors` and `author_filing` (aliases),
-`shelf_range` (rules), `is_fiction` and `category` (tags), the eight image
+`shelf_range` (rules), `is_fiction` and `category` (tags), the image
 columns (captures), `ocr_text` (never used).
+
+**The image columns are the first of those to have actually gone**, by #228.
+`front_image`, `back_image`, `edge_image`, `cover_image`, `front_hash`,
+`cover_hash`, `front_crop`, `back_crop`, `edge_crop` and `cropped` were dropped:
+ten, not eight, because the two hashes were always part of the same set and the
+list in this document had undercounted them. `cover_checked_at` stayed, and that
+is the one judgement in it: it records that a cover was looked for, including for
+a book that has none, which is a fact about a search rather than about a
+photograph, and it is what stops the backfill asking about the same book forever.
 
 Keeps `state`, the bibliographic fields, `title_filing`, and two projection
 columns.
@@ -236,6 +247,27 @@ the thing that must not happen.
 photograph. Its distinction survives: `examined` true with an empty `crop_file`
 means the detector looked and declined, which is different from never having
 looked.
+
+**This is what the app reads, since #228.** Nothing anywhere reads a photograph
+from `books`, because there is no photograph on `books`. Every write of one goes
+through a function in `server/photographs.ts`: a shutter, a downloaded cover, a
+crop and a hash, four ways in and no fifth.
+
+`current_photograph` is `Photographs.latest` said in SQL: one row per book per
+kind, the newest, tie-broken by id exactly as the domain breaks it. Two
+statements read it, and both are about the photograph somebody would actually be
+shown: the books whose current front or artwork has not been hashed, and the
+queued books that can be compared against a book held up to the camera.
+
+**The wire still speaks in slots**, and that is deliberate and temporary. A book
+in the JSON carries `front_image`, `front_crop` and `cropped`, derived from the
+newest photograph of each kind, and the client, the browser suite and the two
+crop backfills read those. Changing the shape of every book on the wire in the
+same change that drops ten columns and moves every writer is not a change
+anybody can review as one thing; #223 made the same call about `books.is_fiction`
+and it is the same call. A book with four spine photographs has one `edge_image`
+there and four rows here, and `GET /api/books/:id/captures` is what answers for
+the other three.
 
 ## Book states
 
@@ -401,16 +433,20 @@ cost of an append-only migration path. It ends when `books` is remodelled.
 `capture` is, by #181: the table, the domain rules in `web/domain/capture/`, the
 port and handler in `web/application/capture/`, the Drizzle repository in
 `web/infrastructure/capture/`, and `GET /api/books/:id/captures`. The migration
-turns each of the eight image columns on `books` into rows, counts the
+turns each of the image columns on `books` into rows, counts the
 photographs the columns name against the rows it wrote, and refuses to finish
 when they disagree.
 
-**The same shape as #179, for the same reason: nothing is dropped and nothing is
-cut over.** `books.front_image` and the seven columns beside it are still what
-`Store`, the crop backfill, the gallery, the queue panel and the shelf row read,
-and every save writes both from here on. `server/photographs.ts` is the one place
-that says how a column translates, and deleting that file is the last step of the
-cut-over rather than the first.
+It was the same shape as #179 for two steps: nothing dropped and nothing cut
+over, with `books.front_image` and the nine columns beside it still what `Store`,
+the crop backfill, the gallery, the queue panel and the shelf row read.
+
+**#228 is where that ends.** The ten columns are dropped, `capture` is what the
+app reads, and `server/photographs.ts` is no longer a bridge between two records:
+it is the only place a filename becomes a photograph and the only place a
+photograph becomes the flat one-per-slot shape the wire still speaks in. Four
+functions write one and there is no fifth: a shutter, a downloaded cover, what
+the detector made of one, and a hash.
 
 **The two stayed in step only across a save, until #200.** `recordPhotographs`
 ran from the two book save routes and from the background chain behind one of
@@ -436,11 +472,18 @@ book" would have stayed "as of the last sweep". What the write-through costs is
 a `RETURNING *` on three statements and up to four upserts per column write,
 which the hash backfill pays over the whole catalogue at startup.
 
-**One repair is still owed**, and it belongs with the cut-over for the reason the
-tag repair below does. Rows written between #192 and #200 drifted, so a book
-whose cover was backfilled in that window has the column and no photograph. The
-sweep is the derivation `0006` already performs, run again over the books whose
-columns name a photograph with no row, counting what it wrote.
+**That repair was owed and `0017` is it.** Rows written between #192 and #214
+drifted, so a book whose cover was backfilled in that window had the column and
+no photograph. The sweep is the derivation `0006` already performs, run again
+over the books whose columns name a photograph with no row, counting what it
+wrote and what it amended: a crop or a hash written onto a book whose photographs
+already had rows left the row there and missing what the column knew, which a
+count of rows alone would not have found.
+
+It ran before any column was dropped, which is the whole reason it is a migration
+of its own and not part of `0019`: after the columns go there is nothing left to
+repair from. `0019` then counts both ways again, against the columns, and
+**refuses rather than dropping a photograph nothing else records.**
 
 **The queue table's three image columns were not migrated by #192, and that was
 a decision.** `captures.book_id` was nullable, because a capture waiting to be

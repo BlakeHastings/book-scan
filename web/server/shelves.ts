@@ -7,6 +7,7 @@
 
 import type { BookRow } from './db.pg'
 import type { Db } from './driver'
+import { withPhotographs, type PhotographedBook } from './photographs'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
@@ -45,8 +46,15 @@ import {
  */
 export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
 
-/** A book row plus the camelCase key the pure layout code expects. */
-export type ShelvedBook = BookRow & { sortKey: string }
+/**
+ * A book row plus the camelCase key the pure layout code expects.
+ *
+ * `PhotographedBook`, not `BookRow`, since #228: a shelf is drawn as a row of
+ * spines and a spine is a photograph, so every book that reaches the layout
+ * arrives with the current photograph of each kind joined onto it. See
+ * `withPhotographs`.
+ */
+export type ShelvedBook = PhotographedBook & { sortKey: string }
 
 /** A row as the misfile check sees it: where it is, and where it belongs. */
 const toFiled = (row: BookRow, derived: string, checkedOut: boolean): FiledBook => ({
@@ -220,12 +228,16 @@ export class Shelves {
    * the only place the condition is written, so a state that must not reach a
    * shelf cannot reach one by this statement being forgotten.
    */
-  private async booksIn(range: ShelfRange, excludeId = 0): Promise<BookRow[]> {
-    const rows = await this.db.all<BookRow>(
+  private async booksIn(range: ShelfRange, excludeId = 0): Promise<PhotographedBook[]> {
+    // The photographs are joined on here, in one statement for the whole range,
+    // because a shelf is drawn as a row of spines and a spine is a photograph
+    // (#228). Asking per book would be a statement per book on the path that
+    // draws the library.
+    const rows = await withPhotographs(this.db, await this.db.all<BookRow>(
       `SELECT * FROM shelved_books WHERE shelf_range = ?
         ORDER BY sort_key ASC`,
       [range],
-    )
+    ))
     return excludeId ? rows.filter((row) => row.id !== excludeId) : rows
   }
 

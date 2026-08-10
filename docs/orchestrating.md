@@ -23,15 +23,13 @@ the cut-over is what is left**, which is the first change in this sequence that
 gets to delete something, and it owes the genre repair `docs/data-model.md`
 names.
 
-**Nothing has been cut over, and that is deliberate every time.** Each of those
-added its tables and left the old columns authoritative. `books.is_fiction`
-still decides shelf range, `books.author_filing` still feeds `sort_key`, the
-eight image columns are still what the gallery reads, and `shelf_ranges` and
-`separators` are still where every book actually goes. Two consequences are
-already filed: #200, where `capture` drifts behind the columns because
-background writes do not record one, and the genre repair in `docs/data-model.md`
-that the cut-over owes. **Do not cut a slice over as a side effect of something
-else.**
+**The cut-over has started, and photographs are the first thing it has actually
+dropped.** #228 took the ten image columns off `books`, so `capture` is the
+record and there is no second answer about what a book has been photographed
+with; the repair the window between #192 and #214 left is `0017` and ran before
+any column went. Tags went first (#223, first half). `books.author_filing` still
+feeds `sort_key`, and `shelf_ranges` and `separators` are still where every book
+actually goes. **Do not cut a slice over as a side effect of something else.**
 
 **#214 and #185 agree about where a recording belongs**, and between them they
 settle it: on the statement that writes the column, never on the caller. #214

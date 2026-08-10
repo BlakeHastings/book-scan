@@ -534,6 +534,33 @@ a side effect of doing something else.
 #181; the plural one was the scanning queue and was dissolved by #183. One
 letter apart, and they were never related.
 
+**Photographs have been cut over, and this is the first thing the remodel has
+dropped (#228).** `books.front_image` and the nine columns beside it are gone:
+`back_image`, `edge_image`, `cover_image`, `front_hash`, `cover_hash`,
+`front_crop`, `back_crop`, `edge_crop` and `cropped`. `capture` is the record,
+and there is no second answer to what a book has been photographed with.
+`cover_checked_at` stayed, because it is a fact about a search rather than about
+a photograph.
+
+`web/server/photographs.ts` is the only place a filename becomes a row and the
+only place a row becomes the flat one-per-slot shape the wire still speaks in.
+Four functions write a photograph and there is no fifth: a shutter
+(`photographTaken`), a downloaded cover (`coverDownloaded`), what the detector
+made of one (`recordCrop`) and a hash (`recordHashes`). If you find yourself
+adding a fifth writer, it goes in that file beside them, for the reason the four
+statements that move a book go in `Store`.
+
+**The wire has not moved and that is the follow-up, not an oversight.** A book in
+the JSON still carries `front_image`, `front_crop` and `cropped`, derived from
+the newest photograph of each kind, and the client, the browser suite and the two
+crop backfills read those. That is the shape #223 left `books.is_fiction` in: cut
+the decision over, take the field off the wire separately.
+
+`current_photograph` is the one relation that answers "the newest photograph of
+each kind", which is `Photographs.latest` said in SQL. Two statements read it and
+both are about the photograph somebody would be shown. **Do not add a second
+spelling of that tie-break.**
+
 **#183 landed in two and is done.** The first half added `books.state`, the
 `shelved_books` view and the partial index, and moved the ordering queries onto
 the view. The second dissolved the queue: **there is no queue table.** A book

@@ -108,13 +108,35 @@ const QUEUE_ROW = `
     WHEN 'unidentified' THEN 'failed'
     ELSE 'done'
   END AS status,
-  front_image, back_image, edge_image,
   isbn13, isbn10, isbn_source, title_guess, cover_text, analysed,
   draft_json, edit_json, edited_by, edited_at,
   scan_note AS note, claimed_by, claimed_at,
   CASE WHEN "state" IN ('scanned', 'unidentified', 'identified') THEN NULL ELSE id END AS book_id,
-  scanned_at AS created_at, processed_at,
-  front_crop, back_crop, edge_crop, cropped, front_hash`
+  scanned_at AS created_at, processed_at`
+
+/**
+ * The photographs, joined on rather than selected, because they are rows in
+ * `capture` and not columns on `books` (#228).
+ *
+ * `current_photograph` is the app's own relation for "the newest photograph of
+ * each kind", which is the question every screen asks. Reading it here rather
+ * than reproducing the tie-break is deliberate: this suite asserts on what
+ * reaches the database, and a second copy of the rule would let both copies be
+ * wrong together.
+ */
+const PHOTOGRAPHS = `
+  COALESCE(front.file, '')     AS front_image,
+  COALESCE(back.file, '')      AS back_image,
+  COALESCE(spine.file, '')     AS edge_image,
+  COALESCE(artwork.file, '')   AS cover_image,
+  COALESCE(front.hash, '')     AS front_hash`
+
+/** The four joins `PHOTOGRAPHS` reads, against a relation aliased `b`. */
+const PHOTOGRAPH_JOINS = `
+  LEFT JOIN current_photograph front   ON front.book_id = b.id   AND front.kind = 'front'
+  LEFT JOIN current_photograph back    ON back.book_id = b.id    AND back.kind = 'back'
+  LEFT JOIN current_photograph spine   ON spine.book_id = b.id   AND spine.kind = 'spine'
+  LEFT JOIN current_photograph artwork ON artwork.book_id = b.id AND artwork.kind = 'catalogue'`
 
 export interface SeparatorRow {
   id: number
@@ -225,15 +247,24 @@ export class Catalogue {
    * exactly the rows `books` held before the queue moved in.
    */
   async books(): Promise<BookRow[]> {
-    return this.all<BookRow>('SELECT * FROM catalogued_books ORDER BY sort_key ASC')
+    return this.all<BookRow>(
+      `SELECT b.*, ${PHOTOGRAPHS} FROM catalogued_books b ${PHOTOGRAPH_JOINS}
+        ORDER BY b.sort_key ASC`,
+    )
   }
 
   async bookByIsbn(isbn13: string): Promise<BookRow | undefined> {
-    return (await this.all<BookRow>('SELECT * FROM books WHERE isbn13 = $1', [isbn13]))[0]
+    return (await this.all<BookRow>(
+      `SELECT b.*, ${PHOTOGRAPHS} FROM books b ${PHOTOGRAPH_JOINS} WHERE b.isbn13 = $1`,
+      [isbn13],
+    ))[0]
   }
 
   async bookByTitle(title: string): Promise<BookRow | undefined> {
-    return (await this.all<BookRow>('SELECT * FROM books WHERE title = $1', [title]))[0]
+    return (await this.all<BookRow>(
+      `SELECT b.*, ${PHOTOGRAPHS} FROM books b ${PHOTOGRAPH_JOINS} WHERE b.title = $1`,
+      [title],
+    ))[0]
   }
 
   async separators(range = 'fiction'): Promise<SeparatorRow[]> {
@@ -256,7 +287,10 @@ export class Catalogue {
    * was.
    */
   async captures(): Promise<CaptureRow[]> {
-    return this.all<CaptureRow>(`SELECT ${QUEUE_ROW} FROM queued_books ORDER BY id ASC`)
+    return this.all<CaptureRow>(
+      `SELECT ${QUEUE_ROW}, ${PHOTOGRAPHS} FROM queued_books b
+       ${PHOTOGRAPH_JOINS} ORDER BY b.id ASC`,
+    )
   }
 
   async captureCount(): Promise<number> {

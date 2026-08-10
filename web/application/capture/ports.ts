@@ -51,6 +51,20 @@ export interface CaptureRepository {
   of(bookId: number): Promise<Photographs>
 
   /**
+   * The same question asked of many books at once, keyed by book.
+   *
+   * Here because a shelf is a hundred books and a library listing is all of
+   * them, and every one of them has to be drawn with the photograph it is
+   * recognised by. `of` in a loop is that same read once per book, which is the
+   * shape that turns opening the library into a thousand statements.
+   *
+   * A book with no photographs is absent from the map rather than present with
+   * an empty `Photographs`, so a caller has to decide what it means. See
+   * `withPhotographs` in `server/photographs.ts`, which decides once.
+   */
+  ofMany(bookIds: readonly number[]): Promise<Map<number, Photographs>>
+
+  /**
    * Write these photographs down, adding what is new and never losing what is
    * already recorded.
    *

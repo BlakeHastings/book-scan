@@ -105,20 +105,28 @@ export const books = pgTable('books', {
   location: text('location').default(''),
   lookupSource: text('lookup_source').default(''),
 
-  frontImage: text('front_image').default(''),
-  backImage: text('back_image').default(''),
-  edgeImage: text('edge_image').default(''),
-  coverImage: text('cover_image').default(''),
+  /*
+   * The ten photograph columns are gone (#228). `front_image`, `back_image`,
+   * `edge_image`, `cover_image`, `front_hash`, `cover_hash`, `front_crop`,
+   * `back_crop`, `edge_crop` and `cropped` were what the app read; `capture` is
+   * what it reads now, and every one of them was a row in that table before any
+   * of them was dropped.
+   *
+   * Between them they allowed exactly one photograph of each kind, forever, so a
+   * blurred spine could only be re-shot by overwriting the original. The
+   * photographs are half of what is irreplaceable about this catalogue and the
+   * app that owns them should not be the thing that deletes one.
+   *
+   * `cover_checked_at` stays, and that is the one judgement in the set. It
+   * records that a cover was looked for, including for a book that turned out to
+   * have none anywhere, which is a fact about a search rather than about a
+   * photograph. It is also what stops the backfill asking about the same book
+   * forever.
+   */
   // text, not timestamp, and the same goes for every _at column here.
   // node-postgres hands a timestamptz back as a Date, which would change every
   // JSON payload the client and the end to end suite read.
   coverCheckedAt: text('cover_checked_at'),
-  frontHash: text('front_hash').default(''),
-  coverHash: text('cover_hash').default(''),
-  frontCrop: text('front_crop').default(''),
-  backCrop: text('back_crop').default(''),
-  edgeCrop: text('edge_crop').default(''),
-  cropped: text('cropped').default(''),
   isbnSource: text('isbn_source').default(''),
   // Vestigial; always ''. See the comment on this column in db.ts.
   ocrText: text('ocr_text').default(''),
@@ -155,10 +163,12 @@ export const books = pgTable('books', {
   // Eleven columns that were the `captures` queue table, which #183 dissolves:
   // a book exists from its first photograph, so the thing in the queue and the
   // thing on the shelf are one row at two points in its life. Everything the
-  // queue held that `books` already had a column for (the three photographs,
-  // their crops, `cropped`, `front_hash`, both ISBNs and `isbn_source`) uses
-  // that column; these are what was left, and every one of them is about
-  // reading a photograph or about somebody holding the book.
+  // queue held that `books` already had a column for (both ISBNs and
+  // `isbn_source`, and at the time the three photographs, their crops,
+  // `cropped` and `front_hash`) uses that column; these are what was left, and
+  // every one of them is about reading a photograph or about somebody holding
+  // the book. The photographs have since become rows in `capture` (#228) and
+  // the columns on both sides of that sentence are gone.
   //
   // They are empty for every book that came in before this landed, and they
   // stay filled in afterwards rather than being cleared when a book is shelved.
@@ -678,18 +688,23 @@ export const bookAuthor = pgTable('book_author', {
  *
  * ## What this replaces
  *
- * Eight columns on `books`: `front_image`, `back_image`, `edge_image`,
- * `cover_image`, `front_crop`, `back_crop`, `edge_crop` and `cropped`. Between
- * them they allow exactly one photograph of each kind, forever, so a blurred
- * spine can only be re-shot by overwriting the original. The photographs are
- * half of what is irreplaceable about this catalogue and the app that owns them
- * should not be the thing that deletes one. A row per photograph lifts that.
+ * Ten columns on `books`: `front_image`, `back_image`, `edge_image`,
+ * `cover_image`, `front_hash`, `cover_hash`, `front_crop`, `back_crop`,
+ * `edge_crop` and `cropped`. Between them they allowed exactly one photograph of
+ * each kind, forever, so a blurred spine could only be re-shot by overwriting
+ * the original. The photographs are half of what is irreplaceable about this
+ * catalogue and the app that owns them should not be the thing that deletes one.
+ * A row per photograph lifts that.
  *
- * **Nothing is dropped here**, exactly as #179 kept `books.is_fiction` when it
- * added the tag tables. Those columns are still what `Store`, the crop backfill,
- * the gallery, the queue panel and the shelf row read, and removing them belongs
- * with the work that remodels `books` and touches most of the client. Every save
- * writes both from that day on. See the pull request for #181.
+ * **They are gone, by #228.** This table is what the app reads, every write of a
+ * photograph goes through `server/photographs.ts`, and `0017` repaired the rows
+ * the write-through missed before any of the columns was dropped. #181 added the
+ * table beside them and #214 made the two stay in step; this is the step where
+ * there stops being a second answer.
+ *
+ * `current_photograph` below is the one relation that asks "the newest of each
+ * kind", which is the question every screen asks and the one the columns used to
+ * answer by having nowhere to put a second.
  *
  * ## `book_id` is not null, and one column is the enforcement
  *
@@ -705,9 +720,11 @@ export const bookAuthor = pgTable('book_author', {
  * photograph and could not find the book in it. `examined` false with an empty
  * `crop_file` means no detector has ever opened it. A caption may say "the book
  * could not be picked out of this photo" about the first and must not say it
- * about the second. Today that lives in `books.cropped`, a comma separated list
- * of slot names, which is one string per row describing three photographs and
- * therefore cannot survive a second photograph of a kind at all.
+ * about the second. That used to live in `books.cropped`, a comma separated list
+ * of slot names, which was one string per row describing three photographs and
+ * therefore could not survive a second photograph of a kind at all. The wire
+ * still speaks in that string and `server/photographs.ts` rebuilds it from these
+ * flags, which is the one place the two spellings of the distinction meet.
  *
  * `boolean`, unlike `books.is_fiction`, which is an integer because the JSON
  * contract carries 0 and 1 and the client reads them. Nothing reads this column
@@ -751,6 +768,40 @@ export const capture = pgTable('capture', {
   // "This book's photographs, newest first", which is every read there is.
   index('idx_capture_book').on(table.bookId, table.takenAt),
 ])
+
+/**
+ * The current photograph of each kind, which is `Photographs.latest` said in
+ * SQL.
+ *
+ * A book has as many photographs of a kind as somebody has taken, and every
+ * question a shelf asks is about the newest one: "the spine" is what you look
+ * for a book by, and a spine re-shot today is somebody deciding yesterday's was
+ * not good enough. The domain answers that with `Photographs.latest`, over rows
+ * already loaded. Two statements cannot load the rows first, because what they
+ * want is the books whose current photograph is missing something, and this is
+ * the relation they read: `Store.missingHashes` and `CaptureQueue.waiting`.
+ *
+ * **The tie-break is the same one the domain uses, and it has to be.** Two
+ * photographs of one book can share a timestamp: every row `0006` wrote carries
+ * `books.scanned_at`, which was one value for all three slots. `Photographs.of`
+ * sorts newest first with a stable sort over rows read by id, so a tie resolves
+ * to the lower id, which is `taken_at desc, id asc` here. A view that broke the
+ * tie the other way would answer a different photograph from the one drawn on
+ * screen for exactly the books the migration touched.
+ *
+ * Nothing writes through this. It is one row per (book, kind) and the table
+ * behind it keeps every photograph there has ever been, which is the whole
+ * reason the columns it replaces had to go.
+ */
+export const currentPhotograph = pgView('current_photograph', {
+  bookId: integer('book_id').notNull(),
+  kind: text('kind').notNull(),
+  file: text('file').notNull(),
+  cropFile: text('crop_file').notNull(),
+  examined: boolean('examined').notNull(),
+  hash: text('hash').notNull(),
+  takenAt: text('taken_at').notNull(),
+}).as(sql`select distinct on ("book_id", "kind") "book_id", "kind", "file", "crop_file", "examined", "hash", "taken_at" from "capture" order by "book_id", "kind", "taken_at" desc, "id" asc`)
 
 /**
  * A boundary move that has been made and that nobody has acted on yet.

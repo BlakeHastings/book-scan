@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
+import { photographTaken, recordCrop } from './photographs'
 import { Store, type DraftBook } from './store'
 import { genreStatedBy } from '../domain/tagging/genre'
 
@@ -423,13 +424,30 @@ describe('setCrop', () => {
   })
 
   it('adds each slot to the list rather than replacing it', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await store.addBook(draft({
+      title: 'X', authors: ['Ann Author'],
+      frontImage: 'front.jpg', edgeImage: 'edge.jpg',
+    }))
 
     await store.setCrop(id, 'front', 'a.jpg')
     await store.setCrop(id, 'edge', 'b.jpg')
     await store.setCrop(id, 'front', 'a.jpg')
 
     expect((await store.getBook(id))!.cropped).toBe('front,edge')
+  })
+
+  it('says nothing about a slot that has no photograph in it', async () => {
+    /*
+     * `examined` is a fact about a photograph, and a slot with nothing in it is
+     * not a photograph. It used to be a name in a string on the book, so a crop
+     * pass could record that a detector had looked at a photograph that did not
+     * exist. There is nowhere to write that now, which is the point (#228).
+     */
+    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+
+    await store.setCrop(id, 'front', '')
+
+    expect((await store.getBook(id))!.cropped).toBe('')
   })
 })
 
@@ -478,15 +496,17 @@ describe('imageInUse', () => {
     expect(await store.imageInUse('cover.jpg')).toBe(true)
   })
 
-  it('reports true when only a queued book names the file, across all three columns', async () => {
-    // Raw insert: nothing on Store creates a queued book, and the fixture only
+  it('reports true when only a queued book names the file, whichever slot it is in', async () => {
+    // Raw insert of the row, and the photograph written the way a shutter
+    // writes one: nothing on Store creates a queued book, and the fixture only
     // needs the row to exist, not the queue machinery around it.
-    for (const column of ['front_image', 'back_image', 'edge_image']) {
-      await db.run(
-        `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, ${column}, scanned_at)
-         VALUES ('', '', 0, '', 'scanned', 'shared.jpg', ?)`,
+    for (const slot of ['front', 'back', 'edge'] as const) {
+      const created = await db.get<{ id: number }>(
+        `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+         VALUES ('', '', 0, '', 'scanned', ?) RETURNING id`,
         [new Date().toISOString()],
       )
+      await photographTaken(db, created!.id, slot, 'shared.jpg', new Date().toISOString())
       expect(await store.imageInUse('shared.jpg')).toBe(true)
       await db.run("DELETE FROM books WHERE state = 'scanned'")
     }
@@ -496,12 +516,13 @@ describe('imageInUse', () => {
     // A crop is named after the photograph it came from, so two scans of the
     // same photograph produce the same crop filename. Deleting on one scan's
     // behalf must not take the other's picture with it.
-    await db.run(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
-                          front_image, front_crop, cropped, scanned_at)
-       VALUES ('', '', 0, '', 'identified', 'shared.jpg', 'shared_crop.jpg', 'front', ?)`,
+    const created = await db.get<{ id: number }>(
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+       VALUES ('', '', 0, '', 'identified', ?) RETURNING id`,
       [new Date().toISOString()],
     )
+    await photographTaken(db, created!.id, 'front', 'shared.jpg', new Date().toISOString())
+    await recordCrop(db, created!.id, 'front', 'shared_crop.jpg')
 
     expect(await store.imageInUse('shared_crop.jpg')).toBe(true)
   })
@@ -516,12 +537,13 @@ describe('imageInUse', () => {
    * most of what discarding a mistaken scan is for.
    */
   it('does not count a discarded scan, whose filenames are history rather than a claim', async () => {
-    await db.run(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
-                          front_image, front_crop, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', 'gone.jpg', 'gone_crop.jpg', ?)`,
+    const created = await db.get<{ id: number }>(
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
+    await photographTaken(db, created!.id, 'front', 'gone.jpg', new Date().toISOString())
+    await recordCrop(db, created!.id, 'front', 'gone_crop.jpg')
 
     expect(await store.imageInUse('gone.jpg')).toBe(false)
     expect(await store.imageInUse('gone_crop.jpg')).toBe(false)
@@ -534,12 +556,12 @@ describe('imageInUse', () => {
     await store.addBook(
       draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
     )
-    await db.run(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
-                          back_image, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', 'shared.jpg', ?)`,
+    const created = await db.get<{ id: number }>(
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
+    await photographTaken(db, created!.id, 'back', 'shared.jpg', new Date().toISOString())
 
     expect(await store.imageInUse('shared.jpg')).toBe(true)
   })

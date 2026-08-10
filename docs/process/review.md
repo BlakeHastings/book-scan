@@ -22,8 +22,16 @@ adding it is cheaper than reviewing for it forever.
 lint or format check: `eslint.config.mjs` exists but nothing runs it. The
 production build is never run in CI, only `tsc --noEmit` via typecheck, so a
 Vite build failure would reach master. And migrations are **not** reversible by
-design: the schema is append only, columns are added and never dropped or
-repurposed, so "reverts cleanly" is not a property to check for.
+design, so "reverts cleanly" is not a property to check for.
+
+**The schema stopped being append only at #228**, which dropped the ten
+photograph columns on `books` once `capture` was what the app read. That is the
+cut-over epic #220 doing what it exists to do, and it does not license dropping a
+column as a side effect of something else. What a change that drops one owes: the
+drop is its own commit and the last one, so a revert is one commit; the migration
+counts what it is about to make unreachable, both ways, and **refuses rather than
+finishing quietly**; and any repair the old columns are the only source for runs
+in an earlier migration, while they still say something.
 
 ## Lens 1: functionality, proven by interaction
 

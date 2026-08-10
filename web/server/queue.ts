@@ -38,7 +38,10 @@ import { identify } from './identify'
 import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
 import { deriveCapture, type DerivableCapture } from './capturecrop'
 import { type CropIo, type CropSlot } from './crop'
-import { recordCrop } from './photographs'
+import {
+  PHOTO_SLOTS, photographTaken, recordCrop, recordFrontHash,
+  withPhotographs, withPhotographsOf, type PhotographFields,
+} from './photographs'
 import { resolveIsbnPair } from '../shared/isbn'
 import {
   countFailures, PROCESSING_ERROR_NOTE, type FailureCounts,
@@ -80,13 +83,24 @@ const QUEUE_ROW = `
     `)}
     ELSE 'done'
   END AS status,
-  front_image, back_image, edge_image,
   isbn13, isbn10, isbn_source, title_guess, cover_text, analysed,
   draft_json, edit_json, edited_by, edited_at,
   scan_note AS note, claimed_by, claimed_at,
   CASE WHEN "state" IN (${QUEUED_SQL}) THEN NULL ELSE id END AS book_id,
-  scanned_at AS created_at, processed_at,
-  front_crop, back_crop, edge_crop, cropped, front_hash`
+  scanned_at AS created_at, processed_at`
+
+/**
+ * The photographs, which are not in the projection above because they are not
+ * columns (#228).
+ *
+ * `capture` holds every photograph there has ever been of a book, so the ten
+ * fields the queue still hands out are derived from the newest of each kind by
+ * `withPhotographs`. Every read in this class goes through this, so a caller
+ * cannot get half a row.
+ */
+async function queueRows(db: Db, rows: QueueProjection[]): Promise<CaptureRow[]> {
+  return withPhotographs(db, rows)
+}
 
 export type Slot = 'front' | 'back' | 'edge'
 
@@ -114,7 +128,7 @@ export interface QueueCounts extends Record<CaptureStatus, number> {
  * there. Everything a caller of this class reads is on this interface, so a
  * caller cannot see the state model underneath and does not have to.
  */
-export interface CaptureRow {
+export interface QueueProjection {
   /** The book's own id. There is no second identity for a queued book. */
   id: number
   /**
@@ -123,9 +137,6 @@ export interface CaptureRow {
    * discarded, which is what the absence of a row used to mean.
    */
   status: CaptureStatus
-  front_image: string
-  back_image: string
-  edge_image: string
   isbn13: string
   isbn10: string
   isbn_source: string
@@ -162,22 +173,20 @@ export interface CaptureRow {
   /** When the first photograph arrived, which is `books.scanned_at`. */
   created_at: string
   processed_at: string | null
-  /**
-   * The three photos cut to the book, as filenames beside the originals.
-   * Empty where the detector was never run or could not find the book.
-   */
-  front_crop: string
-  back_crop: string
-  edge_crop: string
-  /** Slots the detector has looked at, comma separated. See `books.cropped`. */
-  cropped: string
-  /**
-   * Hash of the front photograph, in the format imagehash.ts writes. Empty
-   * where it has not been hashed, or where the frame carried no detail to
-   * hash: a refusal is left as one rather than stored as a hash.
-   */
-  front_hash: string
 }
+
+/**
+ * A queued book as this class hands one out: the projection above, with the
+ * current photograph of each kind joined onto it.
+ *
+ * The ten photograph fields are derived from `capture` and are not columns.
+ * `front_image` is the newest front photograph of this book, `front_crop` is
+ * what the detector cut from that one, `cropped` names the slots it has been
+ * shown, and `front_hash` is the hash of that photograph. See
+ * `PhotographFields` in `server/photographs.ts`, which is the one place the
+ * flat names and the rows meet.
+ */
+export type CaptureRow = QueueProjection & PhotographFields
 
 /**
  * The fields a person may state about a capture while it is still in the
@@ -300,21 +309,41 @@ export class CaptureQueue {
    * belongs nowhere. `scanned` keeps it out of `shelved_books` and an empty
    * shelf range keeps it out of every range there is, which is two independent
    * protections where the second one is free.
+   *
+   * **The transaction is the whole of what stops the worker reading a book with
+   * no photographs on it**, and it is new with #228. The filename used to be a
+   * column, so the row and the photograph it exists for were one statement and
+   * nothing could see one without the other. They are two statements now, and
+   * `drain` is running on another connection: a pass that picked this book up in
+   * between would find `pending` and nothing to read, settle it as failed and
+   * move on, and the photograph would land behind it with nobody coming back.
+   * `attach` below is the same argument and the same fix.
    */
   async add(images: { front?: string; back?: string; edge?: string }): Promise<CaptureRow> {
-    // RETURNING id rather than lastInsertRowid, for the reason given on
-    // Store.addBook: the id comes back from the statement that made it.
-    const created = await this.db.get<{ id: number }>(
-      `INSERT INTO books
-         (title, shelf_range, is_fiction, sort_key, state,
-          front_image, back_image, edge_image, scanned_at)
-       VALUES ('', '', 0, '', ?, ?, ?, ?, ?)
-       RETURNING id`,
-      [STATE_OF_QUEUE_STATUS.pending,
-       images.front ?? '', images.back ?? '', images.edge ?? '',
-       new Date().toISOString()],
-    )
-    return (await this.get(Number(created!.id)))!
+    const now = new Date().toISOString()
+    const id = await this.db.tx(async (tx) => {
+      // RETURNING id rather than lastInsertRowid, for the reason given on
+      // Store.addBook: the id comes back from the statement that made it.
+      const created = await tx.get<{ id: number }>(
+        `INSERT INTO books
+           (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+         VALUES ('', '', 0, '', ?, ?)
+         RETURNING id`,
+        [STATE_OF_QUEUE_STATUS.pending, now],
+      )
+      const id = Number(created!.id)
+      /*
+       * The photographs are the reason the row exists, and they are rows of
+       * their own (#228). Dated from the shutter rather than from a save, which
+       * is the whole of what `taken_at` carries: a photograph was taken when it
+       * was taken.
+       */
+      for (const slot of PHOTO_SLOTS) {
+        await photographTaken(tx, id, slot, images[slot] ?? '', now)
+      }
+      return id
+    })
+    return (await this.get(id))!
   }
 
   /**
@@ -324,37 +353,50 @@ export class CaptureQueue {
    * reading the moment it exists. That is what removes the duplicated work:
    * previously the camera identified a photo synchronously for feedback and
    * the queue then identified the very same image all over again.
+   *
+   * **Re-taking a slot no longer overwrites anything.** The photograph used to
+   * be a column, so a second shot of a slot destroyed the first, and the first
+   * is the record: the photographs are half of what is irreplaceable about this
+   * catalogue. It is a second row now, newer, and the one it improves on is
+   * still there behind it.
    */
   async attach(captureId: number | null, slot: Slot, filename: string): Promise<CaptureRow> {
-    const column = `${slot}_image`
     const now = new Date().toISOString()
 
     if (captureId && (await this.get(captureId))) {
-      await this.db.run(
-        `UPDATE books
-            SET ${column} = @filename,
-                -- A book that has left the queue keeps the state it left for:
-                -- a second photograph of something on a shelf does not put it
-                -- back in the queue, and one of something discarded does not
-                -- undo the discard.
-                state = CASE WHEN "state" IN (${QUEUED_SQL}) THEN '${STATE_OF_QUEUE_STATUS.pending}'
-                             ELSE "state" END,
-                -- Re-taking a slot means it needs reading again.
-                analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
-          WHERE id = @id`,
-        { id: captureId, filename, slot },
-      )
+      await this.db.tx(async (tx) => {
+        await photographTaken(tx, captureId, slot, filename, now)
+        await tx.run(
+          `UPDATE books
+              SET
+                  -- A book that has left the queue keeps the state it left for:
+                  -- a second photograph of something on a shelf does not put it
+                  -- back in the queue, and one of something discarded does not
+                  -- undo the discard.
+                  state = CASE WHEN "state" IN (${QUEUED_SQL}) THEN '${STATE_OF_QUEUE_STATUS.pending}'
+                               ELSE "state" END,
+                  -- Re-taking a slot means it needs reading again.
+                  analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
+            WHERE id = @id`,
+          { id: captureId, slot },
+        )
+      })
       return (await this.get(captureId))!
     }
 
-    const created = await this.db.get<{ id: number }>(
-      `INSERT INTO books
-         (title, shelf_range, is_fiction, sort_key, state, ${column}, scanned_at)
-       VALUES ('', '', 0, '', ?, ?, ?)
-       RETURNING id`,
-      [STATE_OF_QUEUE_STATUS.pending, filename, now],
-    )
-    return (await this.get(Number(created!.id)))!
+    const id = await this.db.tx(async (tx) => {
+      const created = await tx.get<{ id: number }>(
+        `INSERT INTO books
+           (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+         VALUES ('', '', 0, '', ?, ?)
+         RETURNING id`,
+        [STATE_OF_QUEUE_STATUS.pending, now],
+      )
+      const id = Number(created!.id)
+      await photographTaken(tx, id, slot, filename, now)
+      return id
+    })
+    return (await this.get(id))!
   }
 
   /**
@@ -366,9 +408,9 @@ export class CaptureQueue {
    * `POST /api/books` reads the photographs off the row it is about to place.
    */
   async get(id: number): Promise<CaptureRow | undefined> {
-    return this.db.get<CaptureRow>(
+    return withPhotographsOf(this.db, await this.db.get<QueueProjection>(
       `SELECT ${QUEUE_ROW} FROM books WHERE id = ?`, [id],
-    )
+    ))
   }
 
   /**
@@ -397,9 +439,9 @@ export class CaptureQueue {
    * ask for `done` would be asking this method for the whole catalogue.
    */
   async list(): Promise<CaptureRow[]> {
-    return this.db.all<CaptureRow>(
+    return queueRows(this.db, await this.db.all<QueueProjection>(
       `SELECT ${QUEUE_ROW} FROM queued_books ORDER BY id ASC`,
-    )
+    ))
   }
 
   /**
@@ -642,7 +684,7 @@ export class CaptureQueue {
 
   /** Store the front photograph's hash. Only ever a hash of that photograph. */
   async setFrontHash(id: number, hash: string): Promise<void> {
-    await this.db.run('UPDATE books SET front_hash = ? WHERE id = ?', [hash, id])
+    await recordFrontHash(this.db, id, hash)
   }
 
   /**
@@ -674,11 +716,20 @@ export class CaptureQueue {
    * again.
    */
   async waiting(): Promise<CaptureRow[]> {
-    return this.db.all<CaptureRow>(
-      `SELECT ${QUEUE_ROW} FROM queued_books
-        WHERE front_hash != '' AND front_image != ''
+    /*
+     * `current_photograph`, which is `Photographs.latest` said in SQL. Both
+     * filters are about the photograph somebody would be shown and compared
+     * against, which is the newest front one: a hash on a spine is not something
+     * this compares and a superseded front is not what the panel draws.
+     */
+    return queueRows(this.db, await this.db.all<QueueProjection>(
+      `SELECT ${QUEUE_ROW} FROM queued_books b
+        WHERE EXISTS (
+                SELECT 1 FROM current_photograph c
+                 WHERE c.book_id = b.id AND c.kind = 'front'
+                   AND c.hash != '' AND c.file != '')
         ORDER BY id`,
-    )
+    ))
   }
 
   /**
@@ -713,12 +764,12 @@ export class CaptureQueue {
     // could read would match every other photograph nobody could read.
     if (!isbn13) return []
 
-    return this.db.all<CaptureRow>(
+    return queueRows(this.db, await this.db.all<QueueProjection>(
       `SELECT ${QUEUE_ROW} FROM queued_books
         WHERE isbn13 = @isbn13 AND id != @except
         ORDER BY id`,
       { isbn13, except: exceptId ?? -1 },
-    )
+    ))
   }
 
   /**
@@ -737,13 +788,13 @@ export class CaptureQueue {
    * is offered to a detector exactly once instead of to both passes.
    */
   async photographed(): Promise<DerivableCapture[]> {
-    return this.db.all<DerivableCapture>(
-      `SELECT id, front_image, back_image, edge_image,
-              front_crop, back_crop, edge_crop, cropped, front_hash
-         FROM queued_books
-        WHERE front_image != '' OR back_image != '' OR edge_image != ''
+    return withPhotographs(this.db, await this.db.all<{ id: number }>(
+      `SELECT id FROM queued_books b
+        WHERE EXISTS (
+                SELECT 1 FROM capture c
+                 WHERE c.book_id = b.id AND c.kind IN ('front', 'back', 'spine'))
         ORDER BY id`,
-    )
+    ))
   }
 
   /**
@@ -788,11 +839,11 @@ export class CaptureQueue {
   // -----------------------------------------------------------------------
 
   private async nextPending(): Promise<CaptureRow | undefined> {
-    return this.db.get<CaptureRow>(
+    return withPhotographsOf(this.db, await this.db.get<QueueProjection>(
       `SELECT ${QUEUE_ROW} FROM queued_books
         WHERE "state" = '${STATE_OF_QUEUE_STATUS.pending}'
         ORDER BY id ASC LIMIT 1`,
-    )
+    ))
   }
 
   /**

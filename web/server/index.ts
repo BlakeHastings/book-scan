@@ -54,7 +54,7 @@ import { asConfidence, genreStatedBy, rangeOfGenre } from '../domain/tagging/gen
 import { TagSlug } from '../domain/tagging/tags'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
-import { recordPhotographsOf } from './photographs'
+import { filesOf } from './photographs'
 import { Store, type DraftBook } from './store'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
@@ -522,30 +522,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    *
    * It is not quite the only place in the server that names a Drizzle
    * repository any more. `server/photographs.ts` names this one too, because
-   * the writing side of `capture` moved there (#200) so that the statements
-   * that write the image columns own it rather than five callers each
-   * remembering to. That file says why at length.
+   * `capture` is the record of every photograph since #228 and that file is
+   * where a filename becomes a row, on the way in and back out again.
+   *
+   * **There is no step here that records a save's photographs.** There used to
+   * be, reading the row back after `Store` had written the columns. `Store` and
+   * `CaptureQueue` write the rows themselves now, on the transaction handle that
+   * writes the book, so a route cannot save a book and forget its photographs
+   * and a book cannot commit without them.
    */
   const captures = new DrizzleCaptureRepository(db)
-
-  /**
-   * Keep the capture rows in step with what was just saved about a book.
-   *
-   * The eight image columns on `books` are still what `Store`, the crop
-   * backfill, the gallery, the queue panel and the shelf row read, so a save
-   * writes both: the columns, by `Store`, and the rows, here. They cannot
-   * disagree, because this reads the row that was just written rather than the
-   * draft it was written from. That is the same arrangement #179 left behind for
-   * `books.is_fiction` and the tag tables, and it goes away with the columns.
-   *
-   * This is the save's own three photographs and nothing else. What arrives
-   * afterwards, the cover, the hashes and the crops, is recorded by the
-   * statements that write those columns. See `recordPhotographsOf`.
-   */
-  async function recordPhotographs(bookId: number): Promise<void> {
-    const book = await store.getBook(bookId)
-    if (book) await recordPhotographsOf(db, book)
-  }
 
   function saveImage(buffer: Buffer, isbn: string, slot: Slot): string {
     const name = `${Date.now()}_${isbn || 'noisbn'}_${slot}.jpg`
@@ -1006,10 +992,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * through the same orphan check rather than a second mechanism, which is
      * what stops a discard taking a photograph a shelved book still names.
      */
-    const images = [
-      capture.front_image, capture.back_image, capture.edge_image,
-      capture.front_crop, capture.back_crop, capture.edge_crop,
-    ]
+    // Every photograph this scan produced, not the current one of each kind
+    // (#228). A slot re-shot while somebody was working the queue is two files
+    // on disk and two rows, and both were taken of the thing being thrown away.
+    const images = await filesOf(db, id)
     await queue.discard(id)
     const removed = await deleteOrphanedImages(images)
 
@@ -1179,9 +1165,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * is an update that moves it to `shelved`, not an insert.
      *
      * It still carries the photographs across explicitly, because the draft is
-     * what `store` writes from and the client does not re-upload them. The
-     * columns already hold these values; sending them again costs nothing and
-     * means the two paths through this route write the same fields.
+     * what `store` writes from and the client does not re-upload them. For a
+     * book that is still queued this restates photographs it already has, which
+     * costs a statement each and changes nothing: recording is idempotent per
+     * book and file. It is not redundant on the other path. A capture that has
+     * already left the queue is saved as a *new* book, and this is what hands
+     * the new one the filenames the old one was photographed with.
      */
     const capture = captureId ? await queue.get(captureId) : undefined
     const queued = capture && capture.status !== 'done' ? capture : undefined
@@ -1232,7 +1221,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     await recordCredits(id, draft)
-    await recordPhotographs(id)
 
     /*
      * Record where the book physically went.
@@ -1255,9 +1243,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // book goes, and a cover that arrives a second later costs them nothing.
     //
     // There is no fourth step recording the photographs again. Each of these
-    // three writes an image column, and the statement that writes one records
-    // it (#200), which is what makes the same true of the backfills and of the
-    // two command line tools. See `recordPhotographsOf`.
+    // three writes a photograph down itself, through `server/photographs.ts`,
+    // which is what makes the same true of the backfills and of the two command
+    // line tools: they go through the same three functions.
     //
     // Handed to `inTheBackground` rather than voided, so that a teardown can
     // wait for it and so a failure has an owner. Nothing about when it runs
@@ -1267,9 +1255,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // (#203). It was there because a rejection nobody caught took the process
     // down, and swallowing it was the price of staying up; `inTheBackground`
     // now reports it instead, so the price is no longer worth paying. Carrying
-    // on is still safe for the reason it always was: the columns are the record
-    // while the client reads them, and `record` is idempotent, so the next save
-    // catches up.
+    // on is still safe: a cover, a hash and a crop are things a book can be
+    // without, every reader draws a book that has none, and `record` is
+    // idempotent, so the next pass catches up.
     inTheBackground(
       fetchCoverFor(id)
         .then(() => hashBook(id))
@@ -1572,7 +1560,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
     const placement = await store.updateBook(id, draft, await settleGenre(id, draft))
     await recordCredits(id, draft)
-    await recordPhotographs(id)
     res.json({
       id,
       placement: await inDerivedScheme(placement.range, placement),
@@ -2009,12 +1996,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
 
-    const images = [
-      book.front_image, book.back_image, book.edge_image, book.cover_image,
-      // Derived, but still files on disk, and nothing else will ever name
-      // them once this row is gone.
-      book.front_crop, book.back_crop, book.edge_crop,
-    ]
+    // Every photograph of this book and every crop cut from one. The crops are
+    // derived, but they are still files on disk and nothing else will ever name
+    // them once this row and its photographs are gone.
+    const images = await filesOf(db, id)
     await store.deleteBook(id)
     const removed = await deleteOrphanedImages(images)
 

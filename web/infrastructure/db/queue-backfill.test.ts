@@ -169,7 +169,7 @@ describe('the queue table dissolving into books', () => {
 
     const row = await pool.query(
       `SELECT title, shelf_range, sort_key, state, isbn13, claimed_by, scan_note,
-              front_image, back_image, edge_image, front_crop, cropped, scanned_at
+              scanned_at
          FROM books WHERE state = 'unidentified'`,
     )
     expect(row.rows[0]).toEqual({
@@ -185,11 +185,30 @@ describe('the queue table dissolving into books', () => {
       // `note` on the queue row, `scan_note` here, because `books.notes` is
       // already a person's note about a book.
       scan_note: 'No catalogue has it.',
-      front_image: 'q_front.jpg', back_image: 'q_back.jpg', edge_image: 'q_edge.jpg',
-      front_crop: 'q_front_crop.jpg', cropped: 'front,edge',
       // When the photograph was taken, which is when the queue row was made.
       scanned_at: '2026-02-03T04:05:06.000Z',
     })
+
+    /*
+     * The photographs are rows, not columns, since #228, so the claim this test
+     * has always made is made of `capture`: what the queue knew about this
+     * book's pictures came across and is still here two migrations later.
+     *
+     * `crop_file` and `examined` come from the queue's own `front_crop` and
+     * `cropped`, which `0011` read. The spine is a `spine`, because `edge` was a
+     * column name and this vocabulary is the model's.
+     */
+    const photographs = await pool.query(
+      `SELECT c.kind, c.file, c.crop_file, c.examined
+         FROM capture c JOIN books b ON b.id = c.book_id
+        WHERE b.state = 'unidentified'
+        ORDER BY c.kind`,
+    )
+    expect(photographs.rows).toEqual([
+      { kind: 'back', file: 'q_back.jpg', crop_file: '', examined: false },
+      { kind: 'front', file: 'q_front.jpg', crop_file: 'q_front_crop.jpg', examined: true },
+      { kind: 'spine', file: 'q_edge.jpg', crop_file: '', examined: true },
+    ])
   }, 60_000)
 
   /**

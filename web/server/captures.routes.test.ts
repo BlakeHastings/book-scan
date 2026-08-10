@@ -11,11 +11,13 @@
  * there is no supertest in this project and this suite must not add one. Open
  * Library and Google Books are stubbed, so nothing here touches the network.
  *
- * The photographs are the columns' still, and this is the dual write that keeps
- * the rows level with them until the client is cut over. The tests below are
- * about the two things that could go wrong quietly: a photograph that never
- * became a row, and a row that says the detector looked at a photograph it has
- * never opened.
+ * **`capture` is the record since #228**, so there are no columns behind these
+ * rows to compare them against and nothing here writes one. What the tests
+ * drive is the four ways a photograph is written down: a save that carries
+ * files, a cover the backfill downloads, what the detector made of a photograph,
+ * and a hash. The two things that could still go wrong quietly are the same two:
+ * a photograph that never became a row, and a row that says the detector looked
+ * at a photograph it has never opened.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -30,6 +32,8 @@ import { downloadCover } from './covers'
 import { PgDb } from './db.pg'
 import { createApp } from './index'
 import { lookupIsbn } from './lookup'
+import { photographTaken } from './photographs'
+import { Store } from './store'
 
 const empty = {
   found: false, title: '', subtitle: '', authors: [] as string[], publisher: '',
@@ -141,13 +145,10 @@ async function aBook(fields: Record<string, unknown> = {}) {
 }
 
 /**
- * Save the book again, unchanged, which is what makes the server re-read the
- * row and record whatever a column has grown since.
+ * Save the book again, unchanged.
  *
- * The crop pass and the cover fetch are the things that ordinarily do this, a
- * second after the save. Doing it by hand keeps this file off the image
- * libraries: what is under test here is the bridge from the columns to the
- * rows, not whether a detector can find a book in a JPEG.
+ * Here to prove that a save which states nothing about the photographs cannot
+ * disturb them, which is what the two monotone tests below are about.
  */
 async function saveAgain(id: number) {
   return call(`/api/books/${id}`, {
@@ -155,6 +156,18 @@ async function saveAgain(id: number) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title: 'Dune', authors: ['Frank Herbert'], isFiction: true }),
   })
+}
+
+/**
+ * What the crop pass writes, called directly.
+ *
+ * The pass itself needs a detector and a real JPEG, and what is under test here
+ * is the record it leaves rather than whether a detector can find a book in a
+ * photograph. `Store.setCrop` is the statement it calls and `bookcrop.test.ts`
+ * is where the detector is judged.
+ */
+function cropped(id: number, slot: 'front' | 'back' | 'edge', name: string) {
+  return new Store(db).setCrop(id, slot, name)
 }
 
 describe('saving a photographed book', () => {
@@ -211,23 +224,27 @@ describe('what the detector decided, carried onto the row', () => {
     const id = await aBook({
       images: { front: notAPhotograph('front'), back: notAPhotograph('back') },
     })
-    await db.run("UPDATE books SET cropped = 'front' WHERE id = ?", [id])
-    await saveAgain(id)
+    // The detector was shown the front and could not find the book. It has never
+    // been shown the back.
+    await cropped(id, 'front', '')
 
     const byKind = new Map((await capturesOf(id)).map((one) => [one.kind, one]))
     expect(byKind.get('front')).toMatchObject({ examined: true, verdict: 'declined' })
     expect(byKind.get('back')).toMatchObject({ examined: false, verdict: 'unexamined' })
+
+    // And back out again, in the vocabulary the wire still speaks: the slot the
+    // detector declined is named, the one it has never opened is not.
+    const book = (await call(`/api/books/${id}`)).body.book
+    expect(book.cropped).toBe('front')
+    expect(book.front_crop).toBe('')
   })
 
   it('shows the crop where there is one and the whole photograph where there is not', async () => {
     const id = await aBook({
       images: { front: notAPhotograph('front'), back: notAPhotograph('back') },
     })
-    await db.run(
-      "UPDATE books SET cropped = 'front,back', front_crop = 'front_crop.jpg' WHERE id = ?",
-      [id],
-    )
-    await saveAgain(id)
+    await cropped(id, 'front', 'front_crop.jpg')
+    await cropped(id, 'back', '')
 
     const byKind = new Map((await capturesOf(id)).map((one) => [one.kind, one]))
     expect(byKind.get('front')).toMatchObject({
@@ -238,32 +255,31 @@ describe('what the detector decided, carried onto the row', () => {
 
   it('carries the publisher artwork as a photograph nothing has examined', async () => {
     const id = await aBook()
-    await db.run(
-      `UPDATE books SET cover_image = 'cover.jpg', cover_hash = 'd:cover',
-                        cover_checked_at = '2026-03-04T00:00:00.000Z' WHERE id = ?`,
-      [id],
-    )
-    await saveAgain(id)
+    const store = new Store(db)
+    await store.setCoverImage(id, 'cover.jpg')
+    await store.setHashes(id, '', 'd:cover')
 
+    // Dated from when the artwork was fetched, which is the same moment
+    // `cover_checked_at` records: that column stays, because it is about the
+    // search rather than about a photograph.
+    const book = (await call(`/api/books/${id}`)).body.book
     expect((await capturesOf(id))[0]).toMatchObject({
       kind: 'catalogue', file: 'cover.jpg', hash: 'd:cover',
       // The detector finds a book in a room, and a publisher's artwork has no
       // room in it. It has never been offered one and must not read as declined.
       examined: false, verdict: 'unexamined',
-      takenAt: '2026-03-04T00:00:00.000Z',
+      takenAt: book.cover_checked_at,
     })
   })
 
-  it('does not let a later save take a crop back off', async () => {
-    // The lost update stage G found, on the column this replaces. A save that
-    // knows nothing about the crop must not be able to erase it.
+  it('does not let a later pass take a crop back off', async () => {
+    // The lost update stage G found, on the column this replaces. A crop pass
+    // that finds nothing, and a save that knows nothing about the crop, must
+    // neither of them be able to erase it.
     const id = await aBook({ images: { front: notAPhotograph('front') } })
-    await db.run(
-      "UPDATE books SET cropped = 'front', front_crop = 'front_crop.jpg' WHERE id = ?", [id],
-    )
-    await saveAgain(id)
+    await cropped(id, 'front', 'front_crop.jpg')
 
-    await db.run("UPDATE books SET cropped = '', front_crop = '' WHERE id = ?", [id])
+    await cropped(id, 'front', '')
     await saveAgain(id)
 
     expect((await capturesOf(id))[0]).toMatchObject({
@@ -275,22 +291,21 @@ describe('what the detector decided, carried onto the row', () => {
 describe('a book photographed twice', () => {
   it('keeps the first spine when a second one is taken', async () => {
     /*
-     * The feature the table exists for, over HTTP. `books.edge_image` holds one
-     * filename, so the re-shoot overwrites it there and the blurred original is
-     * gone from the column. It is still a row.
+     * The feature the table exists for, and the reason `books.edge_image` had to
+     * go: it held one filename, so a re-shoot overwrote it and the blurred
+     * original was gone. Both are rows, and the wire still answers with one
+     * spine because that is the question it asks: the newest.
      */
     const id = await aBook({ images: { edge: notAPhotograph('blurred spine') } })
     const blurred = (await capturesOf(id))[0]!.file
 
-    await db.run("UPDATE books SET edge_image = 'sharp-spine.jpg' WHERE id = ?", [id])
-    await saveAgain(id)
+    await photographTaken(db, id, 'edge', 'sharp-spine.jpg', new Date().toISOString())
 
     const spines = (await capturesOf(id)).filter((one) => one.kind === 'spine')
     expect(spines.map((one) => one.file)).toContain(blurred)
     expect(spines.map((one) => one.file)).toContain('sharp-spine.jpg')
     expect(spines).toHaveLength(2)
 
-    // And the column has only the new one, which is the whole problem.
     const book = (await call(`/api/books/${id}`)).body.book
     expect(book.edge_image).toBe('sharp-spine.jpg')
   })
