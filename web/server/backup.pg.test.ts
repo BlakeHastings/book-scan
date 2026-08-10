@@ -47,9 +47,9 @@ const KEYS = ['apple', 'Banana', "O'BRIEN", 'OBRIEN', 'Cherry', 'date']
 async function addBooks(keys: readonly string[] = KEYS): Promise<void> {
   for (const [index, key] of keys.entries()) {
     await db.run(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, author_filing, scanned_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [`Title ${index}`, 'fiction', 1, key, key, '2026-08-06T00:00:00Z'],
+      `INSERT INTO books (title, shelf_range, sort_key, title_filing, scanned_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [`Title ${index}`, 'fiction', key, key, '2026-08-06T00:00:00Z'],
     )
   }
 }

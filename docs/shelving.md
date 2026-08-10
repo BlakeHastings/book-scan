@@ -268,6 +268,14 @@ handled the same way: a manual override.
 that tries to get this fully right in code is wrong. Store the corrected
 filing name once per author and reuse it forever.
 
+That table was `author_filing` and it is `author_alias.filing_name` now (#227):
+the same fact, kept on the name itself rather than in a side table consulted on
+the way past, and reached by `PATCH /api/authors/aliases/:id` or by typing a
+filing name beside the author when saving a book. Correcting one does not move
+any book that is already shelved, because a sort key is written by a save; it
+changes what the catalogue says the book files under, and the next save of that
+book puts it there.
+
 **A filing name is never empty, and there is one function that derives it.**
 The empty string sorts ahead of every real filing name, so a book given one is
 shelved as though nobody wrote it, which is what #195 was. Whatever the
@@ -635,11 +643,10 @@ Additions to `books`:
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `range` | TEXT | `fiction` / `nonfiction`. Indexed with `sort_key`. Derived from the book's genre tag since #223, not from `is_fiction`. |
-| `is_fiction` | INTEGER | Redundant with `range` and no longer what decides it. Written from the settled range so the client can still read it; see `docs/data-model.md`. |
+| `range` | TEXT | `fiction` / `nonfiction`. Indexed with `sort_key`. Derived from the book's genre tag since #223, and there is no `is_fiction` beside it: #227 dropped that column. |
 | `classification_source` | TEXT | `auto` / `manual`. |
 | `classification_confidence` | TEXT | `high` / `medium` / `weak` / `unknown`. |
-| `author_filing` | TEXT | Derived, overridable. |
+| `author_filing` | TEXT | **Not a column on `books` since #227.** What a book files under is a fact about its first credit's alias, `author_alias.filing_name`, and the three views over `books` join it back on so a listing still reads it. Derived by `filingName`, overridable by filing the name. |
 | `series_name` | TEXT | |
 | `series_index` | REAL | |
 | `subtitle` | TEXT | Split out of `title`. |

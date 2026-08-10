@@ -43,6 +43,7 @@ import {
   withPhotographs, withPhotographsOf, type PhotographFields,
 } from './photographs'
 import { resolveIsbnPair } from '../shared/isbn'
+import type { GenreSlug } from '../domain/tagging/genre'
 import {
   countFailures, PROCESSING_ERROR_NOTE, type FailureCounts,
 } from '../shared/captureFailure'
@@ -205,7 +206,7 @@ export interface CaptureEdit {
   published?: string
   pages?: string
   notes?: string
-  isFiction?: boolean
+  genre?: GenreSlug
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string
@@ -257,7 +258,7 @@ function fromLookup(lookup: LookupResult): CaptureEdit {
     publisher: lookup.publisher,
     published: lookup.published,
     pages: lookup.pages,
-    isFiction: lookup.classification.isFiction,
+    genre: lookup.classification.genre,
     classificationSource: 'auto',
     classificationConfidence: lookup.classification.confidence,
     seriesName: lookup.seriesName,
@@ -326,8 +327,8 @@ export class CaptureQueue {
       // Store.addBook: the id comes back from the statement that made it.
       const created = await tx.get<{ id: number }>(
         `INSERT INTO books
-           (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-         VALUES ('', '', 0, '', ?, ?)
+           (title, shelf_range, sort_key, state, scanned_at)
+         VALUES ('', '', '', ?, ?)
          RETURNING id`,
         [STATE_OF_QUEUE_STATUS.pending, now],
       )
@@ -387,8 +388,8 @@ export class CaptureQueue {
     const id = await this.db.tx(async (tx) => {
       const created = await tx.get<{ id: number }>(
         `INSERT INTO books
-           (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-         VALUES ('', '', 0, '', ?, ?)
+           (title, shelf_range, sort_key, state, scanned_at)
+         VALUES ('', '', '', ?, ?)
          RETURNING id`,
         [STATE_OF_QUEUE_STATUS.pending, now],
       )

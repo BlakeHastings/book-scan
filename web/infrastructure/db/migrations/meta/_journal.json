@@ -141,6 +141,27 @@
       "when": 1786370356029,
       "tag": "0019_the_image_columns_go",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786378643120,
+      "tag": "0020_the_alias_files_what_the_shelf_was_built_from",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786378846286,
+      "tag": "0021_books_lose_the_fiction_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786378997052,
+      "tag": "0022_the_alias_is_where_a_book_files",
+      "breakpoints": true
     }
   ]
 }

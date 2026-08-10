@@ -1,6 +1,6 @@
 import { coverLabel, coverOf, type GridBook } from '../lib/shelfRow'
 import { coverThumbUrl } from './PlacementCard'
-import type { BookRow } from '../lib/api'
+import type { FiledBookRow } from '../lib/api'
 
 /**
  * One area as a grid of covers, in shelf order.
@@ -27,7 +27,7 @@ export function CoverGrid({
   books, label, onOpen,
 }: {
   /** In shelf order, exactly as the area was laid out. */
-  books: BookRow[]
+  books: FiledBookRow[]
   /** The area's label, named for a screen reader since the heading is outside. */
   label: string
   onOpen: (id: number) => void

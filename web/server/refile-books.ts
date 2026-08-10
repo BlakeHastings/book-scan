@@ -19,6 +19,7 @@
 import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { refileBooks } from './refile'
 
 const USAGE = `Recompute the stored filing name and sort key of every catalogued book.
@@ -90,11 +91,11 @@ async function run(connection: string, apply: boolean): Promise<number> {
 const readable = (key: string) => (key ? key.replace(/\x1f/g, ' | ') : '(nothing)')
 
 async function work(db: Db, apply: boolean): Promise<number> {
-  const report = await refileBooks(new Store(db), { apply })
+  const report = await refileBooks(new Store(db, new DrizzleAuthorRepository(db)), { apply })
 
   for (const book of report.moved) {
     console.log(`  book ${book.id}  ${book.title}`)
-    console.log(`    files under  ${book.authorFiling[0] || '(nobody)'}  ->  ${book.authorFiling[1]}`)
+    console.log(`    files under  ${book.filesUnder || '(nobody)'}`)
     console.log(`    sorts at     ${readable(book.sortKey[0])}`)
     console.log(`                 ${readable(book.sortKey[1])}`)
   }

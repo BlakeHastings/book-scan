@@ -24,6 +24,7 @@ import { coverHash, distance } from './imagehash'
 import { identify } from './identify'
 import { lookupIsbn } from './lookup'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { frontCover, photographedBook } from './fixtures'
 
 // The worker path drains a capture, and neither the reader nor the catalogue
@@ -347,7 +348,7 @@ describe('backfilling the captures already queued', () => {
 describe("a capture's crop is a file the catalogue owns", () => {
   it('counts as in use, so tidying up orphans cannot delete it', async () => {
     const queue = new CaptureQueue(db, () => null)
-    const store = new Store(db)
+    const store = new Store(db, new DrizzleAuthorRepository(db))
     const io = memory({ 'o_front.jpg': await photograph(10) })
 
     const capture = await queue.add({ front: 'o_front.jpg' })

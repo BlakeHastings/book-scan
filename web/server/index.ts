@@ -50,7 +50,9 @@ import {
 import type { StoredAuthor } from '../application/authorship/ports'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { claimsFrom } from '../domain/tagging/catalogue-claims'
-import { asConfidence, genreStatedBy, rangeOfGenre } from '../domain/tagging/genre'
+import {
+  asConfidence, genreStatedBy, rangeOfGenre, statedGenre,
+} from '../domain/tagging/genre'
 import { TagSlug } from '../domain/tagging/tags'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
@@ -88,7 +90,7 @@ function asDraft(body: Record<string, unknown>): DraftBook {
     published: String(body.published ?? ''),
     pages: String(body.pages ?? ''),
     notes: String(body.notes ?? ''),
-    isFiction: Boolean(body.isFiction),
+    genre: statedGenre(body.genre),
     classificationSource: String(body.classificationSource ?? 'auto'),
     classificationConfidence: String(body.classificationConfidence ?? 'unknown'),
     seriesName: body.seriesName ? String(body.seriesName) : '',
@@ -165,7 +167,7 @@ function asCaptureEdit(body: Record<string, unknown>): CaptureEdit {
       : String(body.authors ?? '').split(',').map((a) => a.trim())
     ).filter(Boolean)
   }
-  if (body.isFiction !== undefined) edit.isFiction = Boolean(body.isFiction)
+  if (body.genre !== undefined) edit.genre = statedGenre(body.genre)
   if (body.seriesIndex !== undefined) {
     edit.seriesIndex =
       body.seriesIndex === null || body.seriesIndex === '' ? null : Number(body.seriesIndex)
@@ -304,7 +306,20 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const googleApiKey = options.googleApiKey ?? ''
   const startBackgroundWork = options.startBackgroundWork ?? true
 
-  const store = new Store(db)
+  /*
+   * The composition root for the third converted slice, authors (#180).
+   *
+   * Above `Store` rather than beside the other three, because since #227 the
+   * class that writes `books` asks this one what the first-listed name files
+   * under. That is the whole of the coupling: `Store` reads through the port and
+   * writes nothing here. See `Store.filingFor`.
+   */
+  const authors = new DrizzleAuthorRepository(db)
+  const creditBook = new CreditBookHandler(authors)
+  const fileAlias = new FileAliasHandler(authors)
+  const mergeAuthors = new MergeAuthorsHandler(authors)
+
+  const store = new Store(db, authors)
 
   /*
    * The work a save starts and nobody waits for.
@@ -484,27 +499,26 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     return settled
   }
 
-  /*
-   * The composition root for the third converted slice, authors (#180).
-   */
-  const authors = new DrizzleAuthorRepository(db)
-  const creditBook = new CreditBookHandler(authors)
-  const fileAlias = new FileAliasHandler(authors)
-  const mergeAuthors = new MergeAuthorsHandler(authors)
-
   /**
-   * Keep the credits in step with what was just saved about a book.
+   * Keep the credits in step with what was just saved about a book, and file
+   * the first-listed name when somebody has said what it files under.
    *
-   * The arrangement the genre had until #223, and here it is still the live
-   * one: `Store` still writes `books.authors`, `books.author_filing` and
-   * `book_authors`, all of which decide where the book files and what the
-   * client reads, and #180 drops none of them. So every save writes both, from
-   * the same draft, and they cannot disagree.
+   * **This is `Store.saveFilingOverride`, arrived at the alias** (#227). That
+   * method wrote the `author_filing` override table, which `Store.filingFor`
+   * consulted on the next save; the alias holds the same fact now, so the
+   * correction is written where the shelf reads it.
    *
-   * The filing override travels with it, because it is about the first-listed
-   * name and that is what the alias files under. `introduce` ignores it for a
-   * name somebody has already filed, which is the point: re-saving a book must
-   * not undo a correction.
+   * Two calls, because they are two different statements about a name.
+   * `introduce`, inside `creditBook`, sets a filing name only when the name is
+   * new, which is what stops a re-save undoing somebody's correction. Filing one
+   * is somebody saying so, and it has to reach a name this collection has
+   * already met, which is the case `introduce` deliberately will not touch.
+   *
+   * **Every save carries it now, where only `POST /api/books` used to**, and
+   * only when the client asked. An override typed against an already-saved book
+   * used to reach `books.author_filing` and stop there, which was survivable
+   * while that column decided where the book went and is not survivable once the
+   * alias does: the correction would have applied to one book and then vanished.
    */
   async function recordCredits(bookId: number, draft: DraftBook): Promise<void> {
     await creditBook.handle({
@@ -512,6 +526,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       authors: draft.authors,
       filingOverride: draft.authorFilingOverride,
     })
+
+    const filing = draft.authorFilingOverride?.trim()
+    if (!filing) return
+    // The first-listed credit, because that is the one the shelf orders by and
+    // the one the review pane's field is about. A save with no usable name
+    // credits nobody, and there is then nothing to file.
+    const [files] = await authors.creditsOf(bookId)
+    if (files && files.filing !== filing) {
+      await fileAlias.handle({ aliasId: files.id, filing })
+    }
   }
 
   /*
@@ -1193,11 +1217,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       if (slot === 'edge') draft.edgeImage = name
     }
 
-    if (body.saveFilingOverride && draft.authorFilingOverride) {
-      const primary = draft.authors[0] ?? ''
-      if (primary) await store.saveFilingOverride(primary, draft.authorFilingOverride)
-    }
-
     /*
      * The genre is settled before the row, because `books.shelf_range` is
      * derived from the tags now rather than from `books.is_fiction` (#223).
@@ -1518,13 +1537,23 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
   }))
 
+  /**
+   * One book, and who it credits.
+   *
+   * The credits travel with it because the review pane's filing field is about
+   * the first-listed name, and what that name files under is a fact about the
+   * alias rather than a column on the book since #227. A listing answers rows
+   * that carry `author_filing`, joined on from the same place; this is the one
+   * route that reads a single book, and it reads the model.
+   */
   app.get('/api/books/:id', asyncRoute(async (req, res) => {
-    const book = await store.getBook(Number(req.params.id))
+    const id = Number(req.params.id)
+    const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
-    res.json({ book })
+    res.json({ book, authors: await describeCredits(id) })
   }))
 
   app.put('/api/books/:id', asyncRoute(async (req, res) => {
@@ -1718,7 +1747,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       bookId: id,
       source: 'catalogue',
       claims: claimsFrom({
-        isFiction: found.classification.isFiction,
+        genre: found.classification.genre,
         confidence: asConfidence(found.classification.confidence),
         categories: found.categories,
         subjects: found.subjects,

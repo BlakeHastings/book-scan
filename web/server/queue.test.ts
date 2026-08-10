@@ -17,7 +17,9 @@ import { identify } from './identify'
 import { lookupIsbn } from './lookup'
 import type { LookupResult } from './lookup'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 vi.mock('./identify', () => ({ identify: vi.fn() }))
 vi.mock('./lookup', () => ({ lookupIsbn: vi.fn(), searchTitle: vi.fn() }))
@@ -30,7 +32,7 @@ function nothingFound(isbn = ''): LookupResult {
     found: false, title: '', subtitle: '', authors: [], publisher: '', published: '',
     pages: '', isbn13: isbn, isbn10: '', seriesName: '', seriesIndex: null,
     coverUrl: '', source: '',
-    classification: { isFiction: true, confidence: 'unknown', reason: 'stub' },
+    classification: { genre: FICTION_SLUG, confidence: 'unknown', reason: 'stub' },
     notes: [],
   }
 }
@@ -40,7 +42,7 @@ function found(isbn13: string, title: string, authors: string[]): LookupResult {
     ...nothingFound(isbn13),
     found: true, title, authors, isbn10: '', publisher: 'A Publisher',
     source: 'Open Library',
-    classification: { isFiction: true, confidence: 'high', reason: 'stub' },
+    classification: { genre: FICTION_SLUG, confidence: 'high', reason: 'stub' },
   }
 }
 
@@ -68,7 +70,7 @@ beforeEach(async () => {
   vi.mocked(lookupIsbn).mockResolvedValue(nothingFound())
 
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
   // No image reader: most of these tests never run the worker. The ones that
   // do build their own queue with a reader below.
   queue = new CaptureQueue(db, () => null)
@@ -91,7 +93,7 @@ async function add() {
  * queue agrees with the thing that actually shelves books.
  */
 async function shelve(id: number) {
-  const draft = { title: 'A Book', authors: ['Ann Author'], isFiction: true }
+  const draft = { title: 'A Book', authors: ['Ann Author'], genre: FICTION_SLUG }
   // The range arrives beside the draft since #223, settled from the genre. See
   // `store.test.ts` for why a draft's own claim is the answer here.
   await store.updateBook(id, draft, genreStatedBy(draft).range)

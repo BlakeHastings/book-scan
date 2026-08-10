@@ -25,6 +25,7 @@ import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/tes
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
 import { lookupIsbn } from './lookup'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 /**
  * What the catalogues answer. Replaced per test, so "the lookup has changed its
@@ -34,7 +35,7 @@ const empty = {
   found: false, title: '', subtitle: '', authors: [] as string[], publisher: '',
   published: '', pages: '', isbn13: '', isbn10: '', seriesName: '', seriesIndex: null,
   coverUrl: '', source: '',
-  classification: { isFiction: true, confidence: 'unknown' as const, reason: 'stub' },
+  classification: { genre: FICTION_SLUG, confidence: 'unknown' as const, reason: 'stub' },
   notes: [] as string[], subjects: [] as string[], categories: [] as string[],
 }
 
@@ -137,7 +138,7 @@ const put = (path: string, body: unknown) =>
 /** A saved book, and its id. */
 async function aBook(fields: Record<string, unknown> = {}) {
   const { body } = await post('/api/books', {
-    title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE, isFiction: true, ...fields,
+    title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE, genre: FICTION_SLUG, ...fields,
   })
   return Number(body.id)
 }
@@ -159,7 +160,7 @@ describe('saving a book', () => {
     const id = await aBook({ classificationSource: 'auto' })
     await put(`/api/books/${id}`, {
       title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
-      isFiction: false, classificationSource: 'manual',
+      genre: NON_FICTION_SLUG, classificationSource: 'manual',
     })
 
     // Not both. A book showing as fiction and non-fiction at once is a book
@@ -177,31 +178,37 @@ describe('saving a book', () => {
  * every shelf query reads.
  */
 describe('the genre tag deciding which range a book files into', () => {
-  /** The two columns the shelf is drawn from, as the row holds them. */
-  async function filedAs(bookId: number): Promise<{ range: string; isFiction: number }> {
+  /**
+   * The column the shelf is drawn from, as the row holds it.
+   *
+   * One column, where this used to read two. `books.is_fiction` was the second
+   * and it is gone (#227): a book's genre is `book_tag` and `shelf_range` is the
+   * run the genre settled on.
+   */
+  async function filedAs(bookId: number): Promise<string> {
     const { body } = await call(`/api/books/${bookId}`)
-    return { range: body.book.shelf_range, isFiction: body.book.is_fiction }
+    return body.book.shelf_range as string
   }
 
   it('files a book into the range its genre tag names', async () => {
     const fiction = await aBook({ classificationSource: 'auto' })
     expect(await tagsOf(fiction)).toEqual(['genre/fiction:guess'])
-    expect(await filedAs(fiction)).toEqual({ range: 'fiction', isFiction: 1 })
+    expect(await filedAs(fiction)).toBe('fiction')
 
-    const other = await aBook({ isbn13: '', isFiction: false, classificationSource: 'auto' })
+    const other = await aBook({ isbn13: '', genre: NON_FICTION_SLUG, classificationSource: 'auto' })
     expect(await tagsOf(other)).toEqual(['genre/non-fiction:guess'])
-    expect(await filedAs(other)).toEqual({ range: 'nonfiction', isFiction: 0 })
+    expect(await filedAs(other)).toBe('nonfiction')
   })
 
   it('moves the book when a person changes the genre', async () => {
     const id = await aBook({ classificationSource: 'auto' })
     await put(`/api/books/${id}`, {
       title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
-      isFiction: false, classificationSource: 'manual',
+      genre: NON_FICTION_SLUG, classificationSource: 'manual',
     })
 
     expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
-    expect(await filedAs(id)).toEqual({ range: 'nonfiction', isFiction: 0 })
+    expect(await filedAs(id)).toBe('nonfiction')
   })
 
   it('leaves a book where a person filed it when a lookup says otherwise', async () => {
@@ -217,19 +224,19 @@ describe('the genre tag deciding which range a book files into', () => {
      * tag, and nothing anywhere said which was current. Now the person's tag
      * decides and the book stays where they put it.
      */
-    const id = await aBook({ isFiction: true, classificationSource: 'manual' })
+    const id = await aBook({ genre: FICTION_SLUG, classificationSource: 'manual' })
     expect(await tagsOf(id)).toEqual(['genre/fiction:person'])
 
     answers.mockResolvedValue({
       ...empty, found: true,
-      classification: { isFiction: false, confidence: 'high', reason: '' },
+      classification: { genre: NON_FICTION_SLUG, confidence: 'high', reason: '' },
     })
     await post(`/api/books/${id}/tags/refresh`, {})
     expect(await tagsOf(id)).toEqual(['genre/fiction:person', 'genre/non-fiction:catalogue'])
 
     await put(`/api/books/${id}`, {
       title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
-      isFiction: false, classificationSource: 'auto', classificationConfidence: 'high',
+      genre: NON_FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'high',
     })
 
     // The guess is on record and is not what files it. The column shadows the
@@ -238,7 +245,7 @@ describe('the genre tag deciding which range a book files into', () => {
     expect(await tagsOf(id)).toEqual([
       'genre/fiction:person', 'genre/non-fiction:catalogue', 'genre/non-fiction:guess',
     ])
-    expect(await filedAs(id)).toEqual({ range: 'fiction', isFiction: 1 })
+    expect(await filedAs(id)).toBe('fiction')
   })
 
   it("files a corrected book under the new book's genre and not the old one's", async () => {
@@ -247,16 +254,16 @@ describe('the genre tag deciding which range a book files into', () => {
      * old book's genre has to be off the row before the new one is read back,
      * or a corrected book files under what it used to be.
      */
-    const id = await aBook({ isFiction: true, classificationSource: 'manual' })
-    expect(await filedAs(id)).toEqual({ range: 'fiction', isFiction: 1 })
+    const id = await aBook({ genre: FICTION_SLUG, classificationSource: 'manual' })
+    expect(await filedAs(id)).toBe('fiction')
 
     await put(`/api/books/${id}`, {
       title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
-      isFiction: false, classificationSource: 'auto', classificationConfidence: 'medium',
+      genre: NON_FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'medium',
     })
 
     expect(await tagsOf(id)).toEqual(['genre/non-fiction:guess'])
-    expect(await filedAs(id)).toEqual({ range: 'nonfiction', isFiction: 0 })
+    expect(await filedAs(id)).toBe('nonfiction')
   })
 })
 
@@ -266,7 +273,7 @@ describe('correcting which book a row is', () => {
     const id = await aBook({ classificationSource: 'auto' })
     await put(`/api/books/${id}`, {
       title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
-      isFiction: false, classificationSource: 'manual',
+      genre: NON_FICTION_SLUG, classificationSource: 'manual',
     })
     expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
     return id
@@ -285,7 +292,7 @@ describe('correcting which book a row is', () => {
 
     await put(`/api/books/${id}`, {
       title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
-      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+      genre: FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'medium',
     })
 
     expect(await tagsOf(id)).toEqual(['genre/fiction:guess'])
@@ -297,7 +304,7 @@ describe('correcting which book a row is', () => {
     const id = await aBook()
     answers.mockResolvedValue({
       ...empty, found: true,
-      classification: { isFiction: true, confidence: 'high', reason: '' },
+      classification: { genre: FICTION_SLUG, confidence: 'high', reason: '' },
       subjects: ['Desert life'],
     })
     await post(`/api/books/${id}/tags/refresh`, {})
@@ -305,7 +312,7 @@ describe('correcting which book a row is', () => {
 
     await put(`/api/books/${id}`, {
       title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
-      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+      genre: FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'medium',
     })
 
     expect(await tagsOf(id)).toEqual(['genre/fiction:guess'])
@@ -319,7 +326,7 @@ describe('correcting which book a row is', () => {
 
     await put(`/api/books/${id}`, {
       title: 'To Kill a Mockingbird', authors: ['Harper Lee'], isbn13: MOCKINGBIRD,
-      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+      genre: FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'medium',
     })
 
     expect(await tagsOf(id)).toEqual(['genre/fiction:guess', 'mine/lent-out:person'])
@@ -332,7 +339,7 @@ describe('correcting which book a row is', () => {
 
     await put(`/api/books/${id}`, {
       title: 'Dune Messiah', authors: ['Frank Herbert'], isbn13: DUNE,
-      isFiction: true, classificationSource: 'auto', classificationConfidence: 'medium',
+      genre: FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'medium',
     })
 
     expect(await tagsOf(id)).toContain('genre/non-fiction:person')
@@ -345,7 +352,7 @@ describe('correcting which book a row is', () => {
 
     await put(`/api/books/${id}`, {
       title: 'Dune', authors: ['Frank Herbert'], isbn13: '', isbn10: DUNE_10,
-      isFiction: false, classificationSource: 'manual',
+      genre: NON_FICTION_SLUG, classificationSource: 'manual',
     })
 
     expect(await tagsOf(id)).toEqual(['genre/non-fiction:person'])
@@ -420,7 +427,7 @@ describe('re-running the catalogue lookup', () => {
       ...empty,
       found: true,
       source: 'Open Library + Google Books',
-      classification: { isFiction: true, confidence: 'high', reason: 'stub' },
+      classification: { genre: FICTION_SLUG, confidence: 'high', reason: 'stub' },
       categories: ['Fiction / Fantasy / Epic'],
       // Three spellings of one heading, which is what catalogues really send.
       subjects: ['Science Fiction', 'science fiction', 'SCIENCE FICTION'],
@@ -442,7 +449,7 @@ describe('re-running the catalogue lookup', () => {
     // minute.
     const id = await aBook()
     answers.mockResolvedValue({
-      ...empty, found: true, classification: { isFiction: true, confidence: 'high', reason: '' },
+      ...empty, found: true, classification: { genre: FICTION_SLUG, confidence: 'high', reason: '' },
       subjects: ['Dune'],
     })
     await post(`/api/books/${id}/tags/refresh`, {})
@@ -472,7 +479,7 @@ describe('re-running the catalogue lookup', () => {
 
     answers.mockResolvedValue({
       ...empty, found: true,
-      classification: { isFiction: true, confidence: 'high', reason: '' },
+      classification: { genre: FICTION_SLUG, confidence: 'high', reason: '' },
       subjects: ['Desert life', 'Spice'],
     })
     await post(`/api/books/${id}/tags/refresh`, {})
@@ -480,7 +487,7 @@ describe('re-running the catalogue lookup', () => {
 
     answers.mockResolvedValue({
       ...empty, found: true,
-      classification: { isFiction: true, confidence: 'high', reason: '' },
+      classification: { genre: FICTION_SLUG, confidence: 'high', reason: '' },
       subjects: ['Ecology'],
     })
     await post(`/api/books/${id}/tags/refresh`, {})

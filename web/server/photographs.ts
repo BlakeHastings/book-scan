@@ -61,7 +61,7 @@ import {
   type Photograph, type PhotographKind, Photographs,
 } from '../domain/capture/photographs'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
-import type { BookRow } from './db.pg'
+import type { BookRow, FiledBookRow } from './db.pg'
 import type { Db } from './driver'
 
 /**
@@ -115,6 +115,19 @@ export interface PhotographFields {
  * the columns had to go.
  */
 export type PhotographedBook = BookRow & PhotographFields
+
+/**
+ * The same, for a book read out of one of the three views rather than out of
+ * `books`.
+ *
+ * Two columns left `books` in the same fortnight and neither value went
+ * anywhere. The photographs are `capture` rows, joined on here (#228); the name
+ * a book files under is its first credit's alias, joined on by the view (#227).
+ * A shelf row, a listing and a neighbour all need both, and a lookup by id needs
+ * neither, so the two shapes are named rather than merged: `Store.getBook`
+ * answers a `PhotographedBook` and everything that draws a shelf answers this.
+ */
+export type FiledPhotographedBook = FiledBookRow & PhotographFields
 
 /** A book nobody has photographed, which is a real state and not an error. */
 export const NO_PHOTOGRAPHS: PhotographFields = {

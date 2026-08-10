@@ -12,6 +12,7 @@
  */
 
 import { classify, type Classification } from './classify'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 
 /*
@@ -67,7 +68,7 @@ function emptyResult(notes: string[] = []): LookupResult {
     title: '', subtitle: '', authors: [], publisher: '', published: '',
     pages: '', isbn13: '', isbn10: '', seriesName: '', seriesIndex: null,
     coverUrl: '', source: '',
-    classification: { isFiction: true, confidence: 'unknown', reason: 'No lookup performed.' },
+    classification: { genre: FICTION_SLUG, confidence: 'unknown', reason: 'No lookup performed.' },
     notes,
   }
 }

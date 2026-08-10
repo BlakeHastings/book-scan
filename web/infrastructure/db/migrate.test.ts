@@ -221,7 +221,6 @@ describe('the baseline migration on an empty database', () => {
       { table_name: 'area', column_name: 'starts_at' },
       { table_name: 'author_alias', column_name: 'filing_name' },
       { table_name: 'book_placement', column_name: 'sort_key' },
-      { table_name: 'books', column_name: 'author_filing' },
       { table_name: 'books', column_name: 'sort_key' },
       { table_name: 'books', column_name: 'title_filing' },
       { table_name: 'catalogued_books', column_name: 'author_filing' },
@@ -289,6 +288,7 @@ describe('a database that already has these tables', () => {
       rows.filter((row) => baseline.includes(String(row.table_name)))
     const named = (row: Record<string, unknown>) => `${row.table_name}.${row.column_name}`
     const was = new Set(ofBaseline(before.columns).map(named))
+    const now = new Set(ofBaseline(after.columns).map(named))
 
     expect(ofBaseline(after.columns).filter((row) => !was.has(named(row))).map(named))
       .toEqual([
@@ -299,15 +299,28 @@ describe('a database that already has these tables', () => {
         'books.claimed_at', 'books.processed_at',
         'books.current_area_id',
       ])
-    // The ten `0019` dropped: the photographs are rows in `capture` now (#228).
+    /*
+     * The columns the cut-over dropped, in the order the baseline declared them.
+     *
+     * Ten of them are `0019`'s: the photographs are rows in `capture` now (#228).
+     * `books.is_fiction` is `0021`'s and `books.author_filing` is `0022`'s, which
+     * are the two halves of #227: a book's genre is `book_tag` and its filing
+     * name is its first credit's alias. `author_filing` is still a column on the
+     * three views, joined back on, which is why the collation assertion below is
+     * unchanged and this one is not.
+     *
+     * Listed by name for the reason the additions above are. A column that
+     * disappeared without somebody writing it down is the accident this test
+     * exists for, and it is a worse accident than an extra one.
+     */
     const gone = new Set([
+      'books.is_fiction', 'books.author_filing',
       'books.front_image', 'books.back_image', 'books.edge_image',
       'books.cover_image', 'books.front_hash', 'books.cover_hash',
       'books.front_crop', 'books.back_crop', 'books.edge_crop', 'books.cropped',
     ])
-    const gone_now = ofBaseline(before.columns)
-      .filter((row) => !ofBaseline(after.columns).some((kept) => named(kept) === named(row)))
-    expect(gone_now.map(named)).toEqual([...gone])
+    expect(ofBaseline(before.columns).filter((row) => !now.has(named(row))).map(named))
+      .toEqual([...gone])
 
     // And every column that survived is byte for byte what the baseline made it,
     // apart from where it sits in the row now that ten before it have gone.

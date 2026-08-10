@@ -204,8 +204,8 @@ describe('books getting the state they are in', () => {
     const shelfBefore = await hashOf(pool, 'shelved_books')
 
     await pool.query(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, scanned_at, state)
-       VALUES ('Read, and no catalogue has it', 'fiction', 1, 'key-0002',
+      `INSERT INTO books (title, shelf_range, sort_key, scanned_at, state)
+       VALUES ('Read, and no catalogue has it', 'fiction', 'key-0002',
                '2026-03-01T00:00:00.000Z', 'unidentified')`,
     )
 

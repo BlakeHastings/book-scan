@@ -13,9 +13,9 @@ import { describe, expect, it } from 'vitest'
 import {
   coverLabel, coverOf, listOf, missingFrom, rowOf, spineLabel, spineOf,
 } from './shelfRow'
-import type { BookRow, CheckedOutAt, ShelfGroupDto } from './api'
+import type { CheckedOutAt, FiledBookRow, ShelfGroupDto } from './api'
 
-function book(overrides: Partial<BookRow> = {}): BookRow {
+function book(overrides: Partial<FiledBookRow> = {}): FiledBookRow {
   return {
     id: 1,
     title: 'Dune',
@@ -30,7 +30,6 @@ function book(overrides: Partial<BookRow> = {}): BookRow {
     series_index: null,
     location: '1A',
     shelf_range: 'fiction',
-    is_fiction: 1,
     classification_source: 'auto',
     classification_confidence: 'high',
     isbn13: '',
@@ -51,7 +50,7 @@ function book(overrides: Partial<BookRow> = {}): BookRow {
   }
 }
 
-function group(books: BookRow[], label = '1A'): ShelfGroupDto {
+function group(books: FiledBookRow[], label = '1A'): ShelfGroupDto {
   return {
     area: 0,
     shelf: 1,
@@ -206,7 +205,7 @@ describe('rowOf', () => {
 })
 
 describe('listOf', () => {
-  const off = (label: string, book: BookRow): CheckedOutAt => ({ book, label })
+  const off = (label: string, book: FiledBookRow): CheckedOutAt => ({ book, label })
 
   it('numbers the books on the bookcase in the order they stand', () => {
     const rows = listOf(

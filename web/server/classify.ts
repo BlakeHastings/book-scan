@@ -7,6 +7,10 @@
  * pre-selected, and `source` records whether a human ever looked at it.
  */
 
+import {
+  FICTION_SLUG, NON_FICTION_SLUG, type GenreSlug,
+} from '../domain/tagging/catalogue-claims'
+
 export type Confidence = 'high' | 'medium' | 'weak' | 'unknown'
 
 export interface ClassificationInput {
@@ -19,7 +23,16 @@ export interface ClassificationInput {
 }
 
 export interface Classification {
-  isFiction: boolean
+  /**
+   * The genre this book is guessed to be under, as the tag it means (#227).
+   *
+   * A slug rather than a boolean, because that is the vocabulary a genre
+   * travels in now: the ladder below still reasons in fiction-or-not, which is
+   * the only question it can answer, and this is where that becomes a claim
+   * about a tag. `claimsFrom` turns it into the row the shelf range is derived
+   * from.
+   */
+  genre: GenreSlug
   confidence: Confidence
   /** Human-readable justification, shown under the toggle. */
   reason: string
@@ -36,6 +49,10 @@ const FICTION_SUBJECTS = ['fiction', 'novel', 'novels', 'short stories']
 function lower(values: string[] | undefined): string[] {
   return (values ?? []).map((v) => v.toLowerCase().trim()).filter(Boolean)
 }
+
+/** A rung's fiction-or-not verdict, as the slug it claims. */
+const asGenre = (isFiction: boolean): GenreSlug =>
+  isFiction ? FICTION_SLUG : NON_FICTION_SLUG
 
 /**
  * Precedence ladder, first match wins. If two high-confidence signals
@@ -75,7 +92,7 @@ export function classify(input: ClassificationInput): Classification {
 
   if (googleVerdict !== null && olVerdict !== null && googleVerdict !== olVerdict) {
     return {
-      isFiction: googleVerdict,
+      genre: asGenre(googleVerdict),
       confidence: 'unknown',
       reason:
         `Sources disagree: Google says ${googleVerdict ? 'fiction' : 'non-fiction'}, ` +
@@ -85,7 +102,7 @@ export function classify(input: ClassificationInput): Classification {
 
   if (googleVerdict !== null) {
     return {
-      isFiction: googleVerdict,
+      genre: asGenre(googleVerdict),
       confidence: 'high',
       reason: `Google Books category "${categories[0]}"`,
     }
@@ -93,7 +110,7 @@ export function classify(input: ClassificationInput): Classification {
 
   if (olVerdict !== null) {
     return {
-      isFiction: olVerdict,
+      genre: asGenre(olVerdict),
       confidence: 'medium',
       reason: `Open Library subjects (${subjects.slice(0, 3).join(', ')})`,
     }
@@ -105,13 +122,16 @@ export function classify(input: ClassificationInput): Classification {
   for (const value of dewey) {
     const digits = value.replace(/[^0-9]/g, '')
     if (/^9?2\b/.test(value) || digits.startsWith('920')) {
-      return { isFiction: false, confidence: 'medium', reason: `Dewey ${value} (biography)` }
+      return { genre: NON_FICTION_SLUG, confidence: 'medium', reason: `Dewey ${value} (biography)` }
     }
     if (digits.length >= 3 && digits.startsWith('8') && digits[2] === '3') {
-      return { isFiction: true, confidence: 'medium', reason: `Dewey ${value} (literature, fiction)` }
+      return {
+        genre: FICTION_SLUG, confidence: 'medium',
+        reason: `Dewey ${value} (literature, fiction)`,
+      }
     }
     if (digits.length >= 1) {
-      return { isFiction: false, confidence: 'medium', reason: `Dewey ${value}` }
+      return { genre: NON_FICTION_SLUG, confidence: 'medium', reason: `Dewey ${value}` }
     }
   }
 
@@ -119,11 +139,11 @@ export function classify(input: ClassificationInput): Classification {
   //    bare PR/PS covers criticism too, so it stays unknown.
   const lc = lower(input.lcClassifications)
   if (lc.some((value) => value.startsWith('pz'))) {
-    return { isFiction: true, confidence: 'weak', reason: 'LC class PZ (juvenile fiction)' }
+    return { genre: FICTION_SLUG, confidence: 'weak', reason: 'LC class PZ (juvenile fiction)' }
   }
 
   return {
-    isFiction: true,
+    genre: FICTION_SLUG,
     confidence: 'unknown',
     reason: 'No classification signal found. Please set this yourself.',
   }

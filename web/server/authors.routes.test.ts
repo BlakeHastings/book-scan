@@ -28,12 +28,13 @@ import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/tes
 import { PgDb } from './db.pg'
 import { createApp } from './index'
 import { lookupIsbn } from './lookup'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 const empty = {
   found: false, title: '', subtitle: '', authors: [] as string[], publisher: '',
   published: '', pages: '', isbn13: '', isbn10: '', seriesName: '', seriesIndex: null,
   coverUrl: '', source: '',
-  classification: { isFiction: true, confidence: 'unknown' as const, reason: 'stub' },
+  classification: { genre: FICTION_SLUG, confidence: 'unknown' as const, reason: 'stub' },
   notes: [] as string[], subjects: [] as string[], categories: [] as string[],
 }
 
@@ -106,7 +107,7 @@ const patch = send('PATCH')
 /** A saved book, and its id. */
 async function aBook(fields: Record<string, unknown> = {}) {
   const { body } = await post('/api/books', {
-    title: 'Dune', authors: ['Frank Herbert'], isFiction: true, ...fields,
+    title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, ...fields,
   })
   return Number(body.id)
 }
@@ -125,10 +126,17 @@ async function everyone(): Promise<AuthorView[]> {
   return body.authors as AuthorView[]
 }
 
-/** What the shelf actually orders by, straight from the row. */
+/**
+ * What the shelf actually orders by.
+ *
+ * `catalogued_books` rather than `books`, because `author_filing` is a column on
+ * the view now (#227): what a book files under is a fact about its first
+ * credit's alias, joined back on so that every listing reads what it always
+ * read. `sort_key` is still the row's, and is what a shelf is ordered by.
+ */
 async function shelving(bookId: number) {
   const row = await pool.query<{ author_filing: string; sort_key: string; authors: string }>(
-    'SELECT author_filing, sort_key, authors FROM books WHERE id = $1', [bookId],
+    'SELECT author_filing, sort_key, authors FROM catalogued_books WHERE id = $1', [bookId],
   )
   return row.rows[0]!
 }
@@ -164,6 +172,48 @@ describe('saving a book', () => {
       authorFilingOverride: 'García Márquez, Gabriel',
     })
     expect((await creditsOf(id))[0]!.filingName).toBe('García Márquez, Gabriel')
+  })
+
+  it('files a name this collection has already met, which introduce will not', async () => {
+    /*
+     * `Store.saveFilingOverride`, arrived at the alias (#227).
+     *
+     * The correction usually arrives on the second book, because the first one
+     * is where somebody notices the heuristic got it wrong. `introduce` will not
+     * touch a name it has seen, deliberately, so this is the case that used to
+     * reach the `author_filing` table and now has to reach the alias, or the
+     * next book by that author files under the heuristic again.
+     */
+    await aBook({ title: 'No One Writes to the Colonel', authors: ['Gabriel García Márquez'] })
+    expect((await everyone())[0]!.aliases[0]!.filingName).toBe('Márquez, Gabriel García')
+
+    const second = await aBook({
+      title: 'Love in the Time of Cholera',
+      authors: ['Gabriel García Márquez'],
+      authorFilingOverride: 'García Márquez, Gabriel',
+    })
+
+    expect((await creditsOf(second))[0]!.filingName).toBe('García Márquez, Gabriel')
+    // And the book that follows files under it without anybody typing it again,
+    // which is the whole reason a filing name belongs to the name.
+    const third = await aBook({
+      title: 'The Autumn of the Patriarch', authors: ['Gabriel García Márquez'],
+    })
+    expect((await shelving(third)).author_filing).toBe('García Márquez, Gabriel')
+  })
+
+  it('files it on an edit as well as on the first save', async () => {
+    // The path that used to lose it entirely: the flag that saved an override
+    // was on `POST /api/books` alone, so a filing name typed against a book
+    // already in the catalogue moved that one book and vanished.
+    const id = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
+      authorFilingOverride: 'Herbert, Franklin Patrick',
+    })
+
+    expect((await everyone())[0]!.aliases[0]!.filingName).toBe('Herbert, Franklin Patrick')
+    expect((await shelving(id)).author_filing).toBe('Herbert, Franklin Patrick')
   })
 
   it('gives a name nobody has seen an author of its own', async () => {
@@ -226,6 +276,7 @@ describe('filing a name differently', () => {
       title: 'One Hundred Years of Solitude', authors: ['Gabriel García Márquez'],
     })
     const alias = (await everyone())[0]!.aliases[0]!
+    const before = await shelving(id)
 
     const { status } = await patch(`/api/authors/aliases/${alias.id}`, {
       filingName: 'García Márquez, Gabriel',
@@ -235,8 +286,23 @@ describe('filing a name differently', () => {
     const after = (await everyone())[0]!.aliases[0]!
     expect([after.displayName, after.filingName])
       .toEqual(['Gabriel García Márquez', 'García Márquez, Gabriel'])
-    // And it did not move the book, because the book files by its own column.
-    expect((await shelving(id)).author_filing).toBe('Márquez, Gabriel García')
+
+    /*
+     * The book has not moved, and this is where #227 changes what that sentence
+     * means.
+     *
+     * `books.sort_key` is written by a save and by `server/refile-books.ts`, and
+     * filing a name is neither, so the row is exactly where it was and so is
+     * every book around it. What does change is what the catalogue says the book
+     * files under, because that is read from the alias now rather than from a
+     * copy taken when the book was last saved. The two disagreeing is the
+     * ordinary state of a name somebody has just corrected: the next save of
+     * that book puts it where the corrected name says.
+     */
+    const now = await shelving(id)
+    expect(now.sort_key).toBe(before.sort_key)
+    expect(before.author_filing).toBe('Márquez, Gabriel García')
+    expect(now.author_filing).toBe('García Márquez, Gabriel')
   })
 
   it('refuses an empty filing name and a name that is not there', async () => {

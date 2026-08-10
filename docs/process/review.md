@@ -25,13 +25,18 @@ Vite build failure would reach master. And migrations are **not** reversible by
 design, so "reverts cleanly" is not a property to check for.
 
 **The schema stopped being append only at #228**, which dropped the ten
-photograph columns on `books` once `capture` was what the app read. That is the
-cut-over epic #220 doing what it exists to do, and it does not license dropping a
-column as a side effect of something else. What a change that drops one owes: the
-drop is its own commit and the last one, so a revert is one commit; the migration
-counts what it is about to make unreachable, both ways, and **refuses rather than
-finishing quietly**; and any repair the old columns are the only source for runs
-in an earlier migration, while they still say something.
+photograph columns on `books` once `capture` was what the app read, and #227,
+which dropped `books.is_fiction` and `books.author_filing` once the genre tag and
+the credited alias decided where a book files. That is the cut-over epic #220
+doing what it exists to do, and it does not license dropping a column as a side
+effect of something else. What a change that drops one owes: the drop is its own
+commit and the last one, so a revert is one commit; the migration counts what it
+is about to make unreachable, both ways, and **refuses rather than finishing
+quietly**; any repair the old columns are the only source for runs in an earlier
+migration, while they still say something; and **the comparison that says the new
+answer is the old answer runs in the same pull request**, over a catalogue that
+still has the column, because afterwards there is nothing to compare against.
+`web/infrastructure/db/cutover.test.ts` is what that looks like.
 
 ## Lens 1: functionality, proven by interaction
 

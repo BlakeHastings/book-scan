@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FICTION, NON_FICTION } from './catalogue-claims'
+import { FICTION, FICTION_SLUG, NON_FICTION, NON_FICTION_SLUG } from './catalogue-claims'
 import { genreStatedBy, rangeOfGenre } from './genre'
 import { TagSlug, type AppliedTag, type TagSource } from './tags'
 
@@ -58,11 +58,11 @@ describe('the range a book files into', () => {
 
 describe('the genre a save states', () => {
   it('answers the tag and the range together, and they agree', () => {
-    const fiction = genreStatedBy({ isFiction: true })
+    const fiction = genreStatedBy({ genre: FICTION_SLUG })
     expect(fiction.tag.slug.value).toBe(FICTION.value)
     expect(fiction.range).toBe('fiction')
 
-    const other = genreStatedBy({ isFiction: false })
+    const other = genreStatedBy({ genre: NON_FICTION_SLUG })
     expect(other.tag.slug.value).toBe(NON_FICTION.value)
     expect(other.range).toBe('nonfiction')
   })
@@ -70,24 +70,24 @@ describe('the genre a save states', () => {
   it('reads a saved edit as a person and everything else as a guess', () => {
     // The mapping `0002` made when it turned the column into rows: `manual` is
     // what `Store.updateBook` records when somebody saved an edit.
-    expect(genreStatedBy({ isFiction: true, classificationSource: 'manual' }).tag.source)
+    expect(genreStatedBy({ genre: FICTION_SLUG, classificationSource: 'manual' }).tag.source)
       .toBe('person')
-    expect(genreStatedBy({ isFiction: true, classificationSource: 'auto' }).tag.source)
+    expect(genreStatedBy({ genre: FICTION_SLUG, classificationSource: 'auto' }).tag.source)
       .toBe('guess')
-    expect(genreStatedBy({ isFiction: true }).tag.source).toBe('guess')
+    expect(genreStatedBy({ genre: FICTION_SLUG }).tag.source).toBe('guess')
   })
 
   it('does not grade a person on the classifier scale', () => {
     expect(genreStatedBy({
-      isFiction: true, classificationSource: 'manual', classificationConfidence: 'weak',
+      genre: FICTION_SLUG, classificationSource: 'manual', classificationConfidence: 'weak',
     }).tag.confidence).toBe('high')
 
     expect(genreStatedBy({
-      isFiction: true, classificationSource: 'auto', classificationConfidence: 'weak',
+      genre: FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'weak',
     }).tag.confidence).toBe('weak')
 
     expect(genreStatedBy({
-      isFiction: true, classificationSource: 'auto', classificationConfidence: 'nonsense',
+      genre: FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'nonsense',
     }).tag.confidence).toBe('unknown')
   })
 
@@ -95,8 +95,8 @@ describe('the genre a save states', () => {
     // The whole point of answering both from one table: a caller holding the
     // range without the tag is a caller that can write a `shelf_range` no tag
     // agrees with, which is the drift this change ends.
-    for (const isFiction of [true, false]) {
-      const { tag, range } = genreStatedBy({ isFiction })
+    for (const genre of [FICTION_SLUG, NON_FICTION_SLUG]) {
+      const { tag, range } = genreStatedBy({ genre })
       expect(rangeOfGenre([tag])).toBe(range)
     }
   })

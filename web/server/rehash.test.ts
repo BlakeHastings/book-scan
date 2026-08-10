@@ -11,9 +11,11 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { frontCover } from './fixtures'
 import { coverHash, distance } from './imagehash'
 import { isCurrentFormat, rehashCovers, type ReadImage } from './rehash'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 /** What the difference hash used to write: sixteen hex characters, no tag. */
 const OLD_FRONT = '0f1e2d3c4b5a6978'
@@ -42,7 +44,7 @@ async function addBook(
   const { id } = await store.addBook({
     title,
     authors: [author],
-    isFiction: true,
+    genre: FICTION_SLUG,
     frontImage: names.front ?? '',
   })
   if (names.cover) await store.setCoverImage(id, names.cover)
@@ -61,7 +63,7 @@ async function hashesOf(id: number): Promise<{ front: string; cover: string }> {
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
   images = new Map()
   read = reader(images)
 })

@@ -14,10 +14,13 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { Store, type DraftBook } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { PrintedName } from '../domain/authorship/authors'
 import { refileBooks } from './refile'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
-  return { isFiction: true, ...over }
+  return { genre: FICTION_SLUG, ...over }
 }
 
 let store: Store
@@ -25,16 +28,22 @@ let db: Db
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
 })
 
 afterAll(closeTestDatabase)
 
-/** Put the columns back the way the pre-#195 derivation left them. */
+/**
+ * Put the key back the way the pre-#195 derivation left it.
+ *
+ * One column where this used to write two: #227 dropped `books.author_filing`,
+ * so the whole of what a row still holds about where it files is the first
+ * component of its sort key. That is what the old derivation got wrong and what
+ * a refile has to put right.
+ */
 async function asOldCodeSavedIt(id: number, authorFiling: string): Promise<void> {
   const row = await store.getBook(id)
-  await db.run('UPDATE books SET author_filing = ?, sort_key = ? WHERE id = ?', [
-    authorFiling,
+  await db.run('UPDATE books SET sort_key = ? WHERE id = ?', [
     [authorFiling, ...row!.sort_key.split(SEP).slice(1)].join(SEP),
     id,
   ])
@@ -61,11 +70,12 @@ describe('recomputing the keys of books saved by older code', () => {
     const report = await refileBooks(store, { apply: false })
 
     expect(report.moved).toHaveLength(1)
-    expect(report.moved[0]!.authorFiling).toEqual(['', 'Достоевский, Фёдор'])
+    expect(report.moved[0]!.filesUnder).toBe('Достоевский, Фёдор')
+    expect(report.moved[0]!.sortKey[0].startsWith(SEP)).toBe(true)
     // A dry run is the answer to "which books are wrong", so it must not have
     // answered it by fixing them.
     expect(report.written).toBe(0)
-    expect((await store.getBook(id))!.author_filing).toBe('')
+    expect((await store.getBook(id))!.sort_key.startsWith(SEP)).toBe(true)
   })
 
   it('writes the recomputed key only when told to, and counts what it wrote', async () => {
@@ -78,7 +88,7 @@ describe('recomputing the keys of books saved by older code', () => {
 
     expect(report.written).toBe(1)
     const row = await store.getBook(id)
-    expect(row!.author_filing).toBe('Достоевский, Фёдор')
+    expect(row!.sort_key.split(SEP)[0]).toBe('ДОСТОЕВСКИИ ФЕДОР')
     expect(row!.sort_key.startsWith(SEP)).toBe(false)
 
     // Idempotent: the second pass has nothing left to find.
@@ -101,15 +111,18 @@ describe('recomputing the keys of books saved by older code', () => {
     expect(after).toEqual(['Persuasion', 'Crime and Punishment'])
   })
 
-  it('honours an override the same way a save would', async () => {
+  it('honours a name somebody has filed, the same way a save would', async () => {
     const { id } = await store.addBook(
       draft({ title: 'Norwegian Wood', authors: ['村上春樹'], location: '3A' }),
     )
     await asOldCodeSavedIt(id, '')
-    await store.saveFilingOverride('村上春樹', 'Murakami, Haruki')
+    // What the override table used to hold, on the alias it moved to (#227).
+    const authors = new DrizzleAuthorRepository(db)
+    const alias = await authors.introduce(PrintedName.of('村上春樹'), 'Murakami, Haruki')
+    await authors.file(alias.id, 'Murakami, Haruki')
 
     await refileBooks(store, { apply: true })
 
-    expect((await store.getBook(id))!.author_filing).toBe('Murakami, Haruki')
+    expect((await store.getBook(id))!.sort_key.split(SEP)[0]).toBe('MURAKAMI HARUKI')
   })
 })

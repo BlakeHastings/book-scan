@@ -37,7 +37,6 @@ export interface BookRow {
   published: string
   pages: string
   shelf_range: string
-  is_fiction: number
   author_filing: string
   sort_key: string
   location: string
@@ -253,16 +252,24 @@ export class Catalogue {
     )
   }
 
+  /*
+   * `catalogued_books` rather than `books` for both of these, because
+   * `author_filing` is a column on the views since #227: what a book files under
+   * is a fact about its first credit's alias, joined back on. A scenario asks
+   * about a book it has just saved onto a shelf, which is a catalogued book.
+   */
   async bookByIsbn(isbn13: string): Promise<BookRow | undefined> {
     return (await this.all<BookRow>(
-      `SELECT b.*, ${PHOTOGRAPHS} FROM books b ${PHOTOGRAPH_JOINS} WHERE b.isbn13 = $1`,
+      `SELECT b.*, ${PHOTOGRAPHS} FROM catalogued_books b ${PHOTOGRAPH_JOINS}
+        WHERE b.isbn13 = $1`,
       [isbn13],
     ))[0]
   }
 
   async bookByTitle(title: string): Promise<BookRow | undefined> {
     return (await this.all<BookRow>(
-      `SELECT b.*, ${PHOTOGRAPHS} FROM books b ${PHOTOGRAPH_JOINS} WHERE b.title = $1`,
+      `SELECT b.*, ${PHOTOGRAPHS} FROM catalogued_books b ${PHOTOGRAPH_JOINS}
+        WHERE b.title = $1`,
       [title],
     ))[0]
   }

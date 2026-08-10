@@ -34,12 +34,14 @@ import { createApp } from './index'
 import { lookupIsbn } from './lookup'
 import { photographTaken } from './photographs'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 const empty = {
   found: false, title: '', subtitle: '', authors: [] as string[], publisher: '',
   published: '', pages: '', isbn13: '', isbn10: '', seriesName: '', seriesIndex: null,
   coverUrl: '', source: '',
-  classification: { isFiction: true, confidence: 'unknown' as const, reason: 'stub' },
+  classification: { genre: FICTION_SLUG, confidence: 'unknown' as const, reason: 'stub' },
   notes: [] as string[], subjects: [] as string[], categories: [] as string[],
 }
 
@@ -139,7 +141,7 @@ async function capturesOf(bookId: number): Promise<Capture[]> {
 /** A saved book, and its id. */
 async function aBook(fields: Record<string, unknown> = {}) {
   const { body } = await post('/api/books', {
-    title: 'Dune', authors: ['Frank Herbert'], isFiction: true, ...fields,
+    title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, ...fields,
   })
   return Number(body.id)
 }
@@ -154,7 +156,7 @@ async function saveAgain(id: number) {
   return call(`/api/books/${id}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'Dune', authors: ['Frank Herbert'], isFiction: true }),
+    body: JSON.stringify({ title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG }),
   })
 }
 
@@ -167,7 +169,7 @@ async function saveAgain(id: number) {
  * is where the detector is judged.
  */
 function cropped(id: number, slot: 'front' | 'back' | 'edge', name: string) {
-  return new Store(db).setCrop(id, slot, name)
+  return new Store(db, new DrizzleAuthorRepository(db)).setCrop(id, slot, name)
 }
 
 describe('saving a photographed book', () => {
@@ -255,7 +257,7 @@ describe('what the detector decided, carried onto the row', () => {
 
   it('carries the publisher artwork as a photograph nothing has examined', async () => {
     const id = await aBook()
-    const store = new Store(db)
+    const store = new Store(db, new DrizzleAuthorRepository(db))
     await store.setCoverImage(id, 'cover.jpg')
     await store.setHashes(id, '', 'd:cover')
 

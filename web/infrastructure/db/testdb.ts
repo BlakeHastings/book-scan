@@ -14,6 +14,8 @@
  */
 
 import { randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { inject } from 'vitest'
 import { migrateToLatest } from './migrate'
@@ -89,6 +91,42 @@ export async function migratedDatabase(): Promise<pg.Pool> {
   const pool = await scratchDatabase()
   await migrateToLatest(pool)
   return pool
+}
+
+/**
+ * Apply the migrations after the baseline, up to and including one named file,
+ * to a database that already has the baseline schema.
+ *
+ * **This exists because a migration can be watched running only while the
+ * columns it reads still exist.** `0016` repairs a book's genre tags by keeping
+ * the one that agrees with `books.is_fiction`, and the cut-over drops that
+ * column further down the folder, so a test that migrates to latest and then
+ * runs `0016` by hand is running it against a catalogue it could never have met.
+ * Stopping where the migration itself stops is the only honest way to watch it.
+ *
+ * Statement for statement the way Drizzle's migrator applies them, and starting
+ * at `0001` for the reason `migrateToLatest` adopts: a database built from
+ * `SCHEMA` already has the baseline, so running it again would fail on the first
+ * `CREATE TABLE`. Nothing is recorded in Drizzle's bookkeeping, because a
+ * database this has touched is a fixture rather than a catalogue under migration
+ * control.
+ */
+export async function migrationsThrough(pool: pg.Pool, tag: string): Promise<void> {
+  const journal = JSON.parse(readFileSync(
+    fileURLToPath(new URL('./migrations/meta/_journal.json', import.meta.url)), 'utf8',
+  )) as { entries: { tag: string }[] }
+
+  const wanted = journal.entries.findIndex((entry) => entry.tag === tag)
+  if (wanted < 0) throw new Error(`there is no migration called ${tag}`)
+
+  for (const entry of journal.entries.slice(1, wanted + 1)) {
+    const sql = readFileSync(
+      fileURLToPath(new URL(`./migrations/${entry.tag}.sql`, import.meta.url)), 'utf8',
+    )
+    for (const statement of sql.split('--> statement-breakpoint')) {
+      if (statement.trim()) await pool.query(statement)
+    }
+  }
 }
 
 /**

@@ -38,13 +38,37 @@ export const GENRE = TagSlug.of('genre')
 export const FICTION = TagSlug.under(GENRE.value, 'fiction')
 export const NON_FICTION = TagSlug.under(GENRE.value, 'non-fiction')
 
+/**
+ * One of those two, as a plain string.
+ *
+ * The vocabulary a book's genre travels in outside `book_tag` since #227: the
+ * classifier answers one, the wire carries one, and `books.is_fiction` is gone.
+ * It is here rather than in `genre.ts` because the two slugs are here and a type
+ * that named them from the other file would be a cycle between two domain
+ * modules, which `npm run lint:layers` refuses.
+ */
+export type GenreSlug = 'genre/fiction' | 'genre/non-fiction'
+
+/**
+ * The same two slugs as plain strings, which is what a payload carries.
+ *
+ * The assertion is here and nowhere else. `TagSlug.value` is a `string`,
+ * because a slug is built by normalising whatever a catalogue said, so the two
+ * above cannot be narrowed by inference; spelling the literals a second time
+ * would be the second spelling of the namespace this file exists to prevent.
+ * `catalogue-claims.test.ts` reads these back off the `TagSlug`s, so the tie
+ * between the type and the values is checked rather than claimed.
+ */
+export const FICTION_SLUG = FICTION.value as GenreSlug
+export const NON_FICTION_SLUG = NON_FICTION.value as GenreSlug
+
 /** Where a catalogue's own subject headings go. */
 export const SUBJECT = TagSlug.of('subject')
 
 /** What a lookup came back with, reduced to the parts that make tags. */
 export interface CatalogueRecord {
   /** The classifier's verdict, which is an inference rather than a claim. */
-  isFiction: boolean
+  genre: GenreSlug
   confidence: TagConfidence
   /** Google Books categories. BISAC, so already hierarchical. */
   categories?: readonly string[]
@@ -62,9 +86,9 @@ export interface CatalogueRecord {
  */
 export const SUBJECT_LIMIT = 12
 
-/** Fiction or not, as a tag. The flag `books.is_fiction` has always held. */
-export function genreClaim(isFiction: boolean, confidence: TagConfidence): TagClaim {
-  return { slug: isFiction ? FICTION : NON_FICTION, confidence }
+/** Fiction or not, as a tag. The question `books.is_fiction` used to hold. */
+export function genreClaim(genre: GenreSlug, confidence: TagConfidence): TagClaim {
+  return { slug: genre === FICTION_SLUG ? FICTION : NON_FICTION, confidence }
 }
 
 /**
@@ -81,7 +105,7 @@ export function genreClaim(isFiction: boolean, confidence: TagConfidence): TagCl
  * curated by publishers, Open Library subjects are typed by anybody.
  */
 export function claimsFrom(record: CatalogueRecord): TagClaim[] {
-  const claims: TagClaim[] = [genreClaim(record.isFiction, record.confidence)]
+  const claims: TagClaim[] = [genreClaim(record.genre, record.confidence)]
 
   const heading = (raw: string, confidence: TagConfidence) => {
     const slug = TagSlug.parse(`${SUBJECT.value}/${raw}`)

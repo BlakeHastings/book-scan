@@ -46,7 +46,6 @@ Feature: Cataloguing a book from its cover
       | authors       | Frank Herbert                |
       | author_filing | Herbert, Frank               |
       | shelf_range   | fiction                      |
-      | is_fiction    | 1                            |
       | publisher     | Ace Books                    |
       | lookup_source | Open Library + Google Books  |
     And the photograph of "Dune" should be on disk

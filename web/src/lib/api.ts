@@ -3,6 +3,8 @@ import type {
   ShelvingReview,
 } from '../../shared/shelving'
 import type { FailureCounts } from '../../shared/captureFailure'
+import { genreOfRange, type GenreSlug } from '../../domain/tagging/genre'
+import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 /**
  * Naming boundary, recorded here because this file is the only client to
@@ -22,7 +24,15 @@ import type { FailureCounts } from '../../shared/captureFailure'
  */
 
 export interface Classification {
-  isFiction: boolean
+  /**
+   * Which genre the classifier guessed, as the tag it means.
+   *
+   * A slug rather than a boolean since #227. `books.is_fiction` is gone and the
+   * genre tag is what decides a shelf range, so there is one vocabulary for a
+   * book's genre from the ladder in `server/classify.ts` through to the field
+   * beside the title.
+   */
+  genre: GenreSlug
   confidence: 'high' | 'medium' | 'weak' | 'unknown'
   reason: string
 }
@@ -57,7 +67,8 @@ export interface Draft {
   published: string
   pages: string
   notes: string
-  isFiction: boolean
+  /** The genre this draft states, as a slug. See `Classification.genre`. */
+  genre: GenreSlug
   classificationSource: string
   classificationConfidence: string
   seriesName: string
@@ -128,7 +139,6 @@ export interface BookRow {
   title: string
   subtitle: string
   authors: string
-  author_filing: string
   publisher: string
   published: string
   pages: string
@@ -136,8 +146,14 @@ export interface BookRow {
   series_name: string
   series_index: number | null
   location: string
+  /**
+   * Which run this book is in, which is what its genre tag settled on.
+   *
+   * There is no `is_fiction` beside it any more (#227). The column is dropped,
+   * and this is the answer the genre tag gave, so the field beside the title
+   * comes up from here: see `draftFromBook`.
+   */
   shelf_range: ShelfRange
-  is_fiction: number
   classification_source: string
   classification_confidence: string
   isbn13: string
@@ -164,6 +180,34 @@ export interface BookRow {
   sort_key: string
 }
 
+/**
+ * A book as a listing answers it: the row, and the name it files under.
+ *
+ * **One column `books` does not have**, since #227 dropped
+ * `books.author_filing`. What a book files under is a fact about its first
+ * credit's alias, and the three views on the server join it back on, so every
+ * listing and every shelf row reads exactly what it read before. A lookup of one
+ * book answers a `BookRow` with its credits beside it: see `getBook`.
+ */
+export interface FiledBookRow extends BookRow {
+  author_filing: string
+}
+
+/**
+ * One name a book credits, in the order the names are printed on it.
+ *
+ * The first is the one the shelf orders by, and `filingName` is what it files
+ * under: the alias's own answer, which is either the heuristic's or the
+ * correction somebody made to it.
+ */
+export interface Credit {
+  position: number
+  aliasId: number
+  authorId: number
+  displayName: string
+  filingName: string
+}
+
 export interface Move {
   id: number
   from: string
@@ -176,7 +220,7 @@ export interface ShelfGroupDto {
   area: number
   shelf: number
   label: string
-  books: { book: BookRow }[]
+  books: { book: FiledBookRow }[]
   /**
    * The boundary this area begins at, if it is not the first.
    *
@@ -234,7 +278,7 @@ export type ScanResult =
   | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[] }
   | { outcome: 'in-queue'; matches: QueueMatch[] }
   | { outcome: 'not-catalogued'; isbn13: string }
-  | { outcome: 'identified'; book: BookRow }
+  | { outcome: 'identified'; book: FiledBookRow }
 
 /**
  * A capture already waiting to be shelved that looks like the book being held
@@ -270,7 +314,7 @@ export interface QueueMatch {
 
 /** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
-  book: BookRow
+  book: FiledBookRow
   label: string
 }
 
@@ -374,7 +418,7 @@ export interface CaptureEdit {
   published?: string
   pages?: string
   notes?: string
-  isFiction?: boolean
+  genre?: GenreSlug
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string
@@ -446,7 +490,7 @@ const updateBook = (id: number, draft: Draft) =>
  * this and nothing writes it on their behalf.
  */
 const setLocation = (id: number, location: string) =>
-  request<{ book: BookRow }>(`/api/books/${id}/location`, {
+  request<{ book: FiledBookRow }>(`/api/books/${id}/location`, {
     method: 'PATCH',
     body: JSON.stringify({ location }),
   })
@@ -458,7 +502,7 @@ const setLocation = (id: number, location: string) =>
  * anything changed, and `book` always carries the real, unmodified value.
  */
 const setCheckedOut = (id: number, out: boolean) =>
-  request<{ outcome: CheckoutOutcome; book: BookRow; counts: Counts }>(
+  request<{ outcome: CheckoutOutcome; book: FiledBookRow; counts: Counts }>(
     `/api/books/${id}/checkout`,
     { method: 'POST', body: JSON.stringify({ out }) },
   )
@@ -572,27 +616,41 @@ export const api = {
       `/api/captures/${id}`, { method: 'DELETE' },
     ),
 
+  /**
+   * There is no `saveFilingOverride` flag any more (#227).
+   *
+   * It used to decide whether a filing name somebody typed was kept for the
+   * next book by the same author or applied to this one and forgotten, and the
+   * client set it whenever the field had anything in it, so the two were never
+   * really separate answers. A filing name belongs to the name now, on
+   * `author_alias`, and every save that carries one files it.
+   */
   saveBook: (
     draft: Draft,
     images: Partial<Record<'front' | 'back' | 'edge', string>>,
-    saveFilingOverride: boolean,
     captureId?: number,
   ) =>
     request<{ id: number; placement: PlacementResponse; counts: Counts; queue: QueueCounts }>(
       '/api/books',
       {
         method: 'POST',
-        body: JSON.stringify({
-          ...draftBody(draft), images, saveFilingOverride, captureId,
-        }),
+        body: JSON.stringify({ ...draftBody(draft), images, captureId }),
       },
     ),
 
-  getBook: (id: number) => request<{ book: BookRow }>(`/api/books/${id}`),
+  /**
+   * One book, and who it credits.
+   *
+   * The credits come with it because the review pane's filing field is about the
+   * first-listed name, and what that name files under is a fact about the alias
+   * rather than a column on the book (#227). A listing answers a `FiledBookRow`
+   * because a listing joins it back on; a lookup of one book reads the model.
+   */
+  getBook: (id: number) => request<{ book: BookRow; authors: Credit[] }>(`/api/books/${id}`),
 
   setCheckedOut,
 
-  checkedOut: () => request<{ books: BookRow[] }>('/api/checked-out'),
+  checkedOut: () => request<{ books: FiledBookRow[] }>('/api/checked-out'),
 
   backfillCovers: (limit = 10) =>
     request<{ tried: number; fetched: number; remaining: number }>(
@@ -653,7 +711,7 @@ export const api = {
   },
 
   listBooks: (range: ShelfRange) =>
-    request<{ books: BookRow[]; counts: Counts }>(`/api/books?range=${range}`),
+    request<{ books: FiledBookRow[]; counts: Counts }>(`/api/books?range=${range}`),
 
   deleteBook: (id: number) =>
     request<{ ok: true; counts: Counts; photosRemoved: number }>(
@@ -799,7 +857,7 @@ export const api = {
 
 export const emptyDraft: Draft = {
   isbn13: '', isbn10: '', title: '', subtitle: '', authors: '', publisher: '',
-  published: '', pages: '', notes: '', isFiction: true,
+  published: '', pages: '', notes: '', genre: FICTION_SLUG,
   classificationSource: 'auto', classificationConfidence: 'unknown',
   seriesName: '', seriesIndex: '', location: '', lookupSource: '',
   isbnSource: '', authorFilingOverride: '',
@@ -826,7 +884,7 @@ export function draftFromLookup(result: LookupResponse, isbnSource = ''): Draft 
     publisher: result.publisher,
     published: result.published,
     pages: result.pages,
-    isFiction: result.classification.isFiction,
+    genre: result.classification.genre,
     classificationSource: 'auto',
     classificationConfidence: result.classification.confidence,
     seriesName: result.seriesName,
@@ -904,7 +962,7 @@ export function draftFromCapture(capture: Capture): Draft {
     if (stated[key] !== undefined) patch[key] = stated[key] as string
   }
   if (stated.authors !== undefined) patch.authors = stated.authors.join(', ')
-  if (stated.isFiction !== undefined) patch.isFiction = stated.isFiction
+  if (stated.genre !== undefined) patch.genre = stated.genre
   if (stated.seriesIndex !== undefined) {
     patch.seriesIndex = stated.seriesIndex === null ? '' : String(stated.seriesIndex)
   }
@@ -978,7 +1036,7 @@ export function editFromDraft(draft: Draft, shown: Draft): CaptureEdit {
   if (draft.authors !== shown.authors) {
     edit.authors = draft.authors.split(',').map((a) => a.trim()).filter(Boolean)
   }
-  if (draft.isFiction !== shown.isFiction) edit.isFiction = draft.isFiction
+  if (draft.genre !== shown.genre) edit.genre = draft.genre
   if (draft.seriesIndex !== shown.seriesIndex) {
     edit.seriesIndex = draft.seriesIndex.trim() === '' ? null : Number(draft.seriesIndex)
   }
@@ -1002,7 +1060,9 @@ export function draftFromBook(book: BookRow): Draft {
     published: book.published ?? '',
     pages: book.pages ?? '',
     notes: book.notes ?? '',
-    isFiction: book.is_fiction === 1,
+    // The genre tag's own answer, read back off the range it settled on. The
+    // client sends a slug and reads one, and `books.is_fiction` is gone (#227).
+    genre: genreOfRange(book.shelf_range),
     classificationSource: book.classification_source || 'manual',
     classificationConfidence: book.classification_confidence || 'unknown',
     seriesName: book.series_name ?? '',

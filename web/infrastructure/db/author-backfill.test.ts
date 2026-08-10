@@ -22,7 +22,7 @@ import pg from 'pg'
 import { afterAll, describe, expect, it } from 'vitest'
 import { SCHEMA } from '../../server/db.pg'
 import { SHELF_ORDER_SQL } from '../../server/backup'
-import { buildSortKey, filingName, titleFiling } from '../../shared/shelving'
+import { SEP, buildSortKey, filingName, titleFiling } from '../../shared/shelving'
 import { migrateToLatest } from './migrate'
 import { dropScratchDatabases, scratchDatabase } from './testdb'
 
@@ -179,8 +179,11 @@ describe('book_authors becoming authors and aliases', () => {
     await migrateToLatest(pool)
 
     expect(await aliasesOf(pool)).toEqual(['村上春樹 | 村上春樹 | 0 | 1'])
-    const book = await pool.query<{ author_filing: string }>('SELECT author_filing FROM books')
-    expect(book.rows[0]!.author_filing).toBe('')
+    // And the book still sorts under nobody, which is the defect this declined
+    // to copy. The column it was in is gone (#227), so what is left of it is the
+    // key's first component, which is what actually decided the shelf.
+    const book = await pool.query<{ sort_key: string }>('SELECT sort_key FROM books')
+    expect(book.rows[0]!.sort_key.startsWith(SEP)).toBe(true)
   })
 
   it('credits the alias, in the order the names are printed', async () => {
@@ -287,12 +290,15 @@ describe('book_authors becoming authors and aliases', () => {
     ])
     await migrateToLatest(pool)
 
-    const row = await pool.query<{ authors: string; author_filing: string; sort_key: string }>(
-      'SELECT authors, author_filing, sort_key FROM books',
+    // `books.author_filing` was in here until #227 dropped it. What that column
+    // held is now `author_alias.filing_name`, which this migration is what
+    // fills in, so the columns left to be unchanged are the joined display
+    // string and the key the shelf is ordered by.
+    const row = await pool.query<{ authors: string; sort_key: string }>(
+      'SELECT authors, sort_key FROM books',
     )
     expect(row.rows[0]).toEqual({
       authors: 'Frank Herbert',
-      author_filing: 'Herbert, Frank',
       sort_key: buildSortKey({ authorFiling: 'Herbert, Frank', title: 'Dune' }),
     })
     const credits = await pool.query<{ count: string }>(

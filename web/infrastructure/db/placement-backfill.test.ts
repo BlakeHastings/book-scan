@@ -261,14 +261,14 @@ async function furnitureIn(pool: pg.Pool): Promise<{ order: Slot[]; rules: Place
 /** Every shelved book, with the tags a rule asks about. */
 async function shelvedBooks(pool: pg.Pool) {
   const { rows } = await pool.query<{
-    id: number; title: string; sort_key: string; is_fiction: number; slugs: string[]
+    id: number; title: string; sort_key: string; shelf_range: string; slugs: string[]
   }>(
-    `SELECT b.id, b.title, b.sort_key, b.is_fiction,
+    `SELECT b.id, b.title, b.sort_key, b.shelf_range,
             array_remove(array_agg(t.slug), NULL) AS slugs
        FROM shelved_books b
        LEFT JOIN book_tag bt ON bt.book_id = b.id
        LEFT JOIN tag t ON t.id = bt.tag_id
-      GROUP BY b.id, b.title, b.sort_key, b.is_fiction
+      GROUP BY b.id, b.title, b.sort_key, b.shelf_range
       ORDER BY b.id`,
   )
   return rows
@@ -408,12 +408,17 @@ describe('the shelves becoming fixtures, areas and rules', () => {
     ])
   })
 
-  it('reproduces books.is_fiction exactly, rather than approximately', async () => {
+  it('reproduces books.shelf_range exactly, rather than approximately', async () => {
     /*
-     * The defect this step could have that nobody would see. `books.is_fiction`
-     * still decides `shelf_range`, and the two rules are written against the
-     * tags `0002` derived from that column, so a book the rules and the column
-     * disagree about is a book that files into a different bookcase.
+     * The defect this step could have that nobody would see. `shelf_range` is
+     * the column every shelf query reads, and the two rules are written against
+     * the genre tags, so a book the rules and the column disagree about is a
+     * book that files into a different bookcase.
+     *
+     * It was `books.is_fiction` until #227 dropped that column. The claim is the
+     * same one: the seed sets both from one answer, and `0002` derived the tags
+     * from the column, so the two sides of this comparison are still arrived at
+     * independently.
      *
      * Asked of the rule rather than of the label, because that is what the rule
      * decides: which run the book joins.
@@ -424,7 +429,7 @@ describe('the shelves becoming fixtures, areas and rules', () => {
     const { order, rules } = await furnitureIn(pool)
     const wrong = (await shelvedBooks(pool)).filter((row) => {
       const found = placementOf({ sortKey: row.sort_key, tagSlugs: row.slugs }, rules, order)
-      return found?.rule.name !== (row.is_fiction === 1 ? 'Fiction' : 'Non-fiction')
+      return found?.rule.name !== (row.shelf_range === 'fiction' ? 'Fiction' : 'Non-fiction')
     })
     expect(wrong.map((row) => row.title)).toEqual([])
   })

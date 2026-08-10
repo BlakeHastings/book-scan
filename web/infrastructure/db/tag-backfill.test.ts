@@ -127,19 +127,23 @@ describe('the fiction flag becoming tags', () => {
   })
 
   it('leaves the columns it came from exactly as they were', async () => {
-    // `books.is_fiction` still decides the shelf range and is still what the
-    // client reads. Nothing is dropped by this migration, and a run that lost a
-    // column would be a run that reordered somebody's shelves.
+    // Nothing is dropped by *this* migration, and a run that lost a column
+    // would be a run that reordered somebody's shelves. `books.is_fiction` is
+    // no longer among them: `0018` drops it, four migrations after this one,
+    // once nothing decides anything by it. `shelf_range` is what a shelf is
+    // drawn from and is what this has to leave alone.
     const pool = await catalogueOf([
       { title: 'Dune', isFiction: true, source: 'manual', confidence: 'high' },
     ])
     await migrateToLatest(pool)
 
     const row = await pool.query<{
-      is_fiction: number; classification_source: string; classification_confidence: string
-    }>('SELECT is_fiction, classification_source, classification_confidence FROM books')
+      shelf_range: string; classification_source: string; classification_confidence: string
+    }>('SELECT shelf_range, classification_source, classification_confidence FROM books')
     expect(row.rows[0]).toEqual({
-      is_fiction: 1, classification_source: 'manual', classification_confidence: 'high',
+      shelf_range: 'fiction',
+      classification_source: 'manual',
+      classification_confidence: 'high',
     })
   })
 

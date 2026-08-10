@@ -5,9 +5,9 @@
  * lives in shared/layout.ts and stays pure.
  */
 
-import type { BookRow } from './db.pg'
+import type { FiledBookRow } from './db.pg'
 import type { Db } from './driver'
-import { withPhotographs, type PhotographedBook } from './photographs'
+import { withPhotographs, type FiledPhotographedBook } from './photographs'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
@@ -49,15 +49,17 @@ export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
 /**
  * A book row plus the camelCase key the pure layout code expects.
  *
- * `PhotographedBook`, not `BookRow`, since #228: a shelf is drawn as a row of
- * spines and a spine is a photograph, so every book that reaches the layout
- * arrives with the current photograph of each kind joined onto it. See
- * `withPhotographs`.
+ * `FiledPhotographedBook`, not `BookRow`, and for two reasons that arrived
+ * together. A shelf is drawn as a row of spines and a spine is a photograph, so
+ * every book that reaches the layout arrives with the current photograph of each
+ * kind joined onto it (#228); and a spine is captioned with what the book files
+ * under, which is a fact about its first credit's alias and is joined on by the
+ * view (#227). See `withPhotographs` and `FiledBookRow`.
  */
-export type ShelvedBook = PhotographedBook & { sortKey: string }
+export type ShelvedBook = FiledPhotographedBook & { sortKey: string }
 
 /** A row as the misfile check sees it: where it is, and where it belongs. */
-const toFiled = (row: BookRow, derived: string, checkedOut: boolean): FiledBook => ({
+const toFiled = (row: FiledBookRow, derived: string, checkedOut: boolean): FiledBook => ({
   id: row.id,
   title: row.title,
   authorFiling: row.author_filing,
@@ -228,12 +230,12 @@ export class Shelves {
    * the only place the condition is written, so a state that must not reach a
    * shelf cannot reach one by this statement being forgotten.
    */
-  private async booksIn(range: ShelfRange, excludeId = 0): Promise<PhotographedBook[]> {
+  private async booksIn(range: ShelfRange, excludeId = 0): Promise<FiledPhotographedBook[]> {
     // The photographs are joined on here, in one statement for the whole range,
     // because a shelf is drawn as a row of spines and a spine is a photograph
     // (#228). Asking per book would be a statement per book on the path that
     // draws the library.
-    const rows = await withPhotographs(this.db, await this.db.all<BookRow>(
+    const rows = await withPhotographs(this.db, await this.db.all<FiledBookRow>(
       `SELECT * FROM shelved_books WHERE shelf_range = ?
         ORDER BY sort_key ASC`,
       [range],
@@ -761,8 +763,10 @@ export class Shelves {
       .map((placed) => toFiled(placed.book, placed.label, false))
 
     const off = (
-      await this.db.all<BookRow>(
-        `SELECT * FROM books WHERE shelf_range = ? AND state = ?
+      await this.db.all<FiledBookRow>(
+        // `catalogued_books`, not `books`, and only for the joined filing name:
+        // the state is stated here as it always was. See `FiledBookRow`.
+        `SELECT * FROM catalogued_books WHERE shelf_range = ? AND state = ?
           ORDER BY sort_key ASC`,
         [range, CHECKED_OUT],
       )

@@ -6,6 +6,7 @@ import { BookFields } from './BookFields'
 import { BookGallery } from './BookGallery'
 import { ConfirmDialog } from './ConfirmDialog'
 import { IsbnPrompt } from './IsbnPrompt'
+import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 interface Props {
   draft: Draft
@@ -157,7 +158,7 @@ export function BookDetail({
     wasBusy.current = relookupBusy
   }, [relookupBusy])
 
-  const category = draft.isFiction ? 'Fiction' : 'Non-fiction'
+  const category = draft.genre === FICTION_SLUG ? 'Fiction' : 'Non-fiction'
   const filing = draft.authorFilingOverride || derivedFiling
 
   /*

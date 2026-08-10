@@ -17,6 +17,7 @@ import {
 } from './lib/scanner'
 import { captureSteadiest, describeBurst } from './lib/steady'
 import { filingName, type ShelfRange } from '../shared/shelving'
+import { rangeOfSlug } from '../domain/tagging/genre'
 import { resolveIsbnPair } from '../shared/isbn'
 import { bookStillInHand } from './lib/cameraReturn'
 import { BookDetail } from './components/BookDetail'
@@ -551,7 +552,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the same fields
     // the debounced effect below watches; draft as a whole changes on keystroke.
   }, [
-    draft.title, draft.authors, draft.isFiction, draft.seriesName,
+    draft.title, draft.authors, draft.genre, draft.seriesName,
     draft.seriesIndex, draft.authorFilingOverride, bookId,
   ])
 
@@ -593,7 +594,7 @@ export default function App() {
       setMisfileTakeable(false)
       return Promise.resolve()
     }
-    return api.misfiles(draft.isFiction ? 'fiction' : 'nonfiction')
+    return api.misfiles(rangeOfSlug(draft.genre))
       .then((review) => {
         setMisfile(findMisfile(review, bookId))
         setMisfileTakeable(canTakeBack(review, bookId))
@@ -606,7 +607,7 @@ export default function App() {
         setMisfileTakeable(false)
         setError((caught as Error).message)
       })
-  }, [bookId, draft.isFiction])
+  }, [bookId, draft.genre])
 
   useEffect(() => {
     if (mode !== 'review') {
@@ -678,7 +679,7 @@ export default function App() {
     setMisfileMoving(true)
     setError('')
     try {
-      await takeMoveBack(draft.isFiction ? 'fiction' : 'nonfiction', misfile.book.id)
+      await takeMoveBack(rangeOfSlug(draft.genre), misfile.book.id)
       await reloadShelfState()
     } catch (caught) {
       setError((caught as Error).message)
@@ -850,9 +851,7 @@ export default function App() {
     try {
       const result = bookId
         ? await api.updateAndShelve(bookId, draft, shelvedAt)
-        : await api.saveBook(
-            draft, shots, Boolean(draft.authorFilingOverride), captureId ?? undefined,
-          )
+        : await api.saveBook(draft, shots, captureId ?? undefined)
       setCounts(result.counts)
       // Only the insert path reports queue counts; an edit does not touch it.
       if ('queue' in result) setQueueCounts(result.queue as QueueCounts)
@@ -1074,7 +1073,7 @@ export default function App() {
     setBoundaryMoving(true)
     setError('')
     try {
-      await moveAcrossBoundary(draft.isFiction ? 'fiction' : 'nonfiction', bookId, direction)
+      await moveAcrossBoundary(rangeOfSlug(draft.genre), bookId, direction)
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -1113,15 +1112,22 @@ export default function App() {
     setNotice('')
     setOrigin(from)
     try {
-      const { book } = await api.getBook(id)
+      const { book, authors } = await api.getBook(id)
       const loaded = draftFromBook(book)
-      // A stored filing name that the heuristic would not produce is an
-      // override, and must survive the round trip or the book moves on save.
+      /*
+       * A filing name the heuristic would not produce is an override, and must
+       * survive the round trip or the book moves on save.
+       *
+       * Read off the credit rather than off the row (#227). What the
+       * first-listed name files under is a fact about the alias, so this is the
+       * model rather than a copy of it, and it is the same value the shelf is
+       * ordered by.
+       */
       const derived = filingName(loaded.authors.split(',')[0]?.trim() ?? '')
+      const files = authors[0]?.filingName ?? ''
       setDraft({
         ...loaded,
-        authorFilingOverride:
-          book.author_filing && book.author_filing !== derived ? book.author_filing : '',
+        authorFilingOverride: files && files !== derived ? files : '',
       })
       setBookId(id)
       setCheckedOutAt(book.checked_out_at)
@@ -1634,7 +1640,7 @@ export default function App() {
         <ShelveView
           placement={placement}
           stale={placementStale}
-          range={draft.isFiction ? 'fiction' : 'nonfiction'}
+          range={rangeOfSlug(draft.genre)}
           title={draft.title || 'this book'}
           saving={saving}
           onShelved={(shelvedAt) => save(shelvedAt)}

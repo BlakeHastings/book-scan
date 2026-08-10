@@ -12,10 +12,13 @@ import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { photographTaken, recordCrop } from './photographs'
 import { Store, type DraftBook } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { PrintedName } from '../domain/authorship/authors'
 import { genreStatedBy } from '../domain/tagging/genre'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
-  return { isFiction: true, ...over }
+  return { genre: FICTION_SLUG, ...over }
 }
 
 let store: Store
@@ -40,7 +43,7 @@ const updateBook = (id: number, of: DraftBook) =>
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
 })
 
 afterAll(closeTestDatabase)
@@ -58,7 +61,7 @@ describe('placement as books arrive one at a time', () => {
     await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
 
     const placement = await placementFor(
-      draft({ title: 'Sapiens', authors: ['Yuval Noah Harari'], isFiction: false }),
+      draft({ title: 'Sapiens', authors: ['Yuval Noah Harari'], genre: NON_FICTION_SLUG }),
     )
     // Fiction already has a book, but the non-fiction range is still empty,
     // so this must not be told to go next to Herbert.
@@ -121,15 +124,31 @@ describe('placement as books arrive one at a time', () => {
   })
 })
 
-describe('author filing overrides', () => {
-  it('prefers a saved override over the heuristic', async () => {
+describe('a name somebody has filed by hand', () => {
+  /*
+   * The override table's job, on the alias it moved to (#227).
+   *
+   * `Store.saveFilingOverride` used to write `author_filing`, keyed on a
+   * normalised spelling, and `Store.filingFor` consulted it on the way past.
+   * The same fact is a column on the name now, so filing one is the two
+   * statements the save routes make: introduce the name, then file it. What
+   * this file checks is the half that decides where a book goes, which is that
+   * `Store` reads the alias rather than the heuristic when there is one.
+   */
+  const fileAs = async (printed: string, filing: string): Promise<void> => {
+    const authors = new DrizzleAuthorRepository(db)
+    const alias = await authors.introduce(PrintedName.of(printed), filing)
+    await authors.file(alias.id, filing)
+  }
+
+  it('prefers what the alias files under over the heuristic', async () => {
     // The documented failure case: the heuristic files this under M.
     expect(
       (await store.resolveKey(draft({ title: 'x', authors: ['Gabriel García Márquez'] })))
         .authorFiling,
     ).toBe('Márquez, Gabriel García')
 
-    await store.saveFilingOverride('Gabriel García Márquez', 'García Márquez, Gabriel')
+    await fileAs('Gabriel García Márquez', 'García Márquez, Gabriel')
 
     expect(
       (await store.resolveKey(draft({ title: 'x', authors: ['Gabriel García Márquez'] })))
@@ -137,11 +156,23 @@ describe('author filing overrides', () => {
     ).toBe('García Márquez, Gabriel')
   })
 
-  it('applies the override to placement, moving the book on the shelf', async () => {
+  it('reads the alias however the name is spelled on the book', async () => {
+    // A lookup folds case, punctuation and whitespace, so a book printed
+    // `J.R.R. Tolkien` files under the name somebody filed as `J. R. R.
+    // Tolkien` rather than starting a second one beside it.
+    await fileAs('J. R. R. Tolkien', 'Tolkien, John Ronald Reuel')
+
+    expect(
+      (await store.resolveKey(draft({ title: 'The Hobbit', authors: ['J.R.R. Tolkien'] })))
+        .authorFiling,
+    ).toBe('Tolkien, John Ronald Reuel')
+  })
+
+  it('applies it to placement, moving the book on the shelf', async () => {
     await store.addBook(draft({ title: 'A', authors: ['Ann Foster'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['Zoe Nash'], location: '1B' }))
 
-    await store.saveFilingOverride('Gabriel García Márquez', 'García Márquez, Gabriel')
+    await fileAs('Gabriel García Márquez', 'García Márquez, Gabriel')
     const placement = await placementFor(
       draft({ title: 'Cien Años', authors: ['Gabriel García Márquez'] }),
     )
@@ -151,13 +182,13 @@ describe('author filing overrides', () => {
     expect(placement.successor?.title).toBe('B')
   })
 
-  it('can be saved for a name written in another script', async () => {
-    // Issue #195 from the other side. `saveFilingOverride` keys on the same
-    // fold, so while that fold deleted the name there was no key to store one
-    // under: the row went nowhere and the correction could not be made at all.
-    // docs/shelving.md calls the override table mandatory, so an author it
-    // cannot hold a row for is the table not existing for that author.
-    await store.saveFilingOverride('村上春樹', 'Murakami, Haruki')
+  it('can be filed for a name written in another script', async () => {
+    // Issue #195 from the other side. The override table keyed on a fold that
+    // deleted such a name entirely, so there was no key to store one under: the
+    // row went nowhere and the correction could not be made at all.
+    // `author_alias` is keyed on the printed name, so there is nowhere for that
+    // to happen.
+    await fileAs('村上春樹', 'Murakami, Haruki')
 
     expect(
       (await store.resolveKey(draft({ title: 'Norwegian Wood', authors: ['村上春樹'] })))
@@ -233,7 +264,12 @@ describe('bookkeeping', () => {
       draft({ title: 'Good Omens', authors: ['Terry Pratchett', 'Neil Gaiman'] }),
     )
     const row = (await store.listRange('fiction')).find((b) => b.id === id)
-    expect(row?.author_filing).toBe('Pratchett, Terry')
+    // The first-listed name is the one the key is built from, and the joined
+    // string keeps both in the order they are printed. The view's
+    // `author_filing` is empty here because nothing in this file credits a book:
+    // that is `CreditBookHandler`, from the save routes, and
+    // `authors.routes.test.ts` is where the two are asserted together.
+    expect(row?.sort_key.split(SEP)[0]).toBe('PRATCHETT TERRY')
     expect(row?.authors).toBe('Terry Pratchett, Neil Gaiman')
   })
 
@@ -243,7 +279,7 @@ describe('bookkeeping', () => {
     // unshelved. Two of these carry no location and still count normally.
     await store.addBook(draft({ title: 'A', authors: ['X Y'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['X Z'] }))
-    await store.addBook(draft({ title: 'C', authors: ['Q R'], isFiction: false }))
+    await store.addBook(draft({ title: 'C', authors: ['Q R'], genre: NON_FICTION_SLUG }))
 
     expect(await store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0 })
   })
@@ -297,14 +333,16 @@ describe('editing a shelved book', () => {
     const after = (await store.getBook(id))!
 
     expect(after.sort_key).not.toBe(before)
-    expect(after.author_filing).toBe('Author, Ann')
+    // The key's first component is what the book files under, and there is no
+    // column beside it holding a copy any more (#227).
+    expect(after.sort_key.split(SEP)[0]).toBe('AUTHOR ANN')
   })
 
   it('moves the book between ranges when the fiction flag flips', async () => {
     const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
     expect((await store.getBook(id))?.shelf_range).toBe('fiction')
 
-    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'], isFiction: false }))
+    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'], genre: NON_FICTION_SLUG }))
     expect((await store.getBook(id))?.shelf_range).toBe('nonfiction')
     expect(await store.listRange('fiction')).toHaveLength(0)
     expect(await store.listRange('nonfiction')).toHaveLength(1)
@@ -328,7 +366,7 @@ describe('editing a shelved book', () => {
     )
     await updateBook(id, draft({ title: 'X', authors: ['Cal Church'] }))
     expect((await store.getBook(id))?.authors).toBe('Cal Church')
-    expect((await store.getBook(id))?.author_filing).toBe('Church, Cal')
+    expect((await store.getBook(id))?.sort_key.split(SEP)[0]).toBe('CHURCH CAL')
   })
 
   it('fills in both ISBN forms on an edit, as on an insert', async () => {
@@ -502,8 +540,8 @@ describe('imageInUse', () => {
     // needs the row to exist, not the queue machinery around it.
     for (const slot of ['front', 'back', 'edge'] as const) {
       const created = await db.get<{ id: number }>(
-        `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-         VALUES ('', '', 0, '', 'scanned', ?) RETURNING id`,
+        `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+         VALUES ('', '', '', 'scanned', ?) RETURNING id`,
         [new Date().toISOString()],
       )
       await photographTaken(db, created!.id, slot, 'shared.jpg', new Date().toISOString())
@@ -517,8 +555,8 @@ describe('imageInUse', () => {
     // same photograph produce the same crop filename. Deleting on one scan's
     // behalf must not take the other's picture with it.
     const created = await db.get<{ id: number }>(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-       VALUES ('', '', 0, '', 'identified', ?) RETURNING id`,
+      `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+       VALUES ('', '', '', 'identified', ?) RETURNING id`,
       [new Date().toISOString()],
     )
     await photographTaken(db, created!.id, 'front', 'shared.jpg', new Date().toISOString())
@@ -538,8 +576,8 @@ describe('imageInUse', () => {
    */
   it('does not count a discarded scan, whose filenames are history rather than a claim', async () => {
     const created = await db.get<{ id: number }>(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
+      `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+       VALUES ('', '', '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
     await photographTaken(db, created!.id, 'front', 'gone.jpg', new Date().toISOString())
@@ -557,8 +595,8 @@ describe('imageInUse', () => {
       draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
     )
     const created = await db.get<{ id: number }>(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
+      `INSERT INTO books (title, shelf_range, sort_key, state, scanned_at)
+       VALUES ('', '', '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
     await photographTaken(db, created!.id, 'back', 'shared.jpg', new Date().toISOString())

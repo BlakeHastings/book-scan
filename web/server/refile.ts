@@ -26,8 +26,17 @@ import type { Store } from './store'
 export interface Refiled {
   id: number
   title: string
-  /** The name it files under, before and after. */
-  authorFiling: [string, string]
+  /**
+   * The name the recomputed key was built from, which is what the credited
+   * alias files under.
+   *
+   * One name where this used to report two, before and after. There is no
+   * stored filing name to be the "before" any more: #227 dropped
+   * `books.author_filing`, so what a book files under is a fact about the
+   * author and the only thing derived from it on the row is the sort key. The
+   * two keys below are the before and after.
+   */
+  filesUnder: string
   sortKey: [string, string]
 }
 
@@ -69,12 +78,11 @@ export async function refileBooks(
       seriesIndex: row.series_index,
     })
 
-    // The sort key is what decides the shelf and the filing name is what the
-    // book's own page shows, and #195 was the two disagreeing, so both are
-    // compared rather than either standing for the other.
+    // Both derived columns, not just the key. They are written by one
+    // statement and a row where only one of them is stale is a row somebody
+    // wrote by hand, which is exactly the row worth reporting.
     if (
       resolved.sortKey === row.sort_key &&
-      resolved.authorFiling === row.author_filing &&
       resolved.titleFilingValue === row.title_filing
     ) {
       continue
@@ -83,7 +91,7 @@ export async function refileBooks(
     moved.push({
       id: row.id,
       title: row.title,
-      authorFiling: [row.author_filing, resolved.authorFiling],
+      filesUnder: resolved.authorFiling,
       sortKey: [row.sort_key, resolved.sortKey],
     })
 

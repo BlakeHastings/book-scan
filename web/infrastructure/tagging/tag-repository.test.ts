@@ -31,8 +31,8 @@ const NOW = '2026-08-06T09:00:00.000Z'
 /** A book to hang tags on. `book_tag.book_id` is a foreign key. */
 async function aBook(title: string): Promise<number> {
   const row = await db.get<{ id: number }>(
-    `INSERT INTO books (title, shelf_range, is_fiction, sort_key, scanned_at)
-     VALUES (?, 'fiction', 1, ?, '2026-08-06') RETURNING id`,
+    `INSERT INTO books (title, shelf_range, sort_key, scanned_at)
+     VALUES (?, 'fiction', ?, '2026-08-06') RETURNING id`,
     [title, title],
   )
   return Number(row?.id)

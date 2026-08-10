@@ -32,7 +32,7 @@ import { TagSlug, type AppliedTag, type TagConfidence, type TagSource } from '..
 import { SCHEMA } from '../../server/db.pg'
 import type { ShelfRange } from '../../shared/shelving'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, scratchDatabase } from './testdb'
+import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /**
  * The catalogues open right now, given back as each test finishes with one.
@@ -162,10 +162,18 @@ interface Filed {
   range: ShelfRange | null
 }
 
-/** Where the column files every book: what the app filed by until #223. */
+/**
+ * Where the column files every book: what the app filed by until #223.
+ *
+ * **Read before the migrations run, and from `books`.** `shelved_books` does not
+ * exist on a catalogue as stage H left it, and `books.is_fiction` does not exist
+ * on one the migrations have finished with: `0018` drops it. Every row this seeds
+ * is `shelved`, and nothing here writes to `books`, so the answer taken on the
+ * way in is the answer throughout.
+ */
 async function underTheColumn(pool: pg.Pool): Promise<Filed[]> {
   const { rows } = await pool.query<{ id: number; title: string; is_fiction: number }>(
-    'SELECT id, title, is_fiction FROM shelved_books ORDER BY id',
+    'SELECT id, title, is_fiction FROM books ORDER BY id',
   )
   return rows.map((row) => ({
     id: row.id,
@@ -275,11 +283,11 @@ describe('the genre tag deciding which range a book files into', () => {
     const pool = await catalogueOf(LIVE_SIZED)
 
     const before = await shelfOrder(pool, 'books WHERE checked_out_at IS NULL')
+    const old = await underTheColumn(pool)
     // Adopted, because this database has the baseline tables and has never been
     // migrated. That is the path the real catalogue takes.
     expect(await migrateToLatest(pool)).toBe('adopted')
 
-    const old = await underTheColumn(pool)
     const now = await underTheTags(pool)
 
     expect(old).toHaveLength(LIVE_SIZED.length)
@@ -319,15 +327,16 @@ describe('the genre tag deciding which range a book files into', () => {
      * comparison names exactly that book.
      */
     const pool = await catalogueOf(LIVE_SIZED)
+    const old = await underTheColumn(pool)
     await migrateToLatest(pool)
-    expect(disagreements(await underTheColumn(pool), await underTheTags(pool))).toEqual([])
+    expect(disagreements(old, await underTheTags(pool))).toEqual([])
 
     await pool.query(
       `UPDATE book_tag SET tag_id = (SELECT id FROM tag WHERE slug = 'genre/non-fiction')
         WHERE book_id = (SELECT id FROM books WHERE title = 'Book 040')`,
     )
 
-    expect(disagreements(await underTheColumn(pool), await underTheTags(pool)))
+    expect(disagreements(old, await underTheTags(pool)))
       .toEqual(['Book 040: the column says fiction, the tags say nonfiction'])
   })
 
@@ -335,13 +344,14 @@ describe('the genre tag deciding which range a book files into', () => {
     // The one state the running app can reach where nothing files a book, and
     // the thing `applySchema` reports on every start.
     const pool = await catalogueOf(LIVE_SIZED)
+    const old = await underTheColumn(pool)
     await migrateToLatest(pool)
 
     await pool.query(
       "DELETE FROM book_tag WHERE book_id = (SELECT id FROM books WHERE title = 'Book 041')",
     )
 
-    expect(disagreements(await underTheColumn(pool), await underTheTags(pool)))
+    expect(disagreements(old, await underTheTags(pool)))
       .toEqual(['Book 041: the column says fiction, the tags say nothing'])
     // And it has not moved: `shelf_range` is written by a save and by nothing
     // else, so the book is exactly where it was.
@@ -357,12 +367,13 @@ describe('the genre tag deciding which range a book files into', () => {
      * only do because `rangeOfGenre` reads the person's row first.
      */
     const pool = await catalogueOf(LIVE_SIZED)
+    const old = await underTheColumn(pool)
     await migrateToLatest(pool)
 
     // Book 000 is non-fiction and was decided by a person.
     await alsoTagged(pool, 'Book 000', 'genre/fiction', 'catalogue')
 
-    expect(disagreements(await underTheColumn(pool), await underTheTags(pool))).toEqual([])
+    expect(disagreements(old, await underTheTags(pool))).toEqual([])
   })
 })
 
@@ -370,7 +381,13 @@ describe('the repair the cut-over owes', () => {
   /** A catalogue with two books corrected before #201, as docs/data-model.md describes. */
   async function withCorrectedBooks(): Promise<pg.Pool> {
     const pool = await catalogueOf(LIVE_SIZED)
-    await migrateToLatest(pool)
+    /*
+     * Through `0016` rather than to the end, because `0018` drops
+     * `books.is_fiction` and this repair keeps the genre row that agrees with
+     * it. A catalogue migrated past that point is one the statement below could
+     * never have met, so watching it run there would prove nothing.
+     */
+    await migrationsThrough(pool, '0016_one_genre_tag_per_book')
     // Book 000 is non-fiction and carries a person's `genre/non-fiction`. The
     // old book's tag left behind is a fiction one, from a person, and it is the
     // higher-authority row on a book whose column says non-fiction.
@@ -465,14 +482,15 @@ describe('the repair the cut-over owes', () => {
      * models place it differently until the stale row is gone.
      */
     const pool = await catalogueOf(LIVE_SIZED)
-    await migrateToLatest(pool)
+    const old = await underTheColumn(pool)
+    await migrationsThrough(pool, '0016_one_genre_tag_per_book')
     await alsoTagged(pool, 'Book 003', 'genre/fiction', 'guess')
 
-    expect(disagreements(await underTheColumn(pool), await underTheTags(pool)))
+    expect(disagreements(old, await underTheTags(pool)))
       .toEqual(['Book 003: the column says nonfiction, the tags say fiction'])
 
     await pool.query(repairStatement())
 
-    expect(disagreements(await underTheColumn(pool), await underTheTags(pool))).toEqual([])
+    expect(disagreements(old, await underTheTags(pool))).toEqual([])
   })
 })

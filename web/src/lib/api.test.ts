@@ -11,6 +11,7 @@ import {
   editFromDraft, emptyDraft,
 } from './api'
 import type { BookRow, Capture, LookupResponse } from './api'
+import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 const found: LookupResponse = {
   found: true,
@@ -26,7 +27,7 @@ const found: LookupResponse = {
   seriesIndex: null,
   coverUrl: '',
   source: 'Open Library + Google Books',
-  classification: { isFiction: true, confidence: 'high', reason: 'fiction subject' },
+  classification: { genre: FICTION_SLUG, confidence: 'high', reason: 'fiction subject' },
   notes: [],
   duplicateOf: null,
 }

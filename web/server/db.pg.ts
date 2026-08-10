@@ -337,10 +337,8 @@ export interface BookRow {
   pages: string
   notes: string
   shelf_range: ShelfRange
-  is_fiction: number
   classification_source: string
   classification_confidence: string
-  author_filing: string
   series_name: string
   series_index: number | null
   title_filing: string
@@ -399,6 +397,26 @@ export interface BookRow {
 }
 
 /**
+ * The same row as one of the three views answers it: with the name its first
+ * credit files under.
+ *
+ * **A view has one column `books` does not**, since #227 dropped
+ * `books.author_filing`. What a book files under is a fact about the author,
+ * held on `author_alias`, and the views join it back on so that every listing,
+ * every shelf row and every neighbour reads exactly what it read before. A
+ * lookup by id is a lookup of a book, so `Store.getBook` answers a `BookRow` and
+ * `GET /api/books/:id` sends the book's credits beside it.
+ *
+ * Two types rather than one optional field, because the difference is which
+ * relation was read and a reader should not have to guess which one a value came
+ * from. See `filed` in infrastructure/db/schema.ts, which is where the join is.
+ */
+export interface FiledBookRow extends BookRow {
+  author_filing: string
+}
+
+
+/**
  * The columns that must not be compared by a linguistic collation, and the
  * tables they live in.
  *
@@ -427,8 +445,13 @@ export interface BookRow {
  */
 export const SORT_KEY_COLUMNS: readonly (readonly [table: string, column: string])[] = [
   ['books', 'sort_key'],
-  ['books', 'author_filing'],
   ['books', 'title_filing'],
+  // `books.author_filing` was here until #227 dropped it. The filing name it
+  // held is a fact about the author now, and this is where it lives: it is the
+  // first component of every sort key a shelf is ordered by, so it is the same
+  // kind of column under a different name, and getting its collation wrong
+  // orders almost right.
+  ['author_alias', 'filing_name'],
   ['separators', 'starts_at'],
 ]
 

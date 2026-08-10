@@ -1,4 +1,4 @@
-import type { BookRow, CheckedOutAt, ShelfGroupDto } from '../lib/api'
+import type { CheckedOutAt, FiledBookRow, ShelfGroupDto } from '../lib/api'
 import { listOf, spineOf } from '../lib/shelfRow'
 import { coverUrl } from './PlacementCard'
 
@@ -28,7 +28,7 @@ export function ShelfList({
   onOpen: (id: number) => void
 }) {
   /** What you read walking along a shelf, which is the author, not the title. */
-  const filing = (book: BookRow) => book.author_filing || book.authors || book.title
+  const filing = (book: FiledBookRow) => book.author_filing || book.authors || book.title
 
   return (
     <ol className="shelf">

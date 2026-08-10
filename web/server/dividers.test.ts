@@ -20,7 +20,9 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { libraryRows, type LibraryRow, type ShelfGroup } from '../shared/layout'
+import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let db: Db
 let store: Store
@@ -31,7 +33,7 @@ let shelves: Shelves
 // is exactly the kind of claim that has to hold on the database being shipped.
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db)
+  store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
 })
 
@@ -95,7 +97,7 @@ const fillUp = async (label: string, kind: 'area' | 'shelf') => {
  */
 async function twoBookcases() {
   for (const name of NAMES) {
-    await store.addBook({ title: name, authors: [name], isFiction: true })
+    await store.addBook({ title: name, authors: [name], genre: FICTION_SLUG })
   }
 
   for (let i = 0; i < 6; i += 1) await fillUp('1A', 'area')

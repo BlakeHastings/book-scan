@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  api, type BookRow, type CheckedOutAt, type Counts, type Misfile, type Move,
+  api, type CheckedOutAt, type Counts, type FiledBookRow, type Misfile, type Move,
   type ShelfGroupDto, type ShelvingReviewResponse,
 } from '../lib/api'
 import { canTakeBack, takeMoveBack } from '../lib/misfile'
@@ -223,7 +223,7 @@ export function ShelfView({
     }
   }
 
-  const title = (book: BookRow) => book.author_filing || book.authors || book.title
+  const title = (book: FiledBookRow) => book.author_filing || book.authors || book.title
 
   return (
     <main className="main main--library">
