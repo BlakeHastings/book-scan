@@ -273,16 +273,17 @@ describe('a database that already has these tables', () => {
     //
     // Not "the tables are untouched", which is what this used to say and what
     // stopped being true at #183. `0007` adds `books.state`, `0010` adds the
-    // eleven columns that were the queue table and `0014` adds
-    // `books.current_area_id`, and those are the only migrations to alter a
-    // table the baseline created rather than add one beside it. So the claim
-    // worth making is that a later migration's
-    // deliberate additions are the *only* difference. A baseline that had run
-    // would show up as every column being rebuilt, which this still catches.
+    // eleven columns that were the queue table, `0014` adds
+    // `books.current_area_id` and `0019` drops the ten that held photographs,
+    // and those are the only migrations to alter a table the baseline created
+    // rather than add one beside it. So the claim worth making is that a later
+    // migration's deliberate additions and removals are the *only* difference. A
+    // baseline that had run would show up as every column being rebuilt, which
+    // this still catches.
     //
-    // Listed one by one rather than counted, because a column that appeared
-    // here without somebody writing it down is exactly the accident this test
-    // is for.
+    // Listed one by one rather than counted, in both directions, because a
+    // column that appeared or disappeared here without somebody writing it down
+    // is exactly the accident this test is for.
     const after = await describeSchema(pool)
     const baseline = baselineTableNames()
     const ofBaseline = (rows: Record<string, unknown>[]) =>
@@ -299,8 +300,22 @@ describe('a database that already has these tables', () => {
         'books.claimed_at', 'books.processed_at',
         'books.current_area_id',
       ])
-    expect(ofBaseline(after.columns).filter((row) => was.has(named(row))))
-      .toEqual(ofBaseline(before.columns))
+    // The ten `0019` dropped: the photographs are rows in `capture` now (#228).
+    const gone = new Set([
+      'books.front_image', 'books.back_image', 'books.edge_image',
+      'books.cover_image', 'books.front_hash', 'books.cover_hash',
+      'books.front_crop', 'books.back_crop', 'books.edge_crop', 'books.cropped',
+    ])
+    const gone_now = ofBaseline(before.columns)
+      .filter((row) => !ofBaseline(after.columns).some((kept) => named(kept) === named(row)))
+    expect(gone_now.map(named)).toEqual([...gone])
+
+    // And every column that survived is byte for byte what the baseline made it,
+    // apart from where it sits in the row now that ten before it have gone.
+    const withoutPosition = ({ ordinal_position: _, ...rest }: Record<string, unknown>) => rest
+    expect(ofBaseline(after.columns).filter((row) => was.has(named(row))).map(withoutPosition))
+      .toEqual(ofBaseline(before.columns)
+        .filter((row) => !gone.has(named(row))).map(withoutPosition))
 
     // What did run is everything after the baseline, which is the point of
     // adopting: this database has now had the migrations it had not had.

@@ -134,6 +134,13 @@
       "when": 1786369608209,
       "tag": "0018_the_current_photograph_of_each_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786370356029,
+      "tag": "0019_the_image_columns_go",
+      "breakpoints": true
     }
   ]
 }

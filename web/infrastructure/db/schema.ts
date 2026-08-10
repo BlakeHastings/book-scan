@@ -105,20 +105,28 @@ export const books = pgTable('books', {
   location: text('location').default(''),
   lookupSource: text('lookup_source').default(''),
 
-  frontImage: text('front_image').default(''),
-  backImage: text('back_image').default(''),
-  edgeImage: text('edge_image').default(''),
-  coverImage: text('cover_image').default(''),
+  /*
+   * The ten photograph columns are gone (#228). `front_image`, `back_image`,
+   * `edge_image`, `cover_image`, `front_hash`, `cover_hash`, `front_crop`,
+   * `back_crop`, `edge_crop` and `cropped` were what the app read; `capture` is
+   * what it reads now, and every one of them was a row in that table before any
+   * of them was dropped.
+   *
+   * Between them they allowed exactly one photograph of each kind, forever, so a
+   * blurred spine could only be re-shot by overwriting the original. The
+   * photographs are half of what is irreplaceable about this catalogue and the
+   * app that owns them should not be the thing that deletes one.
+   *
+   * `cover_checked_at` stays, and that is the one judgement in the set. It
+   * records that a cover was looked for, including for a book that turned out to
+   * have none anywhere, which is a fact about a search rather than about a
+   * photograph. It is also what stops the backfill asking about the same book
+   * forever.
+   */
   // text, not timestamp, and the same goes for every _at column here.
   // node-postgres hands a timestamptz back as a Date, which would change every
   // JSON payload the client and the end to end suite read.
   coverCheckedAt: text('cover_checked_at'),
-  frontHash: text('front_hash').default(''),
-  coverHash: text('cover_hash').default(''),
-  frontCrop: text('front_crop').default(''),
-  backCrop: text('back_crop').default(''),
-  edgeCrop: text('edge_crop').default(''),
-  cropped: text('cropped').default(''),
   isbnSource: text('isbn_source').default(''),
   // Vestigial; always ''. See the comment on this column in db.ts.
   ocrText: text('ocr_text').default(''),
@@ -155,10 +163,12 @@ export const books = pgTable('books', {
   // Eleven columns that were the `captures` queue table, which #183 dissolves:
   // a book exists from its first photograph, so the thing in the queue and the
   // thing on the shelf are one row at two points in its life. Everything the
-  // queue held that `books` already had a column for (the three photographs,
-  // their crops, `cropped`, `front_hash`, both ISBNs and `isbn_source`) uses
-  // that column; these are what was left, and every one of them is about
-  // reading a photograph or about somebody holding the book.
+  // queue held that `books` already had a column for (both ISBNs and
+  // `isbn_source`, and at the time the three photographs, their crops,
+  // `cropped` and `front_hash`) uses that column; these are what was left, and
+  // every one of them is about reading a photograph or about somebody holding
+  // the book. The photographs have since become rows in `capture` (#228) and
+  // the columns on both sides of that sentence are gone.
   //
   // They are empty for every book that came in before this landed, and they
   // stay filled in afterwards rather than being cleared when a book is shelved.
@@ -680,19 +690,21 @@ export const bookAuthor = pgTable('book_author', {
  *
  * Ten columns on `books`: `front_image`, `back_image`, `edge_image`,
  * `cover_image`, `front_hash`, `cover_hash`, `front_crop`, `back_crop`,
- * `edge_crop` and `cropped`. Between them they allow exactly one photograph of
- * each kind, forever, so a blurred spine can only be re-shot by overwriting the
- * original. The photographs are half of what is irreplaceable about this
+ * `edge_crop` and `cropped`. Between them they allowed exactly one photograph of
+ * each kind, forever, so a blurred spine could only be re-shot by overwriting
+ * the original. The photographs are half of what is irreplaceable about this
  * catalogue and the app that owns them should not be the thing that deletes one.
  * A row per photograph lifts that.
  *
- * **This table is what the app reads, since #228**, and every write of a
- * photograph goes through `server/photographs.ts`. The columns are still there
- * and nothing reads one; dropping them is the commit after this.
+ * **They are gone, by #228.** This table is what the app reads, every write of a
+ * photograph goes through `server/photographs.ts`, and `0017` repaired the rows
+ * the write-through missed before any of the columns was dropped. #181 added the
+ * table beside them and #214 made the two stay in step; this is the step where
+ * there stops being a second answer.
  *
  * `current_photograph` below is the one relation that asks "the newest of each
- * kind", which is the question every screen asks and the one the columns answer
- * by having nowhere to put a second.
+ * kind", which is the question every screen asks and the one the columns used to
+ * answer by having nowhere to put a second.
  *
  * ## `book_id` is not null, and one column is the enforcement
  *
@@ -708,10 +720,10 @@ export const bookAuthor = pgTable('book_author', {
  * photograph and could not find the book in it. `examined` false with an empty
  * `crop_file` means no detector has ever opened it. A caption may say "the book
  * could not be picked out of this photo" about the first and must not say it
- * about the second. It used to live in `books.cropped`, a comma separated list
- * of slot names, which is one string per row describing three photographs and
- * therefore cannot survive a second photograph of a kind at all. The wire still
- * speaks in that string and `server/photographs.ts` rebuilds it from these
+ * about the second. That used to live in `books.cropped`, a comma separated list
+ * of slot names, which was one string per row describing three photographs and
+ * therefore could not survive a second photograph of a kind at all. The wire
+ * still speaks in that string and `server/photographs.ts` rebuilds it from these
  * flags, which is the one place the two spellings of the distinction meet.
  *
  * `boolean`, unlike `books.is_fiction`, which is an integer because the JSON

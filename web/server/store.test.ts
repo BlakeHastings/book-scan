@@ -537,12 +537,13 @@ describe('imageInUse', () => {
    * most of what discarding a mistaken scan is for.
    */
   it('does not count a discarded scan, whose filenames are history rather than a claim', async () => {
-    await db.run(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
-                          front_image, front_crop, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', 'gone.jpg', 'gone_crop.jpg', ?)`,
+    const created = await db.get<{ id: number }>(
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
+    await photographTaken(db, created!.id, 'front', 'gone.jpg', new Date().toISOString())
+    await recordCrop(db, created!.id, 'front', 'gone_crop.jpg')
 
     expect(await store.imageInUse('gone.jpg')).toBe(false)
     expect(await store.imageInUse('gone_crop.jpg')).toBe(false)
@@ -555,12 +556,12 @@ describe('imageInUse', () => {
     await store.addBook(
       draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
     )
-    await db.run(
-      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state,
-                          back_image, scanned_at)
-       VALUES ('', '', 0, '', 'discarded', 'shared.jpg', ?)`,
+    const created = await db.get<{ id: number }>(
+      `INSERT INTO books (title, shelf_range, is_fiction, sort_key, state, scanned_at)
+       VALUES ('', '', 0, '', 'discarded', ?) RETURNING id`,
       [new Date().toISOString()],
     )
+    await photographTaken(db, created!.id, 'back', 'shared.jpg', new Date().toISOString())
 
     expect(await store.imageInUse('shared.jpg')).toBe(true)
   })

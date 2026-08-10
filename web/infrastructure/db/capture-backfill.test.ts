@@ -207,24 +207,31 @@ describe('the image columns becoming capture rows', () => {
     const pool = await catalogueOf(seeds)
     await migrateToLatest(pool)
 
-    const counted = await pool.query<{ named: string; rows: string; crops: string; carried: string }>(
-      `SELECT
-         (SELECT count(*) FROM (
-            SELECT id, front_image AS f FROM books WHERE front_image <> ''
-            UNION SELECT id, back_image FROM books WHERE back_image <> ''
-            UNION SELECT id, edge_image FROM books WHERE edge_image <> ''
-            UNION SELECT id, cover_image FROM books WHERE cover_image <> ''
-          ) named)::text AS named,
-         (SELECT count(*) FROM capture)::text AS rows,
-         (SELECT count(*) FROM books WHERE front_crop <> '')::text AS crops,
-         (SELECT count(*) FROM capture WHERE crop_file <> '')::text AS carried`,
+    /*
+     * Counted from the fixture rather than from the columns, because `0019`
+     * dropped them on the way through: this file runs the whole chain, so by the
+     * time it can ask a question there is nothing left to ask it of but
+     * `capture`. The numbers come out of the seeds above, so they still cannot
+     * drift from the fixture.
+     */
+    const namedByColumns = new Set(seeds.flatMap((seed, at) => [
+      `${at}:${seed.frontImage}`,
+      seed.backImage ? `${at}:${seed.backImage}` : '',
+      seed.edgeImage ? `${at}:${seed.edgeImage}` : '',
+      seed.coverImage ? `${at}:${seed.coverImage}` : '',
+    ].filter(Boolean)))
+    const cropsByColumns = seeds.filter((seed) => seed.frontCrop).length
+
+    const counted = await pool.query<{ rows: string; carried: string }>(
+      `SELECT (SELECT count(*) FROM capture)::text AS rows,
+              (SELECT count(*) FROM capture WHERE crop_file <> '')::text AS carried`,
     )
 
-    const { named, rows, crops, carried } = counted.rows[0]!
+    const { rows, carried } = counted.rows[0]!
     // 236 fronts, 79 backs, 118 spines and 59 covers: 492 photographs, 492 rows.
-    expect(rows).toBe(named)
+    expect(rows).toBe(String(namedByColumns.size))
     expect(rows).toBe('492')
-    expect(carried).toBe(crops)
+    expect(carried).toBe(String(cropsByColumns))
     expect(carried).toBe('48')
   })
 
@@ -252,10 +259,14 @@ describe('the image columns becoming capture rows', () => {
     expect(survived.rows[0]?.count).toBe('0')
   })
 
-  it('leaves every column it read exactly as it was', async () => {
-    // Nothing is dropped by this migration. Those columns are still what the
-    // gallery, the crop backfill and the shelf row read, and a run that lost
-    // one would be a run that blanked somebody's shelf.
+  it('leaves nothing on books for anything to read a photograph from', async () => {
+    /*
+     * `0006` dropped nothing, and for two migrations that was the whole point:
+     * those columns were still what the gallery, the crop backfill and the shelf
+     * row read. `0019` drops them, and this file runs the chain, so what it can
+     * assert is the end state: ten columns gone and every one of the values they
+     * held reachable from `capture`.
+     */
     const pool = await catalogueOf([{
       title: 'Dune',
       frontImage: 'front.jpg', backImage: 'back.jpg', edgeImage: 'edge.jpg',
@@ -264,16 +275,33 @@ describe('the image columns becoming capture rows', () => {
     }])
     await migrateToLatest(pool)
 
-    const row = await pool.query(
-      `SELECT front_image, back_image, edge_image, cover_image,
-              front_crop, back_crop, edge_crop, cropped, front_hash, cover_hash
-         FROM books`,
+    const left = await pool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'books'
+          AND column_name IN ('front_image', 'back_image', 'edge_image',
+                              'cover_image', 'front_hash', 'cover_hash',
+                              'front_crop', 'back_crop', 'edge_crop', 'cropped')`,
     )
-    expect(row.rows[0]).toEqual({
-      front_image: 'front.jpg', back_image: 'back.jpg', edge_image: 'edge.jpg',
-      cover_image: 'cover.jpg', front_crop: 'front_crop.jpg', back_crop: '',
-      edge_crop: '', cropped: 'front', front_hash: 'd:front', cover_hash: 'd:cover',
-    })
+    expect(left.rows).toEqual([])
+
+    expect(await capturesOf(pool)).toEqual([
+      {
+        title: 'Dune', kind: 'back', file: 'back.jpg', crop_file: '',
+        examined: false, hash: '', taken_at: '2026-01-02T03:04:05.000Z',
+      },
+      {
+        title: 'Dune', kind: 'catalogue', file: 'cover.jpg', crop_file: '',
+        examined: false, hash: 'd:cover', taken_at: '2026-01-02T03:04:05.000Z',
+      },
+      {
+        title: 'Dune', kind: 'front', file: 'front.jpg', crop_file: 'front_crop.jpg',
+        examined: true, hash: 'd:front', taken_at: '2026-01-02T03:04:05.000Z',
+      },
+      {
+        title: 'Dune', kind: 'spine', file: 'edge.jpg', crop_file: '',
+        examined: false, hash: '', taken_at: '2026-01-02T03:04:05.000Z',
+      },
+    ])
   })
 
   it('leaves the queue table alone, and 0011 is what answers for its photographs', async () => {
@@ -326,7 +354,7 @@ describe('the image columns becoming capture rows', () => {
 })
 
 /**
- * The repair `0017` owes.
+ * The repair `0017` owes, and the refusal `0019` makes.
  *
  * These two are about the window between #192 and #214, when the capture rows
  * were written by the two save routes and nothing else: the cover backfill, the
@@ -337,8 +365,9 @@ describe('the image columns becoming capture rows', () => {
  *
  * The chain is applied by hand up to a point, because that is the only way to be
  * in the state the repair exists for: `migrateToLatest` runs everything, and
- * after `0006` there is nothing left to repair. The same reading of the folder
- * `migrate.test.ts` does for the baseline, and for the same reason.
+ * after `0006` there is nothing left to repair and after `0019` there is nothing
+ * left to repair from. The same reading of the folder `migrate.test.ts` does for
+ * the baseline, and for the same reason.
  */
 
 const migrationsDir = fileURLToPath(new URL('./migrations/', import.meta.url))
@@ -483,5 +512,45 @@ describe('the photographs the write-through missed', () => {
     await applyFile(pool, migrationNumbered('0017'))
 
     expect(await capturesOf(pool)).toEqual(after)
+  })
+})
+
+describe('dropping the image columns', () => {
+  it('refuses rather than dropping a photograph nothing else records', async () => {
+    /*
+     * The loud failure, watched rather than asserted about. A column naming a
+     * file with no capture row behind it is a photograph about to become
+     * unreachable, and there is no second copy: the row is the only thing that
+     * will say whose that file on disk is. A startup that stops and says so is
+     * recoverable in one command; a catalogue that quietly has fewer photographs
+     * in it than it did is not.
+     */
+    const pool = await applyThrough(await scratchDatabase(), '0018')
+    await drifted(pool, { title: 'Dune', frontImage: 'front.jpg', recorded: [] })
+
+    await expect(applyFile(pool, migrationNumbered('0019')))
+      .rejects.toThrow(/refusing to drop the image columns/)
+
+    // Refused as a whole. The columns are still there and so is the photograph.
+    const left = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'books'
+          AND column_name = 'front_image'`,
+    )
+    expect(left.rows[0]?.count).toBe('1')
+  })
+
+  it('refuses rather than losing that a detector was shown a photograph', async () => {
+    // `examined` is what the caption rests on and the column is about to go, so
+    // a row that says nothing has ever looked at a photograph the column says
+    // was examined is a fact about to be lost rather than moved.
+    const pool = await applyThrough(await scratchDatabase(), '0018')
+    await drifted(pool, {
+      title: 'Dune', frontImage: 'front.jpg', cropped: 'front', recorded: ['front'],
+    })
+    await pool.query("UPDATE capture SET examined = false")
+
+    await expect(applyFile(pool, migrationNumbered('0019')))
+      .rejects.toThrow(/a detector was shown have no row saying so/)
   })
 })

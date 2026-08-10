@@ -101,15 +101,28 @@ CREATE TABLE IF NOT EXISTS books (
     lookup_source             text    DEFAULT '',
 
     -- Three photos per book: cover, back (barcode and blurb), spine.
+    --
+    -- **Dropped by #228, along with the seven below that describe them.** They
+    -- allowed exactly one photograph of each kind, forever, so a blurred spine
+    -- could only be re-shot by overwriting the original. capture is the record
+    -- now: a row per photograph, and server/photographs.ts is where a filename
+    -- becomes one. 0019 is where they went, and it counted every photograph
+    -- they named against the rows before it dropped a thing.
     front_image               text    DEFAULT '',
     back_image                text    DEFAULT '',
     edge_image                text    DEFAULT '',
     -- The publisher's cover, fetched from the catalogue rather than
     -- photographed. Kept beside the three photos: it is what a matched book is
     -- supposed to look like, which is the thing worth comparing against.
+    -- Dropped by #228; it is a catalogue photograph.
     cover_image               text    DEFAULT '',
     -- When a cover was last looked for. Set whether or not one was found, so
     -- a book with no cover anywhere is not re-fetched on every backfill.
+    --
+    -- **This one stays**, and it is the one judgement in #228's list: it is a
+    -- fact about a search rather than about a photograph, and a book that has no
+    -- artwork anywhere has been looked up and has no catalogue row to hang the
+    -- stamp on.
     --
     -- text, not timestamptz, and the same goes for every _at column below.
     -- node-postgres hands a timestamptz back as a Date, which would change
@@ -118,12 +131,16 @@ CREATE TABLE IF NOT EXISTS books (
     cover_checked_at          text,
     -- Difference hashes of the front photo and the catalogue cover, for
     -- shortlisting a book held up to the camera. See imagehash.ts.
+    -- Dropped by #228: a hash is a fact about one photograph and lives on that
+    -- photograph's row, which is why one can no longer sit on a book that names
+    -- no photograph to rehash it from.
     front_hash                text    DEFAULT '',
     cover_hash                text    DEFAULT '',
     -- Versions of the three photos cut down to the book itself, so a view can
     -- show the book without the room around it. Separate files and separate
     -- columns, never a replacement: the photograph is the record and a crop is
-    -- derived from it, so a bad crop costs nothing and can be redone.
+    -- derived from it, so a bad crop costs nothing and can be redone. Dropped by
+    -- #228; a crop is capture.crop_file, beside the photograph it was cut from.
     front_crop                text    DEFAULT '',
     back_crop                 text    DEFAULT '',
     edge_crop                 text    DEFAULT '',
@@ -132,6 +149,11 @@ CREATE TABLE IF NOT EXISTS books (
     -- looked at and declined, which is what lets a view say "shown whole"
     -- about that photo without saying it about every photo taken before any
     -- of this existed.
+    --
+    -- Dropped by #228. One string per row describing three photographs could not
+    -- survive a second photograph of a kind, so the distinction is
+    -- capture.examined, per photograph. The wire still speaks in this string
+    -- and server/photographs.ts rebuilds it from the flags.
     cropped                   text    DEFAULT '',
     isbn_source               text    DEFAULT '',
     -- Vestigial. Meant to hold the raw OCR text a capture read off a book, so
@@ -296,6 +318,12 @@ CREATE INDEX IF NOT EXISTS idx_separators ON separators (shelf_range, position);
  * own because this is where the columns it names are declared and explained.
  * It is the shape of a row, not a fact about a driver: `Store` and `Shelves`
  * both take it and neither can see what is underneath them.
+ *
+ * **There is no photograph on it, since #228.** A book's photographs are rows in
+ * `capture`, and what everything above the stores actually reads is
+ * `PhotographedBook` in `server/photographs.ts`: this, with the current
+ * photograph of each kind joined onto it. A row of `books` cannot answer what a
+ * book looks like, and that is the change.
  */
 export interface BookRow {
   id: number
@@ -319,9 +347,6 @@ export interface BookRow {
   sort_key: string
   location: string
   lookup_source: string
-  front_image: string
-  back_image: string
-  edge_image: string
   isbn_source: string
   /** Vestigial; always ''. See the comment on this column in SCHEMA above. */
   ocr_text: string
@@ -363,22 +388,14 @@ export interface BookRow {
   claimed_by: string
   claimed_at: string | null
   processed_at: string | null
-  /** Publisher cover from the catalogue, as a filename under /api/covers. */
-  cover_image: string
-  /** When a cover was last looked for, found or not. */
-  cover_checked_at: string | null
-  /** Difference hashes, for matching a book held up to the camera. */
-  front_hash: string
-  cover_hash: string
   /**
-   * The three photos cut to the book, as filenames under /api/covers. Empty
-   * where the detector was never run or could not find the book.
+   * When a cover was last looked for, found or not.
+   *
+   * The one survivor of the ten #228 dropped, because it is a fact about a
+   * search rather than about a photograph: a book with no artwork anywhere has
+   * been asked about and has no `catalogue` row to carry the answer.
    */
-  front_crop: string
-  back_crop: string
-  edge_crop: string
-  /** Slots the detector has looked at, comma separated. See SCHEMA above. */
-  cropped: string
+  cover_checked_at: string | null
 }
 
 /**
