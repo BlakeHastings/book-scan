@@ -97,7 +97,7 @@ The brief names the specific thing:
 
 > Start the app with Aspire. Scan a book onto a full shelf and take the
 > suggested move. Then call `POST /api/shelves/overflow/plan` for the same shelf
-> and confirm the separator rows are unchanged afterwards. Do not run the
+> and confirm the `area` rows are unchanged afterwards. Do not run the
 > browser suite; CI has run it.
 
 The reply is four lines and nothing else:

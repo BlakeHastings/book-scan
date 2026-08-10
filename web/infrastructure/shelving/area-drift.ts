@@ -1,26 +1,44 @@
 /**
- * The check that lets `area` exist beside `separators`.
+ * The check that lets one set of rows decide where every book goes.
  *
- * **This is #184's book-by-book comparison, made continuous.** That comparison
- * placed every one of 236 books twice, once by the code the app runs today and
- * once by the rows `0013` wrote, and proved the two answers identical. It proved
- * it *at the moment of the backfill*, and #213 is what that proof expires to:
- * the first boundary somebody moves, the claim is about a catalogue that no
- * longer exists.
+ * **This is #184's book-by-book comparison, and it has now outlived both the
+ * things it was written to compare.** #184 placed every one of 236 books twice,
+ * once by `separators` and once by the areas `0013` derived from them, and
+ * proved the two answers identical at the moment of the backfill. #213 made that
+ * continuous, because the first boundary somebody moved, the claim was about a
+ * catalogue that no longer existed. #232 dropped `separators`, and the question
+ * is what a comparison with one model left is worth.
  *
- * So the comparison moves out of the migration's test and into code that can be
- * run against any catalogue at any time. `applySchema` runs it on every start,
- * `placement-backfill.test.ts` runs it after the backfill and again after a
- * divider is added, moved and removed, and it is what the write-through in
- * `areas.ts` is measured by rather than described by.
+ * **It is worth what it always was, because there were never two models here:
+ * there were two ways of asking one set of rows where a book goes, and both of
+ * them survive the drop.**
  *
- * ## Two models, neither of them this file's own
+ * - `underTheLayout` is what the app draws. It takes the range off
+ *   `books.shelf_range`, reads that range's band, turns the areas in it back
+ *   into a boundary list and walks it with `layoutRange`, which is exactly the
+ *   sequence `Shelves.layout` performs.
+ * - `underRules` is what the model says. It takes no notice of `shelf_range`: it
+ *   asks which `placement_rule` claims the book by the tags it carries, follows
+ *   that rule's run through `slotsInOrder`, and lands the book by its sort key.
  *
- * Nothing here re-implements a placement. `underSeparators` is `layoutRange`,
- * which is what `Shelves.layout` calls; `underRules` is `placementOf` over
- * `slotsInOrder`, which is the whole of the new model. A check that walked the
- * boundaries itself would agree with whichever of the two it was written from
- * and say nothing about the other.
+ * The inputs are different all the way down. One is a column and a walk over a
+ * derived boundary list; the other is `book_tag`, the rules and the sequence of
+ * areas. They agree only when the range a book's genre settled on is the range
+ * the rules claim it into, and when the boundary list really is the inverse of
+ * the areas it was derived from. Both of those are things that can be wrong, and
+ * both of them are wrong in the way that matters: silently, and about a shelf in
+ * somebody's house.
+ *
+ * What it stopped being able to catch is a boundary written into `separators`
+ * without an area beside it, and that is because there is no `separators`.
+ *
+ * ## Two readings, neither of them this file's own
+ *
+ * Nothing here re-implements a placement. `underTheLayout` calls `layoutRange`,
+ * which is what `Shelves.layout` calls; `underRules` calls `placementOf` over
+ * `slotsInOrder`, which is the whole of the model. A check that walked the areas
+ * itself would agree with whichever of the two it was written from and say
+ * nothing about the other.
  *
  * It is deliberately not the derivation `areas.ts` writes with, either. A writer
  * checked by its own arithmetic proves that it is self-consistent, which is the
@@ -28,34 +46,33 @@
  *
  * ## Reported, not repaired
  *
- * Nothing here writes. `recordAreasOf` is the repair, and running it is a
- * decision somebody makes having read the report, in the same way
- * `rebuildProjection` is for `books.current_area_id` (#185). Repairing on sight
- * would destroy the evidence of which writer is missing, which is the only
- * question a disagreement actually asks.
+ * Nothing here writes. Repairing on sight would destroy the evidence of how a
+ * disagreement happened, which is the only question one actually asks, in the
+ * same way `rebuildProjection` is a decision somebody makes having read the
+ * report (#185).
  */
 
-import { labelFor, slotsInOrder, type Area, type Fixture, type Slot } from '../../domain/placement/geography'
-import { placementOf, type PlacementRule, type RuleOperator } from '../../domain/placement/rules'
-import type { SortStrategy } from '../../domain/placement/strategies'
+import { labelFor } from '../../domain/placement/geography'
+import { placementOf } from '../../domain/placement/rules'
+import { GENRE_RANGES } from '../../domain/tagging/genre'
 import type { Db } from '../../server/driver'
-import { layoutRange, type Separator, type SeparatorKind } from '../../shared/layout'
-import type { ShelfRange } from '../../shared/shelving'
+import { layoutRange } from '../../shared/layout'
+import { bandsOf, boundariesOf, furnitureIn } from './areas'
 
-/** One book the two models put in different places. */
+/** One book the two readings put in different places. */
 export interface AreaDisagreement {
   bookId: number
   title: string
-  /** The plank the separators put it on, which is where the app puts it today. */
-  fromSeparators: string
+  /** The plank the layout draws it on, which is where the app puts it. */
+  fromLayout: string
   /** The plank the areas and the rules put it on, or '' when nothing claims it. */
   fromRules: string
 }
 
 /** The disagreement said the way a reviewer reads it, in one line. */
 export function describeAreaDisagreement(one: AreaDisagreement): string {
-  return `${one.title}: separators say ${one.fromSeparators}, ` +
-    `rules say ${one.fromRules || 'nowhere'}`
+  return `${one.title}: the layout says ${one.fromLayout}, ` +
+    `the rules say ${one.fromRules || 'nowhere'}`
 }
 
 interface BookRow {
@@ -65,42 +82,30 @@ interface BookRow {
 }
 
 /**
- * Where the app puts every shelved book today, range by range.
+ * Where the app draws every shelved book, range by range.
  *
  * The three reads are `Shelves.startOf`, `Shelves.booksIn` and
  * `DrizzleSeparatorRepository.inRange` spelled out, in that order and with those
  * orderings, because the order the boundaries come back in is what decides where
  * two sharing an anchor are stepped over.
  */
-async function underSeparators(db: Db): Promise<Map<number, { title: string; label: string }>> {
+async function underTheLayout(db: Db): Promise<Map<number, { title: string; label: string }>> {
   const placed = new Map<number, { title: string; label: string }>()
+  const bands = await bandsOf(db)
 
-  const ranges = await db.all<{ shelf_range: ShelfRange; start_shelf: number; start_area: number }>(
-    'SELECT shelf_range, start_shelf, start_area FROM shelf_ranges ORDER BY shelf_range',
-  )
+  for (const { range } of GENRE_RANGES) {
+    const band = bands.get(range)
+    if (!band) continue
 
-  for (const range of ranges) {
     const books = await db.all<BookRow>(
       'SELECT id, title, sort_key FROM shelved_books WHERE shelf_range = ? ORDER BY sort_key ASC',
-      [range.shelf_range],
-    )
-    const separators = await db.all<{
-      id: number; kind: SeparatorKind; starts_at: string; position: number
-    }>(
-      'SELECT id, kind, starts_at, position FROM separators WHERE shelf_range = ? ORDER BY position',
-      [range.shelf_range],
+      [range],
     )
 
     const layout = layoutRange(
       books.map((row) => ({ id: row.id, title: row.title, sortKey: row.sort_key })),
-      separators.map((row): Separator => ({
-        id: row.id,
-        range: range.shelf_range,
-        kind: row.kind,
-        startsAt: row.starts_at,
-        position: row.position,
-      })),
-      { shelf: range.start_shelf, area: range.start_area },
+      await boundariesOf(db, range),
+      band.start,
     )
 
     for (const one of layout) {
@@ -109,53 +114,6 @@ async function underSeparators(db: Db): Promise<Map<number, { title: string; lab
   }
 
   return placed
-}
-
-/** The furniture and the rules, read back out of the rows. */
-async function furnitureIn(db: Db): Promise<{ order: Slot[]; rules: PlacementRule[] }> {
-  const fixtures = await db.all<{
-    id: number; position: number; kind: string; name: string; sort_strategy: SortStrategy
-  }>('SELECT id, position, kind, name, sort_strategy FROM fixture')
-
-  const areas = await db.all<{
-    id: number; fixture_id: number; position: number; name: string;
-    starts_at: string; sort_strategy: SortStrategy
-  }>('SELECT id, fixture_id, position, name, starts_at, sort_strategy FROM area')
-
-  const rules = await db.all<{
-    id: number; area_id: number | null; fixture_id: number | null;
-    priority: number; name: string; enabled: boolean
-  }>('SELECT id, area_id, fixture_id, priority, name, enabled FROM placement_rule')
-
-  const conditions = await db.all<{
-    rule_id: number; field: 'tag'; operator: RuleOperator; value: string
-  }>('SELECT rule_id, field, operator, value FROM rule_condition ORDER BY id')
-
-  const order = slotsInOrder(
-    fixtures.map((row): Fixture => ({
-      id: row.id, position: row.position, kind: row.kind, name: row.name,
-      sortStrategy: row.sort_strategy,
-    })),
-    areas.map((row): Area => ({
-      id: row.id, fixtureId: row.fixture_id, position: row.position, name: row.name,
-      startsAt: row.starts_at, sortStrategy: row.sort_strategy,
-    })),
-  )
-
-  return {
-    order,
-    rules: rules.map((row): PlacementRule => ({
-      id: row.id,
-      areaId: row.area_id,
-      fixtureId: row.fixture_id,
-      priority: row.priority,
-      name: row.name,
-      enabled: row.enabled,
-      conditions: conditions
-        .filter((condition) => condition.rule_id === row.id)
-        .map(({ field, operator, value }) => ({ field, operator, value })),
-    })),
-  }
 }
 
 /** Where the rules and the areas put every shelved book, run through the domain. */
@@ -182,20 +140,20 @@ async function underRules(db: Db): Promise<Map<number, string>> {
 }
 
 /**
- * Every shelved book the separators and the areas put in different places.
+ * Every shelved book the layout and the rules put in different places.
  *
- * Ordered by id, which is the order the two backfill tests already read, and
+ * Ordered by id, which is the order the backfill tests already read, and
  * unbounded: the caller decides how many to say out loud, because the total is
  * the number that matters and the names are the ones that explain it.
  */
 export async function areaDisagreements(db: Db): Promise<AreaDisagreement[]> {
-  const [separators, rules] = await Promise.all([underSeparators(db), underRules(db)])
+  const [layout, rules] = await Promise.all([underTheLayout(db), underRules(db)])
 
   const found: AreaDisagreement[] = []
-  for (const [bookId, { title, label }] of separators) {
+  for (const [bookId, { title, label }] of layout) {
     const fromRules = rules.get(bookId) ?? ''
     if (fromRules !== label) {
-      found.push({ bookId, title, fromSeparators: label, fromRules })
+      found.push({ bookId, title, fromLayout: label, fromRules })
     }
   }
 

@@ -18,6 +18,9 @@ import { lookupIsbn } from './lookup'
 import type { LookupResult } from './lookup'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+// A recorded location names an `area` row since #232, so a test that records one
+// on a plank the seeded furniture does not have has to make the plank first.
+import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
@@ -400,8 +403,36 @@ describe('naming a duplicate already on the shelf (#233)', () => {
     return new CaptureQueue(db, reader, {}, undefined, (isbn) => store.findByIsbn(isbn))
   }
 
+  /**
+   * Give the fiction run a second bookcase with two planks on it, so `2B` is
+   * somewhere a book can be recorded.
+   *
+   * A test database arrives with the two runs `0013` seeds and nothing else, so
+   * `1A` and `4A` are the only planks that exist. Since #232 a recorded location
+   * names an `area` row rather than being a string in a column, so saving a book
+   * at `2B` on a catalogue with no second bookcase is refused, which is the same
+   * refusal a person would get for typing a plank they do not have.
+   *
+   * Two boundaries, in anchor order, because that is what makes the second one a
+   * plank on the new bookcase rather than a third one on the first: a `shelf`
+   * boundary opens `2A` and an `area` boundary after it opens `2B`. Neither
+   * anchor names a book, and neither needs to: a boundary says where a plank
+   * begins, and what this test is about is the plank existing to be recorded on.
+   */
+  async function giveFictionASecondBookcase(): Promise<void> {
+    const boundaries = new DrizzleSeparatorRepository(db)
+    const at = '2026-01-02T03:04:05.000Z'
+    await boundaries.add({
+      range: 'fiction', kind: 'shelf', startsAt: 'A', position: 0, note: '', createdAt: at,
+    })
+    await boundaries.add({
+      range: 'fiction', kind: 'area', startsAt: 'B', position: 1, note: '', createdAt: at,
+    })
+  }
+
   it('names it when a person corrects the ISBN on a queued capture', async () => {
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+    await giveFictionASecondBookcase()
     const { id: shelvedId } = await store.addBook({
       isbn13: DUNE, title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '2B',
     })
@@ -426,6 +457,7 @@ describe('naming a duplicate already on the shelf (#233)', () => {
   })
 
   it('names it on the automatic pass too, not only a manual correction', async () => {
+    await giveFictionASecondBookcase()
     const { id: shelvedId } = await store.addBook({
       isbn13: DUNE, title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '2B',
     })

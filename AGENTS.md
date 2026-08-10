@@ -513,7 +513,8 @@ teach people to skim past it.
 | `docs/backup-runbook.md` | How the catalogue is backed up, and what is not covered |
 | `web/domain/tagging/genre.ts` | Which shelf range a book's genre tags file it into |
 | `web/server/shelves.ts` | Shelf capacity and derived locations |
-| `web/server/placement-ledger.ts` | How a recorded location becomes a `book_placement` row |
+| `web/server/placement-ledger.ts` | Where a book is: the `book_placement` rows, and the two fields the wire derives from them |
+| `web/infrastructure/shelving/areas.ts` | The areas a range is cut into, and the boundary list they are read back as |
 | `web/shared/` | Domain rules shared by client and server |
 | `web/instrumentation.ts` | OpenTelemetry setup, preloaded with `--import` |
 | `e2e/` | Gherkin features and the browser suite that runs them |
@@ -523,12 +524,13 @@ teach people to skim past it.
 ### The layering, and the tables that go through it
 
 Epic #169 separates the domain from the data store. **Four slices have been
-converted**: `separators` (#172), which is where the pattern was judged, `tag`
-with `book_tag` (#179), `author` with `author_alias` and `book_author` (#180),
-and `capture` (#181), the last three of which were built that way from the
-start. Books, the queue, shelf ranges and the rest still go through `Store`,
-`Shelves` and `CaptureQueue` exactly as they did. Do not convert another table as
-a side effect of doing something else.
+converted**: the shelf boundaries (#172), which is where the pattern was judged
+and which were `separators` then and are `area` now, `tag` with `book_tag`
+(#179), `author` with `author_alias` and `book_author` (#180), and `capture`
+(#181), the last three of which were built that way from the start. Books, the
+queue and the rest still go through `Store`, `Shelves` and `CaptureQueue` exactly
+as they did. Do not convert another table as a side effect of doing something
+else.
 
 **`capture` is not `captures`.** The singular one is a photograph, added by
 #181; the plural one was the scanning queue and was dissolved by #183. One
@@ -554,7 +556,13 @@ statements that move a book go in `Store`.
 the JSON still carries `front_image`, `front_crop` and `cropped`, derived from
 the newest photograph of each kind, and the client, the browser suite and the two
 crop backfills read those. That is the shape #223 left `books.is_fiction` in: cut
-the decision over, take the field off the wire separately.
+the decision over, take the field off the wire separately. #232 made the same call
+about `location` and `checked_out_at`, which are derived by
+`server/placement-ledger.ts` and carry the names the dropped columns had.
+
+**The one field that did leave the wire is `books.shelved_at`**, because nothing
+was reading it: three statements wrote it and no query, route, client or scenario
+selected it back.
 
 `current_photograph` is the one relation that answers "the newest photograph of
 each kind", which is `Photographs.latest` said in SQL. Two statements read it and
@@ -567,10 +575,19 @@ the view. The second dissolved the queue: **there is no queue table.** A book
 exists from its first photograph, so `CaptureQueue` reads and writes `books`,
 the queue is `queued_books`, and `identified` has rows in it.
 
-**The `captures` table is still in the schema and nothing reads it.** No *table*
-has ever been dropped here, so it sits there with its rows, each one naming the
-book it became in `book_id`. Do not add a reader. If you find yourself writing
-`FROM captures`, the answer is `queued_books`.
+**The `captures` table is still in the schema and nothing reads it.** It sits
+there with its rows, each one naming the book it became in `book_id`. Do not add
+a reader. If you find yourself writing `FROM captures`, the answer is
+`queued_books`.
+
+**Two tables have been dropped, and they are the first two** (#232): `separators`
+and `shelf_ranges`. That is not a licence to drop the one above. Dropping a table
+takes its indexes, its identity sequence and every row anybody put in it, and
+there is no ledger of boundaries to fall back on the way `book_placement` catches
+`books.location`, so what made those two safe was that every one of their rows had
+already become an `area` or a `placement_rule` and the two were compared row for
+row while both were live. `captures` has had no such successor built for it,
+because nothing was ever going to read it again.
 
 **Tags and credits are written on every save, unconditionally.** The gate that
 used to decide this from the driver in `createApp` is gone: it existed only
@@ -685,17 +702,19 @@ identified.** It has no title, no author and no shelf range, and it is already
 on screen in the queue, which is the one place anybody can act on it. That is
 the question #204 left open at `Store.listRange` and #183 answered.
 
-**`checked_out_at` is still the column the client reads**, and
-`Store.setCheckedOut` writes it and `state` in one statement so they cannot
-disagree. Nothing else moves a book between those two states.
+**`checked_out_at` is still what the client reads and it is not a column** (#232).
+`books.state` says which books are out, `Store.setCheckedOut` compares and sets it
+in one statement, and the moment a book left is the `created_at` of the
+`checked_out` row written in the same transaction. `withPlacements` in
+`server/placement-ledger.ts` puts the two back together for the wire. Nothing else
+moves a book between those two states.
 
 ### There are four statements that change where a book is, and there is no fifth
 
 `Store.addBook`'s insert, `Store.updateBook`'s update, `Store.setLocation` and
-`Store.setCheckedOut`. Every one of them writes `books.location`,
-`books.shelved_at` or `books.checked_out_at`, and every one of them also writes a
-row to `book_placement` and the `books.current_area_id` projection, through
-`server/placement-ledger.ts`, **on its own transaction handle** (#185).
+`Store.setCheckedOut`. Every one of them writes a row to `book_placement` and the
+`books.current_area_id` projection, through `server/placement-ledger.ts`, **on its
+own transaction handle** (#185).
 
 **If you add a fifth, it goes in `Store` beside those four and it records a
 placement.** A route that writes a location without one is the defect #200 found
@@ -705,29 +724,53 @@ it. `applySchema` folds the ledger back out on every start and says whether
 `current_area_id` still agrees, which is how a missing writer is found rather
 than discovered a week later.
 
-`books.location` is still authoritative and still what the client and
-`reviewShelving` read. Nothing reads a placement row yet.
+**`books.location`, `books.shelved_at` and `books.checked_out_at` are gone**
+(#232). The ledger is where a book is, `current_area_id` is the projection a shelf
+is drawn from, and `withPlacements` derives the two fields the wire still carries.
+`shelved_at` is not one of them: three statements wrote it and nothing ever read
+it back.
 
-### There are four statements that write a boundary, and they write the areas too
+**Two labels the location route used to take are refused**, and both refusals are
+the price of there being one record instead of two. A label naming a plank the
+furniture does not have has nowhere in the ledger to go, and an empty label, which
+used to mean never-placed, is not any of the six placement kinds. No screen sends
+either.
 
-`DrizzleSeparatorRepository.add`, `.reanchor`, `.reposition` and `.remove`. Every
-one of them re-derives that range's areas through `recordAreasOf`
-(`web/infrastructure/shelving/areas.ts`) on its own transaction handle, which is
+### There are three statements that write a boundary, and there is no fourth
+
+`DrizzleSeparatorRepository.add`, `.reanchor` and `.remove`. Each reads the
+range's boundaries out of the areas, makes the one change it was asked for and
+writes the areas back through `writeBoundaries`
+(`web/infrastructure/shelving/areas.ts`), on its own transaction handle, which is
 why `Shelves`, `RemoveSeparatorHandler` and the routes above them are covered
-without knowing they are (#213). **If you add a fifth, it goes in that class
-beside the four that do.** A boundary written straight into `separators` is the
-defect `0013` left behind: the table grew a row, `area` did not, and a plank's
-worth of books was drawn on the plank before.
+without knowing they are. **If you add a fourth, it goes in that class beside the
+three that do.**
 
-`separators` is still authoritative and still decides where every book goes.
-Nothing reads an area to place a book yet; cutting that over is #220's fourth
-step.
+**`area` is what `separators` became, and `separators` is dropped** (#232), along
+with `shelf_ranges`. `area.starts_at` is `separators.starts_at` under a name that
+says what it anchors; a boundary's `kind` and `position` are derived from where
+the area sits, so there was a `reposition` and there is not one now: a plank's
+ordinal is its place in the run and cannot have a gap in it.
+
+**An area a book has been placed in is retired rather than deleted.**
+`book_placement.area_id` is `ON DELETE RESTRICT`, so the history pins the
+furniture it names. A retired area's `position` goes negative, which takes it off
+the fixture's face while leaving every placement that names it exactly where it
+is, and every read of the furniture asks for `position >= 0`. That is what closes
+the drift #213 could only report.
 
 `areaDisagreements` (`web/infrastructure/shelving/area-drift.ts`) is what says
-whether it worked: it places every shelved book by both models and names the ones
-they differ about, and `applySchema` runs it on every start. Like the projection
-check it **reports and does not repair**, because rebuilding on sight erases the
-evidence of which writer is missing.
+whether it worked, and it survived losing one of the two things it compared. It
+still places every shelved book twice: once as the app draws it, taking the range
+off `books.shelf_range` and walking a boundary list derived from the areas, and
+once as the rules claim it, by the tags it carries. `applySchema` runs it on every
+start. Like the projection check it **reports and does not repair**, because
+rebuilding on sight erases the evidence of which writer is missing.
+
+**What it no longer catches is an anchor being moved**, because both of its
+readings walk the same areas. `Shelves.review` is what catches that: it compares
+where every book is recorded against where the furniture puts it, which is still
+two sides, and it is the misfile list somebody acts on.
 
 ### Postgres schema changes go through Drizzle
 

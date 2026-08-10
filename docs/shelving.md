@@ -415,6 +415,29 @@ away: the recorded location is the record of where the book physically is, and
 a guess written into it is worse than nothing there at all. A location changes
 only when a person says the book moved.
 
+### A location names a plank the collection has, or it is refused
+
+Settled by #232, and it is a change in what the app accepts rather than a
+restatement.
+
+Until then a recorded location was a string in a column, so it would hold any
+label `parseLocation` accepts: `9Z` was recordable on a collection with three
+bookcases, and the app kept it while quietly disagreeing with itself about that
+book, because the ledger beside the column had nowhere to put it. There is one
+record now, `book_placement`, and it names an area. So a label naming a plank the
+furniture does not have is refused at `PATCH /api/books/:id/location`, and the
+message says so.
+
+The same goes for an empty label, which used to mean "take this book back to
+never-placed". None of the six placement kinds says that: `withdrawn` means given
+away and `checked_out` means it is out of the house in somebody's bag, and the
+ledger is append only, so there is nothing to unsay. A book that has left the
+shelves is checked out or withdrawn rather than nowhere.
+
+Neither refusal is reachable from the app. Every label the client sends comes from
+a layout the server drew, and no screen clears one. What they protect against is a
+record that says where a book is and cannot be acted on.
+
 ### Location label format
 
 Accept `1A`, `S1A`, and `S4`, all parsing to `(shelf:int, section:str)` with

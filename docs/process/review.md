@@ -27,16 +27,24 @@ design, so "reverts cleanly" is not a property to check for.
 **The schema stopped being append only at #228**, which dropped the ten
 photograph columns on `books` once `capture` was what the app read, and #227,
 which dropped `books.is_fiction` and `books.author_filing` once the genre tag and
-the credited alias decided where a book files. That is the cut-over epic #220
-doing what it exists to do, and it does not license dropping a column as a side
-effect of something else. What a change that drops one owes: the drop is its own
-commit and the last one, so a revert is one commit; the migration counts what it
-is about to make unreachable, both ways, and **refuses rather than finishing
-quietly**; any repair the old columns are the only source for runs in an earlier
-migration, while they still say something; and **the comparison that says the new
-answer is the old answer runs in the same pull request**, over a catalogue that
-still has the column, because afterwards there is nothing to compare against.
-`web/infrastructure/db/cutover.test.ts` is what that looks like.
+the credited alias decided where a book files. **#232 dropped the first two
+tables**, `separators` and `shelf_ranges`, and the three columns that said where a
+book is. That is the cut-over epic #220 doing what it exists to do, and it does
+not license dropping a column as a side effect of something else. What a change
+that drops one owes: the drop is its own commit and the last one, so a revert is
+one commit; the migration counts what it is about to make unreachable, both ways,
+and **refuses rather than finishing quietly**; any repair the old columns are the
+only source for runs in an earlier migration, while they still say something; and
+**the comparison that says the new answer is the old answer runs in the same pull
+request**, over a catalogue that still has the column, because afterwards there is
+nothing to compare against. `web/infrastructure/db/cutover.test.ts` and
+`web/infrastructure/db/placement-cutover.test.ts` are what that looks like.
+
+**A table owes one thing more than a column does.** Dropping a column leaves the
+row; dropping a table takes its indexes, its identity sequence and every row
+anybody put in it, and there is no half of it left to fall back on. So a change
+that drops a table has to be able to say what every one of its rows became, and
+prove it while both are still there.
 
 ## Lens 1: functionality, proven by interaction
 

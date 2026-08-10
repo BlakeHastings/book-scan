@@ -162,6 +162,13 @@
       "when": 1786378997052,
       "tag": "0022_the_alias_is_where_a_book_files",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786397140887,
+      "tag": "0023_the_areas_and_the_ledger_catch_up",
+      "breakpoints": true
     }
   ]
 }

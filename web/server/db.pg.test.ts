@@ -186,6 +186,63 @@ describe('collation, which the entire shelving order rests on', () => {
       .toBeLessThan(byBytes(keys).map(surname).indexOf('SMITHERS ED'))
   })
 
+  it('decides which books are past an area anchor by bytes, which is where a plank begins', async () => {
+    /*
+     * `area.starts_at` is the fourth column in SORT_KEY_COLUMNS and since #232 it
+     * is the only one a plank's beginning is written in: `separators.starts_at`
+     * held the same anchor until the table went. The declaration is read out of
+     * the catalogue above, and this is what the declaration is for. A plank is
+     * every book from its anchor to the next one, so the comparison below is the
+     * question "which books are on this shelf", and under a linguistic collation
+     * it does not fail. It answers with one more book than it should, which is a
+     * real book drawn on the wrong plank of a diagram somebody is holding.
+     */
+    for (const book of FIXTURE) await store.addBook(book)
+    const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
+    const anchor = keys.find((key) => key.startsWith('SMITHERS ED'))!
+
+    // An area hangs on a fixture, and a fixture cannot hold two areas at one
+    // position, so the plank the run opens on and the plank this anchors are
+    // positions 0 and 1 of a bookcase built for this test.
+    const fixture = await db.get<{ id: number }>(
+      `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
+       SELECT id, 'bookshelf', '', 9002, 'inherit', '' FROM collection ORDER BY id LIMIT 1
+       RETURNING id`,
+    )
+    expect(fixture, 'no collection to hang a bookcase off').toBeDefined()
+    await db.run(
+      `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
+       VALUES (?, 0, '', '', 'inherit', ''), (?, 1, '', ?, 'inherit', '')`,
+      [fixture!.id, fixture!.id, anchor],
+    )
+
+    // The anchor compared against the sort key, which is the comparison the whole
+    // model rests on, made twice: once as the two columns declare themselves and
+    // once as the database would have compared them. The first spells no
+    // collation on purpose, so it reads the declaration rather than restating it
+    // and a column that lost `COLLATE "C"` shows up here as well as above.
+    const pastTheAnchor = async (collation = '') => (await db.all<{ sort_key: string }>(
+      `SELECT b.sort_key FROM shelved_books b
+         JOIN area a ON a.fixture_id = ? AND a.position = 1
+        WHERE b.sort_key ${collation} >= a.starts_at ${collation}
+        ORDER BY b.sort_key`,
+      [fixture!.id],
+    )).map((row) => row.sort_key)
+
+    const byteOrder = await pastTheAnchor()
+    expect(byteOrder).toEqual(byBytes(keys).filter((key) => key >= anchor))
+
+    const linguistic = await pastTheAnchor('COLLATE "default"')
+    expect(linguistic).not.toEqual(byteOrder)
+
+    // And the book the difference is: Smith, Zoe files before Smithers, Ed by
+    // bytes and after her by a collation that ignores the separator, so she is
+    // either on this plank or on the one before it.
+    const smithZoe = (found: string[]) => found.some((key) => key.startsWith('SMITH ZOE'))
+    expect(smithZoe(byteOrder)).toBe(false)
+    expect(smithZoe(linguistic)).toBe(true)
+  })
+
   it('seeks the same neighbours through < and > as it orders by', async () => {
     // Placement does not sort, it seeks either side of a key with two
     // inequalities. An index or a comparison under a different collation from
@@ -384,12 +441,33 @@ describe('the parameters with nothing to take a type from', () => {
    * The stores run these through the parameterised suite as well. They are
    * repeated here so a failure names the statement rather than the feature.
    */
-  it('Store.updateBook: NULLIF(CAST(@location AS TEXT), \'\')', async () => {
-    const { id } = await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
+  it('writeBoundaries: an anchor compared with IS DISTINCT FROM an untyped parameter', async () => {
+    // `Store.updateBook`'s `NULLIF(CAST(@location AS TEXT), '')` was here until
+    // #232 dropped `books.location`. This is the statement that inherited the
+    // shape: `recordAreasOf` writes an anchor only when it differs from the one
+    // already there, so the parameter appears twice, once being assigned to a
+    // `text COLLATE "C"` column and once compared against it, and the comparison
+    // is the half with nothing to take a type from.
+    const fixture = await db.get<{ id: number }>(
+      `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
+       SELECT id, 'bookshelf', '', 9001, 'inherit', '' FROM collection ORDER BY id LIMIT 1
+       RETURNING id`,
+    )
+    const area = await db.get<{ id: number }>(
+      `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
+       VALUES (?, 0, '', '', 'inherit', '') RETURNING id`,
+      [fixture!.id],
+    )
+
     await expect(db.run(
-      "UPDATE books SET location = COALESCE(NULLIF(CAST(@location AS TEXT), ''), location) WHERE id = @id",
-      { location: '', id },
+      'UPDATE area SET starts_at = ? WHERE id = ? AND starts_at IS DISTINCT FROM ?',
+      ['SMITH ZOE', area!.id, 'SMITH ZOE'],
     )).resolves.toEqual({ changes: 1 })
+    // And nothing the second time, which is the point of the comparison.
+    await expect(db.run(
+      'UPDATE area SET starts_at = ? WHERE id = ? AND starts_at IS DISTINCT FROM ?',
+      ['SMITH ZOE', area!.id, 'SMITH ZOE'],
+    )).resolves.toEqual({ changes: 0 })
   })
 
   it('Store.missingCovers: CAST(:retry AS INTEGER) = 1, and a bare LIMIT parameter', async () => {

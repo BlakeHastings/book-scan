@@ -343,22 +343,23 @@ export interface BookRow {
   series_index: number | null
   title_filing: string
   sort_key: string
-  location: string
   lookup_source: string
   isbn_source: string
   /** Vestigial; always ''. See the comment on this column in SCHEMA above. */
   ocr_text: string
   scanned_at: string
-  shelved_at: string | null
-  /** ISO timestamp while the book is off the shelf, null while it is on one. */
-  checked_out_at: string | null
   /**
    * Where the book is in its life. See `domain/books/state.ts`, and
    * `shelved_books`, which is the only relation an ordering query reads.
    *
-   * Added beside `checked_out_at` rather than instead of it (#183). That column
-   * is still what the client reads and what `Store.setCheckedOut` compares and
-   * sets, and the two are written in one statement so they cannot disagree.
+   * Added beside `checked_out_at` rather than instead of it (#183), and the last
+   * of the two standing since #232 dropped that column. It is what
+   * `Store.setCheckedOut` compares and sets, and the moment a book left is the
+   * `created_at` of the `checked_out` row written in the same transaction.
+   *
+   * **`location`, `shelved_at` and `checked_out_at` are not here**, because they
+   * are not columns. `server/placement-ledger.ts` derives the two the wire still
+   * carries, in the shape it carries them; see `PlacementFields`.
    */
   state: BookState
   /*
@@ -422,7 +423,7 @@ export interface FiledBookRow extends BookRow {
  *
  * `sort_key` is the spine of the product. `Store.neighbours` seeks either side
  * of one with `<` and `>`, `Shelves.booksIn` orders by it, and
- * `separators.starts_at` is compared against it to find where a shelf begins.
+ * `area.starts_at` is compared against it to find where a plank begins.
  * Every key in this catalogue was built to be compared byte by byte, which is
  * what the SQLite this app grew up on did with no exceptions. Postgres compares
  * using the collation of the column, and a glibc `en_US.utf8` one ignores
@@ -452,7 +453,11 @@ export const SORT_KEY_COLUMNS: readonly (readonly [table: string, column: string
   // kind of column under a different name, and getting its collation wrong
   // orders almost right.
   ['author_alias', 'filing_name'],
-  ['separators', 'starts_at'],
+  // `separators.starts_at` was here until #232 dropped the table. The anchor it
+  // held is `area.starts_at`, which is compared against `books.sort_key` to find
+  // where a plank begins, so it is the same column under a name that says what
+  // it anchors, and getting its collation wrong orders almost right.
+  ['area', 'starts_at'],
 ]
 
 /**
@@ -777,67 +782,58 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
   // they have now. `aspire logs api` is where this shows up.
   console.log(`[db] postgres migrations: ${OUTCOMES[outcome]}`)
 
+  /*
+   * There is nothing to seed here any more (#232).
+   *
+   * The two `shelf_ranges` rows this used to write, and the two repairs beside
+   * them, said which bookcase each run began on. That is a `placement_rule`
+   * pointing at a fixture, and `0013` is what writes one: a migration, applied
+   * above, rather than an upsert on every start. A database that reaches this
+   * line has had it.
+   */
   const db = new PgDb(pool)
-  const seed = `INSERT INTO shelf_ranges
-       (shelf_range, start_label, start_shelf, start_area, note)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT DO NOTHING`
-  await db.run(seed, ['fiction', '1A', 1, 0, 'Starts on the first bookcase'])
-  await db.run(seed, ['nonfiction', '4A', 4, 0, 'Bookcase 4 is dedicated to non-fiction'])
-
-  // Two repairs to a seed written before ranges had a starting bookcase. Kept
-  // for the same reason the seed is: a scratch Postgres created by an older
-  // revision of this file is a database somebody may still have.
-  await db.run(
-    "UPDATE shelf_ranges SET start_shelf = 4, start_area = 0, start_label = '4A' " +
-    "WHERE shelf_range = 'nonfiction' AND start_label = 'S4'",
-  )
-  await db.run(
-    "UPDATE shelf_ranges SET start_label = '1A' WHERE shelf_range = 'fiction' " +
-    "AND start_label != '1A'",
-  )
 
   await sayWhetherThePlacementProjectionHolds(db)
-  await sayWhetherTheAreasFollowTheSeparators(db)
+  await sayWhetherTheRulesAgreeWithTheShelf(db)
   await sayWhetherEveryShelvedBookHasAGenre(db)
 }
 
 /**
- * Place every shelved book twice, by the separators and by the areas, and say
- * whether the two answers are the same book for book.
+ * Place every shelved book twice, by the shelf the app draws and by the rules,
+ * and say whether the two answers are the same book for book.
  *
- * **This is #184's comparison, asked again.** That test placed 236 books both
- * ways and proved the answers identical at the moment `0013` ran, and #213 is
- * what that proof expires to: the first divider somebody moves, it is a claim
- * about a catalogue that no longer exists. So it is asked here instead, against
- * whatever catalogue the app has just opened, every time it opens one.
+ * **This is #184's comparison, asked again, and #232 is where it had to survive
+ * losing one of the two things it compared.** It placed 236 books by
+ * `separators` and by the areas `0013` derived from them and proved the answers
+ * identical at the moment of the backfill; #213 made it continuous, because the
+ * first divider somebody moves, a backfill's proof is about a catalogue that no
+ * longer exists. `separators` is gone, and what is left is still two readings of
+ * one set of rows rather than one: the shelf takes the range off
+ * `books.shelf_range` and walks a boundary list derived from the areas, and the
+ * rules take no notice of that column and claim the book by the tags it carries.
+ * See `infrastructure/shelving/area-drift.ts`.
  *
- * The write-through in `infrastructure/shelving/areas.ts` is what keeps the
- * answer empty. This is what says whether it did, and it is worth more than the
- * write-through: a comparison that can fail is the only thing that turns
- * "written on the same statement" from a claim about the code into a fact about
- * the rows.
+ * They disagree when a book's range column and its genre tags disagree, when a
+ * range's run has grown past where the next range begins, and when the boundary
+ * list is not the inverse of the areas it came from. Every one of those is a
+ * book drawn on the wrong plank, and every one of them is silent.
  *
  * **It reports, does not repair, and does not refuse to start**, for the reasons
- * given above about the projection. A catalogue that drifted before the
- * write-through existed reports here until the next boundary is written in that
- * range, which is `recordAreasOf` closing it, and that line is the evidence of
- * how far it had drifted.
+ * given above about the projection.
  */
-async function sayWhetherTheAreasFollowTheSeparators(db: Db): Promise<void> {
+async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
   const found = await areaDisagreements(db)
   if (!found.length) {
-    console.log('[placement] every book lands in the area its separators put it in')
+    console.log('[placement] every book lands where the rules claim it')
     return
   }
 
   // Bounded, because a line per book is not a report, it is a reason to stop
   // reading the log. The count is the number that matters.
   console.error(
-    `[placement] ${found.length} books are drawn on one plank by the separators and ` +
-    'another by the areas, so a boundary was written without its area. ' +
-    'recordAreasOf() in infrastructure/shelving/areas.ts writes a range again; ' +
-    'find the writer first. ' +
+    `[placement] ${found.length} books are drawn on one plank by the shelf and another ` +
+    'by the rules, so the range a book files into and the rule that claims it ' +
+    'no longer say the same thing. Read the names before changing anything: ' +
     found.slice(0, 10).map(describeAreaDisagreement).join('; '),
   )
 }

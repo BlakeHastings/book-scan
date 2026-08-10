@@ -201,6 +201,10 @@ describe('the baseline migration on an empty database', () => {
     // `collatedText` was used, because that is a claim about the source and this
     // is a reading off the catalogue.
     //
+    // `separators.starts_at` was the eighth until #232 dropped the table, and
+    // its going is why the sentence above is no longer about two columns holding
+    // the same anchor. There is one column a plank's beginning is compared in.
+    //
     // The last nine are the three views, added by #183, and they are the reason
     // this query is not filtered to tables. `catalogued_books` and
     // `queued_books` arrived with the second half of it, alongside
@@ -229,7 +233,6 @@ describe('the baseline migration on an empty database', () => {
       { table_name: 'queued_books', column_name: 'author_filing' },
       { table_name: 'queued_books', column_name: 'sort_key' },
       { table_name: 'queued_books', column_name: 'title_filing' },
-      { table_name: 'separators', column_name: 'starts_at' },
       { table_name: 'shelved_books', column_name: 'author_filing' },
       { table_name: 'shelved_books', column_name: 'sort_key' },
       { table_name: 'shelved_books', column_name: 'title_filing' },
@@ -272,9 +275,11 @@ describe('a database that already has these tables', () => {
     // Not "the tables are untouched", which is what this used to say and what
     // stopped being true at #183. `0007` adds `books.state`, `0010` adds the
     // eleven columns that were the queue table, `0014` adds
-    // `books.current_area_id` and `0019` drops the ten that held photographs,
-    // and those are the only migrations to alter a table the baseline created
-    // rather than add one beside it. So the claim worth making is that a later
+    // `books.current_area_id`, `0019` drops the ten that held photographs,
+    // `0021` and `0022` drop one apiece, and `0024` to `0026` drop the three
+    // #232 took: those are the migrations that alter a table the baseline
+    // created rather than add one beside it, and `0027` and `0028` take two of
+    // the tables away entirely. So the claim worth making is that a later
     // migration's deliberate additions and removals are the *only* difference. A
     // baseline that had run would show up as every column being rebuilt, which
     // this still catches.
@@ -286,11 +291,38 @@ describe('a database that already has these tables', () => {
     const baseline = baselineTableNames()
     const ofBaseline = (rows: Record<string, unknown>[]) =>
       rows.filter((row) => baseline.includes(String(row.table_name)))
-    const named = (row: Record<string, unknown>) => `${row.table_name}.${row.column_name}`
-    const was = new Set(ofBaseline(before.columns).map(named))
-    const now = new Set(ofBaseline(after.columns).map(named))
+    const tablesOf = (rows: Record<string, unknown>[]) =>
+      [...new Set(ofBaseline(rows).map((row) => String(row.table_name)))]
+    /*
+     * The baseline tables the cut-over dropped, and they are the first two this
+     * repository has ever dropped.
+     *
+     * `separators` is `area` under a name that says what it anchors and
+     * `shelf_ranges` is two `placement_rule` rows, both #232's. Until then
+     * twelve columns had gone and no table had, which is why `captures` is still
+     * sitting there with its rows and nothing reading it.
+     *
+     * Named rather than counted for the reason the columns are, and more so: a
+     * table that disappeared without somebody writing it down is a worse
+     * accident than a column that did. A column takes its own values; a table
+     * takes its indexes, its identity sequence and every row anybody put in it,
+     * and there is no ledger of boundaries to read one back out of the way
+     * `book_placement` holds what `books.location` said.
+     */
+    const droppedTables = ['separators', 'shelf_ranges']
+    expect(tablesOf(before.columns).filter((table) => !tablesOf(after.columns).includes(table)))
+      .toEqual(droppedTables)
 
-    expect(ofBaseline(after.columns).filter((row) => !was.has(named(row))).map(named))
+    // The columns of the tables that are still there. A dropped table's columns
+    // are accounted for by the list above, and rolling them into the one below
+    // would say a table going is twelve columns going.
+    const ofSurviving = (rows: Record<string, unknown>[]) =>
+      ofBaseline(rows).filter((row) => !droppedTables.includes(String(row.table_name)))
+    const named = (row: Record<string, unknown>) => `${row.table_name}.${row.column_name}`
+    const was = new Set(ofSurviving(before.columns).map(named))
+    const now = new Set(ofSurviving(after.columns).map(named))
+
+    expect(ofSurviving(after.columns).filter((row) => !was.has(named(row))).map(named))
       .toEqual([
         'books.state',
         'books.title_guess', 'books.cover_text', 'books.analysed',
@@ -309,24 +341,34 @@ describe('a database that already has these tables', () => {
      * three views, joined back on, which is why the collation assertion below is
      * unchanged and this one is not.
      *
+     * `books.location`, `books.shelved_at` and `books.checked_out_at` are #232's,
+     * one migration each, `0024` to `0026`. The ledger is where a book is: a
+     * `book_placement` row says where somebody put it, when, and who said so, and
+     * `books.current_area_id` is the fold of those rows kept where a shelf can be
+     * drawn from it. The three columns between them said only the present tense,
+     * so what replaces them says more rather than the same thing elsewhere, and
+     * the label the client still reads is derived from the area rather than
+     * stored.
+     *
      * Listed by name for the reason the additions above are. A column that
      * disappeared without somebody writing it down is the accident this test
      * exists for, and it is a worse accident than an extra one.
      */
     const gone = new Set([
-      'books.is_fiction', 'books.author_filing',
+      'books.is_fiction', 'books.author_filing', 'books.location',
       'books.front_image', 'books.back_image', 'books.edge_image',
       'books.cover_image', 'books.front_hash', 'books.cover_hash',
       'books.front_crop', 'books.back_crop', 'books.edge_crop', 'books.cropped',
+      'books.shelved_at', 'books.checked_out_at',
     ])
-    expect(ofBaseline(before.columns).filter((row) => !now.has(named(row))).map(named))
+    expect(ofSurviving(before.columns).filter((row) => !now.has(named(row))).map(named))
       .toEqual([...gone])
 
     // And every column that survived is byte for byte what the baseline made it,
-    // apart from where it sits in the row now that ten before it have gone.
+    // apart from where it sits in the row now that fifteen among them have gone.
     const withoutPosition = ({ ordinal_position: _, ...rest }: Record<string, unknown>) => rest
-    expect(ofBaseline(after.columns).filter((row) => was.has(named(row))).map(withoutPosition))
-      .toEqual(ofBaseline(before.columns)
+    expect(ofSurviving(after.columns).filter((row) => was.has(named(row))).map(withoutPosition))
+      .toEqual(ofSurviving(before.columns)
         .filter((row) => !gone.has(named(row))).map(withoutPosition))
 
     // What did run is everything after the baseline, which is the point of
@@ -354,6 +396,10 @@ describe('a database that is neither empty nor this schema', () => {
   it('is refused, and the missing column is named', async () => {
     const pool = await scratch()
     await pool.query(SCHEMA)
+    // `separators` still, though #232 dropped the table: adoption is a claim
+    // about the baseline, which created it, and is decided before a migration
+    // runs. A baseline table that a later migration takes away is exactly as
+    // good a place to break the schema as one that survives.
     await pool.query('ALTER TABLE separators DROP COLUMN note')
 
     await expect(migrateToLatest(pool)).rejects.toThrow(/separators has no note/)

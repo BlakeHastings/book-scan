@@ -511,7 +511,7 @@ function printDigest(digest: CatalogueDigest): void {
   }
   console.log(`  ${'shelf order'.padEnd(18)}${' '.repeat(8)}  ${digest.shelfOrder ?? '(no books)'}`)
   console.log(
-    `  ${'divider order'.padEnd(18)}${' '.repeat(8)}  ${digest.separatorOrder ?? '(no dividers)'}`,
+    `  ${'area order'.padEnd(18)}${' '.repeat(8)}  ${digest.areaOrder ?? '(no areas)'}`,
   )
   console.log(`  ${'collation'.padEnd(18)}${' '.repeat(8)}  ${digest.collation} / ${digest.encoding}`)
   console.log('')
@@ -700,7 +700,7 @@ function printComparison(
   }
   console.log('')
   line('shelf order', `${expected.shelfOrder ?? '-'}  ${actual.shelfOrder ?? '-'}`)
-  line('divider order', `${expected.separatorOrder ?? '-'}  ${actual.separatorOrder ?? '-'}`)
+  line('area order', `${expected.areaOrder ?? '-'}  ${actual.areaOrder ?? '-'}`)
   line('collation', `${expected.collation}  ${actual.collation}`)
 
   if (differences.length === 0) return

@@ -125,7 +125,8 @@ Two bounds, and both are hard. Whichever bites first wins.
   fills a disk turns one problem into two.
 
 Measured, on a scratch catalogue built to the size of the live one (236 books,
-281 captures, 263 author filings, 11 separators):
+281 captures, 263 author filings, 11 boundaries, which are `separators` rows in
+that measurement and `area` rows since #232):
 
 ```
 size                28 KiB
@@ -174,7 +175,7 @@ are the same string.
 | `<table> rows` | Row counts, per table, for every table either side has. Catches a restore that lost rows. |
 | `<table> content` | A digest of the *set* of rows, each row cast to text and hashed. Sensitive to type as well as value, so a number that arrived as a string changes it. Independent of physical row order and of collation, so it does not fire spuriously on a restore that inserted in a different sequence. |
 | `shelf order` | `md5(string_agg(id::text, ',' order by sort_key, id))` on both sides. **This is the collation check.** |
-| `divider order` | The same for `separators.starts_at`, the other `COLLATE "C"` column. An ordering difference too small to change the book list can still move one book past a divider. |
+| `area order` | The same for `area.starts_at`, the other `COLLATE "C"` column that decides where a book goes. An ordering difference too small to change the book list can still move one book past a divider. It read `separators.starts_at` until #232 dropped that table; an area is a separator grown a parent and carries the same anchor. Retired areas, whose `position` is negative, are out of it: nothing files against one, and the per-table count and content digest cover them anyway. |
 | `collation` | `datcollate` on both sides. A database restored under a different collation is not the same database. |
 
 The shelf order line is the reason this is not just a row count. **A count does

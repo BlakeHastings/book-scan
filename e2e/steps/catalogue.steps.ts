@@ -15,7 +15,7 @@ import { join } from 'node:path'
 
 import { Given, Then, When } from './fixtures.js'
 import { BOOK_IN_HAND, stubBookByTitle } from '../support/books.js'
-import type { BookRow } from '../support/database.js'
+import type { BookRow, PlankRow } from '../support/database.js'
 
 Given('the catalogue is empty', async ({ catalogue }) => {
   await catalogue.reset()
@@ -221,23 +221,36 @@ async function bookIdByTitle(apiUrl: string, title: string): Promise<number> {
  * moment somebody moves it without saying so. Seeding it here gets a scenario
  * to that state without acting out the move that caused it.
  */
-Given('{string} was last recorded at {string}', async ({ apiUrl }, title: string, label: string) => {
-  const id = await bookIdByTitle(apiUrl, title)
-  const response = await fetch(`${apiUrl}/api/books/${id}/location`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ location: label }),
-  })
-  expect(response.ok, `recording ${title} at ${label} failed: ${response.status}`).toBe(true)
-})
+Given(
+  '{string} was last recorded at {string}',
+  async ({ apiUrl, catalogue }, title: string, label: string) => {
+    const id = await bookIdByTitle(apiUrl, title)
+
+    // The plank first, because the app will not invent one. A recorded location
+    // names an area since #232, so a label naming furniture nobody owns is
+    // refused, and a scenario about a book recorded where the shelves do not
+    // put it has to own the shelf it names. `standUpPlank` stands it past the
+    // end of every run, so no book moves on to it and the drawing is unchanged.
+    const plank = /^[Ss]?(\d+)([A-Za-z]*)$/.exec(label)
+    expect(plank, `"${label}" is not a plank this suite can stand up`).toBeTruthy()
+    await catalogue.standUpPlank(Number(plank![1]), plankIndex(plank![2]!))
+
+    const response = await fetch(`${apiUrl}/api/books/${id}/location`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location: label }),
+    })
+    expect(response.ok, `recording ${title} at ${label} failed: ${response.status}`).toBe(true)
+  },
+)
 
 /**
  * A book already down off the shelf when the scenario starts.
  *
  * Through the real checkout route, which takes an id and a direction and no
  * photograph, because that is the only thing in the app allowed to change this
- * state and a scenario that wrote the column directly would prove nothing
- * about it.
+ * state and a scenario that wrote the row directly would prove nothing about
+ * it.
  */
 Given('{string} is off the bookcase', async ({ apiUrl, catalogue }, title: string) => {
   const book = await catalogue.bookByTitle(title)
@@ -255,7 +268,13 @@ Given('{string} is off the bookcase', async ({ apiUrl, catalogue }, title: strin
 /**
  * Where the book physically is, according to the database rather than the
  * screen. This is what makes "scanning writes nothing" a claim worth making:
- * the page can say whatever it likes, the column is the fact.
+ * the page can say whatever it likes, the row is the fact.
+ *
+ * The state, not `books.checked_out_at`, which is gone (#232). It is the same
+ * claim rather than a weaker one: the column and the state were made from each
+ * other, every shelf query already read the state, and the wire's
+ * `checked_out_at` is now derived from it and from the ledger. What is asserted
+ * here is the half the app decides on.
  */
 Then(
   'the catalogue should record {string} as {word} the bookcase',
@@ -263,11 +282,8 @@ Then(
     const book = await catalogue.bookByTitle(title)
     expect(book, `no book called "${title}" in the database`).toBeTruthy()
 
-    if (where === 'off') {
-      expect(book?.checked_out_at, `"${title}" is still on the bookcase`).not.toBeNull()
-    } else {
-      expect(book?.checked_out_at, `"${title}" is still off the bookcase`).toBeNull()
-    }
+    expect(book?.state, `"${title}" is ${where === 'off' ? 'still on' : 'still off'} the bookcase`)
+      .toBe(where === 'off' ? 'checked_out' : 'shelved')
   },
 )
 
@@ -285,6 +301,81 @@ Given('the camera is pointed at the back cover of {string}', async ({}, title: s
   ).toBe(BOOK_IN_HAND.title)
 })
 
+/**
+ * A, B, ... Z, AA: a plank's ordinal written the way a location writes it.
+ *
+ * Bijective base 26, so 0 is A, 25 is Z and 26 is AA. Every plank this suite
+ * builds is a single letter, and spelling only that case would be a second and
+ * wrong answer to what a plank is called, waiting for the first scenario that
+ * needs two.
+ *
+ * A copy of `areaLabel` in web/shared/layout.ts, for the reason `connectionConfig`
+ * in support/database.ts is a copy: this package is a separate npm tree, and
+ * reaching into the app would give the suite a build dependency on the thing it
+ * is testing.
+ */
+function areaLetters(index: number): string {
+  let n = index
+  let letters = ''
+  do {
+    letters = String.fromCharCode(65 + (n % 26)) + letters
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return letters
+}
+
+/**
+ * `areaLetters` read backwards, for the one Given that has to build the plank a
+ * label names before the app will accept the label.
+ *
+ * An inverse away from what it inverts stops being one, so the two are together.
+ */
+function plankIndex(letters: string): number {
+  expect(letters, 'a plank is named by its letters, so "S4" names none').not.toBe('')
+
+  let n = 0
+  for (const character of letters.toUpperCase()) n = n * 26 + (character.charCodeAt(0) - 64)
+  return n - 1
+}
+
+/**
+ * What the catalogue records as a book's location, built back up out of rows.
+ *
+ * **`books.location` is gone (#232).** The wire still speaks in labels, because
+ * that is what is written on a shelf and what the feature files assert; the
+ * database speaks in rows, and where a book is is `books.current_area_id`
+ * pointing at an area hanging off a fixture. So the label is derived here, from
+ * the two rows that make it, which is the same rule `labelFor` in
+ * web/domain/placement/geography.ts applies: the fixture's number and the
+ * plank's letters run together, or both sides' names joined by a separator once
+ * anybody names one.
+ *
+ * Derived rather than read back off `GET /api/books` on purpose. This suite
+ * exists to check what reached the database, and asking the app where it thinks
+ * the book is would only get the app to agree with itself. What that costs is
+ * the negative position below: a derivation kept away from the thing it derives
+ * has to be kept in step with it by hand.
+ */
+function locationOf(areas: readonly PlankRow[], book: BookRow): string {
+  if (book.current_area_id === null) return ''
+
+  const area = areas.find((one) => one.id === book.current_area_id)
+  expect(area, `"${book.title}" is on area ${book.current_area_id}, which no fixture holds`)
+    .toBeTruthy()
+
+  // A negative position is a plank that has been taken out, stored as
+  // `-(position + 1)` so that it still names the plank it was: removing the
+  // divider above 2B does not move the book that was recorded on 2B, and the
+  // misfile list is what says the shelves no longer have one. `faceOf` in
+  // web/infrastructure/shelving/areas.ts is the same reading, and
+  // `withPlacements` applies it to answer the wire.
+  const position = area!.position < 0 ? -area!.position - 1 : area!.position
+
+  const left = area!.fixture_name || String(area!.fixture_position)
+  const right = area!.name || areaLetters(position)
+  return area!.fixture_name || area!.name ? `${left} · ${right}` : `${left}${right}`
+}
+
 Then(
   'the catalogue should hold {string} recorded as:',
   async ({ catalogue }, title: string, table: DataTable) => {
@@ -292,10 +383,19 @@ Then(
     expect(book, `no book called "${title}" in the database`).toBeTruthy()
 
     const expected = table.rowsHash()
+    // Read once, and only when a table asks where the book is: most of these
+    // tables are about a title and an ISBN and have no opinion about the floor.
+    const areas = 'location' in expected ? await catalogue.areas() : []
+
     const columns = book as unknown as Record<string, unknown>
     const actual: Record<string, string> = {}
     for (const column of Object.keys(expected)) {
-      actual[column] = String(columns[column] ?? '')
+      // `location` is the one key here that is not a column and has not been one
+      // since #232. It is answered from the placement instead, so the feature
+      // files go on naming the plank a person would read off the shelf.
+      actual[column] = column === 'location'
+        ? locationOf(areas, book!)
+        : String(columns[column] ?? '')
     }
     expect(actual).toEqual(expected)
   },
@@ -332,12 +432,12 @@ Then(
   'the boundaries recorded for fiction should be:',
   async ({ catalogue }, table: DataTable) => {
     const books = await catalogue.books()
-    const actual = [...await catalogue.separators('fiction')]
+    const actual = [...await catalogue.boundaries('fiction')]
       .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
-      .map((separator) => ({
-        kind: separator.kind,
-        'starts at': books.find((book) => book.sort_key === separator.starts_at)?.title
-          ?? `no book at ${separator.starts_at}`,
+      .map((boundary) => ({
+        kind: boundary.kind,
+        'starts at': books.find((book) => book.sort_key === boundary.starts_at)?.title
+          ?? `no book at ${boundary.starts_at}`,
       }))
 
     expect(actual).toEqual(table.hashes())
@@ -350,12 +450,12 @@ Then(
     const moved = await catalogue.bookByTitle(title)
     expect(moved, `no book called "${title}"`).toBeTruthy()
 
-    const separators = await catalogue.separators('fiction')
-    expect(separators, 'no shelf boundary was written').toHaveLength(1)
-    expect(separators[0]?.kind).toBe('area')
+    const boundaries = await catalogue.boundaries('fiction')
+    expect(boundaries, 'no shelf boundary was written').toHaveLength(1)
+    expect(boundaries[0]?.kind).toBe('area')
     // A boundary is recorded as the sort key of the first book on the new
     // shelf. This is what makes the drawn shelf and the real shelf agree.
-    expect(separators[0]?.starts_at).toBe(moved?.sort_key)
+    expect(boundaries[0]?.starts_at).toBe(moved?.sort_key)
   },
 )
 

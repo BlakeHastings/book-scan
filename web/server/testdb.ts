@@ -40,9 +40,12 @@ declare module 'vitest' {
 const HOSTILE_COLLATIONS = ['en_US.utf8', 'en_US.UTF-8', 'en-US-x-icu']
 
 /**
- * The tables a test wants back the way it found them. `shelf_ranges` is not
- * among them: it is seeded by `applySchema`, and a test that opens a database
- * expects to find the two ranges in it, exactly as the app does.
+ * The tables a test wants back the way it found them.
+ *
+ * The furniture is not among them, and cannot be: the fixtures, the areas and
+ * the two rules that file into them are seeded by migration `0013`, and a test
+ * that opens a database expects to find the two runs standing, exactly as the
+ * app does. Emptying those tables would leave the app with nowhere to file.
  *
  * `author` and `author_alias` are named even though `book_author` cascades from
  * `books`, because they do not: a name outlives the last book crediting it, so a
@@ -51,8 +54,31 @@ const HOSTILE_COLLATIONS = ['en_US.utf8', 'en_US.UTF-8', 'en-US-x-icu']
  * RESTART IDENTITY because numbering from 1 is what some fixtures read back.
  */
 const TRUNCATE =
-  'TRUNCATE books, book_authors, captures, separators, author_filing, ' +
+  'TRUNCATE books, book_authors, captures, author_filing, ' +
   'author, author_alias RESTART IDENTITY CASCADE'
+
+/**
+ * The furniture back to what `0013` leaves on a fresh database, so what a test
+ * added to the two runs is put back.
+ *
+ * A shelf boundary is an `area` row since #232, not a row in a table the
+ * truncate above could name, so a test that split a plank leaves a fourth
+ * bookcase and three extra planks standing for the next one to find. Each run
+ * begins in one area at position 0 on the fixture its rule points at, anchored
+ * at the empty string, and everything else on the floor was added by a test.
+ *
+ * That includes a retired area, which is one at a negative position: it was
+ * kept only because a `book_placement` named it, and the truncate cascades to
+ * `book_placement`, so by the time these run nothing names an area at all and
+ * the deletes are free.
+ */
+const RESTORE_FURNITURE = [
+  'DELETE FROM area WHERE position <> 0 OR fixture_id NOT IN ' +
+  '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
+  'DELETE FROM fixture WHERE id NOT IN ' +
+  '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
+  "UPDATE area SET starts_at = '' WHERE starts_at <> ''",
+]
 
 interface Catalogue {
   db: Db
@@ -129,8 +155,8 @@ async function createCatalogue(): Promise<Catalogue> {
 }
 
 /**
- * A database with the schema applied, the shelf ranges seeded and nothing else
- * in it. Call it in a `beforeEach`: the second and later calls in a file empty
+ * A database with the schema applied, the furniture seeded and nothing else in
+ * it. Call it in a `beforeEach`: the second and later calls in a file empty
  * the tables rather than making another database.
  */
 export async function openTestDatabase(): Promise<Db> {
@@ -138,6 +164,7 @@ export async function openTestDatabase(): Promise<Db> {
     catalogue = await createCatalogue()
   } else {
     await catalogue.db.run(TRUNCATE)
+    for (const statement of RESTORE_FURNITURE) await catalogue.db.run(statement)
   }
   return catalogue.db
 }

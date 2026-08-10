@@ -22,9 +22,12 @@
  * client and the server both use, it has no I/O and imports nothing below
  * itself, and it is where the layout arithmetic and the shelving rules already
  * live. It is domain code that predates `domain/` existing. Moving it would be
- * a large rename in the same breath as #170 renaming `separators` to `area`,
- * so it stays where it is and the domain is allowed to use it. What it must
- * never gain is an import from a layer below, which the last rule below checks.
+ * a large rename, and the rename it was once waiting on has happened: #232
+ * dropped `separators`, and a boundary is now derived from the `area` rows
+ * `infrastructure/shelving/areas.ts` reads. `shared/layout.ts` still speaks in
+ * boundaries, because that is what the arithmetic is about, and it stays where
+ * it is with the domain allowed to use it. What it must never gain is an import
+ * from a layer below, which the last rule below checks.
  *
  * ## Why this and not an ESLint rule
  *

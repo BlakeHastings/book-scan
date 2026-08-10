@@ -11,8 +11,10 @@
  * wrong in the same direction and each looked self-consistent alone.
  *
  * So each case here finds the line the way a person does, by what it says and
- * which heading it sits above, taps it, and then opens the `separators` table
- * to see which row actually went and which books actually changed plank.
+ * which heading it sits above, taps it, and then opens the `area` table to see
+ * which row actually went and which books actually changed plank. That was the
+ * `separators` table until #232; a boundary is an area now, the one it opens,
+ * and the rows it is judged on are the furniture's.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -29,7 +31,7 @@ let store: Store
 let shelves: Shelves
 
 // Both databases, since stage F. Nothing below knows which. See testdb.ts.
-// This file reads the separators table directly, and which row actually went
+// This file reads the furniture tables directly, and which row actually went
 // is exactly the kind of claim that has to hold on the database being shipped.
 beforeEach(async () => {
   db = await openTestDatabase()
@@ -47,35 +49,74 @@ const NAMES = [
 
 const labels = async () => (await shelves.layout('fiction')).map((p) => p.label)
 
+/** One plank of the fiction run as the tables hold it. */
+interface AreaRow {
+  id: number
+  fixture_position: number
+  position: number
+  starts_at: string
+}
+
 /**
- * Every separator as the table holds it, which is what a removal is judged on.
+ * Every plank of the fiction run, in the order a person walking it meets them.
  *
  * Read through the same `Db` the stores use, so this asserts against the rows
  * the shipping driver returns rather than reaching past it to better-sqlite3.
+ *
+ * `a.position >= 0` is what keeps a retired area out, which is what an area a
+ * removal could not delete becomes: the ledger names it, so the row stays and
+ * comes off the fixture's face instead. `f.position < 4` is where fiction's run
+ * stops, because bookcase 4 is where non-fiction's begins (migration `0013`),
+ * and its first plank would otherwise read as a bookcase break.
  */
-type SeparatorRow = { id: number; kind: string; starts_at: string; position: number }
-
-const rows = () =>
-  db.all<SeparatorRow>(
-    'SELECT id, kind, starts_at, position FROM separators ORDER BY position ASC',
+const areas = () =>
+  db.all<AreaRow>(
+    `SELECT a.id, f.position AS fixture_position, a.position, a.starts_at
+       FROM area a JOIN fixture f ON f.id = a.fixture_id
+      WHERE a.position >= 0 AND f.position < 4
+      ORDER BY f.position, f.id, a.position`,
   )
 
 /**
- * A separator said as this file reads it: its kind, and the book it opens at.
+ * The boundaries those planks cut the run into, which is what a removal is
+ * judged on.
  *
- * In the order a person walking the shelves meets them, which is the order of
- * the anchors, not of the `position` column. Positions record the order the
- * boundaries were created in, and a bookcase break made after the plank break
- * beyond it sits earlier on the furniture than it does in the table.
+ * The first plank of a run opens at nothing and is therefore not a boundary;
+ * each one after it is. A boundary's kind is not stored and never was a fact of
+ * its own: `shelf` means the plank hangs on a bookcase the plank before it did
+ * not, so it is read off the walk here rather than out of a column.
+ */
+type SeparatorRow = { id: number; kind: string; starts_at: string; position: number }
+
+const rows = async (): Promise<SeparatorRow[]> => {
+  const run = await areas()
+  return run.slice(1).map((area, at) => ({
+    id: area.id,
+    kind: area.fixture_position > run[at]!.fixture_position ? 'shelf' : 'area',
+    starts_at: area.starts_at,
+    position: at,
+  }))
+}
+
+/** Each plank said as the bookcase it hangs on and its number along it. */
+const planks = async () =>
+  (await areas()).map((area) => `${area.fixture_position}:${area.position}`)
+
+/**
+ * A boundary said as this file reads it: its kind, and the book it opens at.
+ *
+ * In the order a person walking the shelves meets them, which `rows` is already
+ * in. It used to need a sort by anchor: `separators.position` recorded the order
+ * boundaries were created in, so a bookcase break made after the plank break
+ * beyond it sat earlier on the furniture than it did in the table. A boundary is
+ * a plank now, and a plank's place in the run is the walk.
  */
 const openers = async () => {
   const placed = await shelves.layout('fiction')
-  return [...(await rows())]
-    .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
-    .map((row) => {
-      const at = placed.find((p) => p.book.sort_key === row.starts_at)
-      return `${row.kind}@${at?.book.title ?? row.starts_at}`
-    })
+  return (await rows()).map((row) => {
+    const at = placed.find((p) => p.book.sort_key === row.starts_at)
+    return `${row.kind}@${at?.book.title ?? row.starts_at}`
+  })
 }
 
 /**
@@ -159,13 +200,28 @@ describe('removing the bookcase boundary', () => {
 
     await shelves.remove(line.separatorId)
 
-    // At the database: that row and no other, with the rest renumbered so the
-    // positions stay contiguous.
+    // At the database: that boundary and no other, still opening at the books
+    // they opened at.
     const after = await rows()
-    expect(after.map((row) => row.id)).toEqual(survivors.map((row) => row.id))
+    expect(after.map((row) => row.id)).not.toContain(doomed.id)
     expect(after.map((row) => row.starts_at)).toEqual(survivors.map((row) => row.starts_at))
-    expect(after.map((row) => row.position)).toEqual([0, 1])
     expect(await openers()).toEqual(['area@Fay Ford', 'area@Jo Jones'])
+
+    // Only the first surviving row is the row it was, and that is genuinely
+    // different since #232: a boundary is the plank it opens, so folding
+    // bookcase 2 back into bookcase 1 moves the boundary below the removed one
+    // onto a plank of bookcase 1, which is another row. What it opens at is the
+    // fact that has to survive, and it does, above.
+    expect(after[0]!.id).toBe(survivors[0]!.id)
+    expect(after[1]!.id).not.toBe(survivors[1]!.id)
+
+    // The old assertion here was that `separators.position` was renumbered so
+    // the column stayed contiguous. A boundary's position is where its plank
+    // sits in the run now, so it is contiguous by construction and there is
+    // nothing left to renumber (see DrizzleSeparatorRepository). What can still
+    // go wrong is the furniture underneath: a bookcase numbers its planks from
+    // zero without a gap, or a label names a plank that is not there.
+    expect(await planks()).toEqual(['1:0', '1:1', '1:2'])
 
     // And exactly these books changed plank. The bookcase break is gone, so
     // bookcase 2 folds back into bookcase 1 and every plank past it shifts one
@@ -196,10 +252,10 @@ describe('removing an area boundary', () => {
     const before = await shelves.layout('fiction')
     await shelves.remove(line.separatorId)
 
-    // Bookcase 2 is still bookcase 2: only the plank break went, and the two
-    // boundaries left behind are renumbered from zero.
+    // Bookcase 2 is still bookcase 2: only the plank break went, and it is
+    // bookcase 1 that lost a plank. See the note on renumbering above.
     expect(await openers()).toEqual(['shelf@Hal Hale', 'area@Jo Jones'])
-    expect((await rows()).map((row) => row.position)).toEqual([0, 1])
+    expect(await planks()).toEqual(['1:0', '2:0', '2:1'])
     expect(line.notice).toBe('New area starts here')
     expect(await titlesOf(await shelves.movesSince('fiction', before))).toEqual([
       { title: 'Fay Ford', from: '1B', to: '1A' },

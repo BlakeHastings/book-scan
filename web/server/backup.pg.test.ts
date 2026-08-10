@@ -54,6 +54,41 @@ async function addBooks(keys: readonly string[] = KEYS): Promise<void> {
   }
 }
 
+/**
+ * A bookcase with nothing on it yet, and its id.
+ *
+ * `fixture.position` is deliberately not unique, so a test may stand another
+ * bookcase on the floor without disturbing the two `0013` left there.
+ * `collection` holds exactly one row, made by the same migration.
+ */
+async function addFixture(position: number): Promise<number> {
+  const collection = await db.get<{ id: number }>('SELECT min(id) AS id FROM collection')
+  const made = await db.get<{ id: number }>(
+    `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
+     VALUES (?, 'bookshelf', '', ?, 'inherit', '') RETURNING id`,
+    [collection!.id, position],
+  )
+  return made!.id
+}
+
+/**
+ * One bookcase with an area anchored at each key.
+ *
+ * A bookcase of its own rather than one of the two the migrations made, because
+ * two areas on one fixture cannot share a `position` and both of those already
+ * hold position 0.
+ */
+async function addAreas(keys: readonly string[] = KEYS): Promise<void> {
+  const fixture = await addFixture(90)
+  for (const [index, key] of keys.entries()) {
+    await db.run(
+      `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
+       VALUES (?, ?, '', ?, 'inherit', '')`,
+      [fixture, index, key],
+    )
+  }
+}
+
 /** The tag id for `slug`, made if the migrations have not already made it. */
 async function tagId(slug: string): Promise<number> {
   await db.run(
@@ -67,26 +102,23 @@ async function tagId(slug: string): Promise<number> {
 describe('reading a catalogue digest', () => {
   it('counts every table the catalogue lives in', async () => {
     await addBooks()
-    await db.run(
-      'INSERT INTO separators (shelf_range, kind, starts_at, position, created_at) VALUES (?,?,?,?,?)',
-      ['fiction', 'shelf', 'Banana', 0, '2026-08-06T00:00:00Z'],
-    )
 
     const digest = await readDigest(ask)
     expect(digest.counts).toMatchObject({
       books: KEYS.length,
-      separators: 1,
       captures: 0,
       book_authors: 0,
       author_filing: 0,
-      // Seeded by applySchema, and the owner edits it, so it is backed up too.
-      shelf_ranges: 2,
       // The remodel's tables, none of which the hard-coded six named. #212.
       book_tag: 0,
       author_alias: 0,
       capture: 0,
-      // Seeded by the migrations, like shelf_ranges, and edited by the owner
-      // for the same reason: it is where the furniture is written down.
+      // Where the furniture is written down, and where `separators` and
+      // `shelf_ranges` went when #232 dropped them: `0013` turned each of the
+      // two ranges into a bookcase with one area on it. Seeded by the
+      // migrations and edited by the owner, so it is backed up like everything
+      // else somebody typed.
+      fixture: 2,
       area: 2,
     })
   })
@@ -161,7 +193,7 @@ describe('reading a catalogue digest', () => {
     expect(damaged.counts.books).toBe(correct.counts.books)
     expect(damaged.digests.books).toBe(correct.digests.books)
     expect(damaged.shelfOrder).toBe(correct.shelfOrder)
-    expect(damaged.separatorOrder).toBe(correct.separatorOrder)
+    expect(damaged.areaOrder).toBe(correct.areaOrder)
 
     expect(compareDigests(correct, damaged)).toEqual([
       { what: 'book_tag rows', expected: String(KEYS.length), actual: String(KEYS.length - 1) },
@@ -180,7 +212,11 @@ describe('reading a catalogue digest', () => {
     const digest = await readDigest(ask)
     expect(digest.counts.books).toBe(0)
     expect(digest.shelfOrder).toBeNull()
-    expect(digest.separatorOrder).toBeNull()
+    // There is no matching assertion for the areas, and that is the honest
+    // reading rather than an omission: the furniture arrives with the
+    // migrations and outlives every book on it, so a catalogue with nothing
+    // shelved still has areas to hash. A shelf with no books on it is a shelf.
+    expect(digest.areaOrder).not.toBeNull()
   })
 
   /**
@@ -274,29 +310,58 @@ describe('reading a catalogue digest', () => {
   })
 
   /**
-   * `separators.starts_at` is the other `COLLATE "C"` column. An ordering
-   * difference too small to change the book list can still be large enough to
-   * move one book past a divider, and this is the only line that would show it.
+   * `area.starts_at` is the other `COLLATE "C"` column, and it is the column
+   * `separators.starts_at` was before #232: an area is a separator grown a
+   * parent, so the boundary this hash is about did not move, only the table it
+   * lives in. An ordering difference too small to change the book list can
+   * still be large enough to move one book past a boundary, and this is the
+   * only line that would show it.
    */
-  it('catches the same thing on the dividers', async () => {
-    for (const [index, key] of KEYS.entries()) {
-      await db.run(
-        'INSERT INTO separators (shelf_range, kind, starts_at, position, created_at) VALUES (?,?,?,?,?)',
-        ['fiction', 'shelf', key, index, '2026-08-06T00:00:00Z'],
-      )
-    }
+  it('catches the same thing on the areas', async () => {
+    await addAreas()
     const correct = await readDigest(ask)
 
-    await db.run('ALTER TABLE separators ALTER COLUMN starts_at TYPE text COLLATE "en_US.utf8"')
+    await db.run('ALTER TABLE area ALTER COLUMN starts_at TYPE text COLLATE "en_US.utf8"')
     try {
       const damaged = await readDigest(ask)
       expect(damaged.counts).toEqual(correct.counts)
       expect(compareDigests(correct, damaged)).toEqual([
-        { what: 'divider order', expected: correct.separatorOrder, actual: damaged.separatorOrder },
+        { what: 'area order', expected: correct.areaOrder, actual: damaged.areaOrder },
       ])
     } finally {
-      await db.run('ALTER TABLE separators ALTER COLUMN starts_at TYPE text COLLATE "C"')
+      // Put back for the same reason the books table is: the database is shared
+      // by the tests in this file.
+      await db.run('ALTER TABLE area ALTER COLUMN starts_at TYPE text COLLATE "C"')
     }
+  })
+
+  /**
+   * A retired area is left out of the order hash on purpose.
+   *
+   * A negative `position` is how an area says it is no longer part of the
+   * arrangement, and nothing files against one, so hashing it would report a
+   * difference about a boundary no book can be on the wrong side of. Leaving it
+   * out costs no coverage, which is the half worth proving rather than
+   * asserting on paper: the row is still counted and still moves the content
+   * digest of `area`, so a retired area lost in a restore is still a failure.
+   */
+  it('leaves a retired area out of the order it hashes', async () => {
+    await addAreas()
+    const before = await readDigest(ask)
+
+    const fixture = await addFixture(91)
+    await db.run(
+      `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
+       VALUES (?, -1, '', 'Banana', 'inherit', 'retired')`,
+      [fixture],
+    )
+    const after = await readDigest(ask)
+
+    const areasBefore = before.counts.area ?? 0
+    expect(areasBefore).toBeGreaterThan(0)
+    expect(after.counts.area).toBe(areasBefore + 1)
+    expect(after.digests.area).not.toBe(before.digests.area)
+    expect(after.areaOrder).toBe(before.areaOrder)
   })
 
   /**
