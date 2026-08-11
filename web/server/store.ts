@@ -33,6 +33,10 @@ import {
 import type { AuthorRepository } from '../application/authorship/ports'
 import { PrintedName } from '../domain/authorship/authors'
 import { resolveIsbnPair } from '../shared/isbn'
+import { locationLabel } from '../shared/layout'
+// Where a range begins is a rule pointing at a fixture now, not a row in
+// `shelf_ranges`. See `bandsOf`, and #232.
+import { bandOf } from '../infrastructure/shelving/areas'
 import { CHECKED_OUT, DISCARDED, QUEUED_STATES, SHELVED } from '../domain/books/state'
 // Which range a book joins is decided by its genre tags now, and this is the
 // rule that decides it. See docs/data-model.md and #223.
@@ -49,25 +53,36 @@ const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
 // halves of the same contention.
 import { rangeLock } from './shelves'
 /*
- * The placement ledger, written beside the three columns below and never
- * instead of them (#185).
+ * The placement ledger, which is where a book is (#232).
+ *
+ * It was written beside `books.location`, `shelved_at` and `checked_out_at` from
+ * #185 and instead of them from here: the three columns are dropped, so there is
+ * no second answer and nothing left to keep in step.
  *
  * **The four statements in this file that change where a book is are the four
  * that call these**, and that is the whole reason the calls are here rather than
  * in the routes. It is the same write-through #200 moved `capture` onto, after
  * five callers turned out to write the image columns without recording anything:
  * a caller cannot forget what it never had to remember. Each call is made on the
- * transaction handle that is writing the column, so the row and the column
+ * transaction handle the rest of the save is on, so a book and where it went
  * commit together.
  */
-import { recordCheckedOut, recordPlaced } from './placement-ledger'
+import {
+  recordCheckedOut, recordPlaced, withPlacements, withPlacementsOf,
+  type PlacementFields,
+} from './placement-ledger'
 
 /**
  * A book as everything above this class reads one. Declared beside the
- * derivation, in `server/photographs.ts`, and re-exported here because this is
- * where callers meet it.
+ * derivations, in `server/photographs.ts` and `server/placement-ledger.ts`, and
+ * named here because this is where callers meet them.
+ *
+ * Two shapes rather than one, for the reason #228 named two: a lookup by id
+ * needs no filing name and everything that draws a shelf needs one.
  */
 export type { FiledPhotographedBook, PhotographedBook }
+export type PlacedPhotographedBook = PhotographedBook & PlacementFields
+export type FiledPlacedBook = FiledPhotographedBook & PlacementFields
 
 export interface DraftBook {
   isbn13?: string
@@ -272,15 +287,21 @@ export class Store {
   // Placement
   // -----------------------------------------------------------------------
 
+  /**
+   * The label a range's first book is offered when nothing is shelved in it yet.
+   *
+   * `shelf_ranges.start_label` until #232, and the first plank of the run the
+   * range's rule points at from here. The two agree: `0013` derived the fixture
+   * from `start_shelf` and the label was `start_shelf` and `start_area` written
+   * out, so this is the same string built by the one function that builds one.
+   */
   private async rangeStart(range: ShelfRange): Promise<string> {
-    const row = await this.db.get<{ start_label: string }>(
-      'SELECT start_label FROM shelf_ranges WHERE shelf_range = ?',
-      [range],
-    )
-    return row?.start_label ?? (range === 'nonfiction' ? 'S4' : '1A')
+    const band = await bandOf(this.db, range)
+    const start = band?.start ?? { shelf: range === 'nonfiction' ? 4 : 1, area: 0 }
+    return locationLabel(start.shelf, start.area)
   }
 
-  private toNeighbour(row: FiledPhotographedBook | undefined): Neighbour | null {
+  private toNeighbour(row: FiledPlacedBook | undefined): Neighbour | null {
     if (!row) return null
     return {
       id: row.id,
@@ -340,10 +361,10 @@ export class Store {
      * would be two more statements on the path a person waits on while holding a
      * book, where this is one.
      */
-    const drawn = await withPhotographs(
+    const drawn = await withPlacements(this.db, await withPhotographs(
       this.db,
       [predecessor, successor].filter((row): row is FiledBookRow => Boolean(row)),
-    )
+    ))
 
     return {
       predecessor: this.toNeighbour(drawn.find((row) => row.id === predecessor?.id)),
@@ -471,15 +492,15 @@ export class Store {
          isbn13, isbn10, title, subtitle, authors, publisher, published,
          pages, notes, shelf_range, classification_source,
          classification_confidence, series_name,
-         series_index, title_filing, sort_key, location, lookup_source,
-         isbn_source, scanned_at, shelved_at, state
+         series_index, title_filing, sort_key, lookup_source,
+         isbn_source, scanned_at, state
        ) VALUES (
          @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
          @published, @pages, @notes, @shelf_range,
          @classification_source, @classification_confidence,
          @series_name, @series_index, @title_filing,
-         @sort_key, @location, @lookup_source,
-         @isbn_source, @scanned_at, @shelved_at, @state
+         @sort_key, @lookup_source,
+         @isbn_source, @scanned_at, @state
        )
        RETURNING id`,
       {
@@ -499,11 +520,9 @@ export class Store {
         series_index: draft.seriesIndex ?? null,
         title_filing: resolved.titleFilingValue,
         sort_key: resolved.sortKey,
-        location,
         lookup_source: draft.lookupSource ?? '',
         isbn_source: draft.isbnSource ?? '',
         scanned_at: now,
-        shelved_at: location ? now : null,
         /*
          * `shelved`, stated rather than left to the column's default.
          *
@@ -567,11 +586,11 @@ export class Store {
    * ISBN-10, or an edition the catalogue reports under only one of the two.
    * Both columns are populated on save, so both are worth searching.
    */
-  async getBook(id: number): Promise<PhotographedBook | undefined> {
-    return withPhotographsOf(
+  async getBook(id: number): Promise<PlacedPhotographedBook | undefined> {
+    return withPlacementsOf(this.db, await withPhotographsOf(
       this.db,
       await this.db.get<BookRow>('SELECT * FROM books WHERE id = ?', [id]),
-    )
+    ))
   }
 
   /**
@@ -619,21 +638,7 @@ export class Store {
            series_name = @series_name,
            series_index = @series_index, title_filing = @title_filing,
            sort_key = @sort_key,
-           -- An edit that carries no location leaves the recorded one alone
-           -- rather than blanking it. Where the book physically is was
-           -- observed by a person and is not something a metadata edit knows
-           -- anything about; clearing it is what PATCH .../location is for.
-           --
-           -- The CAST is the one thing here that is not about locations. A
-           -- parameter inside a bare NULLIF has nothing to take a type from:
-           -- SQLite infers one from the value it was handed, and a database
-           -- that types its parameters at parse time instead has no column and
-           -- no literal to look at, so it refuses the statement outright. The
-           -- cast says what the value is. It is identity on SQLite, which is
-           -- where this stage can prove it changes nothing.
-           location = COALESCE(NULLIF(CAST(@location AS TEXT), ''), location),
            lookup_source = @lookup_source, isbn_source = @isbn_source,
-           shelved_at = COALESCE(shelved_at, @shelved_at),
            /*
             * Saving a book at the shelf is what takes it out of the queue.
             *
@@ -669,15 +674,13 @@ export class Store {
           series_index: draft.seriesIndex ?? null,
           title_filing: resolved.titleFilingValue,
           sort_key: resolved.sortKey,
-          location,
           lookup_source: draft.lookupSource ?? '',
           isbn_source: draft.isbnSource ?? '',
-          shelved_at: location ? new Date().toISOString() : null,
         },
       )
 
       /*
-       * The photographs, on the same terms as the location above and for the
+       * The photographs, on the same terms as the placement below and for the
        * same reason: an edit that carries none says nothing about them and
        * writes nothing. A book saved out of the queue already has a row per
        * shutter and the client does not re-upload the files; a book saved with
@@ -700,8 +703,8 @@ export class Store {
         )
       }
 
-      // On the same terms as the `location` assignment above: an edit that
-      // carries no location moved no book, so it records no placement. An edit
+      // An edit that carries no location moved no book, so it records no
+      // placement and the book stays where the ledger already has it. An edit
       // that carries one is somebody saying where the book is now, which is the
       // same statement a book leaving the queue is saved by.
       await recordPlaced(
@@ -724,34 +727,39 @@ export class Store {
     }, { serialiseOn: rangeLock(range) })
   }
 
-  async findByIsbn(value: string): Promise<FiledPhotographedBook | undefined> {
+  async findByIsbn(value: string): Promise<FiledPlacedBook | undefined> {
     const { isbn13, isbn10 } = resolveIsbnPair(value)
     if (!isbn13 && !isbn10) return undefined
 
-    return withPhotographsOf(this.db, await this.db.get<FiledBookRow>(
-      `SELECT * FROM catalogued_books
-        WHERE (isbn13 != '' AND isbn13 = :isbn13)
-           OR (isbn10 != '' AND isbn10 = :isbn10)
-        ORDER BY id LIMIT 1`,
-      { isbn13, isbn10 },
-    ))
+    return withPlacementsOf(this.db, await withPhotographsOf(this.db,
+      await this.db.get<FiledBookRow>(
+        `SELECT * FROM catalogued_books
+          WHERE (isbn13 != '' AND isbn13 = :isbn13)
+             OR (isbn10 != '' AND isbn10 = :isbn10)
+          ORDER BY id LIMIT 1`,
+        { isbn13, isbn10 },
+      )))
   }
 
   /**
    * A person says where this book physically is now.
    *
-   * A transaction since #185, and only for that: the column and the ledger row
-   * are one fact and have to land together. The `RETURNING` is what saves a
-   * second read for the sort key, which the row needs so it can be read back as
-   * a position once an edit has re-keyed the book.
+   * **The whole of it is a ledger row since #232.** There is no column left to
+   * write, so what used to be an update with a placement beside it is the
+   * placement, and the sort key it carries is read rather than returned by the
+   * update that is no longer there. A row that has since been deleted has no key
+   * and nothing to record.
+   *
+   * Refuses a label naming a plank the collection does not have, by throwing:
+   * see `UnknownPlank`. That is the one thing this cannot do quietly, because
+   * the ledger is now the only record of where the book is.
    */
   async setLocation(id: number, location: string): Promise<void> {
     const at = new Date().toISOString()
     await this.db.tx(async (tx) => {
       const moved = await tx.get<{ sort_key: string }>(
-        `UPDATE books SET location = ?, shelved_at = ? WHERE id = ?
-         RETURNING sort_key`,
-        [location, location ? at : null, id],
+        'SELECT sort_key FROM books WHERE id = ?',
+        [id],
       )
       if (!moved) return
       await recordPlaced(tx, { id, sortKey: moved.sort_key, location }, at)
@@ -833,11 +841,12 @@ export class Store {
    * and eight places to remember which states that is are eight places to
    * forget one.
    */
-  async listRange(range: ShelfRange): Promise<FiledPhotographedBook[]> {
-    return withPhotographs(this.db, await this.db.all<FiledBookRow>(
-      'SELECT * FROM catalogued_books WHERE shelf_range = ? ORDER BY sort_key ASC',
-      [range],
-    ))
+  async listRange(range: ShelfRange): Promise<FiledPlacedBook[]> {
+    return withPlacements(this.db, await withPhotographs(this.db,
+      await this.db.all<FiledBookRow>(
+        'SELECT * FROM catalogued_books WHERE shelf_range = ? ORDER BY sort_key ASC',
+        [range],
+      )))
   }
 
   /**
@@ -884,52 +893,45 @@ export class Store {
    * pattern to copy rather than a transaction: a compare-and-set inside one
    * statement is atomic on both drivers under any isolation level.
    *
-   * **The state moves in this statement and in no other.** `checked_out_at` and
-   * `state` describe the same fact from #183 onwards, one of them to the client
-   * and the other to every shelf query, and a second statement to keep them in
-   * step is a window in which a book is off the shelf according to one and on it
-   * according to the other. There is nothing to interleave with here.
+   * **`books.state` is the compare-and-set since #232.** It used to be
+   * `checked_out_at IS NULL`, with the state written in the same statement so
+   * the two could not disagree; the column is gone and the state is what is
+   * left, which is the condition every shelf query already read. The moment the
+   * book left is the `created_at` of its `checked_out` row, which is why a no-op
+   * still keeps it: a statement that changed no rows writes no row either.
    *
-   * Returning is `shelved`, not the area the book came off. A checked-out book
-   * remembers no area on purpose: it is placed again by the rules, from its sort
-   * key, exactly as it was before this column existed.
+   * Returning is `shelved`, and the plank it came off. `docs/data-model.md` has
+   * a returning book placed again by the rules, and that would move a book
+   * somebody put back where they found it; see `recordCheckedOut`.
    */
   async setCheckedOut(
     id: number,
     out: boolean,
   ): Promise<{ changed: boolean; checkedOutAt: string | null }> {
     const now = new Date().toISOString()
-    const checkedOutAt = out ? now : null
     /*
      * The compare-and-set is still one statement, and the transaction around it
-     * is not a second chance to decide anything: it is what makes the ledger row
-     * commit with the column. A second checkout arriving at once changes no rows
-     * here, so it writes no row there either.
+     * is not a second chance to decide anything: it is what makes the ledger
+     * rows commit with the state. A second checkout arriving at once changes no
+     * rows here, so it writes no row there either.
      */
     const changed = await this.db.tx(async (tx) => {
-      const moved = await tx.get<{ checked_out_at: string | null; sort_key: string; location: string }>(
-        `UPDATE books SET checked_out_at = ?, state = ?
-          WHERE id = ?
-            AND checked_out_at IS ${out ? '' : 'NOT '}NULL
-          RETURNING checked_out_at, sort_key, location`,
-        [checkedOutAt, out ? CHECKED_OUT : SHELVED, id],
+      const moved = await tx.get<{ sort_key: string }>(
+        `UPDATE books SET state = ?
+          WHERE id = ? AND state ${out ? '<>' : '='} ?
+          RETURNING sort_key`,
+        [out ? CHECKED_OUT : SHELVED, id, CHECKED_OUT],
       )
-      if (!moved) return undefined
+      if (!moved) return false
 
-      await recordCheckedOut(
-        tx, { id, sortKey: moved.sort_key, location: moved.location ?? '' }, out, now,
-      )
-      return moved
+      await recordCheckedOut(tx, { id, sortKey: moved.sort_key, location: '' }, out, now)
+      return true
     })
-    if (changed) return { changed: true, checkedOutAt: changed.checked_out_at }
 
-    // Nothing changed. Either there is no such book, or it was already in the
-    // state asked for and keeps the moment it actually reached it.
-    const row = await this.db.get<{ checked_out_at: string | null }>(
-      'SELECT checked_out_at FROM books WHERE id = ?',
-      [id],
-    )
-    return { changed: false, checkedOutAt: row?.checked_out_at ?? null }
+    // Whether or not anything happened, the answer is the row's real value, so
+    // a no-op cannot be mistaken for a fresh checkout.
+    const [row] = await withPlacements(this.db, [{ id }])
+    return { changed, checkedOutAt: row?.checked_out_at ?? null }
   }
 
   /**
@@ -999,7 +1001,7 @@ export class Store {
    */
   async hashIndex(): Promise<({
     id: number; title: string; author_filing: string
-    checked_out_at: string | null
+    checked_out: boolean
   } & PhotographFields)[]> {
     /*
      * The rows are narrowed in SQL and the photographs are joined on afterwards,
@@ -1009,9 +1011,12 @@ export class Store {
      * it scoring 64 against everything.
      */
     const rows = await this.db.all<{
-      id: number; title: string; author_filing: string; checked_out_at: string | null
+      id: number; title: string; author_filing: string; checked_out: boolean
     }>(
-      `SELECT id, title, author_filing, checked_out_at
+      // The state, not `checked_out_at`, which is gone (#232). What the caller
+      // wants to say is "that one is already off the bookcase", which is a state
+      // rather than a moment, and it is the state the moment was derived from.
+      `SELECT id, title, author_filing, state = '${CHECKED_OUT}' AS checked_out
          FROM catalogued_books b
         WHERE EXISTS (
                 SELECT 1 FROM capture c WHERE c.book_id = b.id AND c.hash != '')`,
@@ -1107,14 +1112,20 @@ export class Store {
    * other five are not books somebody has taken out. So this names the state it
    * means rather than reading "everything the shelf does not show".
    */
-  async checkedOut(): Promise<FiledPhotographedBook[]> {
-    return withPhotographs(this.db, await this.db.all<FiledBookRow>(
-      // `catalogued_books`, not `books`, and only for the joined filing name:
-      // the state is stated here as it always was. See `FiledBookRow`.
-      `SELECT * FROM catalogued_books WHERE state = ?
-        ORDER BY checked_out_at ASC`,
-      [CHECKED_OUT],
-    ))
+  async checkedOut(): Promise<FiledPlacedBook[]> {
+    return withPlacements(this.db, await withPhotographs(this.db,
+      await this.db.all<FiledBookRow>(
+        // `catalogued_books`, not `books`, and only for the joined filing name:
+        // the state is stated here as it always was. See `FiledBookRow`.
+        //
+        // Oldest first is the point of the listing, and the moment a book left
+        // is the `checked_out` row that took it out rather than a column (#232).
+        `SELECT * FROM catalogued_books b WHERE state = ?
+          ORDER BY (SELECT p.id FROM book_placement p
+                     WHERE p.book_id = b.id AND p.kind = 'checked_out'
+                     ORDER BY p.id DESC LIMIT 1) ASC NULLS LAST, b.id ASC`,
+        [CHECKED_OUT],
+      )))
   }
 
   /**
@@ -1143,7 +1154,7 @@ export class Store {
               AS INTEGER)                                            AS fiction,
          CAST(SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END)
               AS INTEGER)                                            AS nonfiction,
-         CAST(SUM(CASE WHEN checked_out_at IS NOT NULL THEN 1 ELSE 0 END)
+         CAST(SUM(CASE WHEN state = '${CHECKED_OUT}' THEN 1 ELSE 0 END)
               AS INTEGER)                                            AS "checkedOut"
        FROM catalogued_books`,
     )

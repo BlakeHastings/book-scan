@@ -11,11 +11,14 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { photographTaken, recordCrop } from './photographs'
+import { UnknownPlank } from './placement-ledger'
 import { Store, type DraftBook } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { PrintedName } from '../domain/authorship/authors'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
+import type { SeparatorKind } from '../shared/layout'
 
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
   return { genre: FICTION_SLUG, ...over }
@@ -23,6 +26,33 @@ function draft(over: Partial<DraftBook> & { title: string; authors: string[] }):
 
 let store: Store
 let db: Db
+
+/**
+ * Cut the fiction run into more planks, so a fixture has somewhere to put a book.
+ *
+ * A test database stands as migration `0013` leaves it: one area per run, so
+ * `1A` and `4A` are the only planks the furniture has. Since #232 a book cannot
+ * be recorded at a plank that does not exist, so a fixture naming `1B` or `2A`
+ * has to build one first, which is what `POST /api/shelves/overflow` does at a
+ * shelf. Each `area` adds a plank to the current bookcase and each `shelf`
+ * starts the next one.
+ *
+ * The anchors sort above every Latin sort key this file writes, so what these
+ * add is furniture rather than a rearrangement of the books already on it.
+ */
+async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
+  const separators = new DrizzleSeparatorRepository(db)
+  for (const [at, kind] of kinds.entries()) {
+    await separators.add({
+      range: 'fiction',
+      kind,
+      startsAt: `~${at}`,
+      position: at,
+      note: '',
+      createdAt: new Date().toISOString(),
+    })
+  }
+}
 
 /**
  * Where a draft would go, and saving an edit, both filed under the genre the
@@ -87,6 +117,7 @@ describe('placement as books arrive one at a time', () => {
   })
 
   it('reports the boundary when the neighbours are on different shelves', async () => {
+    await splitFiction('area', 'area', 'shelf')
     await store.addBook(draft({ title: 'Neuromancer', authors: ['William Gibson'], location: '1C' }))
     await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '2A' }))
 
@@ -99,6 +130,7 @@ describe('placement as books arrive one at a time', () => {
   })
 
   it('keeps a series in reading order ahead of the standalones', async () => {
+    await splitFiction('shelf', 'shelf')
     await store.addBook(draft({
       title: 'Good Omens', authors: ['Terry Pratchett'], location: '3A',
     }))
@@ -169,6 +201,7 @@ describe('a name somebody has filed by hand', () => {
   })
 
   it('applies it to placement, moving the book on the shelf', async () => {
+    await splitFiction('area')
     await store.addBook(draft({ title: 'A', authors: ['Ann Foster'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['Zoe Nash'], location: '1B' }))
 
@@ -211,6 +244,7 @@ describe('a name written in a script with no A-Z in it', () => {
   })
 
   it('lands among the shelved books instead of ahead of all of them', async () => {
+    await splitFiction('shelf', 'area', 'area')
     await store.addBook(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
     await store.addBook(draft({ title: 'The Book Thief', authors: ['Markus Zusak'], location: '2C' }))
 
@@ -247,6 +281,7 @@ describe('a name written in a script with no A-Z in it', () => {
     // on top of an author called plainly Smith. It now files inside the Smith
     // block rather than merged into it, which the space rule puts before
     // Smithson.
+    await splitFiction('area')
     await store.addBook(draft({ title: 'A', authors: ['Ann Smith'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['Ada Smithson'], location: '1B' }))
 
@@ -274,9 +309,9 @@ describe('bookkeeping', () => {
   })
 
   it('counts by range, and does not pretend a book can be unshelved', async () => {
-    // Every catalogued book has a derived shelf, whether or not the vestigial
-    // location column was ever filled in, so there is nothing to count as
-    // unshelved. Two of these carry no location and still count normally.
+    // Every catalogued book has a derived shelf, whether or not anybody has ever
+    // said where it physically is, so there is nothing to count as unshelved.
+    // Two of these were never placed and still count normally.
     await store.addBook(draft({ title: 'A', authors: ['X Y'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['X Z'] }))
     await store.addBook(draft({ title: 'C', authors: ['Q R'], genre: NON_FICTION_SLUG }))
@@ -302,13 +337,51 @@ describe('bookkeeping', () => {
 
   it('keeps a recorded location through an edit that does not mention one', async () => {
     // Where the book physically is was observed by a person. A metadata edit
-    // knows nothing about it, so blanking the column would throw that away and
+    // knows nothing about it, so recording it nowhere would throw that away and
     // leave misfile detection with nothing to reconcile.
+    await splitFiction('shelf', 'area', 'area')
     const { id } = await store.addBook(
       draft({ title: 'Alpha', authors: ['Ann Author'], location: '2C' }),
     )
     await updateBook(id, draft({ title: 'Alpha', authors: ['Ann Author'] }))
     expect((await store.getBook(id))?.location).toBe('2C')
+  })
+})
+
+/**
+ * What `Store.setLocation` can and cannot be told, now that the ledger is the
+ * only record of where a book is (#232).
+ *
+ * The column would hold any string somebody typed, so `9Z` was storable and the
+ * app then disagreed with itself about the same book: the location said one
+ * plank and the ledger had no row for it at all. There is nothing behind the
+ * ledger to hold such a label, so the write refuses rather than half-happening.
+ */
+describe('recording where a book physically is', () => {
+  it('records the plank a person names', async () => {
+    await splitFiction('area')
+    const { id } = await store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], location: '1A' }),
+    )
+
+    await store.setLocation(id, '1B')
+
+    expect((await store.getBook(id))?.location).toBe('1B')
+  })
+
+  it('refuses a label naming a plank the collection does not have', async () => {
+    const { id } = await store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], location: '1A' }),
+    )
+
+    // The furniture stops at `1A` until a boundary is added, so `9Z` names a
+    // plank nobody owns and there is nowhere to record the book.
+    await expect(store.setLocation(id, '9Z')).rejects.toThrow(UnknownPlank)
+    await expect(store.setLocation(id, '9Z')).rejects.toThrow('9Z')
+
+    // Thrown from inside the transaction, so nothing moved: the book is still
+    // where the last person to carry it said it was.
+    expect((await store.getBook(id))?.location).toBe('1A')
   })
 })
 
@@ -417,6 +490,24 @@ describe('checking a book out and back in', () => {
     expect(result.changed).toBe(true)
     expect(result.checkedOutAt).toBeNull()
     expect((await store.getBook(id))?.checked_out_at).toBeNull()
+  })
+
+  it('puts the book back on the plank it came off', async () => {
+    // A round trip used to cost nothing, because a checkout never touched
+    // `books.location` and the book simply reappeared where the column said.
+    // The ledger is append only, so coming back has to be written down (#232),
+    // and what is written is where the book actually was rather than where the
+    // rules would send it.
+    const { id } = await store.addBook(
+      draft({ title: 'X', authors: ['Ann Author'], location: '1A' }),
+    )
+
+    await store.setCheckedOut(id, true)
+    // A book in somebody's bag holds no position on a shelf.
+    expect((await store.getBook(id))?.location).toBe('')
+
+    await store.setCheckedOut(id, false)
+    expect((await store.getBook(id))?.location).toBe('1A')
   })
 
   it('treats checking in a book that is already on the shelf as a no-op', async () => {

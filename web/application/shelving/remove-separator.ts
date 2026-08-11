@@ -6,6 +6,12 @@
  * numbered 0, 1, 2 ... or the range stops describing the shelves. See
  * `RangeSeparators` for what goes wrong when it does not.
  *
+ * **The renumbering is no longer this handler's to do (#232).** A boundary is
+ * the `area` it opens and its position is where that area sits in the run, so
+ * the numbering is contiguous by construction. `RangeSeparators.without` still
+ * says which boundary is going and still refuses an id this range does not have,
+ * which is the part of the rule that was ever about a decision.
+ *
  * ## What a command is here
  *
  * A plain object naming what somebody asked for, and a handler that carries it
@@ -30,7 +36,7 @@ export class RemoveSeparatorHandler {
   ) {}
 
   /**
-   * Remove a boundary and renumber the rest so positions stay contiguous.
+   * Remove a boundary, if this range still has one with that id.
    *
    * **Both reads matter, and they are not the same read.** The first one is
    * outside the transaction and exists only to name the range, because the lock
@@ -58,10 +64,7 @@ export class RemoveSeparatorHandler {
       const removal = boundaries.without(command.separatorId)
       if (!removal) return
 
-      await this.separators.remove(removal.removed.id)
-      for (const one of removal.renumbered) {
-        await this.separators.reposition(one.id, one.position)
-      }
+      await this.separators.remove(removal.id)
     })
   }
 }

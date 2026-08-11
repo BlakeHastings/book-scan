@@ -38,8 +38,8 @@ import { parseArgs } from './backup-catalogue'
  * never named.
  */
 const TABLES = [
-  'author_filing', 'book_authors', 'book_tag', 'books', 'captures',
-  'separators', 'shelf_ranges', 'tag',
+  'area', 'author_filing', 'book_authors', 'book_tag', 'books', 'captures',
+  'fixture', 'tag',
 ]
 
 /** A digest with everything matching, to make one thing differ at a time. */
@@ -48,16 +48,16 @@ function digest(overrides: Partial<CatalogueDigest> = {}): CatalogueDigest {
     tables: [...TABLES],
     counts: {
       books: 236, book_authors: 266, captures: 281,
-      separators: 11, author_filing: 263, shelf_ranges: 2,
+      area: 11, author_filing: 263, fixture: 2,
       tag: 9, book_tag: 412,
     },
     digests: {
       books: 'aaa', book_authors: 'bbb', captures: 'ccc',
-      separators: 'ddd', author_filing: 'eee', shelf_ranges: 'fff',
+      area: 'ddd', author_filing: 'eee', fixture: 'fff',
       tag: 'ggg', book_tag: 'hhh',
     },
     shelfOrder: '9ede898a64fcd70cacdfc1f0927d9323',
-    separatorOrder: '4e2af9aaa828e7fe2e8f38c22f7a0427',
+    areaOrder: '4e2af9aaa828e7fe2e8f38c22f7a0427',
     collation: 'en_US.utf8',
     ctype: 'en_US.utf8',
     encoding: 'UTF8',
@@ -98,9 +98,9 @@ describe('what counts as a difference', () => {
     ])
   })
 
-  it('fails on the divider order alone', () => {
-    expect(compareDigests(digest(), digest({ separatorOrder: 'moved' })))
-      .toEqual([{ what: 'divider order', expected: '4e2af9aaa828e7fe2e8f38c22f7a0427', actual: 'moved' }])
+  it('fails on the area order alone', () => {
+    expect(compareDigests(digest(), digest({ areaOrder: 'moved' })))
+      .toEqual([{ what: 'area order', expected: '4e2af9aaa828e7fe2e8f38c22f7a0427', actual: 'moved' }])
   })
 
   it('fails when a row is missing', () => {
@@ -140,9 +140,9 @@ describe('what counts as a difference', () => {
       counts: Object.fromEntries(TABLES.map((table) => [table, 0])),
       digests: {},
       shelfOrder: null,
-      separatorOrder: null,
+      areaOrder: null,
     })
-    // A count and a content digest per table, the shelf order and the divider
+    // A count and a content digest per table, the shelf order and the area
     // order. The table list itself matches, so it is not among them.
     expect(compareDigests(digest(), wrecked)).toHaveLength(TABLES.length * 2 + 2)
   })
@@ -215,7 +215,7 @@ describe('what counts as a difference', () => {
 
     expect(compareDigests(older, digest())).toEqual([])
     expect(tablesIn(older)).toEqual([
-      'author_filing', 'book_authors', 'books', 'captures', 'separators', 'shelf_ranges',
+      'area', 'author_filing', 'book_authors', 'books', 'captures', 'fixture',
     ])
   })
 

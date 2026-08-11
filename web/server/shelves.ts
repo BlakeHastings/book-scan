@@ -8,6 +8,8 @@
 import type { FiledBookRow } from './db.pg'
 import type { Db } from './driver'
 import { withPhotographs, type FiledPhotographedBook } from './photographs'
+import { withPlacements, type PlacementFields } from './placement-ledger'
+import { bandOf } from '../infrastructure/shelving/areas'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
@@ -56,14 +58,18 @@ export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
  * under, which is a fact about its first credit's alias and is joined on by the
  * view (#227). See `withPhotographs` and `FiledBookRow`.
  */
-export type ShelvedBook = FiledPhotographedBook & { sortKey: string }
+export type ShelvedBook = FiledPhotographedBook & PlacementFields & { sortKey: string }
 
 /** A row as the misfile check sees it: where it is, and where it belongs. */
-const toFiled = (row: FiledBookRow, derived: string, checkedOut: boolean): FiledBook => ({
+const toFiled = (
+  row: FiledBookRow & PlacementFields,
+  derived: string,
+  checkedOut: boolean,
+): FiledBook => ({
   id: row.id,
   title: row.title,
   authorFiling: row.author_filing,
-  location: row.location ?? '',
+  location: row.location,
   derivedLocation: derived,
   sortKey: row.sort_key,
   checkedOut,
@@ -208,13 +214,20 @@ export class Shelves {
     return this.separators.inRange(range)
   }
 
-  /** Which bookcase a range begins on. */
+  /**
+   * Which bookcase a range begins on.
+   *
+   * `shelf_ranges.start_shelf` until #232, and the rule that claims this range's
+   * books now: it points at a fixture, and the fixture's position is the number
+   * the column held. `0013` derived one from the other, so the two agree row for
+   * row.
+   *
+   * The fallback is the first bookcase, which is what a missing row gave. It is
+   * reachable on a collection whose rules point at furniture that has been taken
+   * out, and it is the answer that draws a shelf rather than none.
+   */
   private async startOf(range: ShelfRange): Promise<RangeStart> {
-    const row = await this.db.get<{ start_shelf: number; start_area: number }>(
-      'SELECT start_shelf, start_area FROM shelf_ranges WHERE shelf_range = ?',
-      [range],
-    )
-    return { shelf: row?.start_shelf ?? 1, area: row?.start_area ?? 0 }
+    return (await bandOf(this.db, range))?.start ?? { shelf: 1, area: 0 }
   }
 
   /**
@@ -230,15 +243,22 @@ export class Shelves {
    * the only place the condition is written, so a state that must not reach a
    * shelf cannot reach one by this statement being forgotten.
    */
-  private async booksIn(range: ShelfRange, excludeId = 0): Promise<FiledPhotographedBook[]> {
-    // The photographs are joined on here, in one statement for the whole range,
-    // because a shelf is drawn as a row of spines and a spine is a photograph
-    // (#228). Asking per book would be a statement per book on the path that
-    // draws the library.
-    const rows = await withPhotographs(this.db, await this.db.all<FiledBookRow>(
-      `SELECT * FROM shelved_books WHERE shelf_range = ?
-        ORDER BY sort_key ASC`,
-      [range],
+  private async booksIn(
+    range: ShelfRange,
+    excludeId = 0,
+  ): Promise<(FiledPhotographedBook & PlacementFields)[]> {
+    // The photographs and the placements are joined on here, one statement each
+    // for the whole range, because a shelf is drawn as a row of spines and a
+    // spine is a photograph (#228), and the misfile review reads what a person
+    // last said about every one of them (#232). Asking per book would be two
+    // statements per book on the path that draws the library.
+    const rows = await withPlacements(this.db, await withPhotographs(
+      this.db,
+      await this.db.all<FiledBookRow>(
+        `SELECT * FROM shelved_books WHERE shelf_range = ?
+          ORDER BY sort_key ASC`,
+        [range],
+      ),
     ))
     return excludeId ? rows.filter((row) => row.id !== excludeId) : rows
   }
@@ -593,9 +613,11 @@ export class Shelves {
         now,
       )
 
-      for (const shift of outcome.move.shift) {
-        await this.separators.reanchor(shift.id, shift.startsAt)
-      }
+      // The whole set at once. A move that empties an area re-anchors two
+      // boundaries sharing one anchor, and where a boundary sits in the run is
+      // decided by its anchor, so applying them one at a time leaves the second
+      // with nothing to do. See `reanchorAll`.
+      await this.separators.reanchorAll(outcome.move.shift)
       for (const id of outcome.move.remove) await this.remove(id)
 
       return {
@@ -681,9 +703,10 @@ export class Shelves {
 
         const before = await this.layout(range)
 
-        for (const one of receipt.reanchor) {
-          await this.separators.reanchor(one.id, one.startsAt)
-        }
+        // The whole receipt at once, for the reason the move applies its shifts
+        // at once: a move that emptied an area left two boundaries on one
+        // anchor, and putting them back one at a time puts only one back.
+        await this.separators.reanchorAll(receipt.reanchor)
 
         // In position order, and only onto the end of the run. A move removes
         // boundaries only when its book would be past the last one, so what is
@@ -763,13 +786,13 @@ export class Shelves {
       .map((placed) => toFiled(placed.book, placed.label, false))
 
     const off = (
-      await this.db.all<FiledBookRow>(
+      await withPlacements(this.db, await this.db.all<FiledBookRow>(
         // `catalogued_books`, not `books`, and only for the joined filing name:
         // the state is stated here as it always was. See `FiledBookRow`.
         `SELECT * FROM catalogued_books WHERE shelf_range = ? AND state = ?
           ORDER BY sort_key ASC`,
         [range, CHECKED_OUT],
-      )
+      ))
     ).map((row) => toFiled(row, '', true))
 
     return reviewShelving([...onShelf, ...off])

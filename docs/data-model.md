@@ -3,22 +3,26 @@
 Fourteen tables. Settled with the owner on 2026-08-06 across eight revisions,
 and recorded here because the reasoning matters more than the column lists.
 
-**All of this is built, and three of the four slices are now read.** The live
-schema is the six-table one in `web/server/db.pg.ts`, plus `tag` and `book_tag`
-from #179, `author`, `author_alias` and `book_author` from #180, `capture` from
-#181, `books.state` with its three views from #183, `collection`,
-`sort_strategy`, `fixture`, `area`, `placement_rule` and `rule_condition` from
-#184, and `book_placement` with `books.current_area_id` from #185. Every one of
-those was added beside the columns it replaces rather than instead of them, and
-they are described under "What is built" at the end.
+**All of this is built, and all four slices are now read.** The live schema is
+the six-table one in `web/server/db.pg.ts`, plus `tag` and `book_tag` from #179,
+`author`, `author_alias` and `book_author` from #180, `capture` from #181,
+`books.state` with its three views from #183, `collection`, `sort_strategy`,
+`fixture`, `area`, `placement_rule` and `rule_condition` from #184, and
+`book_placement` with `books.current_area_id` from #185. Every one of those was
+added beside the columns it replaced rather than instead of them, and every one
+of them has since taken over from what it shadowed. They are described under
+"What is built" at the end.
 
-**The cut-over is where something is finally deleted, and twelve columns have
-gone.** #223 and #227 made the genre tag decide a shelf range and the credited
-alias decide what a book files under, and #227 dropped `books.is_fiction` and
-`books.author_filing`; #228 made `capture` the record of a photograph and dropped
-the ten image columns. The placement half is what is left, and #220 is the epic
-that tracks it. `docs/domain-model.md` is the layering this sits under; #170 is
-the epic that built the rest.
+**The cut-over is where something is finally deleted, and it has deleted fifteen
+columns and two tables.** #223 and #227 made the genre tag decide a shelf range
+and the credited alias decide what a book files under, and #227 dropped
+`books.is_fiction` and `books.author_filing`; #228 made `capture` the record of a
+photograph and dropped the ten image columns; #232 made the areas and the ledger
+the record of where a book is, dropped `books.location`, `books.shelved_at` and
+`books.checked_out_at`, and then dropped `separators` and `shelf_ranges`, **which
+are the first two tables this repository has ever dropped**. #220 is finished.
+`docs/domain-model.md` is the layering this sits under; #170 is the epic that
+built the rest.
 
 The point is not that fourteen is better than six. It is that the current schema
 describes what the code needed and this one describes the collection.
@@ -28,11 +32,11 @@ describes what the code needed and this one describes the collection.
 | Today | Problem |
 | --- | --- |
 | `books.authors` is a joined string | Author information lives in three places and none is authoritative. "Everything by this author" is a string match, wrong in both directions. |
-| `shelf_ranges` | Configuration wearing a table's clothes. Its columns exist only to bootstrap counting. |
-| No bookcase anywhere | Bookcases and areas are implied by walking a separator list. Nothing can be said about one. |
+| ~~`shelf_ranges`~~ | Configuration wearing a table's clothes. Its columns exist only to bootstrap counting. **Dropped by #232:** two rows saying which bookcase each run began on is a `placement_rule` pointing at a fixture, and a rule names the books it claims as well. |
+| ~~No bookcase anywhere~~ | Bookcases and areas are implied by walking a separator list. Nothing can be said about one. **Answered by #184 and read since #232:** `fixture` and `area` are the furniture, and the boundary list is derived from them rather than the other way round. |
 | ~~Eight image columns~~ | Exactly one photograph of each kind, forever. A blurred spine cannot be re-shot. **Ten of them, and dropped by #228:** `capture` is the record. |
 | `is_fiction`, `category` | Two fixed ways to classify, when people want many. |
-| `location`, `shelved_at`, `checked_out_at` | Only the present tense. Where a book has been is not recorded. |
+| ~~`location`, `shelved_at`, `checked_out_at`~~ | Only the present tense. Where a book has been is not recorded. **Dropped by #232:** `book_placement` is where a book is and where it has been. |
 | ~~Separate `captures` queue~~ | The queue is a state a book is in, not a different kind of thing. **Dissolved by #183.** |
 
 ## Vocabulary
@@ -65,7 +69,45 @@ fixture, and could then disagree with itself. It lives in one place.
 `area(id, fixture_id, position, name, starts_at, sort_strategy, note)`
 
 `area.starts_at` is the sort key of the first book in the run, byte-ordered,
-compared against a book's sort key. **An area is `separators`, grown a parent.**
+compared against a book's sort key. **An area is what `separators` became: a
+separator grown a parent.** `area.starts_at` is `separators.starts_at` under a
+name that says what it anchors, carrying the same `COLLATE "C"` for the same
+reason, and `separators` is dropped (#232).
+
+**What the row did not take is `kind` and `position`**, because neither was ever
+a fact of its own. A `shelf` boundary is one whose area hangs on a different
+fixture from the area before it, and a boundary's ordinal is its place in the
+run, so both are derived from where the area sits. That is what makes the
+boundary list the inverse of the areas rather than a second opinion about the
+same shelves, and it is why a boundary's numbering cannot have a gap in it.
+
+**An area a book has been placed in is retired, not deleted.**
+`book_placement.area_id` is `ON DELETE RESTRICT` on purpose, so the history pins
+the furniture it names: a plank a book once sat on cannot go just because
+somebody took away the boundary that opened it. Such an area's `position` goes
+negative, which takes it off the fixture's face while leaving the row and every
+placement that names it exactly where they are, and **every read of the furniture
+asks for `position >= 0`**. An area nothing names is deleted outright.
+
+That belongs here rather than beside one migration, because it is what makes the
+areas usable as the record at all. While `separators` was authoritative a stale
+area decided nothing; now an area still sitting in a run comes back out of the
+boundary list as a boundary nobody asked for, and the removal would not have
+happened.
+
+**A retired area still names the plank it was**, and that is why the position is
+stored as `-(plank + 1)` rather than as any spare negative number: the encoding
+is its own inverse, and `faceOf` reads it back. A book placed on `1C` before
+somebody removed the divider above it is still recorded on `1C`, which is what a
+person wrote down, and the misfile list is what says the shelves no longer have
+one. Reading the stored number straight would have the catalogue answering `1@`
+about a book somebody can go and find.
+
+Nothing reaches a retired area by typing its label, because a parsed label's
+plank is never below zero, and putting the boundary back brings the same row back
+onto the face rather than making a second one beside it. That is what returns a
+book to the plank it was recorded on rather than to a plank with the same name and
+a different id.
 
 Setting `sort_strategy` on an area to anything but `inherit` makes it
 self-contained: nothing overflows into it from the area before, because a
@@ -190,12 +232,19 @@ and `0020` is the repair that made the two agree before it went.
 
 ### Book
 
-Loses most of what it currently is: `location`, `shelved_at`,
+Loses most of what it was: `location`, `shelved_at`,
 `checked_out_at` (ledger), `authors` and `author_filing` (aliases),
 `shelf_range` (rules), `is_fiction` and `category` (tags), the image
 columns (captures), `ocr_text` (never used).
 
-**The image columns are the first of those to have actually gone**, by #228.
+**The three placement columns have gone**, by #232, in a migration apiece:
+`0024` for `location`, `0025` for `shelved_at` and `0026` for `checked_out_at`.
+Each refuses rather than finishing quietly when the ledger cannot reproduce what
+the column says, because a book whose location nothing can reproduce is a book
+nobody can find afterwards. What the wire still carries is derived; see
+"BookPlacement" below.
+
+**The image columns were the first of those to actually go**, by #228.
 `front_image`, `back_image`, `edge_image`, `cover_image`, `front_hash`,
 `cover_hash`, `front_crop`, `back_crop`, `edge_crop` and `cropped` were dropped:
 ten, not eight, because the two hashes were always part of the same set and the
@@ -231,10 +280,35 @@ stop pinning is in the history.
 `assigned` rows are written only where the answer differs from where the book
 already is.
 
+**A book coming back is placed where it came off, not where the rules want it.**
+Going out is one row and it names no area; coming back is two, `checked_in` and
+then `placed`, at the plank read out of the book's own history. This document
+used to say a returning book is placed again by the rules, and that would move a
+book somebody had put back exactly where they found it. The rules get their say
+the next time they run. A book nobody had placed before it went out comes back
+nowhere, which is where it was.
+
 **Keep a projection, not only the ledger.** Drawing a shelf needs every book's
 current position at once, and scanning the ledger for that is wasteful.
 `book.current_area_id` is written in the same transaction, is rebuildable from
 the ledger, and a check can prove they agree.
+
+**This is the only record of where a book is, since #232.** There is no column
+beside it to fall back on and no second answer to compare against, which is why
+the drop was made in the same change as a book-by-book comparison rather than
+after one. What the wire still asks for is derived in
+`web/server/placement-ledger.ts`: `location` is the label of the area
+`books.current_area_id` names, built by `labelFor` rather than a second time in
+SQL, and `checked_out_at` is the `created_at` of the latest `checked_out` row,
+answered only while the book is in that state. Both carry the names the dropped
+columns had, which is deliberate and temporary, and is the call #223 made about
+`books.is_fiction` and #228 made about the photographs.
+
+**`shelved_at` did not become a derived field, because nothing ever read it.**
+Three statements wrote it and no query, route, client or scenario selected it
+back; its one reader was `0015`, which turned it into the `created_at` of a
+`placed` row. The rows say more than the column did: it could name the last time
+a book was put somewhere, and they name every time it was put anywhere.
 
 ### Capture
 
@@ -293,7 +367,7 @@ unidentified  ↓        withdrawn
 | `unidentified` | Read, and no catalogue has it |
 | `identified` | Confirmed, waiting to be put somewhere |
 | `shelved` | Somebody put it there and said so |
-| `checked_out` | Off the shelf, still owned. Remembers no area: on return it is placed again by the rules. |
+| `checked_out` | Off the shelf, still owned. Holds no area, because a book in a bag has no position. |
 | `withdrawn` | Given away, sold, lost. Terminal and archival. |
 | `discarded` | The scan was a mistake |
 
@@ -596,7 +670,8 @@ queue, which is the one place anybody can act on it.
 **`area` is `separators` grown a parent, and `area.starts_at` is
 `separators.starts_at` under a name that says what it anchors.** It carries
 `COLLATE "C"` for the reason that column does. A fixture is a bookcase, an area
-is a plank-run, and there is no plank row.
+is a plank-run, and there is no plank row. See "Fixture, Area" for what the row
+did not take, and for the retirement rule that came with reading it.
 
 **Fiction and non-fiction are two rows in `placement_rule`**, written against
 the `genre/fiction` and `genre/non-fiction` slugs `0002` derived from
@@ -604,17 +679,36 @@ the `genre/fiction` and `genre/non-fiction` slugs `0002` derived from
 bookcases is said: it names where the run begins and the run flows on through
 the areas after it until the next rule's entry point.
 
-**Nothing is cut over, for the fifth time and for the same reason.**
-`shelf_ranges` and `separators` keep every row and are still what
-`Shelves.layout`, `Store.resolveKey` and the misfile review read.
-`books.is_fiction` still decides the shelf range. Nothing in the app reads a
-fixture, an area or a rule.
+**Cut over by #232, and both tables are gone.** `shelf_ranges` was two rows
+saying which bookcase each run began on, which is a `placement_rule` pointing at
+a fixture: `bandsOf` in `web/infrastructure/shelving/areas.ts` asks the rules
+through `GENRE_RANGES`, the one place a genre slug and a shelf range are the same
+fact, and `Shelves.startOf` reads that. `separators` was the boundaries, and the
+boundaries are the areas: `boundariesFrom` beside it derives the list
+`layoutRange` walks from the areas of a run, so a boundary's `kind` and
+`position` come from where its area sits. `applySchema` no longer seeds anything
+on start, because the two rows it used to upsert every time are `0013`'s job.
 
-That is what makes the claim checkable rather than promised: both models are
-live over one catalogue, so every book can be placed twice and the two answers
-compared. `web/infrastructure/db/placement-backfill.test.ts` does that book by
-book over a 236 book, eleven separator catalogue, and three of its tests break
-the model on purpose so the comparison is watched failing.
+**Leaving both models live for four steps is what made the drop checkable rather
+than promised.** Both were live over one catalogue, so every book could be placed
+twice and the two answers compared book by book.
+`web/infrastructure/db/placement-backfill.test.ts` does that over a 236 book,
+eleven separator catalogue, and `web/infrastructure/db/placement-cutover.test.ts`
+does it again over a catalogue the size and shape of the live one, from both
+ends: the shelf, `layoutRange` over `separators` against the rules over the areas;
+and the record, `books.location` against the label the ledger's projection
+answers. Several of their tests break a derivation on purpose so the comparison
+is watched naming the books it should.
+
+`0023` is the repair that half owed, and it is `0016`'s and `0020`'s rule with
+the nouns changed: it walks every range's separators into areas, and re-derives a
+`placed` row for every book whose recorded location names an area the projection
+does not agree with, while the tables still say something. It **refuses** a
+recorded location naming a plank the furniture does not have, rather than
+dropping it, and names the books. `0027` and `0028` then ask the same question of
+the rows this database actually has, immediately before each table goes: every
+boundary is an anchored area and every anchored area is a boundary, both
+directions, and every run begins on the bookcase its rule points at.
 
 **A book carrying two `genre` tags files as fiction**, because fiction is rule 1
 and `priority` settles a tie. Those are the rows this document already hands to
@@ -627,18 +721,22 @@ touching them.
 `web/infrastructure/placement/`, the migrations `0014` and `0015`, and the one
 translation module in `web/server/placement-ledger.ts`.
 
-**Nothing is cut over, for the sixth step and the last one before the cut-over
-itself.** `books.location`, `books.shelved_at` and `books.checked_out_at` keep
-every value and stay authoritative: the client reads them, `reviewShelving` still
-computes the misfile list from `location` against a derived label, and nothing
-anywhere reads a placement row or `current_area_id`.
+**Cut over by #232, and the three columns are gone.** The ledger is where a book
+is, `books.current_area_id` is the projection a shelf is drawn from, and
+`withPlacements` in `web/server/placement-ledger.ts` derives `location` and
+`checked_out_at` for the wire. No statement anywhere reads a location from
+`books`, because there is no location on `books`. `reviewShelving` still computes
+the misfile list from a recorded location against a derived label, and what
+changed underneath it is that the recorded side is now read out of the rows like
+the derived side.
 
 **This one is written on every move, the way #200 taught.** There are exactly
 four statements in this repository that change where a book is, and all four are
 in `Store`: the insert in `addBook`, the update in `updateBook`, `setLocation`
 and `setCheckedOut`. Each calls `server/placement-ledger.ts` on the transaction
-handle that is writing the column, so a placement cannot be written without a
-row. That is the same write-through #200 moved `capture` onto after finding five
+handle that is writing the book, so a placement cannot be written without a row,
+and since #232 there is nowhere else for one to be written. That is the same
+write-through #200 moved `capture` onto after finding five
 callers that wrote the image columns without recording anything, arrived at from
 the other end: a caller cannot forget what it never had to remember.
 
@@ -649,63 +747,99 @@ came into existence since the migration had no area row and no location on it
 could be recorded as a placement. That was the ceiling on how much of
 `books.location` the ledger could follow, and it is gone.
 
-**#213 answers it the way #200 answered `capture`: a write-through, at the
-statements, not a reconciliation.** There are exactly four statements in this
-repository that write `separators`, and all four are in
-`DrizzleSeparatorRepository`: `add`, `reanchor`, `reposition` and `remove`. Each
-runs `recordAreasOf` in `web/infrastructure/shelving/areas.ts` on its own
-transaction handle, so `Shelves.applyBoundary`, `moveAcrossBoundary`,
-`retractMove`, `RemoveSeparatorHandler` and the routes above them are covered
-without one of them being touched, and `SeparatorRepository` is unchanged, so
-nothing above infrastructure learned a new word. A reconciliation was rejected
-for the reason #200 rejected it: a sweep leaves the drift real between its runs.
+**#213 answered it the way #200 answered `capture`: a write-through, at the
+statements, not a reconciliation**, and #232 turned the arrow round. Four
+statements wrote `separators` and there are now **three that write a boundary**,
+all three in `DrizzleSeparatorRepository`: `add`, `reanchor` and `remove`. Each
+reads the range's boundaries out of the areas, makes the one change it was asked
+for, and writes the areas back through `writeBoundaries` in
+`web/infrastructure/shelving/areas.ts`, on its own transaction handle, so
+`Shelves.applyBoundary`, `moveAcrossBoundary`, `retractMove`,
+`RemoveSeparatorHandler` and the routes above them are covered without one of
+them being touched. `SeparatorRepository` is still the port everything above
+infrastructure asks, so nothing there learned a new word. A reconciliation was
+rejected for the reason #200 rejected it: a sweep leaves the drift real between
+its runs.
+
+**`reposition` is the one that went.** A separator carried a `position` column,
+so removing one meant renumbering the rest or the range stopped describing the
+shelves. A boundary's ordinal is where its area sits in the run, which is
+contiguous by construction and cannot have a gap in it, so the port lost the
+method rather than keeping one that could only ever be a no-op.
 
 **The unit is the range, not the boundary**, which is the one way this is not
 shaped like `capture`. A photograph is a fact about one book; an area's
 `position` counts boundaries from the start of a run, so moving the first
 boundary re-anchors every area after it. So the areas of a range are re-derived
-from the separators as the statement left them and **reconciled** against the
-rows rather than rebuilt: `book_placement.area_id` and `books.current_area_id`
-name area rows, and an area that survives a boundary change has to keep its id.
+from the boundary list the change produced and **reconciled** against the rows
+rather than rebuilt: `book_placement.area_id` and `books.current_area_id` name
+area rows, and an area that survives a boundary change has to keep its id.
 
 **Removing a boundary makes the run one area shorter, and the surplus area is
 deleted only when nothing names it.** `book_placement.area_id` is
-`ON DELETE RESTRICT` on purpose, so an area a book was ever placed in is kept,
-the two models then disagree about the books on it, and the check below says
-which books by name. Nothing is orphaned and nothing is silent. The alternative
-was letting the foreign key refuse, which would roll back a boundary change
-somebody had already made at a shelf.
+`ON DELETE RESTRICT` on purpose, so an area a book was ever placed in cannot go,
+and the delete is conditional rather than attempted: letting the foreign key
+refuse would roll back a boundary change somebody had already made at a shelf.
+
+While `separators` was authoritative, keeping the row where it was cost nothing:
+a stale area decided nothing, the two models then disagreed about the books on
+it, and the check below named them. That stopped being survivable when the areas
+became the record, because an area still sitting in a run comes back out of the
+boundary list as a boundary nobody asked for. So an area a book has been placed
+in is **retired** instead, on the rule under "Fixture, Area": its position goes
+negative and every read of the furniture asks for `position >= 0`. That is what
+closes the drift #213 could only report.
 
 **A range's run stops where the next range's begins.** Non-fiction starts on
 bookcase 4, so a fiction range grown to a fourth bookcase is two runs sharing a
-number, which is the arrangement `0013` refuses outright. The write-through
-cannot refuse it, because `separators` is authoritative and a shadow table does
-not get to veto the shelves, so the areas past that bound are not written and the
-disagreement is reported. That is a pre-existing ambiguity becoming visible: such
-a catalogue is already drawing two planks with the label `4A`. Moving a range's
-starting bookcase in `shelf_ranges` is the way out.
+number, which is the arrangement `0013` refuses outright. The bound is still real
+and the write still does not refuse it: the areas past it are not written and the
+disagreement is reported, because a shelf somebody has already filled is not an
+arrangement the app gets to veto. That is a pre-existing ambiguity becoming
+visible: such a catalogue is already drawing two planks with the label `4A`.
+Where a range begins is a `placement_rule` pointing at a fixture now rather than
+a column, so that is the thing that moves.
 
-**The check is worth more than the write-through, and it is #184's comparison
-made continuous.** `areaDisagreements` in
+**The check is worth more than the write-through, and it survived losing one of
+the two things it compared.** `areaDisagreements` in
 `web/infrastructure/shelving/area-drift.ts` places every shelved book twice, by
 `layoutRange` and by `placementOf`, and names the ones the two answers differ
-about. `applySchema` runs it on every start, and
-`placement-backfill.test.ts` runs it after a divider is added, re-anchored,
-renumbered and removed rather than only after the backfill, because the
-backfill's proof expires the first time anybody moves one. Like the projection
-check it **reports and does not repair**: `recordAreasOf` is the repair, and a
-range that drifted before #213 existed closes itself the next time a boundary is
-written in it.
+about. There were never two models in it, only two ways of asking one set of rows
+where a book goes, and both survive the drop: one takes the range off
+`books.shelf_range` and walks a boundary list derived from the areas, which is
+the sequence `Shelves.layout` performs; the other takes no notice of that column
+and asks which rule claims the book by the tags it carries. They agree only when
+a book's range and its genre say the same thing, when no run has grown past where
+the next one begins, and when the boundary list really is the inverse of the
+areas it came from. Every one of those can be wrong silently, and about a shelf
+in somebody's house. `applySchema` still runs it on every start, and like the
+projection check it **reports and does not repair**, because rebuilding on sight
+erases the evidence of which writer is missing.
 
-**Two things the ledger cannot say, and they are written down rather than
-discovered.** A location naming a plank the furniture does not have gets no
-`placed` row, because `PATCH /api/books/:id/location` accepts any label
-`parseLocation` accepts and inventing an area to hold one would invent furniture
-nobody has; `0015` counts those on the way in. And clearing a recorded location,
-which the route describes as taking a book back to never-placed, is not any of
-the six kinds: `withdrawn` means given away and `checked_out` means it is in
-somebody's bag. Both leave the ledger behind `books.location`, which is the
-column that is still authoritative.
+**What it no longer catches is an anchor being moved**, because both of its
+readings walk the same areas. A boundary written with no area beside it was the
+failure it was built for, and there is no `separators` to write one into.
+`Shelves.review` is what catches that: it compares where every book is recorded
+against where the furniture puts it, which is still two sides, and it is the
+misfile list somebody actually acts on.
+
+**Two things the ledger could not say became two things the app refuses**, and
+both refusals are the price of there being one record instead of two. A location
+naming a plank the furniture does not have used to get no `placed` row, because
+`books.location` was a string and would hold anything `parseLocation` accepted,
+and `0015` spent a migration counting those on the way in. There is nowhere
+behind the ledger for `9Z` to go, so `PATCH /api/books/:id/location` now
+**refuses** it. And an empty label, which that route described as taking a book
+back to never-placed, is not any of the six kinds: `withdrawn` means given away
+and `checked_out` means it is in somebody's bag, and the ledger is append only,
+so there is nothing to unsay. It is refused too, saying which of the two was
+probably meant.
+
+Both refusals are new at #232, and neither is reachable from the app: every label
+the client sends comes from a layout the server drew, and there is no screen that
+clears one. A location naming furniture nobody owns was never a fact about the
+room, and what the app used to do with one was keep it while quietly disagreeing
+with itself about the same book.
 
 **No `assigned` row is written by the migration.** `assigned` is what the rules
 want, the rules are TypeScript, and `0013` already settled that a migration does

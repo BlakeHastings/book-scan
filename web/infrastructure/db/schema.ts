@@ -101,7 +101,23 @@ export const books = pgTable('books', {
   titleFiling: collatedText('title_filing').default(''),
   sortKey: collatedText('sort_key').notNull(),
 
-  location: text('location').default(''),
+  /*
+   * `location`, `shelved_at` and `checked_out_at` are gone (#232).
+   *
+   * Between them they were the present tense and only the present tense: where
+   * a book is, when it got there, and whether it is out of the house. They could
+   * not say that it came back from somewhere, that a person put it where the
+   * rules did not want it, or that somebody pinned it. `book_placement` says all
+   * of that by keeping every move instead of the last one, and
+   * `books.current_area_id` below is the projection over it that a shelf is
+   * drawn from.
+   *
+   * `location` was also the only place a plank could be named that no furniture
+   * had, which is what `0015` counted on the way in and what the route refuses
+   * now. `checked_out_at` is `books.state` plus the `created_at` of the
+   * `checked_out` row that put it there, and `shelved_at` was written by three
+   * statements and read by none.
+   */
   lookupSource: text('lookup_source').default(''),
 
   /*
@@ -131,8 +147,6 @@ export const books = pgTable('books', {
   ocrText: text('ocr_text').default(''),
 
   scannedAt: text('scanned_at').notNull(),
-  shelvedAt: text('shelved_at'),
-  checkedOutAt: text('checked_out_at'),
 
   /**
    * Where this book is in its life. See `domain/books/state.ts`.
@@ -338,13 +352,13 @@ export const authorFiling = pgTable('author_filing', {
   note: text('note').default(''),
 })
 
-export const shelfRanges = pgTable('shelf_ranges', {
-  shelfRange: text('shelf_range').primaryKey(),
-  startLabel: text('start_label').notNull(),
-  startShelf: integer('start_shelf').notNull().default(1),
-  startArea: integer('start_area').notNull().default(0),
-  note: text('note').default(''),
-})
+/*
+ * `shelf_ranges` is gone (#232). It was configuration wearing a table's clothes:
+ * two rows saying which bookcase each of the two runs begins on. That is a
+ * `placement_rule` pointing at a fixture, which is how a run that spans
+ * bookcases has been said since `0013` derived one from the other, and
+ * `bandsOf` in `infrastructure/shelving/areas.ts` is the read.
+ */
 
 export const captures = pgTable('captures', {
   id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
@@ -382,34 +396,18 @@ export const captures = pgTable('captures', {
   }).onDelete('set null'),
 ])
 
-/**
- * Where each shelf begins.
+/*
+ * `separators` is gone (#232), and `area` below is what it became.
  *
- * A boundary says WHERE a shelf starts and nothing about how much it holds. An
- * earlier version stored a capacity, which is not a fact about the furniture:
- * swap a paperback for a hardback and the same shelf holds one fewer.
- *
- * The one table #172 converts. It is not renamed here and nothing about it is
- * remodelled: #170 turns it into `area` with a parent, and doing half of that
- * now would leave the migration chain describing a shape nobody decided on.
+ * A boundary says WHERE a shelf starts and nothing about how much it holds, and
+ * that has not changed: `area.starts_at` is `separators.starts_at` under a name
+ * that says what it anchors, carrying the same `COLLATE "C"` for the same
+ * reason. What the row gained is a parent, so a bookcase and a plank-run exist
+ * as records rather than as numbers counted while walking a list, and what it
+ * lost is `kind` and `position`, both of which are derived from where the area
+ * sits: a `shelf` boundary is one whose area hangs on a different fixture from
+ * the area before it.
  */
-export const separators = pgTable('separators', {
-  id: integer('id').generatedByDefaultAsIdentity().primaryKey(),
-  shelfRange: text('shelf_range').notNull(),
-  // 'shelf' ends a shelf; 'area' ends the whole bookcase and resets to shelf 1
-  // of the next one.
-  kind: text('kind').notNull().default('shelf'),
-  // Compared against books.sort_key to find shelf boundaries, so it has to
-  // order the same way sort_key does or a boundary lands between the wrong two
-  // books. Hence the collation, and hence it is not plain `text`.
-  startsAt: collatedText('starts_at').notNull(),
-  // Ordinal within its range: the first separator closes the first shelf.
-  position: integer('position').notNull(),
-  note: text('note').default(''),
-  createdAt: text('created_at').notNull(),
-}, (table) => [
-  index('idx_separators').on(table.shelfRange, table.position),
-])
 
 /**
  * The vocabulary. One row per idea somebody can put a book under.
@@ -1258,7 +1256,7 @@ export const bookPlacement = pgTable('book_placement', {
  * still, for the same reason, and `outstanding_move` after that.
  */
 export const ALL_TABLES = [
-  books, bookAuthors, authorFiling, shelfRanges, captures, separators, tag, bookTag,
+  books, bookAuthors, authorFiling, captures, tag, bookTag,
   author, authorAlias, bookAuthor, capture, outstandingMove,
   sortStrategy, collection, fixture, area, placementRule, ruleCondition,
   bookPlacement,

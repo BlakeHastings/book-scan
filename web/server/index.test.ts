@@ -39,6 +39,8 @@ import { createApp, openCatalogue } from './index'
 import { lookupIsbn } from './lookup'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
+import type { SeparatorKind } from '../shared/layout'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
@@ -179,6 +181,33 @@ const del = (path: string) => call(path, { method: 'DELETE' })
 const dataUrl = (buffer: Buffer) => `data:image/png;base64,${buffer.toString('base64')}`
 
 /**
+ * Cut the fiction run into more planks, so a fixture has somewhere to put a book.
+ *
+ * A test database stands as migration `0013` leaves it: one area per run, so
+ * `1A` and `4A` are the only planks the furniture has, and since #232 a label
+ * naming any other one is refused rather than recorded. This is the boundary
+ * `POST /api/shelves/overflow` writes, taken directly, because these fixtures
+ * want the plank to exist rather than a book pushed off the end of one.
+ *
+ * Each `area` adds a plank to the bookcase the run is on and each `shelf` starts
+ * the next bookcase. The anchors sort above every key these fixtures write, so
+ * what this adds is furniture rather than a rearrangement of the books.
+ */
+async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
+  const separators = new DrizzleSeparatorRepository(running.db)
+  for (const [at, kind] of kinds.entries()) {
+    await separators.add({
+      range: 'fiction',
+      kind,
+      startsAt: `~${at}`,
+      position: at,
+      note: '',
+      createdAt: new Date().toISOString(),
+    })
+  }
+}
+
+/**
  * Put a queued book on a shelf, which is how a book leaves the queue (#183).
  *
  * This used to be `CaptureQueue.markDone(captureId, bookId)`, pairing a capture
@@ -232,6 +261,7 @@ describe('saving a book', () => {
     // The auto-placed label for the very first book is always 1A; asking for
     // 1C proves the client's answer wins rather than being silently
     // overwritten by the derived one.
+    await splitFiction('area', 'area')
     const { body } = await post('/api/books', {
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '1C',
     })
@@ -486,6 +516,7 @@ describe('deleting a book', () => {
 
 describe('updating a location', () => {
   it('records where a person says the book actually is', async () => {
+    await splitFiction('shelf', 'area', 'area')
     const { id } = await running.store.addBook({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
@@ -497,13 +528,47 @@ describe('updating a location', () => {
     expect((await running.store.getBook(id))?.location).toBe('2C')
   })
 
-  it('takes the book back to never-placed on an empty label', async () => {
+  /**
+   * The route used to read an empty label as "take this book back to
+   * never-placed", and that claim cannot be made any more (#232).
+   *
+   * The ledger is append only, so there is nothing to unsay; and neither state a
+   * book off the shelves can be in says "nowhere", because `withdrawn` means
+   * given away and `checked_out` means it is in somebody's bag. So the route
+   * refuses and says which of the two the person probably meant.
+   */
+  it('refuses an empty label rather than taking the book back to never-placed', async () => {
     const { id } = await running.store.addBook({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
-    const { body } = await patch(`/api/books/${id}/location`, { location: '' })
-    expect(body.book.location).toBe('')
+    const { status, body } = await patch(`/api/books/${id}/location`, { location: '' })
+
+    expect(status).toBe(400)
+    expect(body.error).toContain('checked out or withdrawn')
+    // The book is still on the plank the last person to carry it named.
+    expect((await running.store.getBook(id))?.location).toBe('1A')
+  })
+
+  /**
+   * A label that parses and names furniture nobody owns, which is the second
+   * thing this route used to accept (#232).
+   *
+   * `9Z` is a location as far as `parseLocation` is concerned, so it went into
+   * the column, no area row held it, and the app disagreed with itself about the
+   * same book from then on. There is nothing behind the ledger to hold such a
+   * label, so the write refuses and names the plank rather than half-happening.
+   */
+  it('refuses a plank the furniture does not have, and names it', async () => {
+    const { id } = await running.store.addBook({
+      title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
+    })
+
+    const { status, body } = await patch(`/api/books/${id}/location`, { location: '9Z' })
+
+    expect(status).toBe(400)
+    expect(body.error).toContain('9Z')
+    expect((await running.store.getBook(id))?.location).toBe('1A')
   })
 
   it('refuses a label that is not a real location, and does not touch the row', async () => {
@@ -598,6 +663,10 @@ describe('shelving a book onto a bookcase', () => {
   const misfiles = async () => (await call('/api/misfiles?range=fiction')).body
 
   it('leaves a book put back where the app said out of the misfile list', async () => {
+    // The second bookcase this test carries a book to. Anchored above both
+    // books, so it is furniture standing empty rather than a boundary that has
+    // already moved one of them.
+    await splitFiction('shelf')
     const rama = await seed('Rendezvous with Rama', 'Arthur C. Clarke')
     const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
     expect((await running.store.getBook(rama))?.location).toBe('1A')
@@ -759,12 +828,13 @@ describe('shelving a book onto a bookcase', () => {
   })
 
   it('leaves a recorded location alone when an edit carries no observation', async () => {
+    await splitFiction('shelf', 'area', 'area')
     const id = await seed('The Dispossessed', 'Ursula K. Le Guin')
     await patch(`/api/books/${id}/location`, { location: '2C' })
 
     // The two shapes a metadata-only edit arrives in: no location key at all,
     // and the empty string. Neither one was made by somebody standing at a
-    // shelf, so neither may touch the column that says where the book is.
+    // shelf, so neither says where the book is, and neither may move it.
     await put(`/api/books/${id}`, {
       title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
     })
@@ -778,14 +848,16 @@ describe('shelving a book onto a bookcase', () => {
   })
 
   /**
-   * The same rule, one column over (#87).
+   * The same rule, about the other thing a save could once quietly restate
+   * (#87).
    *
    * A metadata edit is not a statement about where a book physically is, and
    * whether it is on the bookcase at all is that same kind of statement. The
    * take-down time is worth more than the location too: `setCheckedOut`
    * protects it against being rewritten (#15) precisely because there is no
-   * history table, and an edit that quietly cleared it destroyed it outright.
-   * Only POST /api/books/:id/checkout may touch this column.
+   * second record of it, and an edit that quietly cleared it destroyed it
+   * outright. Only POST /api/books/:id/checkout may move a book between those
+   * two states.
    */
   it('leaves a book that is off the bookcase off it when an edit carries no observation', async () => {
     const id = await seed('The Dispossessed', 'Ursula K. Le Guin')

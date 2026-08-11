@@ -113,13 +113,24 @@ export const SHELF_ORDER_SQL =
   "select md5(string_agg(id::text, ',' order by sort_key, id)) as hash from books"
 
 /**
- * The same idea for the dividers. `separators.starts_at` is the other
- * `COLLATE "C"` column, it is compared against `books.sort_key` to find where a
- * shelf begins, and an ordering difference too small to change the book list
- * can still be large enough to move one book past a divider.
+ * The same idea for the areas.
+ *
+ * This read `separators` until #232 dropped that table, and it is the same
+ * check under a new name because an area is a separator grown a parent.
+ * `area.starts_at` is what `separators.starts_at` was, `COLLATE "C"` and all:
+ * it is compared against `books.sort_key` to find where a run of shelving
+ * begins, and an ordering difference too small to change the book list can
+ * still be large enough to move one book past a boundary.
+ *
+ * `position >= 0` because a negative position is how an area says it has been
+ * retired, and a retired area is not one anybody files against. Leaving those
+ * rows out loses no coverage: they are still counted and content-digested with
+ * every other row of `area` by the per-table digest below. What this hash is
+ * for is the order the shelving is read in, and a retired area is not in it.
  */
-export const SEPARATOR_ORDER_SQL =
-  "select md5(string_agg(id::text, ',' order by starts_at, id)) as hash from separators"
+export const AREA_ORDER_SQL =
+  "select md5(string_agg(id::text, ',' order by starts_at, id)) as hash " +
+  'from area where position >= 0'
 
 /**
  * Count and content digest for one table, in one statement.
@@ -166,8 +177,8 @@ export interface CatalogueDigest {
   digests: Record<string, string>
   /** The shelf order hash. Null when there are no books. */
   shelfOrder: string | null
-  /** The divider order hash. Null when there are no separators. */
-  separatorOrder: string | null
+  /** The area order hash. Null when there are no areas still in use. */
+  areaOrder: string | null
   /** `datcollate` of the database. Reproduced on the scratch side, and compared. */
   collation: string
   /** `datctype` of the database. */
@@ -219,7 +230,7 @@ export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
   }
 
   const shelf = await client.query(SHELF_ORDER_SQL)
-  const separator = await client.query(SEPARATOR_ORDER_SQL)
+  const areas = await client.query(AREA_ORDER_SQL)
   const meta = await client.query(
     `select datcollate, datctype, pg_encoding_to_char(encoding) as encoding,
             current_setting('server_version_num') as version
@@ -232,7 +243,7 @@ export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
     counts,
     digests,
     shelfOrder: (shelf.rows[0]?.hash as string | null) ?? null,
-    separatorOrder: (separator.rows[0]?.hash as string | null) ?? null,
+    areaOrder: (areas.rows[0]?.hash as string | null) ?? null,
     collation: String(metaRow.datcollate ?? ''),
     ctype: String(metaRow.datctype ?? ''),
     encoding: String(metaRow.encoding ?? ''),
@@ -312,7 +323,7 @@ export function compareDigests(expected: CatalogueDigest, actual: CatalogueDiges
     note(`${table} content`, expected.digests[table] ?? '', actual.digests[table] ?? '')
   }
   note('shelf order', expected.shelfOrder, actual.shelfOrder)
-  note('divider order', expected.separatorOrder, actual.separatorOrder)
+  note('area order', expected.areaOrder, actual.areaOrder)
   note('collation', expected.collation, actual.collation)
   note('ctype', expected.ctype, actual.ctype)
   note('encoding', expected.encoding, actual.encoding)

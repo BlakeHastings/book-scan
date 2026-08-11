@@ -37,7 +37,26 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { BOOK_STATES } from '../../domain/books/state'
 import { SCHEMA } from '../../server/db.pg'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, scratchDatabase } from './testdb'
+import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+
+/**
+ * As far down the folder as a test about one of these columns can be taken.
+ *
+ * `0024` drops `books.location`, `0025` `books.shelved_at` and `0026`
+ * `books.checked_out_at`, so a test whose subject is one of those columns cannot
+ * be written against a database that has had the whole folder: the thing it is
+ * asking about is not there to ask. Stopping the chain is not a weaker
+ * assertion, it is the only place the assertion can be made, and the tests that
+ * are about the state rather than the column go all the way and read the ledger.
+ *
+ * `0022` rather than `0023`, which drops nothing and would be the tighter stop.
+ * `0023` opens with a `CREATE TEMP TABLE ... ON COMMIT DROP` and `migrationsThrough`
+ * runs statements one at a time on a pool, so the temporary table is gone before
+ * the block that reads it. Drizzle's migrator wraps a migration in a transaction
+ * and this stand-in deliberately does not, which is a fact about the stand-in
+ * rather than about the migration.
+ */
+const BEFORE_THE_DROPS = '0022_the_alias_is_where_a_book_files'
 
 afterAll(async () => {
   await dropScratchDatabases()
@@ -194,12 +213,16 @@ describe('books getting the state they are in', () => {
      * `unidentified` is the state the queue table holds today, and putting one
      * between two real books on somebody's shelf listing is the failure #183
      * exists to design against.
+     *
+     * The chain stops short of #232 because the last assertion is the one that
+     * makes this test mean anything, and it is written in `checked_out_at`. See
+     * BEFORE_THE_DROPS.
      */
     const pool = await catalogueOf([
       { title: 'Alpha', sortKey: 'key-0001' },
       { title: 'Gamma', sortKey: 'key-0003' },
     ])
-    await migrateToLatest(pool)
+    await migrationsThrough(pool, BEFORE_THE_DROPS)
 
     const shelfBefore = await hashOf(pool, 'shelved_books')
 
@@ -289,9 +312,15 @@ describe('books getting the state they are in', () => {
      * is run against a row it was never given a chance to decide about, read out
      * of the shipped file rather than copied into this test, because a copy is a
      * second thing to keep in step and would go green while the file was wrong.
+     *
+     * On a catalogue the guard could have met, which since #232 is not the same
+     * thing as the latest one: the rest of that block reads `checked_out_at`, so
+     * on a fully migrated database the only reachable outcome is the one this
+     * asserts, and a guard that can fail for one reason only is not being
+     * watched. See BEFORE_THE_DROPS.
      */
     const pool = await catalogueOf([{ title: 'Dune' }, { title: 'Neuromancer' }])
-    await migrateToLatest(pool)
+    await migrationsThrough(pool, BEFORE_THE_DROPS)
     await pool.query("UPDATE books SET state = 'scanned' WHERE title = 'Dune'")
 
     await expect(pool.query(guardOf('0008_books_get_the_state_they_are_in')))
@@ -309,15 +338,17 @@ describe('books getting the state they are in', () => {
     expect(await hashOf(pool, 'shelved_books')).toBe(hash)
   })
 
-  it('leaves the column the client reads exactly as it was', async () => {
-    // Nothing is dropped by this migration. `checked_out_at` is still what the
-    // client reads and what `Store.setCheckedOut` compares and sets, and the
-    // state is written beside it rather than instead of it.
+  it('leaves the column the state was derived from exactly as it was', async () => {
+    // Nothing is dropped by this migration, which is what made the state safe to
+    // add: it is written beside `checked_out_at` rather than instead of it, so
+    // the two can be compared for as long as both exist. #232 is where the
+    // column goes, four years of migrations later in folder terms and one
+    // fortnight in real ones, and the test below is the other side of that.
     const pool = await catalogueOf([
       { title: 'On the shelf' },
       { title: 'Out', checkedOutAt: '2026-03-01T00:00:00.000Z' },
     ])
-    await migrateToLatest(pool)
+    await migrationsThrough(pool, BEFORE_THE_DROPS)
 
     const rows = await pool.query<{ title: string; checked_out_at: string | null }>(
       'SELECT title, checked_out_at FROM books ORDER BY title',
@@ -325,6 +356,41 @@ describe('books getting the state they are in', () => {
     expect(rows.rows).toEqual([
       { title: 'On the shelf', checked_out_at: null },
       { title: 'Out', checked_out_at: '2026-03-01T00:00:00.000Z' },
+    ])
+  })
+
+  it('says the same moment out of the ledger once the column has gone', async () => {
+    /*
+     * What the client reads, after `0026` took the column it used to be read
+     * from. The same two books and the same two answers, derived rather than
+     * stored: `withPlacements` in `server/placement-ledger.ts` answers
+     * `checked_out_at` from the `created_at` of the latest `checked_out` row, and
+     * only while the book is in that state, and this is that expression asked of
+     * the catalogue directly so a failure names the rows rather than the wrapper.
+     *
+     * The state is what says a book is out and the ledger says when it left. That
+     * is the whole cut-over in two columns of a result set, and the moment has to
+     * survive it: a book that went out on the first of March did not go out today
+     * because a migration ran.
+     */
+    const pool = await catalogueOf([
+      { title: 'On the shelf' },
+      { title: 'Out', checkedOutAt: '2026-03-01T00:00:00.000Z' },
+    ])
+    expect(await migrateToLatest(pool)).toBe('adopted')
+
+    const rows = await pool.query<{ title: string; state: string; checked_out_at: string | null }>(
+      `SELECT b.title, b.state,
+              CASE WHEN b.state = 'checked_out' THEN
+                (SELECT p.created_at FROM book_placement p
+                  WHERE p.book_id = b.id AND p.kind = 'checked_out'
+                  ORDER BY p.id DESC LIMIT 1)
+              END AS checked_out_at
+         FROM books b ORDER BY b.title`,
+    )
+    expect(rows.rows).toEqual([
+      { title: 'On the shelf', state: 'shelved', checked_out_at: null },
+      { title: 'Out', state: 'checked_out', checked_out_at: '2026-03-01T00:00:00.000Z' },
     ])
   })
 

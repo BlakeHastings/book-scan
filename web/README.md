@@ -72,11 +72,14 @@ server/                 Express API on loopback only
   lookup.ts               Open Library primary, Google Books top-up
   classify.ts             fiction vs non-fiction ladder
   store.ts                 all SQL for books
-  shelves.ts               separators, the shelf geography derived from them, misfile review
-  db.ts                    schema, and migrations for an existing database
+  shelves.ts               the shelf geography, the boundary moves, misfile review
+  placement-ledger.ts      where a book is: the placement rows, and the two fields the wire derives from them
+  db.pg.ts                 the Postgres driver, and where every column is explained
+infrastructure/shelving/
+  areas.ts                 the areas a range is cut into, and the boundary list they are read back as
 shared/                 pure logic used by both sides
   shelving.ts              sort keys, filing names, placement, misfile detection
-  layout.ts                turns separators into physical shelf/area labels
+  layout.ts                turns a range's boundaries into physical shelf/area labels
   isbn.ts                  validation, ISBN-10 to 13, OCR extraction, add-on rejection
 ```
 
@@ -298,10 +301,24 @@ that displacement cascades the way it does in the room.
 Locations are therefore **derived, not typed in**. Every boundary change
 reports the books that physically have to move, because a catalogue that
 quietly stops matching the shelves is worse than no catalogue. An earlier
-version of the schema stored a capacity number per shelf instead; an existing
-database with that table is migrated automatically the first time the server
-opens it, converting each stored capacity into the sort key of the book that
-used to start the next shelf.
+version of the schema stored a capacity number per shelf instead, and a
+migration converted each stored capacity into the sort key of the book that used
+to start the next shelf.
+
+**A boundary is a row of furniture, not a row of its own.** A bookcase is a
+`fixture` and a plank-run is an `area`, and the boundary list the layout walks is
+derived from the areas of a run: a boundary's kind is an area hanging on a
+different fixture from the one before it, and its ordinal is its place in the
+run. The `separators` table those rows replaced was dropped, with `shelf_ranges`,
+by #232. `docs/data-model.md` is the authority on all of it.
+
+**Saying a book is on a plank that does not exist is refused.**
+`PATCH /api/books/:id/location` takes a label, and there has to be an area behind
+it for the placement to be recorded against, so a label like `9Z` comes back as a
+400 saying there is no plank by that name. An empty label is refused too: a book
+that has left the shelves is checked out or withdrawn rather than nowhere.
+Neither is reachable from the app, since every label the client sends comes from
+a layout the server drew.
 
 Only the last, open-ended shelf can be closed. Closing an earlier one would
 mean renumbering every boundary after it, and removing the existing marker
@@ -623,6 +640,15 @@ noticed. The suites worth knowing about:
   cases the heuristic is knowingly wrong about.
 - `server/store.test.ts`, `server/shelves.test.ts` and `server/queue.test.ts`
   run the placement, boundary and capture-queue logic against a real database.
+- `infrastructure/db/placement-cutover.test.ts` is the comparison the placement
+  cut-over rests on. It places every shelved book twice, once by the tables the
+  app drew shelves from since it existed and once by the areas, the rules and the
+  ledger that replaced them, over a catalogue the size and shape of the live one,
+  and compares the two answers one book at a time from both ends: the shelf, and
+  the record of where somebody put each book. Several of its tests break a
+  derivation on purpose so the comparison is watched naming the books it should.
+  It had to run while both models were live, because afterwards there is nothing
+  left to compare against.
 - `server/rehash.test.ts` covers the cover rehash: that a dry run writes
   nothing, that a second run finds nothing to do, and that a missing image is
   counted rather than thrown.

@@ -33,10 +33,16 @@ export interface NewSeparator {
  * Where a range's boundaries are kept.
  *
  * Deliberately small, and deliberately not a generic repository. Every method
- * is one of the four things the shelving code actually does to a separator, and
+ * is one of the three things the shelving code actually does to a boundary, and
  * a `find(criteria)` or a `save(entity)` would be a query builder wearing a
  * repository's name, which is how the data store gets back into the layer this
  * exists to keep it out of.
+ *
+ * **`reposition` was a fourth and is gone (#232).** A boundary used to be a row
+ * with a `position` column, so taking one out meant renumbering the rest or the
+ * range stopped describing the shelves. A boundary is an `area` now and its
+ * position is where that area sits in the run, so the numbering is contiguous by
+ * construction and there is nothing left to renumber.
  *
  * Nothing here returns rows. `Separator` is the shape `shared/layout.ts`
  * defines and the pure layout arithmetic consumes, so the column names stop at
@@ -64,7 +70,18 @@ export interface SeparatorRepository {
    */
   reanchor(id: number, startsAt: string): Promise<void>
 
-  reposition(id: number, position: number): Promise<void>
+  /**
+   * Point several boundaries at once, which is not the same as calling
+   * `reanchor` in a loop.
+   *
+   * A boundary move that empties an area leaves two boundaries on one anchor, so
+   * the move it plans re-anchors both, and where a boundary sits in the run is
+   * decided by its anchor. Applying the first change on its own re-sorts the run
+   * under the second, which then has nothing left to do: the move reports
+   * carrying a book two planks and the shelves carry it one. The set is one
+   * edit, so it is written as one.
+   */
+  reanchorAll(shifts: readonly { id: number; startsAt: string }[]): Promise<void>
 
   remove(id: number): Promise<void>
 }

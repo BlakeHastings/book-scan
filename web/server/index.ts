@@ -58,7 +58,12 @@ import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repo
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { filesOf } from './photographs'
 import { Store, type DraftBook } from './store'
+// The two steps every save takes, lifted out so the seed takes the same ones
+// (#237). What a book's shelf range and filing name are derived from.
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
+// A location naming a plank nobody has is refused rather than recorded (#232).
+// See the location route, and `recordPlaced`.
+import { UnknownPlank } from './placement-ledger'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
@@ -1926,9 +1931,24 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    *
    * The only way a recorded location ever changes. Misfile detection reports
    * and never corrects: a book stays recorded where it was last seen until
-   * somebody has actually walked to the shelf and moved it, because that
-   * column is the record of where the book really is and a guess written
-   * into it is worse than an empty one.
+   * somebody has actually walked to the shelf and moved it, because the ledger
+   * is the record of where the book really is and a guess written into it is
+   * worse than an empty one.
+   *
+   * **Two labels this used to take are refused since #232**, and both refusals
+   * are the price of there being one record instead of two.
+   *
+   * A label naming a plank the collection does not have was recordable, because
+   * `books.location` was a string and would hold anything `parseLocation`
+   * accepted. There is nowhere in the ledger for `9Z` to go, and `0015` spent a
+   * migration counting the books that had one. So it is refused, and the message
+   * says what a plank is.
+   *
+   * An empty label used to take a book back to never-placed. The ledger is
+   * append only and none of its six kinds says that: `withdrawn` means given
+   * away and `checked_out` means it is in somebody's bag. So it is refused too,
+   * and the message says which of the two was probably meant. No screen sends
+   * either one.
    */
   app.patch('/api/books/:id/location', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
@@ -1938,13 +1958,25 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     const label = String((req.body ?? {}).location ?? '').trim()
-    // An empty label is meaningful: it takes the book back to never-placed.
-    if (label && !parseLocation(label)) {
+    if (!label) {
+      res.status(400).json({
+        error: 'Say which plank the book is on. A book that has left the shelves ' +
+          'is checked out or withdrawn rather than nowhere.',
+      })
+      return
+    }
+    if (!parseLocation(label)) {
       res.status(400).json({ error: `${label} is not a location, e.g. 1A or 4B.` })
       return
     }
 
-    await store.setLocation(id, label ? formatLocation(parseLocation(label)!) : '')
+    try {
+      await store.setLocation(id, formatLocation(parseLocation(label)!))
+    } catch (error) {
+      if (!(error instanceof UnknownPlank)) throw error
+      res.status(400).json({ error: error.message })
+      return
+    }
     /*
      * A person has said where the book is, so a boundary move waiting on them
      * is no longer waiting: whatever they said, this is the observation the
@@ -2157,7 +2189,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
         // and showing one the person has never seen makes them doubt a
         // correct match. Their own photo is of the book in their hands.
         ...ownPhoto(row),
-        checkedOut: row.checked_out_at !== null,
+        checkedOut: row.checked_out,
         distance: d,
       }))
   }

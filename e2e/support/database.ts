@@ -39,14 +39,25 @@ export interface BookRow {
   shelf_range: string
   author_filing: string
   sort_key: string
-  location: string
   front_image: string
   back_image: string
   edge_image: string
   cover_image: string
   isbn_source: string
   lookup_source: string
-  checked_out_at: string | null
+  /**
+   * Which of the seven states the book is in. `checked_out` is a book in
+   * somebody's bag and `shelved` is one on the bookcase, which is the pair
+   * `books.checked_out_at` used to answer before #232 dropped it.
+   */
+  state: string
+  /**
+   * The area the book was last placed in, or null for one nobody has placed.
+   *
+   * This is where `books.location` went. The column held a label and this holds
+   * a row; `areas()` below is what turns one back into the other.
+   */
+  current_area_id: number | null
 }
 
 /**
@@ -137,13 +148,71 @@ const PHOTOGRAPH_JOINS = `
   LEFT JOIN current_photograph spine   ON spine.book_id = b.id   AND spine.kind = 'spine'
   LEFT JOIN current_photograph artwork ON artwork.book_id = b.id AND artwork.kind = 'catalogue'`
 
-export interface SeparatorRow {
+/**
+ * Where one run of books ends and the next begins, which is an `area` row since
+ * #232: a boundary is not a record of a divider any more, it is the plank the
+ * books after it stand on.
+ *
+ * `kind` is therefore derived rather than stored. The furniture says whether a
+ * boundary starts a fresh bookcase by putting its area on a fresh fixture, and
+ * that is the same distinction the feature files have always written as 'shelf'
+ * and 'area'.
+ */
+export interface BoundaryRow {
   id: number
-  shelf_range: string
-  kind: string
+  /** 'shelf' when a new bookcase starts here, 'area' when a new plank does. */
+  kind: 'shelf' | 'area'
   starts_at: string
-  position: number
 }
+
+/**
+ * One plank, with the bookcase it hangs on, which is everything a label needs.
+ *
+ * Here because `books.location` is gone and `books.current_area_id` is what
+ * replaced it (#232). A step that wants to say which plank a book is recorded on
+ * has to join the two rows back together, and there is no other way to reach
+ * them from the suite. The label itself is built in `catalogue.steps.ts`, where
+ * the wire's vocabulary belongs; this hands back rows, which is what the rest of
+ * this file does.
+ */
+export interface PlankRow {
+  id: number
+  /** The bookcase's ordinal, which is the `1` in `1A`. */
+  fixture_position: number
+  /** The plank's ordinal within it, 0-based, which is the `A` in `1A`. */
+  position: number
+  fixture_name: string
+  name: string
+}
+
+/** One area on its fixture, in the order somebody walking the run meets them. */
+interface AreaRow {
+  id: number
+  fixture_position: number
+  position: number
+  starts_at: string
+}
+
+/**
+ * The furniture back to what migration `0013` leaves on a fresh database, so
+ * what a scenario added to the two runs is put back.
+ *
+ * The furniture is not truncated and cannot be: the fixtures, the areas and the
+ * two rules that file into them are seeded by that migration, and a scenario
+ * expects to find the two runs standing, exactly as the app does. Each run
+ * begins in one area at position 0 on the fixture its rule points at, anchored
+ * at the empty string; everything else on the floor was put there by a
+ * scenario, including a retired area, which is one at a negative position kept
+ * only because a `book_placement` named it. The truncate cascades to
+ * `book_placement`, so by the time these run nothing names an area at all.
+ */
+const RESTORE_FURNITURE = [
+  'DELETE FROM area WHERE position <> 0 OR fixture_id NOT IN ' +
+  '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
+  'DELETE FROM fixture WHERE id NOT IN ' +
+  '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
+  "UPDATE area SET starts_at = '' WHERE starts_at <> ''",
+]
 
 /**
  * Turn the connection Aspire produced into one node-postgres understands.
@@ -217,8 +286,12 @@ export class Catalogue {
    * order the deletes were spelling out by hand. RESTART IDENTITY so a scenario
    * that reads an id back sees the same numbers a fresh catalogue gives.
    *
-   * `shelf_ranges` is deliberately not truncated: it is seeded when the schema
-   * is created, and emptying it would leave the app with no range to file into.
+   * The furniture is deliberately not truncated: the fixtures, the areas and
+   * the two rules are seeded when the schema is created, and emptying them
+   * would leave the app with nowhere to file. It is put back instead, by
+   * `RESTORE_FURNITURE`, because a boundary is an area since #232 and a
+   * scenario that split a plank would otherwise leave that plank standing for
+   * the next scenario to find.
    *
    * Photographs on disk are left alone. They are named after the moment they
    * were taken so they cannot collide, and no assertion counts them.
@@ -230,9 +303,10 @@ export class Catalogue {
    */
   async reset(): Promise<void> {
     await this.pool.query(
-      'TRUNCATE book_authors, books, separators, author_filing, ' +
+      'TRUNCATE book_authors, books, author_filing, ' +
       'author, author_alias RESTART IDENTITY CASCADE',
     )
+    for (const statement of RESTORE_FURNITURE) await this.pool.query(statement)
   }
 
   /**
@@ -274,10 +348,94 @@ export class Catalogue {
     ))[0]
   }
 
-  async separators(range = 'fiction'): Promise<SeparatorRow[]> {
-    return this.all<SeparatorRow>(
-      'SELECT * FROM separators WHERE shelf_range = $1 ORDER BY position ASC',
-      [range],
+  /**
+   * The boundaries of one run, in the order somebody walking it meets them.
+   *
+   * A range is a band of bookcase numbers rather than a column: fiction starts
+   * on bookcase 1 and non-fiction on bookcase 4, so everything from 4 up is
+   * non-fiction and everything below it is fiction. That is what the two
+   * placement rules seeded by `0013` say, read off the floor plan instead of
+   * off a `shelf_range` string that no longer exists.
+   *
+   * The first area is dropped because it is where the run begins rather than a
+   * boundary: it is anchored at the empty string, which is not a book anybody
+   * carried anywhere. Areas at a negative position are dropped by the query
+   * for the same reason in reverse: a retired area is off the face of the
+   * fixture, kept only so a placement can still name it.
+   */
+  async boundaries(range: 'fiction' | 'nonfiction' = 'fiction'): Promise<BoundaryRow[]> {
+    const band = range === 'fiction' ? 'f.position >= 1 AND f.position < 4' : 'f.position >= 4'
+    const areas = await this.all<AreaRow>(
+      `SELECT a.id, f.position AS fixture_position, a.position, a.starts_at
+         FROM area a JOIN fixture f ON f.id = a.fixture_id
+        WHERE a.position >= 0 AND ${band}
+        ORDER BY f.position, f.id, a.position`,
+    )
+
+    // `areas[index]` is the row before this one, because the slice shifted
+    // everything down by the run's opening area.
+    return areas.slice(1).map((area, index): BoundaryRow => ({
+      id: area.id,
+      kind: area.fixture_position > areas[index]!.fixture_position ? 'shelf' : 'area',
+      starts_at: area.starts_at,
+    }))
+  }
+
+  /**
+   * Every plank on the floor, retired ones included.
+   *
+   * No `position >= 0` filter, unlike `boundaries` above, and deliberately: this
+   * answers "what is the area this book names called", and a book still pointing
+   * at an area that has been taken off the face of its fixture is a finding
+   * rather than a row to hide. The app's own read joins the same way.
+   */
+  async areas(): Promise<PlankRow[]> {
+    return this.all<PlankRow>(
+      `SELECT a.id, f.position AS fixture_position, a.position,
+              f.name AS fixture_name, a.name
+         FROM area a JOIN fixture f ON f.id = a.fixture_id`,
+    )
+  }
+
+  /**
+   * Stand a bare plank up, out past the end of every run.
+   *
+   * For a scenario that needs the catalogue to have recorded a book somewhere
+   * the shelves do not put it. Before #232 that was any label at all, because
+   * `books.location` was a string; a placement names an area now, so the route
+   * refuses a label naming furniture nobody owns, and the scenario has to own
+   * some. That refusal is the point of the cut-over rather than something to
+   * work around, so the furniture is made here instead of being invented by the
+   * app.
+   *
+   * **Anchored at `'~'`, which is why the layout does not move.** A sort key is
+   * normalised to letters, digits and spaces joined with the unit separator, so
+   * a tilde is above every key this catalogue can hold, and a plank anchored
+   * there is one no book ever reaches. `END_OF_RUN` in web/shared/layout.ts is
+   * the same character for the same reason. Every book stays on the plank it was
+   * on; all that changes is that the plank exists to be recorded on.
+   */
+  async standUpPlank(fixturePosition: number, areaPosition = 0): Promise<void> {
+    const [collection] = await this.all<{ id: number }>(
+      'SELECT id FROM collection ORDER BY id LIMIT 1',
+    )
+    if (!collection) throw new Error('no collection to hang a fixture off')
+
+    const [existing] = await this.all<{ id: number }>(
+      "SELECT id FROM fixture WHERE position = $1 AND name = '' ORDER BY id LIMIT 1",
+      [fixturePosition],
+    )
+    const [fixture] = existing ? [existing] : await this.all<{ id: number }>(
+      `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
+       VALUES ($1, 'bookshelf', '', $2, 'inherit', '') RETURNING id`,
+      [collection.id, fixturePosition],
+    )
+
+    await this.pool.query(
+      `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
+       VALUES ($1, $2, '', '~', 'inherit', '')
+       ON CONFLICT (fixture_id, position) DO NOTHING`,
+      [fixture!.id, areaPosition],
     )
   }
 

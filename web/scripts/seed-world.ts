@@ -497,6 +497,20 @@ function lookupJson(book: BookSeed, isbn13: string): string {
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * The furniture back to what migration `0013` leaves on a fresh database: one
+ * area at position 0 on each of the two fixtures a placement rule points at,
+ * anchored at the empty string. Everything else standing on the floor was put
+ * there by a run of this script.
+ */
+const RESTORE_FURNITURE = [
+  'DELETE FROM area WHERE position <> 0 OR fixture_id NOT IN ' +
+  '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
+  'DELETE FROM fixture WHERE id NOT IN ' +
+  '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
+  "UPDATE area SET starts_at = '' WHERE starts_at <> ''",
+]
+
 async function main(): Promise<void> {
   if (reset) {
     rmSync(DATA_DIR, { recursive: true, force: true })
@@ -532,9 +546,19 @@ async function main(): Promise<void> {
     // claiming an interest it does not have. It is emptied regardless: it holds
     // a foreign key into `books`, which CASCADE follows.
     await db.run(
-      'TRUNCATE books, book_authors, separators, author_filing, ' +
+      'TRUNCATE books, book_authors, author_filing, ' +
       'author, author_alias RESTART IDENTITY CASCADE',
     )
+    // The furniture is not truncated and cannot be: the fixtures, the areas and
+    // the two rules that file into them are seeded by migration `0013`, and the
+    // seeding below expects to find the two runs standing, exactly as the app
+    // does. It is put back to what that migration leaves instead, because a
+    // boundary is an area since #232: without this, a `--reset` over a world
+    // that had already been seeded would start the next one on the bookcases
+    // and planks the last one grew. The truncate cascades to `book_placement`,
+    // so nothing names an area by now, including a retired one, which is an
+    // area at a negative position kept only because a placement named it.
+    for (const statement of RESTORE_FURNITURE) await db.run(statement)
   }
 
   // Named rather than inlined into `Store`'s constructor, so the same instance

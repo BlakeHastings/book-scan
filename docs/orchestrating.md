@@ -13,27 +13,34 @@ Postgres database in the container `book-scan-live-pg`; the SQLite file is
 retained as history until at least 2026-09-06 and nothing in this repository can
 open it.
 
-**The remodel is all built, and half of it is read.** `docs/data-model.md`
-specifies fourteen tables. Landed: `tag` and `book_tag` (#179), `author`,
-`author_alias` and `book_author` (#180), `capture` (#181), `books.state` with its
-three views and the dissolved queue (#183, both halves), `collection`,
-`sort_strategy`, `fixture`, `area`, `placement_rule` and `rule_condition` (#184),
-and `book_placement` with `books.current_area_id` (#185). **Epic #170 is done and
-the cut-over, #220, is what is left.** It is the first work in this sequence that
-gets to delete anything, it owed three repairs, and all three are landed: `0016`
-for the books carrying two genre tags (#225), `0017` for the photographs the
-write-through missed (#228) and `0020` for the aliases that drifted behind
-`books.author_filing` (#227).
+**The remodel is built and it is read. Both epics are finished.**
+`docs/data-model.md` specifies fourteen tables. Landed: `tag` and `book_tag`
+(#179), `author`, `author_alias` and `book_author` (#180), `capture` (#181),
+`books.state` with its three views and the dissolved queue (#183, both halves),
+`collection`, `sort_strategy`, `fixture`, `area`, `placement_rule` and
+`rule_condition` (#184), and `book_placement` with `books.current_area_id`
+(#185). **Epic #170 is done and so is the cut-over, #220**, whose four steps all
+landed. It was the first work in this sequence that got to delete anything, it
+owed four repairs, and all four are landed: `0016` for the books carrying two
+genre tags (#225), `0017` for the photographs the write-through missed (#228),
+`0020` for the aliases that drifted behind `books.author_filing` (#227), and
+`0023` for the areas and the placements that drifted behind `separators` and
+`books.location` (#232).
 
-**Three of the four slices are cut over, and the largest is not.** Each step
-added its tables and left the old columns authoritative; #223 and #227 turned
-tags and authors round, and #228 turned photographs round. `books.is_fiction`,
-`books.author_filing` and the ten image columns are dropped, and each drop ran
-after a repair and a comparison over a catalogue that still had the column:
-`0017` for the photographs the write-through missed, `0020` for the aliases that
-drifted behind `books.author_filing`. **`shelf_ranges` and `separators` are still
-where every book actually goes**, and that is the fourth step and the biggest.
-**Do not cut a slice over as a side effect of something else.**
+**All four slices are cut over.** Each step added its tables and left the old
+columns authoritative; #223 and #227 turned tags and authors round, #228 turned
+photographs round, and #232 turned placement round, which was the fourth and the
+biggest. Fifteen columns are dropped, and so are **`separators` and
+`shelf_ranges`, the first two tables this repository has ever dropped**. Every
+drop ran after a repair and a comparison over a catalogue that still had the
+column, which is the pattern worth copying: `0017` for the photographs the
+write-through missed, `0020` for the aliases, `0023` for the areas and the
+ledger, and a cut-over test that places every book twice while both models are
+still live. **Do not read that as licence to drop a table.** What made those two
+safe is that every one of their rows had already become an `area` or a
+`placement_rule` and the two were compared row for row. The `captures` queue is
+still sitting there with its rows and nothing reading it, and it has no such
+successor.
 
 **#214 and #185 agree about where a recording belongs**, and between them they
 settle it: on the statement that writes the column, never on the caller. #214
@@ -51,6 +58,13 @@ after they began; that is what a check is for.
 worth keeping. Both models were live over one catalogue at once, so every book
 could be placed twice and the two answers compared book by book. A step that
 replaced as it went would have had nothing to compare against.
+
+**That comparison is also what a cut-over has to be reviewed against**, and it
+has to be made while both models are still there. #232 placed every shelved book
+twice from both ends, the shelf and the record, over a catalogue the size and
+shape of the live one, and then asked the same question of the real rows in the
+migration immediately before each drop, which refuses rather than finishing
+quietly. A drop with only a count behind it is not reviewable.
 
 **The layering is real but partial.** #172 introduced Drizzle and a `domain` /
 `application` / `infrastructure` split; four slices now go through it. Most
@@ -148,6 +162,11 @@ crop work removed three approaches that scored better because they were
 detecting the picture printed on the cover rather than the book.
 
 ## Where I would go next
+
+**Written at the 2026-08-07 handover, and the remodel items on it are all
+landed**: #183 in both halves, then #184 and #185, then the whole cut-over they
+were building towards. It is kept because the ordering argument is the part worth
+reusing. For the defects beside them, read the issues rather than this list.
 
 1. **Finish #183**, dissolving the `captures` queue. In flight at the time of
    writing. It answers a question #204 left it explicitly: what `GET /api/books`

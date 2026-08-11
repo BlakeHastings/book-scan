@@ -19,6 +19,14 @@ import { PrintedName } from '../domain/authorship/authors'
 import { refileBooks } from './refile'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
+/**
+ * `1A` throughout, because it is the only plank fiction has here.
+ *
+ * A test database stands as migration `0013` leaves it: one area per run, and
+ * since #232 a book cannot be recorded at a plank the furniture does not have.
+ * Nothing below asserts a location, so the fixtures name the plank that exists
+ * rather than building bookcases these tests would never look at.
+ */
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
   return { genre: FICTION_SLUG, ...over }
 }
@@ -63,7 +71,7 @@ describe('recomputing the keys of books saved by older code', () => {
 
   it('finds the book that was filed under nobody, and says where it belongs', async () => {
     const { id } = await store.addBook(
-      draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], location: '2C' }),
+      draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')
 
@@ -80,7 +88,7 @@ describe('recomputing the keys of books saved by older code', () => {
 
   it('writes the recomputed key only when told to, and counts what it wrote', async () => {
     const { id } = await store.addBook(
-      draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], location: '2C' }),
+      draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')
 
@@ -113,7 +121,7 @@ describe('recomputing the keys of books saved by older code', () => {
 
   it('honours a name somebody has filed, the same way a save would', async () => {
     const { id } = await store.addBook(
-      draft({ title: 'Norwegian Wood', authors: ['村上春樹'], location: '3A' }),
+      draft({ title: 'Norwegian Wood', authors: ['村上春樹'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')
     // What the override table used to hold, on the alias it moved to (#227).

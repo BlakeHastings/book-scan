@@ -37,23 +37,6 @@
 import type { Separator } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
-/** One boundary given a new ordinal, which is all a renumbering is. */
-export interface Repositioned {
-  id: number
-  position: number
-}
-
-/** A removal, and everything else that has to move because of it. */
-export interface Removal {
-  removed: Separator
-  /**
-   * The boundaries whose position changed, and only those. A renumbering that
-   * rewrote every row would be correct and would also make it impossible to
-   * read a log and see what actually moved.
-   */
-  renumbered: Repositioned[]
-}
-
 export class RangeSeparators {
   private constructor(
     readonly range: ShelfRange,
@@ -100,29 +83,19 @@ export class RangeSeparators {
   }
 
   /**
-   * Take one boundary out, and say what the rest have to become.
+   * The boundary this range would lose, or `null` when it has no such boundary.
    *
-   * `null` when no boundary here has that id, which is not an error: a request
-   * to remove a line somebody else has already removed has got what it asked
-   * for, and that is what the store did before this existed.
+   * Null is not an error: a request to remove a line somebody else has already
+   * removed has got what it asked for, and that is what the store did before
+   * this existed.
    *
-   * The renumbering is computed from the resulting order rather than as
-   * "decrement everything after it". Those agree whenever the invariant already
-   * held, and where they differ this is the one that repairs a range rather
-   * than carrying the damage forward one more removal.
+   * **It used to answer the renumbering as well**, because a separator carried
+   * its ordinal in a column and taking one out left a gap. Since #232 a boundary
+   * is the `area` it opens and its position is where that area sits in the run,
+   * so the ordinals are contiguous by construction and the only thing left to
+   * decide is which boundary goes.
    */
-  without(id: number): Removal | null {
-    const removed = this.ordered.find((separator) => separator.id === id)
-    if (!removed) return null
-
-    const renumbered: Repositioned[] = []
-    let position = 0
-    for (const separator of this.ordered) {
-      if (separator.id === id) continue
-      if (separator.position !== position) renumbered.push({ id: separator.id, position })
-      position += 1
-    }
-
-    return { removed, renumbered }
+  without(id: number): Separator | null {
+    return this.ordered.find((separator) => separator.id === id) ?? null
   }
 }

@@ -162,6 +162,48 @@
       "when": 1786378997052,
       "tag": "0022_the_alias_is_where_a_book_files",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786397140887,
+      "tag": "0023_the_areas_and_the_ledger_catch_up",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786397207949,
+      "tag": "0024_books_lose_the_recorded_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786397219888,
+      "tag": "0025_books_lose_when_they_were_shelved",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786397232212,
+      "tag": "0026_books_lose_when_they_went_out",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786397246458,
+      "tag": "0027_the_separators_table_goes",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1786397256367,
+      "tag": "0028_the_shelf_ranges_table_goes",
+      "breakpoints": true
     }
   ]
 }

@@ -8,11 +8,19 @@
  * by `labelFor`, and compared with the column it was built from, one book at a
  * time.
  *
- * That comparison is possible at all because nothing is cut over. `location`,
- * `shelved_at` and `checked_out_at` keep every value and stay authoritative, so
- * both models are live over one catalogue and each can be asked the same
- * question. It is the reason this step adds and backfills rather than replacing,
- * and it is what catches every quiet way this could be wrong:
+ * That comparison is possible only while `books.location` still holds anything,
+ * and #232 dropped it: `0024` takes the column, `0025` and `0026` take
+ * `shelved_at` and `checked_out_at` beside it. So every database here stops at
+ * `0015`, through `migrationsThrough`, which is where the migration this file is
+ * about stops. A catalogue carried to the end of the folder is one `0015` could
+ * never have met, and the column it is checked against would not be there to
+ * check.
+ *
+ * The comparison over the migrated catalogue, `books.location` against what the
+ * ledger answers on the wire, is `placement-cutover.test.ts` and is made once.
+ *
+ * With both records live at `0015` this catches every quiet way this could be
+ * wrong:
  *
  * - a label parsed to the wrong plank, which does not fail, it files a run of
  *   books one place along;
@@ -53,7 +61,7 @@ import {
   countProjectionDisagreements, projectionDisagreements, rebuildProjection,
 } from '../placement/projection'
 import { MigrationFailed, migrateToLatest } from './migrate'
-import { dropScratchDatabases, scratchDatabase } from './testdb'
+import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 afterAll(async () => {
   await dropScratchDatabases()
@@ -425,17 +433,23 @@ function migrationSql(tag: string): string {
 const BACKFILL = '0015_where_every_book_is_becomes_rows'
 
 /**
- * A migrated catalogue, with the states the seed asked for.
+ * A catalogue carried as far as the backfill, with the states the seed asked
+ * for.
  *
- * A state the baseline cannot hold can only be written after the migrations, by
- * which time the backfill has already read the catalogue, so the ledger is taken
- * back off and **the shipped migration is run again** over the corrected rows.
- * Running the file rather than a copy of it is deliberate: a copy is a second
- * thing to keep in step and would go green while the file was wrong.
+ * Stopped at `0015` rather than migrated to latest, because `0024` drops
+ * `books.location` and this whole file is the claim that the ledger says what
+ * that column said. See the note at the top.
+ *
+ * A state the baseline cannot hold can only be written after the migrations
+ * that add it, by which time the backfill has already read the catalogue, so the
+ * ledger is taken back off and **the shipped migration is run again** over the
+ * corrected rows. Running the file rather than a copy of it is deliberate: a
+ * copy is a second thing to keep in step and would go green while the file was
+ * wrong.
  */
 async function migratedCatalogue(books: SeedBook[]): Promise<pg.Pool> {
   const pool = await catalogueOf(books, LIVE_SEPARATORS)
-  await migrateToLatest(pool)
+  await migrationsThrough(pool, BACKFILL)
 
   if (await withStates(pool, books)) {
     await pool.query('DELETE FROM book_placement')
@@ -477,9 +491,12 @@ describe('where every book is, becoming rows', () => {
     pool = await catalogueOf(SEED, LIVE_SEPARATORS)
     before = await shelfOrder(pool, 'books WHERE checked_out_at IS NULL')
 
-    // Adopted, because this database has the baseline tables and has never been
-    // migrated. That is the path the real catalogue takes.
-    expect(await migrateToLatest(pool)).toBe('adopted')
+    // As far as the backfill and no further. `0023` refuses a catalogue holding
+    // a location that names no plank, which `Book 013` below is, and `0024`
+    // drops the column this file compares against. Both of those are the
+    // cut-over's business rather than this migration's; `placement-cutover.
+    // test.ts` is where the whole folder is run.
+    await migrationsThrough(pool, BACKFILL)
   }, 60_000)
 
   it('replays to exactly what books.location says, book by book', async () => {
@@ -588,12 +605,10 @@ describe('where every book is, becoming rows', () => {
   it('is not run twice on a database that has already had it', async () => {
     const rows = await ledgerIn(pool)
 
-    expect(await migrateToLatest(pool)).toBe('migrated')
-
-    // And run again by hand, which is the belt to the migrator's braces: a
-    // migration somebody is not sure finished should be safe to set going again.
-    // Without the guard a second run would double every book's history and the
-    // fold would still look right, which is the worst kind of wrong.
+    // Run again by hand, which is the belt to the migrator's braces: a migration
+    // somebody is not sure finished should be safe to set going again. Without
+    // the guard a second run would double every book's history and the fold
+    // would still look right, which is the worst kind of wrong.
     await pool.query(migrationSql(BACKFILL))
 
     const after = await ledgerIn(pool)

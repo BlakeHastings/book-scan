@@ -8,6 +8,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
+import { UnknownPlank } from './placement-ledger'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
@@ -496,13 +497,19 @@ describe('a book in the catalogue that is not on a shelf', () => {
     const key = await store.resolveKey({
       title: 'Something nobody has confirmed', authors: [author],
     })
-    await db.run(
-      `INSERT INTO books (title, shelf_range, sort_key,
-                          location, scanned_at, state)
-       VALUES ('Something nobody has confirmed', 'fiction', ?, ?,
-               '2026-08-07T00:00:00.000Z', 'scanned')`,
-      [key.sortKey, location],
+    const row = await db.get<{ id: number }>(
+      `INSERT INTO books (title, shelf_range, sort_key, scanned_at, state)
+       VALUES ('Something nobody has confirmed', 'fiction', ?,
+               '2026-08-07T00:00:00.000Z', 'scanned')
+       RETURNING id`,
+      [key.sortKey],
     )
+    // The row is written in, and where it sits is not: there is no
+    // `books.location` to write since #232, so the placement goes through the
+    // one route that records one. That is the app's own route, which makes the
+    // fixture no gentler: what is being kept off a shelf is a row that is
+    // filed, placed, and only kept out by its state.
+    if (location) await store.setLocation(row!.id, location)
   }
 
   // Author, Baker, Clark: the unidentified row is always the middle one, which
@@ -532,8 +539,12 @@ describe('a book in the catalogue that is not on a shelf', () => {
   it('is not judged by the misfile check, nor set aside by it', async () => {
     const ann = await add('Ann Author', 'On a shelf')
     await store.setLocation(ann, '1A')
-    // A location on the row, so a leak cannot hide as "never placed".
-    await unidentified('Bob Baker', '3C')
+    // A location on the row, so a leak cannot hide as "never placed". `4A`
+    // rather than the `3C` this used to write, because a recorded location has
+    // to name a plank the collection actually has now (`UnknownPlank`), and
+    // non-fiction's own is the one real plank this row would not be derived
+    // onto: a leak would read as a book at 4A that belongs at 1A.
+    await unidentified('Bob Baker', '4A')
 
     const review = await shelves.review('fiction')
     expect(review.misfiles).toEqual([])
@@ -1156,12 +1167,28 @@ describe('misfile detection', () => {
     expect((await shelves.review('nonfiction')).excluded.map((e) => e.book.id)).toEqual([])
   })
 
-  it('sets a label it cannot read aside rather than guessing', async () => {
+  /**
+   * Genuinely a different behaviour since #232, and the assertion says the new
+   * one.
+   *
+   * A recorded location used to be a string in a column, so `in the loft` went
+   * in and the review had to set the book aside rather than guess where that
+   * was. A recorded location is a plank now, so there is nothing to hold a
+   * label naming no plank: the write refuses it (`UnknownPlank`) and the
+   * `unreadable-location` exclusion is not reachable from here any more.
+   *
+   * So the claim moved from the review to the write, and it is the stronger
+   * half of the same one: the state the review existed to notice cannot be
+   * arrived at, and what the person last said is still standing afterwards.
+   */
+  it('refuses a label it cannot read rather than recording one to set aside', async () => {
     const id = await shelve('Ann Author')
-    await store.setLocation(id, 'in the loft')
 
+    await expect(store.setLocation(id, 'in the loft')).rejects.toThrow(UnknownPlank)
+
+    expect((await store.getBook(id))?.location).toBe('1A')
     const review = await shelves.review('fiction')
     expect(review.misfiles).toEqual([])
-    expect(review.excluded.map((e) => e.reason)).toEqual(['unreadable-location'])
+    expect(review.excluded).toEqual([])
   })
 })
