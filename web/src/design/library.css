@@ -1,0 +1,966 @@
+/*
+ * The component library: what this app is actually made of.
+ *
+ * Every rule here reads its colour, size, radius and shadow from
+ * `tokens.css`. If you find a literal colour below it is either a mask or a
+ * mistake. Everything is scoped under `.wf` for the reason that file gives.
+ *
+ * The order is the order of the gallery: the shell, the chrome, the shelf,
+ * then the ordinary parts.
+ */
+
+/* --- The shell -------------------------------------------------------- */
+
+.wf {
+  font-family: var(--face-ui);
+  font-size: var(--size-body);
+  line-height: var(--lh-body);
+  color: var(--ink);
+  background: var(--paper);
+  min-height: 100dvh;
+  /* A phone is 414 wide and this is never wider. A tablet gets the same
+     column centred rather than a second layout nobody has drawn. */
+  max-width: 480px;
+  margin: 0 auto;
+  /* The page may not scroll sideways. A shelf may, inside itself. */
+  overflow-x: clip;
+}
+
+.wf *,
+.wf *::before,
+.wf *::after { box-sizing: border-box; }
+
+/* `:where` so this reset carries no specificity at all. Written as
+   `.wf button` first, which is one class plus one type, and therefore beat
+   every single-class rule below it that set a colour: the primary button came
+   out with ink lettering on wood and looked like a mistake, because it was
+   one. Found by looking at it. */
+:where(.wf) button { font: inherit; color: inherit; }
+
+/* One screen: its own top bar, a scrolling body, its own tab bar. */
+.wf-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.wf-screen__body {
+  flex: 1;
+  padding: var(--s4) var(--s4) var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+
+/* Runs the full width of the phone inside a padded body. */
+.wf-bleed { margin-inline: calc(var(--s4) * -1); }
+
+/* --- Top bar ---------------------------------------------------------- */
+
+.wf-top {
+  display: grid;
+  grid-template-columns: var(--tap) 1fr auto;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.wf-top--plain { grid-template-columns: 1fr auto; }
+
+.wf-top__back {
+  width: var(--tap);
+  height: var(--tap);
+  margin-left: calc(var(--s2) * -1);
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  border-radius: var(--r-md);
+  color: var(--ink);
+}
+.wf-top__back:active { background: var(--paper-sunk); }
+
+.wf-top__titles { min-width: 0; }
+
+.wf-top__title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-title);
+  line-height: var(--lh-tight);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-top__sub {
+  margin: 2px 0 0;
+  font-size: var(--size-label);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-top__action {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 var(--s3);
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+  border-radius: var(--r-md);
+  color: var(--link);
+  font-size: var(--size-small);
+  font-weight: 600;
+}
+
+/* --- Tab bar ----------------------------------------------------------- */
+
+/*
+ * Words under the icons, always. An icon alone is a guess the reader has to
+ * make every time, and this app's language is words.
+ */
+.wf-tabs {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--paper-raised);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.wf-tab {
+  min-height: 56px;
+  padding: var(--s2) 2px calc(var(--s2) - 2px);
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  background: none;
+  border: 0;
+  color: var(--ink-2);
+}
+.wf-tab--on { color: var(--link); }
+
+.wf-tab__word {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* The current tab is underlined by a short bar, which is the one place a
+   filled mark is allowed to be this small and this bright. */
+.wf-tab__mark {
+  height: 3px;
+  width: 18px;
+  border-radius: var(--r-pill);
+  background: transparent;
+}
+.wf-tab--on .wf-tab__mark { background: var(--link); }
+
+/* --- The shelf, which is the signature --------------------------------- */
+
+.wf-shelf { display: grid; gap: var(--s2); }
+
+.wf-shelf__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding-inline: var(--s4);
+}
+
+.wf-shelf__label {
+  font-family: var(--face-ui);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: var(--size-heading);
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.wf-shelf__note {
+  font-size: var(--size-small);
+  color: var(--ink-2);
+  margin-left: auto;
+}
+
+/* The run scrolls inside itself. The page never does. */
+.wf-shelf__scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  /* No padding on the scroller: the plank runs off both edges of the phone,
+     the way a plank does. The inset the run needs is on the board. */
+  scroll-padding-left: var(--s4);
+}
+
+/*
+ * The board. Two surfaces of one plank and no more: the 9px top face the books
+ * stand on, and the front lip you see below it, which is this element's bottom
+ * border. There is no pseudo-element bar under that and there must not be one,
+ * because a board drawn twice is the thing that got spotted immediately the
+ * first time.
+ *
+ * It runs off both edges of the phone. Inset inside the scroller's own padding
+ * it read as a floating pill rather than as furniture.
+ */
+.wf-shelf__board {
+  width: max-content;
+  min-width: 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 0 var(--s4) 9px;
+  background: linear-gradient(var(--board), var(--board));
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: 100% 9px;
+  border-bottom: 3px solid var(--board-edge);
+}
+
+/*
+ * A spine, seen end on. In the real app this is a photograph the app already
+ * crops, so these placeholder cloths are standing in for photography rather
+ * than for chrome, which is why they are allowed to carry a hue at full
+ * strength when nothing else here is.
+ */
+.wf-spine {
+  position: relative;
+  width: 34px;
+  height: 116px;
+  flex: none;
+  border-radius: 3px 3px 1px 1px;
+  scroll-snap-align: start;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: var(--s2) 0;
+  overflow: hidden;
+  color: var(--cloth-ink);
+  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
+}
+
+.wf-spine--tall { height: 132px; }
+.wf-spine--short { height: 100px; }
+.wf-spine--wide { width: 42px; }
+.wf-spine--slim { width: 26px; }
+
+.wf-spine--moss { background: var(--cloth-moss); }
+.wf-spine--plum { background: var(--cloth-plum); }
+.wf-spine--sky { background: var(--cloth-sky); }
+.wf-spine--wood { background: var(--cloth-wood); }
+.wf-spine--wood2 { background: var(--cloth-wood-2); }
+/* The pale cloth. Cream lettering failed to read on it in both themes, which
+   is what a cloth that does not follow the theme buys you: one fix, not two. */
+.wf-spine--sun { background: var(--cloth-sun); color: var(--cloth-ink-dark); }
+
+.wf-spine__text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  max-height: 100%;
+  opacity: 0.92;
+}
+
+/* The book this screen is about, already in place. A ring, not a fill: the
+   spine underneath is the photograph and covering it would be wrong. */
+.wf-spine--here {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Where a book should go. Dashed, empty, and the cat sits in it. */
+.wf-gap {
+  width: 34px;
+  height: 116px;
+  flex: none;
+  border: 2px dashed var(--wood-2);
+  border-radius: 3px;
+  background: var(--sun-wash);
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  padding-bottom: var(--s1);
+  scroll-snap-align: start;
+}
+
+/* The divider between two areas on one plank. A physical thing: a board
+   offcut standing on edge. */
+.wf-divider {
+  width: 10px;
+  height: 134px;
+  flex: none;
+  border-radius: 3px 3px 0 0;
+  background: var(--board-edge);
+  border: 1px solid var(--wood-2);
+  box-shadow: var(--lift-1);
+}
+
+/* A bookend closes a run, and the bookend is the cat. */
+.wf-bookend {
+  flex: none;
+  align-self: flex-end;
+  display: grid;
+  place-items: end;
+  padding-bottom: 0;
+}
+
+/* The book being carried, hanging below the plank under its gap. */
+.wf-shelf__inhand {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  padding-inline: var(--s4);
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+
+/* --- Cards ------------------------------------------------------------- */
+
+/*
+ * No coloured rail down the side. Not here, not on a variant, not ever. A
+ * card that needs to say something says it in words.
+ */
+.wf-card {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s4);
+  box-shadow: var(--lift-1);
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+.wf-card--sunk {
+  background: var(--paper-sunk);
+  box-shadow: none;
+}
+
+.wf-card--quiet {
+  background: none;
+  box-shadow: none;
+  border-style: dashed;
+}
+
+.wf-card__head { display: grid; gap: 2px; }
+
+.wf-card__eyebrow {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.wf-card__title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+.wf-card__body { display: grid; gap: var(--s2); min-width: 0; }
+.wf-card__body p { margin: 0; }
+
+.wf-card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.wf-card__foot > * { flex: 1 1 auto; }
+
+/* The one line the whole screen exists to say. Book face, because it names
+   books. */
+.wf-instruction {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-display);
+  line-height: var(--lh-tight);
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.wf-instruction em {
+  font-style: italic;
+}
+
+.wf-said {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--size-small);
+}
+
+/* --- Buttons ----------------------------------------------------------- */
+
+.wf-btn {
+  min-height: var(--tap);
+  padding: var(--s2) var(--s4);
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  background: none;
+  font-size: var(--size-body);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  cursor: pointer;
+  transition: transform 90ms ease-out;
+}
+.wf-btn:active { transform: translateY(1px); }
+.wf-btn:focus-visible { outline: none; box-shadow: var(--focus); }
+
+.wf-btn--primary {
+  background: var(--wood-2);
+  color: var(--ink-on-fill);
+  box-shadow: var(--lift-1);
+}
+
+.wf-btn--secondary {
+  background: var(--paper-raised);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.wf-btn--quiet {
+  color: var(--link);
+  padding-inline: var(--s3);
+}
+
+.wf-btn--danger {
+  background: none;
+  border-color: var(--plum);
+  color: var(--plum);
+}
+
+.wf-btn--block { width: 100%; }
+.wf-btn--small { min-height: 36px; font-size: var(--size-small); padding-inline: var(--s3); }
+
+/* --- Segmented control -------------------------------------------------- */
+
+.wf-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 3px;
+  background: var(--paper-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+}
+
+.wf-seg__opt {
+  /* 44, not 38. Measured in the browser rather than guessed: the row around it
+     was 44 and the button inside it was not, and the button is the target. */
+  min-height: var(--tap);
+  padding: 0 var(--s2);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--size-small);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-seg__opt--on {
+  background: var(--paper-raised);
+  color: var(--ink);
+  box-shadow: var(--lift-1);
+}
+.wf-seg__opt:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/* --- List rows ---------------------------------------------------------- */
+
+.wf-list {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--paper-raised);
+  overflow: hidden;
+}
+
+/* A list inside a card is a well in that card, not a second card. Outlined,
+   it drew a border a few pixels inside another border and read as a box in a
+   box. Seen on the queue and on the first screen. */
+.wf-card .wf-list {
+  border-color: transparent;
+  background: var(--paper-sunk);
+  border-radius: var(--r-md);
+}
+
+.wf-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 60px;
+  padding: var(--s2) var(--s3);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  color: inherit;
+}
+.wf-row:first-child { border-top: 0; }
+.wf-row:active { background: var(--paper-sunk); }
+
+.wf-row__thumb {
+  width: 34px;
+  height: 46px;
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex: none;
+  color: var(--cloth-ink);
+  font-size: 9px;
+  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
+}
+
+.wf-row__text { min-width: 0; display: grid; gap: 1px; }
+
+.wf-row__title {
+  font-family: var(--face-book);
+  font-size: var(--size-body);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-row__sub {
+  font-size: var(--size-small);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-row__meta {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+
+.wf-row__place {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* --- Small parts --------------------------------------------------------- */
+
+/* A word, boxed. Never a colour on its own: the word carries the meaning and
+   the tint only groups them. */
+.wf-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 3px var(--s2);
+  border-radius: var(--r-pill);
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: var(--paper-sunk);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.wf-tag--fiction { background: var(--moss-wash); color: var(--moss); }
+.wf-tag--nonfiction { background: var(--sky-wash); color: var(--sky); }
+.wf-tag--out { background: var(--plum-wash); color: var(--plum); }
+.wf-tag--attention { background: var(--sun-wash); color: var(--wood-2); }
+
+.wf-tags { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+/* A plank label, the thing you read off the shelf edge. Set like a spine
+   label on a bound volume. */
+.wf-place {
+  display: inline-grid;
+  place-items: center;
+  min-width: 40px;
+  min-height: 26px;
+  padding: 0 var(--s2);
+  border-radius: var(--r-sm);
+  background: var(--wood-2);
+  color: var(--ink-on-fill);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: var(--size-small);
+}
+.wf-place--quiet {
+  background: none;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+}
+
+/* Counts on the home screen. */
+.wf-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s2);
+}
+
+.wf-stat {
+  display: grid;
+  gap: 0;
+  justify-items: center;
+  padding: var(--s3) var(--s1);
+  border-radius: var(--r-md);
+  background: var(--paper-sunk);
+}
+.wf-stat__n {
+  font-family: var(--face-book);
+  font-size: var(--size-title);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.wf-stat__word {
+  font-size: 11px;
+  color: var(--ink-2);
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* A field. Sunk, because you are putting something into it. */
+.wf-field { display: grid; gap: var(--s1); }
+.wf-field__label {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.wf-field__box {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--paper-sunk);
+  font-family: var(--face-book);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-field__box--empty { color: var(--ink-2); font-family: var(--face-ui); }
+
+/* --- The confirmation ---------------------------------------------------- */
+
+.wf-confirm {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: var(--s3);
+  padding: var(--s5) var(--s4);
+  background: var(--sun-wash);
+  border-radius: var(--r-xl);
+}
+.wf-confirm__said {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+}
+.wf-confirm__where { margin: 0; color: var(--ink-2); font-size: var(--size-small); }
+
+/* --- Empty state --------------------------------------------------------- */
+
+.wf-empty {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: var(--s2);
+  padding: var(--s5) var(--s4);
+  color: var(--ink-2);
+}
+.wf-empty__said { margin: 0; color: var(--ink); font-family: var(--face-book); }
+
+/* --- The camera ----------------------------------------------------------- */
+
+/* The one screen that is not paper. The chrome gets out of the way of the
+   picture, so it is drawn in ink whatever the theme. */
+.wf-cam {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  /* At 414x896 a 3:4 viewfinder is 500px tall, which put the shutter below the
+     fold on the one screen whose control has to be reachable one-handed. */
+  max-height: 40dvh;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(51, 42, 34, 0.9) 0 12px,
+      rgba(51, 42, 34, 0.82) 12px 24px
+    );
+  display: grid;
+  place-items: center;
+}
+.wf-cam__frame {
+  width: 62%;
+  height: 74%;
+  border: 2px solid rgba(251, 246, 236, 0.9);
+  border-radius: var(--r-sm);
+}
+.wf-cam__hint {
+  position: absolute;
+  left: var(--s3);
+  right: var(--s3);
+  bottom: var(--s3);
+  margin: 0;
+  text-align: center;
+  color: rgba(251, 246, 236, 0.95);
+  font-size: var(--size-small);
+}
+.wf-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
+.wf-slot {
+  display: grid;
+  gap: var(--s1);
+  justify-items: center;
+  padding: var(--s2) var(--s1);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.wf-slot--done { border-style: solid; border-color: var(--moss); color: var(--moss); }
+/* A book's proportions at thumbnail size, not a third of the screen width.
+   Sized to `100%` first, which at 414 wide made three 157px boxes and pushed
+   the button that finishes the book off the bottom. */
+.wf-slot__box {
+  width: 48px;
+  height: 64px;
+  border-radius: var(--r-sm);
+  background: var(--paper-sunk);
+}
+.wf-slot--done .wf-slot__box { background: var(--moss-wash); }
+
+/* The shutter. Round, central, and the biggest target on the screen, because
+   it is pressed while holding a book in the other hand. */
+.wf-shutter {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 3px solid var(--line-strong);
+  background: var(--paper-raised);
+  box-shadow: var(--lift-2);
+  display: grid;
+  place-items: center;
+  /* The body is a flex column, so the cross axis is the horizontal one.
+     `justify-self` did nothing and the shutter sat against the left edge. */
+  align-self: center;
+}
+.wf-shutter__inner {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--wood-2);
+}
+.wf-shutter:active .wf-shutter__inner { background: var(--wood); }
+
+/* The name of a piece of furniture, above the planks in it. Bookcase, never
+   "shelf": see docs/shelving.md. */
+.wf-heading {
+  margin: var(--s2) 0 0;
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  font-weight: 600;
+  color: var(--ink);
+  padding-inline: var(--s4);
+}
+.wf-heading--flush { padding-inline: 0; }
+
+/* --- The carry list and the plan ------------------------------------------ */
+
+.wf-move {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  justify-content: start;
+  gap: var(--s2);
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+
+.wf-steps { display: grid; gap: var(--s2); }
+.wf-step {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: var(--s2);
+  align-items: baseline;
+  font-size: var(--size-small);
+}
+.wf-step__n {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+/* --- The cat -------------------------------------------------------------- */
+
+.wf-cat { display: block; }
+.wf-cat__body { fill: var(--cat); stroke: var(--cat-rim); stroke-width: 1.5; }
+.wf-cat__tail {
+  fill: none;
+  stroke: var(--cat);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+/* The second pass over the silhouette: fill only, so the rim survives where
+   the cat meets the page and disappears where he meets himself. */
+.wf-cat__fill { fill: var(--cat); stroke: none; }
+.wf-cat__eye { fill: var(--cat-eye); }
+.wf-cat__nose { fill: var(--cat-nose); }
+/* Whiskers are on the page rather than on the cat, so they take the rim: a
+   mid-brown line that shows on paper in daylight and a pale one at night. */
+.wf-cat__whisker { stroke: var(--cat-rim); stroke-width: 1.5; fill: none; }
+/* Shut eyes are on the black of his face, so they take the eye colour. */
+.wf-cat__shut {
+  fill: none;
+  stroke: var(--cat-eye);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+/* --- The gallery's own frame ---------------------------------------------- */
+
+/*
+ * This bar is the viewer, not the app. It is deliberately plainer and
+ * smaller than anything the app draws, so a screenshot of a screen is not
+ * mistaken for a screen with two headers.
+ */
+.wf-frame {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 38px;
+  padding: 0 var(--s2);
+  background: var(--paper-sunk);
+  border-bottom: 1px solid var(--line);
+}
+.wf-frame__home {
+  min-height: 38px;
+  padding: 0 var(--s2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.wf-frame__name {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-frame__theme {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--paper);
+}
+.wf-frame__theme button {
+  min-height: 34px;
+  padding: 0 var(--s2);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.wf-frame__theme button[aria-pressed="true"] {
+  background: var(--paper-raised);
+  color: var(--ink);
+  box-shadow: var(--lift-1);
+}
+
+/* Sticky under the frame rather than at the very top. */
+.wf-frame ~ .wf-screen .wf-top { top: 38px; }
+
+.wf-next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--size-small);
+}
+
+/* The index. */
+.wf-index { display: grid; gap: var(--s4); padding: var(--s4); }
+.wf-index__hello {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: var(--s2);
+  padding-top: var(--s3);
+}
+.wf-index__title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-display);
+  line-height: var(--lh-tight);
+  font-weight: 600;
+}
+.wf-index__note { margin: 0; color: var(--ink-2); font-size: var(--size-small); }
+.wf-index__group {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf * { transition: none !important; }
+}

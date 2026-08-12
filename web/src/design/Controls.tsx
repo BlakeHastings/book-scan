@@ -1,0 +1,104 @@
+/**
+ * The things you press and the things you type into.
+ *
+ * Everything here is at least 44px tall, which is the iOS minimum and the
+ * only size that survives being used one-handed on a landing while holding a
+ * book. The segmented control is 38px inside a 44px row of its own for the
+ * same reason: the row is the target, the pill is the drawing.
+ */
+
+import type { ReactNode } from 'react'
+
+export function Button({
+  children,
+  tone = 'secondary',
+  block = false,
+  small = false,
+  onPress,
+}: {
+  children: ReactNode
+  /**
+   * `primary` is the one thing this screen is for, and a screen has at most
+   * one. `danger` is outlined rather than filled: a filled red button invites
+   * the press it is warning about.
+   */
+  tone?: 'primary' | 'secondary' | 'quiet' | 'danger'
+  block?: boolean
+  small?: boolean
+  onPress?: () => void
+}) {
+  const className = [
+    'wf-btn',
+    `wf-btn--${tone}`,
+    block ? 'wf-btn--block' : '',
+    small ? 'wf-btn--small' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <button type="button" className={className} onClick={onPress}>
+      {children}
+    </button>
+  )
+}
+
+/**
+ * Two or three answers to one question, all visible at once.
+ *
+ * Three is the limit at 414 wide: a fourth option puts a word like
+ * "Non-fiction" into 80px and it either truncates or wraps, and both were
+ * seen before this comment was written.
+ */
+export function Segmented<T extends string>({
+  options,
+  on,
+  onPick,
+  label,
+}: {
+  options: { value: T; word: string }[]
+  on: T
+  onPick?: (value: T) => void
+  label: string
+}) {
+  return (
+    <div className="wf-seg" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={`wf-seg__opt${option.value === on ? ' wf-seg__opt--on' : ''}`}
+          aria-pressed={option.value === on}
+          onClick={() => onPick?.(option.value)}
+        >
+          {option.word}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A field, drawn rather than editable: this is a wireframe and nothing here
+ * is wired to anything. The label sits above rather than inside, because a
+ * placeholder that disappears when you type is a label you cannot check your
+ * answer against.
+ */
+export function Field({
+  label,
+  value,
+  placeholder,
+}: {
+  label: string
+  value?: string
+  placeholder?: string
+}) {
+  return (
+    <div className="wf-field">
+      <span className="wf-field__label">{label}</span>
+      <div className={`wf-field__box${value ? '' : ' wf-field__box--empty'}`}>
+        {value || placeholder}
+      </div>
+    </div>
+  )
+}
