@@ -858,6 +858,267 @@
   color: var(--ink-2);
 }
 
+/* --- The furniture, as boxes inside boxes ---------------------------------- */
+
+/*
+ * A piece, with whatever is under it nested inside.
+ *
+ * **Nothing here draws the carpentry.** The shelf above is a board with real
+ * spines on it because that screen is for finding a book in the room. These
+ * screens are for saying how the collection is organised, and drawing a
+ * bookcase would promise the app knows which areas share a board and how tall
+ * the thing is. It knows neither. Settled by the owner on #251.
+ *
+ * Nesting is said with a container and an indent and nothing else: no rail, no
+ * tree lines, no rotating chevron. One box inside another is a relationship
+ * anybody reads without being taught it.
+ */
+.wf-nest {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--paper-raised);
+  box-shadow: var(--lift-1);
+}
+
+.wf-nest__head {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s3) var(--s3) var(--s2);
+  background: none;
+  border: 0;
+  text-align: left;
+  color: inherit;
+}
+.wf-nest__head:active { background: var(--paper-sunk); border-radius: var(--r-lg); }
+
+.wf-nest__line { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.wf-nest__holds { font-size: var(--size-small); color: var(--ink-2); }
+
+.wf-nest__name {
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-nest__note {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+/* The chevron sits with the words rather than on the baseline they share. */
+.wf-nest__line > svg { flex: none; align-self: center; color: var(--ink-2); }
+
+.wf-nest__body {
+  display: grid;
+  gap: var(--s2);
+  padding: 0 var(--s3) var(--s3);
+}
+
+/* One area under it. */
+.wf-box {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  color: inherit;
+  background: var(--paper-sunk);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+}
+.wf-box:active { background: var(--paper-raised); }
+.wf-box--on { background: var(--sun-wash); border-color: var(--line-strong); }
+
+.wf-box__head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.wf-box__reads {
+  font-family: var(--face-book);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-box__count {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.wf-box__holds { font-size: var(--size-small); color: var(--ink-2); }
+
+/* Adding another one, at the end of the ones there already are. Dashed,
+   because it is the shape of a thing that is not there yet. */
+.wf-add {
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  background: none;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--link);
+  font-weight: 600;
+}
+.wf-add:active { background: var(--paper-sunk); }
+
+/* Where a piece stands, drawn as the room rather than as a number. */
+.wf-order { display: flex; gap: var(--s1); }
+.wf-order__slot {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--tap);
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 1px;
+  padding: var(--s1) 2px;
+  border-radius: var(--r-md);
+  background: var(--paper-sunk);
+  color: var(--ink-2);
+}
+.wf-order__slot--on {
+  background: var(--wood-2);
+  color: var(--ink-on-fill);
+  box-shadow: var(--lift-1);
+}
+.wf-order__n { font-weight: 700; font-variant-numeric: tabular-nums; }
+.wf-order__name {
+  max-width: 100%;
+  font-size: 10px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Rules ----------------------------------------------------------------- */
+
+/* Every line has to be true and there is no way to write "or", so the lines
+   stack with the word between them rather than with a control that implies a
+   choice of joining words. */
+.wf-musts { display: grid; gap: var(--s1); }
+
+.wf-must {
+  width: 100%;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--paper-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  text-align: left;
+  color: inherit;
+}
+.wf-must:active { background: var(--paper-raised); }
+.wf-must__lead { font-size: var(--size-small); color: var(--ink-2); }
+/* The tag is the answer and it has to be the thing you see. A sunk tag on a
+   sunk row was the same colour as the row it sat in. Found by looking at it. */
+.wf-must .wf-tag {
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
+.wf-must__join {
+  padding-left: var(--s3);
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* A rule that wanted a book, and whether it got it. */
+.wf-claim {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--s3);
+  text-align: left;
+  color: inherit;
+  background: var(--paper-sunk);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+}
+.wf-claim--won { background: var(--sun-wash); border-color: var(--line-strong); }
+
+.wf-claim__head { display: flex; align-items: baseline; gap: var(--s2); }
+.wf-claim__name {
+  font-family: var(--face-book);
+  font-size: var(--size-body);
+  font-weight: 600;
+}
+.wf-claim__mark {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.wf-claim--won .wf-claim__mark { color: var(--ink); }
+.wf-claim__about { font-size: var(--size-small); color: var(--ink); }
+.wf-claim__why { font-size: var(--size-small); color: var(--ink-2); }
+/* The reason the winner won is the sentence this screen exists for, and at
+   night it was the dimmest thing on it. */
+.wf-claim--won .wf-claim__why { color: var(--ink); }
+
+/* --- One answer out of five ------------------------------------------------ */
+
+.wf-choice {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--paper-raised);
+  overflow: hidden;
+}
+/* Inside a card it is a well in that card, the way a list is. */
+.wf-card .wf-choice {
+  border-color: transparent;
+  background: var(--paper-sunk);
+  border-radius: var(--r-md);
+}
+
+.wf-choice__opt {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  color: inherit;
+}
+.wf-choice__opt:first-child { border-top: 0; }
+.wf-choice__opt:active { background: var(--paper-sunk); }
+.wf-choice__opt--on { background: var(--sun-wash); }
+.wf-choice__opt--off .wf-choice__word { color: var(--ink-2); }
+
+.wf-choice__text { display: grid; gap: 1px; min-width: 0; }
+.wf-choice__sub { font-size: var(--size-small); color: var(--ink-2); }
+.wf-choice__mark {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
 /* --- The cat -------------------------------------------------------------- */
 
 .wf-cat { display: block; }

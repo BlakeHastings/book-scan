@@ -79,6 +79,65 @@ export function Segmented<T extends string>({
 }
 
 /**
+ * One answer out of more than three, all visible at once.
+ *
+ * A segmented control stops working at four options and these questions have
+ * five, so the answers stack instead. Every one is a full-width row with room
+ * for a second line, because the second line is where a choice says what it
+ * actually means, and the chosen one is marked with a word rather than a tick:
+ * this app's language is words, and there is room for one here.
+ *
+ * An option can be present and unchoosable, which is not the same as absent.
+ * A way of ordering books that exists but cannot be offered yet should say so
+ * where somebody is looking for it, rather than turn up later as a surprise.
+ */
+export function Choice<T extends string>({
+  options,
+  on,
+  onPick,
+  label,
+}: {
+  options: {
+    value: T
+    word: string
+    /** What choosing it means, where that is not obvious from the word. */
+    sub?: string
+    /** Drawn, and not choosable yet. */
+    off?: boolean
+  }[]
+  on: T
+  onPick?: (value: T) => void
+  label: string
+}) {
+  return (
+    <div className="wf-choice" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={[
+            'wf-choice__opt',
+            option.value === on ? 'wf-choice__opt--on' : '',
+            option.off ? 'wf-choice__opt--off' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-pressed={option.value === on}
+          aria-disabled={option.off || undefined}
+          onClick={() => onPick?.(option.value)}
+        >
+          <span className="wf-choice__text">
+            <span className="wf-choice__word">{option.word}</span>
+            {option.sub && <span className="wf-choice__sub">{option.sub}</span>}
+          </span>
+          {option.value === on && <span className="wf-choice__mark">Chosen</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
  * A field, drawn rather than editable: this is a wireframe and nothing here
  * is wired to anything. The label sits above rather than inside, because a
  * placeholder that disappears when you type is a label you cannot check your

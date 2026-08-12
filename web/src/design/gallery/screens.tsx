@@ -31,7 +31,8 @@
 import type { CSSProperties, ReactElement } from 'react'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
-import { Button, Field, Segmented } from '../Controls'
+import { Button, Choice, Field, Segmented } from '../Controls'
+import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
 import { IconEdit, IconFind } from '../Icons'
 import { List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
@@ -223,6 +224,18 @@ function Library(go: Go) {
         <p className="wf-heading">Bookcase 4</p>
         <Shelf label="4A" note="6 books" items={three} />
       </div>
+
+      <Card
+        kind="Your furniture"
+        title="Three bookcases and a crate"
+        foot={
+          <Button tone="secondary" block onPress={() => go('furniture')}>
+            See the bookcases
+          </Button>
+        }
+      >
+        <p>Add one, divide it into areas, and say what belongs in each.</p>
+      </Card>
     </Phone>
   )
 }
@@ -272,6 +285,9 @@ function Book(go: Go) {
             <Button tone="secondary">Check it out</Button>
             <Button tone="quiet" onPress={() => go('where')}>
               It moved
+            </Button>
+            <Button tone="quiet" onPress={() => go('claimed')}>
+              Why it is here
             </Button>
           </>
         }
@@ -490,6 +506,542 @@ function Queue(go: Go) {
           <Row title="No barcode read" sub="Photographed 11:40" cloth="wood2" meta="Type the ISBN" onPress={() => go('review')} />
           <Row title="9781857231380" sub="No catalogue has it" cloth="sun" meta="Fill it in" onPress={() => go('review')} />
         </List>
+      </Card>
+    </Phone>
+  )
+}
+
+/* --- Your furniture ------------------------------------------------------- */
+
+/*
+ * The four pieces in the room, what is under each of them, and what each one
+ * holds.
+ *
+ * **Boxes, not carpentry.** These screens do not draw a bookcase. The library
+ * draws a real board with real spines on it because that screen is for finding
+ * a book in the room; this half is for saying how the collection is organised,
+ * and a drawing of furniture would promise the app knows things it does not.
+ * The owner settled that on #251.
+ *
+ * Three things in this data are the point rather than decoration. Bookcase 2
+ * has no name, so everything about it reads off its number, which is what
+ * makes the naming worth looking at. Its rule and the rule on 2C both want the
+ * same book, which is what the last screen exists to explain. And the crate
+ * has no rule at all, because a piece somebody keeps things in by hand is a
+ * real state and not a half-finished one.
+ */
+interface Place {
+  reads: string
+  books: number
+  holds: string
+}
+
+/*
+ * A named piece renames every area on it, which is why these read the way they
+ * do rather than as 1A to 1E. That is the table in `docs/data-model.md`, and
+ * getting it wrong here first was the fastest way to see that a label really
+ * is worked out rather than stored.
+ */
+const AREAS_1: Place[] = [
+  { reads: 'By the window · A', books: 22, holds: 'Fiction starts here' },
+  { reads: 'By the window · B', books: 24, holds: 'Fiction, carrying on' },
+  { reads: 'By the window · C', books: 12, holds: 'Fiction, carrying on' },
+  { reads: 'By the window · D', books: 9, holds: 'Fiction, carrying on' },
+  { reads: 'By the window · E', books: 26, holds: 'Fiction, carrying on' },
+]
+
+const AREAS_2: Place[] = [
+  { reads: '2A', books: 21, holds: 'Non-fiction starts here' },
+  { reads: '2B', books: 24, holds: 'Non-fiction, carrying on' },
+  { reads: '2 · Cookery', books: 18, holds: 'Anything tagged Cookery' },
+]
+
+const AREAS_3: Place[] = [
+  { reads: 'Landing · A', books: 19, holds: 'Poetry starts here' },
+  { reads: 'Landing · B', books: 22, holds: 'Poetry, carrying on' },
+  { reads: 'Landing · C', books: 17, holds: 'Poetry, carrying on' },
+  { reads: 'Landing · D', books: 8, holds: 'Poetry, carrying on' },
+]
+
+const AREAS_4: Place[] = [
+  { reads: 'Hall crate · A', books: 14, holds: 'Put here by hand' },
+  { reads: 'Hall crate · B', books: 12, holds: 'Put here by hand' },
+]
+
+/*
+ * Not every piece is a bookcase. A desk has one top, split into two areas by
+ * where they sit on it rather than by any board, which is the point: an area
+ * is chosen by a person, not read off the carpentry, and a desk is the
+ * clearest proof of that this gallery can show.
+ */
+const AREAS_5: Place[] = [
+  { reads: 'Desk · Left side', books: 6, holds: 'Put here by hand' },
+  { reads: 'Desk · Right side', books: 4, holds: 'Put here by hand' },
+]
+
+const ROOM = [
+  { label: '1', name: 'By the window' },
+  { label: '2', name: 'Not named' },
+  { label: '3', name: 'The landing' },
+  { label: '4', name: 'Hall crate' },
+  { label: '5', name: 'Desk' },
+]
+
+/** Bookcase 2, drawn wherever a screen needs it, with one area picked out. */
+function Bookcase2({ on, go, head }: { on?: string; go: Go; head?: () => void }) {
+  return (
+    <Nest
+      name="Bookcase 2"
+      note="63 books"
+      holds="Anything tagged Non-fiction"
+      onPress={head ?? (() => go('belongs'))}
+    >
+      {AREAS_2.map((area) => (
+        <AreaBox
+          key={area.reads}
+          reads={area.reads}
+          books={area.books}
+          holds={area.holds}
+          on={area.reads === on}
+          onPress={() => go('area')}
+        />
+      ))}
+      <AddBox onPress={() => go('addarea')}>Add an area to bookcase 2</AddBox>
+    </Nest>
+  )
+}
+
+function Furniture(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Your bookcases" sub="Five pieces, sixteen areas" onBack={() => go('library')} />}
+    >
+      <Nest
+        name="By the window"
+        note="93 books"
+        holds="Anything tagged Fiction"
+        onPress={() => go('bookcase')}
+      >
+        {AREAS_1.map((area) => (
+          <AreaBox
+            key={area.reads}
+            reads={area.reads}
+            books={area.books}
+            holds={area.holds}
+            onPress={() => go('area')}
+          />
+        ))}
+        <AddBox onPress={() => go('addarea')}>Add an area to this bookcase</AddBox>
+      </Nest>
+
+      <Bookcase2 go={go} head={() => go('bookcase')} />
+
+      <Nest
+        name="The landing"
+        note="66 books"
+        holds="Anything tagged Poetry"
+        onPress={() => go('bookcase')}
+      >
+        {AREAS_3.map((area) => (
+          <AreaBox
+            key={area.reads}
+            reads={area.reads}
+            books={area.books}
+            holds={area.holds}
+            onPress={() => go('area')}
+          />
+        ))}
+        <AddBox onPress={() => go('addarea')}>Add an area to this bookcase</AddBox>
+      </Nest>
+
+      <Nest
+        name="Hall crate"
+        note="26 books"
+        holds="No rule sends books here"
+        onPress={() => go('bookcase')}
+      >
+        {AREAS_4.map((area) => (
+          <AreaBox
+            key={area.reads}
+            reads={area.reads}
+            books={area.books}
+            holds={area.holds}
+            onPress={() => go('area')}
+          />
+        ))}
+        <AddBox onPress={() => go('addarea')}>Add an area to this crate</AddBox>
+      </Nest>
+
+      <Nest
+        name="Desk"
+        note="10 books"
+        holds="No rule sends books here"
+        onPress={() => go('bookcase')}
+      >
+        {AREAS_5.map((area) => (
+          <AreaBox
+            key={area.reads}
+            reads={area.reads}
+            books={area.books}
+            holds={area.holds}
+            onPress={() => go('area')}
+          />
+        ))}
+        <AddBox onPress={() => go('addarea')}>Add an area to this desk</AddBox>
+      </Nest>
+
+      <Button tone="primary" block onPress={() => go('bookcase')}>
+        Add a bookcase
+      </Button>
+
+      <Card weight="quiet" kind="The order" title="They are numbered by where they stand">
+        <p>
+          Bookcase 1 is the one you reach first. Move a piece and everything on
+          it is renamed with it, so 4A becomes 3A without a book leaving the
+          room.
+        </p>
+        <Button tone="quiet" onPress={() => go('bookcase')}>
+          Change the order
+        </Button>
+      </Card>
+    </Phone>
+  )
+}
+
+function Bookcase(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Bookcase 2" sub="3 areas, 63 books" onBack={() => go('furniture')} />}
+    >
+      <Bookcase2 go={go} />
+      <Said>
+        Tap the bookcase to say what belongs on the whole of it, or an area to
+        say what belongs in that one.
+      </Said>
+
+      <Field label="What you call it" placeholder="Not named" />
+      <Said>
+        Without a name it is Bookcase 2, and the areas on it read 2A, 2B and 2C.
+        Call it Landing and the same areas read Landing · A.
+      </Said>
+
+      <Field label="What it is" value="Bookcase" />
+      <Said>
+        Your word for it. A crate by the door and a windowsill are just as good,
+        and nothing in the app treats one differently from another.
+      </Said>
+
+      <div>
+        <span className="wf-field__label">Where it stands</span>
+        <div style={{ height: 6 }} />
+        <Order slots={ROOM.map((slot) => ({ ...slot, on: slot.label === '2' }))} />
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Button tone="secondary" small>
+          Move it earlier
+        </Button>
+        <Button tone="secondary" small>
+          Move it later
+        </Button>
+      </div>
+      <Said>
+        Second of five. Moving it renumbers this piece and the one it passes,
+        and every area on both of them.
+      </Said>
+
+      <Card weight="sunk" kind="What it will be called" title="2A, 2B, 2C">
+        <p>
+          Worked out from where the bookcase stands and what things are called,
+          every time it is read. There is nothing to type here and nothing that
+          can go stale.
+        </p>
+      </Card>
+
+      <Button tone="primary" block onPress={() => go('furniture')}>
+        Save
+      </Button>
+
+      <Card weight="quiet" kind="Taking it out of the room" title="The books do not vanish with it">
+        <p>
+          Books recorded on a bookcase that has gone still say where they were
+          put, so they turn up in books to carry until you have moved them.
+        </p>
+        <Button tone="danger" onPress={() => go('carry')}>
+          Take it out of the room
+        </Button>
+      </Card>
+    </Phone>
+  )
+}
+
+function Area(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="2 · Cookery" sub="18 books, on bookcase 2" onBack={() => go('bookcase')} />}
+    >
+      <Bookcase2 on="2 · Cookery" go={go} head={() => go('bookcase')} />
+
+      <Field label="What you call this area" value="Cookery" />
+      <Said>
+        Yours to leave empty. Named, it reads 2 · Cookery; unnamed, it reads
+        2C. Either way what you are naming is the area, never the label.
+      </Said>
+
+      <Card
+        kind="What belongs here"
+        title="Anything tagged Cookery"
+        foot={
+          <Button tone="secondary" block onPress={() => go('belongs')}>
+            Change what belongs here
+          </Button>
+        }
+      >
+        <p>Eighteen books match it today, and one of them two rules wanted.</p>
+      </Card>
+
+      <Card
+        kind="How it is ordered"
+        title="The way bookcase 2 does"
+        foot={
+          <Button tone="secondary" block onPress={() => go('sorting')}>
+            Change the order
+          </Button>
+        }
+      >
+        <p>By the author’s surname, which is what the whole library uses.</p>
+      </Card>
+
+      <Button tone="primary" block onPress={() => go('addarea')}>
+        Split this area in two
+      </Button>
+
+      <Card weight="quiet" kind="Taking this area away" title="What it held becomes part of the one before">
+        <p>
+          Books put here still say they are here, so they turn up in books to
+          carry until you have moved them.
+        </p>
+      </Card>
+    </Phone>
+  )
+}
+
+function AddArea(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Add an area" sub="Splitting 2 · Cookery" onBack={() => go('area')} />}
+    >
+      <Instruction>Where does the new area start?</Instruction>
+      <Said>
+        It starts at the book you pick, and everything from there on belongs to
+        it. That is the one thing an area is: the book its stretch begins at.
+      </Said>
+
+      <Nest name="Bookcase 2" note="63 books" holds="Anything tagged Non-fiction">
+        <AreaBox reads="2A" books={21} holds="Non-fiction starts here" />
+        <AreaBox reads="2B" books={24} holds="Non-fiction, carrying on" />
+        <AreaBox reads="2 · Cookery" books={11} holds="Acton to Fisher" on />
+        <AreaBox reads="2D, new" books={7} holds="Grigson to Wolfert" on />
+      </Nest>
+
+      <p className="wf-heading wf-heading--flush">Books on 2 &middot; Cookery</p>
+      <List label="Books on 2C">
+        <Row title="A Book of Mediterranean Food" sub="David, Elizabeth" cloth="moss" onPress={() => {}} />
+        <Row title="How to Cook a Wolf" sub="Fisher, M. F. K." cloth="wood" onPress={() => {}} />
+        <Row
+          title="Good Things"
+          sub="Grigson, Jane"
+          cloth="plum"
+          meta="Starts here"
+          onPress={() => {}}
+        />
+        <Row title="On Food and Cooking" sub="McGee, Harold" cloth="sky" onPress={() => {}} />
+        <Row title="Salt Fat Acid Heat" sub="Nosrat, Samin" cloth="sun" onPress={() => {}} />
+      </List>
+
+      <Card weight="sunk" kind="What it does" title="Cookery keeps 11 books, the new one takes 7">
+        <p>
+          The new one reads 2D, because it is fourth on this bookcase. Had
+          there been an area after it, that one would read 2E from today, and
+          every book on it would say 2E too: a label is worked out fresh each
+          time it is read rather than written down anywhere.
+        </p>
+      </Card>
+
+      <Button tone="primary" block onPress={() => go('area')}>
+        Add the area
+      </Button>
+      <Button tone="quiet" block onPress={() => go('area')}>
+        Leave it as one area
+      </Button>
+    </Phone>
+  )
+}
+
+function Belongs(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="What belongs here" sub="2 · Cookery" onBack={() => go('area')} />}
+    >
+      <Instruction>Books tagged Cookery go on 2C.</Instruction>
+
+      <Card kind="The rule" title="Cookery">
+        <Musts>
+          <Must lead="Tagged" tag="Non-fiction" onPress={() => {}} />
+          <Must join="and" lead="Tagged anything under" tag="Cookery" onPress={() => {}} />
+        </Musts>
+        <Button tone="quiet" onPress={() => {}}>
+          Add another thing that must be true
+        </Button>
+      </Card>
+      <Said>
+        Every line has to be true of a book before this rule takes it. If you
+        want one thing or the other, that is a second rule, and two rules you
+        can read beat one you cannot.
+      </Said>
+
+      <Card kind="When two rules want the same book" title="The one about the smaller place wins">
+        <p>
+          Bookcase 2 has a rule of its own, and this one is about a single area
+          on it. A rule about one area beats a rule about a whole bookcase. Two
+          rules about the same place are read from the top, and the first one to
+          fit takes the book.
+        </p>
+        <div className="wf-steps">
+          <div className="wf-step">
+            <span className="wf-step__n">1</span>
+            <span>
+              Cookery, about <Place quiet>2C</Place>
+            </span>
+          </div>
+          <div className="wf-step">
+            <span className="wf-step__n">2</span>
+            <span>Anything tagged Non-fiction, about the whole of bookcase 2</span>
+          </div>
+        </div>
+        <Button tone="quiet" onPress={() => go('claimed')}>
+          Show me what claimed a book
+        </Button>
+      </Card>
+
+      <Card weight="quiet" kind="Claimed by nothing" title="Three books match no rule at all">
+        <p>
+          They stay where they are and the plan says so, rather than being filed
+          somewhere nobody asked for.
+        </p>
+      </Card>
+
+      <Button tone="primary" block onPress={() => go('plan')}>
+        Show me what would move
+      </Button>
+      <Said>Nothing is written until you say so on the next screen.</Said>
+    </Phone>
+  )
+}
+
+function Sorting(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="How 2C is ordered" sub="Cookery" onBack={() => go('area')} />}
+    >
+      <Card weight="sunk" kind="Right now" title="By the author’s surname">
+        <p>
+          2C takes its order from bookcase 2, and bookcase 2 takes it from the
+          whole library. Change it once there and everything that has not
+          chosen for itself changes with it.
+        </p>
+      </Card>
+
+      <Choice
+        label="How 2C should be ordered"
+        on="same"
+        options={[
+          { value: 'same', word: 'The way bookcase 2 does', sub: 'By the author’s surname today' },
+          { value: 'author', word: 'By the author' },
+          { value: 'title', word: 'By the title' },
+          { value: 'year', word: 'By the year it came out' },
+          { value: 'tag', word: 'By tag', sub: 'Not ready to be offered yet', off: true },
+        ]}
+      />
+
+      <Card kind="If you choose one here" title="2C becomes a place of its own">
+        <p>
+          Books stop flowing into it from the area before, because a stretch of
+          books can only carry on across two places if both are ordered the
+          same way. From then on 2C holds what its own rule sends it and
+          nothing else.
+        </p>
+      </Card>
+
+      <Button tone="primary" block onPress={() => go('area')}>
+        Save
+      </Button>
+      <Button tone="quiet" block onPress={() => go('area')}>
+        Leave it as it is
+      </Button>
+    </Phone>
+  )
+}
+
+function Claimed(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Why it is here" sub="Salt Fat Acid Heat" onBack={() => go('book')} />}
+    >
+      <Instruction>It is on 2C because of the rule called Cookery.</Instruction>
+
+      <Card kind="Two rules wanted it" title="The one about 2C won">
+        <div style={{ display: 'grid', gap: 8 }}>
+          <Claim
+            name="Cookery"
+            about="About 2C"
+            won
+            why="It asks for a tag this book has, and it is about one area."
+            onPress={() => go('belongs')}
+          />
+          <Claim
+            name="Anything tagged Non-fiction"
+            about="About the whole of bookcase 2"
+            why="It fits too, but a rule about one area beats a rule about a whole bookcase."
+            onPress={() => go('belongs')}
+          />
+        </div>
+      </Card>
+
+      <Card kind="What the book carries" title="Two tags">
+        <Tags>
+          <Tag tone="nonfiction">Non-fiction</Tag>
+          <Tag>Cookery</Tag>
+        </Tags>
+        <p>Both rules asked about a tag this book has, which is why both wanted it.</p>
+      </Card>
+
+      <Card weight="quiet" kind="If that is wrong" title="Two ways to settle it">
+        <p>
+          Change the rule so it stops asking for this book, or pin the book
+          where it is. A pinned book is left alone by every rule, for good.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button tone="secondary" onPress={() => go('belongs')}>
+            Open the rule
+          </Button>
+          <Button tone="quiet" onPress={() => go('book')}>
+            Pin it here
+          </Button>
+        </div>
       </Card>
     </Phone>
   )
@@ -842,6 +1394,13 @@ export const SCREENS: Screen[] = [
   { id: 'done', name: 'Shelved', group: 'Cataloguing', render: Done },
   { id: 'queue', name: 'The queue', group: 'Cataloguing', render: Queue },
   { id: 'empty', name: 'An empty queue', group: 'Cataloguing', render: Empty },
+  { id: 'furniture', name: 'Your bookcases', group: 'Your furniture', render: Furniture },
+  { id: 'bookcase', name: 'One bookcase', group: 'Your furniture', render: Bookcase },
+  { id: 'area', name: 'One area', group: 'Your furniture', render: Area },
+  { id: 'addarea', name: 'Adding an area', group: 'Your furniture', render: AddArea },
+  { id: 'belongs', name: 'What belongs here', group: 'Your furniture', render: Belongs },
+  { id: 'sorting', name: 'How an area is ordered', group: 'Your furniture', render: Sorting },
+  { id: 'claimed', name: 'Why a book is here', group: 'Your furniture', render: Claimed },
   { id: 'carry', name: 'Books to carry', group: 'Putting things right', render: Carry },
   { id: 'move', name: 'Move non-fiction', group: 'Putting things right', render: Move },
   { id: 'plan', name: 'The plan', group: 'Putting things right', render: Plan },
@@ -852,6 +1411,7 @@ export const SCREENS: Screen[] = [
 export const GROUPS = [
   'Every day',
   'Cataloguing',
+  'Your furniture',
   'Putting things right',
   'Two to choose between',
 ]
