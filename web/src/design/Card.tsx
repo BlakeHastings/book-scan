@@ -9,20 +9,33 @@
  * Three weights and no more. A card is raised off the page, a sunk one is a
  * well inside another card, and a quiet one is a dashed outline for something
  * that is not there yet.
+ *
+ * ## The second line dropped below the first
+ *
+ * This used to be an eyebrow: small capitals, wide tracking, its own line
+ * *above* the title. Walking the first round on his phone the owner said the
+ * waiting card should sit lower and take less room, and the eyebrow was where
+ * the room was going: a full tracked line spent on a word like "Waiting"
+ * before the sentence that actually says something.
+ *
+ * So `kind` is now the second line rather than the first. The title leads and
+ * gets read; the kind of thing the card is follows it, quietly, at the size
+ * nothing else in the system uses. Nothing lost: "Never Let Me Go / found in
+ * Open Library" is the same two facts in the order somebody wants them.
  */
 
 import type { ReactNode } from 'react'
 import { Cat } from './Cat'
 
 export function Card({
-  eyebrow,
+  kind,
   title,
   weight = 'raised',
   children,
   foot,
 }: {
-  /** Small capitals above the title. The kind of thing this card is. */
-  eyebrow?: string
+  /** What kind of thing this card is, said under the title. Quiet, small. */
+  kind?: string
   title?: string
   weight?: 'raised' | 'sunk' | 'quiet'
   children?: ReactNode
@@ -33,10 +46,10 @@ export function Card({
     <section
       className={`wf-card${weight === 'raised' ? '' : ` wf-card--${weight}`}`}
     >
-      {(eyebrow || title) && (
+      {(kind || title) && (
         <div className="wf-card__head">
-          {eyebrow && <span className="wf-card__eyebrow">{eyebrow}</span>}
           {title && <h2 className="wf-card__title">{title}</h2>}
+          {kind && <span className="wf-card__kind">{kind}</span>}
         </div>
       )}
       {children && <div className="wf-card__body">{children}</div>}

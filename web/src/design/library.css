@@ -44,12 +44,16 @@
   min-height: 100dvh;
 }
 
+/* One step tighter than it was, between the cards and inside them. The owner
+   asked for the first screen to take less room and this is most of where the
+   room was going: 16px of air between every pair of cards, on a screen that
+   has five of them. */
 .wf-screen__body {
   flex: 1;
   padding: var(--s4) var(--s4) var(--s6);
   display: flex;
   flex-direction: column;
-  gap: var(--s4);
+  gap: var(--s3);
   min-width: 0;
 }
 
@@ -109,19 +113,22 @@
   white-space: nowrap;
 }
 
+/* A glyph now rather than a word, at the owner's request, and still the whole
+   44px square so the corner is as easy to hit as it was. Its name is on the
+   button as `aria-label`; see `Chrome.tsx`. */
 .wf-top__action {
-  min-height: var(--tap);
-  min-width: var(--tap);
-  padding: 0 var(--s3);
+  width: var(--tap);
+  height: var(--tap);
+  margin-right: calc(var(--s2) * -1);
   display: grid;
   place-items: center;
   background: none;
   border: 0;
   border-radius: var(--r-md);
   color: var(--link);
-  font-size: var(--size-small);
-  font-weight: 600;
 }
+.wf-top__action:active { background: var(--paper-sunk); }
+.wf-top__action:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /* --- Tab bar ----------------------------------------------------------- */
 
@@ -155,7 +162,8 @@
 .wf-tab--on { color: var(--link); }
 
 .wf-tab__word {
-  font-size: 11px;
+  font-family: var(--face-display);
+  font-size: var(--size-micro);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -182,9 +190,9 @@
 }
 
 .wf-shelf__label {
-  font-family: var(--face-ui);
+  font-family: var(--face-display);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 800;
   font-size: var(--size-heading);
   letter-spacing: 0.02em;
   color: var(--ink);
@@ -237,11 +245,14 @@
  * crops, so these placeholder cloths are standing in for photography rather
  * than for chrome, which is why they are allowed to carry a hue at full
  * strength when nothing else here is.
+ *
+ * **Its width and height are not in this file**, and they are the only two
+ * numbers about anything here that are not. They are measurements of one book
+ * rather than a style: width from the page count, height either uniform or
+ * estimated from the crop. `Shelf.tsx` has the arithmetic and the argument.
  */
 .wf-spine {
   position: relative;
-  width: 34px;
-  height: 116px;
   flex: none;
   border-radius: 3px 3px 1px 1px;
   scroll-snap-align: start;
@@ -253,11 +264,6 @@
   color: var(--cloth-ink);
   box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
 }
-
-.wf-spine--tall { height: 132px; }
-.wf-spine--short { height: 100px; }
-.wf-spine--wide { width: 42px; }
-.wf-spine--slim { width: 26px; }
 
 .wf-spine--moss { background: var(--cloth-moss); }
 .wf-spine--plum { background: var(--cloth-plum); }
@@ -287,9 +293,10 @@
   outline-offset: 2px;
 }
 
-/* Where a book should go. Dashed, empty, and the cat sits in it. */
+/* Where a book should go. Dashed, empty, and the cat sits in it. The width is
+   the one a book of unknown thickness gets, because that is what it is. */
 .wf-gap {
-  width: 34px;
+  width: 30px;
   height: 116px;
   flex: none;
   border: 2px dashed var(--wood-2);
@@ -346,7 +353,7 @@
   padding: var(--s4);
   box-shadow: var(--lift-1);
   display: grid;
-  gap: var(--s3);
+  gap: var(--s2);
   min-width: 0;
 }
 
@@ -361,13 +368,20 @@
   border-style: dashed;
 }
 
-.wf-card__head { display: grid; gap: 2px; }
+.wf-card__head { display: grid; gap: 1px; }
 
-.wf-card__eyebrow {
-  font-size: var(--size-label);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+/*
+ * The second line, under the title rather than over it.
+ *
+ * It was an uppercase tracked eyebrow above the title, and that is a whole
+ * line of the card spent before the sentence that says something. Sentence
+ * case, no tracking, the smallest size in the system: the same words in a
+ * third of the room. See `Card.tsx` for why it moved.
+ */
+.wf-card__kind {
+  font-size: var(--size-micro);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--ink-2);
 }
 
@@ -569,6 +583,7 @@
 }
 
 .wf-row__place {
+  font-family: var(--face-display);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   color: var(--ink);
@@ -609,6 +624,7 @@
   border-radius: var(--r-sm);
   background: var(--wood-2);
   color: var(--ink-on-fill);
+  font-family: var(--face-display);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -620,7 +636,19 @@
   border: 1px solid var(--line-strong);
 }
 
-/* Counts on the home screen. */
+/*
+ * Counts on the first screen, and the one piece of type the owner named.
+ *
+ * They were set in the book face and he did not like them: "it needs to be
+ * more rounded or something and more playful". So the number and its word are
+ * both `--face-display`, which is the rounded stack, and the serif stays where
+ * a reader's eye goes rather than on a tally the app is keeping about itself.
+ *
+ * Denser than they were, which was the other half of that feedback: the word
+ * has come up under the number with nothing between them, the padding is one
+ * step down, and the whole row is shorter by about a fifth. The number is
+ * bigger than before regardless, because it is what the card is for.
+ */
 .wf-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -631,22 +659,25 @@
   display: grid;
   gap: 0;
   justify-items: center;
-  padding: var(--s3) var(--s1);
+  padding: var(--s2) var(--s1);
   border-radius: var(--r-md);
   background: var(--paper-sunk);
 }
 .wf-stat__n {
-  font-family: var(--face-book);
+  font-family: var(--face-display);
   font-size: var(--size-title);
-  font-weight: 700;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
 }
 .wf-stat__word {
-  font-size: 11px;
+  font-family: var(--face-display);
+  font-size: var(--size-micro);
+  font-weight: 600;
   color: var(--ink-2);
   text-align: center;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 /* A field. Sunk, because you are putting something into it. */
@@ -751,7 +782,7 @@
   padding: var(--s2) var(--s1);
   border: 1px dashed var(--line-strong);
   border-radius: var(--r-md);
-  font-size: 11px;
+  font-size: var(--size-micro);
   color: var(--ink-2);
 }
 .wf-slot--done { border-style: solid; border-color: var(--moss); color: var(--moss); }
@@ -912,7 +943,7 @@
   border-radius: var(--r-pill);
   background: none;
   color: var(--ink-2);
-  font-size: 11px;
+  font-size: var(--size-micro);
   font-weight: 700;
 }
 .wf-frame__theme button[aria-pressed="true"] {

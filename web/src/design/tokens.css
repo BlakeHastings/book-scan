@@ -106,12 +106,31 @@
 
   /* --- Type ------------------------------------------------------------- */
 
-  /* Two roles, no download. `ui-serif` and `ui-rounded` resolve on iOS to New
-     York and SF Pro Rounded, which is where this is reviewed, and fall back
-     through named faces everywhere else. A phone that is about to load book
-     photographs should not also be loading a webfont for its chrome. */
+  /*
+   * Three roles now, still no download. `ui-serif` and `ui-rounded` resolve on
+   * iOS to New York and SF Pro Rounded, which is where this is reviewed, and
+   * fall back through named faces everywhere else. A phone that is about to
+   * load book photographs should not also be loading a webfont for its chrome.
+   *
+   * **The third role is the one the owner asked for.** The counts on the first
+   * screen were set in the book face and read as a plaque on a library wall;
+   * he wanted rounded and playful. So the numbers the app says *about itself*
+   * are their own role, separate from the interface text they sit in, and
+   * separate from the book face, which stays where a reader's eye goes: titles,
+   * authors, the one line a screen exists to say.
+   *
+   * `--face-display` is the rounded stack and not an alias of `--face-ui`, so
+   * this decision can be revisited in one line without dragging every button
+   * and label with it. Its list is longer because a rounded face is the whole
+   * point of it: on a machine with none, the last resort is the same
+   * system face `--face-ui` lands on, and the roundedness is simply absent
+   * rather than faked.
+   */
   --face-book: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --face-ui: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --face-display: ui-rounded, "SF Pro Rounded", "Varela Round", "Baloo 2",
+    Quicksand, Nunito, "Segoe UI Variable Display", system-ui, -apple-system,
     "Segoe UI", sans-serif;
 
   --size-display: 27px;
@@ -120,6 +139,9 @@
   --size-body: 16px;
   --size-small: 14px;
   --size-label: 12px;
+  /* Below the label size, and the only place anything goes here: the demoted
+     second line of a card head, and the word under a tab. */
+  --size-micro: 11px;
 
   --lh-tight: 1.2;
   --lh-body: 1.45;

@@ -6,6 +6,20 @@
  * wide. The tab bar carries a word under every icon, always: an icon on its
  * own is a guess the reader makes on every visit, and five guesses is a menu
  * nobody trusts.
+ *
+ * ## The corner is the exception, and it is the owner's call
+ *
+ * This file used to say the top right was "one word, never an icon on its
+ * own". Walking the first round he asked for the opposite, twice and by name:
+ * find should be a search icon, and edit should be an icon too. So the corner
+ * takes a glyph, and the rule that survives is the one underneath it: **an
+ * icon there carries its word as its accessible name**, so it is announced,
+ * findable by voice control and readable by anything that is not looking at
+ * pixels.
+ *
+ * The tab bar is untouched by that. Five icons on a strip with no words is the
+ * guessing game above; one icon in a corner, on a screen whose title already
+ * says what you are looking at, is not.
  */
 
 import type { ReactNode } from 'react'
@@ -21,8 +35,11 @@ export function TopBar({
   /** The second line, where the screen needs one. Counts, or where you are. */
   sub?: string
   onBack?: () => void
-  /** One word, top right. Never two, and never an icon on its own. */
-  action?: { word: string; onPress?: () => void }
+  /**
+   * The one action in the top right. A glyph, and `word` is what it is called:
+   * the accessible name, not something drawn. There is never a second one.
+   */
+  action?: { word: string; icon: ReactNode; onPress?: () => void }
 }) {
   return (
     <header className={`wf-top${onBack ? '' : ' wf-top--plain'}`}>
@@ -36,8 +53,14 @@ export function TopBar({
         {sub && <p className="wf-top__sub">{sub}</p>}
       </div>
       {action ? (
-        <button type="button" className="wf-top__action" onClick={action.onPress}>
-          {action.word}
+        <button
+          type="button"
+          className="wf-top__action"
+          onClick={action.onPress}
+          aria-label={action.word}
+          title={action.word}
+        >
+          {action.icon}
         </button>
       ) : (
         <span />
