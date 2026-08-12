@@ -685,10 +685,19 @@
   display: grid;
   gap: 0;
   justify-items: center;
+  align-content: center;
   padding: var(--s2) var(--s1);
+  border: 0;
   border-radius: var(--r-md);
   background: var(--paper-sunk);
+  min-height: var(--tap);
 }
+/* Most of them are targets now. No mark is drawn to say so, the way no mark is
+   drawn on a tag that can be pressed: the tile is the whole target and a
+   chevron on something this small is more mark than meaning. */
+.wf-stat--press { cursor: pointer; }
+.wf-stat--press:active { background: var(--board); }
+.wf-stat--press:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-stat__n {
   font-family: var(--face-display);
   font-size: var(--size-title);

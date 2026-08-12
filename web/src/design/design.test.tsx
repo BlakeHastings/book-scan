@@ -294,6 +294,46 @@ describe('a book screen is about the book, not about where it sits', () => {
 })
 
 /**
+ * What the first screen is for, which the owner cut down to one thing.
+ *
+ * > Let's not even have the book scanning part here. Let's just have metrics,
+ * > useful information. Like, for example, "six are ready to shelve" or "three
+ * > books to carry".
+ *
+ * Two halves, and both are the kind that come back one helpful edit at a time.
+ * A card offering the camera is a second door to the room the tab bar already
+ * opens, and it is the one that eats the middle of the screen. A count nobody
+ * can act on is decoration, and decoration is what a screen made of counts
+ * fills up with.
+ *
+ * The second is the general one and it is checked mechanically: every count on
+ * this screen is a target. The tab bar is deliberately not covered by either:
+ * photographing a book is one tap away from here and from everywhere else, and
+ * that is the point of taking the card off.
+ */
+describe('the first screen is counts, and every count goes somewhere', () => {
+  const home = () => {
+    const screen = SCREENS.find((one) => one.id === 'home')
+    expect(screen, 'there is no screen called "home"').toBeDefined()
+    return renderToStaticMarkup(screen!.render(() => {}))
+  }
+
+  it('draws no count that is only a label', () => {
+    const markup = home()
+    const counts = markup.match(/class="wf-stat[ "]/g) ?? []
+
+    expect(counts.length, 'the first screen draws no counts at all').toBeGreaterThan(2)
+    expect(markup, 'a count on the first screen is not a target').not.toMatch(
+      /<(?!button)[a-z]+ class="wf-stat[ "]/,
+    )
+  })
+
+  it('does not offer the camera', () => {
+    expect(words(home())).not.toMatch(/camera|photograph/i)
+  })
+})
+
+/**
  * The one thing on a shelf that is a claim about a physical object.
  *
  * A page count is thickness, so it decides width. Height is uniform unless a

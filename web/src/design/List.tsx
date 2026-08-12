@@ -120,18 +120,46 @@ export function Place({ children, quiet = false }: { children: ReactNode; quiet?
 }
 
 /**
- * The three counts on the first screen. Three, because a fourth does not fit
- * at 414 wide without the words wrapping to three lines each.
+ * Three counts in a row. Three, because a fourth does not fit at 414 wide
+ * without the words wrapping to three lines each.
+ *
+ * **A count with an `onPress` is a target rather than a label**, and on the
+ * first screen every one of them has one. The owner asked for that screen to
+ * be metrics and nothing else, and a metric nobody can act on is decoration:
+ * six ready to shelve opens the queue, three to carry opens the carry list. Its
+ * accessible name is the number and the word together, which is what somebody
+ * would say out loud.
  */
-export function Stats({ items }: { items: { n: string; word: string }[] }) {
+export function Stats({
+  items,
+}: {
+  items: { n: string; word: string; onPress?: () => void }[]
+}) {
   return (
     <div className="wf-stats">
-      {items.map((item) => (
-        <div className="wf-stat" key={item.word}>
-          <span className="wf-stat__n">{item.n}</span>
-          <span className="wf-stat__word">{item.word}</span>
-        </div>
-      ))}
+      {items.map((item) => {
+        const inside = (
+          <>
+            <span className="wf-stat__n">{item.n}</span>
+            <span className="wf-stat__word">{item.word}</span>
+          </>
+        )
+
+        return item.onPress ? (
+          <button
+            type="button"
+            className="wf-stat wf-stat--press"
+            key={item.word}
+            onClick={item.onPress}
+          >
+            {inside}
+          </button>
+        ) : (
+          <div className="wf-stat" key={item.word}>
+            {inside}
+          </div>
+        )
+      })}
     </div>
   )
 }
