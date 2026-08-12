@@ -120,6 +120,21 @@ rather than to `:root`, which the working app already owns. There is no routing
 library: a hash is enough, the server never sees it, and the phone's back
 button walks the gallery for free.
 
+**Your furniture** is the arranging half of it, at `#/design/furniture` and the
+six screens after it: what you own and in what order, one piece and where it
+stands, one area and its name, adding another area, saying what belongs in one,
+choosing how it is ordered, and why a book ended up where it did.
+`Furniture.tsx` has the parts. From the rule screen it hands off to the plan,
+which is the loop #243 built.
+
+**These screens draw boxes and not carpentry, deliberately.** The library draws
+a real board with real spines standing on it, because there the job is to find
+a book in the room. Here the job is to say how the collection is organised, and
+a picture of a bookcase would promise the app knows which areas share a board
+and how tall the thing is. It knows neither and does not need to: a piece, the
+areas nested under it, and a way to add another is the whole shape. The owner
+settled that on #251.
+
 Two rules in it are checked by `src/design/design.test.tsx` rather than left to
 a reviewer: **no emoji anywhere**, in the source or in the rendered markup, and
 **no coloured rail down the side of a card**. A third is checked the same way,
