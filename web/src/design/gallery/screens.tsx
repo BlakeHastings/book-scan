@@ -92,55 +92,77 @@ function Phone({
 
 /* --- Every day ---------------------------------------------------------- */
 
+/**
+ * The first screen: what is worth knowing, and nothing else.
+ *
+ * ## The camera is not on it
+ *
+ * A "Photograph a book" card sat in the middle of this screen with the primary
+ * button on the page in it, and the owner took it off by name:
+ *
+ * > Let's not even have the book scanning part here. Let's just have metrics,
+ * > useful information. Like, for example, "six are ready to shelve" or "three
+ * > books to carry". Let's have meaningful information here.
+ *
+ * Photographing a book is one tap away in the tab bar, from here and from
+ * everywhere else. A card opening the camera the tab already opens was a second
+ * door to one room, and it was taking the middle of the screen somebody opens
+ * most often.
+ *
+ * ## Every number goes somewhere
+ *
+ * Six counts, and each one is a target: ready to shelve and stuck open the
+ * queue, to carry opens the carry list, catalogued opens the library, added
+ * this week and checked out open the list of books. A number nobody can act on
+ * is decoration, and it is the thing that would quietly fill this screen back
+ * up.
+ *
+ * Two the catalogue can answer are deliberately not here. How many books have
+ * no photograph, and how many carry a genre nobody confirmed, are both true and
+ * neither leads anywhere a person can do anything about today.
+ *
+ * ## One sentence
+ *
+ * The cat says what is on the table and that is the whole of the prose. What
+ * went with the camera card: "spine first, then the front", "saying 2C was full
+ * moved these along", and "nothing has gone missing since Tuesday". The two
+ * lists underneath say the same things by showing the books.
+ */
 function Home(go: Go) {
   return (
-    <Phone tab="home" go={go} top={<TopBar title="Book scan" sub="1,204 books on four bookcases" />}>
+    <Phone tab="home" go={go} top={<TopBar title="Book scan" />}>
       <Card weight="sunk">
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <Cat pose="sitting" size={52} />
-          <div>
-            <p style={{ margin: 0, fontFamily: 'var(--face-book)', fontSize: 17 }}>
-              Eighteen books are waiting on the table.
-            </p>
-            <Said>Nothing has gone missing since Tuesday.</Said>
-          </div>
+          <p style={{ margin: 0, fontFamily: 'var(--face-book)', fontSize: 17 }}>
+            Eighteen books are waiting on the table.
+          </p>
         </div>
       </Card>
 
+      <p className="wf-heading wf-heading--flush">Needs you</p>
       <Stats
         items={[
-          { n: '1,204', word: 'catalogued' },
-          { n: '18', word: 'in the queue' },
-          { n: '3', word: 'to carry' },
+          { n: '6', word: 'ready to shelve', onPress: () => go('queue') },
+          { n: '3', word: 'to carry', onPress: () => go('carry') },
+          { n: '3', word: 'stuck', onPress: () => go('queue') },
         ]}
       />
 
-      <Card
-        kind="Next"
-        title="Photograph a book"
-        foot={
-          <Button tone="primary" block onPress={() => go('camera')}>
-            Open the camera
-          </Button>
-        }
-      >
-        <p>Spine first, then the front. It reads the barcode while you hold it.</p>
-      </Card>
-
-      <Card kind="Waiting" title="Six are ready to shelve">
+      <Card title="Ready to shelve">
         <List label="Ready to shelve">
           <Row
             title="Never Let Me Go"
             sub="Ishiguro, Kazuo"
             cloth="moss"
-            meta="Ready"
+            place="2C"
             onPress={() => go('where')}
           />
           <Row
             title="The City &amp; the City"
             sub="Mi&eacute;ville, China"
             cloth="plum"
-            meta="Ready"
+            place="1C"
             onPress={() => go('where')}
           />
         </List>
@@ -149,15 +171,40 @@ function Home(go: Go) {
         </Button>
       </Card>
 
-      <Card kind="Needs attention" title="Three books to carry">
-        <p>
-          Saying 2C was full moved these along. They are still recorded where they
-          were.
-        </p>
-        <Button tone="secondary" onPress={() => go('carry')}>
-          Show me
-        </Button>
+      <Card title="Books to carry">
+        <List label="Books to carry">
+          <Row
+            title="Guards! Guards!"
+            sub="Pratchett, Terry"
+            cloth="sun"
+            meta="2C to 2D"
+            onPress={() => go('carry')}
+          />
+          <Row
+            title="Snow Crash"
+            sub="Stephenson, Neal"
+            cloth="sky"
+            meta="2C to 2D"
+            onPress={() => go('carry')}
+          />
+          <Row
+            title="The Book Thief"
+            sub="Zusak, Markus"
+            cloth="plum"
+            meta="2D to 3A"
+            onPress={() => go('carry')}
+          />
+        </List>
       </Card>
+
+      <p className="wf-heading wf-heading--flush">The collection</p>
+      <Stats
+        items={[
+          { n: '1,204', word: 'catalogued', onPress: () => go('library') },
+          { n: '9', word: 'added this week', onPress: () => go('listing') },
+          { n: '2', word: 'checked out', onPress: () => go('listing') },
+        ]}
+      />
     </Phone>
   )
 }
@@ -1924,10 +1971,13 @@ function Side({
   )
 }
 
+/* The counts the first screen opens with, so the type is judged on the words
+   somebody actually reads. They are labels here and targets there: this page
+   is about a typeface and nothing on it goes anywhere. */
 const COUNTS = [
-  { n: '1,204', word: 'catalogued' },
-  { n: '18', word: 'in the queue' },
+  { n: '6', word: 'ready to shelve' },
   { n: '3', word: 'to carry' },
+  { n: '3', word: 'stuck' },
 ]
 
 /**
