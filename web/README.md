@@ -98,6 +98,33 @@ about to do before you had picked the book up, and it meant the app had two
 ways in to the same book. One door, and the book's state decides what is
 behind it.
 
+## The redesign, and where to walk it
+
+There is a second set of screens in this repository and the app serves them at
+**`#/design`**. It is a wireframe: static content, nothing fetches, nothing
+saves, and no screen there is wired to the API. Open it on a phone, walk a
+journey with the tab bar, and switch between day and night with the control in
+the strip at the top.
+
+It lives in `src/design/`: `tokens.css` is every colour, size, radius and
+shadow in one place for both themes, `library.css` and the components beside it
+are the primitives this app is actually made of (the shelf, a spine, the
+divider, the gap, the cat, the top bar, the tab bar, cards, buttons, segmented
+controls, list rows, the confirmation), and `src/design/gallery/` is the
+gallery itself.
+
+**It is additive and it stays that way.** `main.tsx` reads the hash and lazy
+loads the gallery, so the working app does not carry the redesign's code or its
+stylesheets, and every token is scoped to the `.wf` element the gallery mounts
+rather than to `:root`, which the working app already owns. There is no routing
+library: a hash is enough, the server never sees it, and the phone's back
+button walks the gallery for free.
+
+Two rules in it are checked by `src/design/design.test.tsx` rather than left to
+a reviewer: **no emoji anywhere**, in the source or in the rendered markup, and
+**no coloured rail down the side of a card**. A third is checked the same way,
+that the shelf board draws one edge and not two.
+
 ## Capture flow
 
 Three photos per book, taken manually with a shutter button, in this order:

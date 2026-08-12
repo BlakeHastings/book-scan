@@ -1,0 +1,263 @@
+/*
+ * The tokens. One file, both themes, nothing hard-coded downstream.
+ *
+ * ## Why these are scoped to `.wf` and not to `:root`
+ *
+ * The running app already owns `:root`, and four of the names it uses are
+ * names this file wants: `--line`, `--radius`, `--text` and `--bg`. Defining
+ * these globally would repaint the working app the moment somebody opened the
+ * wireframe and then navigated back to it without a reload, which is exactly
+ * the disturbance this work is not allowed to cause. So every token lives on
+ * the `.wf` element the gallery mounts, and the existing stylesheet cannot see
+ * any of it.
+ *
+ * When the redesign is cut over for real, this scope moves up to `:root` and
+ * `src/styles.css` goes away. That is a later job, deliberately.
+ *
+ * ## The palette dresses the furniture, not the books
+ *
+ * The spines on these shelves are photographs in the real app. Everything
+ * named here is the room around them: the board, its one edge, the divider,
+ * the card, the label. Nothing in this file should be able to out-shout a
+ * shelf of real spines, which is why the four hues are used for small marks
+ * and never for large fills.
+ */
+
+.wf {
+  /* --- Surfaces, light: a reading room in daylight ---------------------- */
+
+  /* The page. Uncoated book paper, warm, never white. */
+  --paper: #f7f1e4;
+  /* A card or a sheet lifted off the page. Lighter than paper, not whiter. */
+  --paper-raised: #fdf9f0;
+  /* Sunk below the page: a well, a field, the inside of a slot. */
+  --paper-sunk: #efe6d3;
+
+  /* The plank a book stands on. Board, as in bookbinder's board. */
+  --board: #e3d6be;
+  /* The one edge of that plank. There is exactly one and it is this. */
+  --board-edge: #c8b389;
+  /* The shadow the board casts onto the run below it. */
+  --board-shade: rgba(51, 42, 34, 0.13);
+
+  /* Hairlines, dividers, the outline of a card. */
+  --line: #d8c9ae;
+  --line-strong: #c2ae8b;
+
+  /* --- Ink ------------------------------------------------------------- */
+
+  --ink: #332a22;
+  --ink-2: #6e6154;
+  /* Only for text sitting on a filled hue. */
+  --ink-on-fill: #fbf6ec;
+  /* What a word points at: the top-bar action, a quiet button, the tab you
+     are on. Wood, at the strength that particular room can carry. */
+  --link: #8a5d38;
+
+  /* --- The four hues, dyed cloth rather than UI colours ----------------- */
+
+  --wood: #a9764a;
+  --wood-2: #8a5d38;
+  --moss: #3f6b52;
+  --plum: #8a3e57;
+  --sun: #e8a93b;
+  --sky: #4e7ca8;
+
+  /* Washes: the same dye at the strength a background can take without
+     competing with a photograph of a real spine. */
+  --moss-wash: rgba(63, 107, 82, 0.12);
+  --plum-wash: rgba(138, 62, 87, 0.11);
+  --sun-wash: rgba(232, 169, 59, 0.18);
+  --sky-wash: rgba(78, 124, 168, 0.12);
+
+  /* --- Books, which do not change when you turn the lights off ---------- */
+
+  /*
+   * The cloths a placeholder spine is bound in. These are the only tokens in
+   * the file with no night value, and that is the point: in the real app a
+   * spine is a photograph, and a photograph of a green book is green at two
+   * in the morning. Lightening them for dark mode turned a shelf into pastel
+   * confectionery, which is exactly the chrome out-shouting the books.
+   */
+  --cloth-moss: #3f6b52;
+  --cloth-plum: #8a3e57;
+  --cloth-sky: #4e7ca8;
+  --cloth-sun: #e8a93b;
+  --cloth-wood: #a9764a;
+  --cloth-wood-2: #8a5d38;
+  --cloth-ink: #fbf6ec;
+  /* The one cloth pale enough that cream lettering fails on it, in either
+     theme, because the cloth is the same in either theme. */
+  --cloth-ink-dark: #332a22;
+
+  /* --- The cat ---------------------------------------------------------- */
+
+  /*
+   * He is a black cat, and the rim is what keeps him one. In daylight the
+   * rim is a mid-brown that vanishes against his own body and shows on the
+   * page, which is where his whiskers are. At night the same line goes pale,
+   * because a black cat on a dark room with no rim is a hole cut in the page
+   * with two eyes in it. Found by looking at him at night.
+   */
+  --cat: #241d18;
+  --cat-rim: rgba(110, 97, 84, 0.5);
+  --cat-eye: #e8a93b;
+  --cat-nose: #b06a78;
+
+  /* --- Type ------------------------------------------------------------- */
+
+  /* Two roles, no download. `ui-serif` and `ui-rounded` resolve on iOS to New
+     York and SF Pro Rounded, which is where this is reviewed, and fall back
+     through named faces everywhere else. A phone that is about to load book
+     photographs should not also be loading a webfont for its chrome. */
+  --face-book: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --face-ui: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+
+  --size-display: 27px;
+  --size-title: 21px;
+  --size-heading: 17px;
+  --size-body: 16px;
+  --size-small: 14px;
+  --size-label: 12px;
+
+  --lh-tight: 1.2;
+  --lh-body: 1.45;
+
+  /* --- Space, on a four-point grid -------------------------------------- */
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  /* The smallest thing a thumb is asked to hit. */
+  --tap: 44px;
+
+  /* --- Radii: rounded, because the direction says so -------------------- */
+
+  --r-sm: 6px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+  --r-pill: 999px;
+
+  /* --- Elevation -------------------------------------------------------- */
+
+  /* Warm shadows. A grey shadow on a warm page reads as dirt. */
+  --lift-1: 0 1px 2px rgba(51, 42, 34, 0.08);
+  --lift-2: 0 2px 8px rgba(51, 42, 34, 0.1);
+  --lift-3: 0 8px 24px rgba(51, 42, 34, 0.16);
+
+  --focus: 0 0 0 3px rgba(78, 124, 168, 0.45);
+
+  color-scheme: light;
+}
+
+/*
+ * Dark is a different room, not an inverted one.
+ *
+ * Three things change role rather than value. In daylight the board is
+ * *lighter* than the page it sits on; at night the room is the darkest thing
+ * and the plank is lighter than it, because a plank catches lamp light and a
+ * room does not. The paper stops being a surface and becomes ink: text is the
+ * warm off-white, and nothing large is pale. And the four hues move in
+ * opposite directions by role, the two woods up so they still read as timber,
+ * the marks up only far enough to clear the room.
+ *
+ * Written twice on purpose: once for a phone set to dark, once for the
+ * gallery's own switch, so the switch wins in both directions.
+ */
+
+.wf[data-theme="dark"] {
+  --paper: #16120e;
+  --paper-raised: #221b15;
+  --paper-sunk: #100d0a;
+
+  --board: #3a2d22;
+  --board-edge: #57422f;
+  --board-shade: rgba(0, 0, 0, 0.45);
+
+  --line: #3a3029;
+  --line-strong: #57493d;
+
+  --ink: #efe4d1;
+  --ink-2: #a4947f;
+  --ink-on-fill: #17120d;
+  --link: #c08a57;
+
+  --wood: #c08a57;
+  --wood-2: #a0704a;
+  --moss: #79b394;
+  --plum: #d78fa6;
+  --sun: #f0c069;
+  --sky: #8fb9dd;
+
+  --moss-wash: rgba(121, 179, 148, 0.14);
+  --plum-wash: rgba(215, 143, 166, 0.14);
+  --sun-wash: rgba(240, 192, 105, 0.16);
+  --sky-wash: rgba(143, 185, 221, 0.14);
+
+  /* Still black, still the darkest thing on the screen, but now with an edge
+     so he is a cat and not a hole cut in the page. */
+  --cat: #0d0a08;
+  --cat-rim: rgba(239, 228, 209, 0.45);
+  --cat-eye: #f0c069;
+  --cat-nose: #c98698;
+
+  --lift-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --lift-2: 0 2px 8px rgba(0, 0, 0, 0.55);
+  --lift-3: 0 10px 28px rgba(0, 0, 0, 0.6);
+
+  --focus: 0 0 0 3px rgba(143, 185, 221, 0.5);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  .wf:not([data-theme="light"]) {
+    --paper: #16120e;
+    --paper-raised: #221b15;
+    --paper-sunk: #100d0a;
+
+    --board: #3a2d22;
+    --board-edge: #57422f;
+    --board-shade: rgba(0, 0, 0, 0.45);
+
+    --line: #3a3029;
+    --line-strong: #57493d;
+
+    --ink: #efe4d1;
+    --ink-2: #a4947f;
+    --ink-on-fill: #17120d;
+    --link: #c08a57;
+
+    --wood: #c08a57;
+    --wood-2: #a0704a;
+    --moss: #79b394;
+    --plum: #d78fa6;
+    --sun: #f0c069;
+    --sky: #8fb9dd;
+
+    --moss-wash: rgba(121, 179, 148, 0.14);
+    --plum-wash: rgba(215, 143, 166, 0.14);
+    --sun-wash: rgba(240, 192, 105, 0.16);
+    --sky-wash: rgba(143, 185, 221, 0.14);
+
+    --cat: #0d0a08;
+    --cat-rim: rgba(239, 228, 209, 0.45);
+    --cat-eye: #f0c069;
+    --cat-nose: #c98698;
+
+    --lift-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --lift-2: 0 2px 8px rgba(0, 0, 0, 0.55);
+    --lift-3: 0 10px 28px rgba(0, 0, 0, 0.6);
+
+    --focus: 0 0 0 3px rgba(143, 185, 221, 0.5);
+
+    color-scheme: dark;
+  }
+}
