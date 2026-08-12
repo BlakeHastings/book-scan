@@ -23,13 +23,14 @@ import { bookStillInHand } from './lib/cameraReturn'
 import { BookDetail } from './components/BookDetail'
 import { PlacementView } from './components/ShelfStrip'
 import { ShelfView, type LibraryReturnAnchor } from './components/ShelfView'
+import { MoveRunView } from './components/MoveRunView'
 import { ShelveView } from './components/ShelveView'
 import { HomePane } from './components/HomePane'
 import { canShelve, QueuePane, type QueueReturnAnchor } from './components/QueuePane'
 import { ScanCamera } from './components/ScanCamera'
 import { QueuedAlready } from './components/QueuedAlready'
 
-type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue'
+type Mode = 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue' | 'arrange'
 type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
 
 /**
@@ -198,6 +199,12 @@ export default function App() {
   // the page is a stack of them, so coming back to the top of the first
   // bookcase means finding your place again every time.
   const [libraryReturn, setLibraryReturn] = useState<LibraryReturnAnchor | null>(null)
+  /*
+   * Which run the arrange screen is about. Kept here for the reason the library
+   * anchor is: ShelfView is unmounted the moment the screen changes, so the tab
+   * it was on has to be carried out of it rather than asked for afterwards.
+   */
+  const [arranging, setArranging] = useState<ShelfRange>('fiction')
   /**
    * What a queued capture's photographs produced: the lines OCR read off the
    * cover, and the queue's note about why it could not settle the book.
@@ -1172,6 +1179,19 @@ export default function App() {
   }
 
   /**
+   * Open the library on a particular run, from the top.
+   *
+   * The same anchor a book uses to come back, with no book in it: the library
+   * opens on the tab it is given, finds nothing to scroll to, and reports the
+   * anchor consumed. Which is exactly what leaving the arrange screen needs,
+   * and is why it does not get a second mechanism.
+   */
+  const backToLibrary = (range: ShelfRange) => {
+    setLibraryReturn({ range, bookId: 0, scrollY: 0 })
+    setMode('library')
+  }
+
+  /**
    * Jump from the book on screen to another one standing next to it.
    *
    * The row drawn on the detail view is the shelf, so tapping a spine in it
@@ -1674,6 +1694,22 @@ export default function App() {
           onOpen={openFromLibrary}
           returnAnchor={libraryReturn}
           onReturnAnchorConsumed={() => setLibraryReturn(null)}
+          onArrange={(from) => { setArranging(from); setMode('arrange') }}
+        />
+      )}
+
+      {/* Reached from the library and only from it, because the run somebody
+          wants to move is the one they are looking at.
+
+          Both ways out go back through the library's own return anchor, which
+          is what puts it back on the run this screen was about. Landing on
+          Fiction after moving non-fiction shows an empty needs-attention list
+          and reads as the apply having done nothing. */}
+      {mode === 'arrange' && (
+        <MoveRunView
+          range={arranging}
+          onBack={() => backToLibrary(arranging)}
+          onLibrary={() => backToLibrary(arranging)}
         />
       )}
 

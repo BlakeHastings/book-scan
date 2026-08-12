@@ -338,6 +338,62 @@ export interface ShelvingReviewResponse extends ShelvingReview {
   outstandingMoves: number[]
 }
 
+/**
+ * Moving a whole run onto another bookcase, as the plan screen reads it.
+ *
+ * Grouped rather than flat, and that is the shape rather than a decoration: 187
+ * moves is not a list on a phone held in one hand. `groups` is what somebody
+ * acts on and `books` inside one is what they open when a number looks wrong.
+ *
+ * The wire types are restated here rather than imported from `domain/`, the way
+ * every other response on this path is: `src/` is the client and the server is
+ * reached through this file alone.
+ */
+export interface PlannedBook {
+  id: number
+  title: string
+  authorFiling: string
+}
+
+export interface PlanGroup {
+  from: string
+  to: string
+  books: PlannedBook[]
+}
+
+export type SkipReason = 'pinned' | 'checked-out' | 'withdrawn' | 'never-placed'
+
+export interface SkippedBooks {
+  reason: SkipReason
+  books: PlannedBook[]
+}
+
+export interface RunMovePlan {
+  /** The bookcase the run starts on now. */
+  from: number
+  /** The one it would start on. */
+  to: number
+  /** Every plank of the run, old label to new. Empty when it is already there. */
+  planks: { from: string; to: string }[]
+  groups: PlanGroup[]
+  /** Books to carry. The headline number. */
+  moving: number
+  /** Books the rules leave exactly where they are. */
+  staying: number
+  /** Everything the rules will not touch, and why. Never silently dropped. */
+  skipped: SkippedBooks[]
+  /** Books no rule claims at all. */
+  unclaimed: PlannedBook[]
+}
+
+/** What an apply wrote, in the numbers the ledger counts. */
+export interface AssignmentReport {
+  assigned: number
+  unchanged: number
+  skipped: number
+  unclaimed: number[]
+}
+
 export interface IdentifyResult {
   isbn13: string
   isbn10: string
@@ -849,6 +905,31 @@ export const api = {
   /** Books in this range that are not where they now belong. Read only. */
   misfiles: (range: ShelfRange) =>
     request<ShelvingReviewResponse>(`/api/misfiles?range=${range}`),
+
+  /**
+   * What moving a whole run onto another bookcase would mean. **Writes
+   * nothing**, which is why it is safe to call as somebody changes their mind
+   * about the number.
+   */
+  planRunMove: (range: ShelfRange, bookcase: number) =>
+    request<RunMovePlan>('/api/placement/run/plan', {
+      method: 'POST',
+      body: JSON.stringify({ range, bookcase }),
+    }),
+
+  /**
+   * Move it, and record where the rules now want every book.
+   *
+   * This still moves no books. What comes back is the plan that was applied and
+   * the count of assignments written; the books are carried afterwards, and the
+   * list of what is outstanding is the same needs-attention list the library
+   * already shows.
+   */
+  applyRunMove: (range: ShelfRange, bookcase: number) =>
+    request<{ plan: RunMovePlan; wrote: AssignmentReport }>('/api/placement/run', {
+      method: 'POST',
+      body: JSON.stringify({ range, bookcase }),
+    }),
 
   setLocation,
 

@@ -60,7 +60,7 @@
 
 import { entryAreaOf, type PlacementRule, type RuleOperator } from '../../domain/placement/rules'
 import {
-  slotsInOrder, type Area, type Fixture, type Slot,
+  labelFor, slotsInOrder, type Area, type Fixture, type Slot,
 } from '../../domain/placement/geography'
 import type { SortStrategy } from '../../domain/placement/strategies'
 import { GENRE_RANGES } from '../../domain/tagging/genre'
@@ -285,6 +285,69 @@ export async function bandsOf(db: Db): Promise<Map<ShelfRange, RangeBand>> {
 /** Where one range begins, or null when no rule points anywhere for it. */
 export async function bandOf(db: Db, range: ShelfRange): Promise<RangeBand | null> {
   return (await bandsOf(db)).get(range) ?? null
+}
+
+/**
+ * The rule that serves a range, asked the way `bandsOf` asks it.
+ *
+ * `GENRE_RANGES` is the one place a genre slug and a shelf range are the same
+ * fact, so a second way of finding "the non-fiction rule" would be a second
+ * answer to which run is which.
+ */
+export function ruleForRange(rules: PlacementRule[], range: ShelfRange): PlacementRule | null {
+  const slug = GENRE_RANGES.find((pair) => pair.range === range)?.slug
+  if (!slug) return null
+
+  return rules.find((rule) => rule.conditions.some((condition) =>
+    condition.field === 'tag' && condition.value === slug.value)) ?? null
+}
+
+/** The same, for a caller that has not already read the furniture. */
+export async function runRuleOf(db: Db, range: ShelfRange): Promise<PlacementRule | null> {
+  return ruleForRange((await furnitureIn(db)).rules, range)
+}
+
+interface PlankRow {
+  id: number
+  fixture_position: number
+  fixture_name: string
+  position: number
+  name: string
+}
+
+/**
+ * What every area is called, retired ones included.
+ *
+ * `furnitureIn` answers the collection as it stands and so cannot answer this: a
+ * book can be recorded on a plank somebody has since taken out, and what a
+ * person wrote down is still `4A`. Same reading as `withPlacements` makes for
+ * the wire, through the same `labelFor` and the same `faceOf`, so a plan names
+ * the plank the catalogue names.
+ */
+export async function plankLabels(db: Db): Promise<Map<number, string>> {
+  const rows = await db.all<PlankRow>(
+    `SELECT a.id, f.position AS fixture_position, f.name AS fixture_name,
+            a.position, a.name
+       FROM area a JOIN fixture f ON f.id = a.fixture_id`,
+  )
+
+  return new Map(rows.map((row) => [Number(row.id), labelFor({
+    fixture: {
+      id: 0,
+      position: row.fixture_position,
+      kind: '',
+      name: row.fixture_name,
+      sortStrategy: 'inherit',
+    },
+    area: {
+      id: Number(row.id),
+      fixtureId: 0,
+      position: faceOf(row.position),
+      name: row.name,
+      startsAt: '',
+      sortStrategy: 'inherit',
+    },
+  })]))
 }
 
 interface ExistingRow {
@@ -585,6 +648,113 @@ export async function writeBoundaries(
          AND NOT EXISTS (SELECT 1 FROM area a WHERE a.fixture_id = fixture.id)
          AND NOT EXISTS (SELECT 1 FROM placement_rule r WHERE r.fixture_id = fixture.id)`,
       [fixture.id],
+    )
+  }
+}
+
+/**
+ * Hang a whole run on a different bookcase.
+ *
+ * **This is not a fourth statement that writes a boundary.** The three in
+ * `DrizzleSeparatorRepository` each change the boundary list of a range, and
+ * this one preserves it exactly: the cuts are read before anything moves and
+ * written back afterwards, through `writeBoundaries` like every other change to
+ * the areas, so the run arrives on the new bookcase with the same number of
+ * planks holding the same books. What changes is which furniture the run hangs
+ * on, which is `placement_rule.fixture_id`.
+ *
+ * Called on the caller's transaction handle, and there is a reason it has to be:
+ * between the retirement and the write there is a moment when the range's rule
+ * points at a bookcase with nothing on its face, and no other reader may see it.
+ *
+ * ## The order is load bearing
+ *
+ * The run's own planks are taken out **first**, before the rule is retargeted.
+ * They are areas on the face, and leaving them there while the run moved
+ * elsewhere would leave a stretch of planks that belong to no run and that the
+ * range before this one would flow onto. Retiring them first also means a
+ * destination overlapping the source needs no special case: by the time the
+ * destination is built, nothing of the old run is standing.
+ *
+ * A plank that has been retired comes **back** rather than being made again,
+ * exactly as `writeBoundaries` restores one, so moving a run away and back
+ * returns every book to the row the ledger already names.
+ *
+ * Idempotent: relocating a run to the bookcase it is already on reads the same
+ * boundaries, retires nothing that is not immediately restored, and writes the
+ * rule the value it holds.
+ */
+export async function relocateRunTo(
+  db: Db,
+  range: ShelfRange,
+  to: number,
+): Promise<void> {
+  const rule = await runRuleOf(db, range)
+  if (!rule) return
+
+  const boundaries = await boundariesOf(db, range)
+  const run = await runAreasOf(db, range)
+
+  for (const area of run) await retireOrRemove(db, area.id, area.position)
+
+  const collection = await db.get<{ id: number }>(
+    'SELECT id FROM collection ORDER BY id LIMIT 1',
+  )
+  if (!collection) return
+
+  // The bookcase the run is moving onto, made if the room has one and the
+  // catalogue does not. `writeBoundaries` makes the rest of them.
+  const destination = await db.get<{ id: number }>(
+    'SELECT id FROM fixture WHERE position = ? ORDER BY id LIMIT 1',
+    [to],
+  ) ?? await db.get<{ id: number }>(
+    `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
+     VALUES (?, 'bookshelf', '', ?, 'inherit', '') RETURNING id`,
+    [collection.id, to],
+  )
+  if (!destination) return
+
+  /*
+   * One plank on its face, because a rule pointing at a bookcase resolves to
+   * that bookcase's first area and `bandOf` answers nothing without one. The
+   * rest of the run's cuts are `writeBoundaries`' job below.
+   */
+  const first = await db.get<{ id: number }>(
+    'SELECT id FROM area WHERE fixture_id = ? AND position = 0',
+    [destination.id],
+  )
+  if (!first) {
+    const retired = await db.get<{ id: number }>(
+      'SELECT id FROM area WHERE fixture_id = ? AND position = ?',
+      [destination.id, retiredPosition(0)],
+    )
+    if (retired) {
+      await db.run("UPDATE area SET position = 0, starts_at = '' WHERE id = ?", [retired.id])
+    } else {
+      await db.run(
+        `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
+         VALUES (?, 0, '', '', 'inherit', '')`,
+        [destination.id],
+      )
+    }
+  }
+
+  await db.run(
+    'UPDATE placement_rule SET fixture_id = ?, area_id = NULL WHERE id = ?',
+    [destination.id, rule.id],
+  )
+
+  await writeBoundaries(db, range, boundaries)
+
+  // The bookcases the run has left, once nothing is standing on one and no rule
+  // points at it. A bookcase still holding an area a book was placed in stays,
+  // which is the history pinning the furniture it names.
+  for (const position of new Set(run.map((area) => area.fixturePosition))) {
+    await db.run(
+      `DELETE FROM fixture WHERE position = ?
+         AND NOT EXISTS (SELECT 1 FROM area a WHERE a.fixture_id = fixture.id)
+         AND NOT EXISTS (SELECT 1 FROM placement_rule r WHERE r.fixture_id = fixture.id)`,
+      [position],
     )
   }
 }
