@@ -98,32 +98,12 @@ export function Head({
   )
 }
 
-/**
- * Every photograph of one book, as a rail under the front of it.
- *
- * The catalogue holds as many as somebody takes, of four kinds, and the front
- * one is drawn large above as well as small here. That repetition is on
- * purpose: the large one is the book, the rail is the record of what has been
- * photographed, and a kind nobody has taken is drawn as the empty shape of
- * itself rather than left off, because "no back photograph" is a thing to know
- * and a thing to fix.
+/*
+ * The rail of a book's photographs used to live here, and it is now `Shots` in
+ * `Shots.tsx`, because the camera grew a component of the same name emitting
+ * the same class names and the two quietly broke each other. One component,
+ * one home, and a mode for whether a person can act on what they are seeing.
  */
-export function Shots({ items }: { items: { what: string; cloth?: Cloth }[] }) {
-  return (
-    <div className="wf-shots" role="list" aria-label="Photographs">
-      {items.map((item) => (
-        <span
-          className={`wf-shot${item.cloth ? '' : ' wf-shot--none'}`}
-          role="listitem"
-          key={item.what}
-        >
-          <span className={`wf-shot__box${item.cloth ? ` wf-spine--${item.cloth}` : ''}`} />
-          <span className="wf-shot__what">{item.what}</span>
-        </span>
-      ))}
-    </div>
-  )
-}
 
 /**
  * A tag, and who said it.

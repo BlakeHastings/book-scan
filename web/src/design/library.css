@@ -1510,36 +1510,124 @@
 }
 .wf-book__fact { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
 
-/* Every photograph of one book. Scrolls inside itself; the page does not. */
+/*
+ * Every photograph of one book, and one block of rules for all of them.
+ *
+ * There were two blocks here, from two components of the same name, and they
+ * fought: one marked absence, one marked presence, and each screen was drawn
+ * by whichever rules happened to come last. `Shots.tsx` is now the only thing
+ * emitting these names, so this is the only place they are defined.
+ */
+
+/* The rail on a book's page. Scrolls inside itself; the page does not. */
 .wf-shots {
   display: flex;
   gap: var(--s2);
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  /* Room under it for a scrollbar that is not an overlay. */
   padding-bottom: var(--s1);
 }
+/* Big enough to see that a photograph is blurred, which is the whole reason
+   the review screen shows them at all. */
+.wf-shots--big {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: visible;
+  padding-bottom: 0;
+}
+/* On the picture, where every pixel spent on these is a pixel of photograph. */
+.wf-shots--picture { padding-bottom: 0; }
+
 .wf-shot {
   flex: none;
+  width: 58px;
   display: grid;
   gap: var(--s1);
   justify-items: center;
-  width: 58px;
+  padding: 0;
+  border: 0;
+  background: none;
   font-size: var(--size-micro);
   color: var(--ink-2);
+  text-align: center;
 }
+
 .wf-shot__box {
-  width: 58px;
+  width: 100%;
   height: 78px;
   border-radius: var(--r-sm);
+  display: grid;
+  align-content: end;
+  overflow: hidden;
+}
+
+/*
+ * A kind nobody has taken, drawn as the empty shape of itself. The `:not` is
+ * load bearing rather than tidy: a taken shot wears a cloth class, which is
+ * one class, so any background set here at the same weight or higher paints
+ * over the photograph. It did, on both screens, in opposite ways.
+ *
+ * Nothing behind it, so it is the page showing through a dashed outline.
+ * Filled with the sunk paper it was a near-black rectangle at night and read
+ * as a photograph of something dark rather than as an empty slot.
+ */
+.wf-shot:not(.wf-shot--taken) .wf-shot__box {
+  border: 1.5px dashed var(--line-strong);
+  background: none;
+}
+/* Taken: the photograph fills it, so there is no outline and the box takes the
+   same inner shadow a spine and a list thumbnail already have. */
+.wf-shot--taken .wf-shot__box {
   box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
 }
-/* A kind nobody has taken, drawn as the empty shape of itself. */
-.wf-shot--none .wf-shot__box {
-  border: 1px dashed var(--line-strong);
-  background: none;
-  box-shadow: none;
+/* The one the shutter will fill next, and the only mark of its kind here. The
+   `:not` is repeated so this matches the weight of the rule above it: without
+   it the empty box stayed dashed and the next shot was unmarked. */
+.wf-shot--next:not(.wf-shot--taken) .wf-shot__box {
+  border-style: solid;
+  border-color: var(--ink);
+  align-content: center;
+  justify-items: center;
 }
-.wf-shot__what { text-align: center; line-height: 1.15; }
+.wf-shot--next .wf-shot__word { color: var(--ink); font-weight: 700; }
+
+.wf-shot__next {
+  font-size: var(--size-micro);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.wf-shot__again {
+  padding: 2px;
+  text-align: center;
+  font-size: var(--size-micro);
+  font-weight: 700;
+  color: var(--picture-ink);
+  background: var(--picture-scrim);
+}
+
+.wf-shot__word { font-size: var(--size-micro); font-weight: 600; line-height: 1.15; }
+
+/* On the picture rather than on paper, and smaller there for the same reason
+   the camera has no bar on it. */
+.wf-shots--picture .wf-shot { width: 46px; color: var(--picture-ink); }
+.wf-shots--picture .wf-shot__box { height: 60px; }
+.wf-shots--picture .wf-shot:not(.wf-shot--taken) .wf-shot__box {
+  border-color: var(--picture-line);
+  background: var(--picture-scrim);
+}
+.wf-shots--picture .wf-shot--next:not(.wf-shot--taken) .wf-shot__box {
+  border-color: var(--picture-ink);
+}
+.wf-shots--picture .wf-shot--next .wf-shot__word,
+.wf-shots--picture .wf-shot__next { color: var(--picture-ink); }
+
+.wf-shots--big .wf-shot { width: 100%; }
+.wf-shots--big .wf-shot__box { height: 132px; }
+.wf-shots--big .wf-shot__word { font-size: var(--size-small); }
+.wf-shots--big .wf-shot__again { font-size: var(--size-label); padding: var(--s1); }
 
 /*
  * A tag and who said it.

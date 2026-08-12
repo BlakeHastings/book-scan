@@ -56,6 +56,45 @@ describe('no emoji, anywhere', () => {
   })
 })
 
+/**
+ * Two components of one name, which is how a shared namespace starts.
+ *
+ * `Book.tsx` and `Camera.tsx` both exported `Shots`. Both emitted `.wf-shots`
+ * and `.wf-shot`, so `library.css` ended up with two blocks of rules for one
+ * set of names and each screen was drawn by whichever block came last. Every
+ * photograph on the book page went to an empty dashed outline and the review's
+ * three collapsed into one. It typechecked, it passed everything here, and it
+ * was found by opening the screen.
+ *
+ * There is no cheap test for "these two blocks of CSS fight", because a class
+ * legitimately appears in many rules and the outcome depends on the order and
+ * the weight of all of them. There is a cheap test for the thing that comes
+ * first: two components with one name. This is it. It would have gone red on
+ * the merge that introduced the second `Shots`, before anybody opened a
+ * browser, and it is not about `Shots`: the next collision is the one it is
+ * really for.
+ */
+describe('no two things in the library share a name', () => {
+  it('is true of every name the design system exports', () => {
+    const homes = new Map<string, string[]>()
+
+    for (const path of sources().filter((one) => /\.tsx?$/.test(one) && !/\.test\./.test(one))) {
+      const text = readFileSync(path, 'utf8')
+      for (const found of text.matchAll(/^export (?:function|const|class|interface|type) (\w+)/gm)) {
+        const name = found[1]!
+        homes.set(name, [...(homes.get(name) ?? []), path])
+      }
+    }
+
+    const shared = [...homes]
+      .filter(([, paths]) => paths.length > 1)
+      .map(([name, paths]) => `${name}: ${paths.join(', ')}`)
+
+    expect(shared).toEqual([])
+    expect(homes.size, 'nothing was scanned at all').toBeGreaterThan(20)
+  })
+})
+
 describe('no coloured rail down the side of a card', () => {
   it('is true because nothing in the library sets a side border at all', () => {
     const css = readFileSync(join(HERE, 'library.css'), 'utf8')
