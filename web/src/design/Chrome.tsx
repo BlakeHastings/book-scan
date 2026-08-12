@@ -23,7 +23,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { IconBack, IconCamera, IconFind, IconHome, IconQueue, IconShelves } from './Icons'
+import { IconBack, IconCamera, IconHome, IconQueue, IconShelves } from './Icons'
 
 export function TopBar({
   title,
@@ -69,7 +69,7 @@ export function TopBar({
   )
 }
 
-export type TabName = 'home' | 'library' | 'scan' | 'queue' | 'find'
+export type TabName = 'home' | 'library' | 'scan' | 'queue'
 
 /**
  * The word under each icon, and the order they sit in.
@@ -77,13 +77,25 @@ export type TabName = 'home' | 'library' | 'scan' | 'queue' | 'find'
  * "Library", not "Shelves". The word a person reads for a piece of furniture
  * is **Bookcase** and the word for a plank is **Area**; "shelf" is a word
  * this code says and this UI never does. See `docs/shelving.md`.
+ *
+ * ## There are four, and finding is not one of them
+ *
+ * Find had a tab of its own and the owner took it off:
+ *
+ * > I think we should just have the find system as part of the library rather
+ * > than a completely separate system.
+ *
+ * He is right, and the reason generalises. A tab is a *place you can be*, and
+ * looking for a book is not somewhere you go, it is something you do to the
+ * thing you are already looking at. It now lives where it is done, as the one
+ * action in the library's top right, and the search icon in `Icons.tsx` is
+ * still the same glyph doing the same job in a better spot.
  */
 const TABS: { name: TabName; word: string; icon: ReactNode }[] = [
   { name: 'home', word: 'Today', icon: <IconHome /> },
   { name: 'library', word: 'Library', icon: <IconShelves /> },
   { name: 'scan', word: 'Scan', icon: <IconCamera /> },
   { name: 'queue', word: 'Queue', icon: <IconQueue /> },
-  { name: 'find', word: 'Find', icon: <IconFind /> },
 ]
 
 export function TabBar({ on, onPick }: { on: TabName; onPick?: (name: TabName) => void }) {

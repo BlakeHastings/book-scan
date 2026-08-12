@@ -32,6 +32,15 @@ import type { CSSProperties, ReactElement } from 'react'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
 import { Button, Choice, Field, Segmented } from '../Controls'
+import { Covers, covers } from '../Covers'
+import {
+  Picked,
+  SearchField,
+  Suggestion,
+  Suggestions,
+  TagGroup,
+  TagPick,
+} from '../Finding'
 import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
 import { IconEdit, IconFind } from '../Icons'
 import { List, Place, Row, Stats, Tag, Tags } from '../List'
@@ -67,7 +76,6 @@ function Phone({
     library: 'library',
     scan: 'camera',
     queue: 'queue',
-    find: 'find',
   }
 
   return (
@@ -151,6 +159,61 @@ function Home(go: Go) {
   )
 }
 
+/* --- The library, and the three ways of looking at it --------------------- */
+
+/**
+ * Which of the three views a library screen is drawing.
+ *
+ * All three stay, and the owner said so plainly: "the user should be able to
+ * switch between gallery, list, and shelf views. Let's still keep that." The
+ * words on the control are not those three, because one of them is a word this
+ * interface does not say. Covers, a list, and the books standing up.
+ */
+type View = 'covers' | 'list' | 'spines'
+
+const VIEW_SCREENS: Record<View, string> = {
+  covers: 'covers',
+  list: 'listing',
+  spines: 'library',
+}
+
+/**
+ * What every library screen wears above its books.
+ *
+ * Two rows, and the top one is the interesting one. It used to be Fiction and
+ * Non-fiction as a segmented control, which is a design that quietly assumes
+ * the number of tags is two. It is now a single row that says what you are
+ * looking at and opens the tags, and it costs the same one line whether
+ * somebody keeps two tags or forty.
+ */
+function LibraryTop({
+  go,
+  view,
+  tags,
+  note,
+}: {
+  go: Go
+  view: View
+  tags?: string[]
+  note: string
+}) {
+  return (
+    <>
+      <Picked tags={tags} note={note} onPress={() => go('tags')} />
+      <Segmented<View>
+        label="How to look at them"
+        on={view}
+        options={[
+          { value: 'covers', word: 'Covers' },
+          { value: 'list', word: 'List' },
+          { value: 'spines', word: 'Spines' },
+        ]}
+        onPick={(picked) => go(VIEW_SCREENS[picked])}
+      />
+    </>
+  )
+}
+
 function Library(go: Go) {
   const one: ShelfItem[] = [
     ...spines(['Adams, Douglas', 'Atwood, Margaret', 'Banks, Iain M.', 'Bradbury, Ray']),
@@ -204,14 +267,7 @@ function Library(go: Go) {
         />
       }
     >
-      <Segmented
-        label="Fiction or non-fiction"
-        on="fiction"
-        options={[
-          { value: 'fiction', word: 'Fiction' },
-          { value: 'nonfiction', word: 'Non-fiction' },
-        ]}
-      />
+      <LibraryTop go={go} view="spines" note="1,204 books" />
 
       {/* No caption under these. There was one, saying you could tap a spine
           and what the cat meant, and it went: a shelf that has to be explained
@@ -240,6 +296,103 @@ function Library(go: Go) {
   )
 }
 
+/**
+ * A dozen real books, used wherever a screen needs a gallery of them.
+ *
+ * One list, so a book is the same colour and the same author in the gallery,
+ * in a list row and in a set of results. Real books, because a page of "Lorem"
+ * tells you nothing about whether a title of nine words fits on a cover 122
+ * pixels wide.
+ */
+const TWELVE = covers([
+  ['Never Let Me Go', 'Ishiguro, Kazuo'],
+  ['Piranesi', 'Clarke, Susanna'],
+  ['Cloud Atlas', 'Mitchell, David'],
+  ['The Left Hand of Darkness', 'Le Guin, Ursula K.'],
+  ['Wolf Hall', 'Mantel, Hilary'],
+  ['Underland', 'Macfarlane, Robert'],
+  ['The City and the City', 'Miéville, China'],
+  ['Beloved', 'Morrison, Toni'],
+  ['Snow Crash', 'Stephenson, Neal'],
+  ['A Wizard of Earthsea', 'Le Guin, Ursula K.'],
+  ['Guards! Guards!', 'Pratchett, Terry'],
+  ['The Secret History', 'Tartt, Donna'],
+])
+
+/** The gallery view, with two tags narrowing it. */
+function CoverView(go: Go) {
+  const some = covers([
+    ['Piranesi', 'Clarke, Susanna'],
+    ['Guards! Guards!', 'Pratchett, Terry'],
+    ['A Wizard of Earthsea', 'Le Guin, Ursula K.'],
+    ['Jonathan Strange & Mr Norrell', 'Clarke, Susanna'],
+    ['The Hobbit', 'Tolkien, J. R. R.'],
+    ['Small Gods', 'Pratchett, Terry'],
+  ])
+
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="Library"
+          sub="6 of 1,204 books"
+          action={{ word: 'Find', icon: <IconFind />, onPress: () => go('find') }}
+        />
+      }
+    >
+      <LibraryTop go={go} view="covers" tags={['Fantasy', 'Lent out']} note="6 books" />
+
+      <Covers items={some} label="Books tagged Fantasy and Lent out" onPress={() => go('book')} />
+
+      {/* A fact about the answer rather than an explanation of the screen: two
+          tags together is an "and", and somebody should be told that once. */}
+      <Card weight="quiet" title="Both, not either">
+        <p>
+          Six books carry Fantasy and Lent out at the same time. Tap the row above
+          to take one of the two off.
+        </p>
+      </Card>
+    </Phone>
+  )
+}
+
+/** The list view, which is the one you scan a column of authors in. */
+function ListView(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="Library"
+          sub="1,204 books"
+          action={{ word: 'Find', icon: <IconFind />, onPress: () => go('find') }}
+        />
+      }
+    >
+      <LibraryTop go={go} view="list" note="1,204 books" />
+
+      {/* In the order the line underneath claims. It was not, and a list that
+          says it is alphabetical while not being alphabetical is the kind of
+          thing somebody notices on the third row. Found by looking at it. */}
+      <List label="Every book">
+        <Row title="Piranesi" sub="Clarke, Susanna" cloth="wood" place="1B" onPress={() => go('book')} />
+        <Row title="Never Let Me Go" sub="Ishiguro, Kazuo" cloth="moss" place="2C" onPress={() => go('book')} />
+        <Row title="The Left Hand of Darkness" sub="Le Guin, Ursula K." cloth="plum" place="1C" onPress={() => go('book')} />
+        <Row title="Underland" sub="Macfarlane, Robert" cloth="sun" place="4A" onPress={() => go('book')} />
+        <Row title="Wolf Hall" sub="Mantel, Hilary" cloth="wood2" place="2C" onPress={() => go('book')} />
+        <Row title="The City and the City" sub="Miéville, China" cloth="moss" meta="Checked out" onPress={() => go('book')} />
+        <Row title="Cloud Atlas" sub="Mitchell, David" cloth="sky" place="2C" onPress={() => go('book')} />
+        <Row title="Beloved" sub="Morrison, Toni" cloth="wood" place="2C" onPress={() => go('book')} />
+      </List>
+
+      <Said>Ordered by the author you would look them up under.</Said>
+    </Phone>
+  )
+}
+
 function Book(go: Go) {
   const row: ShelfItem[] = [
     ...spines(['Mantel, Hilary', 'Miéville, China']),
@@ -261,8 +414,13 @@ function Book(go: Go) {
       }
     >
       <Card>
+        {/* Plain, all of them. Fiction had a tint of its own and non-fiction
+            another, which was the old two-way split still being drawn after
+            the split itself went. A person keeping twenty tags would have had
+            two painted and eighteen not. */}
         <Tags>
-          <Tag tone="fiction">Fiction</Tag>
+          <Tag>Fiction</Tag>
+          <Tag>Science fiction</Tag>
           <Tag>Bookcase 2</Tag>
           <Tag>Area C</Tag>
         </Tags>
@@ -298,22 +456,278 @@ function Book(go: Go) {
   )
 }
 
+/* --- Finding a book ------------------------------------------------------- */
+
+/*
+ * Find is no longer a place. It is the one action in the library's top right,
+ * and pressing it gives the whole screen over to a single field with the
+ * gallery underneath it, filtering as you type. Every screen here wears the
+ * library tab for that reason: you have not gone anywhere.
+ *
+ * ## The field works out what you meant
+ *
+ * Four kinds of query, one box, no mode switch, decided by what was typed:
+ *
+ * - digits, ten or thirteen of them, spaces and dashes ignored: an ISBN, and
+ *   there is at most one answer
+ * - a `#`: a tag, and the tags matching what has been typed so far are offered
+ *   with the tags they sit under
+ * - anything else: titles and authors together, near enough rather than exact
+ *
+ * The screen says which of those it chose, in one quiet line under the field,
+ * and only when the answer is not obvious from what was typed. The alternative
+ * is four buttons above the field that nobody would ever press, and a person
+ * who types thirteen digits and gets a fuzzy title match has been failed
+ * silently.
+ */
+
+/** Everything above the results, which is the same on all five. */
+function FindTop(go: Go, sub?: string) {
+  return (
+    <TopBar
+      title="Find a book"
+      sub={sub}
+      onBack={() => go('library')}
+    />
+  )
+}
+
 function Find(go: Go) {
   return (
-    <Phone tab="find" go={go} top={<TopBar title="Find" />}>
-      <Field label="Title, author or ISBN" value="le guin" />
+    <Phone tab="library" go={go} top={FindTop(go, '1,204 books')}>
+      <SearchField caret />
 
-      <List label="Results">
-        <Row title="A Wizard of Earthsea" sub="Le Guin, Ursula K." cloth="sky" place="1C" onPress={() => go('book')} />
-        <Row title="The Lathe of Heaven" sub="Le Guin, Ursula K." cloth="moss" place="1C" onPress={() => go('book')} />
-        <Row title="The Left Hand of Darkness" sub="Le Guin, Ursula K." cloth="plum" place="1C" onPress={() => go('book')} />
-        <Row title="The Dispossessed" sub="Le Guin, Ursula K." cloth="wood" meta="Checked out" onPress={() => go('book')} />
-      </List>
+      <Covers items={TWELVE} label="Every book" onPress={() => go('book')} />
 
-      {/* Kept, and it is worth saying why when three cards like it went. This
-          one is a fact about the answer, not an explanation of the screen. */}
-      <Card weight="quiet" title="Nothing else under that name">
-        <p>Four books, three of them together on 1C.</p>
+      <Said>
+        Your books, newest first, until you type something. A number is read as
+        an ISBN and a # opens your tags.
+      </Said>
+    </Phone>
+  )
+}
+
+/**
+ * Typing, and the case the fuzziness is actually for.
+ *
+ * "mieville" has no accent in it and the author does. That is not a contrived
+ * example: it is what somebody types on a phone keyboard, and an exact match
+ * would answer nothing and be wrong.
+ */
+function Finding(go: Go) {
+  const found = covers(
+    [
+      ['The City and the City', 'Miéville, China'],
+      ['Perdido Street Station', 'Miéville, China'],
+      ['Embassytown', 'Miéville, China'],
+      ['The Scar', 'Miéville, China'],
+      ['Railsea', 'Miéville, China'],
+    ],
+    2,
+  )
+
+  return (
+    <Phone tab="library" go={go} top={FindTop(go, '5 of 1,204 books')}>
+      <SearchField typed="mieville" caret />
+
+      <Covers items={found} label="Books matching mieville" onPress={() => go('book')} />
+
+      {/* A fact about the answer rather than an explanation of the screen, which
+          is the one kind of card that survived the last round. */}
+      <Card weight="quiet" title="Found without the accent">
+        <p>
+          You typed Mieville and the books say Mi&eacute;ville. Titles and authors
+          are both looked through, and neither has to be spelled exactly.
+        </p>
+      </Card>
+    </Phone>
+  )
+}
+
+/**
+ * Thirteen digits, so there is one answer and the screen says why.
+ *
+ * One book in a gallery three across is one cover and two empty columns, which
+ * looked like the screen had failed rather than answered. What fills it is the
+ * question somebody asks straight afterwards: the rest of that author.
+ */
+function FindIsbn(go: Go) {
+  const one = covers([['Never Let Me Go', 'Ishiguro, Kazuo']])
+  const rest = covers(
+    [
+      ['The Remains of the Day', 'Ishiguro, Kazuo'],
+      ['Klara and the Sun', 'Ishiguro, Kazuo'],
+      ['An Artist of the Floating World', 'Ishiguro, Kazuo'],
+    ],
+    1,
+  )
+
+  return (
+    <Phone tab="library" go={go} top={FindTop(go, '1 of 1,204 books')}>
+      <SearchField typed="978 0571 224142" caret reads="Thirteen digits, so that is an ISBN." />
+
+      <Covers items={one} label="The book with that ISBN" onPress={() => go('book')} />
+
+      <Card weight="quiet" title="One book has that number">
+        <p>
+          An ISBN names a single edition, so this is the whole answer rather than
+          the first of several.
+        </p>
+      </Card>
+
+      <p className="wf-heading wf-heading--flush">More by Ishiguro, Kazuo</p>
+      <Covers items={rest} label="More by Ishiguro, Kazuo" onPress={() => go('book')} />
+    </Phone>
+  )
+}
+
+/**
+ * Nothing matches, which is a real answer and gets a real screen.
+ *
+ * The word typed here was "tolkein" and it had to change: two screens along,
+ * this collection owns The Hobbit, so a fuzzy search that claims not to need
+ * exact spelling would have found it and this screen was quietly contradicting
+ * the one before it. Found by looking at both.
+ */
+function FindNone(go: Go) {
+  return (
+    <Phone tab="library" go={go} top={FindTop(go, 'Nothing matches')}>
+      <SearchField typed="ovid" caret />
+
+      <Nothing said="No book here answers to that.">
+        <p>Not a title, not an author, not an ISBN.</p>
+      </Nothing>
+
+      <Button tone="secondary" block onPress={() => go('tags')}>
+        Look through your tags instead
+      </Button>
+      <Button tone="quiet" block onPress={() => go('camera')}>
+        Photograph it, if it is in your hand
+      </Button>
+    </Phone>
+  )
+}
+
+/**
+ * A `#`, part typed, and the tags that match it.
+ *
+ * The second line under each one is where the hierarchy goes when there is no
+ * tree to indent inside. Urban fantasy sits under Fantasy which sits under
+ * Genre, and that is said in words, never as the stored slug.
+ */
+function FindTag(go: Go) {
+  return (
+    <Phone tab="library" go={go} top={FindTop(go, 'Two tags match')}>
+      <SearchField typed="#fan" caret reads="A #, so these are your tags." />
+
+      <Suggestions label="Tags matching fan">
+        <Suggestion name="Fantasy" where="Genre" books={112} onPress={() => go('covers')} />
+        <Suggestion
+          name="Urban fantasy"
+          where="Genre, Fantasy"
+          books={14}
+          onPress={() => go('covers')}
+        />
+      </Suggestions>
+
+      <Button tone="quiet" block onPress={() => go('tags')}>
+        See all 23 of your tags
+      </Button>
+
+      <Card weight="quiet" title="Choosing Fantasy takes Urban fantasy with it">
+        <p>
+          A tag inside another one counts as both, so the 112 includes the 14.
+          That is the only thing worth knowing about tags sitting inside tags.
+        </p>
+      </Card>
+
+      {/* Still every book, because nothing has been chosen yet. Drawn rather
+          than left as half a screen of nothing: "it filters as you type" is a
+          claim about what is underneath, and a person who cannot see the books
+          cannot see them not moving. */}
+      <Said>Still showing every book. Choose one above to narrow it.</Said>
+      <Covers items={TWELVE.slice(0, 6)} label="Every book" onPress={() => go('book')} />
+    </Phone>
+  )
+}
+
+/* --- Twenty-three tags, which is the number the design has to survive ------ */
+
+/**
+ * The tags a person actually keeps, and the shape that holds them.
+ *
+ * Fiction and non-fiction were a two-button control at the top of the library,
+ * and the owner named what was wrong with that: they were "an opinionated
+ * approach just due to what we were needing to do at the time", and they are
+ * now two tags out of twenty-three.
+ *
+ * **Twenty-three flat chips do not fit on a phone and would be lying anyway.**
+ * `docs/data-model.md` puts the hierarchy in the slug, Obsidian style, so the
+ * tags are a tree whether or not a screen draws one. Five groups, shut, fit
+ * above the fold with room to spare; one opens at a time. That is the whole
+ * answer to the count, and it is the same answer at forty.
+ *
+ * Three levels, because two would let somebody think the nesting is only ever
+ * one deep: Naval history sits under History which sits under Subject.
+ */
+interface Leaf {
+  name: string
+  books: number
+  /** Sits inside the tag above it rather than directly in the group. */
+  under?: boolean
+}
+
+const GENRE: Leaf[] = [
+  { name: 'Fiction', books: 740 },
+  { name: 'Non-fiction', books: 464 },
+  { name: 'Fantasy', books: 112 },
+  { name: 'Urban fantasy', books: 14, under: true },
+  { name: 'Science fiction', books: 98 },
+  { name: 'Crime', books: 64 },
+  { name: 'Poetry', books: 41 },
+  { name: 'Cookery', books: 18 },
+]
+
+function TagsScreen(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Your tags" sub="23 tags in five groups" onBack={() => go('library')} />}
+    >
+      <SearchField placeholder="Search your tags" />
+
+      <TagGroup name="Genre" note="8 tags" open onPress={() => go('tags')}>
+        {GENRE.map((leaf) => (
+          <TagPick
+            key={leaf.name}
+            name={leaf.name}
+            books={leaf.books}
+            under={leaf.under}
+            on={leaf.name === 'Fantasy'}
+            onPress={() => go('covers')}
+          />
+        ))}
+      </TagGroup>
+
+      <TagGroup name="Subject" note="5 tags" onPress={() => go('tags')} />
+      <TagGroup name="Mine" note="4 tags, one of them showing" onPress={() => go('tags')} />
+      <TagGroup name="Where it came from" note="3 tags" onPress={() => go('tags')} />
+      <TagGroup name="How it is bound" note="3 tags" onPress={() => go('tags')} />
+
+      <Button tone="primary" block onPress={() => go('covers')}>
+        Show the 6 books
+      </Button>
+      <Button tone="quiet" block onPress={() => go('library')}>
+        Show everything again
+      </Button>
+
+      <Card weight="quiet" kind="Why they are folded" title="A tag inside a tag is a real thing">
+        <p>
+          Fantasy sits inside Genre and Urban fantasy sits inside Fantasy, so a
+          book tagged the innermost one carries all three. Laid out in a row they
+          would look like twenty-three unrelated words.
+        </p>
       </Card>
     </Phone>
   )
@@ -385,19 +799,26 @@ function Review(go: Go) {
       <Field label="Files under" value="Ishiguro, Kazuo" />
       <Field label="Series" placeholder="Not in a series" />
 
+      {/*
+        Was two buttons, Fiction or Non-fiction, which was the same assumption
+        the library made at the top of the screen: that there are two kinds of
+        book. A book carries as many tags as it carries, the catalogue guessed
+        the first two, and adding another is one press rather than a choice
+        between two answers neither of which may be the one.
+      */}
       <div>
-        {/* Was "Range", which is `books.shelf_range` wearing a coat. */}
-        <span className="wf-field__label">Fiction or non-fiction</span>
-        <div style={{ height: 4 }} />
-        <Segmented
-          label="Fiction or non-fiction"
-          on="fiction"
-          options={[
-            { value: 'fiction', word: 'Fiction' },
-            { value: 'nonfiction', word: 'Non-fiction' },
-          ]}
-        />
+        <span className="wf-field__label">Tags</span>
+        <div style={{ height: 6 }} />
+        <Tags>
+          <Tag>Fiction</Tag>
+          <Tag>Science fiction</Tag>
+          <Tag>Second hand</Tag>
+        </Tags>
       </div>
+      <Button tone="quiet" onPress={() => go('tags')}>
+        Add a tag
+      </Button>
+      <Said>Fiction and Science fiction came from the catalogue. Yours outrank them.</Said>
 
       <Button tone="primary" block onPress={() => go('where')}>
         That is the book
@@ -1023,7 +1444,7 @@ function Claimed(go: Go) {
 
       <Card kind="What the book carries" title="Two tags">
         <Tags>
-          <Tag tone="nonfiction">Non-fiction</Tag>
+          <Tag>Non-fiction</Tag>
           <Tag>Cookery</Tag>
         </Tags>
         <p>Both rules asked about a tag this book has, which is why both wanted it.</p>
@@ -1385,9 +1806,19 @@ function Spines(go: Go) {
 
 export const SCREENS: Screen[] = [
   { id: 'home', name: 'Today', group: 'Every day', render: Home },
+  /* Short names. The viewer's own bar gives a name about twenty-four
+     characters before it truncates, and three of these were being cut off in
+     the middle of the word that told them apart. */
   { id: 'library', name: 'Library', group: 'Every day', render: Library },
+  { id: 'covers', name: 'Covers, and two tags', group: 'Every day', render: CoverView },
+  { id: 'listing', name: 'A list of books', group: 'Every day', render: ListView },
   { id: 'book', name: 'A book', group: 'Every day', render: Book },
-  { id: 'find', name: 'Find', group: 'Every day', render: Find },
+  { id: 'find', name: 'Find, before you type', group: 'Finding a book', render: Find },
+  { id: 'finding', name: 'Typing a name', group: 'Finding a book', render: Finding },
+  { id: 'findisbn', name: 'Typing an ISBN', group: 'Finding a book', render: FindIsbn },
+  { id: 'findtag', name: 'Typing a tag', group: 'Finding a book', render: FindTag },
+  { id: 'findnone', name: 'Nothing matches', group: 'Finding a book', render: FindNone },
+  { id: 'tags', name: 'All twenty-three tags', group: 'Finding a book', render: TagsScreen },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
   { id: 'where', name: 'Where it goes', group: 'Cataloguing', render: Where },
@@ -1410,6 +1841,7 @@ export const SCREENS: Screen[] = [
 
 export const GROUPS = [
   'Every day',
+  'Finding a book',
   'Cataloguing',
   'Your furniture',
   'Putting things right',

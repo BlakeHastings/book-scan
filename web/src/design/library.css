@@ -606,10 +606,11 @@
   color: var(--ink-2);
   white-space: nowrap;
 }
-.wf-tag--fiction { background: var(--moss-wash); color: var(--moss); }
-.wf-tag--nonfiction { background: var(--sky-wash); color: var(--sky); }
-.wf-tag--out { background: var(--plum-wash); color: var(--plum); }
-.wf-tag--attention { background: var(--sun-wash); color: var(--wood-2); }
+/* The only tone. A tag that is narrowing what you are looking at right now,
+   which is a fact about the screen and not about the tag. There was a green
+   one for fiction and a blue one for non-fiction, and that was the top-level
+   split painting two tags out of twenty. */
+.wf-tag--on { background: var(--sun-wash); color: var(--ink); }
 
 .wf-tags { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
@@ -1117,6 +1118,300 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink);
+}
+
+/* --- The gallery of covers -------------------------------------------------- */
+
+/*
+ * Three across, which is the count that survives 414 wide. Two draws posters
+ * and four makes the printed title unreadable; both were drawn before this was
+ * settled.
+ *
+ * The art is a photograph in the app. Here it is one of the six cloths, so a
+ * book is the same colour in the gallery, in a list row and on the board.
+ */
+.wf-covers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s3) var(--s2);
+}
+
+.wf-cover {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  text-align: left;
+  color: inherit;
+}
+.wf-cover:active .wf-cover__art { transform: translateY(1px); }
+.wf-cover:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--r-sm); }
+
+.wf-cover__art {
+  aspect-ratio: 2 / 3;
+  border-radius: 2px var(--r-sm) var(--r-sm) 2px;
+  padding: var(--s2) 6px;
+  overflow: hidden;
+  color: var(--cloth-ink);
+  box-shadow: var(--lift-1), inset 4px 0 7px rgba(0, 0, 0, 0.18);
+  transition: transform 90ms ease-out;
+}
+/* Two classes, so this beats the rule above whatever order they land in. The
+   pale cloth is the one cream lettering fails on, in either theme. */
+.wf-cover__art.wf-spine--sun { color: var(--cloth-ink-dark); }
+
+.wf-cover__printed {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: var(--face-book);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  opacity: 0.94;
+}
+
+.wf-cover__by {
+  font-size: var(--size-micro);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-cover__meta {
+  font-family: var(--face-display);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--size-micro);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* --- The one field ---------------------------------------------------------- */
+
+/* One box, and it works out what you meant. */
+.wf-search { display: grid; gap: var(--s1); }
+
+.wf-search__box {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  background: var(--paper-sunk);
+}
+
+.wf-search__glyph { flex: none; display: grid; place-items: center; color: var(--ink-2); }
+
+.wf-search__typed {
+  min-width: 0;
+  font-family: var(--face-book);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-search__typed--empty {
+  font-family: var(--face-ui);
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+
+/* The cursor, sitting where the next character would go. Static: a bar that
+   blinks is motion on a page whose whole job is to be looked at. */
+.wf-search__caret {
+  flex: none;
+  width: 2px;
+  height: 21px;
+  margin-left: -6px;
+  border-radius: 1px;
+  background: var(--link);
+}
+/* Sitting in front of an untouched placeholder rather than behind what was
+   typed, so it hugs the words that follow it instead of the glyph before. */
+.wf-search__caret--lead { margin-left: 0; margin-right: -4px; }
+
+/* What the field decided, said only when it is not obvious from what was
+   typed. Four radio buttons nobody would press, replaced by one line. */
+.wf-search__reads {
+  margin: 0;
+  padding-inline: var(--s3);
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+
+/* --- What is being shown, and the way into the tags -------------------------- */
+
+/*
+ * One row, whatever somebody keeps. This is what the fiction and non-fiction
+ * segmented control became: a control that cost two buttons at two tags and
+ * would have cost twenty at twenty.
+ */
+.wf-picked {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  text-align: left;
+  color: inherit;
+}
+.wf-picked:active { background: var(--paper-sunk); }
+.wf-picked:focus-visible { outline: none; box-shadow: var(--focus); }
+
+.wf-picked__what {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  min-width: 0;
+}
+.wf-picked__all { font-weight: 600; }
+.wf-picked__more { font-size: var(--size-small); color: var(--ink-2); }
+.wf-picked__note {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+.wf-picked > svg { flex: none; color: var(--ink-2); }
+
+/* --- The tags, which are a tree and not a row -------------------------------- */
+
+/*
+ * Groups that fold. Five of them shut fit on one phone screen and hold
+ * twenty-two tags between them; twenty-two chips in a row do not fit and would
+ * say the groups are not there, when the hierarchy is the one thing the model
+ * is certain about.
+ *
+ * The chevron does not rotate when a group opens. That is the same refusal the
+ * furniture screens make: whether the children are drawn is the state, and a
+ * spinning glyph is decoration standing in for something already visible.
+ */
+.wf-tgroup {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--paper-raised);
+  box-shadow: var(--lift-1);
+}
+
+.wf-tgroup__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s3);
+  background: none;
+  border: 0;
+  text-align: left;
+  color: inherit;
+}
+.wf-tgroup__head:active { background: var(--paper-sunk); border-radius: var(--r-lg); }
+.wf-tgroup__head > svg { flex: none; align-self: center; color: var(--ink-2); }
+
+.wf-tgroup__name {
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-tgroup__note {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+
+.wf-tgroup__body { display: grid; gap: var(--s1); padding: 0 var(--s3) var(--s3); }
+
+/* One tag. The indent is the whole of how depth is said: no rail, no tree
+   lines, and never the stored slug written out. */
+/* No `width: 100%`. The group's body is a grid, so a row already fills it, and
+   a width of 100% plus the indent below put the nested tag 24px past the right
+   edge of its own group. Found by looking at it. */
+.wf-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  background: var(--paper-sunk);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  text-align: left;
+  color: inherit;
+}
+.wf-pick:active { background: var(--paper-raised); }
+.wf-pick--on { background: var(--sun-wash); border-color: var(--line-strong); }
+.wf-pick--under { margin-left: var(--s5); }
+
+.wf-pick__name {
+  font-family: var(--face-book);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-pick__count {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.wf-pick__mark {
+  flex: none;
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* A tag offered part way through typing one. The second line is where the
+   nesting goes when there is no tree to indent inside. */
+.wf-suggests {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--paper-raised);
+  overflow: hidden;
+}
+.wf-suggest {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  color: inherit;
+}
+.wf-suggest:first-child { border-top: 0; }
+.wf-suggest:active { background: var(--paper-sunk); }
+.wf-suggest__text { display: grid; gap: 1px; min-width: 0; }
+.wf-suggest__name { font-family: var(--face-book); }
+.wf-suggest__where { font-size: var(--size-small); color: var(--ink-2); }
+.wf-suggest__count {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- The cat -------------------------------------------------------------- */
