@@ -64,9 +64,50 @@ export function Row({
  * and nothing in the model says those two are different from the rest. The one
  * tone left says a tag is *doing something right now*, which is a fact about
  * the screen rather than about the tag.
+ *
+ * Given an `onPress` it becomes a target rather than a label, which is what a
+ * tag is on any screen where the tags are the thing being edited.
  */
-export function Tag({ children, tone }: { children: ReactNode; tone?: 'on' }) {
-  return <span className={`wf-tag${tone ? ` wf-tag--${tone}` : ''}`}>{children}</span>
+export function Tag({
+  children,
+  tone,
+  onPress,
+}: {
+  children: ReactNode
+  tone?: 'on'
+  onPress?: () => void
+}) {
+  const className = [
+    'wf-tag',
+    tone ? `wf-tag--${tone}` : '',
+    onPress ? 'wf-tag--press' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  if (onPress) {
+    return (
+      <button type="button" className={className} onClick={onPress}>
+        {children}
+      </button>
+    )
+  }
+
+  return <span className={className}>{children}</span>
+}
+
+/**
+ * Another tag, at the end of the ones there already are.
+ *
+ * Dashed, because it is the shape of a thing that is not there yet. The same
+ * move `AddBox` makes under a piece of furniture, and it should look like it.
+ */
+export function AddTag({ children, onPress }: { children: ReactNode; onPress?: () => void }) {
+  return (
+    <button type="button" className="wf-tag wf-tag--press wf-tag--add" onClick={onPress}>
+      {children}
+    </button>
+  )
 }
 
 export function Tags({ children }: { children: ReactNode }) {
