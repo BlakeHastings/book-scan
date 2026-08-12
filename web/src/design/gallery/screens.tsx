@@ -29,7 +29,7 @@
  */
 
 import type { CSSProperties, ReactElement } from 'react'
-import { Actions, Been, Head, Here, Part, Shots, Tagged, Tagging } from '../Book'
+import { Actions, Been, Head, Here, Part, Tagged, Tagging } from '../Book'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
 import { Button, Choice, Field, Segmented } from '../Controls'
@@ -46,6 +46,7 @@ import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
 import { IconEdit, IconFind } from '../Icons'
 import { List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
+import { Shots } from '../Shots'
 import { TabBar, TopBar, type TabName } from '../Chrome'
 
 /** Move to another screen of the gallery. */
@@ -493,11 +494,11 @@ function Book(go: Go) {
       />
 
       <Shots
-        items={[
-          { what: 'Front', cloth: 'plum' },
-          { what: 'Spine', cloth: 'plum' },
-          { what: 'Back', cloth: 'wood' },
-          { what: 'Downloaded', cloth: 'sky' },
+        shots={[
+          { word: 'Front', cloth: 'plum' },
+          { word: 'Spine', cloth: 'plum' },
+          { word: 'Back', cloth: 'wood' },
+          { word: 'Downloaded', cloth: 'sky' },
         ]}
       />
       <Said>Four photographs, the last of them on 3 June.</Said>
@@ -592,11 +593,11 @@ function Thin(go: Go) {
       />
 
       <Shots
-        items={[
-          { what: 'Front' },
-          { what: 'Spine', cloth: 'wood' },
-          { what: 'Back' },
-          { what: 'Downloaded' },
+        shots={[
+          { word: 'Front' },
+          { word: 'Spine', cloth: 'wood' },
+          { word: 'Back' },
+          { word: 'Downloaded' },
         ]}
       />
       <Said>One photograph, taken on 14 May.</Said>

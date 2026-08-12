@@ -90,6 +90,24 @@
      theme, because the cloth is the same in either theme. */
   --cloth-ink-dark: #332a22;
 
+  /* --- The picture, which is not paper either --------------------------- */
+
+  /*
+   * The camera fills the screen, so every control on it floats on a
+   * photograph rather than on a page. These follow the theme no more than a
+   * spine does, and for the same reason: the thing behind them is whatever
+   * the lens is pointed at, and a label that goes dark because the phone is
+   * set to dark is a label that disappears on a photograph of a black
+   * paperback.
+   *
+   * The scrim is what makes the cream readable over any of it. It is the only
+   * opaque thing on that screen and it is a gradient, so it costs no picture.
+   */
+  --picture: #332a22;
+  --picture-ink: #fbf6ec;
+  --picture-scrim: rgba(20, 16, 11, 0.55);
+  --picture-line: rgba(251, 246, 236, 0.4);
+
   /* --- The cat ---------------------------------------------------------- */
 
   /*
