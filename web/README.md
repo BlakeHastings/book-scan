@@ -108,10 +108,18 @@ the strip at the top.
 
 It lives in `src/design/`: `tokens.css` is every colour, size, radius and
 shadow in one place for both themes, `library.css` and the components beside it
-are the primitives this app is actually made of (the shelf, a spine, the
-divider, the gap, the cat, the top bar, the tab bar, cards, buttons, segmented
-controls, list rows, the confirmation), and `src/design/gallery/` is the
-gallery itself.
+are the primitives this app is actually made of (the shelf, a spine, the gap,
+the cat, the top bar, the tab bar, cards, buttons, segmented controls, list
+rows, the confirmation), and `src/design/gallery/` is the gallery itself.
+
+**One row of books is one area**, at `#/design/library` and everywhere else a
+board is drawn. A row used to be able to hold a post partway along it with an
+area either side, which said that the area labelled `1A` contains areas. It does
+not: an area is the unit somebody owns and the unit a book is placed in, so
+bookcase 1 is drawn as a row called `1A` and another under it called `1B`. The
+label is derived from the piece's name and the area's position and is never
+stored. The owner settled that on #264, and the library ends in a link to the
+furniture rather than in a card summarising what the furniture is made of.
 
 **It is additive and it stays that way.** `main.tsx` reads the hash and lazy
 loads the gallery, so the working app does not carry the redesign's code or its
@@ -162,7 +170,12 @@ that the shelf board draws one edge and not two. A fourth arrived with the
 second round of feedback: **no word out of the model reaches the interface.**
 The owner found "run" on the library screen and named the general rule, so the
 test carries the list, and "bookcase", "area" and "book" are deliberately not
-on it because those are the words a person uses.
+on it because those are the words a person uses. The third round added **one
+row of books is one area**: no screen draws anything dividing a row, every board
+wears exactly one label, and the library has no such thing left to draw with.
+
+That file has grown past what a count in a paragraph can track, and the rest of
+what it pins is in the `describe` names rather than here.
 
 **Two screens in the gallery are not screens of the app.** They sit under "Two
 to choose between" and each draws one decision both ways, because both are

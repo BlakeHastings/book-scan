@@ -264,10 +264,35 @@ function LibraryTop({
   )
 }
 
+/**
+ * ## One row is one area, and there is no split inside a row
+ *
+ * The first pass drew bookcase 1 as a single row labelled `1A` with a divider
+ * partway along it and two areas either side. The owner read it and said what
+ * was wrong:
+ *
+ * > A is an area itself, so it really would be bookcase one, 1A, and then
+ * > underneath that would be another row that's 1B. You wouldn't have this
+ * > actual physical split like you have there.
+ *
+ * He is right, and it is the model's own vocabulary. An area is the unit a
+ * person owns and the unit a book is placed in, so a row of books is one area
+ * and the next area is the next row. Drawing two areas inside `1A` claimed that
+ * `1A` contains areas, which is false, and it contradicted the furniture
+ * screens, where a piece holds areas and an area holds books.
+ *
+ * The label is derived and never stored: the piece's name and the area's
+ * position, `1A` then `1B`. `design.test.tsx` pins the rest of it, because a
+ * divider is exactly the kind of drawing that comes back looking helpful.
+ */
 function Library(go: Go) {
-  const one: ShelfItem[] = [
-    ...spines(['Adams, Douglas', 'Atwood, Margaret', 'Banks, Iain M.', 'Bradbury, Ray']),
-    { kind: 'divider' },
+  const oneA: ShelfItem[] = spines([
+    'Adams, Douglas',
+    'Atwood, Margaret',
+    'Banks, Iain M.',
+    'Bradbury, Ray',
+  ])
+  const oneB: ShelfItem[] = [
     ...spines(['Calvino, Italo', 'Chambers, Becky', 'Clarke, Susanna'], 2),
     { kind: 'bookend' },
   ]
@@ -324,24 +349,25 @@ function Library(go: Go) {
           in a paragraph underneath it is a shelf that has not worked. */}
       <div className="wf-bleed" style={{ display: 'grid', gap: 20 }}>
         <p className="wf-heading">Bookcase 1</p>
-        <Shelf label="1A" note="7 books, 2 areas" items={one} />
+        <Shelf label="1A" note="4 books" items={oneA} />
+        <Shelf label="1B" note="3 books" items={oneB} />
         <p className="wf-heading">Bookcase 2</p>
         <Shelf label="2C" note="8 books" items={two} />
         <p className="wf-heading">Bookcase 4</p>
         <Shelf label="4A" note="6 books" items={three} />
       </div>
 
-      <Card
-        kind="Your furniture"
-        title="Three bookcases and a crate"
-        foot={
-          <Button tone="secondary" block onPress={() => go('furniture')}>
-            See the bookcases
-          </Button>
-        }
-      >
-        <p>Add one, divide it into areas, and say what belongs in each.</p>
-      </Card>
+      {/* The way through to the furniture, and nothing else.
+          There was a card here titled "Three bookcases and a crate", with a
+          sentence under it about adding one and dividing it into areas. Two
+          things wrong with it, and the owner named both: the app has no reason
+          to summarise what somebody's furniture is made of, and it was a
+          paragraph doing a link's job. "It's definitely not that." */}
+      <div className="wf-under">
+        <Button tone="quiet" onPress={() => go('furniture')}>
+          See the bookcases
+        </Button>
+      </div>
     </Phone>
   )
 }
@@ -394,16 +420,12 @@ function CoverView(go: Go) {
     >
       <LibraryTop go={go} view="covers" tags={['Fantasy', 'Lent out']} note="6 books" />
 
+      {/* Nothing under this. There was a card here saying that two tags mean
+          "and", that six books carry both, and that the row above is how you
+          take one off. The owner: "That doesn't need to be there at all." Every
+          one of those three facts is already drawn: the two tags sit lit in the
+          row, the count beside them says six, and the bar reads 6 of 1,204. */}
       <Covers items={some} label="Books tagged Fantasy and Lent out" onPress={() => go('book')} />
-
-      {/* A fact about the answer rather than an explanation of the screen: two
-          tags together is an "and", and somebody should be told that once. */}
-      <Card weight="quiet" title="Both, not either">
-        <p>
-          Six books carry Fantasy and Lent out at the same time. Tap the row above
-          to take one of the two off.
-        </p>
-      </Card>
     </Phone>
   )
 }
@@ -424,9 +446,16 @@ function ListView(go: Go) {
     >
       <LibraryTop go={go} view="list" note="1,204 books" />
 
-      {/* In the order the line underneath claims. It was not, and a list that
-          says it is alphabetical while not being alphabetical is the kind of
-          thing somebody notices on the third row. Found by looking at it. */}
+      {/* Really in this order, and there is no longer a line underneath saying
+          so. The order is on the rows: every second line is the author this
+          collection files the book under, and they run down the screen in the
+          order they are filed in. A sentence claiming that says nothing the
+          column does not, and it was one more thing to keep true.
+
+          Twelve rows rather than the eight that were here, which is the same
+          move the library made when its caption went: the sentence was holding
+          the bottom of the screen up, and four more books hold it up better
+          while carrying past the fold, which is what a list of 1,204 does. */}
       <List label="Every book">
         <Row title="Piranesi" sub="Clarke, Susanna" cloth="wood" place="1B" onPress={() => go('book')} />
         <Row title="Never Let Me Go" sub="Ishiguro, Kazuo" cloth="moss" place="2C" onPress={() => go('book')} />
@@ -436,9 +465,11 @@ function ListView(go: Go) {
         <Row title="The City and the City" sub="Miéville, China" cloth="moss" meta="Checked out" onPress={() => go('book')} />
         <Row title="Cloud Atlas" sub="Mitchell, David" cloth="sky" place="2C" onPress={() => go('book')} />
         <Row title="Beloved" sub="Morrison, Toni" cloth="wood" place="2C" onPress={() => go('book')} />
+        <Row title="Guards! Guards!" sub="Pratchett, Terry" cloth="sun" place="1C" onPress={() => go('book')} />
+        <Row title="Snow Crash" sub="Stephenson, Neal" cloth="sky" place="2C" onPress={() => go('book')} />
+        <Row title="The Secret History" sub="Tartt, Donna" cloth="plum" place="1B" onPress={() => go('book')} />
+        <Row title="The Hobbit" sub="Tolkien, J. R. R." cloth="wood2" place="1C" onPress={() => go('book')} />
       </List>
-
-      <Said>Ordered by the author you would look them up under.</Said>
     </Phone>
   )
 }

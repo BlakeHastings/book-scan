@@ -1,9 +1,22 @@
 /**
  * The shelf, which is the signature of this app.
  *
- * A plank drawn end on, with the books standing on it, the divider where one
- * area ends and the next begins, the gap where the book in your hand goes, and
- * the cat as the bookend that closes it.
+ * A board drawn end on, with the books standing on it, the gap where the book
+ * in your hand goes, and the cat as the bookend that closes it.
+ *
+ * **One board is one area, and nothing divides it.** There used to be a
+ * `divider` item, a post drawn between two spines to say that one area ended
+ * there and the next began. The owner read it on the library screen and named
+ * what was wrong:
+ *
+ * > A is an area itself, so it really would be bookcase one, 1A, and then
+ * > underneath that would be another row that's 1B. You wouldn't have this
+ * > actual physical split like you have there.
+ *
+ * An area is the unit. A row of books is one area, the next area is the next
+ * row, and a split partway along a row labelled `1A` claimed that `1A` holds
+ * areas. Nothing here has ever known which areas share a plank, so there was
+ * never anything for that post to be a picture of.
  *
  * **The board has one edge.** It is the lip the books stand on, and it is the
  * bottom border of `.wf-shelf__board`. There is no second bar under it and
@@ -76,7 +89,6 @@ export type ShelfItem =
       here?: boolean
     }
   | { kind: 'gap' }
-  | { kind: 'divider' }
   | { kind: 'bookend' }
 
 const clamp = (low: number, value: number, high: number) =>
@@ -152,9 +164,12 @@ export function Shelf({
   inHand,
   heights = 'uniform',
 }: {
-  /** The plank, as it is read off the shelf edge: `2C`. */
+  /**
+   * The area this row is, as it is read off the shelf edge: `2C`. Derived
+   * from the piece's name and the area's position, and never stored.
+   */
   label: string
-  /** Whatever else this run needs said, in words. Counts, usually. */
+  /** Whatever else this row needs said, in words. Counts, usually. */
   note?: string
   items: ShelfItem[]
   /** The book being carried, said under the plank rather than drawn on it. */
@@ -192,10 +207,6 @@ function Item({ item, heights }: { item: ShelfItem; heights: Heights }) {
         <Cat pose="peeking" size={20} />
       </div>
     )
-  }
-
-  if (item.kind === 'divider') {
-    return <div className="wf-divider" aria-hidden="true" />
   }
 
   if (item.kind === 'bookend') {
