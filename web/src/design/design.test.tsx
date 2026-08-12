@@ -211,6 +211,50 @@ describe('the one action in a corner is an icon with a name', () => {
 })
 
 /**
+ * What a book's page is about, which the owner had to say twice.
+ *
+ * > This is the detailed view for a book. Where it is, is one part of that.
+ * > It's not the whole picture. And I don't like the "where it is" widget
+ * > right here. That's just taking up way too much space.
+ *
+ * Both halves of that are here as a check rather than as a paragraph, because
+ * both are the kind of thing that comes back one helpful edit at a time: a
+ * page that leads with where the book sits is the screen he rejected, and a
+ * page with one section on it is that screen wearing a different heading.
+ *
+ * Deliberately not a measurement of how tall the section is. Pixels are not
+ * available here, and a character count of markup would fail on somebody
+ * writing a longer sentence, which is not the thing being protected. What is
+ * protected is the order and the count: the book itself is drawn before the
+ * page says where it sits, and where it sits is one of several sections.
+ */
+describe('a book screen is about the book, not about where it sits', () => {
+  const BOOKS = ['book', 'thin']
+
+  it('draws several sections, and the book before where it is', () => {
+    for (const id of BOOKS) {
+      const screen = SCREENS.find((one) => one.id === id)
+      expect(screen, `there is no screen called "${id}"`).toBeDefined()
+
+      const markup = renderToStaticMarkup(screen!.render(() => {}))
+      const heads = [
+        ...markup.matchAll(/<section class="wf-part" aria-label="([^"]+)"/g),
+      ].map((found) => found[1])
+
+      expect(heads.length, `${id} draws ${heads.length} sections`).toBeGreaterThanOrEqual(4)
+      expect(heads, `${id} never says where the book is`).toContain('Where it is')
+
+      const book = markup.indexOf('class="wf-book"')
+      const where = markup.indexOf('aria-label="Where it is"')
+      expect(book, `${id} never draws the book itself`).toBeGreaterThan(-1)
+      expect(where, `${id} says where the book is before saying what it is`).toBeGreaterThan(
+        book,
+      )
+    }
+  })
+})
+
+/**
  * The one thing on a shelf that is a claim about a physical object.
  *
  * A page count is thickness, so it decides width. Height is uniform unless a

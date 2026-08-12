@@ -135,6 +135,26 @@ and how tall the thing is. It knows neither and does not need to: a piece, the
 areas nested under it, and a way to add another is the whole shape. The owner
 settled that on #251.
 
+**A book's own page is two screens, at `#/design/book` and `#/design/thin`**,
+and `Book.tsx` has the parts. It is drawn from "what do I know about this book,
+and what can I do with it" rather than from where it sits, which is the change
+the owner asked for on #249: where a book is, is one section of five and the
+smallest of them, a sentence and a board where it used to be a card the height
+of a hand. The five are what it is, where it is, what it is about, who wrote
+it, and where it has been.
+
+**The two are the same book by the same author**, one record as full as this
+catalogue gets and one nearly empty, because most of a real collection is the
+second kind. What survives a thin record is the point of putting them together:
+who wrote it and what else of theirs is in the house are as good either way, and
+everything missing is drawn as the empty shape of itself rather than left off.
+
+**A tag says who said it**, in words and in its outline, because that is the
+difference the rest of this product rests on: only a person's tag is safe from
+an automatic rewrite. **Reading status is not invented.** It does not exist
+(#139) and how it should be asked is not decided, so both screens keep the room
+it will want and say that is what they are doing.
+
 Two rules in it are checked by `src/design/design.test.tsx` rather than left to
 a reviewer: **no emoji anywhere**, in the source or in the rendered markup, and
 **no coloured rail down the side of a card**. A third is checked the same way,
