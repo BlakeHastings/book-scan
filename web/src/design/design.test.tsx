@@ -334,6 +334,52 @@ describe('the first screen is counts, and every count goes somewhere', () => {
 })
 
 /**
+ * One row of books is one area, and nothing splits a row.
+ *
+ * > A is an area itself, so it really would be bookcase one, 1A, and then
+ * > underneath that would be another row that's 1B. You wouldn't have this
+ * > actual physical split like you have there.
+ *
+ * The library drew bookcase 1 as one row labelled `1A` with a post partway
+ * along it and an area either side, which says `1A` holds areas. It does not:
+ * an area is the unit a person owns and the unit a book is placed in, and this
+ * app has never known which areas share a plank. So a row is an area, every
+ * row wears exactly one label, and the drawing that said otherwise is gone.
+ *
+ * Checked on the rendered markup and on the source, because there are two ways
+ * back: somebody redraws the post, or somebody writes a label that names two
+ * places at once. The count of boards against the count of labels is what
+ * catches a third row appearing inside a second one.
+ */
+describe('one row of books is one area', () => {
+  it('is true because no screen draws anything dividing a row', () => {
+    let boards = 0
+
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      expect(markup, `${screen.id} splits a row`).not.toMatch(/wf-divider/)
+
+      const drawn = markup.match(/class="wf-shelf__board"/g) ?? []
+      const labels = markup.match(/class="wf-shelf__label"/g) ?? []
+      boards += drawn.length
+      expect(labels.length, `${screen.id} draws ${drawn.length} rows under ${labels.length} labels`).toBe(
+        drawn.length,
+      )
+    }
+
+    expect(boards, 'no screen draws a row of books at all').toBeGreaterThan(1)
+  })
+
+  it('is true because the library has no such thing to draw with', () => {
+    const shelf = readFileSync(join(HERE, 'Shelf.tsx'), 'utf8')
+    const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+
+    expect(shelf).not.toMatch(/kind: 'divider'/)
+    expect(css).not.toMatch(/^\.wf-divider\s*\{/m)
+  })
+})
+
+/**
  * The one thing on a shelf that is a claim about a physical object.
  *
  * A page count is thickness, so it decides width. Height is uniform unless a

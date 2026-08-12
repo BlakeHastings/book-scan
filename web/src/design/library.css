@@ -312,19 +312,12 @@
   scroll-snap-align: start;
 }
 
-/* The divider between two areas on one plank. A physical thing: a board
-   offcut standing on edge. */
-.wf-divider {
-  width: 10px;
-  height: 134px;
-  flex: none;
-  border-radius: 3px 3px 0 0;
-  background: var(--board-edge);
-  border: 1px solid var(--wood-2);
-  box-shadow: var(--lift-1);
-}
+/* There is no divider. A board offcut used to stand on edge here, between two
+   areas sharing one row, and the owner took the whole idea out: an area is the
+   unit, so one row is one area and the next area is the next row. See the
+   header of Shelf.tsx. */
 
-/* A bookend closes a run, and the bookend is the cat. */
+/* A bookend closes a row, and the bookend is the cat. */
 .wf-bookend {
   flex: none;
   align-self: flex-end;
@@ -939,6 +932,16 @@
   padding-inline: var(--s4);
 }
 .wf-heading--flush { padding-inline: 0; }
+
+/* The last thing on a screen: one way onward, centred, and no card around it.
+   The library ended in a card summarising the furniture, and both halves of
+   that were wrong. A person who has scrolled past every shelf they own wants a
+   door, not a paragraph, so this is a door and it is the size of one. */
+.wf-under {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--s1);
+}
 
 /* --- The carry list and the plan ------------------------------------------ */
 
