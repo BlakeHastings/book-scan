@@ -139,6 +139,57 @@ describe('no word out of the model reaches the interface', () => {
   })
 })
 
+/**
+ * A tag has two halves and a person only ever sees one of them.
+ *
+ * `docs/data-model.md`: "`slug` is the identity, `label` is what a person
+ * reads", and the hierarchy lives in the slug, Obsidian style, so the identity
+ * of the fantasy tag is the string `genre/fantasy`. That string is a key, and
+ * putting a key on a screen is the same mistake as showing somebody a row id.
+ * Nesting is drawn with an indent and said in words ("under Genre"); it is
+ * never written out with a stroke in it.
+ *
+ * The pattern is deliberately about the shape rather than about a list of
+ * known slugs, because the next slug is the one that gets rendered by
+ * accident.
+ */
+const SLUG = /\b[a-z][a-z0-9]*\/[a-z][a-z0-9-]*\b/
+
+describe('a tag is drawn by its label and never by its slug', () => {
+  it('is true of every screen once rendered', () => {
+    for (const screen of SCREENS) {
+      const text = words(renderToStaticMarkup(screen.render(() => {})))
+      expect(text, `${screen.id} renders something shaped like a slug`).not.toMatch(SLUG)
+    }
+  })
+})
+
+/**
+ * Find is not a place you can be.
+ *
+ * The owner took it out of the tab bar: "I think we should just have the find
+ * system as part of the library rather than a completely separate system." It
+ * is now the one action in the library's top right, and the thing that would
+ * quietly undo that is somebody adding a fifth tab back. Four is the count,
+ * and it is checked on the rendered markup rather than on the array, because
+ * the array is not what a person taps.
+ */
+describe('the tab bar has four places in it', () => {
+  it('is true of every screen that draws one', () => {
+    let drawn = 0
+
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      const tabs = markup.match(/class="wf-tab(?: |")/g) ?? []
+      if (tabs.length === 0) continue
+      drawn += 1
+      expect(tabs.length, `${screen.id} draws ${tabs.length} tabs`).toBe(4)
+    }
+
+    expect(drawn, 'no screen draws a tab bar at all').toBeGreaterThan(1)
+  })
+})
+
 describe('the one action in a corner is an icon with a name', () => {
   it('is true because no screen renders a bare glyph there', () => {
     let found = 0

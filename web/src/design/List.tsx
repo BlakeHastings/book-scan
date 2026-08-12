@@ -55,14 +55,17 @@ export function Row({
   )
 }
 
-/** A word, boxed. The word carries the meaning; the tint only groups them. */
-export function Tag({
-  children,
-  tone,
-}: {
-  children: ReactNode
-  tone?: 'fiction' | 'nonfiction' | 'out' | 'attention'
-}) {
+/**
+ * A word, boxed. The word carries the meaning and the tint says one thing only.
+ *
+ * **There is no tint for a particular tag any more.** Fiction was green and
+ * non-fiction was blue, which was the two-way split wearing a coat: a person
+ * keeping twenty tags would have had two of them painted and eighteen plain,
+ * and nothing in the model says those two are different from the rest. The one
+ * tone left says a tag is *doing something right now*, which is a fact about
+ * the screen rather than about the tag.
+ */
+export function Tag({ children, tone }: { children: ReactNode; tone?: 'on' }) {
   return <span className={`wf-tag${tone ? ` wf-tag--${tone}` : ''}`}>{children}</span>
 }
 
