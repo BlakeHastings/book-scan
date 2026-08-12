@@ -1440,6 +1440,158 @@
   stroke-linecap: round;
 }
 
+/* --- A book's own page ------------------------------------------------------ */
+
+/*
+ * The page that answers "what do I know about this book".
+ *
+ * It is sections rather than cards, and that is the change the owner asked
+ * for: the old screen spent most of a phone on one widget saying where the
+ * book sits, and everything the catalogue holds about the book itself was a
+ * single paragraph above it. A section is a heading and its content, so eight
+ * of them fit down a scroll without eight outlines arguing with each other.
+ */
+.wf-part { display: grid; gap: var(--s2); }
+.wf-part__head { display: flex; align-items: baseline; gap: var(--s2); }
+.wf-part__title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+.wf-part__note {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+
+/* The front of the book, and what it is. */
+.wf-book { display: flex; gap: var(--s3); align-items: flex-start; }
+
+/*
+ * A cover, at the proportions a paperback has. The inset shadow is on the
+ * binding side, which is what makes a rectangle read as a book rather than as
+ * a photograph of one.
+ */
+.wf-book__cover {
+  width: 100px;
+  height: 146px;
+  flex: none;
+  border-radius: 2px var(--r-sm) var(--r-sm) 2px;
+  box-shadow: var(--lift-2), inset 5px 0 8px rgba(0, 0, 0, 0.18);
+}
+.wf-book__cover--none {
+  display: grid;
+  place-items: center;
+  padding: var(--s2);
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  background: none;
+  box-shadow: none;
+  color: var(--ink-2);
+  font-size: var(--size-micro);
+}
+
+.wf-book__of { min-width: 0; display: grid; gap: 2px; }
+.wf-book__title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+}
+.wf-book__by {
+  margin: 2px 0 var(--s1);
+  font-family: var(--face-book);
+  font-size: var(--size-body);
+}
+.wf-book__fact { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
+
+/* Every photograph of one book. Scrolls inside itself; the page does not. */
+.wf-shots {
+  display: flex;
+  gap: var(--s2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: var(--s1);
+}
+.wf-shot {
+  flex: none;
+  display: grid;
+  gap: var(--s1);
+  justify-items: center;
+  width: 58px;
+  font-size: var(--size-micro);
+  color: var(--ink-2);
+}
+.wf-shot__box {
+  width: 58px;
+  height: 78px;
+  border-radius: var(--r-sm);
+  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
+}
+/* A kind nobody has taken, drawn as the empty shape of itself. */
+.wf-shot--none .wf-shot__box {
+  border: 1px dashed var(--line-strong);
+  background: none;
+  box-shadow: none;
+}
+.wf-shot__what { text-align: center; line-height: 1.15; }
+
+/*
+ * A tag and who said it.
+ *
+ * Three voices and they are told apart twice over, in the sentence and in the
+ * outline: a person's answer is drawn solid, a catalogue's is the ordinary
+ * tag, and this app's own guess is dashed, which is what a dashed edge means
+ * everywhere else here. No tag carries a colour of its own any more, so the
+ * word still carries the meaning.
+ */
+.wf-voices { display: grid; gap: var(--s2); }
+.wf-voice { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.wf-voice__who { font-size: var(--size-small); color: var(--ink-2); }
+/* A ring rather than a fill, so a person's tag stands out without covering the
+   ordinary tag colour every tag now shares. */
+.wf-voice--person .wf-tag { border: 1px solid currentColor; }
+.wf-voice--guess .wf-tag {
+  background: none;
+  border: 1px dashed var(--line-strong);
+  color: var(--ink-2);
+}
+
+/* What you can do about the section above. Never the width of the phone: see
+   `Book.tsx` for why nothing on this page is. */
+.wf-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+/* Where it is, in one line, which is all it gets. */
+.wf-here { display: flex; align-items: center; gap: var(--s3); }
+.wf-here__text { min-width: 0; display: grid; gap: 1px; }
+.wf-here__said { font-family: var(--face-book); }
+.wf-here__when { font-size: var(--size-small); color: var(--ink-2); }
+
+/* Where it has been: one row a move, newest first. */
+.wf-been { display: grid; }
+.wf-been__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-top: 1px solid var(--line);
+  font-size: var(--size-small);
+}
+.wf-been__row:first-child { border-top: 0; padding-top: 0; }
+.wf-been__what { min-width: 0; display: grid; gap: 1px; }
+.wf-been__who { color: var(--ink-2); }
+.wf-been__when {
+  margin-left: auto;
+  flex: none;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- The gallery's own frame ---------------------------------------------- */
 
 /*

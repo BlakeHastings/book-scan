@@ -29,6 +29,7 @@
  */
 
 import type { CSSProperties, ReactElement } from 'react'
+import { Actions, Been, Head, Here, Part, Shots, Tagged, Tagging } from '../Book'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
 import { Button, Choice, Field, Segmented } from '../Controls'
@@ -393,11 +394,82 @@ function ListView(go: Go) {
   )
 }
 
+/*
+ * --- One book, twice ------------------------------------------------------
+ *
+ * The owner read the first pass at this screen and named what was wrong with
+ * it, which was that it had been drawn from the wrong question:
+ *
+ * > This is the detailed view for a book. Where it is, is one part of that.
+ * > It's not the whole picture. And I don't like the "where it is" widget
+ * > right here. That's just taking up way too much space.
+ *
+ * So both screens below are drawn from "what do I know about this book, and
+ * what can I do with it", and they carry the same five sections in the same
+ * order: what it is, where it is, what it is about, who wrote it, and where it
+ * has been. Location is the second of them and the smallest, one line and
+ * three small buttons where it used to be a card the height of a hand.
+ *
+ * **They are the same book by the same author, and that is the point.** One
+ * record is as full as this catalogue gets and the other is nearly empty,
+ * which is what most of a real collection looks like, and putting them on one
+ * author shows what survives a thin record: who wrote it, and what else of
+ * theirs is in the house. Everything that is missing is drawn as the empty
+ * shape of itself rather than left off, because a gap somebody can fill is a
+ * thing to know.
+ *
+ * Nothing here invents a reading status. It does not exist in the catalogue
+ * and the owner has not decided how it should work (#139), so both screens
+ * leave the room it will want and say so.
+ */
+
+/** What Le Guin's other books look like from either of her books' pages. */
+function AlsoHers(go: Go) {
+  return (
+    <>
+      <List label="Others by her">
+        <Row title="A Wizard of Earthsea" sub="1968" cloth="sky" place="1C" onPress={() => go('book')} />
+        <Row title="The Lathe of Heaven" sub="1971" cloth="moss" place="1C" onPress={() => go('book')} />
+        <Row title="The Word for World Is Forest" sub="1972" cloth="wood" place="1D" onPress={() => go('book')} />
+      </List>
+      <Actions>
+        <Button tone="quiet" small onPress={() => go('find')}>
+          All nine of hers
+        </Button>
+      </Actions>
+    </>
+  )
+}
+
+/**
+ * The room reading status will want, and no more than that.
+ *
+ * Drawn on both screens rather than only on the full one, because it is a
+ * section this page is missing and not a fact one book happens to lack. The
+ * dashed outline is what this system already says about a thing that is not
+ * there yet, and there is deliberately no control on it: a switch that did
+ * nothing would be worse than an empty space.
+ */
+function ReadYet() {
+  return (
+    <Card weight="quiet" title="Have you read it?">
+      <p>Nothing here answers that yet, and how it should ask is not decided.</p>
+    </Card>
+  )
+}
+
 function Book(go: Go) {
   const row: ShelfItem[] = [
-    ...spines(['Mantel, Hilary', 'Miéville, China']),
-    { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', pages: 288, ratio: 8.5, here: true },
-    ...spines(['Mitchell, David', 'Morrison, Toni'], 3),
+    ...spines(['Lem, Stanisław', 'Le Guin, Ursula K.']),
+    {
+      kind: 'spine',
+      text: 'Le Guin, Ursula K.',
+      cloth: 'plum',
+      pages: 304,
+      ratio: 8.5,
+      here: true,
+    },
+    ...spines(['Le Guin, Ursula K.', 'Lessing, Doris'], 3),
   ]
 
   return (
@@ -406,52 +478,200 @@ function Book(go: Go) {
       go={go}
       top={
         <TopBar
-          title="Never Let Me Go"
-          sub="Ishiguro, Kazuo"
+          title="The Left Hand of Darkness"
+          sub="Le Guin, Ursula K."
           onBack={() => go('library')}
           action={{ word: 'Edit', icon: <IconEdit /> }}
         />
       }
     >
-      <Card>
-        {/* Plain, all of them. Fiction had a tint of its own and non-fiction
-            another, which was the old two-way split still being drawn after
-            the split itself went. A person keeping twenty tags would have had
-            two painted and eighteen not. */}
-        <Tags>
-          <Tag>Fiction</Tag>
-          <Tag>Science fiction</Tag>
-          <Tag>Bookcase 2</Tag>
-          <Tag>Area C</Tag>
-        </Tags>
-        <p>
-          Faber, 2005. 288 pages. Files under <strong>Ishiguro, Kazuo</strong>. ISBN
-          9780571224142.
-        </p>
-      </Card>
+      <Head
+        title="The Left Hand of Darkness"
+        by="Ursula K. Le Guin"
+        cover="plum"
+        facts={['Ace, 1969. 304 pages.', 'Hainish Cycle, book four', 'ISBN 9780441478125']}
+      />
 
-      <div className="wf-bleed">
-        <Shelf label="2C" note="Third along" items={row} />
-      </div>
+      <Shots
+        items={[
+          { what: 'Front', cloth: 'plum' },
+          { what: 'Spine', cloth: 'plum' },
+          { what: 'Back', cloth: 'wood' },
+          { what: 'Downloaded', cloth: 'sky' },
+        ]}
+      />
+      <Said>Four photographs, the last of them on 3 June.</Said>
+
+      {/* Second on the page and the smallest section on it. The board stays,
+          because it is how you find the book in the room and it names the two
+          books either side; what went is the card that used to sit under it. */}
+      <Part head="Where it is">
+        <Here
+          said="On bookcase 1, where it should be."
+          when="Last confirmed there on 4 August."
+        />
+        <div className="wf-bleed">
+          <Shelf label="1C" note="Third along" items={row} />
+        </div>
+        <Actions>
+          <Button tone="secondary" small>
+            Check it out
+          </Button>
+          <Button tone="quiet" small onPress={() => go('where')}>
+            It moved
+          </Button>
+          <Button tone="quiet" small onPress={() => go('claimed')}>
+            Why it is here
+          </Button>
+        </Actions>
+      </Part>
+
+      <Part head="What it is about" note="Three tags">
+        <Tagging>
+          <Tagged word="Fiction" from="person" who="You said so, on 3 June" />
+          <Tagged word="Science fiction" from="catalogue" who="Open Library says so" />
+          <Tagged
+            word="Anthropology"
+            from="guess"
+            who="The app guessed it, and it is not sure"
+          />
+        </Tagging>
+        <ReadYet />
+      </Part>
+
+      <Part head="Who wrote it" note="Nine of hers">
+        <p className="wf-book__by" style={{ margin: 0 }}>
+          Ursula K. Le Guin
+        </p>
+        <Said>Files under Le Guin, Ursula K., which is where you would look for her.</Said>
+        {AlsoHers(go)}
+      </Part>
+
+      <Part head="Where it has been" note="Five moves">
+        <Been
+          rows={[
+            { what: 'Put on 1C', who: 'You carried it', when: '4 Aug' },
+            { what: 'Meant for 1C', who: 'The app, when you said 1B was full', when: '2 Aug' },
+            { what: 'Brought back', who: 'Put back where it came off', when: '28 Jul' },
+            { what: 'Taken out', when: '12 Jul' },
+            { what: 'Put on 1B', who: 'You carried it', when: '3 Jun' },
+          ]}
+        />
+        <Said>Photographed on 3 June, and on a bookcase the same day.</Said>
+      </Part>
+    </Phone>
+  )
+}
+
+/**
+ * The same page for a book the catalogue barely knows, which is most of them.
+ *
+ * Everything absent is drawn as the shape it would have: no cover, three
+ * photographs never taken, one tag nobody has confirmed. The two things that
+ * are as good as they are on the full record are the two that come from
+ * somewhere other than a catalogue: who wrote it, and where it has been.
+ */
+function Thin(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="The Dispossessed"
+          sub="Le Guin, Ursula K."
+          onBack={() => go('find')}
+          action={{ word: 'Edit', icon: <IconEdit /> }}
+        />
+      }
+    >
+      <Head
+        title="The Dispossessed"
+        by="Ursula K. Le Guin"
+        facts={['Publisher, year and length not recorded', 'No ISBN']}
+      />
+
+      <Shots
+        items={[
+          { what: 'Front' },
+          { what: 'Spine', cloth: 'wood' },
+          { what: 'Back' },
+          { what: 'Downloaded' },
+        ]}
+      />
+      <Said>One photograph, taken on 14 May.</Said>
 
       <Card
-        weight="sunk"
-        kind="Where it is"
-        title="On the bookcase, where it should be"
+        weight="quiet"
+        kind="No barcode has ever read on this copy"
+        title="Nothing else is known about it"
         foot={
           <>
-            <Button tone="secondary">Check it out</Button>
-            <Button tone="quiet" onPress={() => go('where')}>
-              It moved
+            <Button tone="secondary" small>
+              Fill it in
             </Button>
-            <Button tone="quiet" onPress={() => go('claimed')}>
-              Why it is here
+            <Button tone="quiet" small onPress={() => go('camera')}>
+              Try the barcode again
             </Button>
           </>
         }
       >
-        <p>Last confirmed there on 4 August.</p>
+        <p>
+          Without an ISBN there is nothing to look it up by, so the title and the
+          author are what somebody typed. A year and a publisher would be enough
+          for a catalogue to answer.
+        </p>
       </Card>
+
+      <Part head="Where it is">
+        <Here
+          label="Out"
+          quiet
+          said="Not on a bookcase. You have it."
+          when="Taken out on 2 August."
+        />
+        <Said>It came off 1C, and that is where it goes back.</Said>
+        <Actions>
+          <Button tone="secondary" small onPress={() => go('where')}>
+            Put it back
+          </Button>
+        </Actions>
+      </Part>
+
+      <Part head="What it is about" note="One tag">
+        <Tagging>
+          <Tagged
+            word="Fiction"
+            from="guess"
+            who="The app guessed it from the title, and it is not sure"
+          />
+        </Tagging>
+        <Said>Nothing else is tagged, so no rule has anything to go on.</Said>
+        <Actions>
+          <Button tone="quiet" small>
+            Say what it is
+          </Button>
+        </Actions>
+        <ReadYet />
+      </Part>
+
+      <Part head="Who wrote it" note="Nine of hers">
+        <p className="wf-book__by" style={{ margin: 0 }}>
+          Ursula K. Le Guin
+        </p>
+        <Said>Files under Le Guin, Ursula K., which is where you would look for her.</Said>
+        {AlsoHers(go)}
+      </Part>
+
+      <Part head="Where it has been" note="Two moves">
+        <Been
+          rows={[
+            { what: 'Taken out', when: '2 Aug' },
+            { what: 'Put on 1C', who: 'You carried it', when: '14 May' },
+          ]}
+        />
+        <Said>Photographed on 14 May, and on a bookcase the same day.</Said>
+      </Part>
     </Phone>
   )
 }
@@ -1813,6 +2033,12 @@ export const SCREENS: Screen[] = [
   { id: 'covers', name: 'Covers, and two tags', group: 'Every day', render: CoverView },
   { id: 'listing', name: 'A list of books', group: 'Every day', render: ListView },
   { id: 'book', name: 'A book', group: 'Every day', render: Book },
+  {
+    id: 'thin',
+    name: 'A book we know little about',
+    group: 'Every day',
+    render: Thin,
+  },
   { id: 'find', name: 'Find, before you type', group: 'Finding a book', render: Find },
   { id: 'finding', name: 'Typing a name', group: 'Finding a book', render: Finding },
   { id: 'findisbn', name: 'Typing an ISBN', group: 'Finding a book', render: FindIsbn },
