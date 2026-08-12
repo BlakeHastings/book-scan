@@ -498,45 +498,67 @@ function ListView(go: Go) {
  * shape of itself rather than left off, because a gap somebody can fill is a
  * thing to know.
  *
- * Nothing here invents a reading status. It does not exist in the catalogue
- * and the owner has not decided how it should work (#139), so both screens
- * leave the room it will want and say so.
+ * ## Round three took the sentences off both of them
+ *
+ * > There's a lot of words going on here, like a lot of words.
+ *
+ * What went, on both screens equally: the count of tags said as a label above
+ * tags anybody can count; the sentence beside each tag naming who said it; the
+ * line under the photographs saying how many there were; the line under where
+ * it has been saying when it was photographed; and the dashed card holding the
+ * room a reading status will want, which was a note from the designer to the
+ * reviewer wearing the app's own voice.
+ *
+ * **None of it was replaced with a shorter sentence**, which is the trap #262
+ * names. Each one was either already drawn somewhere on the screen or was not
+ * a fact anybody on it needed. Reading status is still undecided and #139 is
+ * still where that is recorded; a wireframe is not a place to keep a note.
+ *
+ * What stayed is what he said he liked: who wrote it, and where it has been.
  */
 
-/** What Le Guin's other books look like from either of her books' pages. */
-function AlsoHers(go: Go) {
+/**
+ * What Le Guin's other books look like from either of this author's pages.
+ *
+ * **Nothing here has a gender in it, and that is a rule rather than a fix to
+ * one string.** It said "all nine of hers", and the owner stopped at it:
+ *
+ * > We need to change that to "theirs", because we're not gonna be able to
+ * > tell if it's male or female probably for the author.
+ *
+ * He is right, and it is structural: the catalogue holds a name, an alias and
+ * a filing name, and it holds no gender and never will. Any screen that says
+ * "her books" is inventing a field, and it will be wrong on the first author
+ * whose name does not read the way somebody assumed.
+ */
+function AlsoTheirs(go: Go) {
   return (
     <>
-      <List label="Others by her">
+      <List label="Others by them">
         <Row title="A Wizard of Earthsea" sub="1968" cloth="sky" place="1C" onPress={() => go('book')} />
         <Row title="The Lathe of Heaven" sub="1971" cloth="moss" place="1C" onPress={() => go('book')} />
         <Row title="The Word for World Is Forest" sub="1972" cloth="wood" place="1D" onPress={() => go('book')} />
       </List>
       <Actions>
         <Button tone="quiet" small onPress={() => go('find')}>
-          All nine of hers
+          All nine of theirs
         </Button>
       </Actions>
     </>
   )
 }
 
-/**
- * The room reading status will want, and no more than that.
+/*
+ * A dashed card headed "Have you read it?" used to sit on both of these,
+ * holding the room reading status will want, and its body said that nothing
+ * answers that yet and how it should ask is not decided.
  *
- * Drawn on both screens rather than only on the full one, because it is a
- * section this page is missing and not a fact one book happens to lack. The
- * dashed outline is what this system already says about a thing that is not
- * there yet, and there is deliberately no control on it: a switch that did
- * nothing would be worse than an empty space.
+ * That is the designer talking to the reviewer, on the screen, in the app's
+ * own voice, which is the exact fault #262 names: "if a reader cannot tell
+ * whether a sentence is the app or a note about the app, the sentence is
+ * wrong." It is gone. #139 is still open and still the record of the decision
+ * nobody has made; a wireframe is not the place to keep a note about it.
  */
-function ReadYet() {
-  return (
-    <Card weight="quiet" title="Have you read it?">
-      <p>Nothing here answers that yet, and how it should ask is not decided.</p>
-    </Card>
-  )
-}
 
 function Book(go: Go) {
   const row: ShelfItem[] = [
@@ -568,19 +590,14 @@ function Book(go: Go) {
       <Head
         title="The Left Hand of Darkness"
         by="Ursula K. Le Guin"
-        cover="plum"
-        facts={['Ace, 1969. 304 pages.', 'Hainish Cycle, book four', 'ISBN 9780441478125']}
-      />
-
-      <Shots
         shots={[
           { word: 'Front', cloth: 'plum' },
-          { word: 'Spine', cloth: 'plum' },
+          { word: 'Spine', cloth: 'plum', beside: true },
           { word: 'Back', cloth: 'wood' },
           { word: 'Downloaded', cloth: 'sky' },
         ]}
+        facts={['Ace, 1969. 304 pages.', 'Hainish Cycle, book four', 'ISBN 9780441478125']}
       />
-      <Said>Four photographs, the last of them on 3 June.</Said>
 
       {/* Second on the page and the smallest section on it. The board stays,
           because it is how you find the book in the room and it names the two
@@ -606,7 +623,7 @@ function Book(go: Go) {
         </Actions>
       </Part>
 
-      <Part head="What it is about" note="Three tags">
+      <Part head="What it is about">
         <Tagging>
           <Tagged word="Fiction" from="person" who="You said so, on 3 June" />
           <Tagged word="Science fiction" from="catalogue" who="Open Library says so" />
@@ -616,15 +633,14 @@ function Book(go: Go) {
             who="The app guessed it, and it is not sure"
           />
         </Tagging>
-        <ReadYet />
       </Part>
 
-      <Part head="Who wrote it" note="Nine of hers">
+      <Part head="Who wrote it" note="Nine of theirs">
         <p className="wf-book__by" style={{ margin: 0 }}>
           Ursula K. Le Guin
         </p>
-        <Said>Files under Le Guin, Ursula K., which is where you would look for her.</Said>
-        {AlsoHers(go)}
+        <Said>Files under Le Guin, Ursula K.</Said>
+        {AlsoTheirs(go)}
       </Part>
 
       <Part head="Where it has been" note="Five moves">
@@ -637,7 +653,6 @@ function Book(go: Go) {
             { what: 'Put on 1B', who: 'You carried it', when: '3 Jun' },
           ]}
         />
-        <Said>Photographed on 3 June, and on a bookcase the same day.</Said>
       </Part>
     </Phone>
   )
@@ -646,10 +661,15 @@ function Book(go: Go) {
 /**
  * The same page for a book the catalogue barely knows, which is most of them.
  *
- * Everything absent is drawn as the shape it would have: no cover, three
- * photographs never taken, one tag nobody has confirmed. The two things that
- * are as good as they are on the full record are the two that come from
- * somewhere other than a catalogue: who wrote it, and where it has been.
+ * Everything absent is drawn as the shape it would have: a front nobody has
+ * photographed, two more kinds nobody has either, one tag nobody has
+ * confirmed. The spine is the one photograph this copy has, and it is the one
+ * standing against the empty front, which is what most of a real collection
+ * looks like: a shelf gets photographed a spine at a time.
+ *
+ * The two things that are as good as they are on the full record are the two
+ * that come from somewhere other than a catalogue: who wrote it, and where it
+ * has been.
  */
 function Thin(go: Go) {
   return (
@@ -668,18 +688,14 @@ function Thin(go: Go) {
       <Head
         title="The Dispossessed"
         by="Ursula K. Le Guin"
-        facts={['Publisher, year and length not recorded', 'No ISBN']}
-      />
-
-      <Shots
         shots={[
           { word: 'Front' },
-          { word: 'Spine', cloth: 'wood' },
+          { word: 'Spine', cloth: 'wood', beside: true },
           { word: 'Back' },
           { word: 'Downloaded' },
         ]}
+        facts={['No publisher, year or length', 'No ISBN']}
       />
-      <Said>One photograph, taken on 14 May.</Said>
 
       <Card
         weight="quiet"
@@ -695,13 +711,7 @@ function Thin(go: Go) {
             </Button>
           </>
         }
-      >
-        <p>
-          Without an ISBN there is nothing to look it up by, so the title and the
-          author are what somebody typed. A year and a publisher would be enough
-          for a catalogue to answer.
-        </p>
-      </Card>
+      />
 
       <Part head="Where it is">
         <Here
@@ -710,7 +720,6 @@ function Thin(go: Go) {
           said="Not on a bookcase. You have it."
           when="Taken out on 2 August."
         />
-        <Said>It came off 1C, and that is where it goes back.</Said>
         <Actions>
           <Button tone="secondary" small onPress={() => go('where')}>
             Put it back
@@ -718,7 +727,7 @@ function Thin(go: Go) {
         </Actions>
       </Part>
 
-      <Part head="What it is about" note="One tag">
+      <Part head="What it is about">
         <Tagging>
           <Tagged
             word="Fiction"
@@ -726,21 +735,19 @@ function Thin(go: Go) {
             who="The app guessed it from the title, and it is not sure"
           />
         </Tagging>
-        <Said>Nothing else is tagged, so no rule has anything to go on.</Said>
         <Actions>
           <Button tone="quiet" small>
             Say what it is
           </Button>
         </Actions>
-        <ReadYet />
       </Part>
 
-      <Part head="Who wrote it" note="Nine of hers">
+      <Part head="Who wrote it" note="Nine of theirs">
         <p className="wf-book__by" style={{ margin: 0 }}>
           Ursula K. Le Guin
         </p>
-        <Said>Files under Le Guin, Ursula K., which is where you would look for her.</Said>
-        {AlsoHers(go)}
+        <Said>Files under Le Guin, Ursula K.</Said>
+        {AlsoTheirs(go)}
       </Part>
 
       <Part head="Where it has been" note="Two moves">
@@ -750,7 +757,6 @@ function Thin(go: Go) {
             { what: 'Put on 1C', who: 'You carried it', when: '14 May' },
           ]}
         />
-        <Said>Photographed on 14 May, and on a bookcase the same day.</Said>
       </Part>
     </Phone>
   )

@@ -23,7 +23,7 @@
 
 import type { ReactNode } from 'react'
 import { Place } from './List'
-import type { Cloth } from './Shelf'
+import { Shots, type Shot } from './Shots'
 
 /**
  * A section of the page: a title, an optional count beside it, and content.
@@ -56,35 +56,52 @@ export function Part({
 }
 
 /**
- * The top of the page: the front of the book, and what it is.
+ * The top of the page: the book, and what it is.
  *
  * The title is here as well as in the top bar because the bar truncates on one
  * line, and a title is the one thing a page about a book may not lose. The
  * author is the name as printed on the cover; where it files is a fact about
  * the author rather than about this copy, so it is said in the section that is
  * about the author.
+ *
+ * ## The photographs are the book, and there is no rail under them
+ *
+ * This used to be a cover here and a rail of every photograph beneath it, and
+ * the owner rejected both halves of that in one sentence: the spine belongs
+ * against the front, cropped to the sliver a spine photograph really is, and
+ * the others belong behind the front where a swipe reaches them. `Shots` in
+ * `mode="book"` is that arrangement, and it is the same component the camera
+ * and the review draw, because a second one is what this file already learned
+ * not to have.
+ *
+ * ## It fills the width, which it did not
+ *
+ * > It seems like the upper area doesn't actually fully expand to fill the
+ * > entire space. There's a big gap on the right side.
+ *
+ * Two faults, one on each side of that gap. The rail underneath was four
+ * fixed boxes in a row, so it stopped a third of the way short of the right
+ * edge whatever the phone was; that rail is gone. And this row's text was a
+ * flex item at its natural width, so on a short title or a thin record it
+ * stopped short too. It is `flex: 1` now and reaches the edge.
  */
 export function Head({
   title,
   by,
-  cover,
+  shots,
   facts,
 }: {
   title: string
   /** Credited as printed, which is not always what it files under. */
   by: string
-  /** The binding of the front photograph. Absent when there is none. */
-  cover?: Cloth
+  /** Every photograph of this book. The one marked `beside` is the spine. */
+  shots: Shot[]
   /** One line each: publisher and year, the series, the ISBN. */
   facts: string[]
 }) {
   return (
     <div className="wf-book">
-      {cover ? (
-        <span className={`wf-book__cover wf-spine--${cover}`} aria-hidden="true" />
-      ) : (
-        <span className="wf-book__cover wf-book__cover--none">No photograph</span>
-      )}
+      <Shots shots={shots} mode="book" />
       <div className="wf-book__of">
         <h2 className="wf-book__title">{title}</h2>
         <p className="wf-book__by">{by}</p>
@@ -98,15 +115,8 @@ export function Head({
   )
 }
 
-/*
- * The rail of a book's photographs used to live here, and it is now `Shots` in
- * `Shots.tsx`, because the camera grew a component of the same name emitting
- * the same class names and the two quietly broke each other. One component,
- * one home, and a mode for whether a person can act on what they are seeing.
- */
-
 /**
- * A tag, and who said it.
+ * A tag, drawn as firmly as whoever said it.
  *
  * **This is the one thing on the page that is not decoration.** A tag carries
  * a source and a confidence everywhere else in this product: a person deciding,
@@ -115,10 +125,20 @@ export function Head({
  * rests on that difference, so it has to be visible where somebody reads their
  * tags rather than only in the rules that consume them.
  *
- * Said twice, in words and in the outline. The words carry it: "You said so"
- * is not "The app guessed". The outline follows the language the rest of the
- * system already speaks, where a dashed edge is something provisional, so a
- * guess is dashed and a person's answer is drawn solid.
+ * It used to be said twice, in the outline and in a sentence beside it, and
+ * the owner cut the sentence:
+ *
+ * > We don't need to tell them who says so right here. Just show them.
+ *
+ * So the difference stays and the sentence goes, which means the drawing has
+ * to carry all of it. Three steps of firmness, which is an order rather than
+ * three unrelated treatments: a person's answer is filled and ringed, a
+ * catalogue's is the ordinary chip, and this app's own guess is a dashed
+ * outline, which is what a dashed edge already means everywhere here.
+ *
+ * `who` is still a required word for it, on the element rather than beside it.
+ * A screen reader gets the whole sentence and so does anybody resting on the
+ * chip, and neither costs a line of the page.
  */
 export function Tagged({
   word,
@@ -126,19 +146,19 @@ export function Tagged({
   from = 'person',
 }: {
   word: string
-  /** Who said it, in a sentence. Where the confidence is said too. */
+  /** Who said it. Not drawn: it is the tag's own name and its title. */
   who: string
   /** Which of the three said it. */
   from?: 'person' | 'catalogue' | 'guess'
 }) {
   return (
-    <div className={`wf-voice wf-voice--${from}`}>
-      <span className="wf-tag">{word}</span>
-      <span className="wf-voice__who">{who}</span>
-    </div>
+    <span className={`wf-tag wf-voice wf-voice--${from}`} title={who} aria-label={`${word}, ${who}`}>
+      {word}
+    </span>
   )
 }
 
+/** The tags of one book, wrapping across the width rather than one to a line. */
 export function Tagging({ children }: { children: ReactNode }) {
   return <div className="wf-voices">{children}</div>
 }

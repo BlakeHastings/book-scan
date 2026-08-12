@@ -1561,7 +1561,12 @@
  * single paragraph above it. A section is a heading and its content, so eight
  * of them fit down a scroll without eight outlines arguing with each other.
  */
-.wf-part { display: grid; gap: var(--s2); }
+/* A little more air above each one than the body's own gap gives. The prose
+   that used to sit between these sections is gone, and it turned out to have
+   been doing a second job nobody asked it to: keeping them apart. Four
+   headings a thumb apart read as one list rather than as four sections.
+   Found by looking at the page with the sentences taken out. */
+.wf-part { display: grid; gap: var(--s2); margin-top: var(--s2); }
 .wf-part__head { display: flex; align-items: baseline; gap: var(--s2); }
 .wf-part__title {
   margin: 0;
@@ -1577,34 +1582,19 @@
   color: var(--ink-2);
 }
 
-/* The front of the book, and what it is. */
+/* The book, and what it is. */
 .wf-book { display: flex; gap: var(--s3); align-items: flex-start; }
 
 /*
- * A cover, at the proportions a paperback has. The inset shadow is on the
- * binding side, which is what makes a rectangle read as a book rather than as
- * a photograph of one.
+ * `flex: 1` rather than the default `0 1 auto`, which is half of the fault the
+ * owner named: "the upper area doesn't actually fully expand to fill the
+ * entire space. There's a big gap on the right side." A flex item at its
+ * natural width is as wide as its longest line, so a short title or a record
+ * with two facts in it stopped well short of the right edge and the row looked
+ * unfinished. The other half was the rail of photographs that used to sit
+ * under this, four fixed boxes ending a third of the way short. It is gone.
  */
-.wf-book__cover {
-  width: 100px;
-  height: 146px;
-  flex: none;
-  border-radius: 2px var(--r-sm) var(--r-sm) 2px;
-  box-shadow: var(--lift-2), inset 5px 0 8px rgba(0, 0, 0, 0.18);
-}
-.wf-book__cover--none {
-  display: grid;
-  place-items: center;
-  padding: var(--s2);
-  text-align: center;
-  border: 1px dashed var(--line-strong);
-  background: none;
-  box-shadow: none;
-  color: var(--ink-2);
-  font-size: var(--size-micro);
-}
-
-.wf-book__of { min-width: 0; display: grid; gap: 2px; }
+.wf-book__of { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .wf-book__title {
   margin: 0;
   font-family: var(--face-book);
@@ -1740,21 +1730,141 @@
 .wf-shots--big .wf-shot__again { font-size: var(--size-label); padding: var(--s1); }
 
 /*
- * A tag and who said it.
+ * The photographs drawn as the book, at the top of a book's own page.
  *
- * Three voices and they are told apart twice over, in the sentence and in the
- * outline: a person's answer is drawn solid, a catalogue's is the ordinary
- * tag, and this app's own guess is dashed, which is what a dashed edge means
- * everywhere else here. No tag carries a colour of its own any more, so the
- * word still carries the meaning.
+ * The spine is a real photograph the app already crops, and what a crop of a
+ * spine is, is a sliver: about a tenth of the width of the front on an
+ * ordinary paperback, which is the proportion below. It stands against the
+ * front with a hairline between them rather than a gap, so the two read as one
+ * object seen slightly from the side. The front used to carry an inset shadow
+ * down its binding edge to suggest exactly this; that shadow is now the spine,
+ * so it says the same thing with the picture the catalogue actually holds.
+ *
+ * Nothing here is a second treatment of a photograph. It is `.wf-shot` and
+ * `.wf-shot__box` and `.wf-shot--taken`, the same three names the rail uses,
+ * because a kind nobody has photographed still has to fall out as the dashed
+ * empty shape of itself and that rule is written once, above.
  */
-.wf-voices { display: grid; gap: var(--s2); }
-.wf-voice { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
-.wf-voice__who { font-size: var(--size-small); color: var(--ink-2); }
-/* A ring rather than a fill, so a person's tag stands out without covering the
-   ordinary tag colour every tag now shares. */
-.wf-voice--person .wf-tag { border: 1px solid currentColor; }
-.wf-voice--guess .wf-tag {
+.wf-shots--book {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  column-gap: 1px;
+  row-gap: var(--s2);
+  flex: none;
+  overflow: visible;
+  padding-bottom: 0;
+}
+.wf-shots--book .wf-shot { width: auto; display: block; }
+.wf-shots--book .wf-shot__box {
+  height: 172px;
+  align-content: stretch;
+}
+.wf-shots--book .wf-shot--sliver .wf-shot__box {
+  width: 15px;
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+}
+/* The curve of a spine: the same cloth as the front, turned away from the
+   light. Without it the sliver and the front are one flat rectangle. */
+.wf-shots--book .wf-shot--sliver.wf-shot--taken .wf-shot__box {
+  box-shadow: inset -7px 0 9px rgba(0, 0, 0, 0.22);
+}
+.wf-shots--book .wf-shot--face .wf-shot__box {
+  width: 110px;
+  border-radius: 2px var(--r-sm) var(--r-sm) 2px;
+}
+.wf-shots--book .wf-shot--face.wf-shot--taken .wf-shot__box {
+  box-shadow: var(--lift-2);
+}
+
+/*
+ * The front is the top of a stack, and the stack is what a swipe goes
+ * through. The card behind it shows past the right edge and is inset at both
+ * ends, which is the one shape that cannot be mistaken for the spine on the
+ * other side: a spine runs the full height and this deliberately does not.
+ *
+ * `left: 100%` rather than an overlap, which is not a nicety. A front nobody
+ * has photographed is a dashed outline with nothing behind it, so a card lying
+ * under it shows straight through and the empty slot reads as a box inside a
+ * box. Found by opening the sparse screen. Nothing is ever under the front
+ * now: only the part that sticks out is drawn.
+ */
+.wf-deck { position: relative; display: block; }
+.wf-deck .wf-shot { position: relative; z-index: 1; }
+.wf-deck__behind {
+  position: absolute;
+  z-index: 0;
+  top: 8px;
+  bottom: 8px;
+  left: 100%;
+  width: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--paper-sunk);
+}
+/* The shape of the missing thing, in the box where it would be. */
+.wf-shots--book .wf-shot__none {
+  display: grid;
+  place-items: center;
+  padding: var(--s2);
+  text-align: center;
+  color: var(--ink-2);
+  font-size: var(--size-micro);
+}
+
+/*
+ * How many photographs there are, which of them is showing, and which kinds
+ * nobody has taken. This is the whole of what a still drawing can honestly say
+ * about a swipe, and it is deliberately all of it: there is no gesture behind
+ * these, because a wireframe that implements a carousel is a second
+ * implementation of the app.
+ *
+ * A filled dot is a photograph; an empty one is a kind nobody has taken yet,
+ * which is the same thing the dashed box says and the reason the rail is not
+ * missed. The one showing is drawn long.
+ */
+.wf-shots__dots {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.wf-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+}
+.wf-dot--taken { background: var(--ink-2); border-color: var(--ink-2); }
+.wf-dot--showing { width: 18px; }
+.wf-dot--showing.wf-dot--taken { background: var(--ink); border-color: var(--ink); }
+
+/*
+ * A tag, drawn as firmly as whoever said it.
+ *
+ * There was a sentence beside each of these naming who said it, and the owner
+ * cut it: "we don't need to tell them who says so right here, just show them."
+ * The difference is not cut, because nothing else in this product survives
+ * losing it: only a person's tag is safe from an automatic rewrite. So all of
+ * it is in the drawing now, as three steps of one ladder rather than three
+ * unrelated treatments.
+ *
+ * Firmest is a person: filled and ringed in ink, the only tag on the page that
+ * reads as settled. Then a catalogue's, which is the ordinary chip every other
+ * screen already draws. Then this app's own guess, dashed and pale, which is
+ * what a dashed edge means everywhere else here.
+ *
+ * They wrap across the width now instead of standing one to a line, because a
+ * line each was a column of sentences and there are no sentences left.
+ */
+.wf-voices { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.wf-voice--person {
+  background: var(--sun-wash);
+  border: 1.5px solid var(--ink);
+  color: var(--ink);
+}
+.wf-voice--guess {
   background: none;
   border: 1px dashed var(--line-strong);
   color: var(--ink-2);
