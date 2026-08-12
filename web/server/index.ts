@@ -64,6 +64,7 @@ import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } fr
 // A location naming a plank nobody has is refused rather than recorded (#232).
 // See the location route, and `recordPlaced`.
 import { UnknownPlank } from './placement-ledger'
+import { applyRunMove, planRunMove } from './relocate-run'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
@@ -1106,6 +1107,46 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      */
     const placement = await store.placementFor(draft, genreStatedBy(draft).range, excludeId)
     res.json(await inDerivedScheme(placement.range, placement, excludeId))
+  }))
+
+  /**
+   * Where a run lives, and what moving it would cost in books carried.
+   *
+   * Two routes and one idea, the same pair as `/api/shelves/overflow/plan` and
+   * the route beside it: the first computes and **writes nothing**, the second
+   * makes the change and hands back what it wrote. Splitting them across two
+   * screens or two releases would leave half an idea, since a plan nobody can
+   * apply is a report and an apply nobody can preview is a leap.
+   *
+   * The bookcase is a number because that is what a person reads off a shelf,
+   * and moving non-fiction from bookcase 4 to bookcase 3 is the sentence this
+   * exists for. What it does **not** do is renumber bookcase 4: a label is
+   * derived from a fixture's position, so renumbering would carry every book's
+   * recorded location along with it and nobody would have anything to carry. See
+   * `domain/placement/relocate.ts`.
+   */
+  app.post('/api/placement/run/plan', asyncRoute(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+    const planned = await planRunMove(db, range, Number(body.bookcase ?? 0))
+    if (!planned.ok) {
+      res.status(400).json({ error: planned.error })
+      return
+    }
+    res.json(planned.plan)
+  }))
+
+  app.post('/api/placement/run', asyncRoute(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+    const applied = await applyRunMove(
+      db, range, Number(body.bookcase ?? 0), new Date().toISOString(),
+    )
+    if (!applied.ok) {
+      res.status(400).json({ error: applied.error })
+      return
+    }
+    res.json({ plan: applied.plan, wrote: applied.wrote })
   }))
 
   // ---------------------------------------------------------------------------

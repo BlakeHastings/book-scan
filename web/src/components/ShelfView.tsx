@@ -38,6 +38,14 @@ interface Props {
    */
   returnAnchor?: LibraryReturnAnchor | null
   onReturnAnchorConsumed?: () => void
+  /**
+   * Take this whole run somewhere else.
+   *
+   * Carries the range out because this component is unmounted the moment the
+   * screen changes, so the tab it was on cannot be asked for afterwards. The
+   * same reason the return anchor is passed up rather than kept here.
+   */
+  onArrange?: (range: ShelfRange) => void
 }
 
 /**
@@ -68,7 +76,7 @@ interface Props {
  * that causes are reported rather than left for you to discover at the shelf.
  */
 export function ShelfView({
-  onOpen, returnAnchor, onReturnAnchorConsumed,
+  onOpen, returnAnchor, onReturnAnchorConsumed, onArrange,
 }: Props) {
   // A return trip opens on the range it left from, or the tab would change
   // under the person while they were away.
@@ -243,6 +251,15 @@ export function ShelfView({
       </div>
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
+
+      {/* Whole-run surgery, kept off the areas themselves. Moving a run is a
+          decision about the furniture rather than about any book on it, so it
+          does not belong beside a spine one mistap away. */}
+      {onArrange && groups.length > 0 && (
+        <button className="btn btn--ghost library__arrange" onClick={() => onArrange(range)}>
+          Move this run to another bookcase
+        </button>
+      )}
 
       {/* The re-shelving list. Locations are descriptive, so the catalogue can
           only report the disagreement; closing it is a walk to the shelf. */}

@@ -529,6 +529,78 @@ first and only book is that book, and nothing is displaced to get it there.
 This is the same answer `overflow` gives at the end of the run, and it is why
 the last area of the last bookcase needs no special handling of its own.
 
+## Moving a run to another bookcase
+
+A run is the stretch of areas one placement rule claims books into: fiction
+begins on bookcase 1 and flows on until non-fiction's own entry point. Moving
+one is saying "non-fiction lives over there now", and then carrying fifty
+books.
+
+**It is a rule retarget, not a fixture renumber**, and the two are different
+things that both read as "move non-fiction to bookcase 3":
+
+- Setting `fixture.position` from 4 to 3 renumbers the bookcase. Every area
+  keeps its id, so every book keeps the area it was placed in, and because a
+  label is [derived at read time](data-model.md) the recorded location of every
+  book on it changes from `4A` to `3A` along with the furniture. Nothing needs
+  carrying, because nothing moved: that is renaming a bookcase.
+- Pointing the rule at another bookcase, and giving that bookcase the run's own
+  cuts, makes the destination planks **different rows**. The books stay on the
+  planks they are physically on, the rules want them elsewhere, and the
+  difference between the two is the list of books to carry.
+
+Only the second produces a book in somebody's hands, so it is what
+`POST /api/placement/run` does. `domain/placement/relocate.ts` is the
+arithmetic and `relocateRunTo` in `infrastructure/shelving/areas.ts` is the
+write.
+
+### The run takes its own cuts with it
+
+Non-fiction is 8 books, then 20, then 22. The destination gets the same number
+of areas, anchored at the same sort keys, so the same books land together and
+**capacity does not arise**: the question "will 50 books fit on a bookcase with
+a different number of planks" is not asked, because the shape of the run is not
+changed by moving it.
+
+That is deliberately narrower than the general question. Pouring a run onto a
+bookcase already holding another one is where the [overflow
+cascade](#placing-a-book-on-a-plank-that-is-full) and area capacity would come
+in, and it is refused here rather than guessed at: **a bookcase holds one run**,
+which is the arrangement `0013` already refuses. The open question is on #242.
+
+The planks the run leaves behind are **retired rather than deleted**, on the
+same rule every other boundary change follows, so a book recorded on `4C` still
+reads as `4C` until somebody carries it. Moving a run back restores those rows
+rather than making new ones, which is what returns each book to the plank the
+ledger already names.
+
+### Planning it writes nothing, and applying it moves no books
+
+Two steps and they are one idea, so neither is useful alone.
+
+**Plan** runs the rules over the prospective furniture and answers what would
+have to happen: which books come off which plank and go onto which. It writes
+nothing at all, which is what makes it safe to draw while somebody changes
+their mind about the number.
+
+**Apply** writes the furniture and then an `assigned` row per book, **only
+where the rules' answer differs from where the book already is**. That is
+#185's rule and it is what makes applying twice safe: the second run finds every
+book already assigned where the rules want it and writes nothing.
+
+**Applying still moves no books.** An assignment is an intention. The books
+move when a person carries them and says so, through
+`PATCH /api/books/:id/location`, and what is outstanding is the same
+[needs attention](#misfile-detection) list this document already describes:
+where a book was last seen against where it now belongs. There is no second
+queue and there must not be one.
+
+A plan says what it will **not** touch, too, because a plan that reports 50
+moves having quietly dropped three pinned books is believed and is wrong. Every
+book left alone is counted with its reason: pinned, which beats every rule
+forever; checked out or withdrawn, neither of which is on a bookcase; never
+confirmed onto one; and claimed by no rule at all.
+
 ## Moving a book across an area boundary
 
 Where an area ends is the one arbitrary thing in this model. A plank stops
