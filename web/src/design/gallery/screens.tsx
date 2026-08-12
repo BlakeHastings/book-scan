@@ -30,6 +30,7 @@
 
 import type { CSSProperties, ReactElement } from 'react'
 import { Actions, Been, Head, Here, Part, Tagged, Tagging } from '../Book'
+import { Viewfinder } from '../Camera'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
 import { Button, Choice, Field, Segmented } from '../Controls'
@@ -44,9 +45,9 @@ import {
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
 import { IconEdit, IconFind } from '../Icons'
-import { List, Place, Row, Stats, Tag, Tags } from '../List'
+import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
-import { Shots } from '../Shots'
+import { Shots, type Shot } from '../Shots'
 import { TabBar, TopBar, type TabName } from '../Chrome'
 
 /** Move to another screen of the gallery. */
@@ -956,51 +957,38 @@ function TagsScreen(go: Go) {
 
 /* --- Cataloguing --------------------------------------------------------- */
 
+/**
+ * The photographs of the book being catalogued, in the order they are taken.
+ *
+ * Two exist and the third does not, which is the state the strip has to be
+ * legible in: a taken photograph and an empty box have to be told apart at a
+ * glance, on a picture, at 46px wide.
+ */
+function shotsOf(go: Go): Shot[] {
+  return [
+    { word: 'Spine', cloth: 'moss', onPress: () => go('camera') },
+    { word: 'Front', cloth: 'wood', onPress: () => go('camera') },
+    { word: 'Back', next: true, onPress: () => go('camera') },
+  ]
+}
+
+/**
+ * The camera, which is the picture and nothing else.
+ *
+ * No `Phone` around it, and that is the point rather than an omission: no top
+ * bar, no tab bar, no sentence telling somebody what to photograph. The way
+ * out is the one round target in the corner and the way on is the button
+ * beside the shutter. `Camera.tsx` has the argument about which edge.
+ */
 function Camera(go: Go) {
   return (
-    <Phone
-      tab="scan"
-      go={go}
-      top={<TopBar title="Photograph the book" sub="Spine, then the front" onBack={() => go('home')} />}
-    >
-      <div className="wf-cam">
-        <div className="wf-cam__frame" />
-        <p className="wf-cam__hint">Line the spine up inside the frame</p>
-      </div>
-
-      <Segmented
-        label="Which photograph"
-        on="spine"
-        options={[
-          { value: 'spine', word: 'Spine' },
-          { value: 'front', word: 'Front' },
-          { value: 'back', word: 'Back' },
-        ]}
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={shotsOf(go)}
+        onLeave={() => go('home')}
+        onDone={() => go('review')}
       />
-
-      <button type="button" className="wf-shutter" aria-label="Take the photograph">
-        <span className="wf-shutter__inner" />
-      </button>
-
-      <div className="wf-slots">
-        <div className="wf-slot wf-slot--done">
-          <span className="wf-slot__box" />
-          <span>Spine</span>
-        </div>
-        <div className="wf-slot">
-          <span className="wf-slot__box" />
-          <span>Front</span>
-        </div>
-        <div className="wf-slot">
-          <span className="wf-slot__box" />
-          <span>Back</span>
-        </div>
-      </div>
-
-      <Button tone="primary" block onPress={() => go('review')}>
-        Done with this book
-      </Button>
-    </Phone>
+    </div>
   )
 }
 
@@ -1011,9 +999,30 @@ function Review(go: Go) {
       go={go}
       top={<TopBar title="Check the details" sub="Read off the barcode" onBack={() => go('queue')} />}
     >
+      {/*
+        The photographs first, because the first thing somebody wants to know
+        is whether they came out. There were none on this screen at all, which
+        the owner found immediately: "we are not showing any images here. We
+        wanna show those images and enable them to retake them if they don't
+        like them because they're blurry."
+      */}
+      <Shots shots={shotsOf(go)} act size="big" />
+      <Said>Tap one to take it again.</Said>
+
       <Card kind="Found in Open Library" title="Never Let Me Go">
         <p>Ishiguro, Kazuo &middot; Faber &middot; 2005 &middot; 288 pages</p>
       </Card>
+
+      {/*
+        The ISBN, which could not be corrected here at all. It leads, because
+        it is the one field that decides what every other field says.
+      */}
+      <Field label="ISBN" value="9780571224142" />
+      <Said>
+        Change this and the book is looked up again from scratch. Anything you
+        said about the old one is taken off with it, because it is a different
+        book.
+      </Said>
 
       <Field label="Title" value="Never Let Me Go" />
       <Field label="Author" value="Kazuo Ishiguro" />
@@ -1028,18 +1037,27 @@ function Review(go: Go) {
         between two answers neither of which may be the one.
       */}
       <div>
+        {/*
+          Was a two-way switch between fiction and non-fiction, which is
+          `books.shelf_range` wearing a coat and, worse, a claim that a book
+          is one thing. The owner: "the range is fiction versus non-fiction
+          when in reality we should have different tags there, where one of
+          those tags is like fiction, non-fiction, stuff like that."
+        */}
         <span className="wf-field__label">Tags</span>
         <div style={{ height: 6 }} />
         <Tags>
-          <Tag>Fiction</Tag>
-          <Tag>Science fiction</Tag>
-          <Tag>Second hand</Tag>
+          <Tag onPress={() => {}}>Fiction</Tag>
+          <Tag onPress={() => {}}>Literary</Tag>
+          <Tag onPress={() => {}}>Booker</Tag>
+          <Tag onPress={() => {}}>Read it</Tag>
+          <AddTag onPress={() => {}}>Add a tag</AddTag>
         </Tags>
       </div>
-      <Button tone="quiet" onPress={() => go('tags')}>
-        Add a tag
-      </Button>
-      <Said>Fiction and Science fiction came from the catalogue. Yours outrank them.</Said>
+      <Said>
+        Fiction is a tag like the others, and it happens to be the one that
+        decides which bookcase this book goes on. Tap a tag to take it off.
+      </Said>
 
       <Button tone="primary" block onPress={() => go('where')}>
         That is the book
@@ -1095,13 +1113,32 @@ function Where(go: Go) {
   )
 }
 
+/**
+ * The end of the journey, and the one screen that draws the answer instead of
+ * saying it.
+ *
+ * This was a sentence: "third along, between The City & the City and Cloud
+ * Atlas". The owner asked for the drawing the old UI had, so the same run that
+ * carried a gap on the screen before now carries the book, standing where the
+ * gap was and marked with the ring `Shelf` already puts on the book a screen
+ * is about. Nothing new was built for it: the before is `{ kind: 'gap' }` and
+ * the after is `here: true` on the spine that filled it.
+ */
 function Done(go: Go) {
+  const row: ShelfItem[] = [
+    ...spines(['Mantel, Hilary', 'Miéville, China']),
+    { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', pages: 288, ratio: 8.5, here: true },
+    ...spines(['Mitchell, David', 'Morrison, Toni', 'Pratchett, Terry'], 3),
+    { kind: 'bookend' },
+  ]
+
   return (
     <Phone tab="queue" go={go} top={<TopBar title="Shelved" />}>
-      <Confirmation
-        said="Never Let Me Go is on 2C."
-        where="Third along, between The City &amp; the City and Cloud Atlas."
-      />
+      <Confirmation said="Never Let Me Go is on 2C." />
+
+      <div className="wf-bleed">
+        <Shelf label="2C" note="6 books" items={row} />
+      </div>
 
       <Button tone="primary" block onPress={() => go('camera')}>
         Next book

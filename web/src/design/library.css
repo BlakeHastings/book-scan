@@ -287,9 +287,12 @@
 }
 
 /* The book this screen is about, already in place. A ring, not a fill: the
-   spine underneath is the photograph and covering it would be wrong. */
+   spine underneath is the photograph and covering it would be wrong.
+   3px rather than 2: this is now what the confirmation leans on instead of a
+   sentence saying where the book went, and at 2 it was a hairline against a
+   dark cloth in daylight. There is one of these and it is this one. */
 .wf-spine--here {
-  outline: 2px solid var(--ink);
+  outline: 3px solid var(--ink);
   outline-offset: 2px;
 }
 
@@ -612,6 +615,28 @@
    split painting two tags out of twenty. */
 .wf-tag--on { background: var(--sun-wash); color: var(--ink); }
 
+/*
+ * A tag you can press, on the screens where the tags are what is being
+ * changed. 36px rather than 44: this is the small-button size the system
+ * already has, and it is here because a wrapping row in which every chip is
+ * the full 44 stops reading as a row of words and starts reading as a stack of
+ * buttons. The row wraps, so nothing here is ever a dense target grid.
+ */
+.wf-tag--press {
+  min-height: 36px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.wf-tag--press:active { background: var(--paper-raised); }
+.wf-tag--press:focus-visible { outline: none; box-shadow: var(--focus); }
+
+.wf-tag--add {
+  background: none;
+  border-style: dashed;
+  border-color: var(--line-strong);
+  color: var(--link);
+}
+
 .wf-tags { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
 /* A plank label, the thing you read off the shelf edge. Set like a spine
@@ -724,7 +749,8 @@
   line-height: var(--lh-tight);
   text-wrap: balance;
 }
-.wf-confirm__where { margin: 0; color: var(--ink-2); font-size: var(--size-small); }
+/* There is no second line under that one. The drawing of where the book went
+   is the answer to "where", and it is on the screen rather than in here. */
 
 /* --- Empty state --------------------------------------------------------- */
 
@@ -740,86 +766,158 @@
 
 /* --- The camera ----------------------------------------------------------- */
 
-/* The one screen that is not paper. The chrome gets out of the way of the
-   picture, so it is drawn in ink whatever the theme. */
-.wf-cam {
+/*
+ * The one screen with no chrome on it at all. See `Camera.tsx` for the
+ * argument; what follows is the geometry.
+ *
+ * The picture is the screen. Nothing is stacked above or below it, so there is
+ * no bar, no instruction and no second row of anything, and the four controls
+ * are absolutely positioned on top of the photograph. That is the difference
+ * between this and the first pass, where the viewfinder was one item in a
+ * flex column and ended up at 40dvh with five things sharing the rest.
+ */
+
+.wf-screen--camera { background: var(--picture); }
+
+/* Under the gallery's own bar, the way the sticky top bar already is. The app
+   itself has no such bar, so 100dvh is the whole screen there. */
+.wf-frame ~ .wf-screen--camera { min-height: calc(100dvh - 38px); }
+
+.wf-view {
   position: relative;
-  aspect-ratio: 3 / 4;
-  /* At 414x896 a 3:4 viewfinder is 500px tall, which put the shutter below the
-     fold on the one screen whose control has to be reachable one-handed. */
-  max-height: 40dvh;
-  border-radius: var(--r-lg);
+  flex: 1;
   overflow: hidden;
+}
+
+/* Standing in for the feed. A wireframe, so there is no camera access here and
+   there must not be: this screen is about where the controls go. */
+.wf-view__picture {
+  position: absolute;
+  inset: 0;
+  /* Two stops of one cream at low opacity over the picture colour, rather than
+     two browns a shade apart: the first version was two values so close
+     together that the hatch was invisible and the screen read as a flat brown
+     rectangle somebody had forgotten to fill in. Found by looking at it. */
   background:
     repeating-linear-gradient(
       135deg,
-      rgba(51, 42, 34, 0.9) 0 12px,
-      rgba(51, 42, 34, 0.82) 12px 24px
-    );
-  display: grid;
-  place-items: center;
+      rgba(251, 246, 236, 0.04) 0 18px,
+      rgba(251, 246, 236, 0) 18px 36px
+    ),
+    var(--picture);
 }
-.wf-cam__frame {
-  width: 62%;
-  height: 74%;
-  border: 2px solid rgba(251, 246, 236, 0.9);
-  border-radius: var(--r-sm);
-}
-.wf-cam__hint {
-  position: absolute;
-  left: var(--s3);
-  right: var(--s3);
-  bottom: var(--s3);
-  margin: 0;
-  text-align: center;
-  color: rgba(251, 246, 236, 0.95);
-  font-size: var(--size-small);
-}
-.wf-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
-.wf-slot {
-  display: grid;
-  gap: var(--s1);
-  justify-items: center;
-  padding: var(--s2) var(--s1);
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--r-md);
-  font-size: var(--size-micro);
-  color: var(--ink-2);
-}
-.wf-slot--done { border-style: solid; border-color: var(--moss); color: var(--moss); }
-/* A book's proportions at thumbnail size, not a third of the screen width.
-   Sized to `100%` first, which at 414 wide made three 157px boxes and pushed
-   the button that finishes the book off the bottom. */
-.wf-slot__box {
-  width: 48px;
-  height: 64px;
-  border-radius: var(--r-sm);
-  background: var(--paper-sunk);
-}
-.wf-slot--done .wf-slot__box { background: var(--moss-wash); }
 
-/* The shutter. Round, central, and the biggest target on the screen, because
-   it is pressed while holding a book in the other hand. */
-.wf-shutter {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  border: 3px solid var(--line-strong);
-  background: var(--paper-raised);
-  box-shadow: var(--lift-2);
+/* Where to hold the book. A shape and no words: the sentence that used to be
+   under it is the instruction banner the owner asked to lose, and the strip at
+   the bottom already says which photograph is next. Kept clear of the bottom
+   quarter so it never sits behind the controls. */
+.wf-view__guide {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 14%;
+  bottom: 28%;
+  border: 1.5px solid var(--picture-line);
+  border-radius: var(--r-lg);
+}
+
+/* Two floating targets, and neither of them is a bar: 44px each, on the
+   picture, in the two corners furthest from the thumb. */
+.wf-view__leave {
+  position: absolute;
+  top: calc(var(--s3) + env(safe-area-inset-top));
+  left: var(--s3);
+  width: var(--tap);
+  height: var(--tap);
   display: grid;
   place-items: center;
-  /* The body is a flex column, so the cross axis is the horizontal one.
-     `justify-self` did nothing and the shutter sat against the left edge. */
-  align-self: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--picture-scrim);
+  color: var(--picture-ink);
+}
+.wf-view__leave:active { background: var(--picture); }
+
+/* The handedness switch. Far corner on purpose: pressed once ever. It says
+   what it will do rather than what is true now, because "Right" on a button
+   is unreadable as either a state or an action. */
+.wf-view__hand {
+  position: absolute;
+  top: calc(var(--s3) + env(safe-area-inset-top));
+  right: var(--s3);
+  min-height: 36px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--picture-line);
+  border-radius: var(--r-pill);
+  background: var(--picture-scrim);
+  color: var(--picture-ink);
+  font-size: var(--size-micro);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/*
+ * The controls, along the bottom. The photographs at the far edge, the button
+ * at the near one, and `row-reverse` is the whole of what left-handed means.
+ *
+ * The gradient is the only opaque thing on the screen and it is what makes a
+ * cream label readable over a photograph of a white paperback.
+ */
+.wf-view__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s6) var(--s3) calc(var(--s4) + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--picture-scrim), transparent);
+}
+.wf-view[data-hand="left"] .wf-view__bar { flex-direction: row-reverse; }
+
+.wf-view__near { display: grid; gap: var(--s3); justify-items: end; }
+.wf-view[data-hand="left"] .wf-view__near { justify-items: start; }
+
+.wf-view__done {
+  min-height: var(--tap);
+  padding: 0 var(--s4);
+  border: 1px solid var(--picture-line);
+  border-radius: var(--r-pill);
+  background: var(--picture-scrim);
+  color: var(--picture-ink);
+  font-size: var(--size-small);
+  font-weight: 600;
+}
+
+/*
+ * The shutter. The biggest target on the screen and the nearest one to the
+ * thumb of the hand holding the phone, which is the only finger free when the
+ * other hand has a book in it.
+ *
+ * Cream rather than wood, and it is the one place in the system where that is
+ * right: it sits on a photograph, and the wood browns are chosen to read
+ * against paper.
+ */
+.wf-shutter {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 3px solid var(--picture-ink);
+  background: var(--picture-scrim);
+  box-shadow: var(--lift-3);
+  display: grid;
+  place-items: center;
 }
 .wf-shutter__inner {
-  width: 54px;
-  height: 54px;
+  width: 58px;
+  height: 58px;
   border-radius: 50%;
-  background: var(--wood-2);
+  background: var(--picture-ink);
+  transition: transform 90ms ease-out;
 }
-.wf-shutter:active .wf-shutter__inner { background: var(--wood); }
+.wf-shutter:active .wf-shutter__inner { transform: scale(0.88); }
 
 /* The name of a piece of furniture, above the planks in it. Bookcase, never
    "shelf": see docs/shelving.md. */

@@ -76,22 +76,21 @@ export function Said({ children }: { children: ReactNode }) {
 /**
  * The end of a journey. The cat is a loaf because the job is done, and the
  * wash behind him is the only large tinted area in the whole system.
+ *
+ * **It says one sentence and no second one.** There was a `where` line under
+ * this that spelled out the position in words, and the owner asked for the
+ * opposite: "we should show where it is on the shelf by highlighting it, kind
+ * of what we've done on the old UI, not just tell them where it is. Give them
+ * a visual." So the drawing does that job, on the screen, under this: the same
+ * run of books with the book standing in it, marked the way `Shelf` already
+ * marks the book a screen is about. Two spellings of one fact is how they get
+ * to disagree.
  */
-export function Confirmation({
-  said,
-  where,
-  children,
-}: {
-  said: string
-  /** Where the book ended up, in the words the shelf uses. */
-  where?: string
-  children?: ReactNode
-}) {
+export function Confirmation({ said, children }: { said: string; children?: ReactNode }) {
   return (
     <div className="wf-confirm">
       <Cat pose="loaf" size={64} label="Done" />
       <p className="wf-confirm__said">{said}</p>
-      {where && <p className="wf-confirm__where">{where}</p>}
       {children}
     </div>
   )
