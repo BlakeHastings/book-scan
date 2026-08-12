@@ -1,10 +1,17 @@
 /**
  * Every icon in the redesign, drawn inline.
  *
- * There are seven, and that is the whole set on purpose. An icon here only
- * exists where a word is already beside it (the tab bar) or where the target
- * is a corner of the screen too small for a word (back, close). Anywhere
+ * There are eight, and that is the whole set on purpose. An icon here exists
+ * only where a word is already beside it (the tab bar) or where the target is
+ * a corner of the screen: back, and the one action in the top right. Anywhere
  * else the answer in this app is the word itself.
+ *
+ * The top right used to be a word, and the owner asked for both of the words
+ * that ever appeared there to become icons instead: "The find in the top right
+ * corner there shouldn't just be a word. That should be like a search icon",
+ * and the same for edit. That is what `IconEdit` is for and it is why the rule
+ * above now names the corner rather than only the back arrow. A corner action
+ * still carries an accessible name; see `Chrome.tsx`.
  *
  * One stroke weight, one cap style, one 24 grid, and `currentColor` so an
  * icon is coloured by the thing it sits in rather than by a prop.
@@ -81,6 +88,17 @@ export function IconFind(p: Props) {
     <Glyph {...p}>
       <circle cx="11" cy="11" r="6.5" />
       <path d="M15.8 15.8 20 20" />
+    </Glyph>
+  )
+}
+
+/** Edit: a pencil laid across the corner, nib down. */
+export function IconEdit(p: Props) {
+  return (
+    <Glyph {...p}>
+      <path d="M16.4 3.9a2.1 2.1 0 0 1 3 3L9.6 16.7l-3.9.9.9-3.9Z" />
+      <path d="M14.6 5.7 17.6 8.7" />
+      <path d="M5 20.5h14" />
     </Glyph>
   )
 }

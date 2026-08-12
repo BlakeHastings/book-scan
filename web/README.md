@@ -123,7 +123,26 @@ button walks the gallery for free.
 Two rules in it are checked by `src/design/design.test.tsx` rather than left to
 a reviewer: **no emoji anywhere**, in the source or in the rendered markup, and
 **no coloured rail down the side of a card**. A third is checked the same way,
-that the shelf board draws one edge and not two.
+that the shelf board draws one edge and not two. A fourth arrived with the
+second round of feedback: **no word out of the model reaches the interface.**
+The owner found "run" on the library screen and named the general rule, so the
+test carries the list, and "bookcase", "area" and "book" are deliberately not
+on it because those are the words a person uses.
+
+**Two screens in the gallery are not screens of the app.** They sit under "Two
+to choose between" and each draws one decision both ways, because both are
+questions to settle by looking on a phone rather than by argument:
+
+- **Which face for the counts.** The counts on the first screen were set in the
+  book serif and the owner wanted rounded and playful. The rounded face is what
+  ships; the serif is beside it. The serif has not gone anywhere else: it is
+  still what titles, authors and the one line a screen exists to say are set in.
+- **How big is a book.** The catalogue holds no height. It holds `pages`, which
+  is a real measurement of thickness, so **width comes from the page count and
+  height is uniform**. Beside it is the same thirty books with heights estimated
+  from the shape of the spine photograph, which is truthful in proportion and
+  only as good as the crop. `src/design/Shelf.tsx` has the arithmetic and the
+  argument.
 
 ## Capture flow
 

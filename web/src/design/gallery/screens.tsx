@@ -13,12 +13,26 @@
  * body, its own tab bar. The tab bar and most buttons are wired to `go`, so
  * the owner can walk a journey on the phone rather than tapping back to the
  * index between every screen.
+ *
+ * ## No word here comes out of the model
+ *
+ * The owner read the library screen and stopped at one word:
+ *
+ * > A run doesn't make any sense to the user. We shouldn't expose that as a
+ * > user translation of concepts.
+ *
+ * He is right about "run" and the same is true of every other word this
+ * codebase says to itself. A person owns bookcases, each holding areas, each
+ * holding books; they do not own runs, ranges, planks, separators, sort keys
+ * or captures. `design.test.tsx` pins the list, so the next screen cannot
+ * quietly reintroduce one.
  */
 
-import type { ReactElement } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
 import { Button, Field, Segmented } from '../Controls'
+import { IconEdit, IconFind } from '../Icons'
 import { List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { TabBar, TopBar, type TabName } from '../Chrome'
@@ -90,7 +104,7 @@ function Home(go: Go) {
       />
 
       <Card
-        eyebrow="Next"
+        kind="Next"
         title="Photograph a book"
         foot={
           <Button tone="primary" block onPress={() => go('camera')}>
@@ -101,7 +115,7 @@ function Home(go: Go) {
         <p>Spine first, then the front. It reads the barcode while you hold it.</p>
       </Card>
 
-      <Card eyebrow="Waiting" title="Six are ready to shelve">
+      <Card kind="Waiting" title="Six are ready to shelve">
         <List label="Ready to shelve">
           <Row
             title="Never Let Me Go"
@@ -123,9 +137,10 @@ function Home(go: Go) {
         </Button>
       </Card>
 
-      <Card eyebrow="Needs attention" title="Three books to carry">
+      <Card kind="Needs attention" title="Three books to carry">
         <p>
-          Marking 2C full pushed a run along. They are still recorded where they were.
+          Saying 2C was full moved these along. They are still recorded where they
+          were.
         </p>
         <Button tone="secondary" onPress={() => go('carry')}>
           Show me
@@ -158,15 +173,38 @@ function Library(go: Go) {
     ),
     { kind: 'bookend' as const },
   ]
+  /*
+   * A third bookcase, added when the caption under the second one went and
+   * left the bottom half of the screen empty. The top bar says four bookcases,
+   * so two of them was the wireframe under-drawing the collection rather than
+   * a screen that ends there.
+   */
+  const three: ShelfItem[] = spines(
+    [
+      'Macfarlane, Robert',
+      'Sacks, Oliver',
+      'Sebald, W. G.',
+      'Solnit, Rebecca',
+      'Tharoor, Shashi',
+      'Winchester, Simon',
+    ],
+    4,
+  )
 
   return (
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title="Library" sub="1,204 books" action={{ word: 'Find', onPress: () => go('find') }} />}
+      top={
+        <TopBar
+          title="Library"
+          sub="1,204 books"
+          action={{ word: 'Find', icon: <IconFind />, onPress: () => go('find') }}
+        />
+      }
     >
       <Segmented
-        label="Which range"
+        label="Fiction or non-fiction"
         on="fiction"
         options={[
           { value: 'fiction', word: 'Fiction' },
@@ -174,18 +212,17 @@ function Library(go: Go) {
         ]}
       />
 
+      {/* No caption under these. There was one, saying you could tap a spine
+          and what the cat meant, and it went: a shelf that has to be explained
+          in a paragraph underneath it is a shelf that has not worked. */}
       <div className="wf-bleed" style={{ display: 'grid', gap: 20 }}>
         <p className="wf-heading">Bookcase 1</p>
         <Shelf label="1A" note="7 books, 2 areas" items={one} />
         <p className="wf-heading">Bookcase 2</p>
         <Shelf label="2C" note="8 books" items={two} />
+        <p className="wf-heading">Bookcase 4</p>
+        <Shelf label="4A" note="6 books" items={three} />
       </div>
-
-      <Card weight="quiet">
-        <p>
-          Tap a spine to open the book. The cat marks where a run ends.
-        </p>
-      </Card>
     </Phone>
   )
 }
@@ -193,7 +230,7 @@ function Library(go: Go) {
 function Book(go: Go) {
   const row: ShelfItem[] = [
     ...spines(['Mantel, Hilary', 'Miéville, China']),
-    { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', here: true },
+    { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', pages: 288, ratio: 8.5, here: true },
     ...spines(['Mitchell, David', 'Morrison, Toni'], 3),
   ]
 
@@ -201,7 +238,14 @@ function Book(go: Go) {
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title="Never Let Me Go" sub="Ishiguro, Kazuo" onBack={() => go('library')} action={{ word: 'Edit' }} />}
+      top={
+        <TopBar
+          title="Never Let Me Go"
+          sub="Ishiguro, Kazuo"
+          onBack={() => go('library')}
+          action={{ word: 'Edit', icon: <IconEdit /> }}
+        />
+      }
     >
       <Card>
         <Tags>
@@ -210,7 +254,8 @@ function Book(go: Go) {
           <Tag>Area C</Tag>
         </Tags>
         <p>
-          Faber, 2005. Files under <strong>Ishiguro, Kazuo</strong>. ISBN 9780571224142.
+          Faber, 2005. 288 pages. Files under <strong>Ishiguro, Kazuo</strong>. ISBN
+          9780571224142.
         </p>
       </Card>
 
@@ -220,7 +265,7 @@ function Book(go: Go) {
 
       <Card
         weight="sunk"
-        eyebrow="Where it is"
+        kind="Where it is"
         title="On the bookcase, where it should be"
         foot={
           <>
@@ -249,6 +294,8 @@ function Find(go: Go) {
         <Row title="The Dispossessed" sub="Le Guin, Ursula K." cloth="wood" meta="Checked out" onPress={() => go('book')} />
       </List>
 
+      {/* Kept, and it is worth saying why when three cards like it went. This
+          one is a fact about the answer, not an explanation of the screen. */}
       <Card weight="quiet" title="Nothing else under that name">
         <p>Four books, three of them together on 1C.</p>
       </Card>
@@ -313,8 +360,8 @@ function Review(go: Go) {
       go={go}
       top={<TopBar title="Check the details" sub="Read off the barcode" onBack={() => go('queue')} />}
     >
-      <Card eyebrow="Found in Open Library" title="Never Let Me Go">
-        <p>Ishiguro, Kazuo &middot; Faber &middot; 2005</p>
+      <Card kind="Found in Open Library" title="Never Let Me Go">
+        <p>Ishiguro, Kazuo &middot; Faber &middot; 2005 &middot; 288 pages</p>
       </Card>
 
       <Field label="Title" value="Never Let Me Go" />
@@ -323,7 +370,8 @@ function Review(go: Go) {
       <Field label="Series" placeholder="Not in a series" />
 
       <div>
-        <span className="wf-field__label">Range</span>
+        {/* Was "Range", which is `books.shelf_range` wearing a coat. */}
+        <span className="wf-field__label">Fiction or non-fiction</span>
         <div style={{ height: 4 }} />
         <Segmented
           label="Fiction or non-fiction"
@@ -404,7 +452,7 @@ function Done(go: Go) {
         That is enough for today
       </Button>
 
-      <Card weight="quiet" eyebrow="Still waiting" title="Seventeen in the queue">
+      <Card weight="quiet" kind="Still waiting" title="Seventeen in the queue">
         <p>Five of them are ready to shelve in one tap.</p>
       </Card>
     </Phone>
@@ -414,12 +462,18 @@ function Done(go: Go) {
 function Queue(go: Go) {
   return (
     <Phone tab="queue" go={go} top={<TopBar title="Queue" sub="18 books on the table" />}>
+      {/*
+        "Processing", not "Reading": the owner read the old word as the app
+        telling him he was in the middle of a novel, rather than as it working
+        on a photograph. His words: "reading might be misconstrued by the user,
+        so that maybe should be processing".
+      */}
       <Segmented
         label="Which ones"
         on="ready"
         options={[
           { value: 'ready', word: 'Ready 6' },
-          { value: 'reading', word: 'Reading 9' },
+          { value: 'processing', word: 'Processing 9' },
           { value: 'stuck', word: 'Stuck 3' },
         ]}
       />
@@ -431,7 +485,7 @@ function Queue(go: Go) {
         <Row title="Piranesi" sub="Clarke, Susanna" cloth="plum" place="1B" onPress={() => go('review')} />
       </List>
 
-      <Card eyebrow="Stuck" title="Three need a hand">
+      <Card kind="Stuck" title="Three need a hand">
         <List label="Stuck">
           <Row title="No barcode read" sub="Photographed 11:40" cloth="wood2" meta="Type the ISBN" onPress={() => go('review')} />
           <Row title="9781857231380" sub="No catalogue has it" cloth="sun" meta="Fill it in" onPress={() => go('review')} />
@@ -450,12 +504,9 @@ function Carry(go: Go) {
       go={go}
       top={<TopBar title="Books to carry" sub="3 books" onBack={() => go('home')} />}
     >
-      <Card weight="sunk">
-        <p>
-          These are recorded where they used to be. Carry each one and say it landed.
-        </p>
-      </Card>
-
+      {/* The card that stood here explained the list underneath it, which the
+          list already says: each row names where the book is and where it is
+          going. Gone with the other captions. */}
       <List label="Books to carry">
         <Row title="Guards! Guards!" sub="Pratchett, Terry" cloth="sun" meta="2C to 2D" onPress={() => go('where')} />
         <Row title="Snow Crash" sub="Stephenson, Neal" cloth="sky" meta="2C to 2D" onPress={() => go('where')} />
@@ -466,21 +517,26 @@ function Carry(go: Go) {
         Start with the first one
       </Button>
 
-      <Card weight="quiet" eyebrow="Not on this list" title="Two books are checked out">
+      <Card weight="quiet" kind="Not on this list" title="Two books are checked out">
         <p>They are not on a bookcase, so there is nothing to disagree with.</p>
       </Card>
     </Phone>
   )
 }
 
-function Run(go: Go) {
+/**
+ * This screen was called "Move a run", and that is the word the owner named.
+ * It is now what the person is actually doing: moving all the non-fiction to
+ * another bookcase.
+ */
+function Move(go: Go) {
   return (
     <Phone
       tab="library"
       go={go}
       top={<TopBar title="Move non-fiction" onBack={() => go('library')} />}
     >
-      <Card eyebrow="Where it lives now" title="Bookcase 4">
+      <Card kind="Where it lives now" title="Bookcase 4">
         <p>Three areas: 4A with 8 books, 4B with 20, 4C with 22.</p>
       </Card>
 
@@ -499,17 +555,10 @@ function Run(go: Go) {
         />
       </div>
 
-      <Card weight="sunk">
-        <p>
-          The run takes its own cuts with it, so the same books land together and
-          nothing has to be worked out about capacity.
-        </p>
-      </Card>
-
       <Button tone="primary" block onPress={() => go('plan')}>
         Show me the plan
       </Button>
-      <Said>Planning writes nothing. You can change your mind about the number.</Said>
+      <Said>Nothing is written until you say so.</Said>
     </Phone>
   )
 }
@@ -519,9 +568,9 @@ function Plan(go: Go) {
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title="The plan" sub="50 books to carry" onBack={() => go('run')} />}
+      top={<TopBar title="The plan" sub="50 books to carry" onBack={() => go('move')} />}
     >
-      <Card eyebrow="What would happen" title="Bookcase 4 to bookcase 3">
+      <Card kind="What would happen" title="Bookcase 4 to bookcase 3">
         <div className="wf-steps">
           <div className="wf-step">
             <span className="wf-step__n">1</span>
@@ -544,21 +593,26 @@ function Plan(go: Go) {
         </div>
       </Card>
 
-      <Card eyebrow="Left alone" title="Four books">
-        <p>One pinned. Two checked out. One never confirmed onto a bookcase.</p>
+      <Card kind="Left alone" title="Four books">
+        <p>
+          One you asked to stay put. Two checked out. One never confirmed onto a
+          bookcase.
+        </p>
       </Card>
 
+      {/* Not a caption: this is the difference between the plan and the
+          carrying, and it is the one thing somebody could get wrong here. */}
       <Card weight="quiet">
         <p>
-          Applying this writes down where each book belongs. It does not move any
-          book: they move when you carry them.
+          This writes down where each book belongs. It does not move any book: they
+          move when you carry them.
         </p>
       </Card>
 
       <Button tone="primary" block onPress={() => go('carry')}>
         Apply it
       </Button>
-      <Button tone="quiet" block onPress={() => go('run')}>
+      <Button tone="quiet" block onPress={() => go('move')}>
         Not yet
       </Button>
     </Phone>
@@ -578,6 +632,205 @@ function Empty(go: Go) {
   )
 }
 
+/* --- Two things to look at and choose between ---------------------------- */
+
+/*
+ * These two are not screens of the app and are not pretending to be. They are
+ * here because two of the decisions in this round cannot be settled by
+ * argument, and both were asked for as a comparison rather than as a pick.
+ *
+ * They wear no tab bar for that reason: nothing on them is a place you can be
+ * in the app.
+ */
+
+function Specimen({
+  title,
+  note,
+  children,
+  go,
+}: {
+  title: string
+  note: string
+  children: ReactElement | ReactElement[]
+  go: Go
+}) {
+  return (
+    <div className="wf-screen">
+      <TopBar title={title} onBack={() => go('home')} />
+      <div className="wf-screen__body">
+        <Said>{note}</Said>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A labelled half of a comparison.
+ *
+ * The label is in the interface face rather than the book face, which is what
+ * every other heading in the system uses. On a page whose whole subject is
+ * which face to use, a heading set in one of the two candidates is an argument
+ * nobody made. Found by looking at it: "Rounded" was in the serif.
+ */
+function Side({
+  word,
+  says,
+  children,
+}: {
+  word: string
+  says: string
+  children: ReactElement | ReactElement[]
+}) {
+  return (
+    <section style={{ display: 'grid', gap: 8 }}>
+      <p className="wf-heading wf-heading--flush" style={{ fontFamily: 'var(--face-ui)' }}>
+        {word}
+      </p>
+      <Said>{says}</Said>
+      {children}
+    </section>
+  )
+}
+
+const COUNTS = [
+  { n: '1,204', word: 'catalogued' },
+  { n: '18', word: 'in the queue' },
+  { n: '3', word: 'to carry' },
+]
+
+/**
+ * The face question, drawn rather than argued.
+ *
+ * The owner did not like the counts on the first screen: "I think it needs to
+ * be more rounded or something and more playful." Both answers are below, the
+ * same three counts twice, so the choice is made by looking at a phone rather
+ * than by reading a paragraph about type.
+ *
+ * The serif version is the one that shipped last round, and it is drawn by
+ * pointing `--face-display` at the book face for that block alone, which is
+ * exactly the one-line change it would take to go back.
+ */
+function Type(go: Go) {
+  return (
+    <Specimen
+      title="Which face for the counts"
+      note="The same three counts, twice. Everything else on this page is unchanged."
+      go={go}
+    >
+      <Side word="Rounded" says="What this round ships. The book face stays on titles and authors.">
+        <Stats items={COUNTS} />
+      </Side>
+
+      <Side word="The book serif" says="What last round shipped, and the one he stopped at.">
+        <div style={{ '--face-display': 'var(--face-book)' } as CSSProperties}>
+          <Stats items={COUNTS} />
+        </div>
+      </Side>
+
+      <Card kind="Where the serif stays" title="Never Let Me Go">
+        <p>
+          Ishiguro, Kazuo. A title and an author are what a reader is looking for,
+          and the serif is right for them either way. This card is unchanged.
+        </p>
+      </Card>
+
+      <Card weight="quiet" title="On a phone, not on a desk">
+        <p>
+          The rounded face resolves to SF Pro Rounded on iOS and to whatever a
+          desktop has, which is usually nothing rounded at all. Judge this one on
+          the phone.
+        </p>
+      </Card>
+    </Specimen>
+  )
+}
+
+/** Thirty books, which is what a real plank holds. */
+const THIRTY = spines([
+  'Adams, Douglas',
+  'Atwood, Margaret',
+  'Banks, Iain M.',
+  'Bradbury, Ray',
+  'Calvino, Italo',
+  'Chambers, Becky',
+  'Clarke, Susanna',
+  'Eco, Umberto',
+  'Ellison, Ralph',
+  'Ferrante, Elena',
+  'Gaiman, Neil',
+  'Greene, Graham',
+  'Harkaway, Nick',
+  'Ishiguro, Kazuo',
+  'Jemisin, N. K.',
+  'Le Guin, Ursula K.',
+  'Mantel, Hilary',
+  'Miéville, China',
+  'Mitchell, David',
+  'Morrison, Toni',
+  'Murakami, Haruki',
+  'Nabokov, Vladimir',
+  "O'Brian, Patrick",
+  'Pratchett, Terry',
+  'Robinson, Marilynne',
+  'Smith, Zadie',
+  'Stephenson, Neal',
+  'Tartt, Donna',
+  'Woolf, Virginia',
+  'Zusak, Markus',
+])
+
+/**
+ * How tall a spine may honestly be, drawn both ways.
+ *
+ * The catalogue holds `pages` and no height at all, so width is the dimension
+ * that can be told the truth about. `Shelf.tsx` explains both answers; this is
+ * where they sit next to each other on the same thirty books.
+ */
+function Spines(go: Go) {
+  return (
+    <Specimen
+      title="How big is a book"
+      note="The same thirty books twice. Both draw width from the page count, which is the one measurement we hold."
+      go={go}
+    >
+      <Side
+        word="Flat tops"
+        says="Width from the page count, every book the same height. Nothing here is invented."
+      >
+        <div className="wf-bleed">
+          <Shelf label="2C" note="30 books" items={THIRTY} />
+        </div>
+      </Side>
+
+      <Side
+        word="Varied tops"
+        says="Height estimated from the shape of the spine photograph. Truthful in proportion, and only as good as the crop."
+      >
+        <div className="wf-bleed">
+          <Shelf label="2C" note="30 books" items={THIRTY} heights="photograph" />
+        </div>
+      </Side>
+
+      <Card kind="What is real here" title="Pages are thickness, not height">
+        <p>
+          A page count is a real measurement of how thick a book is, so a fatter
+          book is drawn wider and it always will be. Nothing in the catalogue says
+          how tall a book is.
+        </p>
+      </Card>
+
+      <Card weight="quiet" title="What the second one is guessing">
+        <p>
+          A spine photograph has a true shape but no scale, so its height is an
+          estimate built on the thickness above, and it is clamped so a bad crop
+          cannot draw a book the height of the screen.
+        </p>
+      </Card>
+    </Specimen>
+  )
+}
+
 export const SCREENS: Screen[] = [
   { id: 'home', name: 'Today', group: 'Every day', render: Home },
   { id: 'library', name: 'Library', group: 'Every day', render: Library },
@@ -590,8 +843,15 @@ export const SCREENS: Screen[] = [
   { id: 'queue', name: 'The queue', group: 'Cataloguing', render: Queue },
   { id: 'empty', name: 'An empty queue', group: 'Cataloguing', render: Empty },
   { id: 'carry', name: 'Books to carry', group: 'Putting things right', render: Carry },
-  { id: 'run', name: 'Move a run', group: 'Putting things right', render: Run },
+  { id: 'move', name: 'Move non-fiction', group: 'Putting things right', render: Move },
   { id: 'plan', name: 'The plan', group: 'Putting things right', render: Plan },
+  { id: 'type', name: 'Which face for the counts', group: 'Two to choose between', render: Type },
+  { id: 'spines', name: 'How big is a book', group: 'Two to choose between', render: Spines },
 ]
 
-export const GROUPS = ['Every day', 'Cataloguing', 'Putting things right']
+export const GROUPS = [
+  'Every day',
+  'Cataloguing',
+  'Putting things right',
+  'Two to choose between',
+]
