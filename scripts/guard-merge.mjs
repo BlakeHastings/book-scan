@@ -13,8 +13,26 @@
 // internally is a child process rather than a Bash tool call, so the guard does
 // not see it. Making the safe path the only working path beats asking nicely.
 import { execSync } from 'node:child_process'
+import { resolve } from 'node:path'
 
 const DEFAULT_BRANCH = 'master'
+
+// The branch a bare `git push`/`git merge` would land on is a fact about the
+// directory the command runs in, not about the hook's own directory. Returns
+// null when that directory is not a git repo at all, which is different from
+// "on master": null means the question could not be asked, DEFAULT_BRANCH
+// means it was asked and answered.
+function branchIn(cwd) {
+  try {
+    return execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return null
+  }
+}
 
 function deny(reason) {
   process.stdout.write(
@@ -118,15 +136,38 @@ if (fastForwardFromRemote) process.exit(0)
 // (see the push-arguments comment above). Both misfires were false denials of
 // safe commands, and a guard that cries wolf gets worked around.
 if (/\bgit\s+(push|merge)(?![-\w])/.test(normalized)) {
-  let branch = ''
-  try {
-    branch = execSync('git rev-parse --abbrev-ref HEAD', {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
-  } catch {
-    process.exit(0) // Not a git repo, or git unavailable. Not our call to make.
+  // Ask about the directory the command will actually run in, not the
+  // hook's own. The hook's own working directory is the primary checkout,
+  // which sits on master almost all the time because that is where the
+  // orchestrator reads and merges from, so asking it about a command that
+  // will actually run in a worktree answers a question about the wrong
+  // directory (#293).
+  //
+  // A leading `cd <dir> &&` is the common form an agent worktree pushes
+  // with, and reading it is not the same mistake as reading a branch name
+  // out of surrounding text (see the push-arguments comment above): the
+  // shell really does change to that directory before the rest of the line
+  // runs, so it is a fact about where the command executes, not a claim
+  // about which branch it is on. Only the *last* `cd` before the push/merge
+  // counts, matching what the shell itself would do.
+  const pushOrMergeIndex = normalized.search(/\bgit\s+(push|merge)(?![-\w])/)
+  const cdPattern = /(?:^|&&|;)\s*cd\s+(?:\/d\s+)?(\S+)/g
+  let explicitDir = null
+  let cdMatch
+  while ((cdMatch = cdPattern.exec(normalized)) && cdMatch.index < pushOrMergeIndex) {
+    explicitDir = cdMatch[1]
   }
+
+  // Where the directory genuinely cannot be determined -- no leading `cd`,
+  // or the named directory is not a git repo at all -- fall back to asking
+  // about the hook's own directory. That is the pre-existing behaviour, and
+  // it is the right thing to fall back to: the hook's own directory is the
+  // primary checkout, so an unresolved case still fails toward the same
+  // answer a real push to master would give.
+  const branch =
+    (explicitDir && branchIn(resolve(process.cwd(), explicitDir))) ?? branchIn(process.cwd())
+
+  if (branch === null) process.exit(0) // Not a git repo, or git unavailable. Not our call to make.
 
   if (branch === DEFAULT_BRANCH) {
     deny(
