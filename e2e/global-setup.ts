@@ -23,7 +23,7 @@ import { BOOK_IN_HAND } from './support/books.js'
 import { ensureCameraVideo, ensureFrontCameraVideo } from './support/camera-fixture.js'
 import { startCatalogueStub, type CatalogueStub } from './support/catalogue-stub.js'
 import {
-  describeResources, startAppHost, stopAppHost, urlOf, waitForResource,
+  describeResources, reportResourceState, startAppHost, stopAppHost, urlOf, waitForResource,
 } from './support/aspire.js'
 
 /**
@@ -119,6 +119,28 @@ async function pruneOldDatabases(connection: string, keep: string): Promise<stri
   return dropped
 }
 
+/**
+ * Wait for a resource, and if it never becomes healthy, say why before failing.
+ *
+ * The failure this exists for is `aspire wait web` reporting that the resource
+ * "entered a failed state ... because it failed to start", which is every word
+ * the job used to get (#277). Note what that sentence is not: it is not the
+ * five minute timeout expiring. The CLI stopped waiting because it saw the
+ * resource fail, so the resource's own output is the only place the reason can
+ * be, and raising the timeout would change nothing at all.
+ *
+ * The original error is rethrown untouched, so the run still fails the same way
+ * with the same message. All this adds is the transcript above it.
+ */
+async function waitForHealthy(name: string): Promise<void> {
+  try {
+    await waitForResource(name)
+  } catch (error) {
+    await reportResourceState(name)
+    throw error
+  }
+}
+
 let stub: CatalogueStub | null = null
 
 async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
@@ -147,8 +169,8 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
     BOOKSCAN_COVERS_URL: stub.url,
   })
 
-  await waitForResource('api')
-  await waitForResource('web')
+  await waitForHealthy('api')
+  await waitForHealthy('web')
 
   const resources = await describeResources()
   const apiUrl = urlOf(resources, 'api', 'http')

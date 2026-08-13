@@ -93,6 +93,68 @@ export async function waitForResource(name: string, seconds = 300): Promise<void
   })
 }
 
+/**
+ * A resource's own console output.
+ *
+ * Bounded and forgiving on purpose, because the only caller is a failure path:
+ * a run that is already going to fail must not be turned into a different
+ * failure by the thing that was supposed to explain the first one. A resource
+ * with no logs, or a name the CLI does not know, comes back as a line saying so.
+ *
+ * `--tail` rather than everything, because the interesting part of a process
+ * that would not start is the end of it, and an unbounded dump of a Vite
+ * server that did start would bury it.
+ */
+export async function resourceLogs(name: string, lines = 200): Promise<string> {
+  try {
+    const output = await aspire(['logs', name, '--tail', String(lines), '--timestamps'], {
+      timeoutMs: 60 * 1000,
+    })
+    return output.trim() || '(no output)'
+  } catch (error) {
+    return `(aspire logs ${name} failed: ${(error as Error).message})`
+  }
+}
+
+/**
+ * Say what the AppHost thinks of every resource, and print what each one said.
+ *
+ * `aspire wait` reports that a resource "failed to start" and nothing about why,
+ * so before #277 a `browser journeys` failure at this point could only be
+ * re-run: the job logged the wait failing and never the resource's own output.
+ * Two flakes in two days were answered by re-running until green, which is the
+ * habit that makes a real failure indistinguishable from a flake.
+ *
+ * So this runs before the error is rethrown, prints rather than collects, and
+ * never throws. The output goes to the job log, which is kept whatever the run
+ * did. CI minutes are free on a public repository, so a dozen seconds spent
+ * here on the way to a failure costs nothing worth weighing against being able
+ * to read what happened.
+ */
+export async function reportResourceState(failed: string): Promise<void> {
+  const say = (message: string) => console.error(`[e2e] ${message}`)
+  say(`${failed} never became healthy. What the AppHost has:`)
+
+  let resources: AspireResource[] = []
+  try {
+    resources = await describeResources()
+    for (const resource of resources) {
+      say(`  ${resource.name} state=${resource.state} health=${resource.healthStatus ?? 'unknown'}`)
+    }
+  } catch (error) {
+    say(`  aspire describe failed: ${(error as Error).message}`)
+  }
+
+  // Every resource, not just the one that failed. `web` waits for `api` which
+  // waits for the database, so the resource that reports the failure is
+  // routinely not the one that caused it.
+  const names = resources.length ? resources.map((r) => r.name) : [failed, 'api', 'web']
+  for (const name of [...new Set(names)]) {
+    console.error(`[e2e] ----- aspire logs ${name} -----`)
+    console.error(await resourceLogs(name))
+  }
+}
+
 export async function describeResources(): Promise<AspireResource[]> {
   const parsed = parseJson<{ resources: AspireResource[] }>(
     await aspire(['describe', '--format', 'Json']),

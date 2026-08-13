@@ -155,6 +155,26 @@ jobs:
         working-directory: e2e
         run: npm test
 
+      # The backstop for #277, and the reason it is a second capture rather than
+      # the only one: the suite itself prints every resource's state and console
+      # output when `aspire wait` is what failed, which is the shape that flake
+      # took, and it can print nothing at all if the harness never reached that
+      # line. An `aspire start` that fails, a crash in the camera fixture, a
+      # cancelled step: this asks the AppHost directly, whatever went wrong.
+      #
+      # It cannot fail the job. The failure it is explaining has already been
+      # reported by the step above, and diagnostics that turn a red run into a
+      # differently red one are worse than none. If the run got as far as global
+      # teardown the AppHost has been stopped, and this says there is nothing
+      # running, which is itself an answer.
+      - name: What the AppHost said, if anything failed
+        if: failure() && steps.scope.outputs.docs_only != 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          aspire ps --non-interactive || true
+          aspire logs --tail 400 --timestamps --non-interactive || true
+
       - name: Keep the report
         if: always() && steps.scope.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
