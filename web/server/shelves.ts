@@ -69,6 +69,7 @@ const toFiled = (
   id: row.id,
   title: row.title,
   authorFiling: row.author_filing,
+  authors: row.authors,
   location: row.location,
   derivedLocation: derived,
   sortKey: row.sort_key,

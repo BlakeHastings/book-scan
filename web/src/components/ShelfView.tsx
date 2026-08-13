@@ -13,7 +13,7 @@ import { SpineRow } from './ShelfStrip'
 import { ShelfList } from './ShelfList'
 import { CoverGrid } from './CoverGrid'
 import { areaLabel, libraryRows } from '../../shared/layout'
-import type { ShelfRange } from '../../shared/shelving'
+import { bestKnownAuthor, type ShelfRange } from '../../shared/shelving'
 
 /**
  * Where the library was when a book was opened from it, so coming back lands
@@ -279,7 +279,7 @@ export function ShelfView({
               >
                 <span className="attention__title">{misfile.book.title}</span>
                 <span className="attention__where">
-                  {misfile.book.authorFiling || 'unknown author'}
+                  {bestKnownAuthor(misfile.book.authorFiling, misfile.book.authors) || 'unknown author'}
                   {' · '}
                   {misfile.from} → <strong>{misfile.to}</strong>
                 </span>

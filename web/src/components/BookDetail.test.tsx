@@ -21,6 +21,7 @@ const misfile: Misfile = {
     id: 7,
     title: 'Dune',
     authorFiling: 'Herbert, Frank',
+    authors: 'Frank Herbert',
     location: 'A1',
     derivedLocation: 'B2',
     sortKey: 'herbert frank dune',
