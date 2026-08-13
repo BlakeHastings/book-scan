@@ -1411,22 +1411,40 @@ function Where(go: Go) {
  * This was a sentence: "third along, between The City & the City and Cloud
  * Atlas". The owner asked for the drawing the old UI had, so the same run that
  * carried a gap on the screen before now carries the book, standing where the
- * gap was and marked with the ring `Shelf` already puts on the book a screen
- * is about. Nothing new was built for it: the before is `{ kind: 'gap' }` and
- * the after is `here: true` on the spine that filled it.
+ * gap was and marked the way `Shelf` marks the book a screen is about. Nothing
+ * new was built for it: the before is `{ kind: 'gap' }` and the after is
+ * `here: true` on the spine that filled it.
+ *
+ * ## Round six: no sentence, and one cat rather than three (#290)
+ *
+ * "Never Let Me Go is on 2C." was `Confirmation`'s sentence, sat over this
+ * same drawing and saying what the drawing already shows, which is #262's
+ * rule reaching the last place it had survived on this screen. It is gone,
+ * and `Confirmation`'s cat went with it: he sat over that sentence, and there
+ * was nothing left for him to be pleased about once it was.
+ *
+ * That still left two cats on a shelf built to mark one book: the cat #288
+ * put on the placed book, and the cat `Shelf` puts at the end of every run as
+ * a bookend. The bookend is furniture, true of every shelf whether a book was
+ * just placed on it or not; the marker is the one fact this screen exists to
+ * show. So the bookend is the item dropped from this row, and only from this
+ * one, because #288 already tried the ring and the bracket and rejected both,
+ * and neither is a reason to leave the book unmarked here.
+ *
+ * `Confirmation` itself is untouched: `Carried`, the other screen that uses
+ * it, still has a sentence to say and a cat to say it with, because nothing
+ * on that shelf is marked the way a single placed book is. The change is on
+ * this screen, not the shared one.
  */
 function Done(go: Go) {
   const row: ShelfItem[] = [
     ...spines(['Mantel, Hilary', 'Miéville, China']),
     { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', pages: 288, here: true },
     ...spines(['Mitchell, David', 'Morrison, Toni', 'Pratchett, Terry'], 3),
-    { kind: 'bookend' },
   ]
 
   return (
     <Phone tab="queue" go={go} top={<TopBar title="Shelved" />}>
-      <Confirmation said="Never Let Me Go is on 2C." />
-
       <div className="wf-bleed">
         <Shelf label="2C" note="6 books" items={row} />
       </div>
