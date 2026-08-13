@@ -23,6 +23,7 @@ export function Row({
   title,
   sub,
   cloth,
+  photo,
   place,
   meta,
   onward = true,
@@ -32,6 +33,12 @@ export function Row({
   sub?: string
   /** The binding of the thumbnail, standing in for the photograph. */
   cloth?: Cloth
+  /**
+   * The photograph itself, where there is one. The cloth stays underneath it,
+   * so a book nobody has photographed and a picture still arriving both look
+   * like a bound book rather than a gap.
+   */
+  photo?: string
   /** Where it lives: `2C`. Tabular, so a column of them lines up. */
   place?: string
   /** A word instead of a place: "Checked out", "Needs an ISBN". */
@@ -41,7 +48,9 @@ export function Row({
 }) {
   return (
     <button type="button" className="wf-row" role="listitem" onClick={onPress}>
-      <span className={`wf-row__thumb wf-spine--${cloth ?? 'wood'}`} aria-hidden="true" />
+      <span className={`wf-row__thumb wf-spine--${cloth ?? 'wood'}`} aria-hidden="true">
+        {photo && <img className="wf-row__photo" src={photo} alt="" loading="lazy" decoding="async" />}
+      </span>
       <span className="wf-row__text">
         <span className="wf-row__title">{title}</span>
         {sub && <span className="wf-row__sub">{sub}</span>}
