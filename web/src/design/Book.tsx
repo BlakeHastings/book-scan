@@ -12,6 +12,24 @@
  * the catalogue actually holds: the photographs, the two forms of an author's
  * name, the tags and who said each one, and the rows behind where a book is.
  *
+ * ## Doing comes before knowing, which is the order of the whole page
+ *
+ * > We should have the actions available to the user the moment they get to
+ * > this detail view, so they can do whatever it is that they intend to do. And
+ * > then if they don't intend to take action, when they scroll down they see
+ * > the current shelving view, and that shows them where it is, which might be
+ * > what they're here for.
+ *
+ * Somebody arriving at a book either wants to **do** something or wants to
+ * **know** where it is, and the second of those is what they scroll to anyway.
+ * So the top of the page is the book, its facts, its tags and what can be done
+ * about it, and everything that answers "where" is below the fold: where it
+ * sits, why it sits there, where it has been, and what else is here by the same
+ * author. Putting the doing first costs the knowing nothing.
+ *
+ * The screens are where that order lives, in `gallery/screens.tsx`, because it
+ * is an arrangement of sections rather than a property of any one of them.
+ *
  * ## Nothing here is a table of fields
  *
  * The queue's review screen is the reference, and what it does is say the
@@ -22,7 +40,6 @@
  */
 
 import type { ReactNode } from 'react'
-import { Place } from './List'
 import { Shots, type Shot } from './Shots'
 
 /**
@@ -164,56 +181,46 @@ export function Tagging({ children }: { children: ReactNode }) {
 }
 
 /**
- * What you can do about the section above: small, side by side, left.
+ * What you can do, small, side by side, left.
  *
  * A section is a grid, so a button dropped straight into one stretches the
  * width of the phone and reads as the thing the screen is for. Nothing on this
  * page is: the whole point of it is that a book has several sections and none
  * of them owns the screen. So every action here is in one of these rows, and
  * the only full-width button a book's page has is the one it does not have.
+ *
+ * **The row moved up and did not grow**, which is the harder half of what was
+ * asked for. Actions now sit under the tags, above everything about where the
+ * book is, and a row that is the first thing a thumb reaches is exactly the row
+ * that fills up with every verb the model can spell. Three is what the rich
+ * book gets and two is what the thin one gets; the screens say which and say
+ * what was kept out.
  */
 export function Actions({ children }: { children: ReactNode }) {
   return <div className="wf-actions">{children}</div>
 }
 
-/**
- * Where the book is, in one line.
+/*
+ * There was a `Here` here, and it is gone.
  *
- * This was a card with a heading, a sentence and three full-width buttons, and
- * the owner's words about it were "that's just taking up way too much space".
- * It is a label, a sentence and a date now, and the things you can do about it
- * are small buttons underneath rather than the widest thing on the screen.
+ * It drew where the book is as a sentence and a date, over the drawing of the
+ * board that says the same thing: "On bookcase 1, where it should be. Last
+ * confirmed there on 4 August." The owner cut it on sight, and named the rule
+ * rather than the sentence:
  *
- * A book that is not on a bookcase gets the outlined label rather than no
- * label, because "not here" is an answer and it belongs in the same place a
- * reader looks for the other one. A book that is on one gets no label at all,
- * because the board drawn beside it already carries one and the same two
- * characters twice in three inches is the thing that made the old card look
- * like a widget. Found by looking at it.
+ * > We can remove all of that. Literally the view we have below that shows it.
+ * > We don't need to explain it verbally with words.
+ *
+ * That is #262's rule reaching the last place it had survived: a sentence that
+ * says what the screen already draws is not a summary, it is a second thing to
+ * keep true. What was left of the component after the sentence went was a
+ * wrapper around `Place`, so the screen that still needs a label wears `Place`
+ * itself and there is nothing in between.
+ *
+ * A book that is **not** on a bookcase still gets that label, because "Out" is
+ * an answer and there is no board drawn for it to be read off. A book that is
+ * on one gets none: the board beside it carries its own.
  */
-export function Here({
-  label,
-  quiet = false,
-  said,
-  when,
-}: {
-  /** Where it is, when nothing else on the screen says. */
-  label?: string
-  /** The book is not on a bookcase: out, or never put anywhere. */
-  quiet?: boolean
-  said: string
-  when: string
-}) {
-  return (
-    <div className="wf-here">
-      {label && <Place quiet={quiet}>{label}</Place>}
-      <span className="wf-here__text">
-        <span className="wf-here__said">{said}</span>
-        <span className="wf-here__when">{when}</span>
-      </span>
-    </div>
-  )
-}
 
 /**
  * Where it has been, which the catalogue can answer now.

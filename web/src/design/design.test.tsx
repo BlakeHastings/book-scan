@@ -354,6 +354,148 @@ describe('a book screen is about the book, not about where it sits', () => {
 })
 
 /**
+ * Doing before knowing, which is the order of the whole page.
+ *
+ * > We should have the actions available to the user the moment they get to
+ * > this detail view, so they can do whatever it is that they intend to do. And
+ * > then if they don't intend to take action, when they scroll down they see
+ * > the current shelving view, and that shows them where it is, which might be
+ * > what they're here for.
+ *
+ * Somebody arriving at a book either wants to do something or wants to know
+ * where it is, and the knowing is what they scroll to anyway. The order is
+ * therefore the decision, not a layout, and it is exactly the kind of thing
+ * that comes back one helpful edit at a time: where a book sits is the most
+ * concrete thing on the page and it will keep trying to climb.
+ *
+ * Checked as the order of the section headings rather than as a list of what
+ * the sections contain, because the headings are what a person scrolling reads
+ * and they are what the owner named. The three that moved are all here: the
+ * tags went up under the ISBN, the actions went up above everything about
+ * where the book is, and "who wrote it" became "more by this author" and went
+ * to the bottom with the same content under it.
+ */
+describe('a book page puts what you can do above where the book sits', () => {
+  const BOOKS = ['book', 'thin']
+
+  const headsOf = (id: string) => {
+    const screen = SCREENS.find((one) => one.id === id)
+    expect(screen, `there is no screen called "${id}"`).toBeDefined()
+    const markup = renderToStaticMarkup(screen!.render(() => {}))
+    return [...markup.matchAll(/<section class="wf-part" aria-label="([^"]+)"/g)].map(
+      (found) => found[1]!,
+    )
+  }
+
+  it('draws the tags, then the actions, then everything about where it is', () => {
+    for (const id of BOOKS) {
+      const heads = headsOf(id)
+      const at = (head: string) => {
+        expect(heads, `${id} has no section called "${head}"`).toContain(head)
+        return heads.indexOf(head)
+      }
+
+      expect(at('What it is about'), `${id} leads with something other than the book`).toBe(0)
+      expect(at('What you can do')).toBeGreaterThan(at('What it is about'))
+      expect(at('Where it is')).toBeGreaterThan(at('What you can do'))
+      expect(at('Where it has been')).toBeGreaterThan(at('Where it is'))
+      expect(at('More by this author')).toBeGreaterThan(at('Where it has been'))
+    }
+  })
+
+  it('has no section left called "who wrote it", which is what that one was', () => {
+    for (const id of BOOKS) {
+      expect(headsOf(id), `${id} still asks who wrote it`).not.toContain('Who wrote it')
+    }
+  })
+
+  /*
+   * The sentence over the board went with #262's rule reaching the last place
+   * it had survived: "literally the view we have below that shows it. We don't
+   * need to explain it verbally with words." It had a class of its own, so the
+   * cheapest proof it has not been rewritten shorter is that the class is
+   * nowhere: not in a screen, not in the stylesheet waiting for one.
+   */
+  it('says where the book is by drawing it, and not in a sentence over the drawing', () => {
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      expect(markup, `${screen.id} says where the book is in words again`).not.toMatch(
+        /wf-here/,
+      )
+    }
+
+    expect(readFileSync(join(HERE, 'library.css'), 'utf8')).not.toMatch(/\.wf-here/)
+  })
+})
+
+/**
+ * How the one book a screen is about is marked, which had to stop being a ring.
+ *
+ * > How we're highlighting the book doesn't look very good to me with the white
+ * > outline that we have there. It may even be cute to put the cat on top of
+ * > the edge. Something that makes it more visually apparent and isn't clipping
+ * > the way that's clipping here.
+ *
+ * Two faults with one cause. An outline is painted outside the element it is
+ * on, a run scrolls inside itself with `overflow-y: hidden`, and a spine is the
+ * tallest thing on the board, so the top of that ring was outside the scroller
+ * every time. **Anything drawn around the books is drawn outside the run**, so
+ * the fix is not a thicker ring or a different colour: the mark stands on the
+ * book and takes its room from inside the board.
+ *
+ * What is checked is the two halves that would bring the clipping back. The
+ * ring is gone from the spine and has nowhere to be reattached, and the room
+ * kept above the book is the cat's own height rather than a second number that
+ * agrees with it today. Pixels are not available here, and a wrapper that
+ * reserves the wrong amount of space is exactly the fault that cannot be seen
+ * in markup, which is why the two numbers are one number.
+ */
+describe('the book a screen is about is marked on itself, not ringed', () => {
+  it('wraps it with the cat on top, and the cat says what he means', () => {
+    let marked = 0
+
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      for (const perch of markup.match(/<div class="wf-perch"[^>]*>.*?<\/svg>/gs) ?? []) {
+        marked += 1
+        expect(perch, `${screen.id} marks a book with an unnamed cat`).toMatch(
+          /aria-label="[^"]+"/,
+        )
+      }
+    }
+
+    expect(marked, 'no screen marks a book at all').toBeGreaterThan(1)
+  })
+
+  it('keeps the cat and the room kept for him one number', () => {
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      for (const perch of markup.match(/<div class="wf-perch"[^>]*>.*?<\/svg>/gs) ?? []) {
+        const room = perch.match(/--perch:\s*(\d+)px/)
+        const tall = perch.match(/height="(\d+)"/)
+        expect(room, `${screen.id} keeps no room above the marked book`).not.toBeNull()
+        expect(tall, `${screen.id} draws no cat on the marked book`).not.toBeNull()
+        expect(tall![1], `${screen.id} keeps ${room![1]}px for a cat ${tall![1]}px tall`).toBe(
+          room![1],
+        )
+      }
+    }
+  })
+
+  it('has no ring left on a spine for anybody to thicken', () => {
+    const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+    const shelf = readFileSync(join(HERE, 'Shelf.tsx'), 'utf8')
+
+    expect(css).not.toMatch(/\.wf-spine--here/)
+    expect(shelf).not.toMatch(/wf-spine--here'/)
+    // Nothing on this shelf is drawn outside its own box, which is the whole
+    // of why the old mark was cut off. Every other outline in the stylesheet
+    // is `none` with a shadow instead, so this stays a one-line check.
+    expect(css).not.toMatch(/outline-offset/)
+  })
+})
+
+/**
  * What the first screen is for, which the owner cut down to one thing.
  *
  * > Let's not even have the book scanning part here. Let's just have metrics,

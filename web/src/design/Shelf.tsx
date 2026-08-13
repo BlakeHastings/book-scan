@@ -74,6 +74,37 @@
  * width, which is honest and makes a quarter of the shelf look broken, and one
  * width for every book, which is truthful and throws away the variation the
  * owner liked in the first place.
+ *
+ * ## Marking the one book a screen is about, which is the cat's fourth job
+ *
+ * It was a white ring drawn round the spine, and the owner rejected it twice
+ * over:
+ *
+ * > How we're highlighting the book doesn't look very good to me with the white
+ * > outline that we have there. It may even be cute to put the cat on top of the
+ * > edge. Something that makes it more visually apparent and isn't clipping the
+ * > way that's clipping here.
+ *
+ * Both faults had one cause. An `outline` with a positive offset is drawn
+ * outside the element, the run scrolls inside itself with `overflow-y: hidden`,
+ * and the tallest thing on the board is the spine, so the top of that ring was
+ * always outside the scroller and always cut off. Nothing about a ring can be
+ * tuned out of that: any mark drawn outside the books is drawn outside the
+ * scroller.
+ *
+ * So the mark is a thing that stands **on** the book rather than round it, and
+ * the room it needs is taken inside the board. `wf-perch` is that room: it is
+ * the marked book with the cat's height added above it, so the board grows
+ * upward, the plank stays where it was, and there is nothing left to clip. He
+ * scrolls with his book, because he is inside it rather than floating over the
+ * run, and he is drawn over the empty air above the neighbouring books rather
+ * than beside his own, so a book at either end of a run is marked exactly like
+ * one in the middle and no spine is pushed sideways to make room.
+ *
+ * A second mark goes on the plank under him, in ink, on the board's own face.
+ * The cat is what you see first; the mark is what survives him being small, and
+ * it sits on the line the eye already runs along when it is reading a row of
+ * books.
  */
 
 import type { CSSProperties } from 'react'
@@ -121,6 +152,17 @@ const clamp = (low: number, value: number, high: number) =>
 
 /** How tall every spine is drawn, because nothing measures a book's height. */
 export const SPINE_HEIGHT = 116
+
+/**
+ * How tall the cat is when he is sitting on the book a screen is about.
+ *
+ * Big enough to read as a cat at arm's length on a phone, small enough that he
+ * is a mark on a book rather than a second bookend. It is one number: the room
+ * reserved above the book is this height, handed to the stylesheet as
+ * `--perch`, because a cat 26 tall in a 24 gap is the kind of disagreement
+ * nobody sees until it clips, which is the fault this whole mark replaces.
+ */
+export const CAT_ON_TOP = 26
 
 /**
  * How wide to draw a book, in pixels.
@@ -231,13 +273,13 @@ function Item({ item }: { item: ShelfItem }) {
     )
   }
 
-  const className = [
-    'wf-spine',
-    `wf-spine--${item.cloth ?? 'wood'}`,
-    item.here ? 'wf-spine--here' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
+  /*
+   * No class for the marked book. It wore one, `wf-spine--here`, and it drew
+   * the ring the owner rejected; what replaced it is the box around the book
+   * rather than anything on the book, so a class here would be a hook with no
+   * rule behind it and the next person would hang a second treatment off it.
+   */
+  const className = ['wf-spine', `wf-spine--${item.cloth ?? 'wood'}`].join(' ')
 
   /*
    * Inline, because these are measurements of one book rather than a style. A
@@ -248,9 +290,27 @@ function Item({ item }: { item: ShelfItem }) {
     height: SPINE_HEIGHT,
   }
 
-  return (
+  const spine = (
     <div className={className} style={size} title={item.text}>
       <span className="wf-spine__text">{item.text}</span>
+    </div>
+  )
+
+  if (!item.here) return spine
+
+  /*
+   * The cat says which book, and he says it in words too. He is the only thing
+   * on a board that is not a book, so he is the only thing on it that can carry
+   * a name, and "the book this screen is about" is not something a title
+   * attribute on a coloured rectangle was ever going to say.
+   */
+  return (
+    <div
+      className="wf-perch"
+      style={{ '--perch': `${CAT_ON_TOP}px` } as CSSProperties}
+    >
+      <Cat pose="peeking" size={CAT_ON_TOP} label="This is the book" className="wf-perch__cat" />
+      {spine}
     </div>
   )
 }

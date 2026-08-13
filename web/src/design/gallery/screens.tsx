@@ -29,7 +29,7 @@
  */
 
 import type { ReactElement } from 'react'
-import { Actions, Been, Head, Here, Part, Tagged, Tagging } from '../Book'
+import { Actions, Been, Head, Part, Tagged, Tagging } from '../Book'
 import { Viewfinder } from '../Camera'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
@@ -544,10 +544,28 @@ function ListView(go: Go) {
  * > right here. That's just taking up way too much space.
  *
  * So both screens below are drawn from "what do I know about this book, and
- * what can I do with it", and they carry the same five sections in the same
- * order: what it is, where it is, what it is about, who wrote it, and where it
- * has been. Location is the second of them and the smallest, one line and
- * three small buttons where it used to be a card the height of a hand.
+ * what can I do with it", and they carry the same sections in the same order.
+ *
+ * ## The order is doing before knowing, and round six is what settled it
+ *
+ * > We should have the actions available to the user the moment they get to
+ * > this detail view, so they can do whatever it is that they intend to do. And
+ * > then if they don't intend to take action, when they scroll down they see
+ * > the current shelving view, and that shows them where it is, which might be
+ * > what they're here for.
+ *
+ * Above the fold: the book, its facts, its tags, and what you can do about it.
+ * Below it, in this order: where it sits, why it sits there, where it has been,
+ * and more by this author. Somebody arriving at a book either wants to do
+ * something or wants to know where it is, and the knowing is what they scroll
+ * to anyway, so putting the doing first costs it nothing.
+ *
+ * Three things moved to get there and each one is the owner's: the tags went up
+ * under the ISBN, the actions went up to where "where it is" used to sit, and
+ * "who wrote it" became "more by this author" with the same content under it.
+ * Two things did not move: "why it is here" stays under the drawing of the
+ * board, and "where it has been" stays exactly as it is, which is the one part
+ * of this screen he has said twice that he likes.
  *
  * **They are the same book by the same author, and that is the point.** One
  * record is as full as this catalogue gets and the other is nearly empty,
@@ -657,30 +675,11 @@ function Book(go: Go) {
         facts={['Ace, 1969. 304 pages.', 'Hainish Cycle, book four', 'ISBN 9780441478125']}
       />
 
-      {/* Second on the page and the smallest section on it. The board stays,
-          because it is how you find the book in the room and it names the two
-          books either side; what went is the card that used to sit under it. */}
-      <Part head="Where it is">
-        <Here
-          said="On bookcase 1, where it should be."
-          when="Last confirmed there on 4 August."
-        />
-        <div className="wf-bleed">
-          <Shelf label="1C" note="Third along" items={row} />
-        </div>
-        <Actions>
-          <Button tone="secondary" small>
-            Check it out
-          </Button>
-          <Button tone="quiet" small onPress={() => go('where')}>
-            It moved
-          </Button>
-          <Button tone="quiet" small onPress={() => go('claimed')}>
-            Why it is here
-          </Button>
-        </Actions>
-      </Part>
-
+      {/* Straight under the publisher and the ISBN, because that is where he
+          put them: "those should be up underneath where we have the ISBN,
+          publisher, all of that." What a book is about is a fact about the
+          book, and it was three sections down under everything about where it
+          sits. */}
       <Part head="What it is about">
         <Tagging>
           <Tagged word="Fiction" from="person" who="You said so, on 3 June" />
@@ -693,14 +692,59 @@ function Book(go: Go) {
         </Tagging>
       </Part>
 
-      <Part head="Who wrote it" note="Nine of theirs">
-        <p className="wf-book__by" style={{ margin: 0 }}>
-          Ursula K. Le Guin
-        </p>
-        <Said>Files under Le Guin, Ursula K.</Said>
-        {AlsoTheirs(go)}
+      {/*
+        Three, and the count is the design.
+
+        These are the two he named, "check it out" and "moved it", and the one
+        he allowed, "or maybe other actions like moving it". Everything else a
+        person can do to this book is either already on the screen or belongs
+        beside the thing it acts on, and this row is the first thing a thumb
+        reaches, which is exactly the row that fills up:
+
+        - **Edit** is the named action in the top right and has been since the
+          screen existed. A second door to it here is the fault the first screen
+          had its camera card taken off for.
+        - **Why it is here** is not an action. It is the answer to a question
+          somebody asks after they have looked at the board, so it stays under
+          the board, which is where he asked for it to stay.
+        - **Photograph it again** lives on the photographs themselves, on the
+          screens where a person can act on them.
+        - **The rest of this author** belongs to the section about the author.
+        - **Withdrawing or discarding a book** is real in the model and is on no
+          screen in this gallery. It arrives with the screen that asks whether
+          you meant it, not as a fourth small button beside "It moved".
+      */}
+      <Part head="What you can do">
+        <Actions>
+          <Button tone="secondary" small>
+            Check it out
+          </Button>
+          <Button tone="quiet" small onPress={() => go('where')}>
+            It moved
+          </Button>
+          <Button tone="quiet" small onPress={() => go('carry')}>
+            Move it
+          </Button>
+        </Actions>
       </Part>
 
+      {/* Below the fold now, and unchanged apart from losing the sentence over
+          it. The board is how you find the book in the room and it names the
+          two books either side, and the cat on top of it says which one it is.
+          Why it is here sits under the drawing, where the question gets asked. */}
+      <Part head="Where it is">
+        <div className="wf-bleed">
+          <Shelf label="1C" note="Third along" items={row} />
+        </div>
+        <Actions>
+          <Button tone="quiet" small onPress={() => go('claimed')}>
+            Why it is here
+          </Button>
+        </Actions>
+      </Part>
+
+      {/* Untouched, on purpose. "I like the where it has been. That should
+          stay. I really like that." */}
       <Part head="Where it has been" note="Five moves">
         <Been
           rows={[
@@ -711,6 +755,18 @@ function Book(go: Go) {
             { what: 'Put on 1B', who: 'You carried it', when: '3 Jun' },
           ]}
         />
+      </Part>
+
+      {/* The same content under the heading he asked for: "instead of who wrote
+          it and then have the author there, we could just have more by this
+          author and then the same stuff, so they can see it." The name and what
+          it files under stay, because they are what the heading is about. */}
+      <Part head="More by this author" note="Nine of theirs">
+        <p className="wf-book__by" style={{ margin: 0 }}>
+          Ursula K. Le Guin
+        </p>
+        <Said>Files under Le Guin, Ursula K.</Said>
+        {AlsoTheirs(go)}
       </Part>
     </Phone>
   )
@@ -771,20 +827,6 @@ function Thin(go: Go) {
         }
       />
 
-      <Part head="Where it is">
-        <Here
-          label="Out"
-          quiet
-          said="Not on a bookcase. You have it."
-          when="Taken out on 2 August."
-        />
-        <Actions>
-          <Button tone="secondary" small onPress={() => go('where')}>
-            Put it back
-          </Button>
-        </Actions>
-      </Part>
-
       <Part head="What it is about">
         <Tagging>
           <Tagged
@@ -793,19 +835,41 @@ function Thin(go: Go) {
             who="The app guessed it from the title, and it is not sure"
           />
         </Tagging>
+      </Part>
+
+      {/*
+        Two, and they are not the rich book's three, because this book is in
+        the house rather than on a bookcase. Putting it back is the one thing
+        somebody holding it can do, and saying what it is, is the one thing
+        worth doing to a record this thin: the only tag on it is a guess, and a
+        guess is what the app rewrites and a person's word is not.
+
+        "It moved" and "Move it" are deliberately not here. A book nobody has
+        put anywhere has not moved, and offering to move it is offering to move
+        it from nowhere.
+      */}
+      <Part head="What you can do">
         <Actions>
+          <Button tone="secondary" small onPress={() => go('where')}>
+            Put it back
+          </Button>
           <Button tone="quiet" small>
             Say what it is
           </Button>
         </Actions>
       </Part>
 
-      <Part head="Who wrote it" note="Nine of theirs">
-        <p className="wf-book__by" style={{ margin: 0 }}>
-          Ursula K. Le Guin
-        </p>
-        <Said>Files under Le Guin, Ursula K.</Said>
-        {AlsoTheirs(go)}
+      {/* One word, and it is the whole section. The rich book has a board
+          drawn under this heading and reads its own label off it; this book has
+          no board to read, so the label is the answer, and the date it went out
+          is the first row of where it has been. */}
+      <Part head="Where it is">
+        {/* Wrapped, because a section is a grid and a grid stretches what is
+            put in it: the label went the width of the phone and read as an
+            empty field waiting to be filled in. Found by looking at it. */}
+        <div>
+          <Place quiet>Out</Place>
+        </div>
       </Part>
 
       <Part head="Where it has been" note="Two moves">
@@ -815,6 +879,14 @@ function Thin(go: Go) {
             { what: 'Put on 1C', who: 'You carried it', when: '14 May' },
           ]}
         />
+      </Part>
+
+      <Part head="More by this author" note="Nine of theirs">
+        <p className="wf-book__by" style={{ margin: 0 }}>
+          Ursula K. Le Guin
+        </p>
+        <Said>Files under Le Guin, Ursula K.</Said>
+        {AlsoTheirs(go)}
       </Part>
     </Phone>
   )
