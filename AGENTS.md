@@ -585,6 +585,9 @@ teach people to skim past it.
 | `web/application/` | Commands, handlers, and the repository interfaces (ports) |
 | `web/infrastructure/` | Drizzle schema, migrations, repository implementations |
 | `web/src/` | React UI |
+| `web/src/app/screens.tsx` | The route table. One line per screen, and adding a screen is a line here and a file below |
+| `web/src/screens/` | One file per screen. State only that screen uses lives in it |
+| `web/src/app/` | What the screens genuinely share: the book in hand, the counts, the camera session, the route, the error line |
 | `web/src/lib/api.ts` | Typed fetch wrapper, the only client to server path |
 | `web/server/index.ts` | Express routes, data directory and connection resolution |
 | `web/server/db.pg.ts` | The Postgres driver, and where every column is explained |
