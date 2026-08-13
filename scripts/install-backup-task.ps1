@@ -31,6 +31,11 @@
 # harmless to have in a process listing, and backup-catalogue.ps1 decrypts it
 # and hands the connections to the one child process that needs them.
 #
+# The writing is `write-connection-file.ps1` beside this, not code in here, so
+# that the connections can be rotated without re-registering a schedule and so
+# that the stable server's launcher has somewhere to get the same connection
+# from without inventing a second store. See #308.
+#
 # ### What this used to do, and why it is not that
 #
 # Windows Task Scheduler has no per-task environment block. An action is a
@@ -54,6 +59,10 @@
 #
 #     Unregister-ScheduledTask -TaskName 'book-scan catalogue backup' -Confirm:$false
 #     Remove-Item <the -ConnectionFile path>
+#
+# Note the second line takes the stable server's connection with it, since #308
+# gave that launcher the same file to read. Unregistering the backup task on its
+# own does not.
 #
 # And, once, the two variables the old version of this script persisted. It
 # wrote them at Machine scope; on the owner's machine they are at User scope,
@@ -120,38 +129,18 @@ if ($Source -eq $Scratch) {
 $runner = Join-Path $PSScriptRoot 'backup-catalogue.ps1'
 if (-not (Test-Path $runner)) { throw "Cannot find $runner" }
 
+$writer = Join-Path $PSScriptRoot 'write-connection-file.ps1'
+if (-not (Test-Path $writer)) { throw "Cannot find $writer" }
+
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
 
 # --- the connections, encrypted for this account ---------------------------
 
 # Written before the task is registered, so a machine that cannot store the
 # secret does not end up with a schedule that will fail every night at 03:30.
-$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $whoami = "$([Environment]::UserDomainName)\$([Environment]::UserName)"
 
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ConnectionFile) | Out-Null
-
-# ConvertFrom-SecureString with no -Key is DPAPI, CurrentUser scope: the output
-# decrypts only for this account, on this machine.
-$protect = {
-    param([string] $Value)
-    ConvertFrom-SecureString -SecureString (ConvertTo-SecureString -String $Value -AsPlainText -Force)
-}
-
-[pscustomobject]@{
-    writtenBy = $whoami
-    writtenAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    source    = & $protect $Source
-    scratch   = & $protect $Scratch
-} | ConvertTo-Json | Set-Content -LiteralPath $ConnectionFile -Encoding utf8
-
-# Belt and braces on top of DPAPI. DPAPI already means another account cannot
-# decrypt it; this means another account cannot read the ciphertext either, and
-# it drops inherited ACEs so a permissive parent directory does not undo it.
-& icacls "$ConnectionFile" /inheritance:r /grant:r "*$($identity.User.Value):(R,W)" /grant:r '*S-1-5-18:(F)' | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Could not tighten the ACL on $ConnectionFile (icacls exited $LASTEXITCODE). DPAPI still protects the contents."
-}
+& $writer -Source $Source -Scratch $Scratch -Path $ConnectionFile | Out-Null
 
 $arguments = @(
     '-NoProfile'
@@ -247,6 +236,8 @@ if ($legacy -and -not $RemoveLegacyEnvironment) {
         Write-Warning "    [Environment]::SetEnvironmentVariable('$($item.Name)', `$null, '$($item.Scope)')"
     }
     Write-Warning "Nothing reads them any more, so removing them cannot break the schedule."
+    Write-Warning "The stable server's launcher did read BOOKSCAN_BACKUP_SOURCE until #308, which"
+    Write-Warning "is why they were still here. It reads the connection file now."
     Write-Output ""
 }
 

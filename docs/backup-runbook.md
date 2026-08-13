@@ -389,6 +389,15 @@ below looks in both places.
    puts the two connections into the environment of the one child process that
    needs them, using `$env:`, which in PowerShell is this process and its
    children and dies with them.
+
+   `scripts/write-connection-file.ps1` is the only thing that writes that file.
+   `install-backup-task.ps1` calls it rather than holding its own copy of the
+   encryption, so the connections can be rotated without re-registering a
+   schedule. **The file has a second reader**, added by #308: the launcher for
+   the `stable` server, `C:\Users\Blake\book-scan-production-data\run-stable.ps1`.
+   It had been reading `%BOOKSCAN_BACKUP_SOURCE%` instead, which is the whole
+   reason that variable was still persisted six days after #215 removed the
+   thing that set it. One store, one writer, two readers.
 2. **The tool will not inherit a connection it was not asked to inherit.**
    `--source-from-env` and `--scratch-from-env` are the only way
    `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH` are read, and the
@@ -577,7 +586,18 @@ The owner runs this. It needs the live connection string.
    `-ConnectionFile` to put it somewhere else.
 
    Re-running this is how the connections are rotated: it overwrites the file
-   and re-registers the task.
+   and re-registers the task. To rewrite the file **without** touching the
+   schedule, which is what a rotation the stable server also needs looks like,
+   run the writer on its own:
+
+   ```
+   pwsh -File scripts/write-connection-file.ps1 `
+     -Source  'postgres://postgres:<live password>@127.0.0.1:5433/bookscan' `
+     -Scratch 'postgres://postgres:<scratch password>@127.0.0.1:55432/postgres'
+   ```
+
+   The stable server reads the same file and picks up a rewritten one the next
+   time it starts.
 
 3a. **Remove the two persisted variables the old registration left.** Look in
    both scopes: the old code wrote `Machine`, and on this machine they are at
@@ -607,6 +627,17 @@ The owner runs this. It needs the live connection string.
 
    That should print nothing. Nothing reads those names any more, so removing
    them cannot break the schedule.
+
+   **It could not be said that plainly until #308.** Between #215 and #308 this
+   step would have broken the `stable` server, because its launcher read
+   `BOOKSCAN_BACKUP_SOURCE` and nothing in this repository could see that it
+   did. The launcher reads the connection file now, and deletes both names from
+   its own process before it resolves anything, so it is proof against them
+   coming back rather than merely not using them. Before doing this step, satisfy
+   yourself that the stable server starts from the file: its log's first line is
+   `[launch] no BOOKSCAN_BACKUP_* variables inherited` or `[launch] inherited
+   ...; deleted from this process before resolving anything`, and the next says
+   `[launch] connection read from <path>`.
 
 4. **Force one scheduled run**, so the schedule itself is exercised rather than
    only the script:
@@ -641,6 +672,17 @@ is `done`.
 - **`FAILED: no -ConnectionFile`** The task is still registered the old way,
   from before the connections moved out of the machine environment. Re-run
   step 3.
+- **`FAILED: could not decrypt ...` ending `the module could not be loaded`.**
+  Not DPAPI at all, whatever it says. Windows PowerShell 5.1 and PowerShell 7
+  ship different copies of `Microsoft.PowerShell.Security` whose type data
+  collides, so 5.1 started with a `PSModulePath` inherited from a pwsh parent
+  loads 7's copy, fails, and has no `ConvertTo-SecureString` to fail with. The
+  log line to look for is `The member AuditToString is already present`. Both
+  this and the stable launcher now import that module by `$PSHOME`, so it takes
+  the running host's own copy; if you see this again, something is calling
+  `ConvertTo-SecureString` before that import. The registered task never hit it,
+  because the persisted `PSModulePath` holds only the Windows PowerShell
+  entries; running these by hand out of an agent session does. See #308.
 - **`FAILED: could not decrypt ...`** The file is DPAPI-encrypted for one
   account on one machine, and the run was not that account. The log names both.
   Re-run step 3 as the account the task runs as, or set the task back to that

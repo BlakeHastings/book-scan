@@ -170,9 +170,29 @@ Stop-ScheduledTask  -TaskName 'book-scan stable server'
 ```
 
 The task runs `C:\Users\Blake\book-scan-production-data\run-stable.cmd`, which
-sets `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` and runs `npm run dev`.
-**That file holds no secret**: it reads the connection out of the environment
-variable that already has it.
+redirects the log and hands off to `run-stable.ps1` beside it. That one sets
+`ConnectionStrings__bookscan` and `BOOKSCAN_DATA` and runs `npm run dev`.
+
+**Neither file holds a secret, and neither reads one out of the environment.**
+The connection comes from the DPAPI-encrypted file at
+`%LOCALAPPDATA%\book-scan\backup-connections.json`, which is the same file the
+nightly backup wrapper reads and which `scripts/write-connection-file.ps1` is
+the only thing that writes. What the launcher carries is the path.
+
+`run-stable.ps1` deletes `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH`
+from its own process **before** it resolves anything, so the connection cannot
+come from them and the server it starts never inherits them. Its first log line
+says which of the two it found and threw away, which is how an ordinary run is
+also the evidence. See #308: this launcher used to read
+`%BOOKSCAN_BACKUP_SOURCE%`, and that is why the variable #215 removed had to
+keep existing.
+
+**`Stop-ScheduledTask` does not stop the server.** Observed on 2026-08-13: the
+task goes to `Ready`, the `cmd.exe` it started goes away, and the four `node`
+processes under it keep running and keep port 3001. Whatever you use to stop it,
+check `Get-NetTCPConnection -LocalPort 3001 -State Listen` afterwards rather
+than trusting the task state, because a start on top of a server that never
+stopped is an `EADDRINUSE` and a log nobody is reading.
 
 **A scheduled task and not a background process, because the alternatives were
 tried and died.** `Start-Process` and a WMI `Win32_Process.Create` both leave
@@ -251,18 +271,34 @@ Its source comes from `--source`, or from `BOOKSCAN_BACKUP_SOURCE` when
 `scripts/seed-world.ts` makes about its target, and the same one the stage H
 migration tool made before it was deleted.
 
-**That is a rule with a scar on it.** The variable used to be read whenever
-`--source` was absent, and `scripts/install-backup-task.ps1` used to set it at
-a persisted scope so a scheduled task could carry a password out of its command
-line. A persisted variable is not a task's environment, it is every process that
-inherits it, so a connection string naming the live catalogue sat in every shell and
-every agent session here, and `npx tsx server/backup-catalogue.ts` with no
-arguments opened the live catalogue. The connections now live in a
-DPAPI-encrypted file the task is given the path to. See #215 and
-`docs/backup-runbook.md`. **If you find either variable set in your shell, do
-not use it and do not treat it as configuration.** Nothing in this repository
-reads it without being told to, and the answer is to remove it, not to lean on
-it.
+**That is a rule with a scar on it, and the scar has been reopened once.** The
+variable used to be read whenever `--source` was absent, and
+`scripts/install-backup-task.ps1` used to set it at a persisted scope so a
+scheduled task could carry a password out of its command line. A persisted
+variable is not a task's environment, it is every process that inherits it, so a
+connection string naming the live catalogue sat in every shell and every agent
+session here, and `npx tsx server/backup-catalogue.ts` with no arguments opened
+the live catalogue. The connections now live in a DPAPI-encrypted file the task
+is given the path to. See #215 and `docs/backup-runbook.md`.
+
+**Then it came back, and the way it came back is the part worth learning.** The
+launcher for the `stable` server was written outside this repository and read
+`%BOOKSCAN_BACKUP_SOURCE%`, so the variable had to keep existing at `User`
+scope, and it did, for six days. The refusal in `backup-catalogue.ts` was never
+bypassed. It was routed around from a file no test and no linter could see. See
+#308. **A control that only covers this repository does not cover this machine.**
+
+**The current state, said exactly, because "fixed" was said once already.**
+Nothing reads either name any more: the backup wrapper takes `-ConnectionFile`
+and refuses the ambient environment, and the stable launcher deletes both names
+from its own process before it resolves anything. **Both are still set at `User`
+scope**, because removing them is the owner's to authorise and he had not been
+asked at the time of writing. So you may well still find them in your shell.
+
+**If you find either variable set, do not use it and do not treat it as
+configuration.** Nothing here reads it without being told to, and the answer is
+to remove it, not to lean on it. `docs/backup-runbook.md` step 3a is the
+removal, and it is the owner's step.
 
 **The SQLite rules below still apply to the SQLite file**, which is still
 exactly where stage H left it. Nothing in this repository opens it, and nothing
