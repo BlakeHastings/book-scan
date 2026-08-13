@@ -1,7 +1,7 @@
 /**
  * Every icon in the redesign, drawn inline.
  *
- * There are eight, and that is the whole set on purpose. An icon here exists
+ * There are eleven, and that is the whole set on purpose. An icon here exists
  * only where a word is already beside it (the tab bar), where the target is a
  * corner of the screen (back, and the one action in the top right), or where
  * the target sits inside a control that has no room for a word and is already
@@ -19,6 +19,20 @@
  * and the same for edit. That is what `IconEdit` is for and it is why the rule
  * above now names the corner rather than only the back arrow. A corner action
  * still carries an accessible name; see `Chrome.tsx`.
+ *
+ * ## The last three, and why they are drawings rather than words
+ *
+ * Covers, list and spines were three words in a segmented control taking a
+ * whole row at the top of every library screen, and the owner took the row
+ * off: "a little circle that when clicked changes between covers, list and
+ * spines, and we should use icons to represent those [...] that way you don't
+ * take up all this space for choosing between those different views."
+ *
+ * So each of the three is a glyph, and the button carrying it is named for
+ * what pressing it does rather than for where you are. `IconSpines` is the one
+ * with no convention behind it, and it is drawn as what the shelf underneath
+ * it already looks like: books of different heights standing on a board. That
+ * is the whole reason it reads without being taught.
  *
  * One stroke weight, one cap style, one 24 grid, and `currentColor` so an
  * icon is coloured by the thing it sits in rather than by a prop.
@@ -124,6 +138,53 @@ export function IconOnward(p: Props) {
   return (
     <Glyph {...p}>
       <path d="M9.5 5 16 12l-6.5 7" />
+    </Glyph>
+  )
+}
+
+/** Covers: the gallery, drawn as the grid it is. */
+export function IconCovers(p: Props) {
+  return (
+    <Glyph {...p}>
+      <rect x="4" y="4" width="7" height="7" rx="1.6" />
+      <rect x="13" y="4" width="7" height="7" rx="1.6" />
+      <rect x="4" y="13" width="7" height="7" rx="1.6" />
+      <rect x="13" y="13" width="7" height="7" rx="1.6" />
+    </Glyph>
+  )
+}
+
+/**
+ * A list: a column of rows, each with something at the front of it.
+ *
+ * The bullets are what keep it apart from `IconQueue`, which is bare lines and
+ * sits in the tab bar two inches below it.
+ */
+export function IconList(p: Props) {
+  return (
+    <Glyph {...p}>
+      <path d="M9.5 7.5h10.5M9.5 12h10.5M9.5 16.5h7.5" />
+      <circle cx="5" cy="7.5" r="1.05" fill="currentColor" stroke="none" />
+      <circle cx="5" cy="12" r="1.05" fill="currentColor" stroke="none" />
+      <circle cx="5" cy="16.5" r="1.05" fill="currentColor" stroke="none" />
+    </Glyph>
+  )
+}
+
+/**
+ * Spines: books of different heights standing on a board.
+ *
+ * The board is the line at the bottom, and it is not decoration: five bars
+ * rising off nothing is a bar chart, and five bars standing on a plank is a
+ * shelf. One rail, so it does not read as `IconShelves`, which is a whole
+ * bookcase and has three.
+ */
+export function IconSpines(p: Props) {
+  return (
+    <Glyph {...p}>
+      <path d="M3.5 19.5h17" />
+      <path d="M5.6 19.5V8.2M9.8 19.5V6.2M14 19.5V8.8" />
+      <path d="M20 19.5 16.6 8.6" />
     </Glyph>
   )
 }

@@ -258,6 +258,58 @@ describe('the one action in a corner is an icon with a name', () => {
 })
 
 /**
+ * The three ways of looking at the library cost a button, not a row.
+ *
+ * > Instead of showing covers, list and spines as this very big thing that we
+ * > can select one of three options for, can we put it to the right of the
+ * > "every book" filter [...] That way you don't take up all this space for
+ * > choosing between those different views.
+ *
+ * Two halves, and the second is the one that comes back. A segmented control
+ * is the obvious thing to reach for when a fourth view turns up, or when
+ * somebody decides the circle is too clever, and it is the thing that was
+ * measured at 64px of every visit to a screen whose job is showing books.
+ *
+ * The first half is the accessibility rule the corner action already carries,
+ * arriving somewhere new: this is the second target in the app drawn as a
+ * glyph with no word, so it is named or it says nothing at all. Checked as the
+ * general rule rather than against three known labels, because the next
+ * switcher is the one it is really for.
+ *
+ * The filter is checked too, and deliberately: the switcher was asked to move
+ * beside that row, not to replace it.
+ */
+describe('the way of looking at the books is one named button beside the filter', () => {
+  const LIBRARY = ['library', 'covers', 'listing']
+
+  const drawn = (id: string) => {
+    const screen = SCREENS.find((one) => one.id === id)
+    expect(screen, `there is no screen called "${id}"`).toBeDefined()
+    return renderToStaticMarkup(screen!.render(() => {}))
+  }
+
+  it('draws exactly one of them per library screen, named, beside the filter', () => {
+    for (const id of LIBRARY) {
+      const markup = drawn(id)
+      const buttons = markup.match(/<button[^>]*wf-cycle[^>]*>/g) ?? []
+
+      expect(buttons.length, `${id} draws ${buttons.length} view switchers`).toBe(1)
+      expect(buttons[0], `${id} has an unnamed view switcher`).toMatch(/aria-label="[^"]+"/)
+      expect(markup, `${id} lost the filter above its books`).toMatch(/class="wf-picked"/)
+      expect(markup, `${id} draws the switcher outside the filter row`).toMatch(
+        /<div class="wf-filter">.*wf-cycle/s,
+      )
+    }
+  })
+
+  it('is true because no library screen spends a row on the three views', () => {
+    for (const id of LIBRARY) {
+      expect(drawn(id), `${id} is back to a segmented control`).not.toMatch(/wf-seg/)
+    }
+  })
+})
+
+/**
  * What a book's page is about, which the owner had to say twice.
  *
  * > This is the detailed view for a book. Where it is, is one part of that.
