@@ -798,11 +798,6 @@ function Find(go: Go) {
       <SearchField caret />
 
       <Covers items={TWELVE} label="Every book" onPress={() => go('book')} />
-
-      <Said>
-        Your books, newest first, until you type something. A number is read as
-        an ISBN and a # opens your tags.
-      </Said>
     </Phone>
   )
 }
@@ -831,15 +826,6 @@ function Finding(go: Go) {
       <SearchField typed="mieville" caret />
 
       <Covers items={found} label="Books matching mieville" onPress={() => go('book')} />
-
-      {/* A fact about the answer rather than an explanation of the screen, which
-          is the one kind of card that survived the last round. */}
-      <Card weight="quiet" title="Found without the accent">
-        <p>
-          You typed Mieville and the books say Mi&eacute;ville. Titles and authors
-          are both looked through, and neither has to be spelled exactly.
-        </p>
-      </Card>
     </Phone>
   )
 }
@@ -867,13 +853,6 @@ function FindIsbn(go: Go) {
       <SearchField typed="978 0571 224142" caret reads="Thirteen digits, so that is an ISBN." />
 
       <Covers items={one} label="The book with that ISBN" onPress={() => go('book')} />
-
-      <Card weight="quiet" title="One book has that number">
-        <p>
-          An ISBN names a single edition, so this is the whole answer rather than
-          the first of several.
-        </p>
-      </Card>
 
       <p className="wf-heading wf-heading--flush">More by Ishiguro, Kazuo</p>
       <Covers items={rest} label="More by Ishiguro, Kazuo" onPress={() => go('book')} />
@@ -934,18 +913,10 @@ function FindTag(go: Go) {
         See all 23 of your tags
       </Button>
 
-      <Card weight="quiet" title="Choosing Fantasy takes Urban fantasy with it">
-        <p>
-          A tag inside another one counts as both, so the 112 includes the 14.
-          That is the only thing worth knowing about tags sitting inside tags.
-        </p>
-      </Card>
-
       {/* Still every book, because nothing has been chosen yet. Drawn rather
           than left as half a screen of nothing: "it filters as you type" is a
           claim about what is underneath, and a person who cannot see the books
           cannot see them not moving. */}
-      <Said>Still showing every book. Choose one above to narrow it.</Said>
       <Covers items={TWELVE.slice(0, 6)} label="Every book" onPress={() => go('book')} />
     </Phone>
   )
@@ -1021,14 +992,6 @@ function TagsScreen(go: Go) {
       <Button tone="quiet" block onPress={() => go('library')}>
         Show everything again
       </Button>
-
-      <Card weight="quiet" kind="Why they are folded" title="A tag inside a tag is a real thing">
-        <p>
-          Fantasy sits inside Genre and Urban fantasy sits inside Fantasy, so a
-          book tagged the innermost one carries all three. Laid out in a row they
-          would look like twenty-three unrelated words.
-        </p>
-      </Card>
     </Phone>
   )
 }
@@ -1085,7 +1048,6 @@ function Review(go: Go) {
         like them because they're blurry."
       */}
       <Shots shots={shotsOf(go)} act size="big" />
-      <Said>Tap one to take it again.</Said>
 
       <Card kind="Found in Open Library" title="Never Let Me Go">
         <p>Ishiguro, Kazuo &middot; Faber &middot; 2005 &middot; 288 pages</p>
@@ -1096,11 +1058,6 @@ function Review(go: Go) {
         it is the one field that decides what every other field says.
       */}
       <Field label="ISBN" value="9780571224142" />
-      <Said>
-        Change this and the book is looked up again from scratch. Anything you
-        said about the old one is taken off with it, because it is a different
-        book.
-      </Said>
 
       <Field label="Title" value="Never Let Me Go" />
       <Field label="Author" value="Kazuo Ishiguro" />
@@ -1132,10 +1089,6 @@ function Review(go: Go) {
           <AddTag onPress={() => {}}>Add a tag</AddTag>
         </Tags>
       </div>
-      <Said>
-        Fiction is a tag like the others, and it happens to be the one that
-        decides which bookcase this book goes on. Tap a tag to take it off.
-      </Said>
 
       <Button tone="primary" block onPress={() => go('where')}>
         That is the book
@@ -1164,7 +1117,6 @@ function Where(go: Go) {
       <Instruction>
         Between <em>The City &amp; the City</em> and <em>Cloud Atlas</em>.
       </Instruction>
-      <Said>Both are on 2C. Third book along, counting from the left.</Said>
 
       <div className="wf-bleed">
         <Shelf label="2C" note="5 books, and the gap" items={row} inHand="Never Let Me Go" />
@@ -1182,11 +1134,7 @@ function Where(go: Go) {
             </Button>
           </>
         }
-      >
-        <p>
-          If it will not go in, say so and the last book on 2C moves to 2D.
-        </p>
-      </Card>
+      />
     </Phone>
   )
 }
@@ -1225,9 +1173,7 @@ function Done(go: Go) {
         That is enough for today
       </Button>
 
-      <Card weight="quiet" kind="Still waiting" title="Seventeen in the queue">
-        <p>Five of them are ready to shelve in one tap.</p>
-      </Card>
+      <Card weight="quiet" kind="Still waiting" title="Seventeen in the queue" />
     </Phone>
   )
 }
@@ -1454,11 +1400,6 @@ function Furniture(go: Go) {
       </Button>
 
       <Card weight="quiet" kind="The order" title="They are numbered by where they stand">
-        <p>
-          Bookcase 1 is the one you reach first. Move a piece and everything on
-          it is renamed with it, so 4A becomes 3A without a book leaving the
-          room.
-        </p>
         <Button tone="quiet" onPress={() => go('bookcase')}>
           Change the order
         </Button>
@@ -1475,22 +1416,10 @@ function Bookcase(go: Go) {
       top={<TopBar title="Bookcase 2" sub="3 areas, 63 books" onBack={() => go('furniture')} />}
     >
       <Bookcase2 go={go} />
-      <Said>
-        Tap the bookcase to say what belongs on the whole of it, or an area to
-        say what belongs in that one.
-      </Said>
 
       <Field label="What you call it" placeholder="Not named" />
-      <Said>
-        Without a name it is Bookcase 2, and the areas on it read 2A, 2B and 2C.
-        Call it Landing and the same areas read Landing · A.
-      </Said>
 
       <Field label="What it is" value="Bookcase" />
-      <Said>
-        Your word for it. A crate by the door and a windowsill are just as good,
-        and nothing in the app treats one differently from another.
-      </Said>
 
       <div>
         <span className="wf-field__label">Where it stands</span>
@@ -1505,28 +1434,14 @@ function Bookcase(go: Go) {
           Move it later
         </Button>
       </div>
-      <Said>
-        Second of five. Moving it renumbers this piece and the one it passes,
-        and every area on both of them.
-      </Said>
 
-      <Card weight="sunk" kind="What it will be called" title="2A, 2B, 2C">
-        <p>
-          Worked out from where the bookcase stands and what things are called,
-          every time it is read. There is nothing to type here and nothing that
-          can go stale.
-        </p>
-      </Card>
+      <Card weight="sunk" kind="What it will be called" title="2A, 2B, 2C" />
 
       <Button tone="primary" block onPress={() => go('furniture')}>
         Save
       </Button>
 
       <Card weight="quiet" kind="Taking it out of the room" title="The books do not vanish with it">
-        <p>
-          Books recorded on a bookcase that has gone still say where they were
-          put, so they turn up in books to carry until you have moved them.
-        </p>
         <Button tone="danger" onPress={() => go('carry')}>
           Take it out of the room
         </Button>
@@ -1545,10 +1460,6 @@ function Area(go: Go) {
       <Bookcase2 on="2 · Cookery" go={go} head={() => go('bookcase')} />
 
       <Field label="What you call this area" value="Cookery" />
-      <Said>
-        Yours to leave empty. Named, it reads 2 · Cookery; unnamed, it reads
-        2C. Either way what you are naming is the area, never the label.
-      </Said>
 
       <Card
         kind="What belongs here"
@@ -1558,9 +1469,7 @@ function Area(go: Go) {
             Change what belongs here
           </Button>
         }
-      >
-        <p>Eighteen books match it today, and one of them two rules wanted.</p>
-      </Card>
+      />
 
       <Card
         kind="How it is ordered"
@@ -1578,12 +1487,7 @@ function Area(go: Go) {
         Split this area in two
       </Button>
 
-      <Card weight="quiet" kind="Taking this area away" title="What it held becomes part of the one before">
-        <p>
-          Books put here still say they are here, so they turn up in books to
-          carry until you have moved them.
-        </p>
-      </Card>
+      <Card weight="quiet" kind="Taking this area away" title="What it held becomes part of the one before" />
     </Phone>
   )
 }
@@ -1596,10 +1500,6 @@ function AddArea(go: Go) {
       top={<TopBar title="Add an area" sub="Splitting 2 · Cookery" onBack={() => go('area')} />}
     >
       <Instruction>Where does the new area start?</Instruction>
-      <Said>
-        It starts at the book you pick, and everything from there on belongs to
-        it. That is the one thing an area is: the book its stretch begins at.
-      </Said>
 
       <Nest name="Bookcase 2" note="63 books" holds="Anything tagged Non-fiction">
         <AreaBox reads="2A" books={21} holds="Non-fiction starts here" />
@@ -1623,14 +1523,7 @@ function AddArea(go: Go) {
         <Row title="Salt Fat Acid Heat" sub="Nosrat, Samin" cloth="sun" onPress={() => {}} />
       </List>
 
-      <Card weight="sunk" kind="What it does" title="Cookery keeps 11 books, the new one takes 7">
-        <p>
-          The new one reads 2D, because it is fourth on this bookcase. Had
-          there been an area after it, that one would read 2E from today, and
-          every book on it would say 2E too: a label is worked out fresh each
-          time it is read rather than written down anywhere.
-        </p>
-      </Card>
+      <Card weight="sunk" kind="What it does" title="Cookery keeps 11 books, the new one takes 7" />
 
       <Button tone="primary" block onPress={() => go('area')}>
         Add the area
@@ -1660,19 +1553,8 @@ function Belongs(go: Go) {
           Add another thing that must be true
         </Button>
       </Card>
-      <Said>
-        Every line has to be true of a book before this rule takes it. If you
-        want one thing or the other, that is a second rule, and two rules you
-        can read beat one you cannot.
-      </Said>
 
       <Card kind="When two rules want the same book" title="The one about the smaller place wins">
-        <p>
-          Bookcase 2 has a rule of its own, and this one is about a single area
-          on it. A rule about one area beats a rule about a whole bookcase. Two
-          rules about the same place are read from the top, and the first one to
-          fit takes the book.
-        </p>
         <div className="wf-steps">
           <div className="wf-step">
             <span className="wf-step__n">1</span>
@@ -1690,17 +1572,11 @@ function Belongs(go: Go) {
         </Button>
       </Card>
 
-      <Card weight="quiet" kind="Claimed by nothing" title="Three books match no rule at all">
-        <p>
-          They stay where they are and the plan says so, rather than being filed
-          somewhere nobody asked for.
-        </p>
-      </Card>
+      <Card weight="quiet" kind="Claimed by nothing" title="Three books match no rule at all" />
 
       <Button tone="primary" block onPress={() => go('plan')}>
         Show me what would move
       </Button>
-      <Said>Nothing is written until you say so on the next screen.</Said>
     </Phone>
   )
 }
@@ -1712,13 +1588,7 @@ function Sorting(go: Go) {
       go={go}
       top={<TopBar title="How 2C is ordered" sub="Cookery" onBack={() => go('area')} />}
     >
-      <Card weight="sunk" kind="Right now" title="By the author’s surname">
-        <p>
-          2C takes its order from bookcase 2, and bookcase 2 takes it from the
-          whole library. Change it once there and everything that has not
-          chosen for itself changes with it.
-        </p>
-      </Card>
+      <Card weight="sunk" kind="Right now" title="By the author’s surname" />
 
       <Choice
         label="How 2C should be ordered"
@@ -1732,14 +1602,7 @@ function Sorting(go: Go) {
         ]}
       />
 
-      <Card kind="If you choose one here" title="2C becomes a place of its own">
-        <p>
-          Books stop flowing into it from the area before, because a stretch of
-          books can only carry on across two places if both are ordered the
-          same way. From then on 2C holds what its own rule sends it and
-          nothing else.
-        </p>
-      </Card>
+      <Card kind="If you choose one here" title="2C becomes a place of its own" />
 
       <Button tone="primary" block onPress={() => go('area')}>
         Save
@@ -1826,9 +1689,7 @@ function Carry(go: Go) {
         Start with the first one
       </Button>
 
-      <Card weight="quiet" kind="Not on this list" title="Two books are checked out">
-        <p>They are not on a bookcase, so there is nothing to disagree with.</p>
-      </Card>
+      <Card weight="quiet" kind="Not on this list" title="Two books are checked out" />
     </Phone>
   )
 }
@@ -1867,7 +1728,6 @@ function Move(go: Go) {
       <Button tone="primary" block onPress={() => go('plan')}>
         Show me the plan
       </Button>
-      <Said>Nothing is written until you say so.</Said>
     </Phone>
   )
 }
@@ -1909,15 +1769,6 @@ function Plan(go: Go) {
         </p>
       </Card>
 
-      {/* Not a caption: this is the difference between the plan and the
-          carrying, and it is the one thing somebody could get wrong here. */}
-      <Card weight="quiet">
-        <p>
-          This writes down where each book belongs. It does not move any book: they
-          move when you carry them.
-        </p>
-      </Card>
-
       <Button tone="primary" block onPress={() => go('carry')}>
         Apply it
       </Button>
@@ -1931,9 +1782,7 @@ function Plan(go: Go) {
 function Empty(go: Go) {
   return (
     <Phone tab="queue" go={go} top={<TopBar title="Queue" sub="Nothing on the table" />}>
-      <Nothing said="The table is clear.">
-        <p>Photograph a book and it turns up here.</p>
-      </Nothing>
+      <Nothing said="The table is clear." />
       <Button tone="primary" block onPress={() => go('camera')}>
         Open the camera
       </Button>
