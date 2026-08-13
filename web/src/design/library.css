@@ -512,12 +512,22 @@
   overflow: hidden;
 }
 
-/* A list inside a card is a well in that card, not a second card. Outlined,
-   it drew a border a few pixels inside another border and read as a box in a
-   box. Seen on the queue and on the first screen. */
+/*
+ * A list inside a card is a well in that card, not a second card. Outlined,
+ * it drew a border a few pixels inside another border and read as a box in a
+ * box. Seen on the queue and on the first screen.
+ *
+ * `--paper-well` rather than `--paper-sunk`: the owner read both screens and
+ * named it plainly, "the background on them is pretty harsh, it's pretty
+ * dark, I don't think it needs to be that dark." `--paper-sunk` is nearly the
+ * page's own colour at night, so the well read as a hole cut in the card
+ * rather than a shallow step down from it. This is the one place that shows,
+ * so this is the one place fixed, and every card with a list in it changes
+ * with it.
+ */
 .wf-card .wf-list {
   border-color: transparent;
-  background: var(--paper-sunk);
+  background: var(--paper-well);
   border-radius: var(--r-md);
 }
 

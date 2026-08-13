@@ -32,6 +32,15 @@
   --paper-raised: #fdf9f0;
   /* Sunk below the page: a well, a field, the inside of a slot. */
   --paper-sunk: #efe6d3;
+  /*
+   * A shallower well than `--paper-sunk`, for the one place a well sits
+   * inside a card rather than on the page: a list of books nested in a card,
+   * such as the stuck queue or a card on the first screen. The full sunk
+   * value read as a hole cut in the card, worst at night where it and the
+   * page were nearly the same colour, and the owner called it out on both
+   * screens: "the background on them is pretty harsh... pretty dark."
+   */
+  --paper-well: #f6f0e2;
 
   /* The plank a book stands on. Board, as in bookbinder's board. */
   --board: #e3d6be;
@@ -241,6 +250,7 @@
   --paper: #16120e;
   --paper-raised: #221b15;
   --paper-sunk: #100d0a;
+  --paper-well: #19140f;
 
   --board: #3a2d22;
   --board-edge: #57422f;
@@ -287,6 +297,7 @@
     --paper: #16120e;
     --paper-raised: #221b15;
     --paper-sunk: #100d0a;
+    --paper-well: #19140f;
 
     --board: #3a2d22;
     --board-edge: #57422f;
