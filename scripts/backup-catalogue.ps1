@@ -89,6 +89,16 @@ Write-Log "starting"
 
 # --- the connections, out of the encrypted file and nowhere else -----------
 
+# Windows PowerShell 5.1 and PowerShell 7 ship different copies of
+# Microsoft.PowerShell.Security, and their type data collides. If 5.1 runs with
+# a PSModulePath inherited from a PowerShell 7 parent it loads 7's copy, fails
+# with "The member AuditToString is already present", and ConvertTo-SecureString
+# then does not exist, which reads exactly like a DPAPI failure. The registered
+# task does not hit it, because the persisted PSModulePath holds only the
+# Windows PowerShell entries; running this by hand out of a pwsh session does.
+# Importing by $PSHOME asks the running host for its own copy. See #308.
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security') -ErrorAction Stop
+
 # Works on Windows PowerShell 5.1 as well as PowerShell 7. ConvertFrom-SecureString
 # -AsPlainText is 7-only, and install-backup-task.ps1 falls back to
 # powershell.exe on a machine without pwsh, so the task can be running either.
