@@ -1423,13 +1423,16 @@ function Where(go: Go) {
  * and `Confirmation`'s cat went with it: he sat over that sentence, and there
  * was nothing left for him to be pleased about once it was.
  *
- * That still left two cats on a shelf built to mark one book: the cat #288
- * put on the placed book, and the cat `Shelf` puts at the end of every run as
- * a bookend. The bookend is furniture, true of every shelf whether a book was
- * just placed on it or not; the marker is the one fact this screen exists to
- * show. So the bookend is the item dropped from this row, and only from this
- * one, because #288 already tried the ring and the bracket and rejected both,
- * and neither is a reason to leave the book unmarked here.
+ * That still left three cats: the loaf, the cat #288 put on the placed book,
+ * and the cat `Shelf` puts at the end of every run as a bookend. The loaf is
+ * the one that is gone: he sat over the deleted sentence and had nothing left
+ * to be pleased about once it was gone. The bookend stays. `Where`, the
+ * screen this one follows, draws the same 2C with the same bookend at the end
+ * of it; dropping it only here would have a bookend leave the shelf the
+ * moment a book is placed on it, which reads as the drawing losing furniture
+ * rather than as fewer cats. Two cats on this screen rather than one, but the
+ * count the owner objected to was three, and the fix is the loaf, not the
+ * bookend.
  *
  * `Confirmation` itself is untouched: `Carried`, the other screen that uses
  * it, still has a sentence to say and a cat to say it with, because nothing
@@ -1441,6 +1444,7 @@ function Done(go: Go) {
     ...spines(['Mantel, Hilary', 'Miéville, China']),
     { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', pages: 288, here: true },
     ...spines(['Mitchell, David', 'Morrison, Toni', 'Pratchett, Terry'], 3),
+    { kind: 'bookend' },
   ]
 
   return (
