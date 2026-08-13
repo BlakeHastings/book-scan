@@ -457,6 +457,85 @@ describe('a book wears its photographs rather than listing them', () => {
 })
 
 /**
+ * A spine is cropped to a spine, on every screen that draws or takes one.
+ *
+ * > In our current world, that is a cropped shot where we crop to the spine
+ * > shape. [...] Whenever we're on the spine shot, it should be a cropped shot
+ * > of the spine.
+ *
+ * and, on the review:
+ *
+ * > Once again, the spine is gonna be thin, so it may not need to take up all
+ * > that space right there.
+ *
+ * One fact behind both, `sliver` on the shot, so what is checked is that every
+ * screen reads it rather than that each one looks a particular way. The frame
+ * changes shape only when the spine is the photograph about to be taken, which
+ * is the half that would come back as a slot on every shot; and the review's
+ * spine wears the same marker its cropped drawing on the book page does, which
+ * is the half that would come back as a second treatment.
+ */
+describe('a spine is photographed and drawn in the shape of a spine', () => {
+  const drawn = (id: string) =>
+    renderToStaticMarkup(SCREENS.find((one) => one.id === id)!.render(() => {}))
+
+  it('frames the spine in a slot, and only when the spine is what is next', () => {
+    expect(drawn('spine'), 'the spine is framed like a cover').toMatch(
+      /wf-view__guide--slot/,
+    )
+    expect(drawn('camera'), 'every shot is framed like a spine').not.toMatch(
+      /wf-view__guide--slot/,
+    )
+  })
+
+  it('gives the spine a sliver of the review rather than a third of it', () => {
+    const markup = drawn('review')
+
+    expect(markup, 'the review draws no photographs').toMatch(/wf-shots--big/)
+    expect(markup, 'the review gives the spine a cover shape').toMatch(
+      /wf-shot--sliver/,
+    )
+    // One of the three, not all of them: a row of slivers is the same mistake
+    // in the other direction.
+    expect((markup.match(/wf-shot--sliver/g) ?? []).length).toBe(1)
+  })
+
+  it('keeps the way to take it again, which is what the sliver is', () => {
+    expect(drawn('review'), 'the review lost the retake').toMatch(/wf-shot__again/)
+  })
+})
+
+/**
+ * Thirteen digits are read off a book, not typed by somebody holding one.
+ *
+ * > On the ISBN, on the right side of it, we should show like a camera icon
+ * > for them to change the ISBN. They can click on that and it opens up to
+ * > scan the ISBN in the back of the book, like our current flow.
+ *
+ * The thing that would undo it is not somebody deleting the button; it is
+ * somebody adding a second field action with no accessible name, because the
+ * target carries an icon and no word. So the check is the general one: every
+ * action inside a field is named.
+ */
+describe('a field with another way to answer it says what that way is', () => {
+  it('is true of every screen that draws one, and the review draws one', () => {
+    let found = 0
+
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      for (const button of markup.match(/<button[^>]*wf-field__act[^>]*>/g) ?? []) {
+        found += 1
+        expect(button, `${screen.id} has an unnamed action in a field`).toMatch(
+          /aria-label="[^"]+"/,
+        )
+      }
+    }
+
+    expect(found, 'no field offers another way to answer it at all').toBeGreaterThan(0)
+  })
+})
+
+/**
  * The one thing on a shelf that is a claim about a physical object.
  *
  * A page count is thickness, so it decides width. Height is uniform unless a

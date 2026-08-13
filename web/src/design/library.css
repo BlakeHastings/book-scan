@@ -731,6 +731,44 @@
   white-space: nowrap;
 }
 .wf-field__box--empty { color: var(--ink-2); font-family: var(--face-ui); }
+/* The value, which is what truncates. It used to be the box, which cannot: a
+   flex container has nothing to put an ellipsis on. */
+.wf-field__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Another way to fill the field in, at the end of it. The target is 44 by 44,
+ * because it is pressed by somebody with a book in the other hand.
+ *
+ * The box gives up its own padding on three sides to make room for it rather
+ * than growing: with the padding left on, a 44px button inside a 44px minimum
+ * made this field eighteen pixels taller than every other field on the screen,
+ * and a stack of boxes where one is taller reads as one that is different. The
+ * value keeps its inset because the value is text; the button reaches the edge
+ * because a target that stops short of one is a target you can miss.
+ */
+.wf-field__box--acts {
+  padding-top: 0;
+  padding-right: 0;
+  padding-bottom: 0;
+}
+.wf-field__act {
+  flex: none;
+  align-self: stretch;
+  width: var(--tap);
+  min-height: var(--tap);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+}
+.wf-field__act:active { color: var(--ink); }
 
 /* --- The confirmation ---------------------------------------------------- */
 
@@ -821,6 +859,31 @@
   bottom: 28%;
   border: 1.5px solid var(--picture-line);
   border-radius: var(--r-lg);
+}
+
+/*
+ * The spine, which is not photographed in the shape a cover is.
+ *
+ * The app crops a spine photograph to the spine, so the frame is the crop: a
+ * tall thin slot you stand the book up inside. Percentages of the screen
+ * rather than a fixed width, because the picture is the screen and the slot
+ * has to stay a slot on a short phone and a long one alike. About one to five
+ * at 414 by 896, which is a paperback stood on end.
+ *
+ * A true crop is thinner than this and it is deliberately not drawn that way:
+ * the frame is what somebody aims a phone at with a book in the other hand, so
+ * it has to be wide enough to get a book into at arm's length. One to five is
+ * as narrow as it goes before it stops being a target.
+ *
+ * It goes higher and lower than the cover frame on purpose: a spine is the
+ * long dimension of a book, so the thing that limits it is the height of the
+ * screen, and it still clears the controls at the bottom.
+ */
+.wf-view__guide--slot {
+  left: 36%;
+  right: 36%;
+  top: 8%;
+  bottom: 22%;
 }
 
 /* Two floating targets, and neither of them is a bar: 44px each, on the
@@ -1628,11 +1691,23 @@
   /* Room under it for a scrollbar that is not an overlay. */
   padding-bottom: var(--s1);
 }
-/* Big enough to see that a photograph is blurred, which is the whole reason
-   the review screen shows them at all. */
+/*
+ * Big enough to see that a photograph is blurred, which is the whole reason
+ * the review screen shows them at all.
+ *
+ * Three equal columns, until the owner looked at one holding a spine:
+ *
+ * > Once again, the spine is gonna be thin, so it may not need to take up all
+ * > that space right there.
+ *
+ * A third of the screen is a cover's worth of room, and what goes in it is a
+ * sliver. So the row is flexible rather than equal: a cropped spine takes the
+ * width a cropped spine needs and the two covers divide what is left, which
+ * makes them bigger as well as making it honest.
+ */
 .wf-shots--big {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  align-items: flex-start;
   overflow: visible;
   padding-bottom: 0;
 }
@@ -1724,10 +1799,32 @@
 .wf-shots--picture .wf-shot--next .wf-shot__word,
 .wf-shots--picture .wf-shot__next { color: var(--picture-ink); }
 
-.wf-shots--big .wf-shot { width: 100%; }
+.wf-shots--big .wf-shot { flex: 1 1 0; width: auto; }
 .wf-shots--big .wf-shot__box { height: 132px; }
 .wf-shots--big .wf-shot__word { font-size: var(--size-small); }
 .wf-shots--big .wf-shot__again { font-size: var(--size-label); padding: var(--s1); }
+
+/*
+ * A cropped spine, sized like one. 44px is not a proportion, it is the tap
+ * minimum: this thumbnail is the button that takes the photograph again, and
+ * the owner kept that on purpose ("I do like the retake option"), so it cannot
+ * be narrowed to the tenth of a cover a true crop would be. Against 132px of
+ * height it still reads as a spine at a glance, and it gives the two covers
+ * beside it half the row each instead of a third.
+ */
+.wf-shots--big .wf-shot--sliver { flex: 0 0 var(--tap); }
+/* "Retake" in 44px. The big size is set for a box three times this wide. */
+.wf-shots--big .wf-shot--sliver .wf-shot__again {
+  font-size: var(--size-micro);
+  padding: 2px 0;
+}
+
+/* The curve of a spine, wherever one is drawn: the same cloth as the front,
+   turned away from the light. Without it a sliver is a narrow cover. Three
+   classes deep, so it beats the flat inset every taken photograph gets. */
+.wf-shot--sliver.wf-shot--taken .wf-shot__box {
+  box-shadow: inset -7px 0 9px rgba(0, 0, 0, 0.22);
+}
 
 /*
  * The photographs drawn as the book, at the top of a book's own page.
@@ -1764,11 +1861,9 @@
   width: 15px;
   border-radius: var(--r-sm) 0 0 var(--r-sm);
 }
-/* The curve of a spine: the same cloth as the front, turned away from the
-   light. Without it the sliver and the front are one flat rectangle. */
-.wf-shots--book .wf-shot--sliver.wf-shot--taken .wf-shot__box {
-  box-shadow: inset -7px 0 9px rgba(0, 0, 0, 0.22);
-}
+/* The curve of a spine is written once, above, for every screen that draws
+   one. It is what keeps the sliver and the front from reading as one flat
+   rectangle here. */
 .wf-shots--book .wf-shot--face .wf-shot__box {
   width: 110px;
   border-radius: 2px var(--r-sm) var(--r-sm) 2px;
