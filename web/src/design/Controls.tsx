@@ -142,21 +142,63 @@ export function Choice<T extends string>({
  * is wired to anything. The label sits above rather than inside, because a
  * placeholder that disappears when you type is a label you cannot check your
  * answer against.
+ *
+ * ## The second way to fill one in
+ *
+ * Some fields have an answer a keyboard is the worst way to give. Thirteen
+ * digits off the back of a book is the clearest of them, and the owner said
+ * where the way out of typing belongs:
+ *
+ * > On the ISBN, on the right side of it, we should show like a camera icon
+ * > for them to change the ISBN. They can click on that and it opens up to
+ * > scan the ISBN in the back of the book, like our current flow.
+ *
+ * So `action` is a target inside the box, at the end of it, carrying an icon
+ * and an accessible name and no word: there is no room for one beside a value
+ * and the box it sits in already says which field this is. It is deliberately
+ * general rather than a camera: the field does not know what scanning is, only
+ * that there is another way to answer it.
  */
 export function Field({
   label,
   value,
   placeholder,
+  action,
 }: {
   label: string
   value?: string
   placeholder?: string
+  /** Another way to fill this in, drawn at the end of the box. */
+  action?: {
+    /** What pressing it does. This target carries no word, so it needs one. */
+    name: string
+    icon: ReactNode
+    onPress?: () => void
+  }
 }) {
+  const marks = [
+    'wf-field__box',
+    value ? '' : 'wf-field__box--empty',
+    action ? 'wf-field__box--acts' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
     <div className="wf-field">
       <span className="wf-field__label">{label}</span>
-      <div className={`wf-field__box${value ? '' : ' wf-field__box--empty'}`}>
-        {value || placeholder}
+      <div className={marks}>
+        <span className="wf-field__value">{value || placeholder}</span>
+        {action && (
+          <button
+            type="button"
+            className="wf-field__act"
+            aria-label={action.name}
+            onClick={action.onPress}
+          >
+            {action.icon}
+          </button>
+        )}
       </div>
     </div>
   )

@@ -28,6 +28,9 @@
  *   that takes it again. A thumbnail somebody can see and cannot act on is
  *   half of what the owner asked for twice, so the camera and the review pass
  *   it and the book's page does not.
+ * - **What shape each one is.** A spine is cropped to a sliver, so a spine
+ *   drawn in a cover's rectangle is a drawing of a photograph the app does not
+ *   keep. `sliver` is that fact and every screen reads it.
  *
  * ## One marker class, stating presence
  *
@@ -73,13 +76,23 @@ export interface Shot {
   /** The one the shutter will fill next. Nothing marks it on a book's page. */
   next?: boolean
   /**
-   * Stands against the front rather than taking a turn behind it. The spine,
-   * and only in `mode="book"`; a rail draws it in its place like the rest.
+   * This photograph is cropped to the shape of a spine: a tall thin sliver
+   * rather than a rectangle the shape of a cover.
+   *
+   * One fact, read in three places, which is why it is not three flags. On a
+   * book's page it is what makes the spine stand against the front instead of
+   * taking a turn behind it. In a rail it is what stops a sliver being given a
+   * cover's worth of width. On the camera it is the shape of the viewfinder,
+   * because the frame somebody lines a book up inside should be the shape the
+   * photograph is going to be kept in.
+   *
+   * > Whenever we're on the spine shot, it should be a cropped shot of the
+   * > spine.
    *
    * A flag rather than matching on the word, because "Spine" is a label and a
    * label is the thing somebody rewrites without knowing what reads it.
    */
-  beside?: boolean
+  sliver?: boolean
   /** Where taking this one again goes. Only read when `act` is set. */
   onPress?: () => void
 }
@@ -131,6 +144,10 @@ export function Shots({
       {shots.map((shot) => {
         const marks = [
           'wf-shot',
+          // The same marker the book's page uses for the same fact, so a
+          // cropped spine is one class in one place rather than a second
+          // treatment invented per screen.
+          shot.sliver ? 'wf-shot--sliver' : '',
           shot.cloth ? 'wf-shot--taken' : '',
           shot.next ? 'wf-shot--next' : '',
         ]
@@ -196,8 +213,8 @@ export function Shots({
  * is empty. A dot that is not filled is a photograph nobody has taken.
  */
 function TheBook({ shots }: { shots: Shot[] }) {
-  const spine = shots.find((shot) => shot.beside)
-  const deck = shots.filter((shot) => !shot.beside)
+  const spine = shots.find((shot) => shot.sliver)
+  const deck = shots.filter((shot) => !shot.sliver)
   const front = deck[0]
 
   const shot = (one: Shot | undefined, where: string) => (

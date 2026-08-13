@@ -2,9 +2,16 @@
  * Every icon in the redesign, drawn inline.
  *
  * There are eight, and that is the whole set on purpose. An icon here exists
- * only where a word is already beside it (the tab bar) or where the target is
- * a corner of the screen: back, and the one action in the top right. Anywhere
- * else the answer in this app is the word itself.
+ * only where a word is already beside it (the tab bar), where the target is a
+ * corner of the screen (back, and the one action in the top right), or where
+ * the target sits inside a control that has no room for a word and is already
+ * labelled by it. Anywhere else the answer in this app is the word itself.
+ *
+ * The third of those is the camera at the end of the ISBN field, and it is the
+ * owner's: "on the right side of it, we should show like a camera icon for
+ * them to change the ISBN." The field's own label says what the value is, so
+ * the icon only has to say how else you can give one. It still carries an
+ * accessible name; see `Controls.tsx`.
  *
  * The top right used to be a word, and the owner asked for both of the words
  * that ever appeared there to become icons instead: "The find in the top right

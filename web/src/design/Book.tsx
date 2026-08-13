@@ -94,7 +94,7 @@ export function Head({
   title: string
   /** Credited as printed, which is not always what it files under. */
   by: string
-  /** Every photograph of this book. The one marked `beside` is the spine. */
+  /** Every photograph of this book. The one marked `sliver` is the spine. */
   shots: Shot[]
   /** One line each: publisher and year, the series, the ISBN. */
   facts: string[]

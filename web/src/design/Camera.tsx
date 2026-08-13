@@ -39,6 +39,28 @@
  * touch once. In the app it belongs beside the rest of the settings and this
  * is the wireframe standing in for one.
  *
+ * ## The frame is the shape of the photograph, not always a rectangle
+ *
+ * There was one guide on this screen, the same rounded rectangle whatever was
+ * being photographed, and the owner named what it should have been:
+ *
+ * > In our current world, that is a cropped shot where we crop to the spine
+ * > shape. The person can easily take the photo and fit it in. [...] Whenever
+ * > we're on the spine shot, it should be a cropped shot of the spine.
+ *
+ * The app crops a spine photograph to the spine. So the frame somebody lines a
+ * book up inside is the shape that will be kept: a tall thin slot on the
+ * spine, the cover's rectangle on a cover. Anything else asks a person to fill
+ * a box and then throws most of what they filled it with away.
+ *
+ * Which shape it is comes off the shot the shutter is about to take, by way of
+ * `sliver` on that shot, and not off its word. That is the same flag the book
+ * page reads to stand the spine against the front, so there is one fact about
+ * what a spine photograph is and three screens reading it.
+ *
+ * Nothing here is wired to a camera and the slot is not a crop: this is a
+ * wireframe and the frame is drawn.
+ *
  * ## One set of indicators
  *
  * `Shots` is that set, and it is the only one. It says which photographs
@@ -83,10 +105,17 @@ export function Viewfinder({
   const [hand, setHand] = useState<Hand>('right')
   const other: Hand = hand === 'right' ? 'left' : 'right'
 
+  /* The shape of the frame is the shape of the photograph about to be taken,
+     so it is read off the shot the shutter will fill and off nothing else. */
+  const taking = shots.find((shot) => shot.next)
+
   return (
     <div className="wf-view" data-hand={hand}>
       <div className="wf-view__picture" aria-hidden="true" />
-      <div className="wf-view__guide" aria-hidden="true" />
+      <div
+        className={`wf-view__guide${taking?.sliver ? ' wf-view__guide--slot' : ''}`}
+        aria-hidden="true"
+      />
 
       <button type="button" className="wf-view__leave" aria-label="Back" onClick={onLeave}>
         <IconBack />

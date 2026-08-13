@@ -44,7 +44,7 @@ import {
   TagPick,
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
-import { IconEdit, IconFind } from '../Icons'
+import { IconCamera, IconEdit, IconFind } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
@@ -592,7 +592,7 @@ function Book(go: Go) {
         by="Ursula K. Le Guin"
         shots={[
           { word: 'Front', cloth: 'plum' },
-          { word: 'Spine', cloth: 'plum', beside: true },
+          { word: 'Spine', cloth: 'plum', sliver: true },
           { word: 'Back', cloth: 'wood' },
           { word: 'Downloaded', cloth: 'sky' },
         ]}
@@ -690,7 +690,7 @@ function Thin(go: Go) {
         by="Ursula K. Le Guin"
         shots={[
           { word: 'Front' },
-          { word: 'Spine', cloth: 'wood', beside: true },
+          { word: 'Spine', cloth: 'wood', sliver: true },
           { word: 'Back' },
           { word: 'Downloaded' },
         ]}
@@ -1013,9 +1013,27 @@ function TagsScreen(go: Go) {
  */
 function shotsOf(go: Go): Shot[] {
   return [
-    { word: 'Spine', cloth: 'moss', onPress: () => go('camera') },
+    /* The spine is cropped to the spine, which is why it is drawn as a sliver
+       wherever it is drawn: thin in the strip, thin on the review, and a tall
+       thin slot in the viewfinder when it is the one being taken. */
+    { word: 'Spine', cloth: 'moss', sliver: true, onPress: () => go('spine') },
     { word: 'Front', cloth: 'wood', onPress: () => go('camera') },
     { word: 'Back', next: true, onPress: () => go('camera') },
+  ]
+}
+
+/**
+ * The same book at the start, with nothing photographed and the spine first.
+ *
+ * This exists so the slot-shaped frame can be looked at, which is the whole of
+ * what the owner asked to see: the camera above is one press from the end of
+ * the same book and its next photograph is the back.
+ */
+function spineFirst(go: Go): Shot[] {
+  return [
+    { word: 'Spine', next: true, sliver: true, onPress: () => go('spine') },
+    { word: 'Front', onPress: () => go('camera') },
+    { word: 'Back', onPress: () => go('camera') },
   ]
 }
 
@@ -1032,6 +1050,27 @@ function Camera(go: Go) {
     <div className="wf-screen wf-screen--camera">
       <Viewfinder
         shots={shotsOf(go)}
+        onLeave={() => go('home')}
+        onDone={() => go('review')}
+      />
+    </div>
+  )
+}
+
+/**
+ * The same camera, pointed at the spine, which is the shot the frame changes
+ * shape for.
+ *
+ * Nothing about this screen is a second camera: it is `Viewfinder` with a
+ * different list of photographs, and the tall thin slot comes off the one the
+ * shutter is about to take. That is the point of drawing it twice rather than
+ * describing it once.
+ */
+function SpineShot(go: Go) {
+  return (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={spineFirst(go)}
         onLeave={() => go('home')}
         onDone={() => go('review')}
       />
@@ -1062,8 +1101,23 @@ function Review(go: Go) {
       {/*
         The ISBN, which could not be corrected here at all. It leads, because
         it is the one field that decides what every other field says.
+
+        The way to correct it is a camera rather than a keyboard, which is the
+        owner's: "on the right side of it, we should show like a camera icon
+        [...] it opens up to scan the ISBN in the back of the book, like our
+        current flow." Thirteen digits typed off a book by somebody holding the
+        book is the slowest and least reliable way to answer this, and the
+        barcode is on the back, so pressing it goes to the camera.
       */}
-      <Field label="ISBN" value="9780571224142" />
+      <Field
+        label="ISBN"
+        value="9780571224142"
+        action={{
+          name: 'Read the barcode on the back instead',
+          icon: <IconCamera size={20} />,
+          onPress: () => go('camera'),
+        }}
+      />
 
       <Field label="Title" value="Never Let Me Go" />
       <Field label="Author" value="Kazuo Ishiguro" />
@@ -2019,6 +2073,7 @@ export const SCREENS: Screen[] = [
   { id: 'findtag', name: 'Typing a tag', group: 'Finding a book', render: FindTag },
   { id: 'findnone', name: 'Nothing matches', group: 'Finding a book', render: FindNone },
   { id: 'tags', name: 'All twenty-three tags', group: 'Finding a book', render: TagsScreen },
+  { id: 'spine', name: 'Framing the spine', group: 'Cataloguing', render: SpineShot },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
   { id: 'where', name: 'Where it goes', group: 'Cataloguing', render: Where },
