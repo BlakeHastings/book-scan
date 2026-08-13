@@ -158,10 +158,37 @@ launch line for a revision that is not this one. What the server needs now is
 the connection, `ConnectionStrings__bookscan`, and `BOOKSCAN_DATA` for the
 cover photographs, which are still files.
 
-**No launch line is written here, because none has been run since the move.**
-This file has four times asserted something the code did not do, and a command
-nobody has executed is a guess with formatting. What settles it is one command
-against the running server, which reports the database it opened:
+**How it is launched, which was unrecorded until 2026-08-12 and is now settled
+by having been run.**
+
+It runs as a Windows scheduled task, `book-scan stable server`, at logon and on
+demand:
+
+```
+Start-ScheduledTask -TaskName 'book-scan stable server'
+Stop-ScheduledTask  -TaskName 'book-scan stable server'
+```
+
+The task runs `C:\Users\Blake\book-scan-production-data\run-stable.cmd`, which
+sets `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` and runs `npm run dev`.
+**That file holds no secret**: it reads the connection out of the environment
+variable that already has it.
+
+**A scheduled task and not a background process, because the alternatives were
+tried and died.** `Start-Process` and a WMI `Win32_Process.Create` both leave
+the server in the launching shell's console group, so it takes a `CTRL_C_EVENT`
+and exits `3221225786` the moment that session ends. The log said so plainly:
+the server started, served, and then took a `^C`. Task Scheduler runs it in its
+own session, and the process chain ends at `services.exe` rather than at a
+shell, which is the thing to check if it dies again.
+
+**Stop the server before `npm ci` in that checkout.** Installing while it holds
+`node_modules` half-deletes the tree and the server then cannot start at all.
+Check whether an install is needed first: a change that touches no dependency
+does not need one, and most do not.
+
+**And a command nobody has executed is still a guess with formatting.** What
+settles which catalogue it opened is one command against the running server:
 
 ```
 curl http://127.0.0.1:3001/api/health
