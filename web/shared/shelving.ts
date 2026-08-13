@@ -242,6 +242,16 @@ export interface Neighbour {
   id: number
   title: string
   authorFiling: string
+  /**
+   * The printed string this book carries, `books.authors` unjoined.
+   *
+   * The filing name comes from a credit row, and a book can be missing one: a
+   * queued book that has not been credited yet, or a save whose credit write
+   * did not land. `authorFiling` is then empty, and this is what `describe`
+   * falls back to before it says nobody knows, because the book still carries
+   * a name a person can read even when nothing has been filed against it.
+   */
+  authors: string
   location: string
   sortKey: string
   /**
@@ -413,8 +423,29 @@ const RANGE_LABEL: Record<ShelfRange, string> = {
   nonfiction: 'non-fiction',
 }
 
+/**
+ * The best name to show for a book when nothing is to be invented: the filing
+ * name if there is one, the string the book itself carries otherwise, and
+ * empty only when neither exists.
+ *
+ * One function for every place that asks this question: `describe` below,
+ * the misfile instruction in `reviewShelving`, and the needs-attention row
+ * `ShelfView` draws from a `Misfile` directly rather than from its
+ * `instruction` string. All three used to stop at `authorFiling`, which is
+ * empty for a book with no credit even though `books.authors` still holds
+ * what was printed, so all three said nobody was known about a book that
+ * named its own author on the cover (#195 found the same gap in the
+ * needs-attention list once before, for a different reason). Each caller
+ * still decides what to say when even this comes up empty, because "Unknown
+ * author" and "unknown author" are two different sentences to two different
+ * readers.
+ */
+export function bestKnownAuthor(authorFiling: string, authors: string): string {
+  return authorFiling || authors.trim()
+}
+
 function describe(neighbour: Neighbour): string {
-  const author = neighbour.authorFiling || 'Unknown author'
+  const author = bestKnownAuthor(neighbour.authorFiling, neighbour.authors) || 'Unknown author'
   return `${neighbour.title} (${author})`
 }
 
@@ -514,6 +545,8 @@ export interface FiledBook {
   id: number
   title: string
   authorFiling: string
+  /** The printed string this book carries. See `Neighbour.authors`. */
+  authors: string
   /**
    * Where a person last said this book physically is.
    *
@@ -646,7 +679,7 @@ export function reviewShelving(books: FiledBook[]): ShelvingReview {
       from,
       to,
       instruction:
-        `${book.title} (${book.authorFiling || 'unknown author'}) is at ` +
+        `${book.title} (${bestKnownAuthor(book.authorFiling, book.authors) || 'unknown author'}) is at ` +
         `${from} and belongs at ${to}.`,
     })
   }

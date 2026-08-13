@@ -190,7 +190,7 @@ describe('parseLocation and compareLocations', () => {
 
 describe('buildPlacement', () => {
   const neighbour = (id: number, title: string, location: string): Neighbour => ({
-    id, title, authorFiling: `Author ${id}`, location, sortKey: String(id),
+    id, title, authorFiling: `Author ${id}`, authors: '', location, sortKey: String(id),
     images: { front: '', back: '', edge: '' },
   })
 
@@ -225,11 +225,33 @@ describe('buildPlacement', () => {
     expect(buildPlacement('fiction', neighbour(1, 'A', '3B'), null, '1A').kind)
       .toBe('end-of-range')
   })
+
+  it('falls back to the printed authors string when a neighbour has no filing name', () => {
+    // A book with no author_author credit still carries books.authors, which
+    // is a name a person can read. Saying nobody is known is only honest once
+    // that is checked too. See #235.
+    const uncredited: Neighbour = {
+      id: 2, title: 'Beta', authorFiling: '', authors: 'J. R. R. Tolkien',
+      location: '1A', sortKey: '2', images: { front: '', back: '', edge: '' },
+    }
+    const result = buildPlacement('fiction', neighbour(1, 'Alpha', '1A'), uncredited, '1A')
+    expect(result.instruction).toContain('J. R. R. Tolkien')
+    expect(result.instruction).not.toContain('Unknown author')
+  })
+
+  it('says "Unknown author" only once neither name is available', () => {
+    const nameless: Neighbour = {
+      id: 2, title: 'Beta', authorFiling: '', authors: '',
+      location: '1A', sortKey: '2', images: { front: '', back: '', edge: '' },
+    }
+    const result = buildPlacement('fiction', neighbour(1, 'Alpha', '1A'), nameless, '1A')
+    expect(result.instruction).toContain('Unknown author')
+  })
 })
 
 describe('shelfPhoto', () => {
   const withImages = (images: { front: string; back: string; edge: string }): Neighbour => ({
-    id: 1, title: 'T', authorFiling: 'A', location: '1A', sortKey: '1', images,
+    id: 1, title: 'T', authorFiling: 'A', authors: '', location: '1A', sortKey: '1', images,
   })
 
   it('prefers the spine, which is what you see on a shelf', () => {
@@ -363,6 +385,7 @@ describe('reviewShelving', () => {
     id,
     title: `Book ${id}`,
     authorFiling: `Author, A${id}`,
+    authors: '',
     location,
     derivedLocation,
     sortKey: String(id).padStart(3, '0'),
@@ -388,6 +411,23 @@ describe('reviewShelving', () => {
     expect(review.misfiles[0]).toMatchObject({ from: '3C', to: '1A' })
     expect(review.misfiles[0]!.instruction).toContain('3C')
     expect(review.misfiles[0]!.instruction).toContain('1A')
+  })
+
+  it('falls back to the printed authors string when a book has no filing name', () => {
+    // Same fallback as buildPlacement's instruction, and the same reason: an
+    // empty author_filing does not mean nothing is known. See #235.
+    const review = reviewShelving([
+      book(1, '3C', '1A', { authorFiling: '', authors: 'Ursula K. Le Guin' }),
+    ])
+    expect(review.misfiles[0]!.instruction).toContain('Ursula K. Le Guin')
+    expect(review.misfiles[0]!.instruction).not.toContain('unknown author')
+  })
+
+  it('says "unknown author" only once neither name is available', () => {
+    const review = reviewShelving([
+      book(1, '3C', '1A', { authorFiling: '', authors: '' }),
+    ])
+    expect(review.misfiles[0]!.instruction).toContain('unknown author')
   })
 
   it('blames the stray book rather than its innocent neighbour', () => {
@@ -453,7 +493,7 @@ describe('reviewShelving', () => {
 
 describe('shelfPhotoSlot', () => {
   const withImages = (images: { front: string; back: string; edge: string }): Neighbour => ({
-    id: 1, title: 'T', authorFiling: 'A', location: '1A', sortKey: '1', images,
+    id: 1, title: 'T', authorFiling: 'A', authors: '', location: '1A', sortKey: '1', images,
   })
 
   it('reports which photo shelfPhoto chose, so it can be framed for that side', () => {

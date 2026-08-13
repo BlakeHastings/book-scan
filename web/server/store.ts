@@ -307,6 +307,7 @@ export class Store {
       id: row.id,
       title: row.title,
       authorFiling: row.author_filing,
+      authors: row.authors,
       location: row.location,
       sortKey: row.sort_key,
       images: {

@@ -15,6 +15,7 @@ const flagged = (id: number, from: string, to: string): Misfile => ({
     id,
     title: `Book ${id}`,
     authorFiling: 'Herbert, Frank',
+    authors: 'Frank Herbert',
     location: from,
     derivedLocation: to,
     sortKey: `herbert frank book ${id}`,
