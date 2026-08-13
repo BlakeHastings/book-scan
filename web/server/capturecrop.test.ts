@@ -64,6 +64,14 @@ async function photograph(seed = 1): Promise<Buffer> {
   return scene.image
 }
 
+/** A photograph the reader made nothing of, which is every front cover here. */
+function readNothing() {
+  return {
+    isbn13: '', isbn10: '', source: '' as const, barcodes: [], titleGuess: '',
+    coverLines: [], isbnCandidates: [], text: '', notes: [],
+  }
+}
+
 /** A frame with nothing in it: no book to crop and no detail to hash. */
 async function blank(): Promise<Buffer> {
   return sharp({ create: { width: 400, height: 500, channels: 3, background: '#6b6b6b' } })
@@ -251,17 +259,26 @@ describe('the worker does it, so nobody waits', () => {
     })
     const io = memory({ 'p_front.jpg': await photograph(11) })
     const orphaned: string[][] = []
-    /** The discard, fired at the worst possible moment: mid-write. */
-    let discard: (() => void) | null = null
+    /**
+     * The discard, fired at the worst possible moment: mid-write.
+     *
+     * Awaited by the writer rather than floated, so the swipe has landed by the
+     * time the pass looks at the state. Floating it left the outcome to
+     * whatever else the pass happened to await next, which is how much work
+     * this test is not about: it passed while the hash came after the crops and
+     * stopped passing when it came before them, without the window it is about
+     * having changed at all.
+     */
+    let discard: (() => Promise<void>) | null = null
 
     const queue = new CaptureQueue(db, (name) => io.files[name] ?? null, {}, {
       read: io.read,
-      write: (name, data) => { io.write(name, data); discard?.() },
+      write: async (name, data) => { io.write(name, data); await discard?.() },
       orphaned: (names) => { orphaned.push(names) },
     })
 
     const capture = await queue.attach(null, 'front', 'p_front.jpg')
-    discard = () => { void queue.discard(capture.id) }
+    discard = () => queue.discard(capture.id)
     await queue.drain()
 
     // The row is still there. A discard is a state now, not a delete (#183),
@@ -343,6 +360,98 @@ describe('backfilling the captures already queued', () => {
     expect(report.failed).toBe(2) // once for the crop, once for the hash
     expect(report.failures.map((failure) => failure.image)).toEqual(['nowhere.jpg', 'nowhere.jpg'])
   })
+})
+
+/**
+ * The hash is what stops the catalogue growing a second copy of a book (#237),
+ * so the ways it can fail to be written are the subject here rather than a
+ * detail of the pass that writes it.
+ *
+ * Every test below makes the hash fail on purpose, in a way that had left the
+ * capture with an empty hash forever: nothing retried it, nothing said so, and
+ * `waiting()` leaves an unhashed capture out, so holding the book up again
+ * found nothing at all.
+ */
+describe('a capture is hashed whatever else goes wrong', () => {
+  /** A shape the queue is happy to write crops to, and this one refuses. */
+  function cropsFailing(files: Record<string, Buffer>) {
+    return {
+      read: (name: string) => {
+        const found = files[name]
+        if (!found) throw new Error(`no such file: ${name}`)
+        return found
+      },
+      write: () => { throw new Error('the disk is full') },
+    }
+  }
+
+  it('is hashed even when writing the crop throws', async () => {
+    vi.mocked(identify).mockResolvedValue(readNothing())
+    const files = { 'q_front.jpg': await photograph(12) }
+    const queue = new CaptureQueue(
+      db, (name) => files[name as keyof typeof files] ?? null, {}, cropsFailing(files),
+    )
+
+    const capture = await queue.attach(null, 'front', 'q_front.jpg')
+    await queue.drain()
+
+    // The crop is gone, which is what a failing detector costs and all it
+    // should cost: the crop is decoration, the hash is the duplicate check.
+    const row = (await queue.get(capture.id))!
+    expect(row.front_crop).toBe('')
+    expect(row.front_hash).not.toBe('')
+
+    // And the capture is offered to the next person holding the same book up.
+    expect((await queue.waiting()).map((one) => one.id)).toEqual([capture.id])
+  }, 30_000)
+
+  it('is hashed without waiting for a reading that never comes back', async () => {
+    // A reading that hangs is not hypothetical: `identify` serialises every
+    // caller onto one promise chain and downloads its language data on first
+    // use, so one stall holds up every capture behind it for the life of the
+    // process. The hash must not be behind it.
+    vi.mocked(identify).mockReturnValue(new Promise(() => {}))
+    const io = memory({ 'r_front.jpg': await photograph(13) })
+    const queue = new CaptureQueue(db, (name) => io.files[name] ?? null, {}, io)
+
+    const capture = await queue.attach(null, 'front', 'r_front.jpg')
+    // The two things POST /api/captures fires and does not await. The reading
+    // never finishes; the hash does not care.
+    void queue.drain()
+    expect(await queue.hashFrontOf(capture.id)).toBe('written')
+
+    const row = (await queue.get(capture.id))!
+    expect(row.status).toBe('pending')
+    expect(row.front_hash).not.toBe('')
+    expect((await queue.waiting()).map((one) => one.id)).toEqual([capture.id])
+  }, 30_000)
+
+  it('sweeps up the captures a stopped server never got to', async () => {
+    vi.mocked(identify).mockResolvedValue(readNothing())
+    const io = memory({ 's_front.jpg': await photograph(14), 't_front.jpg': await blank() })
+
+    // Photographed by a server that died before it hashed anything, which is
+    // what `add` leaves behind: rows with photographs and no hash.
+    const cold = new CaptureQueue(db, () => null)
+    const good = await cold.add({ front: 's_front.jpg' })
+    const flat = await cold.add({ front: 't_front.jpg' })
+    expect((await cold.unhashed()).map((one) => one.id)).toEqual([good.id, flat.id])
+
+    const queue = new CaptureQueue(db, (name) => io.files[name] ?? null, {}, io)
+    const sweep = await queue.hashQueued()
+
+    // One hashed, one refused because there is no detail in it to hash. A
+    // refusal is counted and named rather than stored as a number that would
+    // go on to be compared against somebody's book.
+    expect(sweep).toEqual({ looked: 2, written: 1, refused: 1, unreadable: 0 })
+    expect((await queue.get(good.id))!.front_hash).not.toBe('')
+    expect((await queue.get(flat.id))!.front_hash).toBe('')
+
+    // Resumable: the second sweep has only the one it can never hash left.
+    expect(await queue.hashQueued()).toEqual({
+      looked: 1, written: 0, refused: 1, unreadable: 0,
+    })
+  }, 60_000)
 })
 
 describe("a capture's crop is a file the catalogue owns", () => {

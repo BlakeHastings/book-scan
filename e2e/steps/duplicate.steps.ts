@@ -13,11 +13,18 @@
  * book already and has not shelved it yet.
  *
  * The one wait that is not a wait on the screen is the hash. A capture is
- * accepted the moment its photographs exist and read afterwards, and the hash
- * is written after the reading, so a scenario that photographed a book a
- * moment ago and scanned it straight away would be racing the background pass
- * rather than testing anything. Waiting for the column is waiting for the
- * thing the answer actually depends on.
+ * accepted the moment its photographs exist and read afterwards, so a scenario
+ * that photographed a book a moment ago and scanned it straight away would be
+ * racing a background job rather than testing anything. Waiting for the column
+ * is waiting for the thing the answer actually depends on.
+ *
+ * That job is no longer the one that reads the photographs (#294). The hash
+ * used to be written by the same serial pass, after the reading, which put a
+ * few milliseconds of local work behind OCR and a catalogue lookup and every
+ * capture queued in front of this one; a reading that hung meant a hash that
+ * never arrived, and this wait timing out is how that showed. It is now its
+ * own job, fired beside the reading and sharing nothing with it, so what this
+ * waits on is a file being read and a number being computed.
  */
 
 import { expect } from '@playwright/test'
@@ -25,7 +32,12 @@ import { expect } from '@playwright/test'
 import { Given, Then, When } from './fixtures.js'
 import { BOOK_IN_HAND } from '../support/books.js'
 
-/** The background pass reads the photographs first, then hashes. Seconds. */
+/**
+ * The panels below wait on the background pass that reads the photographs,
+ * which is OCR and a catalogue lookup: seconds, not milliseconds. Generous
+ * rather than tight on purpose, because a wait that is only just long enough
+ * is a flake waiting for a slow machine.
+ */
 const QUEUE_TIMEOUT = 90 * 1000
 
 /**
@@ -65,8 +77,8 @@ When('I send it to the queue', async ({ page, catalogue }) => {
   await page.locator('button.cam__next').click()
 
   // The hash, not the status. See the note at the top of this file: the two
-  // are written by the same background pass, in that order, and it is the
-  // hash the scan below depends on.
+  // are written by two background jobs that do not wait on each other, and it
+  // is the hash the scan below depends on.
   await expect
     .poll(
       async () => (await catalogue.captures())[0]?.front_hash ?? '',

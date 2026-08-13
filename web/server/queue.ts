@@ -36,7 +36,10 @@
 import type { Db } from './driver'
 import { identify } from './identify'
 import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
-import { deriveCapture, type DerivableCapture } from './capturecrop'
+import {
+  deriveCapture, hashFront, hashQueuedFronts,
+  type DerivableCapture, type HashOutcome, type HashSweep,
+} from './capturecrop'
 import { type CropIo, type CropSlot } from './crop'
 import {
   PHOTO_SLOTS, photographTaken, recordCrop, recordFrontHash,
@@ -297,6 +300,8 @@ export function editsOn(capture: Pick<CaptureRow, 'edit_json'>): CaptureEdit {
 
 export class CaptureQueue {
   private draining = false
+  private hashing = false
+  private hashAgain = false
 
   constructor(
     private readonly db: Db,
@@ -851,13 +856,109 @@ export class CaptureQueue {
   }
 
   /**
+   * Captures still in the queue whose front photograph carries no hash.
+   *
+   * The complement of the `front_hash != ''` filter in `waiting` above, and it
+   * is the same fact read from the other end: exactly the captures a book held
+   * up to the camera cannot be matched against yet. `current_photograph`
+   * because a re-shot front is a new photograph with no hash of its own, so
+   * re-taking a slot puts the capture back in here, which is right.
+   */
+  async unhashed(): Promise<CaptureRow[]> {
+    return queueRows(this.db, await this.db.all<QueueProjection>(
+      `SELECT ${QUEUE_ROW} FROM queued_books b
+        WHERE EXISTS (
+                SELECT 1 FROM current_photograph c
+                 WHERE c.book_id = b.id AND c.kind = 'front'
+                   AND c.file != '' AND c.hash = '')
+        ORDER BY id`,
+    ))
+  }
+
+  /**
+   * Hash one capture's front photograph, and nothing else.
+   *
+   * **Deliberately not part of the drain, and that is the whole of #294.** The
+   * hash used to be written only by `derive` below, on the same serial pass
+   * that reads the photographs and after it, so it sat behind OCR, a catalogue
+   * lookup and every capture already in front of this one. A reading that is
+   * slow costs the hash the same wait; a reading that never comes back costs it
+   * altogether, and `identify` serialises every caller in the process onto one
+   * promise chain, so one stall is enough. Ninety seconds of waiting in the
+   * browser suite was that, and on a phone it is a book scanned twice with
+   * nothing said.
+   *
+   * So `POST /api/captures` fires this beside the drain rather than through it.
+   * It reads one file and computes one hash, which is milliseconds and no
+   * network at all, and it shares nothing with the worker: a wedged queue
+   * cannot stop a capture being recognisable.
+   *
+   * Idempotent, and cheap when there is nothing to do: a capture already
+   * hashed answers `kept` without reading anything.
+   */
+  async hashFrontOf(id: number): Promise<HashOutcome> {
+    const images = this.images
+    if (!images) return 'absent'
+    const capture = await this.get(id)
+    if (!capture) return 'absent'
+    return hashFront(this, capture, images, { apply: true, force: false })
+  }
+
+  /**
+   * Hash every queued capture that has a front photograph and no hash on it.
+   *
+   * The other half of #294: a capture that missed its hash used to stay
+   * unhashed for as long as it stayed in the queue, because the one pass that
+   * wrote one ran once and nothing ever looked again. This is what looks again.
+   * `resumeOnStartup` runs it, so a server that was stopped mid-flight, or one
+   * running a build where the hash never landed, repairs what it finds instead
+   * of carrying it.
+   *
+   * Guarded like `drain`, and with the same care about the guard: a call that
+   * arrives while a sweep is running is not dropped, it asks for another lap.
+   * Without that a capture photographed in the window between this sweep's
+   * query and the flag being cleared would be waited on by nobody.
+   */
+  async hashQueued(): Promise<HashSweep> {
+    const images = this.images
+    const nothing: HashSweep = { looked: 0, written: 0, refused: 0, unreadable: 0 }
+    if (!images) return nothing
+
+    if (this.hashing) {
+      this.hashAgain = true
+      return nothing
+    }
+
+    this.hashing = true
+    const total = { ...nothing }
+    try {
+      do {
+        this.hashAgain = false
+        const lap = await hashQueuedFronts(this, images)
+        total.looked += lap.looked
+        total.written += lap.written
+        total.refused += lap.refused
+        total.unreadable += lap.unreadable
+      } while (this.hashAgain)
+    } finally {
+      this.hashing = false
+    }
+    return total
+  }
+
+  /**
    * Cut this capture's photographs to the book and hash its front.
    *
    * Called from the drain loop, so it happens on the same background pass that
    * reads the photographs and nobody waits for it. Failure is silent on
    * purpose: these are derived and disposable, a capture with none is a
-   * capture shown whole and unmatched, and nothing about the identification it
-   * followed should be disturbed by a detector having a bad day.
+   * capture shown whole, and nothing about the identification it followed
+   * should be disturbed by a detector having a bad day.
+   *
+   * The hash is no longer among the things that may be lost this way. It is
+   * written by `hashFrontOf` above, off this pass entirely, and `deriveCapture`
+   * now takes it before the crops rather than after them, so what this
+   * swallows is a crop and only a crop.
    */
   private async derive(id: number): Promise<void> {
     const images = this.images
@@ -1176,16 +1277,25 @@ export class CaptureQueue {
   /**
    * Anything left 'pending' when the server stopped will never be picked up
    * otherwise, since the worker only runs in memory.
+   *
+   * The hash sweep goes first and is awaited, because it is the half that
+   * repairs rather than the half that reads: it is bounded by how many queued
+   * captures have no hash, which is normally none, where the drain behind it
+   * is OCR and lookups and can take as long as the queue is deep. A capture
+   * left unhashed by a process that stopped mid-flight is recognisable again
+   * within a second of the next one starting, rather than after every book in
+   * front of it has been read (#294).
    */
-  resumeOnStartup(): Promise<void> {
-    // Deliberately not awaited and deliberately not async: the server must
-    // finish starting whatever the queue is doing. `drain` guards itself
-    // against a second pass, so this cannot overlap a drain a shutter starts.
+  async resumeOnStartup(): Promise<void> {
+    // Deliberately not awaited by the caller: the server must finish starting
+    // whatever the queue is doing. Both halves guard themselves against a
+    // second pass, so neither can overlap one a shutter starts.
     //
     // Returned rather than voided (#203). Handing the promise back does not
     // make the caller wait for it, and it is what lets the caller own how it
     // fails: `void` here meant a database that hiccupped during the resume
     // ended the process, the same defect as the chain after a save.
-    return this.drain()
+    await this.hashQueued()
+    await this.drain()
   }
 }
