@@ -1064,14 +1064,54 @@
 
 /* --- The carry list and the plan ------------------------------------------ */
 
+/* The two ends of a carry: the area a book comes off, the word "to", and the
+   area it goes on. Never an arrow. Every arrow lives in the block this design
+   system refuses outright, and the word reads aloud where a glyph does not. */
 .wf-move {
-  display: grid;
-  grid-template-columns: auto auto auto;
+  display: inline-flex;
   align-items: center;
-  justify-content: start;
   gap: var(--s2);
+  min-width: 0;
+}
+.wf-move__to { font-size: var(--size-small); color: var(--ink-2); }
+
+/*
+ * One trip: everything leaving one area for one other.
+ *
+ * The unit a person acts on, so it is the target: a whole row, the full width,
+ * taller than a thumb. A list of fifty books would be fifty walks; five of
+ * these is five.
+ */
+.wf-trips { display: grid; gap: var(--s2); }
+
+.wf-trip {
+  display: grid;
+  gap: var(--s1);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s3) var(--s4);
+  text-align: left;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--lift-1);
+}
+.wf-trip:active { background: var(--paper-sunk); }
+.wf-trip:focus-visible { outline: none; box-shadow: var(--focus); }
+
+.wf-trip__line { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.wf-trip__line > svg { flex: none; color: var(--ink-2); }
+.wf-trip__count {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+.wf-trip__note {
   font-size: var(--size-small);
   color: var(--ink-2);
+  min-width: 0;
 }
 
 .wf-steps { display: grid; gap: var(--s2); }

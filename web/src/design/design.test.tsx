@@ -943,6 +943,43 @@ describe('removing an area explains itself before it happens', () => {
   })
 })
 
+/**
+ * A book a rule change displaced is put back by the screen a new book is put
+ * back by.
+ *
+ * > There needs to be a flow inside the application to look at all those books
+ * > that are marked as needing to be moved and be able to go through and
+ * > reshelve each one [...] the same way as whenever we're initially shelving
+ * > them.
+ *
+ * The owner has said twice that he likes the where-it-goes screen, and #291
+ * asks for it rather than for a second one. `screens.tsx` obeys that
+ * structurally, with one `Placing` called by both, and the way that comes apart
+ * is somebody hand-building the carry version to add one thing to it: a
+ * heading, a count, a button above the drawing. Then the two drift for a year.
+ *
+ * So this pins the shape rather than the call: the sentence naming the
+ * neighbours, the area drawn with the gap in it, the book in the hand, and the
+ * answer, in that order, on both. Anything that reorders or drops one of the
+ * four is a second implementation whatever it is spelled as.
+ */
+describe('a carried book is placed by the screen a new book is placed by', () => {
+  const marks = ['wf-instruction', 'wf-gap', 'wf-shelf__inhand', 'wf-btn--primary']
+
+  it('draws the same four things in the same order on both', () => {
+    for (const id of ['where', 'carrying']) {
+      const screen = SCREENS.find((one) => one.id === id)
+      expect(screen, `there is no screen called "${id}"`).toBeDefined()
+
+      const markup = renderToStaticMarkup(screen!.render(() => {}))
+      const at = marks.map((mark) => markup.indexOf(mark))
+
+      expect(at, `${id} is missing one of ${marks.join(', ')}`).not.toContain(-1)
+      expect([...at].sort((a, b) => a - b), `${id} draws them in another order`).toEqual(at)
+    }
+  })
+})
+
 describe('the gallery', () => {
   it('renders every screen to markup', () => {
     for (const screen of SCREENS) {
