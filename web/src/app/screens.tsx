@@ -7,10 +7,15 @@
  * value read by six conditionals inside one 1,859 line component, and every
  * new screen was an edit to the same few lines of it.
  *
- * `chrome` says whether the screen wears the header and the tabs. Three
- * screens do not: the two cameras, which are full-screen and behind which the
- * page must not scroll, and the first screen, which wears the design system's
- * own top bar and tab bar since #303.
+ * `chrome` says whether the screen wears the header and the tabs. The two
+ * cameras do not, because they are full-screen and the page must not scroll
+ * behind them, and neither do the screens drawn with the design system, which
+ * bring their own top bar and four-place tab bar: the first screen since #303,
+ * the furniture since #313, and the carry flow since #314.
+ *
+ * **`carrying` is the exception in that flow, and deliberately.** It is the
+ * where-it-goes screen a newly scanned book gets, called rather than copied, so
+ * it wears whatever that screen wears. See `CarryingScreen`.
  */
 
 import type { ComponentType } from 'react'
@@ -20,6 +25,10 @@ import { AreaScreen } from '../screens/AreaScreen'
 import { ArrangeScreen } from '../screens/ArrangeScreen'
 import { BelongsScreen } from '../screens/BelongsScreen'
 import { CaptureScreen } from '../screens/CaptureScreen'
+import { CarriedScreen } from '../screens/CarriedScreen'
+import { CarryScreen } from '../screens/CarryScreen'
+import { CarryStaleScreen } from '../screens/CarryStaleScreen'
+import { CarryingScreen } from '../screens/CarryingScreen'
 import { FixtureScreen } from '../screens/FixtureScreen'
 import { FurnitureScreen } from '../screens/FurnitureScreen'
 import { HomeScreen } from '../screens/HomeScreen'
@@ -29,6 +38,7 @@ import { ReviewScreen } from '../screens/ReviewScreen'
 import { ScanScreen } from '../screens/ScanScreen'
 import { ShelveScreen } from '../screens/ShelveScreen'
 import { SortingScreen } from '../screens/SortingScreen'
+import { TripScreen } from '../screens/TripScreen'
 
 export interface ScreenEntry {
   readonly view: ComponentType
@@ -57,4 +67,11 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   addarea: { view: AddAreaScreen, chrome: false },
   belongs: { view: BelongsScreen, chrome: false },
   sorting: { view: SortingScreen, chrome: false },
+
+  /* Putting things right, in the order the journey is walked. */
+  carry: { view: CarryScreen, chrome: false },
+  trip: { view: TripScreen, chrome: false },
+  carrying: { view: CarryingScreen, chrome: true },
+  carried: { view: CarriedScreen, chrome: false },
+  carrystale: { view: CarryStaleScreen, chrome: false },
 }

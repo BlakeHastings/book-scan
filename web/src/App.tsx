@@ -18,13 +18,20 @@
  * The providers are nested in dependency order, each reading only from the
  * ones outside it:
  *
- *     error  ->  navigation  ->  arranging  ->  book in hand  ->  summary  ->  camera
+ *     error -> navigation -> arranging -> book in hand -> summary -> camera -> armful
+ *
+ * The last one is the books somebody is carrying across a room (#314). It is
+ * innermost because it reads nothing and is read by four screens, and it is a
+ * provider rather than screen state for exactly that reason: a screen unmounts
+ * when the route changes, and an armful held by one of them would be dropped on
+ * the way to the next.
  *
  * There is no state library and no URL routing. Both are decisions rather than
  * omissions, and the reasons are written down: `app/navigation.tsx` for the
  * URL, and the split above for the store.
  */
 
+import { ArmfulProvider } from './app/armful'
 import { ArrangingProvider } from './app/arranging'
 import { BookInHandProvider } from './app/bookInHand'
 import { CameraSessionProvider } from './app/cameraSession'
@@ -62,7 +69,9 @@ export default function App() {
           <BookInHandProvider>
             <SummaryProvider>
               <CameraSessionProvider>
-                <CurrentScreen />
+                <ArmfulProvider>
+                  <CurrentScreen />
+                </ArmfulProvider>
               </CameraSessionProvider>
             </SummaryProvider>
           </BookInHandProvider>

@@ -49,6 +49,13 @@ export type Route =
    * never a label.
    */
   | 'furniture' | 'fixture' | 'area' | 'addarea' | 'belongs' | 'sorting'
+  /*
+   * Putting things right (#314): the whole of the work, one trip read at the
+   * piece of furniture, one book placed, the trip finished, and what changed
+   * while somebody was away. Five screens and one job, which is why the armful
+   * they pass between them lives in `app/armful.tsx` rather than on any of them.
+   */
+  | 'carry' | 'trip' | 'carrying' | 'carried' | 'carrystale'
 
 export interface Navigation {
   readonly route: Route
