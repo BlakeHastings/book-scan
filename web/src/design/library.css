@@ -2134,6 +2134,134 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* --- The stop before something irreversible -------------------------------- */
+
+/*
+ * Over the screen, not over the page.
+ *
+ * The app's own dialog is `position: fixed`, which is right on a phone and
+ * wrong here: the gallery's bar is what the theme is switched from and what
+ * the way back to the index is, and a wireframe of a dialog that swallowed
+ * both would be a screen nobody could leave. So the scrim is absolute inside
+ * the phone screen it belongs to, and `.wf-screen--asked` is what gives it
+ * something to be absolute inside.
+ *
+ * The two positions are `ConfirmDialog`'s and the breakpoint is its number:
+ * bottom of the screen where a thumb is, centred once there is room for it to
+ * be. Copied rather than re-decided, because it is the same decision.
+ */
+.wf-screen--asked { position: relative; }
+
+.wf-sure {
+  position: absolute;
+  inset: 0;
+  /* Over the top bar and the tab bar, both at 5, and under the gallery's own
+     frame at 20. */
+  z-index: 10;
+  display: grid;
+  align-items: end;
+  padding: var(--s3);
+  background: var(--scrim);
+}
+
+@media (min-height: 620px) {
+  .wf-sure { align-items: center; }
+}
+
+.wf-sure__card {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--lift-3);
+}
+
+/* The book face, because the sentence names books and counts them. */
+.wf-sure__title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-title);
+  line-height: var(--lh-tight);
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.wf-sure__said {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--size-small);
+}
+
+/* What reads differently afterwards. A well rather than a paragraph: these
+   are labels, and a label is a thing you match against a shelf edge. */
+.wf-sure__becomes {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3);
+  background: var(--paper-well);
+  border-radius: var(--r-md);
+}
+
+.wf-sure__lead {
+  font-size: var(--size-micro);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+/*
+ * One line a change, and the labels are set smaller here than anywhere else
+ * they appear.
+ *
+ * That is a measurement rather than a preference, and it was drawn the other
+ * way first. Two labels reading "By the window · B" with a word between them
+ * measure 359px at the size a label is drawn everywhere else, and there are
+ * 332px across inside this well on a 414 screen, so the row wrapped: the
+ * second label dropped under the first and four changes read as eight areas
+ * in a column. At the label size the same row is 311px and stays whole.
+ * Measured in the browser at 414 by 896, not guessed.
+ *
+ * The row can still wrap, on a piece named something longer than "By the
+ * window", and the hairline is what keeps a pair a pair when it does.
+ */
+.wf-sure__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
+}
+/* The row under the lead, rather than `:first-of-type`: the lead is a span
+   too, so `:first-of-type` matched it and every row kept its hairline,
+   including the one that had nothing above it to be separated from. */
+.wf-sure__lead + .wf-sure__row {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.wf-sure__becomes .wf-place {
+  font-size: var(--size-label);
+  min-width: 0;
+}
+
+.wf-sure__word {
+  font-size: var(--size-micro);
+  color: var(--ink-2);
+  padding-inline: var(--s1);
+}
+
+.wf-sure__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.wf-sure__acts > * { flex: 1 1 auto; }
+
 /* --- The gallery's own frame ---------------------------------------------- */
 
 /*

@@ -226,6 +226,17 @@
   --lift-2: 0 2px 8px rgba(51, 42, 34, 0.1);
   --lift-3: 0 8px 24px rgba(51, 42, 34, 0.16);
 
+  /*
+   * What the room goes behind a question that cannot be taken back. The same
+   * warm ink everything else on this page is written in, at the strength that
+   * pushes the screen away without hiding which screen it is: a person about
+   * to remove an area should still be able to see the area they are removing.
+   * Not `--picture-scrim`, which is a different job in a different room: that
+   * one sits on a photograph and has to survive whatever the lens is pointed
+   * at, so it is nearly black in both themes.
+   */
+  --scrim: rgba(51, 42, 34, 0.42);
+
   --focus: 0 0 0 3px rgba(78, 124, 168, 0.45);
 
   color-scheme: light;
@@ -287,6 +298,10 @@
   --lift-2: 0 2px 8px rgba(0, 0, 0, 0.55);
   --lift-3: 0 10px 28px rgba(0, 0, 0, 0.6);
 
+  /* Darker, because at night the room is already the darkest thing and a
+     scrim the same weight as the daylight one does not read as one. */
+  --scrim: rgba(0, 0, 0, 0.62);
+
   --focus: 0 0 0 3px rgba(143, 185, 221, 0.5);
 
   color-scheme: dark;
@@ -331,6 +346,8 @@
     --lift-1: 0 1px 2px rgba(0, 0, 0, 0.5);
     --lift-2: 0 2px 8px rgba(0, 0, 0, 0.55);
     --lift-3: 0 10px 28px rgba(0, 0, 0, 0.6);
+
+    --scrim: rgba(0, 0, 0, 0.62);
 
     --focus: 0 0 0 3px rgba(143, 185, 221, 0.5);
 
