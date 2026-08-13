@@ -1142,34 +1142,68 @@
 }
 .wf-add:active { background: var(--paper-sunk); }
 
-/* Where a piece stands, drawn as the room rather than as a number. */
-.wf-order { display: flex; gap: var(--s1); }
-.wf-order__slot {
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: var(--tap);
+/* Where a piece stands, drawn as the room rather than as a number, and moved
+   by moving it rather than by two buttons underneath.
+
+   A column and not a strip. Across a phone, five pieces called things like
+   "By the window" wrap, and a wrapped strip is a drag with two axes in it and
+   a gap that opens on the line above. Down the page nothing wraps, every
+   target is the full width, and the grip says where to take hold. */
+.wf-order {
   display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 1px;
-  padding: var(--s1) 2px;
+  gap: var(--s1);
+  padding: var(--s1);
   border-radius: var(--r-md);
   background: var(--paper-sunk);
-  color: var(--ink-2);
+}
+.wf-order__slot {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper-raised);
+  text-align: left;
+  /* Full ink, not the quiet grey a slot in a strip had. These are five names
+     somebody is choosing between, and reading them is the whole job. */
+  color: var(--ink);
+}
+/* Picking one up: the row comes off the page under the finger. As close to
+   the drag as a still picture gets. */
+.wf-order__slot:active {
+  box-shadow: var(--lift-2);
+  border-color: var(--line-strong);
 }
 .wf-order__slot--on {
   background: var(--wood-2);
+  border-color: transparent;
   color: var(--ink-on-fill);
   box-shadow: var(--lift-1);
 }
-.wf-order__n { font-weight: 700; font-variant-numeric: tabular-nums; }
+.wf-order__n { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
 .wf-order__name {
-  max-width: 100%;
-  font-size: 10px;
-  text-align: center;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Three bars, drawn rather than typed, so it takes the colour of whatever row
+   it is on and needs no glyph. */
+.wf-order__grip {
+  margin-left: auto;
+  flex: none;
+  width: 20px;
+  height: 10px;
+  opacity: 0.6;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    currentColor 0 2px,
+    transparent 2px 4px
+  );
 }
 
 /* --- Rules ----------------------------------------------------------------- */
