@@ -37,8 +37,9 @@
  * line, never a `genre/fantasy` written out.
  */
 
-import type { ReactNode } from 'react'
-import { IconFind, IconOnward } from './Icons'
+import type { ReactElement, ReactNode } from 'react'
+import { Cycle } from './Controls'
+import { IconCovers, IconFind, IconList, IconOnward, IconSpines } from './Icons'
 
 /**
  * The one field.
@@ -58,6 +59,8 @@ export function SearchField({
   placeholder = 'Title, author, ISBN, or # for a tag',
   caret = false,
   reads,
+  onType,
+  label = 'Find a book',
 }: {
   /** What has been typed so far. Empty is a state this screen has to show. */
   typed?: string
@@ -66,7 +69,48 @@ export function SearchField({
   caret?: boolean
   /** What the field made of what was typed, when that is worth saying. */
   reads?: ReactNode
+  /**
+   * Somebody typing into it, in the app.
+   *
+   * Given this, the box is a real field and `typed` is what is in it; without
+   * it, the box is the drawing it has always been. One component rather than
+   * two, because the wireframe and the screen have to look the same and the way
+   * that stops being true is a second box drawn beside the first.
+   *
+   * **It does not take the focus on its own**, deliberately. A field that opens
+   * the keyboard on arrival covers two thirds of the phone with it, and the
+   * screen underneath, the one somebody sees before they have typed anything, is
+   * most of what this screen is for.
+   */
+  onType?: (value: string) => void
+  /** What the field is called, for anybody who cannot see the box it is in. */
+  label?: string
 }) {
+  if (onType) {
+    return (
+      <div className="wf-search">
+        <div className="wf-search__box">
+          <span className="wf-search__glyph" aria-hidden="true">
+            <IconFind size={18} />
+          </span>
+          <input
+            className="wf-search__input"
+            type="search"
+            value={typed ?? ''}
+            placeholder={placeholder}
+            aria-label={label}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            onChange={(event) => onType(event.currentTarget.value)}
+          />
+        </div>
+        {reads && <p className="wf-search__reads">{reads}</p>}
+      </div>
+    )
+  }
+
   return (
     <div className="wf-search">
       <div className="wf-search__box">
@@ -129,6 +173,94 @@ export function Picked({
       <span className="wf-picked__note">{note}</span>
       <IconOnward size={18} />
     </button>
+  )
+}
+
+/**
+ * Which of the three ways of looking at the books somebody is on.
+ *
+ * All three stay, and the owner said so plainly: "the user should be able to
+ * switch between gallery, list, and shelf views. Let's still keep that." The
+ * words are not those three, because one of them is a word this interface does
+ * not say. Covers, a list, and the books standing up.
+ */
+export type Look = 'covers' | 'list' | 'spines'
+
+/** Pressing the switcher takes you to the next of the three, and round again. */
+const NEXT: Record<Look, Look> = {
+  covers: 'list',
+  list: 'spines',
+  spines: 'covers',
+}
+
+/**
+ * What the switcher draws, which is the view it would move you to.
+ *
+ * Not the one you are in. `Controls.tsx` has the argument; the short of it is
+ * that the screen underneath is already the loudest possible statement of which
+ * view you are in, and nothing else on it says what this button does.
+ */
+const ICON: Record<Look, ReactElement> = {
+  covers: <IconCovers size={20} />,
+  list: <IconList size={20} />,
+  spines: <IconSpines size={20} />,
+}
+
+/** And what it is called, in the same direction: the outcome, as a sentence. */
+const NAME: Record<Look, string> = {
+  covers: 'Show the covers',
+  list: 'Show them as a list',
+  spines: 'Show them standing up',
+}
+
+/**
+ * What every library screen wears above its books.
+ *
+ * **One row, and that is the point of it.** It was two: the filter, and under it
+ * a segmented control with Covers, List and Spines side by side. The owner took
+ * the second row off and said why:
+ *
+ * > Instead of showing covers, list and spines as this very big thing that we
+ * > can select one of three options for, can we put it to the right of the
+ * > "every book" filter, underneath where the search symbol is in the top right
+ * > corner? [...] That way you don't take up all this space for choosing between
+ * > those different views.
+ *
+ * He is right, and the reason generalises the way the tag row's did. Which of
+ * three ways you like looking at your books is a preference somebody sets rarely
+ * and then lives with; the filter beside it is a question they answer
+ * constantly. Charging the same rent for both, on the one screen whose whole job
+ * is showing books, is the wrong trade, and it was 64px of every visit.
+ *
+ * **It is one component because it is one row.** The gallery draws it as three
+ * screens you walk between and the app draws it as one screen that redraws
+ * itself, and if each built its own row they would agree until one of them was
+ * edited. The filter itself did not move and did not shrink: it is the same row,
+ * with a 44px circle now sitting at the end of it.
+ */
+export function Filter({
+  tags,
+  note,
+  onTags,
+  look,
+  onLook,
+}: {
+  /** The chosen tags, as labels. Nothing chosen says so. */
+  tags?: string[]
+  /** How many books that leaves. Words, not a bare number. */
+  note: string
+  onTags?: () => void
+  look: Look
+  /** Given the view being moved to, which is the one the button draws. */
+  onLook?: (next: Look) => void
+}) {
+  const next = NEXT[look]
+
+  return (
+    <div className="wf-filter">
+      <Picked tags={tags} note={note} onPress={onTags} />
+      <Cycle name={NAME[next]} icon={ICON[next]} onPress={() => onLook?.(next)} />
+    </div>
   )
 }
 

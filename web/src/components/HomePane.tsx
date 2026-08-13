@@ -47,7 +47,8 @@ import { Button } from '../design/Controls'
 import { IconFind } from '../design/Icons'
 import { List, Row, Stats } from '../design/List'
 import { Phone } from '../design/Phone'
-import type { Cloth } from '../design/Shelf'
+import { clothFor } from '../lib/bookLook'
+import { grouped } from '../lib/say'
 import { filingName } from '../../shared/shelving'
 import {
   captureName, draftFromCapture,
@@ -89,22 +90,12 @@ interface Props {
  * Picked off the book's own id so a book is the same colour every time it is
  * drawn rather than a different one on every render.
  */
-const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
-
-function clothFor(id: number): Cloth {
-  return CLOTHS[Math.abs(id) % CLOTHS.length]!
-}
-
-/**
- * A number as this screen says it.
- *
- * Grouped, because the collection reaches four digits and 1204 read as a year
- * at the size these are set. Written out rather than taken from
- * `toLocaleString`, so the same number is the same string wherever this runs.
+/*
+ * Both of these were written here first and both moved out when the library
+ * screen needed them: a book has to be the same colour on this screen and on
+ * that one, and a number has to be said the same way on both. `lib/bookLook.ts`
+ * and `lib/say.ts`.
  */
-function grouped(n: number): string {
-  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-}
 
 /** How many books are on the table, which is the whole queue. */
 function waitingIn(queue: QueueCounts): number {

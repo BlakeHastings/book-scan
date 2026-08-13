@@ -32,11 +32,13 @@ import { AddAreaScreen } from '../screens/AddAreaScreen'
 import { AreaScreen } from '../screens/AreaScreen'
 import { ArrangeScreen } from '../screens/ArrangeScreen'
 import { BelongsScreen } from '../screens/BelongsScreen'
+import { BookScreen } from '../screens/BookScreen'
 import { CaptureScreen } from '../screens/CaptureScreen'
 import { CarriedScreen } from '../screens/CarriedScreen'
 import { CarryScreen } from '../screens/CarryScreen'
 import { CarryStaleScreen } from '../screens/CarryStaleScreen'
 import { CarryingScreen } from '../screens/CarryingScreen'
+import { FindScreen } from '../screens/FindScreen'
 import { FixtureScreen } from '../screens/FixtureScreen'
 import { FurnitureScreen } from '../screens/FurnitureScreen'
 import { HomeScreen } from '../screens/HomeScreen'
@@ -45,7 +47,9 @@ import { QueueScreen } from '../screens/QueueScreen'
 import { ReviewScreen } from '../screens/ReviewScreen'
 import { ScanScreen } from '../screens/ScanScreen'
 import { ShelveScreen } from '../screens/ShelveScreen'
+import { ShelvesScreen } from '../screens/ShelvesScreen'
 import { SortingScreen } from '../screens/SortingScreen'
+import { TagsScreen } from '../screens/TagsScreen'
 import { TripScreen } from '../screens/TripScreen'
 
 export interface ScreenEntry {
@@ -59,7 +63,19 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   capture: { view: CaptureScreen, chrome: false },
   review: { view: ReviewScreen, chrome: false },
   shelve: { view: ShelveScreen, chrome: false },
-  library: { view: LibraryScreen, chrome: true },
+  /*
+   * The library group (#315) wears no chrome either, for the same reason: each
+   * of these brings the design system's own top bar and four-place tab bar.
+   *
+   * `shelves` is the exception and keeps the app's frame, because it is what
+   * the library screen used to be and is unconverted: it draws `ShelfView`
+   * exactly as it was.
+   */
+  library: { view: LibraryScreen, chrome: false },
+  book: { view: BookScreen, chrome: false },
+  find: { view: FindScreen, chrome: false },
+  tags: { view: TagsScreen, chrome: false },
+  shelves: { view: ShelvesScreen, chrome: true },
   queue: { view: QueueScreen, chrome: false },
   arrange: { view: ArrangeScreen, chrome: true },
   scan: { view: ScanScreen, chrome: false },

@@ -95,6 +95,14 @@ export interface StripBook {
    * front cover pass for a spine.
    */
   spineSlot: ShelfSlot
+  /**
+   * How thick the book is, as the catalogue holds it, which is text.
+   *
+   * The one measurement a drawing of a shelf may take from a book: pages are
+   * thickness and thickness is width seen end on. Empty for about one book in
+   * four, which is drawn at the median of the ones that are not.
+   */
+  pages?: string
 }
 
 /** A single shelf seen end on, with the space the new book goes in. */
@@ -206,6 +214,81 @@ export interface Credit {
   authorId: number
   displayName: string
   filingName: string
+}
+
+/**
+ * What a listing is being narrowed to.
+ *
+ * Every field is optional and an absent one narrows nothing, so `{}` is what
+ * the library opens on. `range` is `'all'` for the whole collection, which is
+ * spelled out because an absent one has meant fiction since the route existed.
+ */
+export interface BookQuery {
+  range?: 'all' | ShelfRange
+  /** Titles and the names on the cover, near enough rather than exact. */
+  q?: string
+  /** Either form of the number. At most one answer. */
+  isbn?: string
+  /** Slugs, all of which a book must carry, itself or under. */
+  tags?: readonly string[]
+  limit?: number
+  offset?: number
+}
+
+function bookQuery(query: BookQuery): string {
+  const asked = new URLSearchParams()
+  if (query.range) asked.set('range', query.range)
+  if (query.q) asked.set('q', query.q)
+  if (query.isbn) asked.set('isbn', query.isbn)
+  for (const tag of query.tags ?? []) asked.append('tag', tag)
+  if (query.limit !== undefined) asked.set('limit', String(query.limit))
+  if (query.offset) asked.set('offset', String(query.offset))
+  return asked.toString()
+}
+
+/**
+ * One tag in the vocabulary, and how many books it has.
+ *
+ * The count rolls up: choosing Fantasy shows the books tagged Urban fantasy
+ * too, so this is the number of books choosing it produces.
+ *
+ * **`slug` is the identity and no screen may draw it.** `label` is what a
+ * person reads, and the nesting is said with an indent and in words.
+ */
+export interface TagRow {
+  slug: string
+  label: string
+  note: string
+  books: number
+}
+
+/** A tag on one book, drawn as firmly as whoever said it. */
+export interface AppliedTag {
+  slug: string
+  label: string
+  source: 'person' | 'catalogue' | 'guess'
+  confidence: string
+}
+
+/** One row of a book's ledger: something that happened to where it is. */
+export interface Been {
+  /** `placed`, `assigned`, `checked_out`, `checked_in`, `pinned`, `withdrawn`. */
+  kind: string
+  /** The plank it names, as the label reads off the furniture. */
+  location: string
+  /** `person` or `app`, which is what makes a carry different from a decision. */
+  actor: string
+  reason: string
+  at: string
+}
+
+/** An author, who holds no name: the names are the aliases. */
+export interface AuthorDto {
+  id: number
+  isCorporate: boolean
+  note: string
+  primary: string
+  aliases: { id: number; displayName: string; filingName: string; isPrimary: boolean }[]
 }
 
 export interface Move {
@@ -985,6 +1068,43 @@ export const api = {
 
   listBooks: (range: ShelfRange) =>
     request<{ books: FiledBookRow[]; counts: Counts }>(`/api/books?range=${range}`),
+
+  /**
+   * The same listing, narrowed and a page at a time (#315).
+   *
+   * One call for all three ways of looking at the library and for every state
+   * of the find screen, because they are one question with different narrowings:
+   * a screen showing books should not have to know which of two routes answers
+   * its particular one.
+   *
+   * `total` is what the query matched and `counts` is the whole collection, which
+   * is what makes "6 of 1,204 books" one response rather than two.
+   */
+  findBooks: (query: BookQuery = {}) =>
+    request<{ books: FiledBookRow[]; total: number; counts: Counts }>(
+      `/api/books?${bookQuery(query)}`,
+    ),
+
+  /** Every tag somebody keeps, with how many books each one has. */
+  tags: () => request<{ tags: TagRow[] }>('/api/tags'),
+
+  /** What one book is under, and who said each one. */
+  bookTags: (id: number) => request<{ tags: AppliedTag[] }>(`/api/books/${id}/tags`),
+
+  /**
+   * Where a book has been, newest first.
+   *
+   * Read only. There are four statements that write a placement and all four are
+   * on the server; this reads the rows they wrote and adds nothing.
+   */
+  placements: (id: number) =>
+    request<{ been: Been[]; total: number }>(`/api/books/${id}/placements`),
+
+  bookAuthors: (id: number) => request<{ authors: Credit[] }>(`/api/books/${id}/authors`),
+
+  /** Everything else by the person behind one of a book's credits. */
+  authorBooks: (id: number) =>
+    request<{ author: AuthorDto; books: BookRow[] }>(`/api/authors/${id}/books`),
 
   deleteBook: (id: number) =>
     request<{ ok: true; counts: Counts; photosRemoved: number }>(

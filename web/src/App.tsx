@@ -18,13 +18,18 @@
  * The providers are nested in dependency order, each reading only from the
  * ones outside it:
  *
- *     error -> navigation -> arranging -> book in hand -> summary -> camera -> armful
+ *     error -> navigation -> arranging -> browsing -> book in hand -> summary
+ *           -> camera -> armful
  *
  * The last one is the books somebody is carrying across a room (#314). It is
  * innermost because it reads nothing and is read by four screens, and it is a
  * provider rather than screen state for exactly that reason: a screen unmounts
  * when the route changes, and an armful held by one of them would be dropped on
  * the way to the next.
+ *
+ * `browsing` is the same argument about the library (#315): what is being
+ * looked at is shared by three screens and held by none of them, because
+ * opening a book unmounts all three.
  *
  * There is no state library and no URL routing. Both are decisions rather than
  * omissions, and the reasons are written down: `app/navigation.tsx` for the
@@ -34,6 +39,7 @@
 import { ArmfulProvider } from './app/armful'
 import { ArrangingProvider } from './app/arranging'
 import { BookInHandProvider } from './app/bookInHand'
+import { BrowsingProvider } from './app/browsing'
 import { CameraSessionProvider } from './app/cameraSession'
 import { Chrome } from './app/Chrome'
 import { SummaryProvider } from './app/summary'
@@ -66,15 +72,25 @@ export default function App() {
     <ErrorBannerProvider>
       <NavigationProvider>
         <ArrangingProvider>
-          <BookInHandProvider>
-            <SummaryProvider>
-              <CameraSessionProvider>
-                <ArmfulProvider>
-                  <CurrentScreen />
-                </ArmfulProvider>
-              </CameraSessionProvider>
-            </SummaryProvider>
-          </BookInHandProvider>
+          {/*
+            What somebody is looking at in the library, which three screens
+            share and none of them can hold: choosing a tag happens on one, the
+            books it narrows are drawn on another, and opening a book unmounts
+            both. Inside navigation because it reads the route table's names,
+            outside the book in hand because looking at a book is not picking
+            one up.
+          */}
+          <BrowsingProvider>
+            <BookInHandProvider>
+              <SummaryProvider>
+                <CameraSessionProvider>
+                  <ArmfulProvider>
+                    <CurrentScreen />
+                  </ArmfulProvider>
+                </CameraSessionProvider>
+              </SummaryProvider>
+            </BookInHandProvider>
+          </BrowsingProvider>
         </ArrangingProvider>
       </NavigationProvider>
     </ErrorBannerProvider>

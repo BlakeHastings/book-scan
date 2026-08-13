@@ -107,7 +107,7 @@
  * books.
  */
 
-import type { CSSProperties } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 import { Cat } from './Cat'
 
 /** The dyed cloths a placeholder spine can be bound in. */
@@ -143,6 +143,17 @@ export type ShelfItem =
       pages?: number
       /** The book this screen is about, already in place. */
       here?: boolean
+      /**
+       * The photograph of this book's spine, where the catalogue has one.
+       *
+       * The cloth is what a book with no photograph is drawn in, and it stays
+       * underneath this one so a picture still arriving is a bound book rather
+       * than a gap in the row. In the gallery there are no photographs at all
+       * and every spine is cloth, which is what the cloths were always for.
+       */
+      photo?: string
+      /** Walk along the shelf: open the book this spine is. */
+      onPress?: () => void
     }
   | { kind: 'gap' }
   | { kind: 'bookend' }
@@ -233,6 +244,25 @@ export function Shelf({
   /** The book being carried, said under the plank rather than drawn on it. */
   inHand?: string
 }) {
+  const scroller = useRef<HTMLDivElement>(null)
+
+  /**
+   * A run is wider than a phone, so the marked book has to be brought into it.
+   *
+   * A shelf of fifty books is five screens wide and the book this screen is
+   * about is as likely to be at the end of it as anywhere else. Drawn from the
+   * left it is off the side of the phone, and the cat marking it is off the side
+   * with it, so the page reads as a shelf that has not been marked at all.
+   *
+   * `block: 'nearest'` because this scrolls a strip sideways and must not move
+   * the page: the same call the library already makes when it puts somebody back
+   * where they were reading.
+   */
+  useEffect(() => {
+    const here = scroller.current?.querySelector('.wf-perch')
+    here?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [items])
+
   return (
     <section className="wf-shelf" aria-label={`Area ${label}`}>
       <header className="wf-shelf__head">
@@ -240,7 +270,7 @@ export function Shelf({
         {note && <span className="wf-shelf__note">{note}</span>}
       </header>
 
-      <div className="wf-shelf__scroll">
+      <div className="wf-shelf__scroll" ref={scroller}>
         <div className="wf-shelf__board">
           {items.map((item, i) => (
             <Item key={i} item={item} />
@@ -290,9 +320,35 @@ function Item({ item }: { item: ShelfItem }) {
     height: SPINE_HEIGHT,
   }
 
-  const spine = (
+  const inside = item.photo ? (
+    /* No text over a photograph: the spine already has the title printed on it,
+       and the name is what the button is called. */
+    <img className="wf-spine__photo" src={item.photo} alt="" loading="lazy" decoding="async" />
+  ) : (
+    <span className="wf-spine__text">{item.text}</span>
+  )
+
+  /*
+   * A spine is a target in the app and a drawing in the gallery, and it is the
+   * same spine either way: given somewhere to go it becomes a button, and
+   * without one it stays what it has always been. A row of buttons in a
+   * wireframe that goes nowhere is a row of things that look pressable and are
+   * not.
+   */
+  const spine = item.onPress ? (
+    <button
+      type="button"
+      className={className}
+      style={size}
+      title={item.text}
+      aria-label={item.text}
+      onClick={item.onPress}
+    >
+      {inside}
+    </button>
+  ) : (
     <div className={className} style={size} title={item.text}>
-      <span className="wf-spine__text">{item.text}</span>
+      {inside}
     </div>
   )
 

@@ -587,7 +587,8 @@ teach people to skim past it.
 | `web/src/` | React UI |
 | `web/src/app/screens.tsx` | The route table. One line per screen, and adding a screen is a line here and a file below |
 | `web/src/screens/` | One file per screen. State only that screen uses lives in it |
-| `web/src/app/` | What the screens genuinely share: the book in hand, the counts, the camera session, the route, the error line |
+| `web/src/app/` | What the screens genuinely share: the book in hand, the counts, the camera session, the route, the error line, what is being browsed |
+| `web/src/design/` | The design system, and the gallery that draws every screen with it. A screen built with these wears `Frame` (`src/components/Frame.tsx`) and no `chrome` in the route table |
 | `web/src/lib/api.ts` | Typed fetch wrapper, the only client to server path |
 | `web/server/index.ts` | Express routes, data directory and connection resolution |
 | `web/server/db.pg.ts` | The Postgres driver, and where every column is explained |
@@ -790,6 +791,17 @@ view.
 identified.** It has no title, no author and no shelf range, and it is already
 on screen in the queue, which is the one place anybody can act on it. That is
 the question #204 left open at `Store.listRange` and #183 answered.
+
+**It is also the only listing route, and #315 widened it rather than adding a
+second one.** `?range=` still means one run and still means fiction when absent;
+`range=all` is the whole collection, and `q=`, `isbn=`, `tag=` (repeatable, all
+of which must hold, matching at or under the slug), `limit=` and `offset=` are
+the narrowings the library and the find screen ask for. The answer carries
+`total`, which is what the query matched, beside `counts`, which is still the
+whole catalogue. `Store.listing` is the SQL and `Store.listRange` is untouched.
+If you need books narrowed some other way, widen that one method rather than
+writing a second listing: a screen showing books should not have to know which
+route answers its particular question.
 
 **`checked_out_at` is still what the client reads and it is not a column** (#232).
 `books.state` says which books are out, `Store.setCheckedOut` compares and sets it

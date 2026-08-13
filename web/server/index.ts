@@ -63,7 +63,7 @@ import { Store, type DraftBook } from './store'
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
 // A location naming a plank nobody has is refused rather than recorded (#232).
 // See the location route, and `recordPlaced`.
-import { UnknownPlank } from './placement-ledger'
+import { historyOf, UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
 // The work list the ledger already holds, grouped into trips (#314).
 import { outstandingWork, tripAtArea } from './carry'
@@ -225,6 +225,16 @@ function stripBook(row: ShelvedBook, withPhoto: boolean) {
     authorFiling: row.author_filing,
     spine: withPhoto ? photo.name : '',
     spineSlot: withPhoto ? photo.slot : ('' as ShelfSlot),
+    /*
+     * How thick the book is, which is the one measurement a drawing of a shelf
+     * may take from the catalogue (#315).
+     *
+     * A spine's width comes off the page count or off the median of the books
+     * that have one, and there is no third answer; a strip without this draws
+     * every book at the median, which is a row of identical books rather than a
+     * picture of a shelf. It is text, because it is whatever a catalogue said.
+     */
+    pages: row.pages ?? '',
   }
 }
 
@@ -1320,9 +1330,60 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
   }))
 
+  /**
+   * The listing, and the four questions the library and the find screen ask of
+   * it.
+   *
+   * **What this answered before is exactly what it answers now**: `?range=` and
+   * nothing else, coerced to fiction, every catalogued book in that run in
+   * `sort_key` order. Every parameter below is additive and every one of them is
+   * absent in what the shelving screens send, which is why the route was widened
+   * rather than a second listing route added beside it. `#315` is where the
+   * reasoning is: a screen showing books asks this, and it should not have to
+   * know which of two routes answers its particular narrowing.
+   *
+   * - `range=all` is the whole collection, fiction then non-fiction, which is
+   *   the order the bookcases stand in. It is spelled explicitly because an
+   *   absent `range` has meant fiction since this route existed, and a listing
+   *   that silently doubled would be a change to every caller.
+   * - `q=` is titles and the names on the cover, folded and near enough.
+   * - `isbn=` has at most one answer.
+   * - `tag=` may be given more than once, and all of them must hold. A tag
+   *   matches itself and anything under it.
+   * - `limit=` and `offset=` are a page, and `total` says how many the query
+   *   matched rather than how many this page holds.
+   *
+   * `counts` is unchanged and is still the whole catalogue rather than this
+   * query: two screens read it for the number under the title, and it is the
+   * denominator in "6 of 1,204" rather than the numerator.
+   */
   app.get('/api/books', asyncRoute(async (req, res) => {
-    const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
-    res.json({ books: await store.listRange(range), counts: await store.counts() })
+    const asked = String(req.query.range ?? '')
+    const range = asked === 'all' ? null : asked === 'nonfiction' ? 'nonfiction' : 'fiction'
+
+    const tags: string[] = []
+    for (const raw of [req.query.tag ?? []].flat()) {
+      const slug = TagSlug.parse(String(raw))
+      if (!slug) {
+        res.status(400).json({ error: `"${String(raw)}" is not a tag.` })
+        return
+      }
+      tags.push(slug.value)
+    }
+
+    const limit = Number(req.query.limit)
+    const offset = Number(req.query.offset)
+
+    const found = await store.listing({
+      range,
+      words: String(req.query.q ?? ''),
+      isbn: String(req.query.isbn ?? ''),
+      tags,
+      limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
+      offset: Number.isFinite(offset) && offset > 0 ? offset : undefined,
+    })
+
+    res.json({ books: found.books, total: found.total, counts: await store.counts() })
   }))
 
   app.get('/api/shelves', asyncRoute(async (req, res) => {
@@ -1578,6 +1639,26 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({ book, authors: await describeCredits(id) })
   }))
 
+  /**
+   * Where a book has been (#315).
+   *
+   * The ledger has held this since #185 and nothing has ever read it back: every
+   * route asks it where a book is now, through the projection. A book's own page
+   * asks the other question, and the answer is rows that already exist rather
+   * than a record kept for a screen.
+   *
+   * Read only, by construction. There are four statements that write a placement
+   * and all four are in `Store`; this is not a fifth and cannot become one.
+   */
+  app.get('/api/books/:id/placements', asyncRoute(async (req, res) => {
+    const id = Number(req.params.id)
+    if (!(await store.getBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
+    res.json(await historyOf(db, id))
+  }))
+
   app.put('/api/books/:id', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
     const before = await store.getBook(id)
@@ -1656,8 +1737,29 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     const vocabulary = await tags.vocabulary(under ?? undefined)
+    /*
+     * How many books each one has, counting the ones under it (#315).
+     *
+     * A tag with no count beside it is a door with nothing written on it: the
+     * screen that lists somebody's tags is the screen they choose one from, and
+     * "Fantasy" alone does not say whether choosing it shows a hundred books or
+     * none. It rolls up, because choosing Fantasy shows the books tagged Urban
+     * fantasy too, and a number that disagreed with the list one tap later would
+     * be the screen contradicting itself.
+     *
+     * Counted by `Store` rather than through the tagging port, deliberately.
+     * `TagRepository` is about the vocabulary and says in its own words that it
+     * is not a place to ask which books match something; this is a listing
+     * question about `catalogued_books`, which is what `Store` is for.
+     */
+    const counts = new Map((await store.tagCounts()).map((one) => [one.slug, one.books]))
     res.json({
-      tags: vocabulary.map((one) => ({ slug: one.slug.value, label: one.label, note: one.note })),
+      tags: vocabulary.map((one) => ({
+        slug: one.slug.value,
+        label: one.label,
+        note: one.note,
+        books: counts.get(one.slug.value) ?? 0,
+      })),
     })
   }))
 

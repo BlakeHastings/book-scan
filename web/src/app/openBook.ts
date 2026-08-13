@@ -20,8 +20,22 @@ import type { QueueReturnAnchor } from '../components/QueuePane'
 import { useBookInHand, type Origin } from './bookInHand'
 import { useErrorBanner } from './errorBanner'
 import { useNavigation } from './navigation'
+import { useBrowsing } from './browsing'
 
 export interface OpenBook {
+  /**
+   * Look at a book, which is not the same as picking it up (#315).
+   *
+   * `openBook` below hands a book to the review screen, which is where a record
+   * is corrected. This opens the book's own page, which is about the book: what
+   * it is, what can be done about it, and where it sits. Editing is one action
+   * on that page rather than the whole of it, and it goes through `openBook`.
+   *
+   * Nothing is fetched here. The page reads what it needs, because most of what
+   * it draws is not what a review needs and asking for it on the way in would
+   * make every library tap wait for a book's whole history.
+   */
+  readonly viewBook: (id: number) => void
   readonly openBook: (id: number, from?: Origin) => Promise<void>
   readonly openCapture: (capture: Capture, anchor: QueueReturnAnchor) => void
   readonly openFromLibrary: (id: number, anchor: LibraryReturnAnchor) => void
@@ -31,7 +45,18 @@ export interface OpenBook {
 export function useOpenBook(): OpenBook {
   const { setRoute, setQueueReturn, setLibraryReturn } = useNavigation()
   const { setError } = useErrorBanner()
+  const { setViewing } = useBrowsing()
   const book = useBookInHand()
+
+  const viewBook = (id: number) => {
+    setError('')
+    setViewing(id)
+    // A different book is a different record and its actions are at the top of
+    // the page. Landing halfway down somebody else's page reads as the tap not
+    // having worked.
+    window.scrollTo({ top: 0 })
+    setRoute('book')
+  }
 
   /**
    * Open a catalogued book. Same detail view as a queued capture, so there is
@@ -171,5 +196,5 @@ export function useOpenBook(): OpenBook {
     void openBook(id, book.origin)
   }
 
-  return { openBook, openCapture, openFromLibrary, openNeighbour }
+  return { viewBook, openBook, openCapture, openFromLibrary, openNeighbour }
 }

@@ -26,6 +26,20 @@ export interface CoverItem {
   meta?: string
   /** Where it lives, as it reads off the furniture. */
   place?: string
+  /**
+   * The book itself, in the app: the cover somebody photographed or the one the
+   * catalogue downloaded. Absent in the gallery, which has no photographs, and
+   * absent for a real book nobody has photographed yet, which is most of them.
+   *
+   * The cloth stays underneath either way, so a picture that has not arrived is
+   * a book in a dyed binding rather than a grey hole.
+   */
+  photo?: string
+  /**
+   * Two copies of one book are two books, so the drawing needs to tell them
+   * apart. The title and the author are what stands in when nothing else does.
+   */
+  id?: number | string
 }
 
 /**
@@ -48,20 +62,42 @@ export function Covers({
 }: {
   items: CoverItem[]
   label: string
-  onPress?: () => void
+  /**
+   * Open one. It is given the cover pressed, so a wireframe screen can keep
+   * passing a function that takes nothing and the app can open the book.
+   */
+  onPress?: (item: CoverItem) => void
 }) {
   return (
     <div className="wf-covers" role="list" aria-label={label}>
       {items.map((item) => (
         <button
-          key={`${item.title}-${item.author}`}
+          key={item.id ?? `${item.title}-${item.author}`}
           type="button"
           role="listitem"
           className="wf-cover"
-          onClick={onPress}
+          /*
+           * Said, because a cover with a photograph on it has no words in it at
+           * all: the title is printed in the picture and a picture is not text.
+           * The cloth version draws the title and would read fine without this,
+           * and one name for both is one thing to keep true.
+           */
+          aria-label={`${item.title}, ${item.author}`}
+          onClick={() => onPress?.(item)}
         >
           <span className={`wf-cover__art wf-spine--${item.cloth ?? 'wood'}`}>
-            <span className="wf-cover__printed">{item.title}</span>
+            {item.photo ? (
+              /*
+               * Over the cloth rather than instead of it, so a picture still
+               * loading is a bound book and not a hole. `alt` is empty on
+               * purpose: the title and the name are drawn under it and read out
+               * with it, and a picture announced by its own title says
+               * everything twice.
+               */
+              <img className="wf-cover__photo" src={item.photo} alt="" loading="lazy" decoding="async" />
+            ) : (
+              <span className="wf-cover__printed">{item.title}</span>
+            )}
           </span>
           <span className="wf-cover__by">{item.author}</span>
           {(item.place || item.meta) && (

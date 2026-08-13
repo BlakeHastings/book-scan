@@ -84,6 +84,72 @@ export type { FiledPhotographedBook, PhotographedBook }
 export type PlacedPhotographedBook = PhotographedBook & PlacementFields
 export type FiledPlacedBook = FiledPhotographedBook & PlacementFields
 
+/**
+ * What a listing is being asked for, beyond "everything".
+ *
+ * Every field is optional and an absent one narrows nothing, so `{}` is the
+ * whole catalogue and `{ range }` is what `listRange` has always answered.
+ */
+export interface Listing {
+  /** One run of the collection. Absent means both, in bookcase order. */
+  range?: ShelfRange | null
+  /** Titles and the names on the cover, near enough rather than exact. */
+  words?: string
+  /** Either form of the number. At most one answer. */
+  isbn?: string
+  /** Slugs, all of which the book must carry, itself or under. */
+  tags?: readonly string[]
+  /** How many rows this page holds. Absent means every matching row. */
+  limit?: number
+  offset?: number
+}
+
+/*
+ * Folding, so `mieville` finds Miéville.
+ *
+ * Written as a translation pair rather than reached for with `unaccent`, which
+ * is an extension this database is not guaranteed to have and would be a
+ * migration and a privilege for one `LIKE`. What it covers is the accented
+ * Latin letters a European collection actually carries; a name in a script with
+ * no fold at all is matched as it is written, which is what somebody typing it
+ * would type anyway.
+ *
+ * The two strings are one character to one character and the same length. A
+ * ligature has no single-character fold, so none is attempted here.
+ */
+const FOLD_FROM = 'áàâäãåāéèêëēíìîïīóòôöõøōúùûüūñçćšžýÿ'
+const FOLD_TO = 'aaaaaaaeeeeeiiiiiooooooouuuuunccszyy'
+
+/** The same fold in SQL, over whichever column is being searched. */
+function folded(column: string): string {
+  return `translate(lower(${column}), '${FOLD_FROM}', '${FOLD_TO}')`
+}
+
+/**
+ * The same fold in TypeScript, over what somebody typed.
+ *
+ * Both sides have to agree or the search silently answers nothing, which is why
+ * this sits against the statement rather than in a helper file: NFD and a
+ * translation table are two spellings of one decision.
+ *
+ * `%` and `_` are escaped rather than dropped. They are the two characters
+ * `LIKE` reads as a pattern, and a title with a percent sign in it is a real
+ * book somebody should be able to find.
+ */
+export function wordsOf(typed: string): string[] {
+  return typed
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/ø/g, 'o')
+    .split(/\s+/)
+    .map((word) => word.trim().replace(/([\\%_])/g, '\\$1'))
+    .filter(Boolean)
+    // Six is more words than any title anybody types, and it bounds the number
+    // of clauses a single request can ask the database to run.
+    .slice(0, 6)
+}
+
 export interface DraftBook {
   isbn13?: string
   isbn10?: string
@@ -848,6 +914,127 @@ export class Store {
         'SELECT * FROM catalogued_books WHERE shelf_range = ? ORDER BY sort_key ASC',
         [range],
       )))
+  }
+
+  /**
+   * The same listing, asked a narrower question and a page at a time.
+   *
+   * `listRange` is this with a range and nothing else, and it is left alone: the
+   * shelving screens ask for a whole run and are entitled to it. What this adds
+   * is the four things the library and the find screen ask, which the catalogue
+   * could not answer at all before:
+   *
+   * - **words**, matched against the title, the printed names and the name the
+   *   book files under, folded so `mieville` finds Miéville. That is not a
+   *   contrived example: it is what somebody types on a phone keyboard, and an
+   *   exact match answers nothing and is wrong.
+   * - **an ISBN**, in either form, which has at most one answer.
+   * - **tags**, all of which the book must carry, itself or under: choosing
+   *   Fantasy finds the book somebody tagged Urban fantasy, because the
+   *   hierarchy is in the slug and `under` is the question a person is asking.
+   * - **a page**, because this is the screen with the most books on it and
+   *   answering with the whole collection is what stops being possible first.
+   *
+   * `total` is what the query matches rather than what the page holds, because
+   * the screen says "6 of 1,204" and the second number is not `books.length`.
+   */
+  async listing(query: Listing): Promise<{ books: FiledPlacedBook[]; total: number }> {
+    const where: string[] = []
+    const params: unknown[] = []
+
+    if (query.range) {
+      where.push('b.shelf_range = ?')
+      params.push(query.range)
+    }
+
+    if (query.isbn) {
+      const pair = resolveIsbnPair(query.isbn)
+      // Both forms, because a person types whichever is printed on the book and
+      // the catalogue may hold the other. An unresolvable number matches nothing
+      // rather than everything, which is the honest answer to thirteen digits
+      // that are not an ISBN.
+      where.push('(b.isbn13 = ? AND b.isbn13 != \'\') OR (b.isbn10 = ? AND b.isbn10 != \'\')')
+      params.push(pair.isbn13 || query.isbn, pair.isbn10 || query.isbn)
+    }
+
+    for (const word of wordsOf(query.words ?? '')) {
+      where.push(
+        `(${folded('b.title')} LIKE ? OR ${folded('b.authors')} LIKE ?`
+        + ` OR ${folded('b.author_filing')} LIKE ?)`,
+      )
+      params.push(`%${word}%`, `%${word}%`, `%${word}%`)
+    }
+
+    for (const slug of query.tags ?? []) {
+      /*
+       * At or under, as a range over the slug rather than a `LIKE`, which is the
+       * shape `TagRepository.vocabulary` already uses and for the same reason: the
+       * slug is ordered `COLLATE "C"`, so a prefix is an index range. `/` is 0x2F
+       * and `0` is 0x30, so everything under `genre/` sorts below `genre0`.
+       */
+      where.push(
+        'EXISTS (SELECT 1 FROM book_tag bt JOIN tag t ON t.id = bt.tag_id'
+        + ' WHERE bt.book_id = b.id AND (t.slug = ? OR (t.slug >= ? AND t.slug < ?)))',
+      )
+      params.push(slug, `${slug}/`, `${slug}0`)
+    }
+
+    const filter = where.length ? `WHERE ${where.map((one) => `(${one})`).join(' AND ')}` : ''
+    // Range first, so a listing of the whole collection runs fiction then
+    // non-fiction, which is the order the bookcases stand in.
+    const order = 'ORDER BY b.shelf_range ASC, b.sort_key ASC'
+
+    const counted = await this.db.get<{ total: number }>(
+      `SELECT CAST(COUNT(*) AS INTEGER) AS total FROM catalogued_books b ${filter}`,
+      params,
+    )
+
+    const page: string[] = []
+    const paged = [...params]
+    if (query.limit !== undefined) {
+      page.push('LIMIT ?')
+      paged.push(Math.max(1, Math.min(500, Math.floor(query.limit))))
+    }
+    if (query.offset) {
+      page.push('OFFSET ?')
+      paged.push(Math.max(0, Math.floor(query.offset)))
+    }
+
+    const rows = await this.db.all<FiledBookRow>(
+      `SELECT b.* FROM catalogued_books b ${filter} ${order} ${page.join(' ')}`,
+      paged,
+    )
+
+    return {
+      books: await withPlacements(this.db, await withPhotographs(this.db, rows)),
+      total: counted?.total ?? 0,
+    }
+  }
+
+  /**
+   * How many books each tag has, counting the ones under it.
+   *
+   * The rollup is the point rather than an extra: choosing Fantasy shows the
+   * books tagged Urban fantasy too, so a count that said 112 next to a list of
+   * 126 would be the screen contradicting itself one tap later. `DISTINCT`
+   * because a book carrying both is one book.
+   *
+   * Catalogued books only, which is the same set the library draws, so the
+   * number beside a tag is the number of rows choosing it produces.
+   */
+  async tagCounts(): Promise<{ slug: string; books: number }[]> {
+    return this.db.all<{ slug: string; books: number }>(
+      `SELECT t.slug AS slug,
+              CAST((SELECT COUNT(DISTINCT bt.book_id)
+                      FROM book_tag bt
+                      JOIN tag d ON d.id = bt.tag_id
+                      JOIN catalogued_books b ON b.id = bt.book_id
+                     WHERE d.slug = t.slug
+                        OR (d.slug >= t.slug || '/' AND d.slug < t.slug || '0'))
+                   AS INTEGER) AS books
+         FROM tag t
+        ORDER BY t.slug ASC`,
+    )
   }
 
   /**

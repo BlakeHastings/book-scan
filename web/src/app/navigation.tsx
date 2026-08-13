@@ -56,6 +56,18 @@ export type Route =
    * they pass between them lives in `app/armful.tsx` rather than on any of them.
    */
   | 'carry' | 'trip' | 'carrying' | 'carried' | 'carrystale'
+  /*
+   * The library's own screens (#315). `book` is a book's own page, which is
+   * about the book; `review` is the form its record is corrected on, and the two
+   * are one journey rather than two doors to one room. `find` and `tags` are
+   * where the library is narrowed, and both wear the library tab because looking
+   * for a book is not somewhere you go.
+   *
+   * `shelves` is what the library screen used to be, kept reachable while the
+   * carrying and the furniture screens are built beside it. See
+   * `screens/ShelvesScreen.tsx`.
+   */
+  | 'book' | 'find' | 'tags' | 'shelves'
 
 export interface Navigation {
   readonly route: Route

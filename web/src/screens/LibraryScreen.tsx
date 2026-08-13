@@ -1,20 +1,15 @@
-/** The shelves, as they stand. */
+/**
+ * Every book somebody owns, drawn three ways.
+ *
+ * Converted to the design system by #315. What it was is `ShelfView`, which is
+ * still here and still the screen the arranging and carrying work reaches: this
+ * one is the library as somebody browses it, and that one is the shelves as a
+ * job of work. The two are being pulled apart deliberately rather than by
+ * accident, and where each half lands is #313 and #314.
+ */
 
-import { ShelfView } from '../components/ShelfView'
-import { useNavigation } from '../app/navigation'
-import { useOpenBook } from '../app/openBook'
+import { LibraryPane } from '../components/LibraryPane'
 
 export function LibraryScreen() {
-  const { libraryReturn, setLibraryReturn, setArranging, setRoute } = useNavigation()
-  const { openFromLibrary } = useOpenBook()
-
-  return (
-    <ShelfView
-      onOpen={openFromLibrary}
-      returnAnchor={libraryReturn}
-      onReturnAnchorConsumed={() => setLibraryReturn(null)}
-      onArrange={(from) => { setArranging(from); setRoute('arrange') }}
-      onFurniture={() => setRoute('furniture')}
-    />
-  )
+  return <LibraryPane />
 }

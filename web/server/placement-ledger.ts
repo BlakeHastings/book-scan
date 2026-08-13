@@ -190,8 +190,19 @@ interface PlacementRow {
  * and the two would part company the first time somebody named a bookcase.
  */
 function fieldsOf(row: PlacementRow): PlacementFields {
+  return { location: labelOf(row), checked_out_at: row.checked_out_at }
+}
+
+/** Where a joined fixture and area read as a label, or '' for neither. */
+function labelOf(row: {
+  fixture_id: number | null
+  fixture_position: number | null
+  fixture_name: string | null
+  area_position: number | null
+  area_name: string | null
+}): string {
   if (row.fixture_id === null || row.fixture_position === null || row.area_position === null) {
-    return { location: '', checked_out_at: row.checked_out_at }
+    return ''
   }
 
   const fixture: Fixture = {
@@ -218,7 +229,77 @@ function fieldsOf(row: PlacementRow): PlacementFields {
     sortStrategy: 'inherit',
   }
 
-  return { location: labelFor({ fixture, area }), checked_out_at: row.checked_out_at }
+  return labelFor({ fixture, area })
+}
+
+/**
+ * Where a book has been, newest first.
+ *
+ * The ledger is append only and the latest row is where the book is, so reading
+ * further back is the whole of the history: this adds no record and keeps
+ * nothing, it reads the rows the four writing statements already wrote. The
+ * owner asked for it twice on the book's own page and said he liked it, and it
+ * is the one part of that screen that is worth more for a book which is out of
+ * the house than for one on a shelf: it is the only thing that says where the
+ * book goes back.
+ *
+ * Bounded, because a book that has been carried around for years has a long
+ * ledger and this is drawn on a phone. What is not returned is said by `total`
+ * rather than quietly dropped.
+ */
+export interface Been {
+  kind: string
+  /** The plank it names, as the label reads off the furniture. '' for neither. */
+  location: string
+  /** `person` or `app`, which is what makes a carry different from a decision. */
+  actor: string
+  reason: string
+  at: string
+}
+
+export async function historyOf(
+  db: Db,
+  bookId: number,
+  limit = 40,
+): Promise<{ been: Been[]; total: number }> {
+  const counted = await db.get<{ total: number }>(
+    'SELECT CAST(COUNT(*) AS INTEGER) AS total FROM book_placement WHERE book_id = ?',
+    [bookId],
+  )
+
+  const rows = await db.all<{
+    kind: string
+    actor: string | null
+    reason: string | null
+    created_at: string
+    fixture_id: number | null
+    fixture_position: number | null
+    fixture_name: string | null
+    area_position: number | null
+    area_name: string | null
+  }>(
+    `SELECT p.kind, p.actor, p.reason, p.created_at,
+            f.id AS fixture_id, f.position AS fixture_position, f.name AS fixture_name,
+            a.position AS area_position, a.name AS area_name
+       FROM book_placement p
+       LEFT JOIN area a ON a.id = p.area_id
+       LEFT JOIN fixture f ON f.id = a.fixture_id
+      WHERE p.book_id = ?
+      ORDER BY p.id DESC
+      LIMIT ?`,
+    [bookId, Math.max(1, Math.min(200, limit))],
+  )
+
+  return {
+    been: rows.map((row) => ({
+      kind: String(row.kind),
+      location: labelOf(row),
+      actor: row.actor ?? '',
+      reason: row.reason ?? '',
+      at: String(row.created_at),
+    })),
+    total: counted?.total ?? 0,
+  }
 }
 
 /**

@@ -286,6 +286,34 @@ body.wf-page { background: var(--paper); }
    is what a cloth that does not follow the theme buys you: one fix, not two. */
 .wf-spine--sun { background: var(--cloth-sun); color: var(--cloth-ink-dark); }
 
+/*
+ * A spine that is a target rather than a drawing.
+ *
+ * The app's shelves open a book when you press one. It is the same element with
+ * the same measurements, so everything about how wide a book is drawn stays in
+ * `Shelf.tsx`; what a button brings with it is a default border, a default
+ * background and a font, and all three have to go or every spine on the row
+ * changes size.
+ */
+button.wf-spine {
+  border: 0;
+  padding: var(--s2) 0;
+  font: inherit;
+  cursor: pointer;
+}
+button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/* The photograph of a spine, filling it. Cropped to the spine already, by the
+   detector, which is why it can be trusted to fill a 27px column. */
+.wf-spine__photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* No padding under a photograph: the picture is the whole book. */
+.wf-spine:has(.wf-spine__photo) { padding: 0; }
+
 .wf-spine__text {
   writing-mode: vertical-rl;
   text-orientation: mixed;
@@ -641,6 +669,15 @@ body.wf-page { background: var(--paper); }
   color: var(--cloth-ink);
   font-size: 9px;
   box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
+}
+
+/* The photograph on a row, on the same terms as the one on a cover: over the
+   cloth, filling the thumbnail, and absent for most books. */
+.wf-row__photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .wf-row__text { min-width: 0; display: grid; gap: 1px; }
@@ -1689,6 +1726,25 @@ body.wf-page { background: var(--paper); }
   opacity: 0.94;
 }
 
+/*
+ * The photograph, over the cloth rather than instead of it.
+ *
+ * Every one of these is a book somebody photographed or a cover the catalogue
+ * downloaded, and they arrive at different times and at different shapes. The
+ * cloth underneath is what is drawn until one lands and what stays visible
+ * around one that does not fill the tile, so a wall of covers is a wall of
+ * bound books at every moment rather than a grid of grey rectangles filling in.
+ */
+.wf-cover__photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* The art keeps its padding for printed lettering and must not keep it for a
+   photograph, which fills the whole face of the book. */
+.wf-cover__art:has(.wf-cover__photo) { padding: 0; }
+
 .wf-cover__by {
   font-size: var(--size-micro);
   color: var(--ink-2);
@@ -1734,6 +1790,40 @@ body.wf-page { background: var(--paper); }
   font-size: var(--size-small);
   color: var(--ink-2);
 }
+
+/*
+ * The same box, with somebody typing into it.
+ *
+ * The drawing above and this are one field: the box, the glyph and the round
+ * end are the box's, and all this adds is that a real one has no chrome of its
+ * own. The `search` type puts a clear button in it on some phones, which is one
+ * fewer thing for this to draw.
+ */
+.wf-search__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--face-book);
+  font-size: var(--size-body);
+  color: var(--ink);
+}
+.wf-search__input:focus { outline: none; }
+/* The browser's own clear button, which arrives in its own blue and is the one
+   thing on these screens that came from somewhere else. Nothing here is that
+   colour, so it is taken down to the ink around it. */
+.wf-search__input::-webkit-search-cancel-button {
+  filter: grayscale(1) opacity(0.5);
+  cursor: pointer;
+}
+.wf-search__input::placeholder {
+  font-family: var(--face-ui);
+  font-size: var(--size-small);
+  color: var(--ink-2);
+}
+/* The ring goes on the box, because the box is what a person sees. */
+.wf-search__box:focus-within { box-shadow: var(--focus); }
 
 /* The cursor, sitting where the next character would go. Static: a bar that
    blinks is motion on a page whose whole job is to be looked at. */

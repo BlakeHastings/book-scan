@@ -102,7 +102,7 @@ When('I say it fits and put it back', async ({ page }) => {
  */
 When('I say it fits and finish putting it back', async ({ page }) => {
   await page.getByRole('button', { name: 'It fits, save' }).click()
-  await expect(page.locator('.shelfgroup').first()).toBeVisible({ timeout: QUEUE_TIMEOUT })
+  await toTheShelves(page)
 })
 
 When('I start the camera', async ({ page }) => {
@@ -460,6 +460,18 @@ export async function leaveTheCamera(page: Page): Promise<void> {
 }
 
 async function openLibrary(page: Page): Promise<void> {
+  /*
+   * Already looking at them, so this is not a journey.
+   *
+   * It became one since #315: the tab opens the library somebody browses and
+   * the shelves are a button further in, so pressing it from the shelves is a
+   * round trip that unmounts them and back. What that costs is what a scenario
+   * has just been told. The removal reports the books it displaced on the
+   * screen it happened on, and a step that walked away and came back would read
+   * an empty list and call it a defect.
+   */
+  if (await page.locator('.shelfgroup').first().isVisible()) return
+
   await leaveTheCamera(page)
 
   for (const entry of [
@@ -472,11 +484,35 @@ async function openLibrary(page: Page): Promise<void> {
     }
   }
 
-  // Groups and the attention list are filled by the same load, so a rendered
-  // shelf means the misfile check has been asked and answered too. Without
-  // this wait, "nothing needs attention" would pass on a page that has not
-  // finished asking.
-  await expect(page.locator('.shelfgroup').first()).toBeVisible()
+  await toTheShelves(page)
+}
+
+/**
+ * The shelves as a job of work, which is one tap further in since #315.
+ *
+ * The library tab is now the library as somebody browses it: every book they
+ * own, drawn three ways, with a filter and a way to find one. What these
+ * journeys are about is the other half of what that screen used to carry, the
+ * areas themselves and the books that are not where they now belong, and it is
+ * behind one button at the bottom of it while the carrying and furniture
+ * screens are built (#314, #313).
+ *
+ * Every step that ends on the shelves goes through here, so when that button
+ * goes away with the screen it names, this is the one place that changes.
+ *
+ * Groups and the attention list are filled by the same load, so a rendered
+ * shelf means the misfile check has been asked and answered too. Without that
+ * wait, "nothing needs attention" would pass on a page that has not finished
+ * asking.
+ */
+async function toTheShelves(page: Page): Promise<void> {
+  const groups = page.locator('.shelfgroup').first()
+  if (await groups.isVisible()) return
+
+  const through = page.getByRole('button', { name: 'Check the bookcases against the order' })
+  await expect(through).toBeVisible({ timeout: QUEUE_TIMEOUT })
+  await through.click()
+  await expect(groups).toBeVisible({ timeout: QUEUE_TIMEOUT })
 }
 
 When('I go to the library', async ({ page }) => {
@@ -571,7 +607,7 @@ When('I choose to move it back to {string}', async ({ page }, label: string) => 
  */
 When('I say it fits and finish the move', async ({ page }) => {
   await page.getByRole('button', { name: 'It fits, save' }).click()
-  await expect(page.locator('.shelfgroup').first()).toBeVisible()
+  await toTheShelves(page)
 })
 
 /**
