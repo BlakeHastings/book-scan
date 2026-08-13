@@ -536,8 +536,14 @@ async function retireArea(db: Db, id: number, position: number): Promise<void> {
   )
 }
 
-/** Take an area out of the run, whichever way it can go. */
-async function retireOrRemove(db: Db, id: number, position: number): Promise<void> {
+/**
+ * Take an area out of the run, whichever way it can go.
+ *
+ * Exported for `furniture.ts`, which takes an area out because somebody asked
+ * for it rather than because a boundary moved. There is one answer to "what
+ * happens to the row when its plank goes" and this is it.
+ */
+export async function retireOrRemove(db: Db, id: number, position: number): Promise<void> {
   if (!(await removeAreaIfUnused(db, id))) await retireArea(db, id, position)
 }
 
