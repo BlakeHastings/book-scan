@@ -34,6 +34,7 @@ import { ArrangeScreen } from '../screens/ArrangeScreen'
 import { BelongsScreen } from '../screens/BelongsScreen'
 import { BookScreen } from '../screens/BookScreen'
 import { CaptureScreen } from '../screens/CaptureScreen'
+import { ClaimedScreen } from '../screens/ClaimedScreen'
 import { CarriedScreen } from '../screens/CarriedScreen'
 import { CarryScreen } from '../screens/CarryScreen'
 import { CarryStaleScreen } from '../screens/CarryStaleScreen'
@@ -91,6 +92,12 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   addarea: { view: AddAreaScreen, chrome: false },
   belongs: { view: BelongsScreen, chrome: false },
   sorting: { view: SortingScreen, chrome: false },
+
+  /*
+   * Why one book is here (#323). Not one of the furniture six: the book page
+   * reaches it too, and it goes back to whichever screen opened it.
+   */
+  claimed: { view: ClaimedScreen, chrome: false },
 
   /* Putting things right, in the order the journey is walked. */
   carry: { view: CarryScreen, chrome: false },

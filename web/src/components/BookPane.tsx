@@ -67,7 +67,7 @@ import { useOpenBook } from '../app/openBook'
 import { Frame } from './Frame'
 
 export function BookPane() {
-  const { setRoute } = useNavigation()
+  const { setRoute, openClaim } = useNavigation()
   const { viewing, setTyped } = useBrowsing()
   const { openBook, viewBook } = useOpenBook()
 
@@ -259,6 +259,20 @@ export function BookPane() {
             <Place quiet>Not on a bookcase</Place>
           </div>
         )}
+
+        {/*
+          Why it is there rather than somewhere else (#323), which is a rule
+          with a name and is the one thing this section could not say. The same
+          screen the furniture reaches, so the household gets one explanation of
+          the rules rather than two written for two places. It sits under the
+          drawing rather than in "what you can do", because it answers nothing
+          about the book and everything about where it sits.
+        */}
+        <Actions>
+          <Button tone="quiet" small onPress={() => openClaim(book.id)}>
+            Why is it here?
+          </Button>
+        </Actions>
       </Part>
 
       <Part head="Where it has been" note={moves(been.total)}>

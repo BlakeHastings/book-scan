@@ -570,6 +570,75 @@ export interface RuleDto {
   conditions: { operator: 'is' | 'under'; tag: string }[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
+  /**
+   * Which stretch of books this is the rule for, or null.
+   *
+   * **This is what makes a rule changeable from the furniture screens** (#323).
+   * A rule with one of these is the row `planRunMove` and `applyRunMove`
+   * retarget, so "point it somewhere else" is the journey #244 already built
+   * rather than a second way to do the same thing. A null says this app cannot
+   * point that rule anywhere yet, which is what the screen says.
+   */
+  range: ShelfRange | null
+}
+
+/** One book standing in an area, in the order it stands there. */
+export interface AreaBook {
+  id: number
+  title: string
+  authorFiling: string
+  /** Where it sits in the order, which is what a boundary is anchored to. */
+  sortKey: string
+  /** The rule that claims it, by name, or null when nothing claims it. */
+  claimedBy: string | null
+}
+
+/**
+ * What is standing in one area, asked **by identity**.
+ *
+ * The route #318 said was missing. Splitting an area needs the books in it, and
+ * until this existed the screen asked for both stretches of shelving and matched
+ * an area by its *label*, which is derived at read time from four things any of
+ * which can change. This asks for the area by its row instead.
+ */
+export interface AreaBooks {
+  area: { id: number; label: string; books: number }
+  books: AreaBook[]
+}
+
+/** A place, as a screen names one: the row, and what it reads as today. */
+export interface AtAPlace {
+  areaId: number
+  label: string
+}
+
+/** A rule that wanted a book, and whether it got it. The losers are the point. */
+export interface RuleClaim {
+  rule: RuleDto
+  won: boolean
+  why: string
+}
+
+/**
+ * Why a book is where it is.
+ *
+ * `claims` is empty for a book **no rule claims at all**, which is a real state
+ * since #304 rather than a gap: nothing states a genre, no tag is written, and
+ * the rules have nowhere to put it. `wanted` is null for the same book.
+ */
+export interface BookClaim {
+  book: { id: number; title: string; authorFiling: string }
+  /** Where somebody last said it is. Null when nobody ever has. */
+  standing: AtAPlace | null
+  /** Where the rules want it. Null when no rule claims it. */
+  wanted: AtAPlace | null
+  claims: RuleClaim[]
+  /** The tags it carries, by label. Never by slug: a slug is an identity. */
+  tags: string[]
+  /** A person put it here for good, which beats every rule. */
+  pinned: boolean
+  checkedOut: boolean
+  withdrawn: boolean
 }
 
 export type SortStrategyCode = 'inherit' | 'author' | 'title' | 'published' | 'tag'
@@ -1363,6 +1432,26 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(area),
     }),
+
+  /**
+   * The books standing in one area, by identity (#323).
+   *
+   * **This is what the label match became.** Cutting an area in two needs the
+   * books in it, and #313 got them by asking for both stretches of shelving and
+   * finding the group whose label matched the area's. A label is worked out from
+   * a piece's number and name and an area's ordinal and name, so a rename, a
+   * reorder or two pieces standing on one number would each have picked the
+   * wrong books without saying anything.
+   */
+  areaBooks: (id: number) => request<AreaBooks>(`/api/areas/${id}/books`),
+
+  /**
+   * Why a book is where it is: which rule claimed it, and which ones lost.
+   *
+   * Read only. An empty `claims` is the honest answer for a book no rule claims,
+   * not an error.
+   */
+  bookClaim: (id: number) => request<{ claim: BookClaim }>(`/api/books/${id}/claim`),
 
   /** What removing an area would do to its books. Writes nothing. */
   areaRemoval: (id: number) =>

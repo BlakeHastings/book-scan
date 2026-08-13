@@ -1,19 +1,23 @@
 /**
  * Cutting another area into a piece of furniture.
  *
- * ## Where the books come from, and why it is two requests
+ * ## Where the books come from
  *
- * A boundary is a book: the first one of the new area. The furniture routes
- * describe the room and count what stands in each area, and they do not list
- * books, so the books come from the shelves, which are answered a run at a
- * time. Which run an area is in is a question with no route on it either, so
- * both are asked and the one holding an area of this label is the one that
- * answers. A crate nothing files onto is in neither, which is correct: there is
+ * A boundary is a book: the first one of the new area. So this screen needs the
+ * books standing in the area being cut, and it asks the area for them, by its
+ * row: `GET /api/areas/:id/books`.
+ *
+ * **That route is what #318 asked for and #323 built, and it replaced a match on
+ * labels.** There was no route that listed an area's books, so #313 asked for
+ * both stretches of shelving and took the group whose *label* equalled this
+ * area's. A label is worked out at read time from a piece's number and name and
+ * an area's ordinal and name, and is stored nowhere precisely so that nothing
+ * depends on it holding still. A rename, a reorder, or the owner's two pieces of
+ * furniture both standing at 4 would each have handed this screen somebody
+ * else's books, and it would have cut the boundary silently in the wrong place.
+ *
+ * A piece nothing files onto answers an empty list, which is correct: there is
  * no order to cut.
- *
- * That is a departure worth naming rather than hiding, and it is named in the
- * pull request: a route that answered "the books standing in this area" would
- * replace both requests and the matching between them.
  */
 
 import { useEffect, useState } from 'react'
@@ -42,24 +46,20 @@ export function AddAreaScreen() {
     ? piece.areas.find((one) => one.id === areaId) ?? piece.areas[piece.areas.length - 1] ?? null
     : null
 
+  const cutting = area?.id ?? null
+
   useEffect(() => {
-    if (!area) return
+    if (cutting === null) return
     let stale = false
-    Promise.all([api.shelves('fiction'), api.shelves('nonfiction')])
-      .then(([fiction, nonfiction]) => {
+    api.areaBooks(cutting)
+      .then((read) => {
         if (stale) return
-        const group = [...fiction.groups, ...nonfiction.groups]
-          .find((one) => one.label === area.label)
-        setBooks((group?.books ?? []).map(({ book }): SplitBook => ({
-          id: book.id,
-          title: book.title,
-          authorFiling: book.author_filing,
-          sortKey: book.sort_key,
-        })))
+        setBooks(read.books.map(({ id, title, authorFiling, sortKey }): SplitBook =>
+          ({ id, title, authorFiling, sortKey })))
       })
       .catch((caught) => setError((caught as Error).message))
     return () => { stale = true }
-  }, [area, setError])
+  }, [cutting, setError])
 
   const add = async () => {
     if (!piece) return

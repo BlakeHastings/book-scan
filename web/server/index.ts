@@ -68,9 +68,11 @@ import { applyRunMove, planRunMove } from './relocate-run'
 // The work list the ledger already holds, grouped into trips (#314).
 import { outstandingWork, tripAtArea } from './carry'
 import {
-  addAreaTo, addFixture, describeFixture, describeFurniture, dropArea, dropFixture,
+  addAreaTo, addFixture, booksInArea, describeFixture, describeFurniture, dropArea, dropFixture,
   editArea, editFixture, planAreaRemoval, planFixtureRemoval, type Refused,
 } from './furniture'
+// Why a book is here: which rule claimed it, and which ones lost (#323).
+import { claimOfBook } from './claim'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
@@ -1781,6 +1783,26 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })) })
   }))
 
+  /**
+   * Why this book is here: which rule claimed it and which ones lost.
+   *
+   * The one screen that makes the rules legible to somebody who did not write
+   * them, which is the whole household except the owner. Two screen groups reach
+   * it, the furniture and the book page, so it is one read for both.
+   *
+   * **A book no rule claims is a real answer** and not an error: since #304
+   * nothing has to state a genre, so no tag gets written and no rule matches.
+   * The list comes back empty and the screen says so.
+   */
+  app.get('/api/books/:id/claim', asyncRoute(async (req, res) => {
+    const claimed = await claimOfBook(db, Number(req.params.id))
+    if (!claimed.ok) {
+      refused(res, claimed)
+      return
+    }
+    res.json({ claim: claimed.claim })
+  }))
+
   /** What a book is under, and who said so. */
   app.get('/api/books/:id/tags', asyncRoute(async (req, res) => {
     const id = Number(req.params.id)
@@ -2040,6 +2062,25 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
     res.json({ area: edited.area, becomes: edited.becomes, effect: edited.effect })
+  }))
+
+  /**
+   * The books standing in one area, in the order they stand there.
+   *
+   * **This is what replaces the label match #313 had to make.** Splitting an
+   * area needs the books in it, because a boundary is a book, and nothing
+   * answered that: the screen asked for both stretches of shelving and found the
+   * area whose *label* matched. Labels are derived at read time precisely so
+   * nothing depends on their stability, and the owner already has two pieces of
+   * furniture both standing at 4. This answers by identity instead.
+   */
+  app.get('/api/areas/:id/books', asyncRoute(async (req, res) => {
+    const read = await booksInArea(db, Number(req.params.id))
+    if (!read.ok) {
+      refused(res, read)
+      return
+    }
+    res.json({ area: read.area, books: read.books })
   }))
 
   /**

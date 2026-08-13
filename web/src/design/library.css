@@ -1590,6 +1590,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
+/* Every rule that wanted one book, stacked. Named rather than an inline grid
+   on the screen that draws them, because two screens draw them. */
+.wf-claims { display: grid; gap: var(--s2); }
+
 /* A rule that wanted a book, and whether it got it. */
 .wf-claim {
   display: grid;

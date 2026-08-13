@@ -50,6 +50,12 @@ export type Route =
    */
   | 'furniture' | 'fixture' | 'area' | 'addarea' | 'belongs' | 'sorting'
   /*
+   * Why one book is here (#323). Not part of the six: two screen groups reach
+   * it, the furniture and the book page, and it goes back to whichever one it
+   * was opened from rather than to a fixed place.
+   */
+  | 'claimed'
+  /*
    * Putting things right (#314): the whole of the work, one trip read at the
    * piece of furniture, one book placed, the trip finished, and what changed
    * while somebody was away. Five screens and one job, which is why the armful
@@ -95,6 +101,24 @@ export interface Navigation {
   readonly setArranging: Dispatch<SetStateAction<ShelfRange>>
   /** Open the library on a particular run, from the top. */
   readonly openLibraryOn: (range: ShelfRange) => void
+  /**
+   * Change what belongs somewhere: open the retarget-plan-apply screen.
+   *
+   * **There is one of these and this is the way to it** (#323). It is #244's
+   * screen, reached from the library and now from the rule itself, and the way
+   * back is wherever it was opened from, because "back" after cancelling a
+   * change has to be the screen that offered it.
+   */
+  readonly openArranging: (range: ShelfRange) => void
+  /** Back to the screen that offered the change, whichever one it was. */
+  readonly leaveArranging: () => void
+  /** Which screen that is, so the way back can be named rather than "Back". */
+  readonly arrangeFrom: Route
+  /** Which book the claim screen is about, and where it goes back to. */
+  readonly claiming: number | null
+  readonly openClaim: (bookId: number) => void
+  /** Back to the screen the claim was opened from, whichever it was. */
+  readonly closeClaim: () => void
 }
 
 const Context = createContext<Navigation | null>(null)
@@ -104,18 +128,52 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const [queueReturn, setQueueReturn] = useState<QueueReturnAnchor | null>(null)
   const [libraryReturn, setLibraryReturn] = useState<LibraryReturnAnchor | null>(null)
   const [arranging, setArranging] = useState<ShelfRange>('fiction')
+  /*
+   * Where two screens that several places reach go back to. Kept as a route
+   * rather than as a flag per caller: adding a third way in should be a call
+   * rather than another branch in whichever screen draws the back arrow.
+   */
+  const [arrangeBack, setArrangeBack] = useState<Route>('shelves')
+  const [claiming, setClaiming] = useState<number | null>(null)
+  const [claimBack, setClaimBack] = useState<Route>('review')
 
   /**
-   * Open the library on a particular run, from the top.
+   * Open the shelves on a particular run, from the top.
    *
-   * The same anchor a book uses to come back, with no book in it: the library
+   * The same anchor a book uses to come back, with no book in it: the screen
    * opens on the tab it is given, finds nothing to scroll to, and reports the
    * anchor consumed. Which is exactly what leaving the arrange screen needs,
    * and is why it does not get a second mechanism.
+   *
+   * **It lands on `shelves` rather than `library` since #315.** `ShelfView` is
+   * the only thing that reads this anchor and #315 moved it there; the library
+   * tab is the browsing screen now and has nothing to scroll to.
    */
   const openLibraryOn = (range: ShelfRange) => {
     setLibraryReturn({ range, bookId: 0, scrollY: 0 })
-    setRoute('library')
+    setRoute('shelves')
+  }
+
+  const openArranging = (range: ShelfRange) => {
+    setArranging(range)
+    setArrangeBack(route)
+    setRoute('arrange')
+  }
+
+  /*
+   * The shelves are not just a route: they are a route and the place in them, so
+   * leaving lands on the stretch of books this was about rather than at the top
+   * of the other one. Every other way in is a plain route.
+   */
+  const leaveArranging = () => {
+    if (arrangeBack === 'shelves') openLibraryOn(arranging)
+    else setRoute(arrangeBack)
+  }
+
+  const openClaim = (bookId: number) => {
+    setClaiming(bookId)
+    setClaimBack(route)
+    setRoute('claimed')
   }
 
   return (
@@ -126,6 +184,12 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         libraryReturn, setLibraryReturn,
         arranging, setArranging,
         openLibraryOn,
+        openArranging,
+        leaveArranging,
+        arrangeFrom: arrangeBack,
+        claiming,
+        openClaim,
+        closeClaim: () => setRoute(claimBack),
       }}
     >
       {children}

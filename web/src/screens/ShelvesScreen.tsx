@@ -20,7 +20,7 @@ import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 
 export function ShelvesScreen() {
-  const { libraryReturn, setLibraryReturn, setArranging, setRoute } = useNavigation()
+  const { libraryReturn, setLibraryReturn, openArranging, setRoute } = useNavigation()
   const { openFromLibrary } = useOpenBook()
 
   return (
@@ -28,7 +28,10 @@ export function ShelvesScreen() {
       onOpen={openFromLibrary}
       returnAnchor={libraryReturn}
       onReturnAnchorConsumed={() => setLibraryReturn(null)}
-      onArrange={(from) => { setArranging(from); setRoute('arrange') }}
+      /* Through `openArranging` since #323, because that screen has a second
+         way in now, from the rule itself, and it has to know which one it came
+         through to say where "back" goes. */
+      onArrange={openArranging}
       /* The way through to the furniture, which #313 put on this screen. It
          stays with the screen it was put on rather than moving to the library,
          which has its own way there once #313's own entry point settles. */

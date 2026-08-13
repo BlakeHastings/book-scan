@@ -8,6 +8,14 @@ interface Props {
   range: ShelfRange
   onBack: () => void
   /**
+   * What the way out says, because there are two ways in since #323.
+   *
+   * From the library it is the library; from the rule itself it is the rule. A
+   * button that said "Back to the library" to somebody who arrived from a
+   * bookcase screen is a button that does something else.
+   */
+  backSaid: string
+  /**
    * Where the books to carry are listed, which is where this screen ends.
    *
    * The carry flow since #314. It was the library's needs-attention list, which
@@ -63,7 +71,7 @@ const SKIP_SAID: Record<SkipReason, string> = {
  * open when a number looks wrong. `details` rather than a hand-rolled accordion:
  * it is a touch target the browser already gets right.
  */
-export function MoveRunView({ range, onBack, onCarry }: Props) {
+export function MoveRunView({ range, onBack, backSaid, onCarry }: Props) {
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
   const [bookcase, setBookcase] = useState(0)
   const [plan, setPlan] = useState<RunMovePlan | null>(null)
@@ -112,9 +120,9 @@ export function MoveRunView({ range, onBack, onCarry }: Props) {
 
   return (
     <main className="main">
-      <button className="btn btn--ghost runmove__back" onClick={onBack}>Back to the library</button>
+      <button className="btn btn--ghost runmove__back" onClick={onBack}>{backSaid}</button>
 
-      <h2 className="runmove__head">Move the {RUN_NAME[range]} run</h2>
+      <h2 className="runmove__head">Move all the {RUN_NAME[range]}</h2>
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
 

@@ -647,3 +647,193 @@ describe('giving an area an order of its own', () => {
         !one.selfContained)).toBe(true)
     })
 })
+
+/**
+ * The two routes #318 said were missing, and the workaround one of them killed.
+ *
+ * The first is "what is standing in this area", which cutting an area in two
+ * needs and which nothing answered: #313 asked for both stretches of shelving
+ * and matched an area up by its **label**. A label is worked out at read time
+ * from four things, any of which a person can change, so the test that matters
+ * is not that the list is right today: it is that the list is still right after
+ * the rename that would have broken the match.
+ */
+describe('what is standing in an area', () => {
+  it('lists its books in the order they stand, by identity', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+
+    const { status, body } = await get(`/api/areas/${bookcase.areas[1].id}/books`)
+    expect(status).toBe(200)
+    expect(body.area).toEqual({ id: bookcase.areas[1].id, label: '4B', books: 2 })
+    expect(body.books.map((one: { title: string }) => one.title))
+      .toEqual(['Title 002', 'Title 003'])
+    // The anchor a boundary is cut at, which is the whole reason this is asked.
+    expect(body.books[0].sortKey.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * The workaround's own failure, made to happen.
+   *
+   * Renaming the bookcase relabels every plank on it: `4B` becomes
+   * `Hall shelf · B`. A screen matching on the label would find no group at all
+   * and silently offer nothing to cut. The row is unchanged, so this still
+   * answers the same two books.
+   */
+  it('is unmoved by a rename that would have broken a match on labels', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const middle = bookcase.areas[1].id
+
+    const renamed = await patch(`/api/fixtures/${bookcase.id}`, { name: 'Hall shelf' })
+    expect(renamed.status).toBe(200)
+    expect(renamed.body.becomes).toContainEqual({ from: '4B', to: 'Hall shelf · B' })
+
+    const { status, body } = await get(`/api/areas/${middle}/books`)
+    expect(status).toBe(200)
+    expect(body.area.label).toBe('Hall shelf · B')
+    expect(body.books.map((one: { title: string }) => one.title))
+      .toEqual(['Title 002', 'Title 003'])
+  })
+
+  /**
+   * A book nothing claims is invisible from every count on these screens, and
+   * it is a real state since #304: no source states a genre, no tag is written,
+   * and no rule matches it. It stands where somebody put it and no plan will
+   * ever move it, so the area says so.
+   */
+  it('says which of its books no rule claims at all', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const area = bookcase.areas[0].id
+
+    const orphan = await db.get<{ id: number }>(
+      'SELECT id FROM books WHERE current_area_id = ? ORDER BY sort_key LIMIT 1', [area],
+    )
+    await db.run('DELETE FROM book_tag WHERE book_id = ?', [orphan!.id])
+
+    const { body } = await get(`/api/areas/${area}/books`)
+    const found = body.books.find((one: { id: number }) => one.id === orphan!.id)
+    expect(found.claimedBy).toBeNull()
+    expect(body.books
+      .filter((one: { claimedBy: string | null }) => one.claimedBy !== null)
+      .every((one: { claimedBy: string }) => one.claimedBy === 'Non-fiction')).toBe(true)
+  })
+
+  it('refuses an area that is not on any face', async () => {
+    await buildWorld()
+    const { status, body } = await get('/api/areas/999999/books')
+    expect(status).toBe(404)
+    expect(body.error).toBe('No such area.')
+  })
+})
+
+/**
+ * Why one book is here, which is the screen that makes the rules legible to
+ * somebody who did not write them.
+ *
+ * **The losers are the point.** A book that lands somewhere surprising is the
+ * moment the whole idea either explains itself or turns into magic, and the
+ * explanation is which rules asked for it and why one beat the other.
+ */
+describe('why a book is here', () => {
+  /** The book at the top of the non-fiction, which every test here is about. */
+  async function first(): Promise<number> {
+    const bookcase = await nonFiction()
+    const row = await db.get<{ id: number }>(
+      'SELECT id FROM books WHERE current_area_id = ? ORDER BY sort_key LIMIT 1',
+      [bookcase.areas[0].id],
+    )
+    return Number(row!.id)
+  }
+
+  it('names the rule that claimed it, where it stands and where the rules want it',
+    async () => {
+      await buildWorld()
+      const id = await first()
+
+      const { status, body } = await get(`/api/books/${id}/claim`)
+      expect(status).toBe(200)
+      expect(body.claim.claims).toHaveLength(1)
+      expect(body.claim.claims[0].won).toBe(true)
+      expect(body.claim.claims[0].rule.name).toBe('Non-fiction')
+      expect(body.claim.claims[0].rule.range).toBe('nonfiction')
+      expect(body.claim.standing.label).toBe('4A')
+      expect(body.claim.wanted.label).toBe('4A')
+      expect(body.claim.pinned).toBe(false)
+      expect(body.claim.tags).toEqual(['Non-fiction'])
+    })
+
+  it('draws a tag by its label and never by its slug', async () => {
+    await buildWorld()
+    const { body } = await get(`/api/books/${await first()}/claim`)
+    expect(JSON.stringify(body)).not.toMatch(/genre\//)
+  })
+
+  /**
+   * Two rules wanting one book is not hypothetical: a book corrected before
+   * #201 can carry two genre tags, and `priority` is what settles it. What the
+   * screen owes is both of them, in the order the decision was made.
+   */
+  it('lists every rule that wanted it, the winner first, with the loser said', async () => {
+    await buildWorld()
+    const id = await first()
+
+    const applied = await post(`/api/books/${id}/tags`, { slug: 'genre/fiction', label: 'Fiction' })
+    expect(applied.status).toBe(201)
+
+    const { body } = await get(`/api/books/${id}/claim`)
+    expect(body.claim.claims.map((one: { rule: { name: string }; won: boolean }) =>
+      [one.rule.name, one.won])).toEqual([['Fiction', true], ['Non-fiction', false]])
+    expect(body.claim.claims[1].why).toContain('tried first')
+  })
+
+  /**
+   * The state #304 made real: nothing states a genre, no tag is written, and no
+   * rule claims the book. Guessing a place for it would file it somewhere
+   * nobody asked for and report nothing, so the answer is empty and honest.
+   */
+  it('survives a book no rule claims at all', async () => {
+    await buildWorld()
+    const id = await first()
+    await db.run('DELETE FROM book_tag WHERE book_id = ?', [id])
+
+    const { status, body } = await get(`/api/books/${id}/claim`)
+    expect(status).toBe(200)
+    expect(body.claim.claims).toEqual([])
+    expect(body.claim.wanted).toBeNull()
+    expect(body.claim.tags).toEqual([])
+    // It is still standing where somebody put it, which is the point.
+    expect(body.claim.standing.label).toBe('4A')
+  })
+
+  /** `pinned` beats every rule, forever, and the rule it beats is still named. */
+  it('says a book is pinned and still names the rule the pin overrules', async () => {
+    await buildWorld()
+    const id = await first()
+    const bookcase = await nonFiction()
+
+    await new DrizzlePlacementLedger(db).record({
+      bookId: id,
+      kind: 'pinned',
+      areaId: bookcase.areas[2].id,
+      sortKey: '',
+      actor: 'person',
+      reason: 'it lives here',
+      createdAt: new Date().toISOString(),
+    })
+
+    const { body } = await get(`/api/books/${id}/claim`)
+    expect(body.claim.pinned).toBe(true)
+    expect(body.claim.standing.label).toBe('4C')
+    expect(body.claim.wanted.label).toBe('4A')
+    expect(body.claim.claims[0].rule.name).toBe('Non-fiction')
+  })
+
+  it('answers nothing for a book this catalogue does not have', async () => {
+    await buildWorld()
+    const { status, body } = await get('/api/books/999999/claim')
+    expect(status).toBe(404)
+    expect(body.error).toBe('No such book.')
+  })
+})
