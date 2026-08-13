@@ -74,9 +74,23 @@
  * for a while these were two components of one name emitting one set of class
  * names, and they broke each other in `library.css` without git or the suite
  * saying a word. See the note at the top of that file.
+ *
+ * ## The app drives this one, and that is why there are escape hatches
+ *
+ * The gallery draws a hatched rectangle where the photograph goes. The app puts
+ * a live `<video>` there, a guide rectangle measured off the crop it is really
+ * going to keep, a torch, a settings sheet and the answer to "this book is
+ * already in the queue". None of that is the wireframe's business, and none of
+ * it is a second camera screen either: it is this frame with things handed to
+ * it. So `picture`, `guide`, `top`, `far` and `over` are slots, each defaulting
+ * to what the gallery already drew.
+ *
+ * A second component would be the mistake `Shots.tsx` was made to end: two
+ * things emitting `.wf-view` and `.wf-shutter`, agreeing until one of them is
+ * edited.
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { IconBack } from './Icons'
 import { Shots, type Shot } from './Shots'
 
@@ -90,19 +104,57 @@ export type Hand = 'left' | 'right'
  * bit of it. Which edge the button belongs on cannot be settled by looking at
  * a drawing of both, only by holding the phone and pressing it, so the switch
  * works here rather than being described in a caption.
+ *
+ * Given a `hand` it stops holding even that: the app remembers the answer
+ * between sittings and keeps the switch with the rest of the camera's
+ * settings, which is where the header above says it belongs.
  */
 export function Viewfinder({
   shots,
   onLeave,
   onDone,
   onShutter,
+  picture,
+  guide,
+  top,
+  far,
+  over,
+  done = 'Done with this book',
+  doneOff = false,
+  also,
+  shutterOff = false,
+  hand: fixed,
 }: {
   shots: Shot[]
   onLeave?: () => void
   onDone?: () => void
   onShutter?: () => void
+  /** What fills the frame. The gallery draws one; the app plays one. */
+  picture?: ReactNode
+  /**
+   * Where to hold the book. The default is read off the shot the shutter is
+   * about to take and is a drawing; the app measures its own off the crop it
+   * is really going to keep, because a boundary you cannot see is one you will
+   * get wrong.
+   */
+  guide?: ReactNode
+  /** Anything else floating along the top, beside the way out. */
+  top?: ReactNode
+  /** The far top corner. Defaults to the handedness switch. */
+  far?: ReactNode
+  /** Drawn over the picture and under the controls: sheets, findings, hints. */
+  over?: ReactNode
+  /** What the button beside the shutter says. */
+  done?: ReactNode
+  doneOff?: boolean
+  /** A second, quieter answer above it, where a screen has one. */
+  also?: { word: ReactNode; onPress?: () => void; off?: boolean }
+  shutterOff?: boolean
+  /** Which edge the near cluster is on, where the caller owns that answer. */
+  hand?: Hand
 }) {
-  const [hand, setHand] = useState<Hand>('right')
+  const [chosen, setChosen] = useState<Hand>('right')
+  const hand = fixed ?? chosen
   const other: Hand = hand === 'right' ? 'left' : 'right'
 
   /* The shape of the frame is the shape of the photograph about to be taken,
@@ -111,36 +163,66 @@ export function Viewfinder({
 
   return (
     <div className="wf-view" data-hand={hand}>
-      <div className="wf-view__picture" aria-hidden="true" />
-      <div
-        className={`wf-view__guide${taking?.sliver ? ' wf-view__guide--slot' : ''}`}
-        aria-hidden="true"
-      />
+      {picture ?? <div className="wf-view__picture" aria-hidden="true" />}
+      {guide ?? (
+        <div
+          className={`wf-view__guide${taking?.sliver ? ' wf-view__guide--slot' : ''}`}
+          aria-hidden="true"
+        />
+      )}
 
       <button type="button" className="wf-view__leave" aria-label="Back" onClick={onLeave}>
         <IconBack />
       </button>
 
-      <button
-        type="button"
-        className="wf-view__hand"
-        onClick={() => setHand(other)}
-        aria-label={`Move the button to the ${other}`}
-      >
-        Move it {other}
-      </button>
+      {top && <div className="wf-view__top">{top}</div>}
+
+      {far ?? (
+        <button
+          type="button"
+          className="wf-view__far wf-view__chip"
+          onClick={() => setChosen(other)}
+          aria-label={`Move the button to the ${other}`}
+        >
+          Move it {other}
+        </button>
+      )}
+
+      {over}
 
       <div className="wf-view__bar">
         <Shots shots={shots} act on="picture" />
         <div className="wf-view__near">
-          <button type="button" className="wf-view__done" onClick={onDone}>
-            Done with this book
+          {also && (
+            <button
+              type="button"
+              className="wf-view__done wf-view__done--quiet"
+              onClick={also.onPress}
+              disabled={also.off}
+            >
+              {also.word}
+            </button>
+          )}
+          <button
+            type="button"
+            className="wf-view__done"
+            onClick={onDone}
+            disabled={doneOff}
+          >
+            {done}
           </button>
+          {/*
+            The shutter waits on nothing. Nothing is put in front of it, it is
+            never behind a confirmation, and the only thing that disables it is
+            there being no stream to take a photograph from. See #294 for what
+            work sitting behind other work costs.
+          */}
           <button
             type="button"
             className="wf-shutter"
             aria-label="Take the photograph"
             onClick={onShutter}
+            disabled={shutterOff}
           >
             <span className="wf-shutter__inner" />
           </button>

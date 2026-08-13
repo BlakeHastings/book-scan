@@ -93,6 +93,27 @@ export interface Shot {
    * label is the thing somebody rewrites without knowing what reads it.
    */
   sliver?: boolean
+  /**
+   * The photograph itself, where there is one.
+   *
+   * The gallery has none and stands a cloth in for each, which is what `cloth`
+   * is. The app has the real thing, and a review screen that drew a dyed
+   * rectangle instead of the photograph somebody just took would be answering
+   * the wrong question: the reason this is on that screen at all is so a blurred
+   * one can be seen and taken again.
+   *
+   * Either counts as taken. Presence is the one marker, for the reason the
+   * header gives.
+   */
+  photo?: string
+  /**
+   * What has become of it since, in words. "reading", "ISBN found".
+   *
+   * Words rather than a dot, because a coloured dot on a photograph is a legend
+   * somebody has to have been told, and this is a screen used one-handed at a
+   * bookcase.
+   */
+  note?: string
   /** Where taking this one again goes. Only read when `act` is set. */
   onPress?: () => void
 }
@@ -142,13 +163,15 @@ export function Shots({
   return (
     <div className={className} role="list" aria-label="Photographs">
       {shots.map((shot) => {
+        const taken = Boolean(shot.cloth || shot.photo)
+
         const marks = [
           'wf-shot',
           // The same marker the book's page uses for the same fact, so a
           // cropped spine is one class in one place rather than a second
           // treatment invented per screen.
           shot.sliver ? 'wf-shot--sliver' : '',
-          shot.cloth ? 'wf-shot--taken' : '',
+          taken ? 'wf-shot--taken' : '',
           shot.next ? 'wf-shot--next' : '',
         ]
           .filter(Boolean)
@@ -156,19 +179,27 @@ export function Shots({
 
         const box = (
           <span className={`wf-shot__box${shot.cloth ? ` wf-spine--${shot.cloth}` : ''}`}>
-            {act && shot.cloth && <span className="wf-shot__again">Retake</span>}
+            {shot.photo && <img className="wf-shot__img" src={shot.photo} alt="" />}
+            {act && taken && <span className="wf-shot__again">Retake</span>}
             {/* The word rather than a ring. An empty box marked only by a
                 solid outline read as a photograph of something black, which is
                 a thing a spine photograph can very well be. */}
-            {!shot.cloth && shot.next && <span className="wf-shot__next">Next</span>}
+            {!taken && shot.next && <span className="wf-shot__next">Next</span>}
           </span>
+        )
+
+        const words = (
+          <>
+            <span className="wf-shot__word">{shot.word}</span>
+            {shot.note && <span className="wf-shot__note">{shot.note}</span>}
+          </>
         )
 
         if (!act) {
           return (
             <span className={marks} role="listitem" key={shot.word}>
               {box}
-              <span className="wf-shot__word">{shot.word}</span>
+              {words}
             </span>
           )
         }
@@ -180,14 +211,14 @@ export function Shots({
             role="listitem"
             className={marks}
             aria-label={
-              shot.cloth
+              taken
                 ? `Take the ${shot.word.toLowerCase()} again`
                 : `Photograph the ${shot.word.toLowerCase()}`
             }
             onClick={shot.onPress}
           >
             {box}
-            <span className="wf-shot__word">{shot.word}</span>
+            {words}
           </button>
         )
       })}
@@ -213,25 +244,29 @@ export function Shots({
  * is empty. A dot that is not filled is a photograph nobody has taken.
  */
 function TheBook({ shots }: { shots: Shot[] }) {
-  const spine = shots.find((shot) => shot.sliver)
-  const deck = shots.filter((shot) => !shot.sliver)
+  const spine = shots.find((one) => one.sliver)
+  const deck = shots.filter((one) => !one.sliver)
   const front = deck[0]
 
-  const shot = (one: Shot | undefined, where: string) => (
-    <span
-      className={`wf-shot wf-shot--${where}${one?.cloth ? ' wf-shot--taken' : ''}`}
-      aria-hidden="true"
-    >
-      <span className={`wf-shot__box${one?.cloth ? ` wf-spine--${one.cloth}` : ''}`}>
-        {/* The shape of the missing thing, said in the box where it would be.
-            Only the front carries it: a sliver is too thin for a word, and it
-            is already drawn as an empty outline. */}
-        {where === 'face' && !one?.cloth && (
-          <span className="wf-shot__none">No photograph</span>
-        )}
+  const shot = (one: Shot | undefined, where: string) => {
+    const taken = Boolean(one?.cloth || one?.photo)
+    return (
+      <span
+        className={`wf-shot wf-shot--${where}${taken ? ' wf-shot--taken' : ''}`}
+        aria-hidden="true"
+      >
+        <span className={`wf-shot__box${one?.cloth ? ` wf-spine--${one.cloth}` : ''}`}>
+          {one?.photo && <img className="wf-shot__img" src={one.photo} alt="" />}
+          {/* The shape of the missing thing, said in the box where it would be.
+              Only the front carries it: a sliver is too thin for a word, and it
+              is already drawn as an empty outline. */}
+          {where === 'face' && !taken && (
+            <span className="wf-shot__none">No photograph</span>
+          )}
+        </span>
       </span>
-    </span>
-  )
+    )
+  }
 
   return (
     <div className="wf-shots wf-shots--book">
@@ -251,12 +286,12 @@ function TheBook({ shots }: { shots: Shot[] }) {
             role="listitem"
             className={[
               'wf-dot',
-              one.cloth ? 'wf-dot--taken' : '',
+              one.cloth || one.photo ? 'wf-dot--taken' : '',
               at === 0 ? 'wf-dot--showing' : '',
             ]
               .filter(Boolean)
               .join(' ')}
-            aria-label={one.cloth ? one.word : `${one.word}, not photographed`}
+            aria-label={one.cloth || one.photo ? one.word : `${one.word}, not photographed`}
           />
         ))}
       </span>

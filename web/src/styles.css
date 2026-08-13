@@ -483,7 +483,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .error { background: rgba(247, 118, 142, 0.15); border: 1px solid var(--bad); }
 .warn { background: rgba(224, 175, 104, 0.12); border: 1px solid var(--warn); }
-.warn--soft { border-color: var(--line); background: var(--panel-2); color: var(--muted); }
+.warn--soft { border-color: var(--line); background: var(--paper-sunk); color: var(--ink-2); }
 .warn ul { margin: 6px 0 0; padding-left: 18px; }
 
 /* --- Library ---------------------------------------------------------- */
@@ -614,6 +614,16 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 
+/* What the stuck books need, one line per kind of stuck. Not a list of books:
+   the books are underneath it, and this is the sorting somebody does before
+   picking one up (#148). */
+.queue__needs {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 4px;
+}
+
 /* Find a book, and choose which photograph of it you are shown. Stacked rather
    than side by side: at 414px a search box sharing a line with a two-way
    switch is narrow enough to truncate its own placeholder. */
@@ -623,20 +633,27 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   margin-bottom: 12px;
 }
 .queue__search { display: flex; gap: 6px; min-width: 0; }
+/*
+ * The queue wears the design system since #316, and every colour below it is
+ * read off the tokens that arrive with it: this list is only ever drawn inside
+ * `.wf`, so `--paper-sunk` and `--ink-2` are in scope and the app's cold
+ * panels are not. Shapes, sizes and every rule about the swipe are untouched.
+ */
 .queue__search-input {
   flex: 1;
   min-width: 0;
   min-height: 48px;
-  padding: 0 12px;
+  padding: 0 var(--s3);
   /* 16px exactly. Anything smaller and iOS zooms the page on focus, which
      leaves somebody scrolled sideways on a list they were reading. */
   font-size: 16px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  font-family: var(--face-ui);
+  background: var(--paper-sunk);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
   color: inherit;
 }
-.queue__search-input::placeholder { color: var(--muted); }
+.queue__search-input::placeholder { color: var(--ink-2); }
 /* The browser's own clear affordance, turned off. It is a few millimetres
    across, it is not there on every phone, and it is not there at all once the
    keyboard is dismissed. The button below replaces it rather than joining it,
@@ -644,12 +661,12 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .queue__search-input::-webkit-search-cancel-button { display: none; }
 .queue__search-clear {
   min-height: 48px;
-  padding: 0 14px;
-  font-size: 14px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--muted);
+  padding: 0 var(--s4);
+  font-size: var(--size-small);
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  color: var(--ink-2);
 }
 .queue__photoswitch { margin-bottom: 0; }
 .queue__howto { margin: 0 0 10px; }
@@ -665,18 +682,24 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   text-decoration: underline;
 }
 
+/*
+ * One book waiting to be filed.
+ *
+ * **No coloured rail down the side.** There was one, three pixels of it, tinted
+ * per status. That is the mark the owner named as an AI fingerprint and
+ * rejected on a card, and a row is a card with a book in it. Nothing was lost
+ * by taking it off: what the rail was saying is said in words on the row
+ * itself, one line down, which is where somebody sorting a stack actually
+ * reads it.
+ */
 .queue__row {
   position: relative;
   overflow: hidden;
-  background: var(--panel);
+  background: var(--paper-raised);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
+  box-shadow: var(--lift-1);
 }
-.queue__row--ready { border-left-color: var(--good); }
-.queue__row--failed { border-left-color: var(--warn); }
-.queue__row--pending { border-left-color: var(--accent); }
-.queue__row--going { border-left-color: var(--warn); }
 
 /* What the row is sliding off, so the gesture says what it is going to do
    before the finger lifts. Half lit while the drag is short of the distance
@@ -689,8 +712,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   align-items: center;
   justify-content: flex-end;
   padding-right: 18px;
-  background: rgba(247, 118, 142, 0.16);
-  color: var(--bad);
+  background: var(--plum-wash);
+  color: var(--plum);
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -699,12 +722,13 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .queue__row[data-armed='yes'] .queue__behind {
   opacity: 1;
   font-weight: 600;
-  background: rgba(247, 118, 142, 0.34);
+  background: var(--plum);
+  color: var(--ink-on-fill);
 }
 
 .queue__slide {
   position: relative;
-  background: var(--panel);
+  background: var(--paper-raised);
   transform: translateX(calc(-1 * var(--dx, 0px)));
   /* Vertical panning stays the browser's and sideways is ours, so scrolling
      the list never has to be arbitrated in JavaScript. */
@@ -732,7 +756,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   font: inherit;
   text-align: left;
 }
-.queue__open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.queue__open:focus-visible { outline: none; box-shadow: var(--focus); }
 /* Still being read, so there is nothing to shelve yet. Dimmed rather than
    disabled: a disabled button swallows the pointer events the swipe is made
    of, and a capture whose photographs came out unusable is exactly one
@@ -749,7 +773,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   align-items: center;
   padding: 12px 10px 15px;
 }
-.queue__undo-text { font-size: 13px; color: var(--muted); }
+.queue__undo-text { font-size: 13px; color: var(--ink-2); }
 .queue__undo-text strong { color: var(--fg, inherit); font-weight: 600; }
 .queue__undo-btn { min-height: 44px; padding: 0 18px; }
 .queue__undo-bar {
@@ -775,15 +799,17 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .queue__photo {
   width: 46px; height: 62px;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   overflow: hidden;
-  background: var(--panel-2);
+  background: var(--paper-sunk);
+  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
   display: block;
 }
 .queue__photo img { width: 100%; height: 100%; object-fit: cover; }
 
 .queue__body { display: grid; gap: 2px; min-width: 0; }
 .queue__title {
+  font-family: var(--face-book);
   font-weight: 500;
   min-width: 0;
   display: flex; align-items: baseline; gap: 6px;
@@ -796,17 +822,23 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .queue__guessmark {
   flex: none;
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--accent);
+  color: var(--ink-2);
   border: 1px solid currentColor;
   border-radius: 3px;
   padding: 0 4px;
 }
-.queue__meta { color: var(--muted); font-size: 13px; }
-.queue__status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
-.queue__status--ready { color: var(--good); }
-.queue__status--failed { color: var(--warn); }
-.queue__status--pending { color: var(--accent); }
-.queue__note { font-size: 12px; color: var(--muted); }
+.queue__meta { color: var(--ink-2); font-size: 13px; }
+.queue__status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+/* The one status worth a colour, and it is the one that needs a person. The
+   other two are said in words and left in ink: a row per state, each its own
+   shade, is the rail this row just lost, drawn as text instead. */
+.queue__status--failed { color: var(--plum); }
+.queue__note { font-size: 12px; color: var(--ink-2); }
 
 /* --- Book detail: photos ---------------------------------------------- */
 
@@ -1047,7 +1079,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .shelf__body--tap:active { opacity: 0.6; }
 
 /* What OCR could read off the cover, shown rather than assumed to be a title. */
-.queue__cover { font-size: 12px; color: var(--accent); }
+.queue__cover { font-size: 12px; color: var(--link); }
 
 /* A solid guide means the frame is the crop (the spine). A dashed one is
    alignment only: the whole frame is kept, so nothing can clip the ISBN. */
@@ -1667,12 +1699,22 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
    it. Deliberately does not look like a field: no box, no border on the lines
    themselves, and a rule down the left the way a quotation is set, so that
    nothing here can be mistaken for a value somebody has confirmed. */
+/*
+ * What the photographs read, beside the form and never in it (#147).
+ *
+ * **No rail down the side.** It had one, three pixels of it, which is the mark
+ * the owner named as an AI fingerprint and rejected on a card. What it was
+ * saying is said by the labels inside it, which name where each line came from
+ * in words. It is a well on the page instead, which is what the design system
+ * does with something quoted rather than stated.
+ */
 .evidence {
   display: grid;
   gap: 10px;
-  margin: 0 0 14px;
-  padding: 10px 0 10px 12px;
-  border-left: 3px solid var(--line);
+  margin: 0;
+  padding: var(--s3);
+  border-radius: var(--r-lg);
+  background: var(--paper-sunk);
   font-size: 14px;
 }
 .evidence__label {
@@ -1680,7 +1722,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink-2);
   margin-bottom: 2px;
 }
 .evidence__note { margin: 0; }
@@ -1694,7 +1736,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 /* Set apart from the page's own prose: this is a machine quoting a
    photograph, not the app talking. */
 .evidence__lines li { font-family: var(--mono, ui-monospace, monospace); }
-.evidence__caveat { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.evidence__caveat { margin: 6px 0 0; font-size: 12px; color: var(--ink-2); }
 
 .offshelf {
   border: 1px solid var(--warn);
@@ -2189,3 +2231,78 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .runmove__done h3 { margin: 0 0 6px; color: var(--good); font-size: 17px; }
 .runmove__done p { margin: 0 0 12px; font-size: 15px; }
+
+
+/* --- The shelving step, on the paper it is drawn on -------------------- */
+
+/*
+ * The one place two stylesheets deliberately meet.
+ *
+ * `ShelfStrip` draws the same shelf on two screens: the shelving step, which
+ * wears the design system since #316, and the library, which does not yet.
+ * The drawing itself is right on both, so what differs is only the paper it is
+ * on, and repainting it for everybody would leave warm spines on the app's
+ * cold page until the library is converted too.
+ *
+ * So this block is scoped to `.wf` and is the whole of the overlap: the same
+ * shapes, in the design system's ink. It goes when the library screen lands,
+ * and then these rules move up into the ones above them.
+ */
+.wf .shelve__ask {
+  background: var(--paper-raised);
+  border-color: var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--lift-1);
+  padding: var(--s4);
+}
+
+.wf .placement-view__instruction {
+  font-family: var(--face-book);
+  font-size: var(--size-title);
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.wf .strip__label { color: var(--ink); }
+.wf .strip__counts { color: var(--ink-2); }
+
+.wf .spine {
+  background: var(--paper-sunk);
+  border-color: var(--line-strong);
+  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
+}
+.wf .spine--known { border-color: var(--line-strong); }
+.wf .spine--cover { border-style: dashed; border-color: var(--line-strong); }
+.wf .spine__author { color: var(--ink-2); }
+.wf .spine__no { color: var(--ink-on-fill); background: rgba(51, 42, 34, 0.6); }
+.wf .spine--tap:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/* The space to open up, and the book waiting to go into it. Plum rather than
+   red: this is where the book goes, not a warning about it. */
+.wf .strip__gap {
+  border-color: var(--plum);
+  background: var(--plum-wash);
+}
+.wf .strip__new {
+  border-color: var(--plum);
+  background: var(--plum-wash);
+}
+.wf .strip__new-author { color: var(--ink); }
+.wf .strip__shelf { border-top-color: var(--board-edge); }
+
+/* Already on the shelf and in the right place, which is the end of the
+   journey rather than an instruction. */
+.wf .spine--here {
+  border: 2px solid var(--moss);
+  box-shadow: 0 0 0 2px var(--moss-wash);
+}
+.wf .spine--here .spine__no { background: var(--moss); color: var(--ink-on-fill); }
+
+.wf .moves__placed,
+.wf .moves__carried,
+.wf .moves__state { color: var(--ink-2); }
+.wf .moves__asking,
+.wf .moves__waiting { color: var(--ink); }
+.wf .moves__asking::marker { color: var(--wood-2); }
+
+.wf .hint { color: var(--ink-2); }

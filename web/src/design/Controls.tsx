@@ -14,6 +14,7 @@ export function Button({
   tone = 'secondary',
   block = false,
   small = false,
+  off = false,
   onPress,
 }: {
   children: ReactNode
@@ -25,6 +26,14 @@ export function Button({
   tone?: 'primary' | 'secondary' | 'quiet' | 'danger'
   block?: boolean
   small?: boolean
+  /**
+   * Drawn and not pressable. No gallery screen sets it: a wireframe answers
+   * "what does this screen offer", and the app answers "and can it be done
+   * yet", which is a fact about a request in flight or a field nobody has
+   * filled in. Whichever screen sets it says why in words beside it, because
+   * a phone has no hover and a `title` attribute is never read on one.
+   */
+  off?: boolean
   onPress?: () => void
 }) {
   const className = [
@@ -37,7 +46,7 @@ export function Button({
     .join(' ')
 
   return (
-    <button type="button" className={className} onClick={onPress}>
+    <button type="button" className={className} onClick={onPress} disabled={off}>
       {children}
     </button>
   )
@@ -193,10 +202,16 @@ export function Choice<T extends string>({
 }
 
 /**
- * A field, drawn rather than editable: this is a wireframe and nothing here
- * is wired to anything. The label sits above rather than inside, because a
- * placeholder that disappears when you type is a label you cannot check your
- * answer against.
+ * A field. The label sits above rather than inside, because a placeholder that
+ * disappears when you type is a label you cannot check your answer against.
+ *
+ * ## Drawn in the gallery, typed into in the app
+ *
+ * With no `onChange` this is a drawing, which is all a wireframe needs and all
+ * every gallery screen passes. The app hands it one, and then the value is an
+ * input rather than a span. One component either way: a second "but editable"
+ * field would be the same box drawn twice, agreeing until one of them is
+ * edited, which is the fault `Shots.tsx` was made to end.
  *
  * ## The second way to fill one in
  *
@@ -220,6 +235,7 @@ export function Field({
   placeholder,
   action,
   onChange,
+  inputMode,
 }: {
   label: string
   value?: string
@@ -241,6 +257,8 @@ export function Field({
    * end are decided once, here, whether or not there is a keyboard behind it.
    */
   onChange?: (value: string) => void
+  /** Which keyboard a phone offers. A page count is digits and a title is not. */
+  inputMode?: 'text' | 'numeric'
 }) {
   const marks = [
     'wf-field__box',
@@ -251,6 +269,9 @@ export function Field({
     .join(' ')
 
   return (
+    /* A `div` and not a `label`: the box can hold a second control, and a label
+       wrapping two of them is a label that points at neither. The input carries
+       its own accessible name instead. */
     <div className="wf-field">
       <span className="wf-field__label">{label}</span>
       <div className={marks}>
@@ -260,6 +281,10 @@ export function Field({
             value={value ?? ''}
             placeholder={placeholder}
             aria-label={label}
+            inputMode={inputMode}
+            autoComplete="off"
+            autoCapitalize="words"
+            spellCheck={false}
             onChange={(event) => onChange(event.target.value)}
           />
         ) : (

@@ -115,7 +115,7 @@ When('I start the camera', async ({ page }) => {
   // server cannot read.
   await expect
     .poll(
-      () => page.locator('video.cam__video').evaluate(
+      () => page.locator('video.wf-view__video').evaluate(
         (video) => (video as HTMLVideoElement).videoWidth,
       ),
       { message: 'the fake camera never produced a frame' },
@@ -128,12 +128,14 @@ When('I start the camera', async ({ page }) => {
 When('I photograph the book', async ({ page }) => {
   // The back cover is the slot the camera opens on, which is deliberate: it
   // carries the barcode, so identification starts on the first shot.
-  await expect(page.locator('.cam__chip--on')).toContainText('Back')
-  await page.locator('button.shutter').click()
+  // The photographs are `Shots` since #316, and the one the shutter is about
+  // to fill is the one marked as next.
+  await expect(page.locator('.wf-shot--next')).toContainText('Back')
+  await page.locator('button.wf-shutter').click()
 })
 
 Then('the camera should recognise the book as {string}', async ({ page }, title: string) => {
-  await expect(page.locator('.cam__found')).toContainText(title, { timeout: QUEUE_TIMEOUT })
+  await expect(page.locator('.wf-view__found')).toContainText(title, { timeout: QUEUE_TIMEOUT })
 })
 
 /**
@@ -146,16 +148,39 @@ Then('the camera should recognise the book as {string}', async ({ page }, title:
  * duration.
  */
 When('I start the next book', async ({ page }) => {
-  await page.locator('button.cam__next').click()
-  await expect(page.locator('.cam__found--empty')).toBeVisible()
+  await page.getByRole('button', { name: /^Next book/ }).click()
+  await expect(page.locator('.wf-view__found--empty')).toBeVisible()
 })
 
 When('I review what it found', async ({ page }) => {
-  const review = page.locator('button.cam__review')
+  const review = page.getByRole('button', { name: 'Done with this book' })
   await expect(review).toBeEnabled({ timeout: QUEUE_TIMEOUT })
   await review.click()
-  await expect(page.locator('.review')).toBeVisible()
+  await expect(reviewScreen(page)).toBeVisible()
 })
+
+/**
+ * The review screen for a book that is not in the catalogue yet.
+ *
+ * Its one primary answer is what says it is on screen. Everything else on it
+ * is a field somebody may or may not have filled in, and the screen it shares
+ * a route with, a catalogued book, has no such button on it at all.
+ */
+export function reviewScreen(page: Page) {
+  return page.getByRole('button', { name: 'That is the book' })
+}
+
+/** The ISBN as the review screen draws it: the field with a camera in it. */
+function isbnField(page: Page) {
+  return page.locator('.wf-field', { hasText: 'ISBN' }).locator('.wf-field__value')
+}
+
+/** How the review screen words each way an ISBN can have been read. */
+const READ_FROM: Record<string, string> = {
+  barcode: 'Read off the barcode',
+  ocr: 'Read off the printed number',
+  manual: 'Typed in by hand',
+}
 
 Then('the review screen should show:', async ({ page }, table: DataTable) => {
   for (const [label, value] of Object.entries(table.rowsHash())) {
@@ -167,7 +192,7 @@ Then('the review screen should show:', async ({ page }, table: DataTable) => {
 })
 
 Then('the ISBN should read {string}', async ({ page }, isbn: string) => {
-  await expect(page.locator('.isbn-block__number')).toHaveText(isbn)
+  await expect(isbnField(page)).toHaveText(isbn)
 })
 
 /**
@@ -176,11 +201,11 @@ Then('the ISBN should read {string}', async ({ page }, isbn: string) => {
  * wanted: a book whose reading nobody recorded is the bug.
  */
 Then('the ISBN should say it was read from {string}', async ({ page }, source: string) => {
-  await expect(page.locator('.isbn-block__source')).toHaveText(`read from ${source}`)
+  await expect(page.locator('.wf-top__sub')).toHaveText(READ_FROM[source] ?? source)
 })
 
 When('I confirm the details and go to shelve it', async ({ page }) => {
-  await page.getByRole('button', { name: 'Looks right, shelve it' }).click()
+  await page.getByRole('button', { name: 'That is the book' }).click()
   await expect(page.locator('.shelve__ask')).toBeVisible()
 })
 
@@ -398,15 +423,20 @@ Then('the gap should be on screen without scrolling the shelf', async ({ page })
  */
 When('I go back to the book details', async ({ page }) => {
   await page.getByRole('button', { name: 'Back to book details' }).click()
-  await expect(page.locator('.review, .detail__head')).toBeVisible()
+  await expect(reviewScreen(page).or(page.locator('.detail__head'))).toBeVisible()
 })
 
 When('I say it fits and save it', async ({ page }) => {
   await page.getByRole('button', { name: 'It fits, save' }).click()
 
-  // Saving a new book hands the screen back to the camera for the next one, so
-  // the shutter reappearing is how the app says it is done.
-  await expect(page.locator('button.shutter')).toBeVisible({ timeout: QUEUE_TIMEOUT })
+  // A new book ends on "Shelved" since #316, which is the drawn end of the
+  // journey: the same run of books with this one standing where the gap was.
+  // Taking the next book off the pile is the answer that leads on from it, and
+  // the shutter reappearing is how the app says the whole thing is done.
+  await expect(page.locator('.wf-top__title'))
+    .toHaveText('Shelved', { timeout: QUEUE_TIMEOUT })
+  await page.getByRole('button', { name: 'Next book' }).click()
+  await expect(page.locator('button.wf-shutter')).toBeVisible({ timeout: QUEUE_TIMEOUT })
 })
 
 /**
@@ -417,9 +447,22 @@ When('I say it fits and save it', async ({ page }) => {
  * which one is on screen depends on what the scenario just did rather than on
  * anything it says.
  */
+export async function leaveTheCamera(page: Page): Promise<void> {
+  // The camera has one way out and it is the round target in the corner. It
+  // had a row of navigation chips until #316 and the drawn screen has none:
+  // the picture is the whole screen. So anywhere else is two taps from here,
+  // out to the first screen and then a tab, which is what this is.
+  const out = page.locator('.wf-view__leave')
+  if (await out.isVisible()) {
+    await out.click()
+    await expect(homeScreen(page)).toBeVisible()
+  }
+}
+
 async function openLibrary(page: Page): Promise<void> {
+  await leaveTheCamera(page)
+
   for (const entry of [
-    page.locator('button.cam__chip-btn', { hasText: 'Library' }),
     page.locator('button.wf-tab', { hasText: 'Library' }),
     page.locator('nav button.tab', { hasText: 'Library' }),
   ]) {
@@ -454,8 +497,7 @@ Then(
   'the library should show {string} on shelf {string}',
   async ({ page }, title: string, shelf: string) => {
     // Reached from the camera, which is where somebody scanning a pile is.
-    const library = page.locator('button.cam__chip-btn', { hasText: 'Library' })
-    if (await library.isVisible()) await library.click()
+    await openLibrary(page)
 
     // The library draws each area as a run of spines now, so a book is in
     // the right place when its spine is inside that area's section. The
@@ -673,7 +715,14 @@ Then('the book should say it is off the bookcase', async ({ page }) => {
  */
 When('I change the ISBN to that of {string}', async ({ page }, title: string) => {
   const target = stubBookByTitle(title)
-  await page.getByRole('button', { name: 'Change ISBN' }).click()
+  // Two screens ask for it. On a catalogued book it is a button called
+  // "Change ISBN"; on the review screen since #316 it is the camera at the end
+  // of the ISBN field, which the drawing puts there because thirteen digits
+  // typed off a book by somebody holding the book is the slowest way to answer
+  // it. Both open the same prompt, and the prompt still has a keyboard in it.
+  const byCamera = page.getByRole('button', { name: /Read the barcode/ })
+  if (await byCamera.isVisible()) await byCamera.click()
+  else await page.getByRole('button', { name: 'Change ISBN' }).click()
   await page.locator('.isbn-input input').fill(target.isbn13)
   await page.getByRole('button', { name: 'Look up and replace' }).click()
 })

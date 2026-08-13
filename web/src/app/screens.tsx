@@ -7,15 +7,23 @@
  * value read by six conditionals inside one 1,859 line component, and every
  * new screen was an edit to the same few lines of it.
  *
- * `chrome` says whether the screen wears the header and the tabs. The two
- * cameras do not, because they are full-screen and the page must not scroll
- * behind them, and neither do the screens drawn with the design system, which
- * bring their own top bar and four-place tab bar: the first screen since #303,
- * the furniture since #313, and the carry flow since #314.
+ * `chrome` says whether the screen wears the header and the tabs. Most no
+ * longer do: the two cameras are full-screen and the page behind them must not
+ * scroll, and every screen converted to the design system brings its own top
+ * bar and four-place tab bar, so the app's header would be a second bar above
+ * them saying the same thing. That is the first screen since #303, the
+ * furniture since #313, the carry flow since #314 and the cataloguing journey
+ * since #316.
  *
- * **`carrying` is the exception in that flow, and deliberately.** It is the
- * where-it-goes screen a newly scanned book gets, called rather than copied, so
- * it wears whatever that screen wears. See `CarryingScreen`.
+ * **`carrying` still wears whatever the where-it-goes screen wears**, which is
+ * the point of it calling that screen rather than copying it. That screen is
+ * converted now, so this one is too, and the two are still one component with
+ * one frame around it rather than two that agree today.
+ *
+ * One screen is converted on one of its two paths: review draws a queued
+ * capture with the design system and a catalogued book with what it always
+ * had, which is the `book` screen and somebody else's to convert. It asks for
+ * the frame itself on that path rather than this table growing a condition.
  */
 
 import type { ComponentType } from 'react'
@@ -49,10 +57,10 @@ export interface ScreenEntry {
 export const SCREENS: Record<Route, ScreenEntry> = {
   home: { view: HomeScreen, chrome: false },
   capture: { view: CaptureScreen, chrome: false },
-  review: { view: ReviewScreen, chrome: true },
-  shelve: { view: ShelveScreen, chrome: true },
+  review: { view: ReviewScreen, chrome: false },
+  shelve: { view: ShelveScreen, chrome: false },
   library: { view: LibraryScreen, chrome: true },
-  queue: { view: QueueScreen, chrome: true },
+  queue: { view: QueueScreen, chrome: false },
   arrange: { view: ArrangeScreen, chrome: true },
   scan: { view: ScanScreen, chrome: false },
 
@@ -71,7 +79,7 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   /* Putting things right, in the order the journey is walked. */
   carry: { view: CarryScreen, chrome: false },
   trip: { view: TripScreen, chrome: false },
-  carrying: { view: CarryingScreen, chrome: true },
+  carrying: { view: CarryingScreen, chrome: false },
   carried: { view: CarriedScreen, chrome: false },
   carrystale: { view: CarryStaleScreen, chrome: false },
 }

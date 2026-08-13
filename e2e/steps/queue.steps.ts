@@ -13,7 +13,7 @@ import { expect } from '@playwright/test'
 import type { DataTable } from 'playwright-bdd'
 
 import { Then, When } from './fixtures.js'
-import { homeScreen } from './app.steps.js'
+import { homeScreen, leaveTheCamera, reviewScreen } from './app.steps.js'
 
 /** The queue reads a photograph in the background. Seconds, not milliseconds. */
 const QUEUE_TIMEOUT = 90 * 1000
@@ -27,8 +27,11 @@ const QUEUE_TIMEOUT = 90 * 1000
  * the scenario just did rather than on anything it says.
  */
 When('I go to the queue', async ({ page }) => {
+  // The camera has one way out and no tabs on it since #316, so from there the
+  // queue is out to the first screen and then the tab.
+  await leaveTheCamera(page)
+
   for (const entry of [
-    page.locator('button.cam__chip-btn', { hasText: 'Queue' }),
     page.locator('button.wf-tab', { hasText: 'Queue' }),
     page.locator('nav button.tab', { hasText: 'Queue' }),
   ]) {
@@ -59,7 +62,7 @@ When('I open the queued book', async ({ page }) => {
   const open = row.locator('.queue__open:not([aria-disabled="true"])')
   await expect(open).toBeVisible({ timeout: QUEUE_TIMEOUT })
   await open.click()
-  await expect(page.locator('.isbn-block')).toBeVisible()
+  await expect(reviewScreen(page)).toBeVisible()
 })
 
 /**
@@ -69,7 +72,7 @@ When('I open the queued book', async ({ page }) => {
  * nothing could be until the book became a catalogued book.
  */
 When('I put the book down without shelving it', async ({ page }) => {
-  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Leave it in the queue' }).click()
   await expect(page.locator('.queue__row').first()).toBeVisible()
 })
 
@@ -81,6 +84,14 @@ When('I put the book down without shelving it', async ({ page }) => {
  * walked away for the whole five minutes of the lease (#150).
  */
 When('I leave by the {string} tab', async ({ page }, tab: string) => {
+  // Two chromes: a converted screen wears the design system's tab bar and an
+  // unconverted one wears the app's header nav. Which is on screen depends on
+  // what the scenario just opened rather than on anything it says.
+  const wf = page.locator('button.wf-tab', { hasText: tab })
+  if (await wf.isVisible()) {
+    await wf.click()
+    return
+  }
   await page.locator('nav button.tab', { hasText: tab }).click()
 })
 

@@ -32,9 +32,21 @@ const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
   'already-in': 'It was already checked in, so nothing changed.',
 }
 
+/**
+ * Where a finished save leaves you.
+ *
+ * `origin` is where the book was picked up: the queue, the library, the
+ * scanner. `here` is the shelving step keeping the screen so it can say the
+ * book is on the shelf, which is the end of the drawn journey and only makes
+ * sense for a book that was not in the catalogue a moment ago. A book being
+ * checked back in or carried across a boundary came from somewhere and owes
+ * that screen a return.
+ */
+export type Landing = 'origin' | 'here'
+
 export interface BookActions {
-  /** Finish shelving a book and hand the screen back to where it came from. */
-  readonly save: (shelvedAt?: string) => Promise<boolean>
+  /** Finish shelving a book, and go wherever the landing says. */
+  readonly save: (shelvedAt?: string, land?: Landing) => Promise<boolean>
   /** Write edits to a catalogued book without leaving it. */
   readonly saveEdits: () => Promise<boolean>
   readonly deleteBook: () => Promise<void>
@@ -94,7 +106,11 @@ export function useBookActions(): BookActions {
    * part of the insert. Only the update path had the gap, and it is the path a
    * book takes every time it goes back on a shelf.
    */
-  const persist = async (stay: boolean, shelvedAt = ''): Promise<boolean> => {
+  const persist = async (
+    stay: boolean,
+    shelvedAt = '',
+    land: Landing = 'origin',
+  ): Promise<boolean> => {
     book.setSaving(true)
     setError('')
     try {
@@ -115,6 +131,16 @@ export function useBookActions(): BookActions {
         // write it would have raced with has landed.
         endReviewSession()
         await refreshPlacement()
+      } else if (land === 'here') {
+        /*
+         * The shelving step keeps the screen so it can say the book is on the
+         * shelf. The book stays in hand for exactly that one screen, and both
+         * of its answers put it down: "next book" goes back where this one
+         * came from, and "that is enough for today" goes to the first screen.
+         * Nothing is held open that a tap does not close, and the capture is
+         * released by the same `clearBookInHand` either way.
+         */
+        endReviewSession()
       } else {
         // Finished with the book, so back the way you came in: the scanner for
         // the next one off the pile, the shelves for the next adjustment, the
@@ -134,8 +160,9 @@ export function useBookActions(): BookActions {
 
   // Named wrappers rather than passing persist straight to a handler: onClick
   // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
-  /** Finish shelving a book and hand the screen back to the camera. */
-  const save = (shelvedAt = '') => persist(false, shelvedAt)
+  /** Finish shelving a book, and go wherever the landing says. */
+  const save = (shelvedAt = '', land: Landing = 'origin') =>
+    persist(false, shelvedAt, land)
 
   /** Write edits to a catalogued book without leaving it. */
   const saveEdits = () => persist(true)

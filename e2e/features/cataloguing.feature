@@ -28,8 +28,8 @@ Feature: Cataloguing a book from its cover
 
     When I review what it found
     Then the review screen should show:
-      | Title                     | Dune          |
-      | Authors (comma separated) | Frank Herbert |
+      | Title  | Dune          |
+      | Author | Frank Herbert |
     And the ISBN should read "9780441013593"
     And the ISBN should say it was read from "barcode"
 

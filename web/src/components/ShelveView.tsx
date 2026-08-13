@@ -5,6 +5,7 @@ import {
   started, whereYouAre, type Cascade, type Proposal,
 } from '../lib/cascade'
 import { PlacementView, ShelfStrip } from './ShelfStrip'
+import { Button } from '../design/Controls'
 import type { ShelfRange } from '../../shared/shelving'
 
 interface Props {
@@ -250,10 +251,8 @@ export function ShelveView({
   }
 
   return (
-    <main className="main">
-      <h2 className="pane-title">Shelve {title}</h2>
-
-      {error && <div className="error" onClick={() => setError('')}>{error}</div>}
+    <>
+      {error && <div className="warn" onClick={() => setError('')}>{error}</div>}
 
       {/* One picture, of the question being asked. Four drawn strips stacked
           up do not fit a phone, and three of them would be about books
@@ -265,10 +264,12 @@ export function ShelveView({
             {pending.proposal.to}
           </p>
           {pending.proposal.strip ? (
-            <ShelfStrip
-              strip={pending.proposal.strip}
-              authorFiling={pending.proposal.authorFiling}
-            />
+            <div className="wf-bleed">
+              <ShelfStrip
+                strip={pending.proposal.strip}
+                authorFiling={pending.proposal.authorFiling}
+              />
+            </div>
           ) : (
             <p className="hint">
               {pending.proposal.to} has nothing on it yet, so this book starts it.
@@ -276,7 +277,9 @@ export function ShelveView({
           )}
         </div>
       ) : (
-        <PlacementView placement={placement} pending={busy || stale} />
+        <div className="wf-bleed">
+          <PlacementView placement={placement} pending={busy || stale} />
+        </div>
       )}
 
       <MovesSoFar cascade={cascade} />
@@ -295,24 +298,22 @@ export function ShelveView({
               fit there?
             </p>
 
-            <div className="actions">
-              <button
-                className="btn btn--primary"
-                onClick={() => void confirmPlaced()}
-                disabled={busy}
+            <div className="wf-answers">
+              <Button
+                tone="primary"
+                block
+                off={busy}
+                onPress={() => void confirmPlaced()}
               >
                 {busy ? 'Saving...' : 'Yes, it fit'}
-              </button>
-            </div>
-
-            <div className="actions">
-              <button
-                className="btn"
-                onClick={() => overflowFrom(pending.proposal.to, 'area')}
-                disabled={busy}
+              </Button>
+              <Button
+                block
+                off={busy}
+                onPress={() => overflowFrom(pending.proposal.to, 'area')}
               >
                 {busy ? '...' : `No, ${pending.proposal.to} is full too`}
-              </button>
+              </Button>
             </div>
 
             <p className="hint">
@@ -341,40 +342,45 @@ export function ShelveView({
               )}
             </p>
 
-            <div className="actions">
+            <div className="wf-answers">
               {/* The label the sentence above just named, handed on so the
                   answer to "does it fit here" is what gets recorded. Every
                   answer here is about a named plank, so none of them can be
                   given before there is one. */}
-              <button
-                className="btn btn--primary"
-                onClick={() => onShelved(shelfLabel)}
-                disabled={saving || busy || !known}
+              <Button
+                tone="primary"
+                block
+                off={saving || busy || !known}
+                onPress={() => onShelved(shelfLabel)}
               >
                 {saving ? 'Saving...' : 'It fits, save'}
-              </button>
-            </div>
+              </Button>
 
-            <div className="actions">
-              {/* Area is the next plank down; shelf is a whole new bookcase. */}
-              <button
-                className="btn"
-                onClick={() => overflowFrom(shelfLabel, 'area')}
-                disabled={busy || saving || !known}
+              {/*
+                Two answers where the drawing has one, and both are kept.
+                "{area} is full" is one physical fact with two answers to it,
+                because the next place a book can go is either the plank below
+                or a bookcase that does not exist yet, and only the person
+                standing there knows which.
+              */}
+              <Button
+                block
+                off={busy || saving || !known}
+                onPress={() => overflowFrom(shelfLabel, 'area')}
               >
                 {busy
                   ? '...'
                   : atEndOfShelf
                     ? 'No room, put it on the next area'
                     : started(cascade) ? 'Still no room' : 'No room, move one along'}
-              </button>
-              <button
-                className="btn"
-                onClick={() => overflowFrom(shelfLabel, 'shelf')}
-                disabled={busy || saving || !known}
+              </Button>
+              <Button
+                block
+                off={busy || saving || !known}
+                onPress={() => overflowFrom(shelfLabel, 'shelf')}
               >
                 No room, start a new bookcase
-              </button>
+              </Button>
             </div>
 
             <p className="hint">
@@ -390,12 +396,10 @@ export function ShelveView({
         )}
       </div>
 
-      <div className="actions">
-        <button className="btn btn--ghost" onClick={onBack} disabled={saving || busy}>
-          Back to book details
-        </button>
-      </div>
-    </main>
+      <Button tone="quiet" block off={saving || busy} onPress={onBack}>
+        Back to book details
+      </Button>
+    </>
   )
 }
 
