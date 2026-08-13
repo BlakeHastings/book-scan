@@ -86,9 +86,55 @@ If the photographs are covered by something else, a file-level backup service or
 an external drive somebody rotates, that is a fine answer and it should be
 written down here. What is not fine is nobody having decided.
 
-## The schedule
+## There is no schedule any more, and that is a decision
 
-Windows has no cron. The scheduler is Windows Task Scheduler, registered by
+**The owner retired the scheduled task on 2026-08-11.** Backups are taken before
+any operation that touches the catalogue, by whoever is doing the operation, and
+not on a clock.
+
+The reason it went is worth keeping, because it is not "schedules are bad". It
+is that **this one broke twice in two days and only a log knew.** #221 changed
+what the script needed and the next night's run failed; #239 records that two
+nights passed before anybody looked. A task that exists and fails is worse than
+no task, because it looks like protection.
+
+**What this covers and what it does not.** It covers every change we make,
+which is the failure this project actually keeps having. It does **not** cover
+a dead disk, a `docker volume rm` or a bad shutdown between sessions, and the
+catalogue is added to most days. That gap is accepted deliberately rather than
+overlooked, and it is the thing to revisit if a fortnight of scanning ever sits
+between operations.
+
+### So the rule is: back up first, and verify it
+
+**Before anything touches the catalogue** — a migration, a rollout to `stable`,
+a repair script, a schema change — take a dump and read the last line.
+
+```
+cd web
+npx tsx server/backup-catalogue.ts --source <live> --scratch <scratch> --dir 'E:\book-scan-backups'
+```
+
+It must end `RESTORED AND VERIFIED`. **A run that prints `writing <file>` and
+then stops has not backed anything up**, and that is not hypothetical: on
+2026-08-11 the tool died after that line because it assumed a schema the live
+catalogue did not have yet (#240).
+
+### Removing the task, which the owner runs
+
+```
+Unregister-ScheduledTask -TaskName 'book-scan catalogue backup' -Confirm:$false
+```
+
+Check it is gone with `Get-ScheduledTask -TaskName 'book-scan*'`. The dumps
+already on `E:` are untouched by this and remain restorable.
+
+## What the schedule used to be
+
+Kept because it is how it would be rebuilt, and because the reasoning about
+Task Scheduler was hard won.
+
+Windows has no cron. The scheduler was Windows Task Scheduler, registered by
 `scripts/install-backup-task.ps1`, running `scripts/backup-catalogue.ps1` daily
 at 03:30 local.
 
