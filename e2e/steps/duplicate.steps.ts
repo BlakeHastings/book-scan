@@ -30,6 +30,7 @@
 import { expect } from '@playwright/test'
 
 import { Given, Then, When } from './fixtures.js'
+import { homeScreen } from './app.steps.js'
 import { BOOK_IN_HAND } from '../support/books.js'
 
 /**
@@ -93,7 +94,7 @@ When('I send it to the queue', async ({ page, catalogue }) => {
 /** Back to the home screen, which is where scanning starts from. */
 When('I go back to the start', async ({ page }) => {
   await page.locator('button.cam__chip-btn', { hasText: 'Home' }).click()
-  await expect(page.locator('.tile__title', { hasText: 'Scan' })).toBeVisible()
+  await expect(homeScreen(page)).toBeVisible()
 })
 
 Then('it should say the book is already in the queue', async ({ page }) => {

@@ -17,20 +17,33 @@ import { stubBookByTitle } from '../support/books.js'
 /** The queue decodes the barcode and looks it up. Seconds, not milliseconds. */
 const QUEUE_TIMEOUT = 90 * 1000
 
+/**
+ * The first screen has arrived and has its numbers in it.
+ *
+ * Three tiles until #303, and the design system since. The heading is a better
+ * wait than the frame around it: the top bar and the tab bar are drawn before
+ * anything has been asked of the server, and the counts are what every
+ * scenario that starts here is about to act on.
+ */
+export function homeScreen(page: Page) {
+  return page.locator('.wf-heading', { hasText: 'The collection' })
+}
+
 When('I open the app', async ({ page, webUrl }) => {
   await page.goto(webUrl)
-  await expect(page.locator('.tile__title', { hasText: 'Add' })).toBeVisible()
+  await expect(homeScreen(page)).toBeVisible()
 })
 
 /**
  * The one way in for a book the catalogue already has.
  *
- * Two taps: the tile, then the shutter. The wait between them is a wait on a
- * frame arriving, same as the cataloguing camera, because a shutter pressed
- * before the fake device has delivered anything photographs an empty canvas.
+ * Two taps: the one action in the top right, then the shutter. The wait
+ * between them is a wait on a frame arriving, same as the cataloguing camera,
+ * because a shutter pressed before the fake device has delivered anything
+ * photographs an empty canvas.
  */
 When('I scan the book', async ({ page }) => {
-  await page.locator('button.tile', { hasText: 'Scan' }).click()
+  await page.getByRole('button', { name: 'Find the book in your hand' }).click()
   await expect
     .poll(
       () => page.locator('video.isbncam__video').evaluate(
@@ -93,7 +106,7 @@ When('I say it fits and finish putting it back', async ({ page }) => {
 })
 
 When('I start the camera', async ({ page }) => {
-  await page.locator('button.tile', { hasText: 'Add' }).click()
+  await page.locator('button.wf-tab', { hasText: 'Scan' }).click()
   await page.getByRole('button', { name: 'Start camera' }).click()
 
   // The fake device is a file, so the first frame arrives almost at once. What
@@ -399,14 +412,15 @@ When('I say it fits and save it', async ({ page }) => {
 /**
  * To the library from wherever this scenario happens to be.
  *
- * Three ways in, because the library is reachable from the camera, the home
- * tiles and the header, and which one is on screen depends on what the
- * scenario just did rather than on anything it says.
+ * Three ways in, because the library is reachable from the camera, the first
+ * screen's tab bar and the header of every screen that is not those two, and
+ * which one is on screen depends on what the scenario just did rather than on
+ * anything it says.
  */
 async function openLibrary(page: Page): Promise<void> {
   for (const entry of [
     page.locator('button.cam__chip-btn', { hasText: 'Library' }),
-    page.locator('button.tile', { hasText: 'Library' }),
+    page.locator('button.wf-tab', { hasText: 'Library' }),
     page.locator('nav button.tab', { hasText: 'Library' }),
   ]) {
     if (await entry.isVisible()) {

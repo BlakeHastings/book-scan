@@ -3,16 +3,33 @@
  *
  * ## Why these are scoped to `.wf` and not to `:root`
  *
- * The running app already owns `:root`, and four of the names it uses are
- * names this file wants: `--line`, `--radius`, `--text` and `--bg`. Defining
- * these globally would repaint the working app the moment somebody opened the
- * wireframe and then navigated back to it without a reload, which is exactly
- * the disturbance this work is not allowed to cause. So every token lives on
- * the `.wf` element the gallery mounts, and the existing stylesheet cannot see
- * any of it.
+ * The running app already owns `:root`, and one of the names it uses there is
+ * a name this file wants: `--line`, which is `#33333f` in `src/styles.css` and
+ * a warm hairline here. Defining these globally would repaint every screen of
+ * the app that has not been converted yet, which is exactly the disturbance
+ * this work is not allowed to cause. So every token lives on the `.wf` element
+ * a converted screen mounts, custom properties inherit, and the app's own
+ * value is the one that survives everywhere `.wf` is not.
+ *
+ * That is the whole of the collision between the two stylesheets, and it was
+ * looked for rather than discovered: no class name appears in both, because
+ * every rule here is `.wf` or `wf-` prefixed and nothing in `src/styles.css`
+ * is. The header used to name `--radius`, `--text` and `--bg` beside `--line`;
+ * those three are defined by the app and never redefined here, so they were
+ * never collisions.
  *
  * When the redesign is cut over for real, this scope moves up to `:root` and
- * `src/styles.css` goes away. That is a later job, deliberately.
+ * `src/styles.css` goes away. That is a later job, deliberately: the app wears
+ * this on one screen so far.
+ *
+ * ## `body.wf-page`, which is the page under a converted screen
+ *
+ * `.wf` is a column at most 480px wide inside a page the app paints, so its
+ * paper stops at its own edges: the app's cold `--bg` shows either side of it
+ * on anything wider, and under an overscroll bounce on the phone itself. The
+ * class goes on `body` for exactly as long as a converted screen is on
+ * screen, and it is in the selector list below rather than repeating a colour,
+ * so there is still one place each of these values is decided.
  *
  * ## The palette dresses the furniture, not the books
  *
@@ -23,7 +40,8 @@
  * and never for large fills.
  */
 
-.wf {
+.wf,
+body.wf-page {
   /* --- Surfaces, light: a reading room in daylight ---------------------- */
 
   /* The page. Uncoated book paper, warm, never white. */
@@ -308,7 +326,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .wf:not([data-theme="light"]) {
+  .wf:not([data-theme="light"]),
+  body.wf-page {
     --paper: #16120e;
     --paper-raised: #221b15;
     --paper-sunk: #100d0a;

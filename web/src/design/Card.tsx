@@ -59,6 +59,25 @@ export function Card({
 }
 
 /**
+ * One sentence with the cat sitting beside it, in a well on the page.
+ *
+ * The whole of the prose on the first screen, and the reason it is a component
+ * rather than a flex box written where it is used: the gallery draws it with a
+ * sentence somebody wrote, the app draws it with a sentence off the queue, and
+ * two hand-built versions would be the same block at two sizes within a month.
+ */
+export function Beside({ children }: { children: ReactNode }) {
+  return (
+    <Card weight="sunk">
+      <div className="wf-beside">
+        <Cat pose="sitting" size={52} />
+        <p className="wf-beside__said">{children}</p>
+      </div>
+    </Card>
+  )
+}
+
+/**
  * The one line a screen exists to say, set in the book face because it names
  * books. `text-wrap: balance` matters more here than anywhere: this is the
  * sentence somebody reads while walking to a shelf with a book in their hand,

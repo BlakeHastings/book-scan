@@ -13,6 +13,7 @@ import { expect } from '@playwright/test'
 import type { DataTable } from 'playwright-bdd'
 
 import { Then, When } from './fixtures.js'
+import { homeScreen } from './app.steps.js'
 
 /** The queue reads a photograph in the background. Seconds, not milliseconds. */
 const QUEUE_TIMEOUT = 90 * 1000
@@ -21,14 +22,14 @@ const QUEUE_TIMEOUT = 90 * 1000
  * To the queue from wherever the scenario happens to be.
  *
  * Three ways in, and all three are needed: the camera has its own chip, the
- * home screen has a tile and hides the header nav, and everywhere else has the
- * tab. Which one is on screen depends on what the scenario just did rather
- * than on anything it says.
+ * first screen has the design system's tab bar and no header nav, and
+ * everywhere else has the header's tab. Which one is on screen depends on what
+ * the scenario just did rather than on anything it says.
  */
 When('I go to the queue', async ({ page }) => {
   for (const entry of [
     page.locator('button.cam__chip-btn', { hasText: 'Queue' }),
-    page.locator('button.home__queue'),
+    page.locator('button.wf-tab', { hasText: 'Queue' }),
     page.locator('nav button.tab', { hasText: 'Queue' }),
   ]) {
     if (await entry.isVisible()) {
@@ -120,7 +121,7 @@ Then('the queued book should be held by nobody', async ({ catalogue }) => {
 When('I come back as somebody else', async ({ page, webUrl }) => {
   await page.evaluate(() => window.localStorage.removeItem('bookscan.device'))
   await page.goto(webUrl)
-  await expect(page.locator('.tile__title', { hasText: 'Add' })).toBeVisible()
+  await expect(homeScreen(page)).toBeVisible()
 })
 
 Then('the queued book should be listed as {string}', async ({ page }, title: string) => {
