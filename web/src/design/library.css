@@ -1463,6 +1463,55 @@
 /* --- What is being shown, and the way into the tags -------------------------- */
 
 /*
+ * The filter, and the way of looking at the books, on one line.
+ *
+ * There were two lines here: this row, and a segmented control under it
+ * holding Covers, List and Spines. The second one cost 64px of every visit to
+ * the three screens whose whole job is showing books, to hold a preference
+ * somebody sets about as often as they rearrange the furniture.
+ *
+ * The filter takes what is left and the circle is fixed, so the row is the
+ * same height it always was and the tags are what gives up width when there
+ * are a lot of them. `min-width: 0` is what lets that happen at all: without
+ * it a flex item refuses to shrink below its content and the circle goes off
+ * the side of the phone.
+ */
+.wf-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.wf-filter .wf-picked {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * The circle. A full 44px target like every other one here, sitting at the end
+ * of the filter row rather than out at the screen's edge: the search glyph
+ * above it is allowed past the content margin because a top bar is chrome, and
+ * this is on the page with the cards, so it lines up with them.
+ *
+ * It wears the same skin as the row beside it, raised paper inside a hairline,
+ * because the two are one control's worth of furniture and a filled or
+ * outlined circle read as a third kind of thing.
+ */
+.wf-cycle {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  display: grid;
+  place-items: center;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--link);
+}
+.wf-cycle:active { background: var(--paper-sunk); }
+.wf-cycle:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/*
  * One row, whatever somebody keeps. This is what the fiction and non-fiction
  * segmented control became: a control that cost two buttons at two tags and
  * would have cost twenty at twenty.

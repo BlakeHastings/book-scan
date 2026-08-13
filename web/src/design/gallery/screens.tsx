@@ -33,7 +33,7 @@ import { Actions, Been, Head, Here, Part, Tagged, Tagging } from '../Book'
 import { Viewfinder } from '../Camera'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Cat } from '../Cat'
-import { Button, Choice, Field, Segmented } from '../Controls'
+import { Button, Choice, Cycle, Field, Segmented } from '../Controls'
 import { Covers, covers } from '../Covers'
 import {
   Picked,
@@ -44,7 +44,14 @@ import {
   TagPick,
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
-import { IconCamera, IconEdit, IconFind } from '../Icons'
+import {
+  IconCamera,
+  IconCovers,
+  IconEdit,
+  IconFind,
+  IconList,
+  IconSpines,
+} from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
@@ -227,14 +234,54 @@ const VIEW_SCREENS: Record<View, string> = {
   spines: 'library',
 }
 
+/** Pressing the switcher takes you to the next of the three, and round again. */
+const NEXT_VIEW: Record<View, View> = {
+  covers: 'list',
+  list: 'spines',
+  spines: 'covers',
+}
+
+/**
+ * What the switcher draws, which is the view it would move you to.
+ *
+ * Not the one you are in. `Controls.tsx` has the argument; the short of it is
+ * that the screen underneath is already the loudest possible statement of
+ * which view you are in, and nothing else on it says what this button does.
+ */
+const VIEW_ICON: Record<View, ReactElement> = {
+  covers: <IconCovers size={20} />,
+  list: <IconList size={20} />,
+  spines: <IconSpines size={20} />,
+}
+
+/** And what it is called, in the same direction: the outcome, as a sentence. */
+const VIEW_NAME: Record<View, string> = {
+  covers: 'Show the covers',
+  list: 'Show them as a list',
+  spines: 'Show them standing up',
+}
+
 /**
  * What every library screen wears above its books.
  *
- * Two rows, and the top one is the interesting one. It used to be Fiction and
- * Non-fiction as a segmented control, which is a design that quietly assumes
- * the number of tags is two. It is now a single row that says what you are
- * looking at and opens the tags, and it costs the same one line whether
- * somebody keeps two tags or forty.
+ * **One row now, and that is the point of it.** It was two: the filter, and
+ * under it a segmented control with Covers, List and Spines side by side. The
+ * owner took the second row off and said why:
+ *
+ * > Instead of showing covers, list and spines as this very big thing that we
+ * > can select one of three options for, can we put it to the right of the
+ * > "every book" filter, underneath where the search symbol is in the top
+ * > right corner? [...] That way you don't take up all this space for choosing
+ * > between those different views.
+ *
+ * He is right, and the reason generalises the way the tag row's did. Which of
+ * three ways you like looking at your books is a preference somebody sets
+ * rarely and then lives with; the filter beside it is a question they answer
+ * constantly. Charging the same rent for both, on the one screen whose whole
+ * job is showing books, is the wrong trade, and it was 64px of every visit.
+ *
+ * The filter itself did not move and did not shrink: it is the same row, with
+ * a 44px circle now sitting at the end of it.
  */
 function LibraryTop({
   go,
@@ -247,20 +294,17 @@ function LibraryTop({
   tags?: string[]
   note: string
 }) {
+  const next = NEXT_VIEW[view]
+
   return (
-    <>
+    <div className="wf-filter">
       <Picked tags={tags} note={note} onPress={() => go('tags')} />
-      <Segmented<View>
-        label="How to look at them"
-        on={view}
-        options={[
-          { value: 'covers', word: 'Covers' },
-          { value: 'list', word: 'List' },
-          { value: 'spines', word: 'Spines' },
-        ]}
-        onPick={(picked) => go(VIEW_SCREENS[picked])}
+      <Cycle
+        name={VIEW_NAME[next]}
+        icon={VIEW_ICON[next]}
+        onPress={() => go(VIEW_SCREENS[next])}
       />
-    </>
+    </div>
   )
 }
 

@@ -79,6 +79,61 @@ export function Segmented<T extends string>({
 }
 
 /**
+ * One small round button that steps through a short list of answers.
+ *
+ * The owner asked for it by shape, on the three ways of looking at the
+ * library:
+ *
+ * > We put it there as a little circle that when clicked changes between
+ * > covers, list and spines, and we should use icons to represent those [...]
+ * > That way you don't take up all this space for choosing between those
+ * > different views.
+ *
+ * ## It shows what you would get, not where you are
+ *
+ * A cycling button can only say one of two things and they are opposites, so
+ * this is the decision rather than an accident of the drawing: **the icon is
+ * the next state, and the name is the sentence for pressing it.**
+ *
+ * The reason is that the screen underneath already answers the other question,
+ * louder than any 44px circle could. Somebody looking at a wall of covers can
+ * see they are looking at covers; what they cannot see is what happens if they
+ * press this. Drawing the current view would spend the one glyph there is on
+ * the fact the whole screen is already shouting, and leave the button with no
+ * way to say what it does.
+ *
+ * It also keeps the button honest as a button. Everything else you press in
+ * this app is named for its outcome, and `aria-label` here is a sentence in
+ * that same voice, so what is announced and what is drawn agree. A control
+ * showing the current state would have to be announced as a state, which is
+ * what `aria-pressed` on `Segmented` is for and is not what this is.
+ *
+ * The cost is real and it is named in the pull request: with three states you
+ * cannot see the third until you land on it, and reaching a particular one
+ * takes up to two presses.
+ */
+export function Cycle({
+  name,
+  icon,
+  onPress,
+}: {
+  /**
+   * What pressing it does, as a sentence. This target carries no word, so this
+   * is the whole of what it says: it is the accessible name, and it names the
+   * state being moved to, which is the state the icon draws.
+   */
+  name: string
+  icon: ReactNode
+  onPress?: () => void
+}) {
+  return (
+    <button type="button" className="wf-cycle" aria-label={name} title={name} onClick={onPress}>
+      {icon}
+    </button>
+  )
+}
+
+/**
  * One answer out of more than three, all visible at once.
  *
  * A segmented control stops working at four options and these questions have
