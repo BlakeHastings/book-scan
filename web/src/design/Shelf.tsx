@@ -42,19 +42,38 @@
  * He is right. **The catalogue holds no height.** It holds `pages`, which is a
  * measurement of the *other* axis: how thick the book is. So width is the one
  * dimension that can be drawn from something true, and it is drawn from it
- * here. Height is uniform by default, because a height nobody measured is a
- * height we would be inventing, and a shelf of varied thicknesses already
- * reads as a shelf.
+ * here.
  *
- * The second variant, `heights="photograph"`, is in the gallery beside the
- * first so the choice is made by looking rather than by argument. It uses the
- * one other real measurement available: a spine crop has a true **aspect
- * ratio** even though its scale depends on how far away the camera was. Given
- * a thickness in millimetres from `pages`, that ratio yields a height in
- * millimetres, and books really are between about 150mm and 260mm tall, so the
- * estimate can be mapped onto a band and clamped. Honest in proportion,
- * dependent on a crop being tight, and it fails quietly rather than loudly:
- * a bad crop makes a book the wrong height, not an absurd one.
+ * **Height is uniform, and that is settled** (#273):
+ *
+ * > We should stick with flat tops, and we can do the width based off of the
+ * > page count if we want. The problem is we don't always have the page count.
+ *
+ * There was a second variant for a round, which estimated a height from the
+ * shape of a spine crop. It was drawn beside the flat one so the choice could
+ * be made by looking, the choice was made, and it is gone with the screen it
+ * was compared on. Every book on every shelf is one height, and there is no
+ * second answer here to reintroduce.
+ *
+ * ## The fourth book, which has no page count
+ *
+ * The gap is measured rather than guessed. Against the live catalogue on
+ * 2026-08-12: **183 of 238 books carry a page count, 77%.** Those that do run
+ * from 54 pages to 1168, with a median of 339. So roughly one book in four has
+ * no honest width, and what happens to that book decides how a shelf reads.
+ *
+ * **It is drawn at the width the median page count gives**, which is 27px. Not
+ * a visibly odd width, and not every book the same: a shelf is a picture of a
+ * room rather than a chart, and a quarter of the books shouting that a field is
+ * empty would be a chart. It is a mild fiction of exactly the kind flat tops
+ * already is, it is bounded by the real range on both sides, and it shrinks on
+ * its own, because a page count arrives with the catalogue lookup and books
+ * gain one over time.
+ *
+ * The alternatives, so nobody has to rediscover them: a deliberately different
+ * width, which is honest and makes a quarter of the shelf look broken, and one
+ * width for every book, which is truthful and throws away the variation the
+ * owner liked in the first place.
  */
 
 import type { CSSProperties } from 'react'
@@ -65,8 +84,17 @@ export type Cloth = 'moss' | 'plum' | 'sky' | 'sun' | 'wood' | 'wood2'
 
 const CLOTHS: Cloth[] = ['moss', 'wood', 'sky', 'plum', 'wood2', 'sun']
 
-/** Which of the two answers to "how tall is this book" a shelf is drawing. */
-export type Heights = 'uniform' | 'photograph'
+/**
+ * The median page count in the catalogue, and the width a book with no page
+ * count is drawn at.
+ *
+ * Measured, not chosen: 183 of the 238 books held a page count on 2026-08-12,
+ * running 54 to 1168, and 339 was the middle of them. Written down here as the
+ * one number the fallback comes from, so that when the catalogue's median moves
+ * there is a single place that is out of date rather than a magic width nobody
+ * can trace.
+ */
+export const MEDIAN_PAGES = 339
 
 export type ShelfItem =
   | {
@@ -77,14 +105,11 @@ export type ShelfItem =
       /**
        * The one measurement the catalogue actually holds. It decides the
        * width, because pages are thickness and thickness is width seen end on.
+       *
+       * Absent for about one book in four, which is a fact about the catalogue
+       * rather than about this type. See `spineWidth`.
        */
       pages?: number
-      /**
-       * Height divided by thickness, as the spine photograph has it. Read only
-       * by `heights="photograph"`, and absent for a book nobody has
-       * photographed yet.
-       */
-      ratio?: number
       /** The book this screen is about, already in place. */
       here?: boolean
     }
@@ -94,43 +119,27 @@ export type ShelfItem =
 const clamp = (low: number, value: number, high: number) =>
   Math.min(high, Math.max(low, value))
 
-/**
- * Millimetres of spine for a page count: two covers plus the paper.
- *
- * 0.062mm a leaf is ordinary uncoated book stock, and 4mm covers a pair of
- * boards or a card wrap. A 320 page novel comes out at 24mm, which is what a
- * ruler says about one.
- */
-function thicknessMm(pages: number): number {
-  return 4 + pages * 0.062
-}
+/** How tall every spine is drawn, because nothing measures a book's height. */
+export const SPINE_HEIGHT = 116
 
 /**
- * How wide to draw that, in pixels.
+ * How wide to draw a book, in pixels.
  *
  * **Not to scale, and it cannot be.** At the scale that makes a 200mm book
  * 116px tall, a 24mm spine is 14px, and 14px is narrower than the type printed
  * down it. So the width is exaggerated and the *ordering* is what is true: a
  * thicker book is drawn wider than a thinner one, always, and the range of
  * real books lands inside a range a phone can draw.
+ *
+ * **A book with no page count is drawn at the median**, and that is a decision
+ * rather than a default. It is the one place here where a number reaching the
+ * screen did not come off the book, so it is spelled out: it lands at 27px,
+ * between the 16px the thinnest real book gets and the 56px the thickest does,
+ * and it makes an unknown book look like an ordinary one instead of like a
+ * missing field. The header says why that is the right lie to tell.
  */
 export function spineWidth(pages?: number): number {
-  if (!pages) return 30
-  return Math.round(clamp(16, 12 + pages / 22, 56))
-}
-
-/**
- * How tall, when the crop is being believed.
- *
- * The band is 96 to 140px because real books are roughly 150 to 260mm tall,
- * and the clamp is what keeps a bad crop from drawing a book the height of the
- * screen. A book with no photograph gets the uniform height, which is the same
- * thing as saying we do not know.
- */
-export function spineHeight(pages?: number, ratio?: number): number {
-  if (!pages || !ratio) return 116
-  const mm = thicknessMm(pages) * ratio
-  return Math.round(clamp(96, 96 + ((mm - 150) / 110) * 44, 140))
+  return Math.round(clamp(16, 12 + (pages ?? MEDIAN_PAGES) / 22, 56))
 }
 
 /**
@@ -140,6 +149,15 @@ export function spineHeight(pages?: number, ratio?: number): number {
  * same book is the same thickness on every screen it appears on and nobody has
  * to keep two lists in step. In the app these are rows and photographs; this
  * is standing in for them, not decorating.
+ *
+ * **One name in four gets no page count at all**, which is the other half of
+ * that. The live catalogue is missing one on 23% of its books, so a fixture
+ * where every book has one would draw a shelf nobody will ever see, and the
+ * fallback width would be the one thing in the system that only ever appeared
+ * in a test. It is the hash that decides which, so a given book is missing its
+ * count on every screen it appears on, and the misses are scattered rather than
+ * every fourth: six of the gallery's thirty, which is what a real plank looks
+ * like.
  */
 export function spines(names: string[], from = 0): ShelfItem[] {
   return names.map((text, i) => {
@@ -149,10 +167,9 @@ export function spines(names: string[], from = 0): ShelfItem[] {
       kind: 'spine' as const,
       text,
       cloth: CLOTHS[(i + from) % CLOTHS.length],
-      // 96 to 928 pages, which is the range a shelf of novels really covers.
-      pages: 96 + (hash % 52) * 16,
-      // 5.5 to 11.5, thin hardback to fat mass market paperback.
-      ratio: 5.5 + (hash % 13) / 2,
+      // 96 to 928 pages, which is the range a shelf of novels really covers,
+      // and undefined for the one in four the catalogue cannot answer for.
+      pages: hash % 4 === 0 ? undefined : 96 + (hash % 52) * 16,
     }
   })
 }
@@ -162,7 +179,6 @@ export function Shelf({
   note,
   items,
   inHand,
-  heights = 'uniform',
 }: {
   /**
    * The area this row is, as it is read off the shelf edge: `2C`. Derived
@@ -174,8 +190,6 @@ export function Shelf({
   items: ShelfItem[]
   /** The book being carried, said under the plank rather than drawn on it. */
   inHand?: string
-  /** Which answer to "how tall is this book" to draw. See the header. */
-  heights?: Heights
 }) {
   return (
     <section className="wf-shelf" aria-label={`Area ${label}`}>
@@ -187,7 +201,7 @@ export function Shelf({
       <div className="wf-shelf__scroll">
         <div className="wf-shelf__board">
           {items.map((item, i) => (
-            <Item key={i} item={item} heights={heights} />
+            <Item key={i} item={item} />
           ))}
         </div>
       </div>
@@ -200,7 +214,7 @@ export function Shelf({
   )
 }
 
-function Item({ item, heights }: { item: ShelfItem; heights: Heights }) {
+function Item({ item }: { item: ShelfItem }) {
   if (item.kind === 'gap') {
     return (
       <div className="wf-gap" aria-label="where this book goes">
@@ -231,7 +245,7 @@ function Item({ item, heights }: { item: ShelfItem; heights: Heights }) {
    */
   const size: CSSProperties = {
     width: spineWidth(item.pages),
-    height: heights === 'photograph' ? spineHeight(item.pages, item.ratio) : 116,
+    height: SPINE_HEIGHT,
   }
 
   return (

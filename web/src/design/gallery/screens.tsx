@@ -28,7 +28,7 @@
  * quietly reintroduce one.
  */
 
-import type { CSSProperties, ReactElement } from 'react'
+import type { ReactElement } from 'react'
 import { Actions, Been, Head, Here, Part, Tagged, Tagging } from '../Book'
 import { Viewfinder } from '../Camera'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
@@ -571,7 +571,6 @@ function Book(go: Go) {
       text: 'Le Guin, Ursula K.',
       cloth: 'plum',
       pages: 304,
-      ratio: 8.5,
       here: true,
     },
     ...spines(['Le Guin, Ursula K.', 'Lessing, Doris'], 3),
@@ -1216,7 +1215,7 @@ function Where(go: Go) {
 function Done(go: Go) {
   const row: ShelfItem[] = [
     ...spines(['Mantel, Hilary', 'Miéville, China']),
-    { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', pages: 288, ratio: 8.5, here: true },
+    { kind: 'spine', text: 'Ishiguro, Kazuo', cloth: 'moss', pages: 288, here: true },
     ...spines(['Mitchell, David', 'Morrison, Toni', 'Pratchett, Terry'], 3),
     { kind: 'bookend' },
   ]
@@ -1895,208 +1894,6 @@ function Empty(go: Go) {
   )
 }
 
-/* --- Two things to look at and choose between ---------------------------- */
-
-/*
- * These two are not screens of the app and are not pretending to be. They are
- * here because two of the decisions in this round cannot be settled by
- * argument, and both were asked for as a comparison rather than as a pick.
- *
- * They wear no tab bar for that reason: nothing on them is a place you can be
- * in the app.
- */
-
-function Specimen({
-  title,
-  note,
-  children,
-  go,
-}: {
-  title: string
-  note: string
-  children: ReactElement | ReactElement[]
-  go: Go
-}) {
-  return (
-    <div className="wf-screen">
-      <TopBar title={title} onBack={() => go('home')} />
-      <div className="wf-screen__body">
-        <Said>{note}</Said>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-/**
- * A labelled half of a comparison.
- *
- * The label is in the interface face rather than the book face, which is what
- * every other heading in the system uses. On a page whose whole subject is
- * which face to use, a heading set in one of the two candidates is an argument
- * nobody made. Found by looking at it: "Rounded" was in the serif.
- */
-function Side({
-  word,
-  says,
-  children,
-}: {
-  word: string
-  says: string
-  children: ReactElement | ReactElement[]
-}) {
-  return (
-    <section style={{ display: 'grid', gap: 8 }}>
-      <p className="wf-heading wf-heading--flush" style={{ fontFamily: 'var(--face-ui)' }}>
-        {word}
-      </p>
-      <Said>{says}</Said>
-      {children}
-    </section>
-  )
-}
-
-/* The counts the first screen opens with, so the type is judged on the words
-   somebody actually reads. They are labels here and targets there: this page
-   is about a typeface and nothing on it goes anywhere. */
-const COUNTS = [
-  { n: '6', word: 'ready to shelve' },
-  { n: '3', word: 'to carry' },
-  { n: '3', word: 'stuck' },
-]
-
-/**
- * The face question, drawn rather than argued.
- *
- * The owner did not like the counts on the first screen: "I think it needs to
- * be more rounded or something and more playful." Both answers are below, the
- * same three counts twice, so the choice is made by looking at a phone rather
- * than by reading a paragraph about type.
- *
- * The serif version is the one that shipped last round, and it is drawn by
- * pointing `--face-display` at the book face for that block alone, which is
- * exactly the one-line change it would take to go back.
- */
-function Type(go: Go) {
-  return (
-    <Specimen
-      title="Which face for the counts"
-      note="The same three counts, twice. Everything else on this page is unchanged."
-      go={go}
-    >
-      <Side word="Rounded" says="What this round ships. The book face stays on titles and authors.">
-        <Stats items={COUNTS} />
-      </Side>
-
-      <Side word="The book serif" says="What last round shipped, and the one he stopped at.">
-        <div style={{ '--face-display': 'var(--face-book)' } as CSSProperties}>
-          <Stats items={COUNTS} />
-        </div>
-      </Side>
-
-      <Card kind="Where the serif stays" title="Never Let Me Go">
-        <p>
-          Ishiguro, Kazuo. A title and an author are what a reader is looking for,
-          and the serif is right for them either way. This card is unchanged.
-        </p>
-      </Card>
-
-      <Card weight="quiet" title="On a phone, not on a desk">
-        <p>
-          The rounded face resolves to SF Pro Rounded on iOS and to whatever a
-          desktop has, which is usually nothing rounded at all. Judge this one on
-          the phone.
-        </p>
-      </Card>
-    </Specimen>
-  )
-}
-
-/** Thirty books, which is what a real plank holds. */
-const THIRTY = spines([
-  'Adams, Douglas',
-  'Atwood, Margaret',
-  'Banks, Iain M.',
-  'Bradbury, Ray',
-  'Calvino, Italo',
-  'Chambers, Becky',
-  'Clarke, Susanna',
-  'Eco, Umberto',
-  'Ellison, Ralph',
-  'Ferrante, Elena',
-  'Gaiman, Neil',
-  'Greene, Graham',
-  'Harkaway, Nick',
-  'Ishiguro, Kazuo',
-  'Jemisin, N. K.',
-  'Le Guin, Ursula K.',
-  'Mantel, Hilary',
-  'Miéville, China',
-  'Mitchell, David',
-  'Morrison, Toni',
-  'Murakami, Haruki',
-  'Nabokov, Vladimir',
-  "O'Brian, Patrick",
-  'Pratchett, Terry',
-  'Robinson, Marilynne',
-  'Smith, Zadie',
-  'Stephenson, Neal',
-  'Tartt, Donna',
-  'Woolf, Virginia',
-  'Zusak, Markus',
-])
-
-/**
- * How tall a spine may honestly be, drawn both ways.
- *
- * The catalogue holds `pages` and no height at all, so width is the dimension
- * that can be told the truth about. `Shelf.tsx` explains both answers; this is
- * where they sit next to each other on the same thirty books.
- */
-function Spines(go: Go) {
-  return (
-    <Specimen
-      title="How big is a book"
-      note="The same thirty books twice. Both draw width from the page count, which is the one measurement we hold."
-      go={go}
-    >
-      <Side
-        word="Flat tops"
-        says="Width from the page count, every book the same height. Nothing here is invented."
-      >
-        <div className="wf-bleed">
-          <Shelf label="2C" note="30 books" items={THIRTY} />
-        </div>
-      </Side>
-
-      <Side
-        word="Varied tops"
-        says="Height estimated from the shape of the spine photograph. Truthful in proportion, and only as good as the crop."
-      >
-        <div className="wf-bleed">
-          <Shelf label="2C" note="30 books" items={THIRTY} heights="photograph" />
-        </div>
-      </Side>
-
-      <Card kind="What is real here" title="Pages are thickness, not height">
-        <p>
-          A page count is a real measurement of how thick a book is, so a fatter
-          book is drawn wider and it always will be. Nothing in the catalogue says
-          how tall a book is.
-        </p>
-      </Card>
-
-      <Card weight="quiet" title="What the second one is guessing">
-        <p>
-          A spine photograph has a true shape but no scale, so its height is an
-          estimate built on the thickness above, and it is clamped so a bad crop
-          cannot draw a book the height of the screen.
-        </p>
-      </Card>
-    </Specimen>
-  )
-}
-
 export const SCREENS: Screen[] = [
   { id: 'home', name: 'Today', group: 'Every day', render: Home },
   /* Short names. The viewer's own bar gives a name about twenty-four
@@ -2137,15 +1934,26 @@ export const SCREENS: Screen[] = [
   { id: 'carry', name: 'Books to carry', group: 'Putting things right', render: Carry },
   { id: 'move', name: 'Move non-fiction', group: 'Putting things right', render: Move },
   { id: 'plan', name: 'The plan', group: 'Putting things right', render: Plan },
-  { id: 'type', name: 'Which face for the counts', group: 'Two to choose between', render: Type },
-  { id: 'spines', name: 'How big is a book', group: 'Two to choose between', render: Spines },
 ]
 
+/*
+ * There is no group of things to choose between any more, and there should not
+ * be a standing one.
+ *
+ * Two screens lived under that heading, each drawing one question twice so the
+ * owner could answer it by looking: which face the counts are set in, and how
+ * tall a book is allowed to be. He answered both in #273 and both screens went
+ * with the answers. A specimen nobody is choosing from is clutter, which is the
+ * thing #262 took thirty-one of out of here, and a comparison left standing
+ * after its question is settled quietly reopens it.
+ *
+ * If another question needs deciding by looking, the group comes back for as
+ * long as that question is open and goes again with the answer.
+ */
 export const GROUPS = [
   'Every day',
   'Finding a book',
   'Cataloguing',
   'Your furniture',
   'Putting things right',
-  'Two to choose between',
 ]
