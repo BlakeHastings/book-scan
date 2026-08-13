@@ -65,6 +65,10 @@ import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } fr
 // See the location route, and `recordPlaced`.
 import { UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
+import {
+  addAreaTo, addFixture, describeFixture, describeFurniture, dropArea, dropFixture,
+  editArea, editFixture, planAreaRemoval, planFixtureRemoval, type Refused,
+} from './furniture'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
@@ -1806,6 +1810,168 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * neither, exactly as #179 left `books.is_fiction` in place. These routes are
    * the vocabulary of names and the two corrections a person makes to it.
    */
+
+  // ---------------------------------------------------------------------------
+  // The furniture
+  // ---------------------------------------------------------------------------
+
+  /*
+   * Fixtures and areas: the tables have been here since #184 and nothing in the
+   * app could touch them. This is the owner's first objective (#302), which is
+   * modelling the furniture he actually owns against the live catalogue, and
+   * every route here is a write somebody makes standing in front of a bookcase.
+   *
+   * **No route here accepts or returns a stored label**, because there is no such
+   * thing: a label is worked out from a fixture's number and name and an area's
+   * ordinal and name at the moment it is read. What every write answers with
+   * instead is `becomes`, which is every label that reads differently once the
+   * change lands. See `server/furniture.ts`.
+   */
+
+  /** Every refusal from the furniture module, said the way a route says one. */
+  function refused(res: express.Response, result: Refused): void {
+    res.status(result.status).json({
+      error: result.error,
+      ...(result.effect === undefined ? {} : { effect: result.effect }),
+    })
+  }
+
+  /** The whole room: every piece on the floor and every area on its face. */
+  app.get('/api/fixtures', asyncRoute(async (_req, res) => {
+    res.json(await describeFurniture(db))
+  }))
+
+  app.get('/api/fixtures/:id', asyncRoute(async (req, res) => {
+    const fixture = await describeFixture(db, Number(req.params.id))
+    if (!fixture) {
+      res.status(404).json({ error: 'No such piece of furniture.' })
+      return
+    }
+    res.json({ fixture })
+  }))
+
+  /** Put a piece of furniture in the room. It arrives with no areas on it. */
+  app.post('/api/fixtures', asyncRoute(async (req, res) => {
+    const added = await addFixture(db, (req.body ?? {}) as Record<string, unknown>)
+    if (!added.ok) {
+      refused(res, added)
+      return
+    }
+    res.status(201).json({ fixture: added.fixture })
+  }))
+
+  /**
+   * Rename a piece, renumber it, or change what it is and how it orders.
+   *
+   * Renumbering moves nothing: every area keeps its id, so every book keeps the
+   * area it was placed in and its recorded location travels with the furniture.
+   * What changes is what the planks are called, which is `becomes`. Pointing a
+   * run of books at a different piece is `POST /api/placement/run` and is the
+   * one that produces books in somebody's hands.
+   */
+  app.patch('/api/fixtures/:id', asyncRoute(async (req, res) => {
+    const edited = await editFixture(
+      db, Number(req.params.id), (req.body ?? {}) as Record<string, unknown>,
+    )
+    if (!edited.ok) {
+      refused(res, edited)
+      return
+    }
+    res.json({ fixture: edited.fixture, becomes: edited.becomes })
+  }))
+
+  /** What removing this piece would mean, before anybody agrees to it. */
+  app.get('/api/fixtures/:id/removal', asyncRoute(async (req, res) => {
+    const planned = await planFixtureRemoval(db, Number(req.params.id))
+    if (!planned.ok) {
+      refused(res, planned)
+      return
+    }
+    res.json({ removal: planned.removal })
+  }))
+
+  /**
+   * Take a piece of furniture away.
+   *
+   * Refused while books are standing on it, and it says how many: they move to
+   * other furniture first, which is a real carry and has a plan in front of it.
+   */
+  app.delete('/api/fixtures/:id', asyncRoute(async (req, res) => {
+    const removed = await dropFixture(db, Number(req.params.id))
+    if (!removed.ok) {
+      refused(res, removed)
+      return
+    }
+    res.json({ removed: removed.removed })
+  }))
+
+  /** Cut another area into a piece, at the end or between two that exist. */
+  app.post('/api/fixtures/:id/areas', asyncRoute(async (req, res) => {
+    const added = await addAreaTo(
+      db, Number(req.params.id), (req.body ?? {}) as Record<string, unknown>,
+    )
+    if (!added.ok) {
+      refused(res, added)
+      return
+    }
+    res.status(201).json({ area: added.area, becomes: added.becomes })
+  }))
+
+  /**
+   * Rename an area, move it along its piece, re-anchor it, or give it an order
+   * of its own.
+   *
+   * A strategy of its own makes an area self-contained: nothing overflows into
+   * it from the area before, because a continuous run only works while every
+   * area in it orders the same way. That is refused with the effect attached
+   * until the body carries `acknowledge`, so the change cannot happen without
+   * somebody having been shown what it does to the run.
+   */
+  app.patch('/api/areas/:id', asyncRoute(async (req, res) => {
+    const edited = await editArea(
+      db, Number(req.params.id), (req.body ?? {}) as Record<string, unknown>,
+    )
+    if (!edited.ok) {
+      refused(res, edited)
+      return
+    }
+    res.json({ area: edited.area, becomes: edited.becomes, effect: edited.effect })
+  }))
+
+  /**
+   * What removing this area would do to its books. Writes nothing.
+   *
+   * The dialog #281 settled is drawn from this: which area takes the books in,
+   * how many join it, how many are left alone because somebody pinned them, and
+   * every label that reads differently afterwards.
+   */
+  app.get('/api/areas/:id/removal', asyncRoute(async (req, res) => {
+    const planned = await planAreaRemoval(db, Number(req.params.id))
+    if (!planned.ok) {
+      refused(res, planned)
+      return
+    }
+    res.json({ plan: planned.plan })
+  }))
+
+  /**
+   * Take an area off a piece and let its books fall into the next one along.
+   *
+   * Closer to a merge than to a deletion. No book is deleted, no placement is,
+   * and the removed area is retired rather than dropped whenever the ledger
+   * names it, so a book recorded on that plank is still recorded on it. What
+   * gets written is an `assigned` row per book naming the area that took them
+   * in, which is #185's rule, and the difference between that and where somebody
+   * last saw the book is the needs-attention list that already exists.
+   */
+  app.delete('/api/areas/:id', asyncRoute(async (req, res) => {
+    const removed = await dropArea(db, Number(req.params.id), new Date().toISOString())
+    if (!removed.ok) {
+      refused(res, removed)
+      return
+    }
+    res.json({ plan: removed.plan })
+  }))
 
   /** An author and every name they publish under, as a client reads them. */
   function describeAuthor(stored: StoredAuthor) {

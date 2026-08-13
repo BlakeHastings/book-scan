@@ -123,6 +123,31 @@ label goes stale the moment a fixture is renamed.
 | `Hall shelf` | `Cookery` | `Hall shelf · Cookery` |
 | `''` | `Cookery` | `1 · Cookery` |
 
+**Both are described through the API since #302**, under `/api/fixtures` and
+`/api/areas`, which is what lets somebody model furniture no migration knew
+about. Three things about those routes belong here rather than beside them,
+because they are properties of these two rows:
+
+- **No route accepts or returns a stored label**, for the reason above. Every
+  write answers with `becomes` instead, which is every label that reads
+  differently once the change lands, old to new. A rename strands nothing,
+  because a recorded location is an area row rather than a string, and `becomes`
+  is how somebody sees that rather than being told it.
+- **Reordering the areas of a fixture writes every ordinal twice.**
+  `area_fixture_position_key` is checked per row rather than at commit, so a
+  single pass puts an area on an ordinal another one still holds. The first pass
+  parks them all above every ordinal on the fixture and the second brings them
+  down; the parking band is positive, so it can neither collide with a retired
+  area nor bring one back onto the face. `resequenceFace` in
+  `web/infrastructure/shelving/furniture.ts`. **The index is not the thing to
+  relax**, and `fixture.position` still carries none, for the reason above it.
+- **Removing an area is a merge and writes `assigned` rows**, naming the area
+  that absorbed the books, and only where that differs from where each book
+  already is. Nothing is deleted, the removed area is retired whenever the ledger
+  names it, and pinned, checked out and withdrawn books are left alone and
+  counted. `PATCH /api/books/:id/location` remains the only route that changes
+  where the catalogue thinks a book is.
+
 ### SortStrategy
 
 `sort_strategy(code, label, is_inherit, available, note)`

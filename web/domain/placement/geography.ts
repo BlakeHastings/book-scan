@@ -88,6 +88,18 @@ export interface Slot {
 const NAME_JOIN = ' · '
 
 /**
+ * What a fixture on its own reads as: its name, or its number.
+ *
+ * The left half of `labelFor`, named because a screen listing the furniture asks
+ * for the piece rather than for a plank on it, and two spellings of "the name,
+ * or the number" is how one of them ends up saying `Bookcase 4` and the other
+ * `4`.
+ */
+export function fixtureLabel(fixture: Fixture): string {
+  return fixture.name || String(fixture.position)
+}
+
+/**
  * What a person reads, built from the positions and the two names.
  *
  * | fixture name | area name | label |
@@ -103,7 +115,7 @@ const NAME_JOIN = ' · '
  * separator to read as one.
  */
 export function labelFor(slot: Slot): string {
-  const left = slot.fixture.name || String(slot.fixture.position)
+  const left = fixtureLabel(slot.fixture)
   const right = slot.area.name || letterFor(slot.area.position)
   const named = Boolean(slot.fixture.name || slot.area.name)
   return named ? `${left}${NAME_JOIN}${right}` : `${left}${right}`
