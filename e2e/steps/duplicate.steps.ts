@@ -30,7 +30,7 @@
 import { expect } from '@playwright/test'
 
 import { Given, Then, When } from './fixtures.js'
-import { homeScreen } from './app.steps.js'
+import { homeScreen, leaveTheCamera, reviewScreen } from './app.steps.js'
 import { BOOK_IN_HAND } from '../support/books.js'
 
 /**
@@ -63,19 +63,19 @@ Given('the camera is pointed at the front cover of {string}', async ({}, title: 
  * only slot a capture is hashed from.
  */
 When('I photograph the front of the book', async ({ page }) => {
-  await page.locator('button.cam__chip', { hasText: 'Front' }).click()
-  await expect(page.locator('.cam__chip--on')).toContainText('Front')
-  await page.locator('button.shutter').click()
+  await page.locator('button.wf-shot', { hasText: 'Front' }).click()
+  await expect(page.locator('.wf-shot--next')).toContainText('Front')
+  await page.locator('button.wf-shutter').click()
 
   // The photograph has to have reached the server before the queue has
-  // anything to hash, and the chip is what says so.
-  await expect(page.locator('.cam__chip--filled', { hasText: 'Front' }))
+  // anything to hash, and the photograph appearing in its box is what says so.
+  await expect(page.locator('.wf-shot--taken', { hasText: 'Front' }))
     .toBeVisible({ timeout: QUEUE_TIMEOUT })
 })
 
 /** Send what has been photographed to the queue and start a fresh book. */
 When('I send it to the queue', async ({ page, catalogue }) => {
-  await page.locator('button.cam__next').click()
+  await page.getByRole('button', { name: /^Next book/ }).click()
 
   // The hash, not the status. See the note at the top of this file: the two
   // are written by two background jobs that do not wait on each other, and it
@@ -93,7 +93,7 @@ When('I send it to the queue', async ({ page, catalogue }) => {
 
 /** Back to the home screen, which is where scanning starts from. */
 When('I go back to the start', async ({ page }) => {
-  await page.locator('button.cam__chip-btn', { hasText: 'Home' }).click()
+  await leaveTheCamera(page)
   await expect(homeScreen(page)).toBeVisible()
 })
 
@@ -115,7 +115,7 @@ When('I open the book it found in the queue', async ({ page }) => {
 Then('the review screen should be showing a queued book', async ({ page }) => {
   // The review screen for the capture that already existed. Nothing about
   // getting here made a second one; the scenario asserts the count separately.
-  await expect(page.locator('.isbn-block')).toBeVisible({ timeout: QUEUE_TIMEOUT })
+  await expect(reviewScreen(page)).toBeVisible({ timeout: QUEUE_TIMEOUT })
 })
 
 When('I say it is a different book', async ({ page }) => {

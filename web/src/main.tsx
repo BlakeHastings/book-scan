@@ -8,12 +8,17 @@ import './styles.css'
  * converted to it and the gallery draws every screen with (#303). Eager, and
  * after `styles.css`: it is the app's own stylesheet now, not the gallery's.
  *
- * Nothing in either file fights the other. Every rule here is `.wf` or `wf-`
- * prefixed and no class name appears in both, so the whole of the overlap is
- * one custom property, `--line`, which the app defines on `:root` and the
- * design system redefines on `.wf`. Inside a converted screen the warm one
- * wins by inheritance; everywhere else the app's is untouched. See the header
- * of `design/tokens.css`.
+ * Every rule in the design system is `.wf` or `wf-` prefixed and no design
+ * system class name appears in `styles.css`, so nothing here can be redefined
+ * from over there. What crosses the other way is deliberate and there is one
+ * block of it, at the foot of `styles.css`: the shelf drawing is one component
+ * on two screens, one converted and one not, so its colours are scoped `.wf`
+ * and the shapes are shared. That block says so and says when it goes.
+ *
+ * The rest of the overlap is one custom property, `--line`, which the app
+ * defines on `:root` and the design system redefines on `.wf`. Inside a
+ * converted screen the warm one wins by inheritance; everywhere else the app's
+ * is untouched. See the header of `design/tokens.css`.
  */
 import './design/tokens.css'
 import './design/library.css'

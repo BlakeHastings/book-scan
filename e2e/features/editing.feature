@@ -36,6 +36,10 @@ Feature: Editing a book, catalogued or fresh off the camera
     And I change the ISBN to that of "The Dispossessed"
     Then "Save changes" should be unavailable while the lookup runs
     And "Save changes" should be available again once the lookup answers
+    # A book already in the catalogue, so this is the book page rather than the
+    # review screen, and it still wears the labels it always had. The scenario
+    # below is the same guard on the converted screen, where the field is
+    # called what the drawing calls it.
     And the review screen should show:
       | Title                     | The Dispossessed  |
       | Authors (comma separated) | Ursula K. Le Guin |
@@ -82,11 +86,11 @@ Feature: Editing a book, catalogued or fresh off the camera
     When I review what it found
     And I arm a slow lookup of "The Dispossessed" taking 3000ms
     And I change the ISBN to that of "The Dispossessed"
-    Then "Looks right, shelve it" should be unavailable while the lookup runs
-    And "Looks right, shelve it" should be available again once the lookup answers
+    Then "That is the book" should be unavailable while the lookup runs
+    And "That is the book" should be available again once the lookup answers
     And the review screen should show:
-      | Title                     | The Dispossessed  |
-      | Authors (comma separated) | Ursula K. Le Guin |
+      | Title  | The Dispossessed  |
+      | Author | Ursula K. Le Guin |
 
     When I confirm the details and go to shelve it
     And I say it fits and save it

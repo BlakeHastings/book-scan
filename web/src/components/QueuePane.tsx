@@ -7,15 +7,21 @@ import {
 import { newestFirst } from '../lib/queueOrder'
 import { filterQueue } from '../lib/queueSearch'
 import {
-  PHOTO_DESCRIPTION, PHOTO_LABEL, QUEUE_PHOTOS, queueThumb, rememberedPhoto,
+  PHOTO_LABEL, QUEUE_PHOTOS, queueThumb, rememberedPhoto,
   rememberPhoto, type QueuePhoto,
 } from '../lib/queuePhoto'
 import {
   beginSwipe, moveSwipe, swipeArmed, type Swipe,
 } from '../lib/swipe'
 import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
-import { FAILURE_LABEL, failureOf } from '../../shared/captureFailure'
+import {
+  countFailures, failureLines, FAILURE_LABEL, failureOf,
+} from '../../shared/captureFailure'
 import { coverUrl } from './PlacementCard'
+import { Card, Nothing } from '../design/Card'
+import { TopBar, type TabName } from '../design/Chrome'
+import { Button, Segmented } from '../design/Controls'
+import { Phone } from '../design/Phone'
 
 /**
  * The three statuses that say all there is to say on their own. `failed` is
@@ -58,9 +64,31 @@ export interface QueueReturnAnchor {
   index: number
 }
 
+/**
+ * Which books the queue is showing.
+ *
+ * The three the drawing names, and they are the three states a capture is
+ * actually in: read and waiting for somebody, still being read, and stuck.
+ * "Processing", not "Reading": the owner read the old word as the app telling
+ * him he was in the middle of a novel rather than as it working on a
+ * photograph.
+ */
+type Which = 'ready' | 'processing' | 'stuck' | 'all'
+
+const IN: Record<Which, (capture: Capture) => boolean> = {
+  all: () => true,
+  ready: (capture) => capture.status === 'ready' || capture.status === 'done',
+  processing: (capture) => capture.status === 'pending',
+  stuck: (capture) => capture.status === 'failed',
+}
+
 interface Props {
   onOpen: (capture: Capture, anchor: QueueReturnAnchor) => void
   onCounts: (counts: QueueCounts) => void
+  /** Where each of the four places goes, since this screen wears the tab bar. */
+  tabs: Record<TabName, () => void>
+  /** Photograph a book, which is what an empty queue is for. */
+  onPhotograph: () => void
   /**
    * Set when this mount is a return trip: the user opened a capture from
    * here to shelve it and has come back. Used once, to land the list near
@@ -238,8 +266,11 @@ export function QueueRow({
  * stack. What a discard does is deferred rather than confirmed; see
  * `discardWindow.ts` for why that is the safer of the two.
  */
-export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsumed }: Props) {
+export function QueuePane({
+  onOpen, onCounts, tabs, onPhotograph, returnAnchor, onReturnAnchorConsumed,
+}: Props) {
   const [captures, setCaptures] = useState<Capture[]>([])
+  const [which, setWhich] = useState<Which>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -344,11 +375,11 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
    * stopping the delete.
    */
   const visible = useMemo(() => {
-    const matching = filterQueue(captures, query)
+    const matching = filterQueue(captures, query).filter(IN[which])
     if (held.length === 0) return matching
     const shown = new Set(matching.map((c) => c.id))
     return captures.filter((c) => shown.has(c.id) || held.includes(c.id))
-  }, [captures, query, held])
+  }, [captures, query, held, which])
 
   useEffect(() => {
     // Land back near the book just handled instead of leaving the person to
@@ -503,9 +534,68 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
 
   const searching = query.trim().length > 0
 
+  const failed = captures.filter((capture) => capture.status === 'failed')
+  /*
+   * What the stuck ones need, rather than how many of them there are.
+   *
+   * #148 in its second half. The count belongs on the first screen, which has
+   * it: "3 stuck", one tap from here. What that screen cannot say, and what a
+   * person standing in front of this list needs before they pick a book up, is
+   * that two of them want an ISBN typing in and one of them wants details by
+   * hand because no catalogue has an ISBN that read perfectly well. Same
+   * helper the row reads, so the two cannot say different things about the
+   * same book.
+   */
+  const needs = failureLines(countFailures(failed))
+
+  const counted = (word: string, n: number) => (n > 0 ? `${word} ${n}` : word)
+
   return (
-    <main className="main">
-      <h2 className="pane-title">Queue</h2>
+    <div className="wf">
+      <Phone
+        tab="queue"
+        onTab={(name) => tabs[name]()}
+        top={
+          <TopBar
+            title="Queue"
+            sub={
+              loading
+                ? undefined
+                : captures.length === 1
+                  ? 'One book on the table'
+                  : `${captures.length} books on the table`
+            }
+          />
+        }
+      >
+      {/*
+        Which ones. Four answers where the drawing has three, because the
+        drawing shows the queue mid-sort and the app opens on it: everything,
+        which is what somebody working through a pile is looking at, and then
+        the three the drawing names.
+      */}
+      {captures.length > 0 && (
+        <Segmented
+          label="Which ones"
+          on={which}
+          onPick={setWhich}
+          options={[
+            { value: 'all', word: counted('All', captures.length) },
+            { value: 'ready', word: counted('Ready', captures.filter(IN.ready).length) },
+            { value: 'processing', word: counted('Reading', captures.filter(IN.processing).length) },
+            { value: 'stuck', word: counted('Stuck', failed.length) },
+          ]}
+        />
+      )}
+
+      {/* What the stuck ones need, said once, above the books it is about. */}
+      {needs.length > 0 && (
+        <Card kind="Stuck" title={`${failed.length} need a hand`}>
+          <ul className="queue__needs">
+            {needs.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        </Card>
+      )}
 
       <div className="queue__tools">
         <div className="queue__search">
@@ -536,30 +626,28 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
         {/* Which photograph of the book you are looking at. Front by default:
             a book being worked through is face up in somebody's hands, not
             shelved end on. */}
-        <nav className="segmented queue__photoswitch" aria-label="Which photo to show">
-          {QUEUE_PHOTOS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={photo === option ? 'seg seg--on' : 'seg'}
-              aria-pressed={photo === option}
-              aria-label={PHOTO_DESCRIPTION[option]}
-              onClick={() => choosePhoto(option)}
-            >
-              {PHOTO_LABEL[option]}
-            </button>
-          ))}
-        </nav>
+        <Segmented
+          label="Which photo to show"
+          on={photo}
+          onPick={choosePhoto}
+          options={QUEUE_PHOTOS.map((option) => ({
+            value: option,
+            word: PHOTO_LABEL[option],
+          }))}
+        />
       </div>
 
-      {error && <div className="error" onClick={() => setError('')}>{error}</div>}
+      {error && <div className="warn" onClick={() => setError('')}>{error}</div>}
       {notice && <p className="hint" onClick={() => setNotice('')}>{notice}</p>}
       {loading && <p className="hint">Loading...</p>}
 
       {!loading && captures.length === 0 && (
-        <p className="hint">
-          Nothing waiting. Photographed books appear here while they are read.
-        </p>
+        <>
+          <Nothing said="Even the cat couldn't find anything to knock off the table." />
+          <Button tone="primary" block onPress={onPhotograph}>
+            Open the camera
+          </Button>
+        </>
       )}
 
       {!loading && captures.length > 0 && searching && (
@@ -572,6 +660,10 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
             </button>
           )}
         </p>
+      )}
+
+      {!loading && captures.length > 0 && !searching && visible.length === 0 && (
+        <p className="hint">Nothing in the queue is in that state.</p>
       )}
 
       {!loading && visible.length > 0 && !searching && (
@@ -595,6 +687,7 @@ export function QueuePane({ onOpen, onCounts, returnAnchor, onReturnAnchorConsum
           />
         ))}
       </ul>
-    </main>
+      </Phone>
+    </div>
   )
 }

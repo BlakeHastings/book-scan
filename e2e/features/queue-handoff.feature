@@ -30,8 +30,8 @@ Feature: Handing a queued book on to somebody else
     And I open the queued book
     And I change the ISBN to that of "The Dispossessed"
     Then the review screen should show:
-      | Title                     | The Dispossessed  |
-      | Authors (comma separated) | Ursula K. Le Guin |
+      | Title  | The Dispossessed  |
+      | Author | Ursula K. Le Guin |
 
     # Put down without shelving. This is the moment the work used to be lost.
     When I put the book down without shelving it
@@ -41,8 +41,8 @@ Feature: Handing a queued book on to somebody else
     And I go to the queue
     And I open the queued book
     Then the review screen should show:
-      | Title                     | The Dispossessed  |
-      | Authors (comma separated) | Ursula K. Le Guin |
+      | Title  | The Dispossessed  |
+      | Author | Ursula K. Le Guin |
     And the ISBN should read "9780060512750"
     And the ISBN should say it was read from "manual"
     And the queued book should be recorded as:

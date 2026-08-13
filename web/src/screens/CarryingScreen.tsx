@@ -30,10 +30,15 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { ShelveView } from '../components/ShelveView'
+import { TopBar, type TabName } from '../design/Chrome'
+import { Button } from '../design/Controls'
+import { Phone } from '../design/Phone'
 import { api, draftFromBook, type PlacementResponse } from '../lib/api'
 import { rangeOfSlug } from '../../domain/tagging/genre'
 import { useArmful } from '../app/armful'
 import { useErrorBanner } from '../app/errorBanner'
+import { useLeaving } from '../app/leaving'
+import { usePaper } from '../app/paper'
 import { useNavigation } from '../app/navigation'
 import { said, words } from '../lib/carryWords'
 import type { ShelfRange } from '../../shared/shelving'
@@ -41,7 +46,17 @@ import type { ShelfRange } from '../../shared/shelving'
 export function CarryingScreen() {
   const { setRoute } = useNavigation()
   const { setError } = useErrorBanner()
+  const { leaveFor } = useLeaving()
   const { trip, books, done, placed, putBack } = useArmful()
+
+  usePaper()
+
+  const tabs: Record<TabName, () => void> = {
+    home: () => leaveFor('home'),
+    library: () => leaveFor('library'),
+    scan: () => leaveFor('capture'),
+    queue: () => leaveFor('queue'),
+  }
 
   const book = books[done]
   const [placement, setPlacement] = useState<PlacementResponse | null>(null)
@@ -99,35 +114,53 @@ export function CarryingScreen() {
    */
   const back = () => { putBack(); setRoute('carry') }
 
+  /*
+   * The frame, which is the one the where-it-goes screen wears (#316).
+   *
+   * It wore the app's header until that screen was converted, and the rule has
+   * not changed: this screen wears whatever that one wears, because it is that
+   * one with a different book in hand. `screens.tsx` says the same thing from
+   * the other end.
+   */
   return (
-    <>
-      {/* The armful counted down, so somebody knows whether they are nearly done
-          without going back. It is the one thing this screen adds to the one a
-          newly scanned book gets, and it is added around that screen rather than
-          inside it: a heading or a count added *to* it is how the two would
-          quietly become two screens. */}
-      <p className="hint">
-        {left === 1
-          ? `Last of ${words(books.length)} in your hands.`
-          : `${said(left)} of ${words(books.length)} still in your hands.`}
-      </p>
+    <div className="wf">
+      <Phone
+        tab="library"
+        onTab={(name) => tabs[name]()}
+        top={
+          <TopBar
+            title="Where it goes"
+            sub={book.title}
+            onBack={back}
+          />
+        }
+      >
+        {/* The armful counted down, so somebody knows whether they are nearly
+            done without going back. It is the one thing this screen adds to the
+            one a newly scanned book gets, and it is added around that screen
+            rather than inside it: a heading or a count added *to* it is how the
+            two would quietly become two screens. */}
+        <p className="hint">
+          {left === 1
+            ? `Last of ${words(books.length)} in your hands.`
+            : `${said(left)} of ${words(books.length)} still in your hands.`}
+        </p>
 
-      <ShelveView
-        placement={placement}
-        stale={stale}
-        range={range}
-        title={book.title}
-        saving={saving}
-        onShelved={(shelvedAt) => void shelved(shelvedAt)}
-        onBack={back}
-        onRefresh={load}
-      />
+        <ShelveView
+          placement={placement}
+          stale={stale}
+          range={range}
+          title={book.title}
+          saving={saving}
+          onShelved={(shelvedAt) => void shelved(shelvedAt)}
+          onBack={back}
+          onRefresh={load}
+        />
 
-      <div className="actions">
-        <button className="btn btn--ghost" onClick={back} disabled={saving}>
+        <Button tone="quiet" block off={saving} onPress={back}>
           Put them back on {trip.from}
-        </button>
-      </div>
-    </>
+        </Button>
+      </Phone>
+    </div>
   )
 }
