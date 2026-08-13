@@ -14,6 +14,7 @@ export function LibraryScreen() {
       returnAnchor={libraryReturn}
       onReturnAnchorConsumed={() => setLibraryReturn(null)}
       onArrange={(from) => { setArranging(from); setRoute('arrange') }}
+      onFurniture={() => setRoute('furniture')}
     />
   )
 }

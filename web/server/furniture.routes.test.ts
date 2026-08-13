@@ -249,6 +249,59 @@ describe('reading the room', () => {
     )
     expect(Number(stored[0]!.count)).toBe(0)
   })
+
+  /**
+   * The screens draw "what belongs here" on every piece and every area, and a
+   * furniture screen that could say how many books stand somewhere and nothing
+   * about why they are there would be missing the question it exists to answer.
+   *
+   * Two things are checked and the second is the one that will break first. A
+   * rule points at a *piece*, so only the first area on it is where the run
+   * begins and the rest are that run carrying on; a change that answered "Non-
+   * fiction starts here" on all three would read plausibly and be wrong about
+   * where a book lands. And **a tag is named by its label**: `genre/non-fiction`
+   * is an identity, and it is the shape of thing that reaches a screen by
+   * accident.
+   */
+  it('says what files onto each piece and each area, in words and never in slugs',
+    async () => {
+      await buildWorld()
+
+      const bookcase = await nonFiction()
+      expect(bookcase.holds).toBe('Anything tagged Non-fiction')
+      expect(bookcase.rule.about).toBe('fixture')
+      expect(bookcase.rule.conditions).toEqual([{ operator: 'is', tag: 'Non-fiction' }])
+
+      expect(bookcase.areas.map((one: { holds: string; entry: boolean }) =>
+        [one.holds, one.entry])).toEqual([
+        ['Non-fiction starts here', true],
+        ['Non-fiction, carrying on', false],
+        ['Non-fiction, carrying on', false],
+      ])
+
+      const { body } = await get('/api/fixtures')
+      expect(JSON.stringify(body)).not.toMatch(/genre\//)
+    })
+
+  /**
+   * An area with an order of its own takes no overflow, so it opens a run, and
+   * nothing points at that run. Saying "Non-fiction, carrying on" there would be
+   * claiming books arrive somewhere they cannot reach.
+   */
+  it('says an area nothing can reach is filled by hand', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const middle = bookcase.areas[1]
+
+    const set = await patch(`/api/areas/${middle.id}`, {
+      sortStrategy: 'title', acknowledge: true,
+    })
+    expect(set.status).toBe(200)
+
+    expect((await nonFiction()).areas.map((one: { holds: string }) => one.holds)).toEqual([
+      'Non-fiction starts here', 'Put here by hand', 'Put here by hand',
+    ])
+  })
 })
 
 describe('describing a piece of furniture that has never existed', () => {

@@ -15,14 +15,20 @@
 
 import type { ComponentType } from 'react'
 import type { Route } from './navigation'
+import { AddAreaScreen } from '../screens/AddAreaScreen'
+import { AreaScreen } from '../screens/AreaScreen'
 import { ArrangeScreen } from '../screens/ArrangeScreen'
+import { BelongsScreen } from '../screens/BelongsScreen'
 import { CaptureScreen } from '../screens/CaptureScreen'
+import { FixtureScreen } from '../screens/FixtureScreen'
+import { FurnitureScreen } from '../screens/FurnitureScreen'
 import { HomeScreen } from '../screens/HomeScreen'
 import { LibraryScreen } from '../screens/LibraryScreen'
 import { QueueScreen } from '../screens/QueueScreen'
 import { ReviewScreen } from '../screens/ReviewScreen'
 import { ScanScreen } from '../screens/ScanScreen'
 import { ShelveScreen } from '../screens/ShelveScreen'
+import { SortingScreen } from '../screens/SortingScreen'
 
 export interface ScreenEntry {
   readonly view: ComponentType
@@ -39,4 +45,16 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   queue: { view: QueueScreen, chrome: true },
   arrange: { view: ArrangeScreen, chrome: true },
   scan: { view: ScanScreen, chrome: false },
+
+  /*
+   * The furniture, drawn with the design system and therefore without the
+   * app's frame around it: each of these brings its own top bar and its own
+   * four-place tab bar, and the header would be a second bar above them.
+   */
+  furniture: { view: FurnitureScreen, chrome: false },
+  fixture: { view: FixtureScreen, chrome: false },
+  area: { view: AreaScreen, chrome: false },
+  addarea: { view: AddAreaScreen, chrome: false },
+  belongs: { view: BelongsScreen, chrome: false },
+  sorting: { view: SortingScreen, chrome: false },
 }

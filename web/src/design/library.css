@@ -834,6 +834,24 @@ body.wf-page { background: var(--paper); }
   text-overflow: ellipsis;
 }
 
+/* A field with a keyboard behind it. The box is the drawing either way, so the
+   input brings no border, no background and no size of its own: it inherits
+   the face and the colour it sits in and is the same field with a caret. 16px
+   is not a preference, it is the size below which iOS Safari zooms the page
+   the moment somebody taps into it. */
+.wf-field__input {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  font-size: max(16px, 1em);
+  color: inherit;
+}
+.wf-field__input::placeholder { color: var(--ink-2); font-family: var(--face-ui); }
+.wf-field__input:focus { outline: none; }
+.wf-field__box:focus-within { border-color: var(--ink-2); }
+
 /*
  * Another way to fill the field in, at the end of it. The target is 44 by 44,
  * because it is pressed by somebody with a book in the other hand.
@@ -1309,6 +1327,29 @@ body.wf-page { background: var(--paper); }
 /* Picking one up: the row comes off the page under the finger. As close to
    the drag as a still picture gets. */
 .wf-order__slot:active {
+  box-shadow: var(--lift-2);
+  border-color: var(--line-strong);
+}
+
+/* A column that can actually be dragged, which the gallery's cannot.
+ *
+ * `touch-action: none` on the rows and nowhere else. Without it the browser
+ * takes a vertical drag for a page scroll and the pointer events stop
+ * arriving mid-gesture, which is the whole of the drag not working on a
+ * phone. The cost is real and it is bounded: a scroll begun with a thumb on
+ * these few rows does not scroll, and a room has a handful of pieces in it.
+ *
+ * The row under the finger follows it and the others change places around it,
+ * which is the gap opening under the finger that the gallery's note said a
+ * still picture could not settle. It is lifted while it is held, so the one
+ * being carried is never the one you have lost track of. */
+.wf-order--live .wf-order__slot {
+  touch-action: none;
+  user-select: none;
+}
+.wf-order--live .wf-order__slot--carried {
+  position: relative;
+  z-index: 1;
   box-shadow: var(--lift-2);
   border-color: var(--line-strong);
 }
