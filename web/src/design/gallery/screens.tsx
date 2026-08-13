@@ -32,6 +32,7 @@ import type { ReactElement } from 'react'
 import { Actions, Been, Head, Part, Tagged, Tagging } from '../Book'
 import { Viewfinder } from '../Camera'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
+import { Trip, Trips } from '../Carrying'
 import { Cat } from '../Cat'
 import { Button, Choice, Cycle, Field, Segmented } from '../Controls'
 import { Covers, covers } from '../Covers'
@@ -179,10 +180,16 @@ function Home(go: Go) {
       />
 
       <p className="wf-heading wf-heading--flush">Needs you</p>
+      {/* Fifty-three to carry, which is what the number looks like the week
+          after a rule changed. It was three, and three is the number this
+          screen shows on an ordinary day; the carry screens are drawn at the
+          size the job actually reaches, so this one says so too. A count that
+          only ever reads "3" would have let the whole flow be designed for a
+          list that fits on one screen. */}
       <Stats
         items={[
           { n: '6', word: 'ready to shelve', onPress: () => go('queue') },
-          { n: '3', word: 'to carry', onPress: () => go('carry') },
+          { n: '53', word: 'to carry', onPress: () => go('carry') },
           { n: '3', word: 'stuck', onPress: () => go('queue') },
         ]}
       />
@@ -209,30 +216,37 @@ function Home(go: Go) {
         </Button>
       </Card>
 
+      {/* The first three of fifty-three, and a way to the rest, which is the
+          shape the queue card above already has. Three books off a list that
+          long is a taste rather than a summary, and the honest summary is the
+          count above it. */}
       <Card title="Books to carry">
         <List label="Books to carry">
           <Row
-            title="Guards! Guards!"
-            sub="Pratchett, Terry"
+            title="The Songlines"
+            sub="Chatwin, Bruce"
             cloth="sun"
-            meta="2C to 2D"
+            meta="4A to 3A"
             onPress={() => go('carry')}
           />
           <Row
-            title="Snow Crash"
-            sub="Stephenson, Neal"
-            cloth="sky"
-            meta="2C to 2D"
+            title="Silent Spring"
+            sub="Carson, Rachel"
+            cloth="moss"
+            meta="4A to 3A"
             onPress={() => go('carry')}
           />
           <Row
-            title="The Book Thief"
-            sub="Zusak, Markus"
-            cloth="plum"
-            meta="2D to 3A"
+            title="Underland"
+            sub="Macfarlane, Robert"
+            cloth="wood"
+            meta="4B to 3B"
             onPress={() => go('carry')}
           />
         </List>
+        <Button tone="quiet" onPress={() => go('carry')}>
+          All fifty-three
+        </Button>
       </Card>
     </Phone>
   )
@@ -1300,6 +1314,65 @@ function Review(go: Go) {
   )
 }
 
+/**
+ * Where one book goes, which is the same three things whatever put the book in
+ * somebody's hand.
+ *
+ * **This is the owner's instruction taken literally.** He has said twice that
+ * he likes this screen, and #291 says a book displaced by a rule change should
+ * be reshelved "the same way as whenever we're initially shelving them". So it
+ * is not copied for the carry flow, it is called by it: the sentence naming the
+ * two neighbours, the area drawn with the gap in it and the book named under
+ * the board, and the two answers a person standing at the shelf can give.
+ *
+ * A second implementation of this would be the place the two quietly came
+ * apart, and the way that happens is somebody adding a button to one of them.
+ */
+function Placing({
+  between,
+  area,
+  note,
+  items,
+  inHand,
+  onFits,
+  onFull,
+}: {
+  /** The one line: the two books this one goes between. */
+  between: ReactElement
+  /** The area it goes on, as the label reads off the furniture. */
+  area: string
+  note: string
+  items: ShelfItem[]
+  /** The book being carried, said under the board rather than drawn on it. */
+  inHand: string
+  onFits: () => void
+  onFull: () => void
+}) {
+  return (
+    <>
+      <Instruction>{between}</Instruction>
+
+      <div className="wf-bleed">
+        <Shelf label={area} note={note} items={items} inHand={inHand} />
+      </div>
+
+      <Card
+        weight="sunk"
+        foot={
+          <>
+            <Button tone="primary" onPress={onFits}>
+              It fits
+            </Button>
+            <Button tone="secondary" onPress={onFull}>
+              {area} is full
+            </Button>
+          </>
+        }
+      />
+    </>
+  )
+}
+
 function Where(go: Go) {
   const row: ShelfItem[] = [
     ...spines(['Mantel, Hilary', 'Miéville, China']),
@@ -1314,26 +1387,18 @@ function Where(go: Go) {
       go={go}
       top={<TopBar title="Where it goes" onBack={() => go('review')} />}
     >
-      <Instruction>
-        Between <em>The City &amp; the City</em> and <em>Cloud Atlas</em>.
-      </Instruction>
-
-      <div className="wf-bleed">
-        <Shelf label="2C" note="5 books, and the gap" items={row} inHand="Never Let Me Go" />
-      </div>
-
-      <Card
-        weight="sunk"
-        foot={
+      <Placing
+        between={
           <>
-            <Button tone="primary" onPress={() => go('done')}>
-              It fits
-            </Button>
-            <Button tone="secondary" onPress={() => go('carry')}>
-              2C is full
-            </Button>
+            Between <em>The City &amp; the City</em> and <em>Cloud Atlas</em>.
           </>
         }
+        area="2C"
+        note="5 books, and the gap"
+        items={row}
+        inHand="Never Let Me Go"
+        onFits={() => go('done')}
+        onFull={() => go('carry')}
       />
     </Phone>
   )
@@ -2174,27 +2239,540 @@ function Claimed(go: Go) {
 
 /* --- Putting things right ------------------------------------------------ */
 
+/*
+ * --- Carrying fifty-three books -------------------------------------------
+ *
+ * The flow #291 is for, and the six questions it makes the design answer.
+ * Every one of them is settled here rather than drawn around, and the answers
+ * are the reason the screens look the way they do.
+ *
+ * ## 1. What order somebody works in
+ *
+ * **Grouped by where the books come off, biggest piece of furniture first,
+ * sweeping each piece from its first area to its last.**
+ *
+ * The two candidates cost the same number of walks, so the walks are not what
+ * decides it. What decides it is that the two ends of a carry are not
+ * symmetrical: taking a book off means finding it among the ones that are
+ * staying, which is reading spines, and putting it down does not. A list
+ * grouped by where books are going makes you read one area three times, once
+ * per destination it feeds. Grouped by where they come off, you read it once.
+ *
+ * The second asymmetry is your hands. Grouped by where books come off, what
+ * you are holding is always "everything I took off 4A", which is one sentence
+ * a person can keep in their head while walking. Grouped the other way it is a
+ * merge.
+ *
+ * Biggest first, rather than by label, because emptying a piece completely is
+ * the win: three books off a bookcase across the room is not what anybody does
+ * before clearing the one that has fifty on it. Within a piece the order is the
+ * order the areas stand in, which is the closest thing to a path.
+ *
+ * ## 2. A book in your hand
+ *
+ * **The model says nothing, on purpose, and nothing here writes a row until a
+ * book is down.** The last thing recorded is still true: it is the last place a
+ * person put the book. Recording "in your hand" would be the app asserting
+ * something nobody told it, and it would still be asserting it three weeks
+ * later, which is worse than a record that says where to go and look.
+ *
+ * So there is no "I have picked it up" step to be got wrong, nothing to unwind
+ * if the phone locks, and the whole of what the interface says about the gap is
+ * the line under the board naming the book being carried. The way out of an
+ * armful is on the screen and it is honest: put them back where they came from,
+ * which writes nothing because nothing was written.
+ *
+ * ## 3. The plan going stale
+ *
+ * **There is no plan to go stale.** `domain/placement/plan.ts` writes nothing
+ * and there is no plan table; the work is the disagreement between what the
+ * rules want and where somebody last put the book, so it is recomputed every
+ * time this list is drawn.
+ *
+ * One rule on top of that, and it is the one that matters while somebody is
+ * walking: **the screen naming an area for the book in your hand is never
+ * re-answered underneath you.** It changes when you come back to the list, and
+ * the list says what changed. Saying an area is full is the case where a person
+ * changes it themselves, and it gets a screen of its own.
+ *
+ * ## 4. Stopping halfway
+ *
+ * Falls out of 2 and 3. Nothing is stored per session, so there is nothing to
+ * resume: the list is what is left, and every book carried takes itself off it.
+ * What the design owes is that coming back does not read as starting again, so
+ * the resumed list leads with what was already carried and puts the area you
+ * were part-way through at the top.
+ *
+ * ## 5. The answer changing while they were away
+ *
+ * Two different things and the second is the one that stings. Books that no
+ * longer need moving simply leave, and a count is enough. Books somebody
+ * **already carried** that need carrying again cannot be left to be discovered
+ * one at a time, so they are named.
+ *
+ * ## 6. The same screen as initial shelving
+ *
+ * `Placing`, called by both. See its header.
+ */
+
+/**
+ * The whole of the outstanding work, as the trips it is made of.
+ *
+ * Fifty-three books, which is the size this has to survive rather than a size
+ * chosen to draw well. Five rows, because the unit is a trip.
+ */
 function Carry(go: Go) {
   return (
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title="Books to carry" sub="3 books" onBack={() => go('home')} />}
+      top={
+        <TopBar title="Books to carry" sub="53 books, five trips" onBack={() => go('home')} />
+      }
     >
-      {/* The card that stood here explained the list underneath it, which the
-          list already says: each row names where the book is and where it is
-          going. Gone with the other captions. */}
-      <List label="Books to carry">
-        <Row title="Guards! Guards!" sub="Pratchett, Terry" cloth="sun" meta="2C to 2D" onPress={() => go('where')} />
-        <Row title="Snow Crash" sub="Stephenson, Neal" cloth="sky" meta="2C to 2D" onPress={() => go('where')} />
-        <Row title="The Book Thief" sub="Zusak, Markus" cloth="plum" meta="2D to 3A" onPress={() => go('where')} />
+      {/* No card explaining the list. Each row names both ends and the count,
+          which is the whole of what a sentence over it could have said. */}
+      <Trips label="Books to carry">
+        <Trip from="4A" to="3A" count={8} note="Bryson to Didion" onPress={() => go('trip')} />
+        <Trip from="4B" to="3B" count={20} note="Dyson to Macfarlane" onPress={() => go('trip')} />
+        <Trip from="4C" to="3C" count={22} note="Mantel to Winchester" onPress={() => go('trip')} />
+        <Trip from="1C" to="1D" count={2} note="Tartt and Tolkien" onPress={() => go('trip')} />
+        <Trip from="1D" to="1E" count={1} note="Zusak" onPress={() => go('trip')} />
+      </Trips>
+
+      <Button tone="primary" block onPress={() => go('trip')}>
+        Start at 4A
+      </Button>
+
+      {/* The plan said what it would not touch and so does the work list, in
+          the same words and the same order. A list of fifty-three that had
+          quietly dropped three pinned books would be believed. */}
+      <Card weight="quiet" kind="Not on this list" title="Six books">
+        <p>
+          Three you pinned. Two checked out. One never confirmed onto a
+          bookcase.
+        </p>
+      </Card>
+    </Phone>
+  )
+}
+
+/**
+ * One trip, read at the area the books come off.
+ *
+ * The eight to take are ringed on the board and named underneath, because at
+ * this moment a person is looking at eleven spines and needs to know which
+ * eight. The three staying are drawn and not hidden: they are the pinned books,
+ * and a screen that showed only the eight would have somebody counting to
+ * eleven and wondering.
+ *
+ * **Pressing the button writes nothing.** It is the only step in this flow that
+ * does not, and it is a navigation rather than a record: the books are not
+ * anywhere yet.
+ */
+function Trip4A(go: Go) {
+  /*
+   * The eight are one block and the three pinned ones follow them, which is a
+   * decision made by looking rather than a fact about pinning.
+   *
+   * The first pass scattered them, and eight rings among eleven spines is one
+   * ragged outline round nearly the whole board: you cannot see which three are
+   * staying, which is the only thing the drawing has to answer. The ring was
+   * designed for one book and it does not survive being asked to mean eight.
+   * As one block it reads as "everything up to here", and the three plain
+   * spines after it are what the card underneath is about.
+   */
+  const row: ShelfItem[] = spines(
+    [
+      'Bryson, Bill',
+      'Carson, Rachel',
+      'Chatwin, Bruce',
+      'Darwin, Charles',
+      'Davis, Wade',
+      'Deakin, Roger',
+      'Diamond, Jared',
+      'Didion, Joan',
+      'Dillard, Annie',
+      'Doidge, Norman',
+      'Dunbar, Robin',
+    ],
+    2,
+  ).map((item, i) => (item.kind === 'spine' && i < 8 ? { ...item, here: true } : item))
+
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="4A" sub="8 of the 11 books here go to 3A" onBack={() => go('carry')} />}
+    >
+      <Instruction>Take these eight off 4A.</Instruction>
+
+      <div className="wf-bleed">
+        <Shelf label="4A" note="11 books, eight ringed" items={row} />
+      </div>
+
+      <List label="The eight to take">
+        <Row title="A Short History of Nearly Everything" sub="Bryson, Bill" cloth="sun" onPress={() => go('carrying')} />
+        <Row title="Silent Spring" sub="Carson, Rachel" cloth="moss" onPress={() => go('carrying')} />
+        <Row title="The Songlines" sub="Chatwin, Bruce" cloth="wood" onPress={() => go('carrying')} />
+        <Row title="The Voyage of the Beagle" sub="Darwin, Charles" cloth="sky" onPress={() => go('carrying')} />
+        <Row title="The Wayfinders" sub="Davis, Wade" cloth="plum" onPress={() => go('carrying')} />
+        <Row title="Wildwood" sub="Deakin, Roger" cloth="wood2" onPress={() => go('carrying')} />
+        <Row title="Collapse" sub="Diamond, Jared" cloth="sun" onPress={() => go('carrying')} />
+        <Row title="The White Album" sub="Didion, Joan" cloth="moss" onPress={() => go('carrying')} />
       </List>
 
-      <Button tone="primary" block onPress={() => go('where')}>
-        Start with the first one
+      <Card weight="quiet" kind="Staying on 4A" title="Three books you pinned" />
+
+      <Button tone="primary" block onPress={() => go('carrying')}>
+        I have all eight
+      </Button>
+      <Button tone="quiet" block onPress={() => go('carry')}>
+        Do a different one
+      </Button>
+    </Phone>
+  )
+}
+
+/**
+ * Where one carried book goes, which is the screen a new book gets.
+ *
+ * The only two things this adds to it: the top bar counts down the armful, so
+ * somebody knows whether they are nearly done without going back; and there is
+ * a way out that is not a lie. Backing out of an armful puts the books back on
+ * the area they came off, and that records nothing, because nothing had been
+ * recorded.
+ */
+function Carrying(go: Go) {
+  const row: ShelfItem[] = [
+    ...spines(
+      [
+        'Bryson, Bill',
+        'Carson, Rachel',
+        'Chatwin, Bruce',
+        'Darwin, Charles',
+        'Davis, Wade',
+        'Deakin, Roger',
+      ],
+      2,
+    ),
+    { kind: 'gap' },
+    ...spines(['Didion, Joan'], 1),
+    { kind: 'bookend' },
+  ]
+
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="Where it goes"
+          sub="Last of eight in your hands"
+          onBack={() => go('trip')}
+        />
+      }
+    >
+      <Placing
+        between={
+          <>
+            Between <em>Wildwood</em> and <em>The White Album</em>.
+          </>
+        }
+        area="3A"
+        note="7 books, and the gap"
+        items={row}
+        inHand="Collapse"
+        onFits={() => go('carried')}
+        onFull={() => go('carryfull')}
+      />
+
+      {/* Nothing has been written for any of the eight that are not down yet,
+          so this really is free. It is the reason there is no "I picked it up"
+          step: there is nothing to unsay. */}
+      <Button tone="quiet" block onPress={() => go('carry')}>
+        Put them back on 4A
+      </Button>
+    </Phone>
+  )
+}
+
+/**
+ * Saying an area is full, which is the one place the answer changes while
+ * somebody is standing there.
+ *
+ * `docs/shelving.md` settles what happens: the gap is in the middle of 3A, so
+ * something has to come off the end of it to open one, and that is 3A's last
+ * book. It goes to 3B. **The armful gets bigger**, which is the surprising part
+ * and is why it gets a screen rather than a line.
+ *
+ * Nothing here is a second cascade. It is the one in the specification, drawn,
+ * and it asks one question at a time exactly as that document says: 3B may not
+ * take it either, and the answer to that is this screen again.
+ */
+function CarryFull(go: Go) {
+  const row: ShelfItem[] = [
+    ...spines(
+      [
+        'Bryson, Bill',
+        'Carson, Rachel',
+        'Chatwin, Bruce',
+        'Darwin, Charles',
+        'Davis, Wade',
+        'Deakin, Roger',
+      ],
+      2,
+    ),
+    { kind: 'gap' },
+    { kind: 'spine', text: 'Didion, Joan', cloth: 'plum', pages: 240, here: true },
+    { kind: 'bookend' },
+  ]
+
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="3A is full"
+          sub="Last of eight in your hands"
+          onBack={() => go('carrying')}
+        />
+      }
+    >
+      <Instruction>
+        Take <em>The White Album</em> off the end of 3A.
+      </Instruction>
+
+      <div className="wf-bleed">
+        <Shelf label="3A" note="7 books, and the gap" items={row} inHand="Collapse" />
+      </div>
+
+      <Said>It goes on 3B, which you are going to next anyway.</Said>
+
+      <Card weight="quiet" kind="Added to your list just now" title="One book, 3A to 3B" />
+
+      <Card
+        weight="sunk"
+        foot={
+          <>
+            <Button tone="primary" onPress={() => go('carried')}>
+              Done, carry on
+            </Button>
+            <Button tone="secondary" onPress={() => go('carryfull')}>
+              3B is full too
+            </Button>
+          </>
+        }
+      />
+    </Phone>
+  )
+}
+
+/**
+ * The end of one trip, which is the same shape as the end of shelving a book.
+ *
+ * The way on is the next trip by name, because the person is holding nothing
+ * and standing next to the area they just filled. The way out says what it
+ * means: there is no session to close, so stopping is stopping.
+ */
+function Carried(go: Go) {
+  const row: ShelfItem[] = [
+    ...spines(
+      [
+        'Bryson, Bill',
+        'Carson, Rachel',
+        'Chatwin, Bruce',
+        'Darwin, Charles',
+        'Davis, Wade',
+        'Deakin, Roger',
+        'Diamond, Jared',
+        'Didion, Joan',
+      ],
+      2,
+    ),
+    { kind: 'bookend' },
+  ]
+
+  return (
+    <Phone tab="library" go={go} top={<TopBar title="Carried" />}>
+      <Confirmation said="Eight books are on 3A." />
+
+      <div className="wf-bleed">
+        <Shelf label="3A" note="8 books" items={row} />
+      </div>
+
+      <Button tone="primary" block onPress={() => go('trip')}>
+        Next: twenty books off 4B
+      </Button>
+      <Button tone="quiet" block onPress={() => go('home')}>
+        That is enough for today
+      </Button>
+
+      <Card weight="quiet" kind="Still to carry" title="Forty-five books, four trips" />
+    </Phone>
+  )
+}
+
+/**
+ * One book, where the list would be a list of one.
+ *
+ * The grouping earns nothing here and a screen listing a single trip so it can
+ * be tapped is a tap for nothing, so the list is skipped and the area the book
+ * comes off is drawn instead. Same journey, two screens shorter.
+ */
+function CarryOne(go: Go) {
+  const row: ShelfItem[] = spines(
+    ['Smith, Zadie', 'Tartt, Donna', 'Tolkien, J. R. R.', 'Woolf, Virginia', 'Zusak, Markus'],
+    3,
+  ).map((item, i) => (item.kind === 'spine' && i === 4 ? { ...item, here: true } : item))
+
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="One book to carry" onBack={() => go('home')} />}
+    >
+      <Instruction>
+        Take <em>The Book Thief</em> off 1D.
+      </Instruction>
+
+      <div className="wf-bleed">
+        <Shelf label="1D" note="5 books, one ringed" items={row} />
+      </div>
+
+      <Said>It goes on 1E.</Said>
+
+      <Button tone="primary" block onPress={() => go('carrying')}>
+        I have it
       </Button>
 
       <Card weight="quiet" kind="Not on this list" title="Two books are checked out" />
+    </Phone>
+  )
+}
+
+/** Nothing to carry, which is the state this whole flow is trying to reach. */
+function CarryNone(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Books to carry" sub="Nothing to carry" onBack={() => go('home')} />}
+    >
+      <Nothing said="Every book is where the rules want it.">
+        <p>Nothing to fetch, nothing to put back.</p>
+      </Nothing>
+
+      <Button tone="quiet" block onPress={() => go('furniture')}>
+        See your furniture
+      </Button>
+    </Phone>
+  )
+}
+
+/**
+ * The list picked up again on Sunday, which is the normal case and not the
+ * exception.
+ *
+ * Three things make it read as carrying on rather than as starting: what was
+ * already carried is said first, the area that was left part done is at the top
+ * with how much of it is left, and the button says carry on rather than start.
+ *
+ * **4B appears twice**, and that is the one drawing on these screens that could
+ * not have been invented at a desk. Saying 3B was full pushed books onward, so
+ * two of 4B's remaining thirteen now belong on 3C. One area feeding two is
+ * exactly the case the grouping decision is about, and here the two sit
+ * together, which is the whole benefit: you read 4B once.
+ */
+function CarryPart(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar title="Books to carry" sub="38 books, five trips" onBack={() => go('home')} />
+      }
+    >
+      <Card weight="sunk">
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <Cat pose="sitting" size={52} />
+          <p style={{ margin: 0, fontFamily: 'var(--face-book)', fontSize: 17 }}>
+            You carried fifteen on Sunday.
+          </p>
+        </div>
+      </Card>
+
+      <Trips label="Books to carry">
+        <Trip from="4B" to="3B" count={11} note="Seven of the eighteen are on 3B already" onPress={() => go('trip')} />
+        <Trip from="4B" to="3C" count={2} note="3B filled up" onPress={() => go('trip')} />
+        <Trip from="4C" to="3C" count={22} note="Mantel to Winchester" onPress={() => go('trip')} />
+        <Trip from="1C" to="1D" count={2} note="Tartt and Tolkien" onPress={() => go('trip')} />
+        <Trip from="1D" to="1E" count={1} note="Zusak" onPress={() => go('trip')} />
+      </Trips>
+
+      <Button tone="primary" block onPress={() => go('trip')}>
+        Carry on at 4B
+      </Button>
+
+      <Button tone="quiet" block onPress={() => go('carrystale')}>
+        What changed while you were away
+      </Button>
+    </Phone>
+  )
+}
+
+/**
+ * What a rule change did to a list somebody was halfway through.
+ *
+ * The counts are the easy half and they lead, because the first question is
+ * whether the job got bigger. The third card is the one this screen exists
+ * for: books that were carried and have to be carried again. Nobody may find
+ * that out one book at a time, standing at a shelf, so they are named here with
+ * both ends of the new carry on them.
+ *
+ * There is nothing to accept or dismiss. The list already changed the moment
+ * the rule did; this says what happened, and the way on is the work.
+ */
+function CarryStale(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="What changed"
+          sub="You changed what belongs on bookcase 2"
+          onBack={() => go('carrypart')}
+        />
+      }
+    >
+      <Instruction>Your list went from 38 books to 47.</Instruction>
+
+      <Card kind="Off the list" title="Eleven books no longer move">
+        <p>They were going to 2A. The rule now wants them where they already are.</p>
+      </Card>
+
+      {/* One card, not two. "Twenty books joined" and "three of the twenty"
+          were separate and the second read as a fourth thing that had happened
+          rather than as part of the third. The three are the whole reason this
+          screen exists, so they sit inside the count they belong to. Found by
+          looking at it. */}
+      <Card kind="On the list" title="Twenty books joined">
+        <p>Three of them you carried on Sunday.</p>
+        <List label="Books to carry again">
+          <Row title="Salt Fat Acid Heat" sub="Nosrat, Samin" cloth="sun" meta="3B to 2A" onPress={() => go('carrying')} />
+          <Row title="On Food and Cooking" sub="McGee, Harold" cloth="sky" meta="3B to 2A" onPress={() => go('carrying')} />
+          <Row title="Good Things" sub="Grigson, Jane" cloth="plum" meta="3B to 2A" onPress={() => go('carrying')} />
+        </List>
+      </Card>
+
+      <Button tone="primary" block onPress={() => go('carry')}>
+        Show me what is left
+      </Button>
+      <Button tone="quiet" block onPress={() => go('belongs')}>
+        Open the rule again
+      </Button>
     </Phone>
   )
 }
@@ -2244,35 +2822,46 @@ function Plan(go: Go) {
       go={go}
       top={<TopBar title="The plan" sub="50 books to carry" onBack={() => go('move')} />}
     >
+      {/* Filled labels, not outlined ones. They were quiet here and solid on
+          the screen after this, which is the same two areas said twice in two
+          voices on two screens somebody walks straight between. Found by
+          looking at them one after the other. */}
       <Card kind="What would happen" title="Bookcase 4 to bookcase 3">
         <div className="wf-steps">
           <div className="wf-step">
             <span className="wf-step__n">1</span>
             <span>
-              <Place quiet>4A</Place> to <Place quiet>3A</Place> &mdash; 8 books
+              <Place>4A</Place> to <Place>3A</Place> &mdash; 8 books
             </span>
           </div>
           <div className="wf-step">
             <span className="wf-step__n">2</span>
             <span>
-              <Place quiet>4B</Place> to <Place quiet>3B</Place> &mdash; 20 books
+              <Place>4B</Place> to <Place>3B</Place> &mdash; 20 books
             </span>
           </div>
           <div className="wf-step">
             <span className="wf-step__n">3</span>
             <span>
-              <Place quiet>4C</Place> to <Place quiet>3C</Place> &mdash; 22 books
+              <Place>4C</Place> to <Place>3C</Place> &mdash; 22 books
             </span>
           </div>
         </div>
       </Card>
 
-      <Card kind="Left alone" title="Four books">
+      <Card kind="Left alone" title="Six books">
         <p>
-          One you asked to stay put. Two checked out. One never confirmed onto a
-          bookcase.
+          Three you asked to stay put. Two checked out. One never confirmed onto
+          a bookcase.
         </p>
       </Card>
+
+      {/* What is already outstanding, because applying does not start a job of
+          its own: these fifty join a list that already has three on it, and the
+          screen after this one says fifty-three. A plan that reported its own
+          fifty and then handed over a list of a different number would look
+          like an arithmetic bug. */}
+      <Card weight="quiet" kind="Already waiting" title="Three books are on your carry list" />
 
       <Button tone="primary" block onPress={() => go('carry')}>
         Apply it
@@ -2348,9 +2937,20 @@ export const SCREENS: Screen[] = [
   { id: 'belongs', name: 'What belongs here', group: 'Your furniture', render: Belongs },
   { id: 'sorting', name: 'How an area is ordered', group: 'Your furniture', render: Sorting },
   { id: 'claimed', name: 'Why a book is here', group: 'Your furniture', render: Claimed },
-  { id: 'carry', name: 'Books to carry', group: 'Putting things right', render: Carry },
   { id: 'move', name: 'Move non-fiction', group: 'Putting things right', render: Move },
   { id: 'plan', name: 'The plan', group: 'Putting things right', render: Plan },
+  /* The journey, in the order it is walked: the whole of the work, one trip
+     read at the bookcase, one book placed, the trip finished. Then the four
+     states that are not that. */
+  { id: 'carry', name: 'Books to carry', group: 'Putting things right', render: Carry },
+  { id: 'trip', name: 'One trip, at 4A', group: 'Putting things right', render: Trip4A },
+  { id: 'carrying', name: 'Where a carried book goes', group: 'Putting things right', render: Carrying },
+  { id: 'carried', name: 'A trip finished', group: 'Putting things right', render: Carried },
+  { id: 'carryfull', name: 'The area filled up', group: 'Putting things right', render: CarryFull },
+  { id: 'carrypart', name: 'Picking it up again', group: 'Putting things right', render: CarryPart },
+  { id: 'carrystale', name: 'The answer changed', group: 'Putting things right', render: CarryStale },
+  { id: 'carryone', name: 'Only one to carry', group: 'Putting things right', render: CarryOne },
+  { id: 'carrynone', name: 'Nothing to carry', group: 'Putting things right', render: CarryNone },
 ]
 
 /*
