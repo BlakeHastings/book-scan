@@ -46,6 +46,16 @@ interface Props {
    * same reason the return anchor is passed up rather than kept here.
    */
   onArrange?: (range: ShelfRange) => void
+  /**
+   * The way through to the furniture, and the only one there is (#313).
+   *
+   * It belongs here rather than on the first screen for the reason the drawing
+   * puts it here: describing the room is something you do while looking at
+   * what is in it. It is a quiet button under the shelves and not a card with
+   * a paragraph over it, which is what was there before the owner read it:
+   * "the app has no reason to summarise what somebody's furniture is made of".
+   */
+  onFurniture?: () => void
 }
 
 /**
@@ -76,7 +86,7 @@ interface Props {
  * that causes are reported rather than left for you to discover at the shelf.
  */
 export function ShelfView({
-  onOpen, returnAnchor, onReturnAnchorConsumed, onArrange,
+  onOpen, returnAnchor, onReturnAnchorConsumed, onArrange, onFurniture,
 }: Props) {
   // A return trip opens on the range it left from, or the tab would change
   // under the person while they were away.
@@ -258,6 +268,15 @@ export function ShelfView({
       {onArrange && groups.length > 0 && (
         <button className="btn btn--ghost library__arrange" onClick={() => onArrange(range)}>
           Move this run to another bookcase
+        </button>
+      )}
+
+      {/* Not "see the bookcases": what it opens is every piece in the room and
+          two of them may be a crate and a desk. The category word goes neutral
+          even though each piece is named for what it is. */}
+      {onFurniture && (
+        <button className="btn btn--ghost library__arrange" onClick={onFurniture}>
+          See your furniture
         </button>
       )}
 

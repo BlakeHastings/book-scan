@@ -386,6 +386,111 @@ export interface RunMovePlan {
   unclaimed: PlannedBook[]
 }
 
+/*
+ * --- The furniture -------------------------------------------------------
+ *
+ * The room as the screens read it (#313). The wire types are restated here
+ * rather than imported from the server, the way every other response on this
+ * path is.
+ *
+ * **No label is stored anywhere and none is sent back up.** Every `label` here
+ * is worked out by the server at the moment it answered, from a piece's number
+ * and name and an area's ordinal and name, so a screen that kept one in state
+ * would be drawing a name for a piece somebody has since renamed. Every write
+ * answers with `becomes`, which is each label that reads differently now, and
+ * with the piece or area re-described. Read from the answer; never from memory.
+ */
+
+/** A label that reads differently after a change, old to new. */
+export interface LabelChange {
+  from: string
+  to: string
+}
+
+/** What a rule asks for, in labels rather than in the slugs it stores. */
+export interface RuleDto {
+  id: number
+  name: string
+  /** One area, or a whole piece and everything the run flows onto after it. */
+  about: 'area' | 'fixture'
+  place: string
+  /** Which area or piece that is, so a screen can name a piece its own way. */
+  placeId: number | null
+  enabled: boolean
+  conditions: { operator: 'is' | 'under'; tag: string }[]
+  /** The whole of it as one phrase: "Anything tagged Cookery". */
+  said: string
+}
+
+export type SortStrategyCode = 'inherit' | 'author' | 'title' | 'published' | 'tag'
+
+export interface AreaDto {
+  id: number
+  position: number
+  label: string
+  name: string
+  startsAt: string
+  sortStrategy: SortStrategyCode
+  /** What it is actually ordered by, folded through the piece and collection. */
+  ordering: Exclude<SortStrategyCode, 'inherit'>
+  /** Anything but `inherit` means it takes no overflow from the area before. */
+  selfContained: boolean
+  note: string
+  /** Books standing in it, which is where somebody last said they were. */
+  books: number
+  holds: string
+  entry: boolean
+  rule: RuleDto | null
+}
+
+export interface FixtureDto {
+  id: number
+  position: number
+  label: string
+  kind: string
+  name: string
+  sortStrategy: SortStrategyCode
+  note: string
+  books: number
+  areas: AreaDto[]
+  /** Other pieces standing on this piece's number. Reported, never refused. */
+  sharing: number[]
+  holds: string
+  rule: RuleDto | null
+}
+
+export interface FurnitureDto {
+  fixtures: FixtureDto[]
+  defaultSortStrategy: SortStrategyCode
+  strategies: { code: SortStrategyCode; label: string; isInherit: boolean }[]
+}
+
+/** What a piece still holds, which is what has to leave before it can go. */
+export interface FixtureRemoval {
+  books: number
+  areas: number
+  rules: number
+  /** True when the row stays behind, off the floor, because history names it. */
+  retires: boolean
+}
+
+/** What removing an area would do to its books. Nothing here moves one. */
+export interface AreaRemovalPlan {
+  area: { id: number; label: string; books: number }
+  into: { id: number; label: string }
+  joins: 'previous' | 'next'
+  /**
+   * How many books the rules refile into `into`.
+   *
+   * **Not how many books that area then holds.** An assignment is what the
+   * rules want; where a book is is what somebody last said, and only the
+   * location route changes that. See `AreaPane`.
+   */
+  joining: number
+  skipped: { reason: SkipReason; books: number }[]
+  becomes: LabelChange[]
+}
+
 /** What an apply wrote, in the numbers the ledger counts. */
 export interface AssignmentReport {
   assigned: number
@@ -510,14 +615,42 @@ export function deviceName(): string {
   return name
 }
 
+/**
+ * A refusal the caller can do something about, with what it has to show first.
+ *
+ * The furniture routes answer 409 with an `effect` attached wherever the
+ * request was well formed and the room was not in a state to take it: giving an
+ * area an order of its own cuts the run it was in, and the server refuses until
+ * the caller says it has shown somebody what that does. A plain `Error` throws
+ * that away and leaves a screen with nothing to show but the sentence, so the
+ * body travels with the throw.
+ */
+export class Refusal extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly effect: unknown,
+  ) {
+    super(message)
+    this.name = 'Refusal'
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error ?? `${response.status} ${response.statusText}`)
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string
+      effect?: unknown
+    }
+    throw new Refusal(
+      body.error ?? `${response.status} ${response.statusText}`,
+      response.status,
+      body.effect,
+    )
   }
   return (await response.json()) as T
 }
@@ -932,6 +1065,93 @@ export const api = {
     }),
 
   setLocation,
+
+  /*
+   * The furniture (#307's routes, #313's screens).
+   *
+   * Ten calls, and not one of them takes a label: a label is worked out from
+   * where a thing sits, so there is nothing to send and nothing worth keeping.
+   * Every write answers with the thing re-described and with `becomes`, and a
+   * screen redraws from that rather than from what it had.
+   */
+
+  /** The whole room: every piece on the floor and every area on its face. */
+  furniture: () => request<FurnitureDto>('/api/fixtures'),
+
+  addFixture: (piece: { kind?: string; name?: string; position?: number }) =>
+    request<{ fixture: FixtureDto }>('/api/fixtures', {
+      method: 'POST',
+      body: JSON.stringify(piece),
+    }),
+
+  /**
+   * Rename a piece, renumber it, or say what kind of thing it is.
+   *
+   * **Renumbering moves no book.** Every area keeps its id, so a book's
+   * recorded location travels with the furniture; what changes is what the
+   * areas are called, which is `becomes`.
+   */
+  editFixture: (
+    id: number,
+    piece: { kind?: string; name?: string; position?: number; sortStrategy?: SortStrategyCode },
+  ) =>
+    request<{ fixture: FixtureDto; becomes: LabelChange[] }>(`/api/fixtures/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(piece),
+    }),
+
+  /** What taking this piece away would mean, without taking it away. */
+  fixtureRemoval: (id: number) =>
+    request<{ removal: FixtureRemoval }>(`/api/fixtures/${id}/removal`),
+
+  /** Refused while books stand on it, and the refusal says how many. */
+  dropFixture: (id: number) =>
+    request<{ removed: FixtureRemoval }>(`/api/fixtures/${id}`, { method: 'DELETE' }),
+
+  addArea: (
+    fixtureId: number,
+    area: { name?: string; startsAt?: string; position?: number },
+  ) =>
+    request<{ area: AreaDto; becomes: LabelChange[] }>(`/api/fixtures/${fixtureId}/areas`, {
+      method: 'POST',
+      body: JSON.stringify(area),
+    }),
+
+  /**
+   * Rename an area, move it along its piece, or give it an order of its own.
+   *
+   * The last one is refused with the effect attached until `acknowledge` is
+   * set, because an area that orders itself takes no overflow and that cuts the
+   * run it was in. The refusal arrives as a `Refusal` carrying what to show.
+   */
+  editArea: (
+    id: number,
+    area: {
+      name?: string
+      startsAt?: string
+      position?: number
+      sortStrategy?: SortStrategyCode
+      acknowledge?: boolean
+    },
+  ) =>
+    request<{ area: AreaDto; becomes: LabelChange[] }>(`/api/areas/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(area),
+    }),
+
+  /** What removing an area would do to its books. Writes nothing. */
+  areaRemoval: (id: number) =>
+    request<{ plan: AreaRemovalPlan }>(`/api/areas/${id}/removal`),
+
+  /**
+   * Take an area off a piece and let its books fall into the next one along.
+   *
+   * Closer to a merge than a deletion: no book is deleted and none is moved.
+   * What is written is where the rules now want each book, and the difference
+   * between that and where somebody last saw it is the needs-attention list.
+   */
+  dropArea: (id: number) =>
+    request<{ plan: AreaRemovalPlan }>(`/api/areas/${id}`, { method: 'DELETE' }),
 
   health: () => request<{ ok: boolean; counts: Counts; db: string }>('/api/health'),
 }

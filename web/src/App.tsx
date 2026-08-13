@@ -18,13 +18,14 @@
  * The providers are nested in dependency order, each reading only from the
  * ones outside it:
  *
- *     error  ->  navigation  ->  book in hand  ->  summary  ->  camera
+ *     error  ->  navigation  ->  arranging  ->  book in hand  ->  summary  ->  camera
  *
  * There is no state library and no URL routing. Both are decisions rather than
  * omissions, and the reasons are written down: `app/navigation.tsx` for the
  * URL, and the split above for the store.
  */
 
+import { ArrangingProvider } from './app/arranging'
 import { BookInHandProvider } from './app/bookInHand'
 import { CameraSessionProvider } from './app/cameraSession'
 import { Chrome } from './app/Chrome'
@@ -57,13 +58,15 @@ export default function App() {
   return (
     <ErrorBannerProvider>
       <NavigationProvider>
-        <BookInHandProvider>
-          <SummaryProvider>
-            <CameraSessionProvider>
-              <CurrentScreen />
-            </CameraSessionProvider>
-          </SummaryProvider>
-        </BookInHandProvider>
+        <ArrangingProvider>
+          <BookInHandProvider>
+            <SummaryProvider>
+              <CameraSessionProvider>
+                <CurrentScreen />
+              </CameraSessionProvider>
+            </SummaryProvider>
+          </BookInHandProvider>
+        </ArrangingProvider>
       </NavigationProvider>
     </ErrorBannerProvider>
   )

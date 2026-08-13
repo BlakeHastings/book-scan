@@ -19,7 +19,12 @@
  * field for it anywhere and there must not be one.
  */
 
-import type { ReactNode } from 'react'
+import {
+  useRef, useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import { IconOnward } from './Icons'
 
 /**
@@ -46,16 +51,34 @@ export function Nest({
   /** The areas under it, and the way to add another. */
   children: ReactNode
 }) {
+  /*
+   * A head with nowhere to go is not a button.
+   *
+   * The piece's own screen draws this at the top of itself, and so does the
+   * screen for cutting an area into it: there is no "go to the piece" from a
+   * screen already about the piece. Drawn as a button with an arrow on it, it
+   * is a target that does nothing, which is worse than not being a target.
+   */
+  const inside = (
+    <>
+      <span className="wf-nest__line">
+        <span className="wf-nest__name">{name}</span>
+        {note && <span className="wf-nest__note">{note}</span>}
+        {onPress && <IconOnward size={18} />}
+      </span>
+      {holds && <span className="wf-nest__holds">{holds}</span>}
+    </>
+  )
+
   return (
     <section className="wf-nest" aria-label={name}>
-      <button type="button" className="wf-nest__head" onClick={onPress}>
-        <span className="wf-nest__line">
-          <span className="wf-nest__name">{name}</span>
-          {note && <span className="wf-nest__note">{note}</span>}
-          <IconOnward size={18} />
-        </span>
-        {holds && <span className="wf-nest__holds">{holds}</span>}
-      </button>
+      {onPress
+        ? (
+          <button type="button" className="wf-nest__head" onClick={onPress}>
+            {inside}
+          </button>
+        )
+        : <div className="wf-nest__head">{inside}</div>}
       <div className="wf-nest__body">{children}</div>
     </section>
   )
@@ -94,7 +117,9 @@ export function AreaBox({
     >
       <span className="wf-box__head">
         <span className="wf-box__reads">{reads}</span>
-        <span className="wf-box__count">{books} books</span>
+        {/* "1 books" is what a wireframe never shows you, because every count
+            in one was chosen. A real area holds one book often enough. */}
+        <span className="wf-box__count">{books} {books === 1 ? 'book' : 'books'}</span>
       </span>
       {holds && <span className="wf-box__holds">{holds}</span>}
     </button>
@@ -132,23 +157,159 @@ export function AddBox({ children, onPress }: { children: ReactNode; onPress?: (
  * finger, whether the list scrolls when you drag past the end. Those are felt
  * rather than seen, and this draws only what they rest on either side of.
  */
-export function Order({ slots }: { slots: { label: string; name: string; on?: boolean }[] }) {
+export function Order({
+  slots,
+  places,
+  onReorder,
+}: {
+  slots: { label: string; name: string; on?: boolean }[]
+  /**
+   * What each place down the column is called, which does **not** travel with
+   * the piece standing in it.
+   *
+   * The column is a set of numbered places and a piece is dragged into one, so
+   * the numbers stay put and the names move through them. Left out, each piece
+   * carries its own label, which is right for a column nobody can drag.
+   */
+  places?: string[]
+  /**
+   * Given one, the column can be dragged: it is called with the order the
+   * pieces are in once a finger comes off, as indices into what was handed in.
+   *
+   * Without it the column is a drawing, which is what the gallery wants and
+   * what a still picture can honestly show. See the note about the lift and the
+   * gap: those are felt rather than seen, and they live in here.
+   */
+  onReorder?: (order: number[]) => void
+}) {
+  /*
+   * While a finger is down: which row was taken hold of, where the rows were
+   * when it went down, and how far it has travelled.
+   *
+   * The rects are measured once, at the moment of the press, and not again.
+   * Measuring during the move would be measuring the rows as they shuffle,
+   * which is a feedback loop: the row you are dragging moves, so the next
+   * measurement says it is somewhere else, so it moves again.
+   */
+  const [carried, setCarried] = useState<{
+    from: number
+    at: number
+    y: number
+    dy: number
+    pitch: number
+  } | null>(null)
+  const column = useRef<HTMLDivElement>(null)
+
+  /** The order as it reads under the finger right now. */
+  const order = carried
+    ? moveWithin(slots.map((_, at) => at), carried.from, carried.at)
+    : slots.map((_, at) => at)
+
+  const take = (at: number, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!onReorder) return
+    const rows = [...(column.current?.children ?? [])] as HTMLElement[]
+    const tops = rows.map((row) => row.getBoundingClientRect().top)
+    // Equal rows, so one gap does for all of them. One row cannot be dragged
+    // anywhere, and a pitch of zero would divide by nothing below.
+    const pitch = tops.length > 1 ? tops[1]! - tops[0]! : 0
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setCarried({ from: at, at, y: event.clientY, dy: 0, pitch })
+  }
+
+  const drag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    setCarried((held) => {
+      if (!held || !held.pitch) return held
+      const dy = event.clientY - held.y
+      const wanted = Math.max(
+        0,
+        Math.min(slots.length - 1, held.from + Math.round(dy / held.pitch)),
+      )
+      return { ...held, dy, at: wanted }
+    })
+  }
+
+  const drop = () => {
+    setCarried((held) => {
+      if (held && held.at !== held.from) {
+        onReorder?.(moveWithin(slots.map((_, at) => at), held.from, held.at))
+      }
+      return null
+    })
+  }
+
+  /**
+   * The same move without a finger.
+   *
+   * Every row is already a button, so it already takes focus and already has a
+   * keyboard on it; up and down are what somebody would try. It is not an
+   * alternative anybody was asked for, it is the thing that stops a drag being
+   * the only way to say a piece stands somewhere else.
+   */
+  const key = (at: number, event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!onReorder) return
+    const to = event.key === 'ArrowUp' ? at - 1 : event.key === 'ArrowDown' ? at + 1 : null
+    if (to === null || to < 0 || to >= slots.length) return
+    event.preventDefault()
+    onReorder(moveWithin(slots.map((_, index) => index), at, to))
+  }
+
   return (
-    <div className="wf-order" aria-label="Where it stands">
-      {slots.map((slot) => (
-        <button
-          key={slot.label}
-          type="button"
-          className={`wf-order__slot${slot.on ? ' wf-order__slot--on' : ''}`}
-          aria-pressed={slot.on || undefined}
-        >
-          <span className="wf-order__n">{slot.label}</span>
-          <span className="wf-order__name">{slot.name}</span>
-          <span className="wf-order__grip" aria-hidden="true" />
-        </button>
-      ))}
+    <div
+      className={`wf-order${onReorder ? ' wf-order--live' : ''}`}
+      aria-label="Where it stands"
+      ref={column}
+    >
+      {order.map((which, at) => {
+        const slot = slots[which]!
+        const lifted = carried !== null && which === carried.from
+        return (
+          <button
+            /*
+             * Where it sits in what was handed in, and not its label: the
+             * owner has two pieces both standing at 4, so a label is not a
+             * name for one row. This one is unique, and it is stable while the
+             * display order changes under a finger, which is what lets React
+             * carry the row it is already drawing rather than redraw it.
+             */
+            key={which}
+            type="button"
+            className={[
+              'wf-order__slot',
+              slot.on ? 'wf-order__slot--on' : '',
+              lifted ? 'wf-order__slot--carried' : '',
+            ].filter(Boolean).join(' ')}
+            aria-pressed={slot.on || undefined}
+            style={lifted
+              ? { transform: `translateY(${carried.dy - (carried.at - carried.from) * carried.pitch}px)` }
+              : undefined}
+            onPointerDown={(event) => take(at, event)}
+            onPointerMove={carried ? drag : undefined}
+            onPointerUp={carried ? drop : undefined}
+            onPointerCancel={carried ? drop : undefined}
+            onKeyDown={(event) => key(at, event)}
+          >
+            <span className="wf-order__n">{places?.[at] ?? slot.label}</span>
+            <span className="wf-order__name">{slot.name}</span>
+            <span className="wf-order__grip" aria-hidden="true" />
+          </button>
+        )
+      })}
     </div>
   )
+}
+
+/**
+ * One entry carried to another place in the same list.
+ *
+ * The whole of what a drag does to the model, exported so it can be checked
+ * without a browser: everything else about the gesture is rects and pointer
+ * ids, and this is the part that can be wrong in a way nobody sees.
+ */
+export function moveWithin<T>(items: readonly T[], from: number, to: number): T[] {
+  const rest = [...items]
+  const [one] = rest.splice(from, 1)
+  rest.splice(to, 0, one!)
+  return rest
 }
 
 /**

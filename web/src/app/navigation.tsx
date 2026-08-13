@@ -41,6 +41,14 @@ import type { QueueReturnAnchor } from '../components/QueuePane'
  */
 export type Route =
   | 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue' | 'arrange' | 'scan'
+  /*
+   * Describing the furniture (#313). Six screens rather than one, because they
+   * are six places somebody can be: the room, a piece, an area, cutting an
+   * area in two, what belongs in one, and how one is ordered. Which piece and
+   * which area they are about is `app/arranging.tsx`, and it holds ids and
+   * never a label.
+   */
+  | 'furniture' | 'fixture' | 'area' | 'addarea' | 'belongs' | 'sorting'
 
 export interface Navigation {
   readonly route: Route

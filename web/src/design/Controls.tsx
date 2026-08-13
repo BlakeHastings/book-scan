@@ -219,6 +219,7 @@ export function Field({
   value,
   placeholder,
   action,
+  onChange,
 }: {
   label: string
   value?: string
@@ -230,6 +231,16 @@ export function Field({
     icon: ReactNode
     onPress?: () => void
   }
+  /**
+   * Given one, the box holds a real input rather than a drawing of one.
+   *
+   * The gallery draws every field and types into none of them, which is what
+   * the paragraph above is about; the app has to be typed into. Both are the
+   * same field with the same label above it, and it is one component so that
+   * they cannot drift into two: the box, the empty state and the action at the
+   * end are decided once, here, whether or not there is a keyboard behind it.
+   */
+  onChange?: (value: string) => void
 }) {
   const marks = [
     'wf-field__box',
@@ -243,7 +254,17 @@ export function Field({
     <div className="wf-field">
       <span className="wf-field__label">{label}</span>
       <div className={marks}>
-        <span className="wf-field__value">{value || placeholder}</span>
+        {onChange ? (
+          <input
+            className="wf-field__value wf-field__input"
+            value={value ?? ''}
+            placeholder={placeholder}
+            aria-label={label}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        ) : (
+          <span className="wf-field__value">{value || placeholder}</span>
+        )}
         {action && (
           <button
             type="button"

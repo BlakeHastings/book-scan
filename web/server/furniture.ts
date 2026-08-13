@@ -62,12 +62,15 @@ import {
   type LabelChange, type StrategyChange,
 } from '../domain/placement/arrangement'
 import { assignmentFor, standingOf, type Placement } from '../domain/placement/ledger'
-import { entryAreas } from '../domain/placement/rules'
+import {
+  entryAreaOf, entryAreas, type PlacementRule, type RuleOperator,
+} from '../domain/placement/rules'
 import {
   INHERIT, SORT_STRATEGIES, strategyFor, type OrderingStrategy, type SortStrategy,
 } from '../domain/placement/strategies'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { furnitureIn, retireOrRemove } from '../infrastructure/shelving/areas'
+import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import {
   areaOnAFace, areasOnFaces, booksNaming, collectionId, collectionStrategy,
   fixtureOnTheFloor, fixturesOnTheFloor, insertArea, insertFixture, nextFixturePosition,
@@ -119,6 +122,141 @@ const asArea = (row: AreaRow): Area => ({
   sortStrategy: row.sortStrategy,
 })
 
+/**
+ * What a rule asks for, in the words a person reads rather than the slugs it
+ * stores.
+ *
+ * Added for the screens (#313), which draw "what belongs here" on every area and
+ * on every piece. Without it the furniture screen can say how many books stand
+ * somewhere and not one word about why they are there, which is the question
+ * that whole screen exists to answer.
+ *
+ * **A tag is named by its label and never by its slug.** `genre/non-fiction` is
+ * an identity, and putting one on a screen is the same mistake as showing
+ * somebody a row id. Where the vocabulary has no label for a slug the phrase
+ * falls back to the rule's own name rather than to the string, so there is no
+ * path by which a slug reaches a screen.
+ */
+export interface DescribedRule {
+  id: number
+  name: string
+  /** One area, or a whole piece and every area the run flows onto after it. */
+  about: 'area' | 'fixture'
+  /** What the place it points at reads as today. Derived, like every label. */
+  place: string
+  /**
+   * Which area or piece that is.
+   *
+   * A screen naming a piece says "Bookcase 4" where this says "4", because the
+   * label of a piece is its number and a number is not something anybody says
+   * out loud about furniture. Rather than spell that sentence a second time
+   * here, the id says which piece it is and the screen already knows how it
+   * says a piece.
+   */
+  placeId: number | null
+  enabled: boolean
+  conditions: { operator: RuleOperator; tag: string }[]
+  /** The whole of it as one phrase: "Anything tagged Cookery". */
+  said: string
+}
+
+/** Area rules beat fixture rules, then priority, then id: `claim`'s order. */
+const byPrecedence = (a: PlacementRule, b: PlacementRule): number =>
+  Number(b.areaId !== null) - Number(a.areaId !== null)
+  || a.priority - b.priority
+  || a.id - b.id
+
+/** What a rule asks of a book, as one phrase, or null when a slug has no label. */
+function conditionsSaid(rule: PlacementRule, labels: Map<string, string>): string | null {
+  if (!rule.conditions.length) return null
+  const parts = rule.conditions.map((condition) => {
+    const label = labels.get(condition.value)
+    if (label === undefined) return null
+    return condition.operator === 'under'
+      ? `tagged anything under ${label}`
+      : `tagged ${label}`
+  })
+  return parts.every((part) => part !== null) ? `Anything ${parts.join(' and ')}` : null
+}
+
+const ruleSaid = (rule: PlacementRule, labels: Map<string, string>): string =>
+  conditionsSaid(rule, labels) ?? `Anything ${rule.name} claims`
+
+function describeRule(
+  rule: PlacementRule,
+  order: readonly Slot[],
+  labels: Map<string, string>,
+): DescribedRule {
+  const entry = entryAreaOf(rule, order as Slot[])
+  const slot = order.find((one) => one.area.id === entry)
+  return {
+    id: rule.id,
+    name: rule.name,
+    about: rule.areaId !== null ? 'area' : 'fixture',
+    place: slot ? (rule.areaId !== null ? labelFor(slot) : fixtureLabel(slot.fixture)) : '',
+    placeId: rule.areaId ?? rule.fixtureId,
+    enabled: rule.enabled,
+    conditions: rule.conditions.map((condition) => ({
+      operator: condition.operator,
+      tag: labels.get(condition.value) ?? '',
+    })),
+    said: ruleSaid(rule, labels),
+  }
+}
+
+/** Which rule's run an area lies in, and whether the area opens that run. */
+interface RunOwner {
+  rule: PlacementRule | null
+  entry: boolean
+}
+
+/**
+ * The rule whose books reach each area, walking the collection in order.
+ *
+ * The same two breaks `runFrom` makes and for the same reasons: an area a rule
+ * points at opens a run, and an area that orders itself opens one too, because a
+ * continuous run only works while every area in it orders the same way. An area
+ * that opens a run nothing points at carries no rule, and neither does anything
+ * after it, which is the honest answer rather than the previous rule leaking
+ * across a cut.
+ */
+function runOwners(order: readonly Slot[], rules: readonly PlacementRule[]): Map<number, RunOwner> {
+  const entries = entryAreas(rules as PlacementRule[], order as Slot[])
+  const opens = new Map<number, PlacementRule>()
+  for (const rule of [...rules].sort(byPrecedence)) {
+    const at = entryAreaOf(rule, order as Slot[])
+    if (at !== null && !opens.has(at)) opens.set(at, rule)
+  }
+
+  const owners = new Map<number, RunOwner>()
+  let carrying: PlacementRule | null = null
+  for (const slot of order) {
+    if (entries.has(slot.area.id) || slot.area.sortStrategy !== INHERIT) {
+      carrying = opens.get(slot.area.id) ?? null
+      owners.set(slot.area.id, { rule: carrying, entry: true })
+    } else {
+      owners.set(slot.area.id, { rule: carrying, entry: false })
+    }
+  }
+  return owners
+}
+
+/**
+ * What an area holds, said the way somebody standing in front of it would say
+ * it.
+ *
+ * Four answers and no fifth: the rule that opens the run here, the run carrying
+ * on from the area before, a rule that is turned off, and nothing at all. The
+ * last one is not a gap: a piece nothing files onto is a piece somebody fills by
+ * hand, which is exactly what a crate by the door is.
+ */
+function areaHolds(owner: RunOwner | undefined, labels: Map<string, string>): string {
+  if (!owner?.rule) return 'Put here by hand'
+  if (!owner.rule.enabled) return `${owner.rule.name} is turned off, so nothing files here`
+  if (!owner.entry) return `${owner.rule.name}, carrying on`
+  return owner.rule.areaId !== null ? ruleSaid(owner.rule, labels) : `${owner.rule.name} starts here`
+}
+
 /** One area as the wire says it. `label` is worked out, never stored. */
 export interface DescribedArea {
   id: number
@@ -133,6 +271,12 @@ export interface DescribedArea {
   selfContained: boolean
   note: string
   books: number
+  /** What files here, in words. Never empty: "Put here by hand" is an answer. */
+  holds: string
+  /** Whether a run begins here rather than flowing in from the area before. */
+  entry: boolean
+  /** The rule whose books reach here, or null where none does. */
+  rule: DescribedRule | null
 }
 
 export interface DescribedFixture {
@@ -147,6 +291,10 @@ export interface DescribedFixture {
   areas: DescribedArea[]
   /** The other pieces standing on this piece's number, if any. See below. */
   sharing: number[]
+  /** What a rule about the whole piece sends here, in words. */
+  holds: string
+  /** That rule, or null when nothing points at the piece itself. */
+  rule: DescribedRule | null
 }
 
 export interface DescribedFurniture {
@@ -165,15 +313,24 @@ export interface DescribedFurniture {
  * explanation.
  */
 export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
-  const [fixtures, areas, fallback, strategies] = await Promise.all([
+  const [fixtures, areas, fallback, strategies, arrangement, vocabulary] = await Promise.all([
     fixturesOnTheFloor(db), areasOnFaces(db), collectionStrategy(db), offerableStrategies(db),
+    furnitureIn(db), new DrizzleTagRepository(db).vocabulary(),
   ])
 
   const collection = (fallback === INHERIT ? 'author' : fallback) as OrderingStrategy
+  const labels = new Map(vocabulary.map((tag) => [tag.slug.value, tag.label]))
+  const owners = runOwners(arrangement.order, arrangement.rules)
+  const described = new Map<number, DescribedRule>(
+    arrangement.rules.map((rule) => [rule.id, describeRule(rule, arrangement.order, labels)]),
+  )
+  const aboutFixture = (id: number): PlacementRule | null =>
+    [...arrangement.rules].sort(byPrecedence).find((rule) => rule.fixtureId === id) ?? null
 
   return {
     fixtures: fixtures.map((fixture) => {
       const own = areas.filter((one) => one.fixtureId === fixture.id)
+      const about = aboutFixture(fixture.id)
       return {
         id: fixture.id,
         position: fixture.position,
@@ -194,10 +351,18 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
           selfContained: area.sortStrategy !== INHERIT,
           note: area.note,
           books: area.books,
+          holds: areaHolds(owners.get(area.id), labels),
+          entry: owners.get(area.id)?.entry ?? false,
+          rule: (() => {
+            const owner = owners.get(area.id)
+            return owner?.rule ? described.get(owner.rule.id) ?? null : null
+          })(),
         })),
         sharing: fixtures
           .filter((one) => one.id !== fixture.id && one.position === fixture.position)
           .map((one) => one.id),
+        holds: about ? ruleSaid(about, labels) : 'No rule sends books here',
+        rule: about ? described.get(about.id) ?? null : null,
       }
     }),
     defaultSortStrategy: fallback,
