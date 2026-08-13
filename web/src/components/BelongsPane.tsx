@@ -1,54 +1,67 @@
 /**
- * What belongs here: the rule that files books onto this area, and what beats
- * what when two of them want the same book.
+ * What belongs here: the rule that files books onto this area, what beats what
+ * when two of them want the same book, and the way to point it somewhere else.
  *
- * ## It reads and does not write, and that is a gap rather than a decision
+ * ## It reaches the change rather than being a second way to make it
  *
- * The drawing has a way to add another thing that must be true, a way to open
- * the rule from a book, and a "show me what would move" that lands on the plan.
- * None of the three can be built here honestly: **there is no route that reads
- * or writes a placement rule.** The rules are rows, `furnitureIn` reads them,
- * and nothing above that is reachable from a browser. Changing a rule and
- * seeing the plan is the other issue in this pair, and a button here that
- * pretended to do it would be worse than the screen not having one.
+ * #313 built this read-only because nothing in the app could change a rule.
+ * Something can now, and it is not new: `MoveRunView` retargets a rule, plans
+ * the change and applies it, and the carry flow reads what that produces. So the
+ * button here **goes there**. That is the honest answer #323 asked for out loud,
+ * and it is the difference between one journey with two ways in and two journeys
+ * that agree until somebody changes one.
  *
- * What is left is worth having on its own, and it is the question the whole of
- * the furniture screens are for: why is this book on this plank rather than
- * that one. The answer is drawn the way the drawing draws it, in the tags a
- * person reads rather than the slugs the rule stores, and with the losing rule
- * shown beside the winning one, because the loser is the point.
+ * What that costs is that a rule the app cannot retarget gets no button. A rule
+ * carries the stretch of books it is the rule for, or a null, and the null is
+ * said in words rather than drawn as a target that would refuse.
+ *
+ * ## The books, and the ones nothing claims
+ *
+ * "Why is this book on this plank rather than that one" is the question the
+ * whole of the furniture screens are for, and it is asked of a book. So the
+ * books standing here are listed and each one opens the answer. The list is read
+ * by identity, from the area's own route, rather than by matching a label.
+ *
+ * **A book no rule claims is said out loud.** It is a real state since #304:
+ * nothing states a genre, no tag is written, no rule matches it. It stands
+ * exactly where somebody put it and no plan will ever move it, which is
+ * invisible from the counts and is the thing somebody would otherwise find out
+ * by a book never appearing on a carry list.
  */
 
 import { Card, Instruction } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
+import { Button } from '../design/Controls'
 import { Must, Musts } from '../design/Furniture'
-import { Place } from '../design/List'
-import type { AreaDto, FixtureDto, FurnitureDto, RuleDto } from '../lib/api'
-import { pieceSaid } from '../lib/furniture'
+import { List, Place, Row } from '../design/List'
+import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto } from '../lib/api'
+import type { Cloth } from '../design/Shelf'
+import { counted, rulePlace } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 
 interface Props {
   room: FurnitureDto | null
   piece: FixtureDto | null
   area: AreaDto | null
+  /** What is standing here, in the order it stands. Empty while it loads. */
+  books: AreaBook[]
   error: string
   tabs: Record<TabName, () => void>
   onBack: () => void
+  /** Point the rule at other furniture: #244's screen, and there is one of it. */
+  onChange: () => void
+  /** Why one book is here, which is the screen both this and a book reach. */
+  onClaimed: (bookId: number) => void
 }
 
-export function BelongsPane({ room, piece, area, error, tabs, onBack }: Props) {
-  /**
-   * Where a rule points, said the way this app says a place.
-   *
-   * A rule about a whole piece answers `4`, which is the label of the piece and
-   * is not a thing anybody says out loud. The piece itself knows how it is
-   * named, so it is asked.
-   */
-  const placeOf = (rule: RuleDto): string => {
-    if (rule.about === 'area') return rule.place
-    const standing = room?.fixtures.find((one) => one.id === rule.placeId)
-    return standing ? pieceSaid(standing) : rule.place
-  }
+const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
+const clothFor = (id: number): Cloth => CLOTHS[Math.abs(id) % CLOTHS.length]!
+
+export function BelongsPane({
+  room, piece, area, books, error, tabs, onBack, onChange, onClaimed,
+}: Props) {
+  /** Where a rule points, said the way this app says a place. See `rulePlace`. */
+  const placeOf = (rule: RuleDto): string => rulePlace(room, rule)
 
   const top = (
     <TopBar title="What belongs here" sub={area?.label} onBack={onBack} />
@@ -74,6 +87,12 @@ export function BelongsPane({ room, piece, area, error, tabs, onBack }: Props) {
     .sort((a, b) => Number(b.about === 'area') - Number(a.about === 'area'))
 
   const won = area.rule
+  const orphans = books.filter((book) => book.claimedBy === null)
+  // A card title is a sentence and starts like one. `counted` writes the number
+  // out in words, so its first character is the one that has to be lifted.
+  const orphansSaid = counted(orphans.length, 'book')
+  const orphansTitle = `${orphansSaid.charAt(0).toUpperCase()}${orphansSaid.slice(1)} here `
+    + `${orphans.length === 1 ? 'matches' : 'match'} no rule at all`
 
   return (
     <RoomFrame top={top} tabs={tabs}>
@@ -125,6 +144,63 @@ export function BelongsPane({ room, piece, area, error, tabs, onBack }: Props) {
         </Card>
       )}
 
+      {/*
+        The books, each one a way into why it is here. Not folded away: this is
+        the screen somebody opens when a book turned up somewhere surprising,
+        and the book they came about is in this list.
+      */}
+      {books.length > 0 && (
+        <>
+          <p className="wf-heading wf-heading--flush">Standing on {area.label}</p>
+          <List label={`Books on ${area.label}`}>
+            {books.map((book) => (
+              <Row
+                key={book.id}
+                title={book.title}
+                sub={book.authorFiling}
+                cloth={clothFor(book.id)}
+                meta={book.claimedBy === null ? 'No rule claims it' : undefined}
+                onPress={() => onClaimed(book.id)}
+              />
+            ))}
+          </List>
+        </>
+      )}
+
+      {orphans.length > 0 && (
+        <Card
+          weight="quiet"
+          kind="Claimed by nothing"
+          title={orphansTitle}
+        >
+          <p>
+            Nothing says what {orphans.length === 1 ? 'it is' : 'they are'} about, so no
+            rule wants {orphans.length === 1 ? 'it' : 'them'} and no plan will ever move{' '}
+            {orphans.length === 1 ? 'it' : 'them'}. Tagging{' '}
+            {orphans.length === 1 ? 'it' : 'them'} is what settles that.
+          </p>
+        </Card>
+      )}
+
+      {won && (won.range
+        ? (
+          <Button tone="primary" block onPress={onChange}>
+            Point {won.name} somewhere else
+          </Button>
+        )
+        : (
+          <Card
+            weight="quiet"
+            kind="Changing it"
+            title={`${won.name} cannot be pointed somewhere else yet`}
+          >
+            <p>
+              What can be moved is a whole stretch of books that begins on a piece of
+              furniture. This one is about a single area, and there is nothing here
+              that would move it honestly.
+            </p>
+          </Card>
+        ))}
     </RoomFrame>
   )
 }

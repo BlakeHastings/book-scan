@@ -262,12 +262,17 @@ export function ShelfView({
 
       {error && <div className="error" onClick={() => setError('')}>{error}</div>}
 
-      {/* Whole-run surgery, kept off the areas themselves. Moving a run is a
-          decision about the furniture rather than about any book on it, so it
-          does not belong beside a spine one mistap away. */}
+      {/* Whole-run surgery, kept off the areas themselves. Moving a stretch of
+          books is a decision about the furniture rather than about any book on
+          it, so it does not belong beside a spine one mistap away.
+
+          The word "run" is one this code says and this interface does not,
+          which `design.test.tsx` pins on every screen in the gallery. It said it
+          here, on the one target that opens the screen #323 gave a second way
+          in to, so it says what a person would say instead. */}
       {onArrange && groups.length > 0 && (
         <button className="btn btn--ghost library__arrange" onClick={() => onArrange(range)}>
-          Move this run to another bookcase
+          Move all the {range === 'fiction' ? 'fiction' : 'non-fiction'} to another bookcase
         </button>
       )}
 

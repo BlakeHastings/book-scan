@@ -63,13 +63,15 @@ import {
 } from '../domain/placement/arrangement'
 import { assignmentFor, standingOf, type Placement } from '../domain/placement/ledger'
 import {
-  entryAreaOf, entryAreas, type PlacementRule, type RuleOperator,
+  claim, entryAreaOf, entryAreas, type PlacementRule, type RuleOperator,
 } from '../domain/placement/rules'
+import { GENRE_RANGES } from '../domain/tagging/genre'
+import type { ShelfRange } from '../shared/shelving'
 import {
   INHERIT, SORT_STRATEGIES, strategyFor, type OrderingStrategy, type SortStrategy,
 } from '../domain/placement/strategies'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
-import { furnitureIn, retireOrRemove } from '../infrastructure/shelving/areas'
+import { furnitureIn, retireOrRemove, ruleForRange } from '../infrastructure/shelving/areas'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import {
   areaOnAFace, areasOnFaces, booksNaming, collectionId, collectionStrategy,
@@ -158,6 +160,20 @@ export interface DescribedRule {
   conditions: { operator: RuleOperator; tag: string }[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
+  /**
+   * Which of the two stretches of books this rule is the one for, or null.
+   *
+   * **This is what makes the rule changeable from a screen** (#323).
+   * `POST /api/placement/run` retargets a rule by naming the books it claims,
+   * and `ruleForRange` is how it decides which row that is. A screen that had to
+   * work the pairing out for itself would be a second answer to which rule is
+   * which, so the answer travels with the rule instead.
+   *
+   * Null on any other rule, and a null is not a gap: it says this app has no way
+   * to point that rule somewhere else yet, which is the honest thing for a
+   * screen to say rather than offering a button that would refuse.
+   */
+  range: ShelfRange | null
 }
 
 /** Area rules beat fixture rules, then priority, then id: `claim`'s order. */
@@ -186,6 +202,7 @@ function describeRule(
   rule: PlacementRule,
   order: readonly Slot[],
   labels: Map<string, string>,
+  range: ShelfRange | null,
 ): DescribedRule {
   const entry = entryAreaOf(rule, order as Slot[])
   const slot = order.find((one) => one.area.id === entry)
@@ -201,7 +218,39 @@ function describeRule(
       tag: labels.get(condition.value) ?? '',
     })),
     said: ruleSaid(rule, labels),
+    range,
   }
+}
+
+/**
+ * Every rule, described, keyed on its id.
+ *
+ * One place rather than a call per rule, because `range` is a fact about the
+ * whole list: it is answered by `ruleForRange`, which picks **one** row per
+ * stretch of books, and a rule that asked the question about itself could not
+ * tell whether it was the one that got picked.
+ *
+ * Shared with `server/claim.ts`, which describes the rules that wanted one book.
+ */
+export function describeRules(
+  order: readonly Slot[],
+  rules: readonly PlacementRule[],
+  labels: Map<string, string>,
+): Map<number, DescribedRule> {
+  const serves = new Map<number, ShelfRange>()
+  for (const { range } of GENRE_RANGES) {
+    const rule = ruleForRange(rules as PlacementRule[], range)
+    if (rule && !serves.has(rule.id)) serves.set(rule.id, range)
+  }
+
+  return new Map(rules.map((rule) =>
+    [rule.id, describeRule(rule, order, labels, serves.get(rule.id) ?? null)]))
+}
+
+/** The vocabulary as the rules quote it: slug to the label a person reads. */
+export async function tagLabels(db: Db): Promise<Map<string, string>> {
+  const vocabulary = await new DrizzleTagRepository(db).vocabulary()
+  return new Map(vocabulary.map((tag) => [tag.slug.value, tag.label]))
 }
 
 /** Which rule's run an area lies in, and whether the area opens that run. */
@@ -321,9 +370,7 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
   const collection = (fallback === INHERIT ? 'author' : fallback) as OrderingStrategy
   const labels = new Map(vocabulary.map((tag) => [tag.slug.value, tag.label]))
   const owners = runOwners(arrangement.order, arrangement.rules)
-  const described = new Map<number, DescribedRule>(
-    arrangement.rules.map((rule) => [rule.id, describeRule(rule, arrangement.order, labels)]),
-  )
+  const described = describeRules(arrangement.order, arrangement.rules, labels)
   const aboutFixture = (id: number): PlacementRule | null =>
     [...arrangement.rules].sort(byPrecedence).find((rule) => rule.fixtureId === id) ?? null
 
@@ -376,6 +423,95 @@ export async function describeFixture(
   id: number,
 ): Promise<DescribedFixture | null> {
   return (await describeFurniture(db)).fixtures.find((one) => one.id === id) ?? null
+}
+
+// ---------------------------------------------------------------------------
+// What is standing in an area
+// ---------------------------------------------------------------------------
+
+/** One book of an area, as the screen that cuts the area in two needs it. */
+export interface AreaBook {
+  id: number
+  title: string
+  authorFiling: string
+  /** Where it sits in the order, which is what a boundary is anchored to. */
+  sortKey: string
+  /** The rule that claims it, by name, or null when nothing claims it. */
+  claimedBy: string | null
+}
+
+export interface AreaBooks {
+  area: { id: number; label: string; books: number }
+  books: AreaBook[]
+}
+
+export type ReadArea = { ok: true; area: AreaBooks['area']; books: AreaBook[] } | Refused
+
+interface StandingRow {
+  id: number
+  title: string
+  author_filing: string
+  sort_key: string
+  slugs: string[] | null
+}
+
+/**
+ * The books standing in one area, in the order they stand, **by identity**.
+ *
+ * This is the route #318 said was missing and #313 worked around. Splitting an
+ * area needs to know which books are in it, because the boundary is a book: the
+ * first one of the new area. Nothing answered that, so the screen asked for both
+ * stretches of shelving and **matched an area up by its label**, which is a
+ * string derived at read time from a piece's number and name and an area's
+ * ordinal and name. A rename, a reorder, or the owner's two pieces both standing
+ * at 4 would each have picked the wrong books, silently.
+ *
+ * `current_area_id` is the answer, and it is the same number the count on the
+ * area is taken from (`areasOnFaces`), so the list and the count are one fact
+ * rather than two readings that agree today. An assignment nobody has acted on
+ * does not move a book and does not appear here: what is being cut is the row of
+ * books somebody is standing in front of.
+ *
+ * `claimedBy` comes along because the same read answers it: it is what lets a
+ * screen say how many books here no rule claims at all, which is a real state
+ * since #304 and is invisible from the counts.
+ */
+export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
+  const area = await areaOnAFace(db, id)
+  if (!area) return refuse(404, 'No such area.')
+
+  const fixture = await fixtureOnTheFloor(db, area.fixtureId)
+  if (!fixture) return refuse(404, 'No such piece of furniture.')
+
+  const rows = await db.all<StandingRow>(
+    `SELECT b.id, b.title, b.author_filing, b.sort_key,
+            array_remove(array_agg(t.slug), NULL) AS slugs
+       FROM catalogued_books b
+       LEFT JOIN book_tag bt ON bt.book_id = b.id
+       LEFT JOIN tag t ON t.id = bt.tag_id
+      WHERE b.current_area_id = ?
+      GROUP BY b.id, b.title, b.author_filing, b.sort_key
+      ORDER BY b.sort_key`,
+    [id],
+  )
+
+  const { rules } = await furnitureIn(db)
+
+  return {
+    ok: true,
+    area: {
+      id,
+      label: labelFor({ fixture: asFixture(fixture), area: asArea(area) }),
+      books: area.books,
+    },
+    books: rows.map((row) => ({
+      id: Number(row.id),
+      title: row.title,
+      authorFiling: row.author_filing ?? '',
+      sortKey: row.sort_key,
+      claimedBy: claim(rules, { tagSlugs: row.slugs ?? [] })?.name ?? null,
+    })),
+  }
 }
 
 /** The areas of one fixture as slots, in the order they sit on its face. */

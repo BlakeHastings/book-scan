@@ -19,7 +19,7 @@
  */
 
 import { labelFor } from '../../domain/placement/geography'
-import type { AreaDto, FixtureDto, SortStrategyCode } from './api'
+import type { AreaDto, FixtureDto, FurnitureDto, RuleDto, SortStrategyCode } from './api'
 
 /** A piece as the ordering column holds it while somebody drags it about. */
 export interface Standing {
@@ -153,6 +153,24 @@ export function kindSaid(kind: string): string {
  */
 export const pieceSaid = (piece: Pick<FixtureDto, 'name' | 'kind' | 'position'>): string =>
   piece.name.trim() || `${kindSaid(piece.kind)} ${piece.position}`
+
+/**
+ * Where a rule points, said the way this app says a place.
+ *
+ * A rule about a whole piece answers `4`, which is the *label* of the piece and
+ * is not something anybody says out loud about furniture. The piece itself knows
+ * how it is named, so it is asked. `docs/data-model.md` and `DescribedRule` both
+ * say this is the screen's job rather than the server's, which is why the rule
+ * carries `placeId`.
+ *
+ * Two screens draw rules now, so it lives here rather than in either of them: a
+ * second spelling is how one of them ends up saying "4".
+ */
+export function rulePlace(room: FurnitureDto | null, rule: RuleDto): string {
+  if (rule.about === 'area') return rule.place
+  const standing = room?.fixtures.find((one) => one.id === rule.placeId)
+  return standing ? pieceSaid(standing) : rule.place
+}
 
 /**
  * The count line beside a piece's name, which says the awkward thing when

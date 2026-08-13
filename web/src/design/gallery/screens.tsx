@@ -2170,7 +2170,7 @@ function Claimed(go: Go) {
       <Instruction>It is on 2C because of the rule called Cookery.</Instruction>
 
       <Card kind="Two rules wanted it" title="The one about 2C won">
-        <div style={{ display: 'grid', gap: 8 }}>
+        <div className="wf-claims">
           <Claim
             name="Cookery"
             about="About 2C"
