@@ -259,17 +259,26 @@ describe('the worker does it, so nobody waits', () => {
     })
     const io = memory({ 'p_front.jpg': await photograph(11) })
     const orphaned: string[][] = []
-    /** The discard, fired at the worst possible moment: mid-write. */
-    let discard: (() => void) | null = null
+    /**
+     * The discard, fired at the worst possible moment: mid-write.
+     *
+     * Awaited by the writer rather than floated, so the swipe has landed by the
+     * time the pass looks at the state. Floating it left the outcome to
+     * whatever else the pass happened to await next, which is how much work
+     * this test is not about: it passed while the hash came after the crops and
+     * stopped passing when it came before them, without the window it is about
+     * having changed at all.
+     */
+    let discard: (() => Promise<void>) | null = null
 
     const queue = new CaptureQueue(db, (name) => io.files[name] ?? null, {}, {
       read: io.read,
-      write: (name, data) => { io.write(name, data); discard?.() },
+      write: async (name, data) => { io.write(name, data); await discard?.() },
       orphaned: (names) => { orphaned.push(names) },
     })
 
     const capture = await queue.attach(null, 'front', 'p_front.jpg')
-    discard = () => { void queue.discard(capture.id) }
+    discard = () => queue.discard(capture.id)
     await queue.drain()
 
     // The row is still there. A discard is a state now, not a delete (#183),
