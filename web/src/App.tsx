@@ -162,6 +162,16 @@ export default function App() {
   const [relookupBusy, setRelookupBusy] = useState(false)
   const [relookupError, setRelookupError] = useState('')
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
+  /**
+   * The queue itself, kept off the same read the counts come from.
+   *
+   * The first screen names the books that are ready to shelve rather than only
+   * counting them, and this is the list they come out of. No second request:
+   * `listCaptures` already answered both.
+   */
+  const [queued, setQueued] = useState<Capture[]>([])
+  /** Books that are not where they now belong. Null until the review answers. */
+  const [carrying, setCarrying] = useState<Misfile[] | null>(null)
   const [captureId, setCaptureId] = useState<number | null>(null)
   /**
    * Captures already in the queue that the one being photographed appears to
@@ -265,8 +275,45 @@ export default function App() {
 
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
-    api.listCaptures().then((r) => setQueueCounts(r.counts)).catch(() => {})
+    api.listCaptures()
+      .then((r) => { setQueueCounts(r.counts); setQueued(r.captures) })
+      .catch(() => {})
   }, [mode])
+
+  /**
+   * The books the first screen says are waiting to be carried.
+   *
+   * The same read the library makes, `api.misfiles(range)`, and one per run
+   * because that route answers one run at a time. Only while the first screen
+   * is on: it is the only thing that asks, and two requests on every change of
+   * mode would be two requests nobody is looking at.
+   *
+   * A failure leaves it null rather than empty, and the screen then draws no
+   * count at all: "none to carry" and "nobody answered" are different things
+   * to say to somebody deciding whether to walk to a shelf.
+   */
+  useEffect(() => {
+    if (mode !== 'home') return
+    let live = true
+    Promise.all([api.misfiles('fiction'), api.misfiles('nonfiction')])
+      .then(([fiction, nonfiction]) => {
+        if (live) setCarrying([...fiction.misfiles, ...nonfiction.misfiles])
+      })
+      .catch(() => { if (live) setCarrying(null) })
+    return () => { live = false }
+  }, [mode])
+
+  /*
+   * The page under the converted screen takes the design system's paper. See
+   * `body.wf-page` in design/library.css: the app paints `html, body` a cold
+   * dark blue-grey, which otherwise shows either side of the 480px column and
+   * under an overscroll bounce.
+   */
+  useEffect(() => {
+    const on = mode === 'home' && !scanning && !fullScreenCamera
+    document.body.classList.toggle('wf-page', on)
+    return () => document.body.classList.remove('wf-page')
+  }, [mode, scanning, fullScreenCamera])
 
   // The camera view is a fixed overlay, so the document behind it must not
   // scroll or iOS will rubber-band the whole page under the controls.
@@ -1365,6 +1412,37 @@ export default function App() {
     )
   }
 
+  /*
+   * The first screen, and the first one drawn with the design system (#303).
+   *
+   * Returned on its own rather than inside `.app`, because it brings its own
+   * chrome: the design's top bar and the four-place tab bar, and the app's
+   * header would be a second bar above them saying the same thing. Every other
+   * screen still wears `.app` and is untouched.
+   */
+  if (mode === 'home') {
+    return (
+      <HomePane
+        counts={counts}
+        queue={queueCounts}
+        queued={queued}
+        carrying={carrying}
+        onAdd={() => setMode('capture')}
+        onScan={() => setScanning(true)}
+        onLibrary={() => setMode('library')}
+        onQueue={() => setMode('queue')}
+        /*
+         * Straight into the book, the way the queue opens one. The anchor is
+         * where to land in the queue listing on the way back, and coming from
+         * here there is no position to keep: the top of the queue is the
+         * honest answer, which is the same one App gives everywhere else it
+         * has to invent one.
+         */
+        onOpenReady={(capture) => openCapture(capture, { id: capture.id, index: 0 })}
+      />
+    )
+  }
+
   if (fullScreenCamera) {
     return (
       <div className="cam">
@@ -1628,9 +1706,9 @@ export default function App() {
             Book scan
           </button>
         </h1>
-        {/* Redundant on the home page, where the tiles say the same thing
-            with room to explain themselves. */}
-        {mode !== 'home' && (
+        {/* No longer hidden on the first screen: the first screen no longer
+            comes through here at all. It wears the design system's own top bar
+            and tab bar and returns above (#303). */}
         <nav>
           <button className="tab" onClick={() => leaveFor('capture')}>Camera</button>
           <button
@@ -1646,7 +1724,6 @@ export default function App() {
             Library
           </button>
         </nav>
-        )}
         {counts && (
           <span className="counts">
             {counts.total} books · {counts.fiction} fiction · {counts.nonfiction} non-fiction
@@ -1675,17 +1752,6 @@ export default function App() {
           onCounts={setQueueCounts}
           returnAnchor={queueReturn}
           onReturnAnchorConsumed={() => setQueueReturn(null)}
-        />
-      )}
-
-      {mode === 'home' && (
-        <HomePane
-          counts={counts}
-          queue={queueCounts}
-          onAdd={() => setMode('capture')}
-          onScan={() => setScanning(true)}
-          onLibrary={() => setMode('library')}
-          onQueue={() => setMode('queue')}
         />
       )}
 

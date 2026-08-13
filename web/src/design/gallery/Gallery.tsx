@@ -2,9 +2,13 @@
  * The wireframe gallery.
  *
  * Reachable at `#/design` in the running app, behind a lazy import, so the
- * working app neither loads this code nor loads its stylesheets until
- * somebody asks for it by name. That is what "additive" means here: not just
- * that nothing existing changed, but that nothing existing got heavier.
+ * working app does not load these thirty-six screens until somebody asks for
+ * them by name.
+ *
+ * The two stylesheets used to be lazy with them, and are not any more: the app
+ * draws its own first screen with the design system, so `main.tsx` imports
+ * them beside `styles.css` (#303). What stays out of the eager bundle is the
+ * gallery itself.
  *
  * Two things this owns and no screen does: which theme is being looked at,
  * and the strip at the top that says you are in the viewer rather than in the
@@ -16,8 +20,6 @@ import { GROUPS, SCREENS } from './screens'
 import { hashFor } from './route'
 import { Cat } from '../Cat'
 import { IconBack, IconOnward } from '../Icons'
-import '../tokens.css'
-import '../library.css'
 
 /** Light, dark, or whatever the phone is set to. */
 type Theme = 'light' | 'dark' | 'phone'

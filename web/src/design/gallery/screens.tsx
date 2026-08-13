@@ -31,7 +31,7 @@
 import type { ReactElement } from 'react'
 import { Actions, Been, Head, Part, Tagged, Tagging } from '../Book'
 import { Viewfinder } from '../Camera'
-import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
+import { Beside, Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
 import { Cat } from '../Cat'
 import { Button, Choice, Cycle, Field, Segmented } from '../Controls'
@@ -54,10 +54,11 @@ import {
   IconSpines,
 } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
+import { Phone as Frame } from '../Phone'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
 import { Sure } from '../Sure'
-import { TabBar, TopBar, type TabName } from '../Chrome'
+import { TopBar, type TabName } from '../Chrome'
 
 /** Move to another screen of the gallery. */
 export type Go = (screen: string) => void
@@ -71,7 +72,24 @@ export interface Screen {
   render: (go: Go) => ReactElement
 }
 
-/** Every screen wears the same frame, so no screen has to remember to. */
+/** Which screen each of the four tabs opens, in the gallery. */
+const TAB_SCREENS: Record<TabName, string> = {
+  home: 'home',
+  library: 'library',
+  scan: 'camera',
+  queue: 'queue',
+}
+
+/**
+ * Every screen wears the same frame, so no screen has to remember to.
+ *
+ * The frame itself is `Phone` in the design system, imported here as `Frame`
+ * so this file can keep the name its thirty-six screens already call. It moved
+ * out because `src/components` draws the first screen with the same one, and a
+ * frame written twice is two frames that agree until one of them is edited.
+ * This wrapper is the gallery's way of calling it: a tab goes to a screen of
+ * the gallery rather than to a journey.
+ */
 function Phone({
   children,
   tab,
@@ -83,28 +101,12 @@ function Phone({
   tab: TabName
   go: Go
   top: ReactElement
-  /**
-   * A dialog over the whole screen, where a screen has one. The screen under
-   * it is drawn in full and on purpose: what somebody is being asked about is
-   * the thing they were just looking at, and a scrim that hid it would be
-   * asking them to remember it.
-   */
   over?: ReactElement
 }) {
-  const TAB_SCREENS: Record<TabName, string> = {
-    home: 'home',
-    library: 'library',
-    scan: 'camera',
-    queue: 'queue',
-  }
-
   return (
-    <div className={`wf-screen${over ? ' wf-screen--asked' : ''}`}>
-      {top}
-      <div className="wf-screen__body">{children}</div>
-      <TabBar on={tab} onPick={(name) => go(TAB_SCREENS[name])} />
-      {over}
-    </div>
+    <Frame tab={tab} onTab={(name) => go(TAB_SCREENS[name])} top={top} over={over}>
+      {children}
+    </Frame>
   )
 }
 
@@ -161,14 +163,7 @@ function Phone({
 function Home(go: Go) {
   return (
     <Phone tab="home" go={go} top={<TopBar title="Book scan" />}>
-      <Card weight="sunk">
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <Cat pose="sitting" size={52} />
-          <p style={{ margin: 0, fontFamily: 'var(--face-book)', fontSize: 17 }}>
-            Eighteen books are waiting on the table.
-          </p>
-        </div>
-      </Card>
+      <Beside>Eighteen books are waiting on the table.</Beside>
 
       <p className="wf-heading wf-heading--flush">The collection</p>
       <Stats

@@ -30,6 +30,18 @@
 .wf *::before,
 .wf *::after { box-sizing: border-box; }
 
+/*
+ * The page a converted screen sits on.
+ *
+ * `src/styles.css` paints `html, body` a cold dark blue-grey, and that shows
+ * either side of this 480px column on anything wider than a phone and under an
+ * overscroll bounce on the phone itself: a warm light page with a cold dark
+ * band above it when you pull down. The gallery used to copy the computed
+ * colour onto `body` from JavaScript; the app puts the class on instead, and
+ * `tokens.css` is what gives `body` the value to read.
+ */
+body.wf-page { background: var(--paper); }
+
 /* `:where` so this reset carries no specificity at all. Written as
    `.wf button` first, which is one class plus one type, and therefore beat
    every single-class rule below it that set a colour: the primary button came
@@ -445,6 +457,22 @@
 }
 .wf-card__foot > * { flex: 1 1 auto; }
 
+/* The cat, and the one sentence beside him. Both numbers were written into
+   the first screen by hand before this was a component; they are the grid
+   step and the heading size, and they are read from the tokens now. */
+.wf-beside {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.wf-beside__said {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  text-wrap: balance;
+}
+
 /* The one line the whole screen exists to say. Book face, because it names
    books. */
 .wf-instruction {
@@ -723,10 +751,20 @@
  * has come up under the number with nothing between them, the padding is one
  * step down, and the whole row is shorter by about a fifth. The number is
  * bigger than before regardless, because it is what the card is for.
+ *
+ * ## Three across, and it used to say so in the template
+ *
+ * `repeat(3, 1fr)` is right for a wireframe, where every number is known and
+ * there are always three. It is wrong for the app: a count the catalogue
+ * cannot answer yet is left out rather than drawn as a guess, so a row of two
+ * would have kept a third of the width empty and read as a tile that failed to
+ * load. Auto columns share the row between however many arrive; three still
+ * land on thirds, so nothing in the gallery moves.
  */
 .wf-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: var(--s2);
 }
 

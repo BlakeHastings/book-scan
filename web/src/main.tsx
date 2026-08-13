@@ -3,14 +3,29 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { galleryRoute } from './design/gallery/route'
 import './styles.css'
+/*
+ * The design system, which the app wears on the screens that have been
+ * converted to it and the gallery draws every screen with (#303). Eager, and
+ * after `styles.css`: it is the app's own stylesheet now, not the gallery's.
+ *
+ * Nothing in either file fights the other. Every rule here is `.wf` or `wf-`
+ * prefixed and no class name appears in both, so the whole of the overlap is
+ * one custom property, `--line`, which the app defines on `:root` and the
+ * design system redefines on `.wf`. Inside a converted screen the warm one
+ * wins by inheritance; everywhere else the app's is untouched. See the header
+ * of `design/tokens.css`.
+ */
+import './design/tokens.css'
+import './design/library.css'
 
 /**
  * The wireframe gallery, and the only thing that reaches it.
  *
  * Lazy on purpose. The working app is what somebody is holding a book up to,
- * and it should not carry the redesign's components or its two stylesheets in
- * its bundle to get there. `galleryRoute` is the only part of the design work
- * the app loads eagerly, and it is twenty lines with no imports.
+ * and it should not carry the redesign's screens in its bundle to get there.
+ * `galleryRoute` is the only part of the design work the app loads eagerly,
+ * and it is twenty lines with no imports. The two stylesheets are no longer
+ * part of that bargain: they are above, because the app draws with them.
  */
 const Gallery = lazy(() => import('./design/gallery/Gallery'))
 
