@@ -50,6 +50,11 @@ export interface CaptureSource extends CaptureSink {
   photographed: () => Promise<DerivableCapture[]>
 }
 
+/** Every queued capture whose front photograph has no hash on it yet. */
+export interface UnhashedSource extends CaptureSink {
+  unhashed: () => Promise<DerivableCapture[]>
+}
+
 /**
  * What became of the front hash.
  *
@@ -72,6 +77,14 @@ export interface CaptureOutcome {
  * front hash already stored is kept, so a second pass finds nothing to do and
  * an interrupted one leaves what it finished done. `force` re-examines both,
  * which is what to use after a change to the detector or the hash format.
+ *
+ * **The hash goes first, and the order is the point rather than a preference.**
+ * These used to run the other way round, in one `try` a rung above, so a
+ * detector that threw on one photograph took the hash of that same photograph
+ * with it and the capture was left unhashed forever (#294). The two are not
+ * equally valuable: a capture with no crop is a capture shown whole, and a
+ * capture with no hash is a book the next person can photograph a second time
+ * without being told, which is the thing #237 exists to prevent.
  */
 export async function deriveCapture(
   sink: CaptureSink,
@@ -81,10 +94,58 @@ export async function deriveCapture(
 ): Promise<CaptureOutcome> {
   const { apply = false, force = false } = options
 
-  const crops = await cropPhotos(sink, capture, io, { apply, force })
   const hash = await hashFront(sink, capture, io, { apply, force })
+  const crops = await cropPhotos(sink, capture, io, { apply, force })
 
   return { crops, hash }
+}
+
+/** What one sweep of the unhashed captures found and did. */
+export interface HashSweep {
+  /** Captures looked at, which is every one that had no hash when it started. */
+  looked: number
+  /** Fronts hashed and stored. */
+  written: number
+  /** Fronts with no detail in them, left unhashed rather than guessed. */
+  refused: number
+  /** Fronts whose file could not be read, which is a problem to fix. */
+  unreadable: number
+}
+
+/**
+ * Hash the front of every queued capture that has not got one.
+ *
+ * The repair half of #294, and it is what makes an unhashed capture a state
+ * the app recovers from rather than a permanent one. A hash used to be written
+ * on exactly one background pass and never again, so a capture that missed it
+ * (a server stopped mid-flight, a disk that hiccupped, a reading that hung and
+ * held the whole worker up behind it) stayed unhashed for as long as it stayed
+ * in the queue, silently.
+ *
+ * Cheap by construction: it only ever looks at queued captures whose front
+ * photograph carries no hash, which on a healthy server is none of them. It
+ * reads photographs and writes hashes and touches nothing else, so running it
+ * twice costs a second pass over whatever is left and changes nothing.
+ *
+ * A frame with no detail is still refused rather than guessed at, so a capture
+ * of a blank wall is counted here on every sweep instead of being quietly
+ * given a number that would go on to be compared against somebody's book.
+ */
+export async function hashQueuedFronts(
+  source: UnhashedSource,
+  io: Pick<CropIo, 'read'>,
+): Promise<HashSweep> {
+  const sweep: HashSweep = { looked: 0, written: 0, refused: 0, unreadable: 0 }
+
+  for (const capture of await source.unhashed()) {
+    sweep.looked += 1
+    const outcome = await hashFront(source, capture, io, { apply: true, force: false })
+    if (outcome === 'written') sweep.written += 1
+    else if (outcome === 'refused') sweep.refused += 1
+    else if (outcome === 'unreadable') sweep.unreadable += 1
+  }
+
+  return sweep
 }
 
 /**
@@ -95,11 +156,14 @@ export async function deriveCapture(
  * of a crop compared against a hash of a whole photograph would be two
  * different framings of the same book scored as though they were comparable.
  * Same algorithm, same format tag, same input, or the comparison is not one.
+ *
+ * Only the reader is wanted, not the writer: nothing here produces a file, and
+ * narrowing the parameter says so where a comment would only claim it.
  */
-async function hashFront(
+export async function hashFront(
   sink: CaptureSink,
   capture: DerivableCapture,
-  io: CropIo,
+  io: Pick<CropIo, 'read'>,
   options: { apply: boolean; force: boolean },
 ): Promise<HashOutcome> {
   if (!capture.front_image) return 'absent'

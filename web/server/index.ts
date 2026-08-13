@@ -675,11 +675,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       }
     },
     { googleApiKey },
-    // So a capture gets its crops and its front hash on the same background
-    // pass that reads its photographs, with nobody waiting on either. A crop
-    // that finished after its capture was discarded goes to the same orphan
-    // sweep the discard itself uses; `deleteOrphanedImages` is a function
-    // declaration below and so is hoisted into scope here.
+    // Where a capture's derived pictures are read and written: the crops, on
+    // the same background pass that reads its photographs, and the front hash,
+    // which since #294 is its own job beside that pass rather than part of it.
+    // A crop that finished after its capture was discarded goes to the same
+    // orphan sweep the discard itself uses; `deleteOrphanedImages` is a
+    // function declaration below and so is hoisted into scope here.
     { ...cropIo, orphaned: deleteOrphanedImages },
     // So the queue can name a duplicate the same way GET /api/lookup/isbn/:isbn
     // does below, on both the doors it reads a lookup through: the automatic
@@ -808,6 +809,36 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     const capture = await queue.attach(captureId, slot, saveImage(buffer, '', slot))
+
+    /*
+     * Two background jobs, not one, and they are separate on purpose (#294).
+     *
+     * The hash is what tells the next person this book is already in the queue,
+     * and it used to be written by the drain, after the reading. That put a
+     * local computation of a few milliseconds behind OCR, a catalogue lookup
+     * and every capture already queued in front of this one, on a worker that
+     * runs one job at a time and a reader that serialises every caller in the
+     * process. Slow reading, late hash; a reading that never returns, no hash
+     * at all, and nothing anywhere would ever fill it in.
+     *
+     * Firing them side by side is the fix. Neither waits on the other, and the
+     * shutter still waits on neither.
+     */
+    inTheBackground(
+      queue.hashFrontOf(capture.id).then((outcome) => {
+        // Said out loud rather than swallowed. `refused` is a frame with no
+        // detail in it and `unreadable` is a file that has gone missing;
+        // either way this capture cannot be matched against, and the one
+        // thing that must not happen is that nobody hears about it.
+        if (outcome === 'refused' || outcome === 'unreadable') {
+          console.warn(
+            `[queue] capture ${capture.id} ${slot}: front not hashed (${outcome}), ` +
+            'so this book will not be recognised if somebody photographs it again',
+          )
+        }
+      }),
+      `hashing the front of capture ${capture.id}`,
+    )
     // Not awaited: the shutter must not wait on OCR. Tracked for the same
     // reason the chain after a save is: it is still running when the request
     // that started it is over, and a teardown has to be able to wait for it.
