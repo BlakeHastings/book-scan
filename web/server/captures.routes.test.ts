@@ -22,11 +22,11 @@
 
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { downloadCover } from './covers'
 import { PgDb } from './db.pg'
@@ -63,7 +63,8 @@ let pool: pg.Pool
 // One `Db` for the file, not one per test. Each `PgDb` registers an `error`
 // listener on the pool, and a dozen of them trips node's max-listeners warning.
 let db: PgDb
-let dataRoot: string
+/** This file's own scratch root, which no other test file can name. */
+let scratch: string
 let coverDir: string
 let server: Server
 let baseUrl: string
@@ -73,8 +74,7 @@ let app: ReturnType<typeof createApp>
 beforeAll(async () => {
   pool = await migratedDatabase()
   db = new PgDb(pool)
-  dataRoot = fileURLToPath(new URL('../data/', import.meta.url))
-  mkdirSync(dataRoot, { recursive: true })
+  scratch = scratchRoot('captures')
 })
 
 beforeEach(async () => {
@@ -84,7 +84,7 @@ beforeEach(async () => {
   covers.mockReset()
   covers.mockResolvedValue('')
 
-  coverDir = mkdtempSync(join(dataRoot, 'captures-test-'))
+  coverDir = mkdtempSync(join(scratch, 'captures-test-'))
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -100,10 +100,12 @@ afterEach(async () => {
 
 afterAll(async () => {
   await dropScratchDatabases()
-  // This file's own scratch directory goes in `afterEach`, and `web/data`
-  // itself is deliberately left alone: index.test.ts removes the whole of it,
-  // and two files racing to delete one directory is how a run fails in the file
-  // that was not at fault. See the note about that rmSync in AGENTS.md.
+  // The per-test cover directories go in `afterEach`; this is the root they
+  // were made in, and it belongs to this file alone. Nothing above it is
+  // touched, because there is nothing above it that anything else shares. That
+  // used to be `web/data`, which index.test.ts removed while this file was
+  // still working in it (#297).
+  removeScratchRoot(scratch)
 })
 
 async function call(path: string, init: RequestInit = {}) {

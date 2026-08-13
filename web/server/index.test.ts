@@ -10,8 +10,9 @@
  * coverage in store.test.ts and shelves.test.ts.
  *
  * The app is built with createApp() against a real in-memory SQLite database
- * and a scratch cover directory under web/data (gitignored, inside the
- * checkout), started on an ephemeral port and driven with real HTTP requests.
+ * and a scratch cover directory inside this file's own scratch root (see
+ * ./scratchdir), started on an ephemeral port and driven with real HTTP
+ * requests.
  * There is no supertest in this project's dependencies and this suite must
  * not add one (web/package.json is off limits), so a listening server and
  * the platform fetch stand in for it.
@@ -28,11 +29,11 @@
 
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
@@ -96,13 +97,18 @@ function nudgeHash(hash: string, bits: number): string {
   return hash.slice(0, 2) + out
 }
 
-let dataRoot: string
+/**
+ * This file's own, and no other file's.
+ *
+ * It used to be `web/data`, shared with four other test files, and the
+ * `afterAll` below removed the whole of it rather than what this file had made
+ * inside it. That is #297: the four still running lost the directory they were
+ * writing in, mid-run.
+ */
+let scratch: string
 
 beforeAll(() => {
-  // Same scratch location covers.test.ts uses: under web/data, which
-  // .gitignore already excludes, inside the checkout.
-  dataRoot = fileURLToPath(new URL('../data/', import.meta.url))
-  mkdirSync(dataRoot, { recursive: true })
+  scratch = scratchRoot('index')
 })
 
 interface Running {
@@ -123,7 +129,7 @@ interface Running {
 
 async function startApp(): Promise<Running> {
   const db = await openTestDatabase()
-  const coverDir = mkdtempSync(join(dataRoot, 'index-test-'))
+  const coverDir = mkdtempSync(join(scratch, 'index-test-'))
   const app = createApp({ db, coverDir, startBackgroundWork: false })
 
   const server: Server = app.listen(0)
@@ -157,7 +163,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   await closeTestDatabase()
-  rmSync(dataRoot, { recursive: true, force: true })
+  removeScratchRoot(scratch)
 })
 
 /** A JSON request against the running app, method defaults to GET. */
@@ -321,7 +327,7 @@ function hiccupsOn(db: Db, statement: string): Db {
 describe('a database hiccup in the work a save started', () => {
   it('says what failed and keeps serving, instead of taking the process down', async () => {
     const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const coverDir = mkdtempSync(join(dataRoot, 'index-hiccup-'))
+    const coverDir = mkdtempSync(join(scratch, 'index-hiccup-'))
     // `Store.setCoverImage`, the first write the un-awaited chain makes and one
     // of the four calls #203 names.
     const app = createApp({

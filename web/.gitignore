@@ -3,6 +3,12 @@ dist/
 data/
 *.local
 
+# One per test file that writes files, made and removed by server/scratchdir.ts.
+# They are here rather than under data/ so a test run cannot reach a scratch
+# catalogue, and one per file rather than one shared so no file's cleanup can
+# delete a directory another file is still using. See #297.
+.scratch-*/
+
 # tesseract.js drops this in cwd if cachePath is unset
 *.traineddata
 vite.config.verify.ts
