@@ -380,6 +380,83 @@ describe('one row of books is one area', () => {
 })
 
 /**
+ * The catalogue holds no gender, so no screen may speak as though it did.
+ *
+ * The owner found one instance and named the rule under it:
+ *
+ * > You have "all nine of hers". We need to change that to "theirs", because
+ * > we're not gonna be able to tell if it's male or female probably for the
+ * > author.
+ *
+ * It is structural rather than a wording preference. A book has a name, an
+ * alias and a filing name behind it and there is no fourth field waiting to be
+ * filled in, so any sentence that picks a pronoun is inventing one, and it is
+ * wrong the first time a name does not read the way somebody assumed. There
+ * were four of them, on the two book screens, and a fifth would arrive the
+ * same way: one helpful edit written about one author who happens to be known.
+ *
+ * The only foreseeable false positive is a real book title with a pronoun in
+ * it, and there is none in the gallery today. If one ever arrives, the title
+ * is not the problem and neither is this check: it is worth the minute it
+ * costs to say so where the exception is made.
+ *
+ * **Bare "he" is deliberately not on the list**, and that is the one honest
+ * hole in it. The comparison screens narrate the owner's own choices back to
+ * him in the app's voice, which is a different fault with a different fix
+ * (#262, and not this screen's), and every form the author defect actually
+ * took is here: a possessive and an object are what you reach for when you are
+ * writing about somebody, and "all nine of hers" is both.
+ */
+const GENDERED = ['him', 'his', 'himself', 'she', 'her', 'hers', 'herself']
+
+describe('nothing on a screen has a gender in it', () => {
+  it('is true of every screen once rendered', () => {
+    for (const screen of SCREENS) {
+      const text = words(renderToStaticMarkup(screen.render(() => {})))
+      for (const word of GENDERED) {
+        expect(text, `${screen.id} says "${word}"`).not.toMatch(
+          new RegExp(`\\b${word}\\b`, 'i'),
+        )
+      }
+    }
+  })
+})
+
+/**
+ * A book's photographs are the book, and there is nothing underneath it.
+ *
+ * > We should have the spine on the left side of the book image and the book
+ * > cover there [...] and then the user should be able to swipe on the front of
+ * > the book to see the other pictures, rather than us show them all
+ * > underneath it.
+ *
+ * Both halves are checked, because the rail is the half that comes back: it is
+ * the obvious way to add a fourth kind of photograph to this screen, and it
+ * was the arrangement here for two rounds. What cannot be checked from markup
+ * is that a swipe works, and that is deliberate; there is no gesture behind
+ * the drawing and this test does not pretend there is one.
+ */
+describe('a book wears its photographs rather than listing them', () => {
+  it('draws the spine against the front, and no rail under either', () => {
+    for (const id of ['book', 'thin']) {
+      const markup = renderToStaticMarkup(
+        SCREENS.find((one) => one.id === id)!.render(() => {}),
+      )
+
+      expect(markup, `${id} does not draw the book`).toMatch(/wf-shots--book/)
+      expect(markup, `${id} still has a rail of photographs`).not.toMatch(
+        /class="wf-shots"/,
+      )
+
+      const sliver = markup.indexOf('wf-shot--sliver')
+      const face = markup.indexOf('wf-shot--face')
+      expect(sliver, `${id} draws no cropped spine`).toBeGreaterThan(-1)
+      expect(face, `${id} draws the spine after the front`).toBeGreaterThan(sliver)
+    }
+  })
+})
+
+/**
  * The one thing on a shelf that is a claim about a physical object.
  *
  * A page count is thickness, so it decides width. Height is uniform unless a

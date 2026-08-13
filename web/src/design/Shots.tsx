@@ -40,6 +40,24 @@
  * nothing but the order the rules happen to be written in, which is the state
  * this component was just rescued from. A shot with no class at all falls out
  * as an empty outline, which is the honest failure of the two.
+ *
+ * ## The second mode: the photographs drawn as the book
+ *
+ * A book's page used to wear a cover at the top and a rail of every photograph
+ * under it. The owner read that and said what it should be instead:
+ *
+ * > We should have the spine on the left side of the book image and the book
+ * > cover there, because the spine is going to be cropped into a very thin
+ * > sliver, and it should be rendered. The cropped version should be rendered
+ * > right next to the front of the book, and then the user should be able to
+ * > swipe on the front of the book to see the other pictures, rather than us
+ * > show them all underneath it.
+ *
+ * So `mode="book"` draws the same photographs as one object: the spine cropped
+ * to the sliver a spine photograph really is, standing against the front, and
+ * the rest behind the front rather than beside it. It is the same list, the
+ * same cloths and the same `--taken` marker; what changes is the arrangement.
+ * A second component would be the mistake this file was made to end.
  */
 
 import type { Cloth } from './Shelf'
@@ -54,6 +72,14 @@ export interface Shot {
   cloth?: Cloth
   /** The one the shutter will fill next. Nothing marks it on a book's page. */
   next?: boolean
+  /**
+   * Stands against the front rather than taking a turn behind it. The spine,
+   * and only in `mode="book"`; a rail draws it in its place like the rest.
+   *
+   * A flag rather than matching on the word, because "Spine" is a label and a
+   * label is the thing somebody rewrites without knowing what reads it.
+   */
+  beside?: boolean
   /** Where taking this one again goes. Only read when `act` is set. */
   onPress?: () => void
 }
@@ -73,6 +99,7 @@ export function Shots({
   act = false,
   size = 'small',
   on = 'paper',
+  mode = 'rail',
 }: {
   shots: Shot[]
   /**
@@ -83,7 +110,14 @@ export function Shots({
   size?: 'small' | 'big'
   /** Whether this is drawn on paper or on top of the picture. */
   on?: 'paper' | 'picture'
+  /**
+   * How they are arranged. A rail is every photograph side by side; a book is
+   * the spine standing against the front, with the rest behind it.
+   */
+  mode?: 'rail' | 'book'
 }) {
+  if (mode === 'book') return <TheBook shots={shots} />
+
   const className = [
     'wf-shots',
     size === 'big' ? 'wf-shots--big' : '',
@@ -140,6 +174,75 @@ export function Shots({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * The same photographs, arranged as the book they are photographs of.
+ *
+ * The spine is cropped to a sliver and stands against the front, which is what
+ * makes the two read as one object rather than as two pictures. Everything
+ * else is behind the front and is reached by swiping it.
+ *
+ * ## Swiping is drawn, not built
+ *
+ * There is no gesture here and there should not be: a wireframe that
+ * implements a carousel is a second implementation of the app, and the thing
+ * being reviewed is the arrangement. What a static drawing can carry honestly
+ * is the state: the front is showing, there are this many photographs, and the
+ * others are that way. The dots do that, and they do the other job the rail
+ * did as well, which is saying that a kind nobody has photographed exists and
+ * is empty. A dot that is not filled is a photograph nobody has taken.
+ */
+function TheBook({ shots }: { shots: Shot[] }) {
+  const spine = shots.find((shot) => shot.beside)
+  const deck = shots.filter((shot) => !shot.beside)
+  const front = deck[0]
+
+  const shot = (one: Shot | undefined, where: string) => (
+    <span
+      className={`wf-shot wf-shot--${where}${one?.cloth ? ' wf-shot--taken' : ''}`}
+      aria-hidden="true"
+    >
+      <span className={`wf-shot__box${one?.cloth ? ` wf-spine--${one.cloth}` : ''}`}>
+        {/* The shape of the missing thing, said in the box where it would be.
+            Only the front carries it: a sliver is too thin for a word, and it
+            is already drawn as an empty outline. */}
+        {where === 'face' && !one?.cloth && (
+          <span className="wf-shot__none">No photograph</span>
+        )}
+      </span>
+    </span>
+  )
+
+  return (
+    <div className="wf-shots wf-shots--book">
+      {shot(spine, 'sliver')}
+      <span className="wf-deck">
+        {/* The edge of the next one, behind the front and inset at both ends,
+            so the front reads as the top of a stack rather than as the only
+            photograph there is. Nothing moves: this is the state drawn, and
+            the dots below say how many are in it. */}
+        {deck.length > 1 && <span className="wf-deck__behind" aria-hidden="true" />}
+        {shot(front, 'face')}
+      </span>
+      <span className="wf-shots__dots" role="list" aria-label="Photographs">
+        {deck.map((one, at) => (
+          <span
+            key={one.word}
+            role="listitem"
+            className={[
+              'wf-dot',
+              one.cloth ? 'wf-dot--taken' : '',
+              at === 0 ? 'wf-dot--showing' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            aria-label={one.cloth ? one.word : `${one.word}, not photographed`}
+          />
+        ))}
+      </span>
     </div>
   )
 }
