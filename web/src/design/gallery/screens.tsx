@@ -1411,9 +1411,33 @@ function Where(go: Go) {
  * This was a sentence: "third along, between The City & the City and Cloud
  * Atlas". The owner asked for the drawing the old UI had, so the same run that
  * carried a gap on the screen before now carries the book, standing where the
- * gap was and marked with the ring `Shelf` already puts on the book a screen
- * is about. Nothing new was built for it: the before is `{ kind: 'gap' }` and
- * the after is `here: true` on the spine that filled it.
+ * gap was and marked the way `Shelf` marks the book a screen is about. Nothing
+ * new was built for it: the before is `{ kind: 'gap' }` and the after is
+ * `here: true` on the spine that filled it.
+ *
+ * ## Round six: no sentence, and one cat rather than three (#290)
+ *
+ * "Never Let Me Go is on 2C." was `Confirmation`'s sentence, sat over this
+ * same drawing and saying what the drawing already shows, which is #262's
+ * rule reaching the last place it had survived on this screen. It is gone,
+ * and `Confirmation`'s cat went with it: he sat over that sentence, and there
+ * was nothing left for him to be pleased about once it was.
+ *
+ * That still left three cats: the loaf, the cat #288 put on the placed book,
+ * and the cat `Shelf` puts at the end of every run as a bookend. The loaf is
+ * the one that is gone: he sat over the deleted sentence and had nothing left
+ * to be pleased about once it was gone. The bookend stays. `Where`, the
+ * screen this one follows, draws the same 2C with the same bookend at the end
+ * of it; dropping it only here would have a bookend leave the shelf the
+ * moment a book is placed on it, which reads as the drawing losing furniture
+ * rather than as fewer cats. Two cats on this screen rather than one, but the
+ * count the owner objected to was three, and the fix is the loaf, not the
+ * bookend.
+ *
+ * `Confirmation` itself is untouched: `Carried`, the other screen that uses
+ * it, still has a sentence to say and a cat to say it with, because nothing
+ * on that shelf is marked the way a single placed book is. The change is on
+ * this screen, not the shared one.
  */
 function Done(go: Go) {
   const row: ShelfItem[] = [
@@ -1425,8 +1449,6 @@ function Done(go: Go) {
 
   return (
     <Phone tab="queue" go={go} top={<TopBar title="Shelved" />}>
-      <Confirmation said="Never Let Me Go is on 2C." />
-
       <div className="wf-bleed">
         <Shelf label="2C" note="6 books" items={row} />
       </div>
