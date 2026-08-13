@@ -565,21 +565,87 @@ describe('aggregates, which come back as strings without a cast', () => {
  */
 describe('serialising a transaction against another one', () => {
   /**
-   * Wait long enough for a transaction that is not blocked to have opened.
+   * How long to go on asking before giving up and saying so.
    *
-   * Round trips to the same server, not a duration and not a count of event
-   * loop turns. Both of those were tried and both were wrong: fifty
-   * `setImmediate` turns take microseconds and a `BEGIN` takes a millisecond,
-   * so every test here reported "the second transaction waited" and the file
-   * passed while proving nothing. A duration would have worked on this machine
-   * and become flaky on a slower one.
-   *
-   * Five sequential statements is self-calibrating: the probed transaction
-   * issued its own BEGIN before the first of these, on the same server, so if
-   * nothing is holding it back it has answered before these have.
+   * Not the bound the answer is decided by. The answer is decided by one of two
+   * observable facts below, whichever appears; this is only how long to wait for
+   * one of them to appear before concluding that neither ever will and failing
+   * loudly. Comfortably under vitest's twenty second `testTimeout`, so the
+   * message below is what gets printed rather than "test timed out".
    */
-  const settle = async () => {
-    for (let i = 0; i < 5; i += 1) await db.get('SELECT 1')
+  const NEITHER_FACT_YET_MS = 10_000
+
+  /** How often to ask Postgres. Cheap: one indexless read of a small view. */
+  const ASK_AGAIN_MS = 5
+
+  const pause = (ms: number) => new Promise((resolve) => { setTimeout(resolve, ms) })
+
+  /**
+   * Whether Postgres is holding a transaction back on an advisory lock.
+   *
+   * This is the fact the probe is written against, and it is a fact about the
+   * lock rather than about how fast the machine is. A backend blocked inside
+   * `pg_advisory_xact_lock` has a `pg_locks` row with `granted` false, and that
+   * row exists for exactly as long as the wait does. Nothing here is timed.
+   *
+   * It replaced a bound that was about the machine: five sequential round trips
+   * to the server, on the reasoning that a transaction which is not blocked has
+   * answered within them. That is true on an idle machine and untrue on a
+   * loaded one, which is why `does not make an unrelated name wait` failed twice
+   * in CI on changes that go nowhere near a lock (#261). A count of round trips
+   * cannot tell "it is waiting" from "it has not got there yet"; this can,
+   * because Postgres writes the difference down.
+   *
+   * Scoped to this file's own database, which `openTestDatabase` creates fresh
+   * per test. `pg_locks` is cluster wide and this suite runs many files against
+   * one server, so without the filter another worker's lock would answer the
+   * question. Within that database the only advisory locks are the ones these
+   * tests take, and the holding transaction is provably granted before the
+   * probing one starts, so an ungranted row is the probe and nothing else.
+   */
+  const blockedOnAnAdvisoryLock = async (): Promise<boolean> => {
+    const row = await db.get<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_locks
+          WHERE locktype = 'advisory'
+            AND NOT granted
+            AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+       ) AS waiting`,
+    )
+    return row!.waiting
+  }
+
+  /**
+   * Ask until one of the two outcomes has happened, and answer which.
+   *
+   * The two are exhaustive for a transaction that has been started: it either
+   * ran, or it is queued behind a lock. Waiting for either is what makes this
+   * bound about the lock. There is no number of round trips, no sleep before
+   * deciding, and no arrangement where a slow machine turns "it ran late" into
+   * "it waited": running late still returns true, it just takes longer to say
+   * so.
+   *
+   * `ran` is checked first on each pass, because a probe that acquired and
+   * finished leaves no `pg_locks` row behind to find.
+   */
+  async function whicheverHappensFirst(ran: () => boolean): Promise<boolean> {
+    const deadline = Date.now() + NEITHER_FACT_YET_MS
+    while (Date.now() < deadline) {
+      if (ran()) return true
+      if (await blockedOnAnAdvisoryLock()) return false
+      await pause(ASK_AGAIN_MS)
+    }
+
+    throw new Error(
+      `Neither happened within ${NEITHER_FACT_YET_MS / 1000}s: the second ` +
+      'transaction has not run, and Postgres reports nothing in this database ' +
+      'waiting for an advisory lock. So it is being held up by something that ' +
+      'is not the lock, and until that is understood nothing this describe ' +
+      'block asserts means anything. Starving it of pool connections is the way ' +
+      'that has happened before; see warmTheConnections. Note that starving it ' +
+      'badly enough starves this probe too, and then the failure is vitest ' +
+      'timing the test out rather than this message.',
+    )
   }
 
   /**
@@ -610,17 +676,23 @@ describe('serialising a transaction against another one', () => {
 
     let release = () => {}
     const held = new Promise<void>((resolve) => { release = resolve })
+    let holdingNow = () => {}
+    const inside = new Promise<void>((resolve) => { holdingNow = resolve })
     let through = false
 
-    const first = db.tx(async () => { await held }, holding)
-    // Settled before the second one starts, so the first is demonstrably
-    // inside its transaction and holding whatever it was going to hold.
-    await settle()
+    const first = db.tx(async () => { holdingNow(); await held }, holding)
+    // Awaited before the second one starts, and this too is an observable fact
+    // rather than a wait: `tx` takes the lock as the first statement inside
+    // BEGIN and only then runs the work, so a body that has begun is a
+    // transaction that is open and already holding whatever it named. The
+    // previous spelling waited five round trips for the same thing, and got it
+    // wrong in the same direction under load, with the second transaction
+    // reaching the lock first.
+    await inside
 
     const second = db.tx(async () => { through = true }, probing)
     try {
-      await settle()
-      return through
+      return await whicheverHappensFirst(() => through)
     } finally {
       release()
       await Promise.allSettled([first, second])
