@@ -364,8 +364,11 @@ function Library(go: Go) {
           to summarise what somebody's furniture is made of, and it was a
           paragraph doing a link's job. "It's definitely not that." */}
       <div className="wf-under">
+        {/* Not "see the bookcases": what it opens is five pieces and two of
+            them are a crate and a desk. The category word goes neutral even
+            though the pieces above it are named for what they are. */}
         <Button tone="quiet" onPress={() => go('furniture')}>
-          See the bookcases
+          See your furniture
         </Button>
       </div>
     </Phone>
@@ -1350,8 +1353,15 @@ const ROOM = [
   { label: '5', name: 'Desk' },
 ]
 
-/** Bookcase 2, drawn wherever a screen needs it, with one area picked out. */
-function Bookcase2({ on, go, head }: { on?: string; go: Go; head?: () => void }) {
+/**
+ * Bookcase 2, drawn wherever a screen needs it.
+ *
+ * It used to be drawn on the area screen too, above everything that screen is
+ * for. The owner took it off: "when we're in the area view we don't need to
+ * show the bookcase any more. You see Bookcase 2 and that's taking up so much
+ * of the screen."
+ */
+function Bookcase2({ go, head }: { go: Go; head?: () => void }) {
   return (
     <Nest
       name="Bookcase 2"
@@ -1365,7 +1375,6 @@ function Bookcase2({ on, go, head }: { on?: string; go: Go; head?: () => void })
           reads={area.reads}
           books={area.books}
           holds={area.holds}
-          on={area.reads === on}
           onPress={() => go('area')}
         />
       ))}
@@ -1379,7 +1388,7 @@ function Furniture(go: Go) {
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title="Your bookcases" sub="Five pieces, sixteen areas" onBack={() => go('library')} />}
+      top={<TopBar title="Your furniture" sub="Five pieces, sixteen areas" onBack={() => go('library')} />}
     >
       <Nest
         name="By the window"
@@ -1455,15 +1464,24 @@ function Furniture(go: Go) {
         <AddBox onPress={() => go('addarea')}>Add an area to this desk</AddBox>
       </Nest>
 
-      <Button tone="primary" block onPress={() => go('bookcase')}>
-        Add a bookcase
-      </Button>
+      {/*
+        Not "add a bookcase". The owner: "they're not bookcases. They are
+        fixtures, not bookcases." The rule has two halves and this is the
+        second one: a piece somebody named is called what they called it, and
+        the category is called something that does not assume a shape. "Add
+        area to this desk" is right because that piece is a desk; "add a
+        bookcase" is wrong because the next one is a crate.
 
-      <Card weight="quiet" kind="The order" title="They are numbered by where they stand">
-        <Button tone="quiet" onPress={() => go('bookcase')}>
-          Change the order
-        </Button>
-      </Card>
+        The card under this said "they are numbered by where they stand",
+        which is the kind of sentence he has been taking off screens all week.
+        The action it held is worth keeping and needs no paragraph over it.
+      */}
+      <Button tone="primary" block onPress={() => go('bookcase')}>
+        Add a fixture
+      </Button>
+      <Button tone="quiet" block onPress={() => go('bookcase')}>
+        Change the order
+      </Button>
     </Phone>
   )
 }
@@ -1481,18 +1499,18 @@ function Bookcase(go: Go) {
 
       <Field label="What it is" value="Bookcase" />
 
+      {/*
+        Two buttons stood under this, "move it earlier" and "move it later".
+        The owner: "we should just do that in a better way that doesn't
+        require those buttons. Maybe it's a drag and drop, they can just drag
+        it and move it between their other things. Keep in mind that that may
+        wrap." So the pieces are a column you drag within, and the wrap he
+        warned about is not a case that can arise. See `Order`.
+      */}
       <div>
         <span className="wf-field__label">Where it stands</span>
         <div style={{ height: 6 }} />
         <Order slots={ROOM.map((slot) => ({ ...slot, on: slot.label === '2' }))} />
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Button tone="secondary" small>
-          Move it earlier
-        </Button>
-        <Button tone="secondary" small>
-          Move it later
-        </Button>
       </div>
 
       <Card weight="sunk" kind="What it will be called" title="2A, 2B, 2C" />
@@ -1501,15 +1519,43 @@ function Bookcase(go: Go) {
         Save
       </Button>
 
-      <Card weight="quiet" kind="Taking it out of the room" title="The books do not vanish with it">
-        <Button tone="danger" onPress={() => go('carry')}>
-          Take it out of the room
+      {/*
+        "Take it out of the room" over "the books do not vanish with it" is
+        gone: "let's just say maybe delete fixture, and then that obviously
+        initiates the transition of the books to another fixture, or takes
+        them through the movement process."
+
+        The reassurance went; the guarantee did not. What replaces the
+        sentence is the fact of what pressing it does, said in a count and
+        proved by where it lands: the plan, which is the same list of books
+        and destinations somebody already carries a shelf by. A promise that
+        the books are safe is worth less than the screen that shows all
+        sixty-three of them and where each one goes.
+      */}
+      <Card weight="quiet" kind="Its 63 books move to other furniture first">
+        <Button tone="danger" block onPress={() => go('plan')}>
+          Delete fixture
         </Button>
       </Card>
     </Phone>
   )
 }
 
+/**
+ * One area, and what you can change about it.
+ *
+ * **It does not draw the piece it sits on.** The whole of bookcase 2 used to
+ * stand at the top of this, above everything the screen is for. The owner:
+ * "when we're in the area view we don't need to show the bookcase any more.
+ * You see Bookcase 2 and that's taking up so much of the screen. We're in Area
+ * 2, Cookery. We shouldn't be rendering the fixture that it's a part of here.
+ * We should be enabling changing the settings, like the name and the rule set
+ * and stuff like that on it."
+ *
+ * Which piece it is on has not been lost, and it did not need a drawing: the
+ * top bar says it in four words, and the arrow beside them goes there. What is
+ * left is the three things this screen can change and the one thing it can do.
+ */
 function Area(go: Go) {
   return (
     <Phone
@@ -1517,8 +1563,6 @@ function Area(go: Go) {
       go={go}
       top={<TopBar title="2 · Cookery" sub="18 books, on bookcase 2" onBack={() => go('bookcase')} />}
     >
-      <Bookcase2 on="2 · Cookery" go={go} head={() => go('bookcase')} />
-
       <Field label="What you call this area" value="Cookery" />
 
       <Card
@@ -1543,11 +1587,12 @@ function Area(go: Go) {
         <p>By the author’s surname, which is what the whole library uses.</p>
       </Card>
 
+      {/* "Remove this thing at the bottom, what it held becomes part of the
+          one before. Get rid of that." It was a paragraph with no action
+          under it, so nothing went with it. */}
       <Button tone="primary" block onPress={() => go('addarea')}>
         Split this area in two
       </Button>
-
-      <Card weight="quiet" kind="Taking this area away" title="What it held becomes part of the one before" />
     </Phone>
   )
 }
@@ -1695,7 +1740,7 @@ function Claimed(go: Go) {
           <Claim
             name="Anything tagged Non-fiction"
             about="About the whole of bookcase 2"
-            why="It fits too, but a rule about one area beats a rule about a whole bookcase."
+            why="It fits too, but a rule about one area beats a rule about a whole fixture."
             onPress={() => go('belongs')}
           />
         </div>
@@ -2080,8 +2125,10 @@ export const SCREENS: Screen[] = [
   { id: 'done', name: 'Shelved', group: 'Cataloguing', render: Done },
   { id: 'queue', name: 'The queue', group: 'Cataloguing', render: Queue },
   { id: 'empty', name: 'An empty queue', group: 'Cataloguing', render: Empty },
-  { id: 'furniture', name: 'Your bookcases', group: 'Your furniture', render: Furniture },
-  { id: 'bookcase', name: 'One bookcase', group: 'Your furniture', render: Bookcase },
+  /* The ids are the URLs and they stay put. The names are read, so they take
+     the neutral word: not every piece in the room is a bookcase. */
+  { id: 'furniture', name: 'All five pieces', group: 'Your furniture', render: Furniture },
+  { id: 'bookcase', name: 'One fixture', group: 'Your furniture', render: Bookcase },
   { id: 'area', name: 'One area', group: 'Your furniture', render: Area },
   { id: 'addarea', name: 'Adding an area', group: 'Your furniture', render: AddArea },
   { id: 'belongs', name: 'What belongs here', group: 'Your furniture', render: Belongs },

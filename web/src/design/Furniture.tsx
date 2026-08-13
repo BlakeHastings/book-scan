@@ -116,19 +116,36 @@ export function AddBox({ children, onPress }: { children: ReactNode; onPress?: (
  * Not a number in a field, because the number is not the fact: the fact is
  * that this one is second of four, and moving it changes what every area on it
  * reads as, and what every area reads as on whatever it passes.
+ *
+ * **You move it by moving it.** There were two buttons under this, "move it
+ * earlier" and "move it later", and the owner asked for the piece itself to be
+ * the thing you take hold of. So every piece is a row with a grip on it, and
+ * the row is the target rather than a button beside it.
+ *
+ * **It is a column because a row wraps.** He warned about that in the same
+ * breath: five pieces with names like "By the window" do not fit across a
+ * phone, and a strip that wraps is a drag with two axes in it and a gap that
+ * opens on a line above. A column cannot wrap, every target is the full width,
+ * and the whole list is visible at once at the sizes a room has.
+ *
+ * **What a still picture cannot settle**: the lift, the gap opening under the
+ * finger, whether the list scrolls when you drag past the end. Those are felt
+ * rather than seen, and this draws only what they rest on either side of.
  */
 export function Order({ slots }: { slots: { label: string; name: string; on?: boolean }[] }) {
   return (
-    <div className="wf-order" role="list" aria-label="Where it stands">
+    <div className="wf-order" aria-label="Where it stands">
       {slots.map((slot) => (
-        <div
+        <button
           key={slot.label}
-          role="listitem"
+          type="button"
           className={`wf-order__slot${slot.on ? ' wf-order__slot--on' : ''}`}
+          aria-pressed={slot.on || undefined}
         >
           <span className="wf-order__n">{slot.label}</span>
           <span className="wf-order__name">{slot.name}</span>
-        </div>
+          <span className="wf-order__grip" aria-hidden="true" />
+        </button>
       ))}
     </div>
   )

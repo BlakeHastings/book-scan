@@ -135,6 +135,16 @@ choosing how it is ordered, and why a book ended up where it did.
 `Furniture.tsx` has the parts. From the rule screen it hands off to the plan,
 which is the loop #243 built.
 
+**A piece is a fixture and not a bookcase**, wherever the word is the category
+rather than a particular thing. "Add area to this desk" is right because that
+piece is a desk; "add a bookcase" was wrong because the next one is a crate.
+The owner settled that on #272, along with two things those screens stopped
+carrying: **where a piece stands is changed by dragging the piece**, down a
+column that cannot wrap, rather than by a pair of earlier and later buttons,
+and **the area screen no longer draws the piece it sits on**. What it is on is
+four words in the top bar with an arrow beside them, and the screen itself is
+the three things about that area you can change.
+
 **These screens draw boxes and not carpentry, deliberately.** The library draws
 a real board with real spines standing on it, because there the job is to find
 a book in the room. Here the job is to say how the collection is organised, and

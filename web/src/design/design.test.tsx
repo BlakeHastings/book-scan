@@ -130,6 +130,14 @@ describe('the shelf has one edge', () => {
  * person actually uses; the vocabulary note in `docs/shelving.md` is explicit
  * that an area is chosen by a person. "Shelve" is not on it either: it is what
  * you do with a book, and it is not "shelf", which is.
+ *
+ * **Fixture is not on it, and it is a table name.** That looks like the rule
+ * being bent and it is not. The list is words the code says that a person does
+ * not; the owner reached for this one himself, unprompted and twice in the
+ * same breath: "they're not bookcases. They are fixtures, not bookcases", and
+ * "we shouldn't be rendering the fixture that it's a part of here." A word
+ * somebody uses about their own room is theirs, whatever else it also names.
+ * The test is about translation, not about which strings the schema owns.
  */
 const JARGON = [
   'run',
