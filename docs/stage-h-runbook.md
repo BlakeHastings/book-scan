@@ -54,6 +54,9 @@ out a commit before stage I; the tool and the driver come back together.
    whatever is in it. That is fine for a scratch catalogue and would be
    expensive for a snapshot. It cost this rehearsal a re-copy of 1.1 GB.
 
+   **No longer true, as of #297**, which moved every test file's scratch
+   directory out of `web/data`. This step is left as it was run.
+
 ## The target
 
 The tool writes to the Postgres named on its command line and to nothing else.

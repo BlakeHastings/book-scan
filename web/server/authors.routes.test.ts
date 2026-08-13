@@ -19,11 +19,11 @@
 
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp } from './index'
@@ -51,7 +51,8 @@ let pool: pg.Pool
 // One `Db` for the file, not one per test. Each `PgDb` registers an `error`
 // listener on the pool, and a dozen of them trips node's max-listeners warning.
 let db: PgDb
-let dataRoot: string
+/** This file's own scratch root, which no other test file can name. */
+let scratch: string
 let coverDir: string
 let server: Server
 let baseUrl: string
@@ -59,8 +60,7 @@ let baseUrl: string
 beforeAll(async () => {
   pool = await migratedDatabase()
   db = new PgDb(pool)
-  dataRoot = fileURLToPath(new URL('../data/', import.meta.url))
-  mkdirSync(dataRoot, { recursive: true })
+  scratch = scratchRoot('authors')
 })
 
 beforeEach(async () => {
@@ -71,7 +71,7 @@ beforeEach(async () => {
   answers.mockReset()
   answers.mockResolvedValue({ ...empty })
 
-  coverDir = mkdtempSync(join(dataRoot, 'authors-test-'))
+  coverDir = mkdtempSync(join(scratch, 'authors-test-'))
   const app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -87,6 +87,9 @@ afterEach(async () => {
 
 afterAll(async () => {
   await dropScratchDatabases()
+  // Only what this file made. There is nothing above it that anything else
+  // shares, which is the point of taking a root rather than a directory in one.
+  removeScratchRoot(scratch)
 }, 60_000)
 
 async function call(path: string, init: RequestInit = {}) {

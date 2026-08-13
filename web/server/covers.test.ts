@@ -8,26 +8,24 @@
  * way, several of them with a 200, and anything that gets past this is
  * written to disk and shown to somebody as the book they are holding.
  *
- * The scratch directory lives under web/data, which .gitignore already
- * excludes and which is inside the checkout. Nothing here writes anywhere
- * else, and nothing here opens a database.
+ * The scratch directory is this file's own root and nothing else's, from
+ * ./scratchdir. Nothing here writes anywhere else, and nothing here opens a
+ * database.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
+import { removeScratchRoot, scratchRoot } from './scratchdir'
 
 const ISBN = '9780441013593' // Dune
 
 let dir: string
 
 beforeAll(() => {
-  const data = fileURLToPath(new URL('../data/', import.meta.url))
-  mkdirSync(data, { recursive: true })
-  dir = mkdtempSync(join(data, 'covers-test-'))
+  dir = scratchRoot('covers')
 })
 
 afterEach(() => {
@@ -35,7 +33,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  rmSync(dir, { recursive: true, force: true })
+  removeScratchRoot(dir)
 })
 
 interface Stub {

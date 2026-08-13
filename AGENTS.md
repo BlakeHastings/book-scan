@@ -297,12 +297,25 @@ Under `aspire start` there is nothing to set. The AppHost provisions Postgres
 and hands the api its connection. Running the api on its own with no connection
 string refuses to start and names the variable, on purpose.
 
-**`npm test` empties `web/data/`.** `server/index.test.ts` ends with
-`rmSync(dataRoot, { recursive: true, force: true })`, and `dataRoot` is the whole
-directory rather than the temporary one it made inside it. So a scratch
-catalogue, a downloaded cover, or anything else parked there does not survive a
-test run. Found by losing 1.1 GB of copied cover files to one `npm test` during
-the stage H rehearsal. Do not stage anything there you would mind re-copying.
+**`npm test` no longer touches `web/data/` at all**, and it used to empty it.
+`server/index.test.ts` ended with `rmSync(dataRoot, { recursive: true, force:
+true })` where `dataRoot` was the whole directory rather than the temporary one
+it had made inside it, so a scratch catalogue, a downloaded cover, or anything
+else parked there did not survive a run. That was found by losing 1.1 GB of
+copied cover files to one `npm test` during the stage H rehearsal, and it is
+fixed rather than merely documented: a snapshot staged there survives now.
+
+**What it also cost was about half of every suite run**, which is #297. Five
+test files made scratch directories under `web/data`, vitest runs test files in
+parallel, and so the file that emptied the directory was never the file that
+failed: `ENOENT: no such file or directory, mkdtemp` in whichever of the other
+four was mid-`beforeEach`, twice in four runs on a developer's machine and never
+once on CI, whose file ordering happened to finish the deleting file last. Each
+of those files now takes a root of its own from `web/server/scratchdir.ts`, made
+directly under `web/` by `mkdtemp` and removed by the file that made it, so no
+file's cleanup can name, let alone delete, another file's directory. **If you
+add a test that writes files, take a root from there rather than reaching for
+`web/data`**, and remove that root and nothing above it.
 
 **`npm test` needs Docker, for the whole run.** That started at stage F and it
 got worse at stage I. It is a real regression in what it takes to contribute,

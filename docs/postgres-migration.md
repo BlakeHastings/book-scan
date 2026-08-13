@@ -766,6 +766,10 @@ was never opened.** Measured, on a scratch Postgres provisioned by the AppHost:
   this rehearsal a re-copy of 1.1 GB and it is worth knowing before stage H is
   run for real, because the runbook would otherwise be an obvious place to
   suggest putting a snapshot.
+
+  **No longer true, as of #297.** Every test file that wrote under `web/data`
+  now takes a root of its own outside it, so `npm test` does not touch
+  `web/data` at all. The rest of this finding is left as it was written.
 - **The negative control is not vacuous on the real data, and it was worth
   checking rather than assuming.** 15 of the 197 books change position when the
   same rows are ordered under the database's own `en_US.utf8` collation instead
