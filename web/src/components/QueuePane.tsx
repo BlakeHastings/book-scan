@@ -73,13 +73,43 @@ export interface QueueReturnAnchor {
  * him he was in the middle of a novel rather than as it working on a
  * photograph.
  */
-type Which = 'ready' | 'processing' | 'stuck' | 'all'
+export type Which = 'ready' | 'processing' | 'stuck' | 'all'
 
-const IN: Record<Which, (capture: Capture) => boolean> = {
+/**
+ * Whether a capture belongs under each answer, one predicate each.
+ *
+ * A table rather than a chain of conditionals inside the filter, and exported
+ * rather than closed over, so what each word on that control claims to show is
+ * a thing a test can ask about directly. Every status appears under exactly one
+ * of the three besides `all`, which is what makes the counts on the control add
+ * up to the number in the top bar.
+ */
+export const SHOWING: Record<Which, (capture: Capture) => boolean> = {
   all: () => true,
+  // `done` is a book that has been shelved and whose row has not gone yet.
+  // Nothing is wrong with it and nobody is reading it, so it sits with the
+  // ones somebody could act on rather than inventing a fourth answer.
   ready: (capture) => capture.status === 'ready' || capture.status === 'done',
   processing: (capture) => capture.status === 'pending',
   stuck: (capture) => capture.status === 'failed',
+}
+
+/**
+ * What the stuck books need, rather than how many of them there are.
+ *
+ * #148 in its second half. The count belongs on the first screen, which has it:
+ * "3 stuck", one tap from here. What that screen cannot say, and what a person
+ * standing in front of this list needs before they pick a book up, is that two
+ * of them want an ISBN typing in and one of them wants details by hand because
+ * no catalogue has an ISBN that read perfectly well.
+ *
+ * The same helper the row reads, so the two cannot say different things about
+ * the same book, and split out of the pane so the wording is pinned: this is
+ * the sentence #148 was about, and it is the one most likely to be quietly
+ * reworded by somebody later.
+ */
+export function whatTheyNeed(captures: Capture[]): string[] {
+  return failureLines(countFailures(captures.filter(SHOWING.stuck)))
 }
 
 interface Props {
@@ -375,7 +405,7 @@ export function QueuePane({
    * stopping the delete.
    */
   const visible = useMemo(() => {
-    const matching = filterQueue(captures, query).filter(IN[which])
+    const matching = filterQueue(captures, query).filter(SHOWING[which])
     if (held.length === 0) return matching
     const shown = new Set(matching.map((c) => c.id))
     return captures.filter((c) => shown.has(c.id) || held.includes(c.id))
@@ -534,19 +564,8 @@ export function QueuePane({
 
   const searching = query.trim().length > 0
 
-  const failed = captures.filter((capture) => capture.status === 'failed')
-  /*
-   * What the stuck ones need, rather than how many of them there are.
-   *
-   * #148 in its second half. The count belongs on the first screen, which has
-   * it: "3 stuck", one tap from here. What that screen cannot say, and what a
-   * person standing in front of this list needs before they pick a book up, is
-   * that two of them want an ISBN typing in and one of them wants details by
-   * hand because no catalogue has an ISBN that read perfectly well. Same
-   * helper the row reads, so the two cannot say different things about the
-   * same book.
-   */
-  const needs = failureLines(countFailures(failed))
+  const failed = captures.filter(SHOWING.stuck)
+  const needs = whatTheyNeed(captures)
 
   const counted = (word: string, n: number) => (n > 0 ? `${word} ${n}` : word)
 
@@ -581,8 +600,8 @@ export function QueuePane({
           onPick={setWhich}
           options={[
             { value: 'all', word: counted('All', captures.length) },
-            { value: 'ready', word: counted('Ready', captures.filter(IN.ready).length) },
-            { value: 'processing', word: counted('Reading', captures.filter(IN.processing).length) },
+            { value: 'ready', word: counted('Ready', captures.filter(SHOWING.ready).length) },
+            { value: 'processing', word: counted('Reading', captures.filter(SHOWING.processing).length) },
             { value: 'stuck', word: counted('Stuck', failed.length) },
           ]}
         />

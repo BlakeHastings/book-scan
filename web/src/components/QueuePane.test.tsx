@@ -16,7 +16,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
-import { canShelve, photoCount, QueueRow, statusLine, type RowGesture } from './QueuePane'
+import {
+  canShelve, photoCount, QueueRow, SHOWING, statusLine, whatTheyNeed,
+  type RowGesture, type Which,
+} from './QueuePane'
 import type { Capture, CaptureStatus } from '../lib/api'
 
 const gesture: RowGesture = {
@@ -248,6 +251,134 @@ describe('what a failed row says is wrong', () => {
     }).tree)
     expect(html).toContain('no catalogue has its ISBN')
     expect(html).not.toContain('needs you')
+  })
+})
+
+/**
+ * #148's other half, which is the half this screen owns.
+ *
+ * The rule the issue left behind is that **the count belongs on the first
+ * screen and the diagnosis belongs on the queue**, because "9 need an ISBN by
+ * hand" sent somebody to retype five ISBNs that were already correct. The first
+ * screen says how many are stuck; this screen is the only place that says what
+ * they need, one line per kind, so somebody sorting a stack knows which of them
+ * is a typing job and which of them is a book no catalogue has heard of.
+ *
+ * Pinned here because it is a wording, and a wording is what gets quietly
+ * changed. `whatTheyNeed` reads the same helper the row and the first screen
+ * read, so all three still cannot say different things about one book.
+ */
+describe('what the queue says the stuck books need', () => {
+  const noIsbn = capture({
+    id: 1, status: 'failed', note: 'No ISBN could be read from these photos.',
+  })
+  const uncatalogued = capture({
+    id: 2,
+    status: 'failed',
+    isbn13: '9781234567897',
+    note: 'Barcode on the back reads 9781234567897, but no catalogue has it.',
+  })
+  const errored = capture({
+    id: 3, status: 'failed', note: 'Could not process these photos: out of memory',
+  })
+
+  it('asks for an ISBN by hand only for the ones with no ISBN', () => {
+    expect(whatTheyNeed([noIsbn])).toEqual(['1 need an ISBN by hand.'])
+  })
+
+  /* The exact case #148 was reported for. This book's ISBN is present and
+     correct, so a line telling anybody to type one in is the defect. */
+  it('sends nobody to retype an ISBN that read perfectly well', () => {
+    const said = whatTheyNeed([uncatalogued])
+    expect(said).toEqual([
+      '1 need details by hand. No catalogue has their ISBN.',
+    ])
+    expect(said.join(' ')).not.toContain('need an ISBN by hand')
+  })
+
+  it('says a read that broke is a read that broke', () => {
+    expect(whatTheyNeed([errored])).toEqual(['1 hit an error while being read.'])
+  })
+
+  /* Three books, three different jobs, and the screen has to separate them
+     rather than counting them together the way the status alone would. */
+  it('keeps the three apart when all three are on the table', () => {
+    expect(whatTheyNeed([noIsbn, uncatalogued, errored])).toEqual([
+      '1 need an ISBN by hand.',
+      '1 need details by hand. No catalogue has their ISBN.',
+      '1 hit an error while being read.',
+    ])
+  })
+
+  it('counts the ones that need the same thing together', () => {
+    expect(whatTheyNeed([noIsbn, { ...noIsbn, id: 4 }]))
+      .toEqual(['2 need an ISBN by hand.'])
+  })
+
+  /* Nothing at all, rather than "0 need an ISBN by hand": a queue with nothing
+     wrong in it should not spend a line of a phone screen saying so, and a
+     zero on this screen is the kind of number that gets acted on. */
+  it('says nothing at all when nothing is stuck', () => {
+    expect(whatTheyNeed([
+      capture({ id: 5, status: 'ready' }),
+      capture({ id: 6, status: 'pending' }),
+      capture({ id: 7, status: 'done' }),
+    ])).toEqual([])
+  })
+
+  it('says nothing about an empty queue', () => {
+    expect(whatTheyNeed([])).toEqual([])
+  })
+})
+
+/**
+ * The control across the top, which claims four things about a stack of books.
+ *
+ * Every claim is a filter somebody acts on: tapping "Stuck 2" and being shown a
+ * book that is merely still being read is the same class of mistake as the
+ * wording above, one screen further on. So each word is checked against the
+ * statuses it says it holds, and the three besides "all" are checked for not
+ * overlapping, because the counts beside them are drawn from these and are
+ * meant to add up.
+ */
+describe('what each answer on the filter shows', () => {
+  const all: Capture[] = [
+    capture({ id: 1, status: 'ready' }),
+    capture({ id: 2, status: 'pending' }),
+    capture({ id: 3, status: 'failed' }),
+    capture({ id: 4, status: 'done' }),
+  ]
+
+  const ids = (which: Which) => all.filter(SHOWING[which]).map((one) => one.id)
+
+  it('shows every book under "all"', () => {
+    expect(ids('all')).toEqual([1, 2, 3, 4])
+  })
+
+  /* A shelved book's row has not gone yet and there is nothing wrong with it,
+     so it sits with the ones somebody can act on rather than under "stuck". */
+  it('shows the ones somebody can act on under "ready"', () => {
+    expect(ids('ready')).toEqual([1, 4])
+  })
+
+  it('shows only the ones still being read under "reading"', () => {
+    expect(ids('processing')).toEqual([2])
+  })
+
+  it('shows only the ones that failed under "stuck"', () => {
+    expect(ids('stuck')).toEqual([3])
+  })
+
+  /* The counts beside the words are these three, and the top bar's is the
+     whole queue, so a status falling under two of them or under none would put
+     a number on screen that does not add up to the one above it. */
+  it('puts every book under exactly one of the three', () => {
+    for (const one of all) {
+      const under = (['ready', 'processing', 'stuck'] as Which[])
+        .filter((which) => SHOWING[which](one))
+      expect(under, `a ${one.status} book is under ${under.join(' and ')}`)
+        .toHaveLength(1)
+    }
   })
 })
 
