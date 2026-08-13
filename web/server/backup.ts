@@ -113,24 +113,58 @@ export const SHELF_ORDER_SQL =
   "select md5(string_agg(id::text, ',' order by sort_key, id)) as hash from books"
 
 /**
- * The same idea for the areas.
+ * Which table holds the shelf boundaries, on whichever schema the catalogue
+ * this run opened turns out to have.
  *
- * This read `separators` until #232 dropped that table, and it is the same
- * check under a new name because an area is a separator grown a parent.
- * `area.starts_at` is what `separators.starts_at` was, `COLLATE "C"` and all:
- * it is compared against `books.sort_key` to find where a run of shelving
- * begins, and an ordering difference too small to change the book list can
- * still be large enough to move one book past a boundary.
+ * `area` is what `separators` became at #232, and the live catalogue was not
+ * on the far side of that migration when #240 found it: master had already
+ * dropped `separators` from the schema it assumes, the catalogue had not been
+ * migrated yet, and the tool died reading a table that was not there,
+ * *after* it had already printed the name of the dump it was about to write.
  *
- * `position >= 0` because a negative position is how an area says it has been
- * retired, and a retired area is not one anybody files against. Leaving those
- * rows out loses no coverage: they are still counted and content-digested with
- * every other row of `area` by the per-table digest below. What this hash is
- * for is the order the shelving is read in, and a retired area is not in it.
+ * So this is asked of the catalogue, the way `CATALOGUE_TABLES_SQL` already
+ * asks it for the table list, rather than assumed from the code's own schema.
+ * A catalogue naming neither is not one of the two schemas this tool has ever
+ * known, and it says so before anything is written rather than after.
  */
-export const AREA_ORDER_SQL =
-  "select md5(string_agg(id::text, ',' order by starts_at, id)) as hash " +
-  'from area where position >= 0'
+export type DividerTable = 'area' | 'separators'
+
+export function chooseDividerTable(tables: readonly string[]): DividerTable {
+  if (tables.includes('area')) return 'area'
+  if (tables.includes('separators')) return 'separators'
+  throw new Error(
+    'Neither area nor separators is in this catalogue. This tool knows the schema ' +
+    'from before #232, which calls the boundary table separators, and the one since, ' +
+    'which calls it area. This catalogue has neither, so the divider order hash has ' +
+    'nothing to read, and nothing has been written.',
+  )
+}
+
+/**
+ * The divider order hash, for whichever of the two boundary tables the
+ * catalogue actually has.
+ *
+ * This is the same check under two names rather than two checks: an area is a
+ * separator grown a parent, `area.starts_at` is `separators.starts_at`,
+ * `COLLATE "C"` and all, and either is compared against `books.sort_key` to
+ * find where a run of shelving begins. An ordering difference too small to
+ * change the book list can still be large enough to move one book past a
+ * boundary.
+ *
+ * `position >= 0` on `area` because a negative position is how an area says
+ * it has been retired, and a retired area is not one anybody files against.
+ * Leaving those rows out loses no coverage: they are still counted and
+ * content-digested with every other row of `area` by the per-table digest
+ * below. `separators` predates that idea and has no equivalent: every row in
+ * it is live.
+ */
+export function dividerOrderSql(table: DividerTable): string {
+  if (table === 'area') {
+    return "select md5(string_agg(id::text, ',' order by starts_at, id)) as hash " +
+      'from area where position >= 0'
+  }
+  return "select md5(string_agg(id::text, ',' order by starts_at, id)) as hash from separators"
+}
 
 /**
  * Count and content digest for one table, in one statement.
@@ -179,6 +213,12 @@ export interface CatalogueDigest {
   shelfOrder: string | null
   /** The area order hash. Null when there are no areas still in use. */
   areaOrder: string | null
+  /**
+   * Which table `areaOrder` was read from: `area` on the schema since #232,
+   * `separators` on the one before it. Optional for the same reason `tables`
+   * is: a manifest written before this was derived predates the field.
+   */
+  dividerTable?: DividerTable
   /** `datcollate` of the database. Reproduced on the scratch side, and compared. */
   collation: string
   /** `datctype` of the database. */
@@ -194,6 +234,31 @@ export interface Queryable {
   query(sql: string): Promise<{ rows: Array<Record<string, unknown>> }>
 }
 
+/** One ordinary table, as the catalogue names it and as Postgres would spell it quoted. */
+export interface CatalogueTable {
+  name: string
+  sql: string
+}
+
+/**
+ * Every ordinary table the catalogue currently has, read out of `pg_class`
+ * rather than assumed.
+ *
+ * Split out of `readDigest` so a caller can ask it first and know which
+ * schema it is talking to, in particular which table the divider order hash
+ * has to read, **before** committing to anything a schema mismatch would
+ * leave half done.
+ */
+export async function listCatalogueTables(client: Queryable): Promise<CatalogueTable[]> {
+  const listing = await client.query(CATALOGUE_TABLES_SQL)
+  return listing.rows.map((row) => ({
+    name: String(row.name),
+    // Quoted by the server, so a table name that needs quoting is spelled the
+    // way Postgres would spell it rather than the way this file guesses.
+    sql: String(row.sql_name),
+  }))
+}
+
 /**
  * Read a catalogue's digest.
  *
@@ -202,9 +267,10 @@ export interface Queryable {
  * catalogue lookups, then a count and a digest per table, then two aggregates.
  *
  * The table list is read first and everything else follows from it, so a table
- * that arrived in a migration this file has never heard of is digested anyway.
- * Read inside the caller's transaction like the rest, so the list describes the
- * same instant the rows do.
+ * that arrived in a migration this file has never heard of is digested anyway,
+ * and so is which of `area` or `separators` this catalogue's divider order
+ * hash has to read (#240). Read inside the caller's transaction like the rest,
+ * so the list describes the same instant the rows do.
  *
  * Pass the client that holds the repeatable-read transaction the dump's
  * snapshot was exported from, and the digest describes the same instant the
@@ -214,13 +280,8 @@ export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
   const counts: Record<string, number> = {}
   const digests: Record<string, string> = {}
 
-  const listing = await client.query(CATALOGUE_TABLES_SQL)
-  const tables = listing.rows.map((row) => ({
-    name: String(row.name),
-    // Quoted by the server, so a table name that needs quoting is spelled the
-    // way Postgres would spell it rather than the way this file guesses.
-    sql: String(row.sql_name),
-  }))
+  const tables = await listCatalogueTables(client)
+  const divider = chooseDividerTable(tables.map((table) => table.name))
 
   for (const table of tables) {
     const { rows } = await client.query(tableDigestSql(table.sql))
@@ -230,7 +291,7 @@ export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
   }
 
   const shelf = await client.query(SHELF_ORDER_SQL)
-  const areas = await client.query(AREA_ORDER_SQL)
+  const areas = await client.query(dividerOrderSql(divider))
   const meta = await client.query(
     `select datcollate, datctype, pg_encoding_to_char(encoding) as encoding,
             current_setting('server_version_num') as version
@@ -244,6 +305,7 @@ export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
     digests,
     shelfOrder: (shelf.rows[0]?.hash as string | null) ?? null,
     areaOrder: (areas.rows[0]?.hash as string | null) ?? null,
+    dividerTable: divider,
     collation: String(metaRow.datcollate ?? ''),
     ctype: String(metaRow.datctype ?? ''),
     encoding: String(metaRow.encoding ?? ''),

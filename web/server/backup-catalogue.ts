@@ -45,6 +45,7 @@ import { pipeline } from 'node:stream/promises'
 import pg from 'pg'
 import { connectionConfig } from './db.pg'
 import {
+  chooseDividerTable,
   compareDigests,
   containerConnection,
   DEFAULT_IMAGE,
@@ -56,6 +57,7 @@ import {
   dumpTimestamp,
   humanBytes,
   imageMajor,
+  listCatalogueTables,
   manifestFileName,
   manifestPredatesDerivedTables,
   planRetention,
@@ -429,6 +431,17 @@ async function takeDump(options: Options, runner: Runner): Promise<string> {
     // the server refuse a write on this connection rather than trusting that
     // none is sent.
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+
+    // Asked of the catalogue, before anything below commits to a schema this
+    // one might not have. #240: master's own idea of the schema (area, since
+    // #232) had moved ahead of the live catalogue's (separators, before it),
+    // and the run got as far as printing the dump's filename before dying on
+    // a table that was not there. Refusing here, before "writing" is ever
+    // printed, is what that log line failing to mean anything was missing.
+    const tables = await listCatalogueTables(client)
+    const divider = chooseDividerTable(tables.map((table) => table.name))
+    line('schema', divider === 'area' ? 'area (since #232)' : 'separators (before #232)')
+
     const snapshot = await client.query<{ id: string }>('select pg_export_snapshot() as id')
     const snapshotId = snapshot.rows[0]?.id ?? ''
     if (!snapshotId) throw new Error('The server would not export a snapshot')

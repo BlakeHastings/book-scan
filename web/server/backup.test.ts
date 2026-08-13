@@ -14,9 +14,11 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  chooseDividerTable,
   compareDigests,
   containerConnection,
   describeSource,
+  dividerOrderSql,
   dumpFileName,
   dumpTimestamp,
   humanBytes,
@@ -224,6 +226,42 @@ describe('what counts as a difference', () => {
     delete older.tables
     expect(compareDigests(older, digest({ counts: { ...digest().counts, books: 235 } })))
       .toContainEqual({ what: 'books rows', expected: '236', actual: '235' })
+  })
+})
+
+describe('which table the divider order hash reads (#240)', () => {
+  /**
+   * The literal shape of #240: master's own idea of the schema (`area`, since
+   * #232) is not what the catalogue on the day the bug was found actually had.
+   * Deriving this from the table list, the way `CATALOGUE_TABLES_SQL` already
+   * derives coverage, is what lets `readDigest` work against either rather
+   * than needing to be told which one it is talking to.
+   */
+  it('picks area when it is there, whether or not separators is too', () => {
+    expect(chooseDividerTable(['area', 'books'])).toBe('area')
+    // The dual-write window #213 describes: both tables exist and agree, and
+    // area is the one kept, because it is the one #232 left standing.
+    expect(chooseDividerTable(['area', 'books', 'separators'])).toBe('area')
+  })
+
+  it('falls back to separators when area does not exist at all', () => {
+    expect(chooseDividerTable(['books', 'separators'])).toBe('separators')
+  })
+
+  /**
+   * Neither is not a schema this tool has ever known, and a run against one
+   * has to say so rather than fail on some other table further down the
+   * digest reading it did not expect either.
+   */
+  it('refuses a catalogue naming neither, rather than guessing', () => {
+    expect(() => chooseDividerTable(['books', 'captures'])).toThrow(/neither area nor separators/i)
+  })
+
+  it('reads the right table in the query for each', () => {
+    expect(dividerOrderSql('area')).toContain('from area')
+    expect(dividerOrderSql('area')).toContain('position >= 0')
+    expect(dividerOrderSql('separators')).toContain('from separators')
+    expect(dividerOrderSql('separators')).not.toContain('position >=')
   })
 })
 
