@@ -286,14 +286,60 @@
   opacity: 0.92;
 }
 
-/* The book this screen is about, already in place. A ring, not a fill: the
-   spine underneath is the photograph and covering it would be wrong.
-   3px rather than 2: this is now what the confirmation leans on instead of a
-   sentence saying where the book went, and at 2 it was a hairline against a
-   dark cloth in daylight. There is one of these and it is this one. */
-.wf-spine--here {
-  outline: 3px solid var(--ink);
-  outline-offset: 2px;
+/*
+ * The book this screen is about, marked by the cat sitting on top of it.
+ *
+ * **It was a ring and the ring could not be saved.** An outline is painted
+ * outside the element it is on, the run scrolls inside itself with
+ * `overflow-y: hidden`, and a spine is the tallest thing on the board, so the
+ * top of that ring was outside the scroller and cut off every time. The owner
+ * saw both halves of it at once: "doesn't look very good to me with the white
+ * outline [...] and isn't clipping the way that's clipping here." Any mark
+ * drawn around the books is drawn outside the scroller, so the mark stands on
+ * the book instead and takes its room from inside the board.
+ *
+ * `--perch` is that room, and it comes from `Shelf.tsx` so the height of the
+ * cat and the space kept for him are one number. The board grows upward by it,
+ * the plank does not move, and nothing reaches past the scroller's edge in any
+ * direction. He is inside the marked book's own box, so he scrolls with it
+ * sideways, and he is drawn over the empty air above the books either side
+ * rather than beside his own, which is what makes the first and last book in a
+ * run mark exactly like one in the middle.
+ *
+ * The marked spine wears no class of its own, deliberately. It had one and it
+ * held the ring; the spine is a photograph of a book in the real app, and every
+ * treatment that could be painted on it covered part of that photograph.
+ */
+.wf-perch {
+  position: relative;
+  flex: none;
+  align-self: flex-end;
+  display: grid;
+  padding-top: var(--perch, 26px);
+}
+
+.wf-perch__cat {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/*
+ * And a mark on the plank under him, on the board's own 9px face, inside the
+ * padding the board already keeps there. The cat is what you see first; this is
+ * what survives him being 26px tall on a phone held at arm's length, and it
+ * sits on the line the eye runs along when it reads a row of books.
+ */
+.wf-perch::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--ink);
 }
 
 /* Where a book should go. Dashed, empty, and the cat sits in it. The width is
@@ -2062,11 +2108,11 @@
    `Book.tsx` for why nothing on this page is. */
 .wf-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
-/* Where it is, in one line, which is all it gets. */
-.wf-here { display: flex; align-items: center; gap: var(--s3); }
-.wf-here__text { min-width: 0; display: grid; gap: 1px; }
-.wf-here__said { font-family: var(--face-book); }
-.wf-here__when { font-size: var(--size-small); color: var(--ink-2); }
+/* Where it is used to be a sentence and a date drawn over the board that says
+   the same thing, and the owner took the words: "literally the view we have
+   below that shows it. We don't need to explain it verbally with words." The
+   label that survived for a book on no bookcase is `.wf-place`, which already
+   existed. See the note where `Here` was, in Book.tsx. */
 
 /* Where it has been: one row a move, newest first. */
 .wf-been { display: grid; }
