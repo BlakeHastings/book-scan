@@ -134,7 +134,7 @@ function Loaf() {
       <ellipse className="wf-cat__eye" cx="50.5" cy="16" rx="2" ry="2.9" />
       <ellipse className="wf-cat__eye" cx="60" cy="16" rx="2" ry="2.9" />
       <path className="wf-cat__nose" d="M55.2 21.4l2.2 1.9H53Z" />
-      <path className="wf-cat__whisker" d="M43 18h-6M43 21.5l-5.5 2" />
+      <path className="wf-cat__whisker" d="M43 18h-6M43 21.5l-5.5 2M67 18h6M67 21.5l5.5 2" />
     </>
   )
 }

@@ -1886,7 +1886,7 @@ function Plan(go: Go) {
 function Empty(go: Go) {
   return (
     <Phone tab="queue" go={go} top={<TopBar title="Queue" sub="Nothing on the table" />}>
-      <Nothing said="The table is clear." />
+      <Nothing said="Even the cat couldn't find anything to knock off the table." />
       <Button tone="primary" block onPress={() => go('camera')}>
         Open the camera
       </Button>
