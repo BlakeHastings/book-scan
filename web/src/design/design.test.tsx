@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { SCREENS } from './gallery/screens'
-import { spineHeight, spineWidth } from './Shelf'
+import { MEDIAN_PAGES, spineWidth, spines } from './Shelf'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
@@ -546,9 +546,19 @@ describe('a field with another way to answer it says what that way is', () => {
 /**
  * The one thing on a shelf that is a claim about a physical object.
  *
- * A page count is thickness, so it decides width. Height is uniform unless a
- * photograph says otherwise, because the catalogue holds no height at all and
- * the owner spotted that before this was written.
+ * A page count is thickness, so it decides width. Height is uniform, because
+ * the catalogue holds no height at all and the owner spotted that before this
+ * was written.
+ *
+ * **This test used to say a width comes off a book or it does not get drawn**,
+ * and it is now allowed one exception, on purpose rather than by being relaxed.
+ * 183 of the owner's 238 books carried a page count on 2026-08-12, so a quarter
+ * of a shelf has no honest width, and the fallback he chose is the median of
+ * the ones that do. The exception is therefore pinned harder than the rule: it
+ * is not a free number, it is `MEDIAN_PAGES` and nothing else, it sits strictly
+ * inside the range real books occupy, and a shelf drawn from it varies. The way
+ * this loosens is somebody picking a round number that "looks about right", and
+ * the second test below is what goes red when they do.
  */
 describe('a spine is only as big as the catalogue can justify', () => {
   it('is wider for a thicker book, always', () => {
@@ -561,19 +571,82 @@ describe('a spine is only as big as the catalogue can justify', () => {
     expect(spineWidth(20000)).toBeLessThanOrEqual(56)
   })
 
-  it('is the uniform height for a book with no photograph', () => {
-    expect(spineHeight(320, undefined)).toBe(116)
-    expect(spineHeight(undefined, 8)).toBe(116)
+  it('draws a book with no page count at the median and at nothing else', () => {
+    expect(spineWidth(undefined)).toBe(spineWidth(MEDIAN_PAGES))
+    expect(spineWidth(undefined)).not.toBe(spineWidth(54))
+    expect(spineWidth(undefined)).not.toBe(spineWidth(1168))
   })
 
-  it('never draws a book outside the range real books live in', () => {
-    for (const pages of [24, 320, 1400]) {
-      for (const ratio of [0.5, 8, 40]) {
-        const height = spineHeight(pages, ratio)
-        expect(height).toBeGreaterThanOrEqual(96)
-        expect(height).toBeLessThanOrEqual(140)
-      }
-    }
+  it('keeps that fallback inside the range the real catalogue covers', () => {
+    // 54 and 1168 are the thinnest and thickest books he owns. A fallback
+    // outside them would be a book nobody has, which is the visibly-different
+    // width this decision rejected.
+    expect(spineWidth(undefined)).toBeGreaterThan(spineWidth(54))
+    expect(spineWidth(undefined)).toBeLessThan(spineWidth(1168))
+  })
+
+  it('draws every book the same height, and offers no other answer', () => {
+    const shelf = readFileSync(join(HERE, 'Shelf.tsx'), 'utf8')
+
+    // Flat tops, settled. The variant that estimated a height from the shape of
+    // a spine photograph is gone, and the way it comes back is a second prop.
+    expect(shelf).not.toMatch(/spineHeight/)
+    expect(shelf).not.toMatch(/heights/)
+    expect(shelf).not.toMatch(/ratio[?:]/)
+    expect(shelf.match(/height: SPINE_HEIGHT/g)?.length).toBe(1)
+  })
+})
+
+/**
+ * The gallery's own books have the same holes in them the real ones do.
+ *
+ * A fixture where every book has a page count draws a shelf that does not
+ * exist, and it would make the fallback width the one piece of this system that
+ * only ever appears in a test. So `spines` leaves roughly one name in four
+ * without a count, and this is here because filling them back in is a helpful
+ * edit somebody would make without knowing what it hides.
+ */
+describe('a shelf in the gallery is missing the page counts a real one is', () => {
+  it('leaves about a quarter of thirty books without one', () => {
+    const thirty = spines([
+      'Adams, Douglas',
+      'Atwood, Margaret',
+      'Banks, Iain M.',
+      'Bradbury, Ray',
+      'Calvino, Italo',
+      'Chambers, Becky',
+      'Clarke, Susanna',
+      'Eco, Umberto',
+      'Ellison, Ralph',
+      'Ferrante, Elena',
+      'Gaiman, Neil',
+      'Greene, Graham',
+      'Harkaway, Nick',
+      'Ishiguro, Kazuo',
+      'Jemisin, N. K.',
+      'Le Guin, Ursula K.',
+      'Mantel, Hilary',
+      'Miéville, China',
+      'Mitchell, David',
+      'Morrison, Toni',
+      'Murakami, Haruki',
+      'Nabokov, Vladimir',
+      "O'Brian, Patrick",
+      'Pratchett, Terry',
+      'Robinson, Marilynne',
+      'Smith, Zadie',
+      'Stephenson, Neal',
+      'Tartt, Donna',
+      'Woolf, Virginia',
+      'Zusak, Markus',
+    ])
+
+    const missing = thirty.filter(
+      (item) => item.kind === 'spine' && item.pages === undefined,
+    ).length
+
+    expect(missing, 'every book in the gallery has a page count').toBeGreaterThan(3)
+    expect(missing, 'the gallery is mostly books nobody has looked up').toBeLessThan(11)
   })
 })
 

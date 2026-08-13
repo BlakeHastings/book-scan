@@ -125,24 +125,49 @@
   /* --- Type ------------------------------------------------------------- */
 
   /*
-   * Three roles now, still no download. `ui-serif` and `ui-rounded` resolve on
-   * iOS to New York and SF Pro Rounded, which is where this is reviewed, and
-   * fall back through named faces everywhere else. A phone that is about to
-   * load book photographs should not also be loading a webfont for its chrome.
+   * Three roles, still no download. A phone that is about to load book
+   * photographs should not also be loading a webfont for its chrome.
    *
-   * **The third role is the one the owner asked for.** The counts on the first
-   * screen were set in the book face and read as a plaque on a library wall;
-   * he wanted rounded and playful. So the numbers the app says *about itself*
+   * **The third role is the one the owner asked for, and he has now chosen
+   * it** (#273): "we want rounded, we want the rounded one that looks the
+   * best". The counts on the first screen were set in the book face and read
+   * as a plaque on a library wall. So the numbers the app says *about itself*
    * are their own role, separate from the interface text they sit in, and
-   * separate from the book face, which stays where a reader's eye goes: titles,
-   * authors, the one line a screen exists to say.
+   * separate from the book face, which stays where a reader's eye goes:
+   * titles, authors, the one line a screen exists to say. The comparison
+   * screen that asked the question is gone with the answer.
+   *
+   * ## What "rounded" actually is, which is worth being exact about
+   *
+   * `ui-rounded` is a generic family rather than a font, so what it means
+   * depends on the engine, and "he chose rounded" is only a real choice if his
+   * engine has one.
+   *
+   * It does. **This is reviewed on an iPhone**, and on iOS every browser is
+   * WebKit, where `ui-rounded` is SF Pro Rounded and `ui-serif` is New York.
+   * So the face he picked from is a genuinely rounded one, and the decision is
+   * about something he saw.
+   *
+   * **Off that phone there is no rounded face at all, and this was measured
+   * rather than assumed.** Rendering a string at 64px in Chromium on Windows
+   * and comparing its width against a family that does not exist: `ui-rounded`
+   * comes out at exactly the width of a missing font, as do SF Pro Rounded,
+   * Varela Round, Baloo 2, Quicksand and Nunito, none of which are installed
+   * anywhere here. So the whole rounded half of the stack is skipped and
+   * `--face-display` lands on Segoe UI Variable Display, which is a plain sans.
+   * `--face-ui` lands on Segoe UI beside it, so the display role still reads as
+   * its own face, and that is the half of the effect which travels.
+   *
+   * That is deliberate rather than unnoticed: off the phone the roundedness is
+   * absent rather than faked.
+   *
+   * Making it rounded everywhere means shipping a font file, with the weight
+   * and the licence that implies, and nobody has asked for that. If it is ever
+   * wanted, this is the line it lands on.
    *
    * `--face-display` is the rounded stack and not an alias of `--face-ui`, so
    * this decision can be revisited in one line without dragging every button
-   * and label with it. Its list is longer because a rounded face is the whole
-   * point of it: on a machine with none, the last resort is the same
-   * system face `--face-ui` lands on, and the roundedness is simply absent
-   * rather than faked.
+   * and label with it.
    */
   --face-book: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --face-ui: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system,
