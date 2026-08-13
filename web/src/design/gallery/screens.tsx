@@ -134,6 +134,18 @@ function Phone({
  * went with the camera card: "spine first, then the front", "saying 2C was full
  * moved these along", and "nothing has gone missing since Tuesday". The two
  * lists underneath say the same things by showing the books.
+ *
+ * ## The collection leads now (#283)
+ *
+ * "The collection" sat last, under everything asking for attention. Round six
+ * moved it above "Needs you":
+ *
+ * > In the today view, I want the collection that we have all the way down at
+ * > the bottom. That should be moved up. It should be above the "needs you".
+ *
+ * The order within each block did not change, only which block comes first.
+ * This inverts what the screen leads with: it opened with what is asking for
+ * attention and closed with what is owned; it now opens with what is owned.
  */
 function Home(go: Go) {
   return (
@@ -146,6 +158,15 @@ function Home(go: Go) {
           </p>
         </div>
       </Card>
+
+      <p className="wf-heading wf-heading--flush">The collection</p>
+      <Stats
+        items={[
+          { n: '1,204', word: 'catalogued', onPress: () => go('library') },
+          { n: '9', word: 'added this week', onPress: () => go('listing') },
+          { n: '2', word: 'checked out', onPress: () => go('listing') },
+        ]}
+      />
 
       <p className="wf-heading wf-heading--flush">Needs you</p>
       <Stats
@@ -203,15 +224,6 @@ function Home(go: Go) {
           />
         </List>
       </Card>
-
-      <p className="wf-heading wf-heading--flush">The collection</p>
-      <Stats
-        items={[
-          { n: '1,204', word: 'catalogued', onPress: () => go('library') },
-          { n: '9', word: 'added this week', onPress: () => go('listing') },
-          { n: '2', word: 'checked out', onPress: () => go('listing') },
-        ]}
-      />
     </Phone>
   )
 }
