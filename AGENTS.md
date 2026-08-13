@@ -458,6 +458,16 @@ name it printed on start.
 The suite runs `aspire stop` without `--all`, so it stops only this checkout's
 AppHost. Unrelated Aspire apps are usually running on this machine.
 
+**When a resource never becomes healthy, the run says why** (#277). `aspire wait`
+reports only that a resource "failed to start", which is not enough to act on and
+is why the same failure was answered twice by re-running until green. So the
+suite prints every resource's state and the tail of every resource's console
+output before rethrowing, and `e2e.yml` asks the AppHost again on any failure as
+a backstop. Note what that message is not: it is not the five minute timeout
+expiring, so raising the timeout would change nothing. Demonstrated by pointing
+`dev:client` at a command that exits non-zero, running `aspire wait web`, and
+watching the deliberate line come back out of the captured logs.
+
 It gates pull requests, as the `browser journeys` check in the `End to end`
 workflow, and still runs nightly and on demand with `gh workflow run e2e.yml`.
 
