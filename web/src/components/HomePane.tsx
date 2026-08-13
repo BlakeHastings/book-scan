@@ -22,8 +22,8 @@
  * a conversion: a count nobody can act on is decoration, and decoration is
  * what a screen made of counts fills up with. Catalogued and checked out open
  * the library; ready to shelve and stuck open the queue; to carry opens the
- * library, which is where the list of books that are not where they belong
- * lives and where somebody says they have carried one.
+ * carry list, which is where the trips are and where somebody says they have
+ * carried a book. That last one went to the library until #314 built the flow.
  *
  * ## The collection leads (#283)
  *
@@ -51,7 +51,7 @@ import type { Cloth } from '../design/Shelf'
 import { filingName } from '../../shared/shelving'
 import {
   captureName, draftFromCapture,
-  type Capture, type Counts, type Misfile, type QueueCounts,
+  type CarryItem, type Capture, type Counts, type QueueCounts,
 } from '../lib/api'
 
 interface Props {
@@ -60,17 +60,23 @@ interface Props {
   /** The queue itself, so the ones ready to shelve can be named and opened. */
   queued: Capture[]
   /**
-   * Books the shelving review says are not where they now belong. Null until
-   * it has answered, which is a different thing from none: a count drawn from
-   * a request that has not come back is a guess, so it is left out instead.
+   * Books that are not where they now belong. Null until the read has
+   * answered, which is a different thing from none: a count drawn from a
+   * request that has not come back is a guess, so it is left out instead.
    */
-  carrying: Misfile[] | null
+  carrying: CarryItem[] | null
   /** Photograph a book, which is what the fourth tab is for. */
   onAdd: () => void
   /** Hold a book you already have up to the camera, to find it. */
   onScan: () => void
   onLibrary: () => void
   onQueue: () => void
+  /**
+   * Go and carry them, which is a flow of its own since #314 and used to be the
+   * library's needs-attention list. Both counts on this card open it, because
+   * both are about the same books.
+   */
+  onCarry: () => void
   onOpenReady: (capture: Capture) => void
 }
 
@@ -126,7 +132,7 @@ function nameOf(capture: Capture): { title: string; sub: string } {
 }
 
 export function HomePane({
-  counts, queue, queued, carrying, onAdd, onScan, onLibrary, onQueue, onOpenReady,
+  counts, queue, queued, carrying, onAdd, onScan, onLibrary, onQueue, onCarry, onOpenReady,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
@@ -187,7 +193,7 @@ export function HomePane({
         items={[
           { n: grouped(queue.ready), word: 'ready to shelve', onPress: onQueue },
           ...(carrying
-            ? [{ n: grouped(carrying.length), word: 'to carry', onPress: onLibrary }]
+            ? [{ n: grouped(carrying.length), word: 'to carry', onPress: onCarry }]
             : []),
           { n: grouped(queue.failed), word: 'stuck', onPress: onQueue },
         ]}
@@ -218,18 +224,18 @@ export function HomePane({
       {carrying && carrying.length > 0 && (
         <Card title="Books to carry">
           <List label="Books to carry">
-            {carrying.slice(0, 3).map((misfile) => (
+            {carrying.slice(0, 3).map((one) => (
               <Row
-                key={misfile.book.id}
-                title={misfile.book.title}
-                sub={misfile.book.authorFiling}
-                cloth={clothFor(misfile.book.id)}
-                meta={`${misfile.from} to ${misfile.to}`}
-                onPress={onLibrary}
+                key={one.book.id}
+                title={one.book.title}
+                sub={one.book.authorFiling}
+                cloth={clothFor(one.book.id)}
+                meta={`${one.from} to ${one.to}`}
+                onPress={onCarry}
               />
             ))}
           </List>
-          <Button tone="quiet" onPress={onLibrary}>
+          <Button tone="quiet" onPress={onCarry}>
             All {grouped(carrying.length)}
           </Button>
         </Card>

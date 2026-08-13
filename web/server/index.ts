@@ -65,6 +65,8 @@ import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } fr
 // See the location route, and `recordPlaced`.
 import { UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
+// The work list the ledger already holds, grouped into trips (#314).
+import { outstandingWork, tripAtArea } from './carry'
 import {
   addAreaTo, addFixture, describeFixture, describeFurniture, dropArea, dropFixture,
   editArea, editFixture, planAreaRemoval, planFixtureRemoval, type Refused,
@@ -2798,6 +2800,37 @@ export function createApp(options: CreateAppOptions): BookScanApp {
           && move.to === misfile.to))
         .map((misfile) => misfile.book.id),
     })
+  }))
+
+  /**
+   * Everything still to be carried, as the trips somebody would walk.
+   *
+   * **Read only, and there is no plan to go stale**: this is recomputed every
+   * time it is asked for, out of `assigned` disagreeing with `placed`. See
+   * `server/carry.ts` for why neither `/api/placement/run/plan` nor
+   * `/api/misfiles` could answer it.
+   */
+  app.get('/api/carry', asyncRoute(async (_req, res) => {
+    res.json(await outstandingWork(db))
+  }))
+
+  /**
+   * One trip, read at the area the books come off.
+   *
+   * The two areas are ids rather than labels, because this is the one screen
+   * where a label would be the wrong key: it is derived from where a piece
+   * stands, and somebody renaming a bookcase between the list and the trip
+   * would send the request to a plank that no longer answers to that name.
+   */
+  app.get('/api/carry/trip', asyncRoute(async (req, res) => {
+    const from = Number(req.query.from ?? 0)
+    const to = Number(req.query.to ?? 0)
+    const trip = await tripAtArea(db, from, to)
+    if (!trip) {
+      res.status(404).json({ error: 'That trip names an area this collection does not have.' })
+      return
+    }
+    res.json(trip)
   }))
 
   app.get('/api/health', asyncRoute(async (_req, res) => {

@@ -7,8 +7,13 @@ import type { ShelfRange } from '../../shared/shelving'
 interface Props {
   range: ShelfRange
   onBack: () => void
-  /** Where the books to carry are listed, which is where this screen ends. */
-  onLibrary: () => void
+  /**
+   * Where the books to carry are listed, which is where this screen ends.
+   *
+   * The carry flow since #314. It was the library's needs-attention list, which
+   * was a different computation of a different question drawn beside this one.
+   */
+  onCarry: () => void
 }
 
 const RUN_NAME: Record<ShelfRange, string> = {
@@ -45,9 +50,10 @@ const SKIP_SAID: Record<SkipReason, string> = {
  *
  * Applying records where the rules want each book. The books move when a person
  * carries them and says so, and **the list of what is still outstanding already
- * exists**: it is the needs-attention list in the library, which is an
- * assignment disagreeing with where the book was last seen. This screen ends by
- * pointing at it rather than by growing a second one.
+ * exists**: `assigned` disagreeing with where the book was last seen. This
+ * screen ends by pointing at it rather than by growing a second one, and since
+ * #314 what it points at is the carry flow: the same disagreement, grouped into
+ * the trips somebody walks.
  *
  * ## A plan is not a flat list
  *
@@ -57,7 +63,7 @@ const SKIP_SAID: Record<SkipReason, string> = {
  * open when a number looks wrong. `details` rather than a hand-rolled accordion:
  * it is a touch target the browser already gets right.
  */
-export function MoveRunView({ range, onBack, onLibrary }: Props) {
+export function MoveRunView({ range, onBack, onCarry }: Props) {
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
   const [bookcase, setBookcase] = useState(0)
   const [plan, setPlan] = useState<RunMovePlan | null>(null)
@@ -184,12 +190,13 @@ export function MoveRunView({ range, onBack, onLibrary }: Props) {
           <p>
             {applied.wrote} book{applied.wrote === 1 ? '' : 's'} now recorded as belonging
             somewhere else. {applied.moved > 0
-              ? `The ${applied.moved} to carry are in Needs attention, in the library.`
+              ? `The ${applied.moved} to carry are on your carry list, grouped into the ` +
+                'trips you would walk.'
               : 'Nothing needs carrying.'}
-            {' '}Tap "Moved it" on each once it is actually there.
+            {' '}Say so on each once it is actually there.
           </p>
-          <button className="btn btn--primary runmove__go" onClick={onLibrary}>
-            Open the list
+          <button className="btn btn--primary runmove__go" onClick={onCarry}>
+            {applied.moved > 0 ? 'Go and carry them' : 'Open the list'}
           </button>
         </section>
       )}

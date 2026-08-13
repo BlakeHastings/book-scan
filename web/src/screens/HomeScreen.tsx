@@ -7,10 +7,10 @@
  * thing.
  */
 
-import { useEffect } from 'react'
 import { HomePane } from '../components/HomePane'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
+import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 
 export function HomeScreen() {
@@ -18,16 +18,9 @@ export function HomeScreen() {
   const { counts, queueCounts, queued, carrying } = useSummary()
   const { openCapture } = useOpenBook()
 
-  /*
-   * The page under the converted screen takes the design system's paper. See
-   * `body.wf-page` in design/library.css: the app paints `html, body` a cold
-   * dark blue-grey, which otherwise shows either side of the 480px column and
-   * under an overscroll bounce.
-   */
-  useEffect(() => {
-    document.body.classList.add('wf-page')
-    return () => document.body.classList.remove('wf-page')
-  }, [])
+  // The page under a converted screen takes the design system's paper. See
+  // `app/paper.ts`, which is these three lines with a name on them.
+  usePaper()
 
   return (
     <HomePane
@@ -39,6 +32,7 @@ export function HomeScreen() {
       onScan={() => setRoute('scan')}
       onLibrary={() => setRoute('library')}
       onQueue={() => setRoute('queue')}
+      onCarry={() => setRoute('carry')}
       /*
        * Straight into the book, the way the queue opens one. The anchor is
        * where to land in the queue listing on the way back, and coming from

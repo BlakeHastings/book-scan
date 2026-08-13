@@ -24,7 +24,9 @@ import {
   createContext, useContext, useEffect, useState,
   type Dispatch, type ReactNode, type SetStateAction,
 } from 'react'
-import { api, type Capture, type Counts, type Misfile, type QueueCounts } from '../lib/api'
+import {
+  api, type CarryItem, type Capture, type Counts, type QueueCounts,
+} from '../lib/api'
 import { useNavigation } from './navigation'
 
 export interface Summary {
@@ -40,9 +42,17 @@ export interface Summary {
    * `listCaptures` already answered both.
    */
   readonly queued: Capture[]
-  /** Books that are not where they now belong. Null until the review answers. */
-  readonly carrying: Misfile[] | null
+  /**
+   * Books that are not where they now belong. Null until the read answers.
+   *
+   * Flattened out of the trips, because the first screen names three books and
+   * counts the rest; the trips themselves are the carry screen's job. Reading
+   * the same route it does is the point: the number on the door and the number
+   * behind it are one answer, worked out once.
+   */
+  readonly carrying: CarryItem[] | null
 }
+
 
 const Context = createContext<Summary | null>(null)
 
@@ -51,7 +61,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const [counts, setCounts] = useState<Counts | null>(null)
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [queued, setQueued] = useState<Capture[]>([])
-  const [carrying, setCarrying] = useState<Misfile[] | null>(null)
+  const [carrying, setCarrying] = useState<CarryItem[] | null>(null)
 
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
@@ -63,10 +73,15 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   /**
    * The books the first screen says are waiting to be carried.
    *
-   * The same read the library makes, `api.misfiles(range)`, and one per run
-   * because that route answers one run at a time. Only while the first screen
-   * is on: it is the only thing that asks, and two requests on every change of
-   * screen would be two requests nobody is looking at.
+   * `api.carry()`, which is the list the carry screen draws, so the count on
+   * this screen and the list behind the tap are one answer rather than two
+   * computations of two different things. It was two requests to
+   * `api.misfiles`, one per run, which asked a different question: a recorded
+   * label against one derived from the sort order, which cannot see a rule
+   * change at all.
+   *
+   * Only while the first screen is on: it is the only thing that asks, and a
+   * request on every change of screen would be a request nobody is looking at.
    *
    * A failure leaves it null rather than empty, and the screen then draws no
    * count at all: "none to carry" and "nobody answered" are different things
@@ -75,9 +90,12 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (route !== 'home') return
     let live = true
-    Promise.all([api.misfiles('fiction'), api.misfiles('nonfiction')])
-      .then(([fiction, nonfiction]) => {
-        if (live) setCarrying([...fiction.misfiles, ...nonfiction.misfiles])
+    api.carry()
+      .then((work) => {
+        if (!live) return
+        setCarrying(work.trips.flatMap((trip) => trip.books.map((book) => ({
+          book, from: trip.from, to: trip.to,
+        }))))
       })
       .catch(() => { if (live) setCarrying(null) })
     return () => { live = false }

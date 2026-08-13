@@ -75,6 +75,7 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
     onScan: () => {},
     onLibrary: () => {},
     onQueue: () => {},
+    onCarry: () => {},
     onOpenReady: () => {},
     ...over,
   }) as ReactElement)

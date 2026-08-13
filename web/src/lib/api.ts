@@ -407,6 +407,73 @@ export interface LabelChange {
   to: string
 }
 
+/**
+ * The books still to be carried, as the trips somebody would walk.
+ *
+ * **The unit is a trip, not a book**, which is the whole shape of the flow: a
+ * list of fifty books in book order is fifty walks across a room, and "22 books,
+ * 4C to 3C" is one. Ordered by where the books come off, biggest piece of
+ * furniture first, because taking a book off means finding it among the ones
+ * that are staying and putting one down does not.
+ *
+ * There is nothing stored behind this and nothing to go stale: it is `assigned`
+ * disagreeing with `placed`, worked out afresh every time it is asked for.
+ */
+export interface CarriedBook {
+  id: number
+  title: string
+  authorFiling: string
+}
+
+export interface CarryTrip {
+  /** The areas as rows rather than as labels: a label is derived and can move. */
+  fromAreaId: number
+  toAreaId: number
+  /** Where the books are now, as the label reads off the furniture. */
+  from: string
+  to: string
+  books: CarriedBook[]
+  /** How many of this trip are already at the other end. */
+  carried: number
+}
+
+/** What the newest change of mind did to a list somebody was part way through. */
+export interface CarryChange {
+  /** Books it took off the list. */
+  left: number
+  /** Books it put on. */
+  joined: number
+  /** Of those, the ones somebody had already carried once. */
+  again: { book: CarriedBook; from: string; to: string }[]
+}
+
+export interface CarryWork {
+  /** Books to carry. The headline number. */
+  moving: number
+  trips: CarryTrip[]
+  /** Everything the rules will not move, and why. Never silently dropped. */
+  skipped: { reason: SkipReason; books: number }[]
+  /** What was carried on the most recent day anybody carried anything. */
+  carried: { books: number; when: string }
+  changed: CarryChange | null
+}
+
+/**
+ * One book on the carry list, flattened out of its trip.
+ *
+ * The first screen names three books and counts the rest, which is a list of
+ * books rather than of trips. It is the shape `reviewShelving` answered in,
+ * kept, so that screen did not have to change: **what changed under it is which
+ * question is being asked.** This is `assigned` disagreeing with `placed`, the
+ * ledger's own list, rather than a recorded label compared against one derived
+ * from the sort order.
+ */
+export interface CarryItem {
+  book: CarriedBook
+  from: string
+  to: string
+}
+
 /** What a rule asks for, in labels rather than in the slugs it stores. */
 export interface RuleDto {
   id: number
@@ -489,6 +556,23 @@ export interface AreaRemovalPlan {
   joining: number
   skipped: { reason: SkipReason; books: number }[]
   becomes: LabelChange[]
+}
+
+/** One book standing on the area a trip comes off, going or staying. */
+export interface StandingBook extends CarriedBook {
+  pages: number
+  going: boolean
+  /** Why it is not going. Null for the ones that are. */
+  staying: 'pinned' | 'elsewhere' | 'settled' | null
+}
+
+export interface TripAtAnArea {
+  from: string
+  to: string
+  fromAreaId: number
+  toAreaId: number
+  /** Everything on the area, in shelf order, staying books included. */
+  books: StandingBook[]
 }
 
 /** What an apply wrote, in the numbers the ledger counts. */
@@ -1063,6 +1147,27 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ range, bookcase }),
     }),
+
+  /**
+   * Everything still to be carried. **Read only, and worked out afresh.**
+   *
+   * Neither `planRunMove` nor `misfiles` could answer this. The first answers a
+   * question about furniture that does not exist yet and never reads an
+   * assignment; the second compares a recorded label against one derived from
+   * the sort order, one run at a time, and answers a flat list. See
+   * `server/carry.ts`.
+   */
+  carry: () => request<CarryWork>('/api/carry'),
+
+  /**
+   * One trip, read at the area the books come off.
+   *
+   * The areas go over as ids rather than labels, because a label is worked out
+   * from where a piece stands and somebody renaming a bookcase between the list
+   * and the trip would send this at a plank that no longer answers to it.
+   */
+  carryTrip: (from: number, to: number) =>
+    request<TripAtAnArea>(`/api/carry/trip?from=${from}&to=${to}`),
 
   setLocation,
 
