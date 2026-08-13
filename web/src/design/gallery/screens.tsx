@@ -55,6 +55,7 @@ import {
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
+import { Sure } from '../Sure'
 import { TabBar, TopBar, type TabName } from '../Chrome'
 
 /** Move to another screen of the gallery. */
@@ -75,11 +76,19 @@ function Phone({
   tab,
   go,
   top,
+  over,
 }: {
   children: ReactElement | ReactElement[]
   tab: TabName
   go: Go
   top: ReactElement
+  /**
+   * A dialog over the whole screen, where a screen has one. The screen under
+   * it is drawn in full and on purpose: what somebody is being asked about is
+   * the thing they were just looking at, and a scrim that hid it would be
+   * asking them to remember it.
+   */
+  over?: ReactElement
 }) {
   const TAB_SCREENS: Record<TabName, string> = {
     home: 'home',
@@ -89,10 +98,11 @@ function Phone({
   }
 
   return (
-    <div className="wf-screen">
+    <div className={`wf-screen${over ? ' wf-screen--asked' : ''}`}>
       {top}
       <div className="wf-screen__body">{children}</div>
       <TabBar on={tab} onPick={(name) => go(TAB_SCREENS[name])} />
+      {over}
     </div>
   )
 }
@@ -1681,20 +1691,49 @@ function Bookcase(go: Go) {
  *
  * Which piece it is on has not been lost, and it did not need a drawing: the
  * top bar says it in four words, and the arrow beside them goes there. What is
- * left is the three things this screen can change and the one thing it can do.
+ * left is the three things this screen can change and the two things it can do.
+ *
+ * **Four screens draw this**, which is why it takes arguments: the area itself,
+ * and the three states of being asked to remove one. The dialog is drawn over
+ * the same screen it was opened from rather than over a stand-in, because that
+ * is the only way to see whether it can be read against what is behind it.
  */
-function Area(go: Go) {
+function AreaScreen({
+  go,
+  label,
+  sub,
+  name,
+  belongs,
+  ordered,
+  order,
+  over,
+}: {
+  go: Go
+  /** What the area reads as, worked out from the two names and the position. */
+  label: string
+  sub: string
+  /** What they called it, where they called it anything. */
+  name?: string
+  /** What the rule sends here, said the way a person would say it. */
+  belongs: string
+  /** How it is ordered, in the same voice. */
+  ordered: string
+  /** The line under that, where there is more to say. */
+  order?: string
+  over?: ReactElement
+}) {
   return (
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title="2 · Cookery" sub="18 books, on bookcase 2" onBack={() => go('bookcase')} />}
+      over={over}
+      top={<TopBar title={label} sub={sub} onBack={() => go('bookcase')} />}
     >
-      <Field label="What you call this area" value="Cookery" />
+      <Field label="What you call this area" value={name} placeholder="Not named" />
 
       <Card
         kind="What belongs here"
-        title="Anything tagged Cookery"
+        title={belongs}
         foot={
           <Button tone="secondary" block onPress={() => go('belongs')}>
             Change what belongs here
@@ -1704,14 +1743,14 @@ function Area(go: Go) {
 
       <Card
         kind="How it is ordered"
-        title="The way bookcase 2 does"
+        title={ordered}
         foot={
           <Button tone="secondary" block onPress={() => go('sorting')}>
             Change the order
           </Button>
         }
       >
-        <p>By the author’s surname, which is what the whole library uses.</p>
+        {order && <p>{order}</p>}
       </Card>
 
       {/* "Remove this thing at the bottom, what it held becomes part of the
@@ -1720,7 +1759,241 @@ function Area(go: Go) {
       <Button tone="primary" block onPress={() => go('addarea')}>
         Split this area in two
       </Button>
+
+      {/*
+        The way to remove an area, which the interface did not have anywhere at
+        all until #281.
+
+        It wears the fixture screen's dashed fence and not its sentence, and
+        both halves of that are deliberate. The fence, because a screen should
+        not let the irreversible thing sit shoulder to shoulder with the thing
+        the screen is for: on a phone they are two full-width buttons 12px
+        apart, and the fixture screen already solved that. No sentence, because
+        the fixture's "Its 63 books move to other furniture first" is there for
+        a reason that does not apply here: pressing that one goes straight to
+        the plan and starts arranging, so the screen is the only place left to
+        say it. This one has a dialog, and a dialog is a better place to say it
+        than a caption nobody read on the way past. A standing explanation of a
+        button nobody has pressed is the ambient prose #262 took thirty-one
+        instances of off these screens.
+      */}
+      <Card
+        weight="quiet"
+        foot={
+          <Button tone="danger" block onPress={() => go('removearea')}>
+            Remove this area
+          </Button>
+        }
+      />
     </Phone>
+  )
+}
+
+function Area(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Cookery"
+      ordered="The way bookcase 2 does"
+      order="By the author’s surname, which is what the whole library uses."
+    />
+  )
+}
+
+/*
+ * --- Removing an area, which is three different questions ------------------
+ *
+ * > I think deleting an area, we should show a pop up that explains to them
+ * > what's gonna happen with the books, so they can decide whether they wanna
+ * > do that or not.
+ *
+ * **Removing an area is closer to a merge than to a deletion**, and every word
+ * in these dialogs is chosen to leave no doubt about that. The books stay on
+ * the piece they are on, they fall into whichever area claims them next, and
+ * what changes is the label they read under, because a label in this app is
+ * worked out from where a thing sits rather than stored. No book leaves the
+ * furniture and no book is thrown away. He said "deleting"; the dialog says
+ * what happens.
+ *
+ * ## It does not land on the plan, and the fixture's delete still should
+ *
+ * The obvious move is consistency: deleting a fixture shows every book and
+ * where it goes before anything happens, and an area is the same shape of
+ * question one size down. It is not the same question, though, and the
+ * difference is exactly what the plan is for. A fixture's books leave the
+ * piece: they go to several destinations on other furniture and somebody has
+ * to carry them, one armful at a time, which is a list you hold in your hand
+ * while walking around a room. Removing an area carries nothing. There is one
+ * destination for every book in it, it is named in the first line of the
+ * dialog with the count in it, and a plan screen would be that one line again
+ * under a heading, with an "Apply it" button for a journey that involves
+ * standing up zero times.
+ *
+ * **What the dialog is careful not to promise is that nothing will ever
+ * move.** The merged area orders itself, so some of those books may come up on
+ * the list of books to carry afterwards, the same way they would if somebody
+ * changed a rule. That is a list this app already has and already draws, and
+ * saying so is why the first dialog ends on where those books file from then
+ * on rather than on a flat "nothing is carried".
+ *
+ * **The third state is the exception, and it lands on the plan**, because the
+ * only way out of it is deleting the piece, and that is a real carry.
+ *
+ * ## The three states
+ *
+ * Every area on every piece falls into one of them, and the third is the one
+ * that gets skipped:
+ *
+ * 1. **Something before it.** Its books join the area before it. The ordinary
+ *    case, and `Removing` draws it.
+ * 2. **Nothing before it.** The first area on a piece has nothing behind it to
+ *    fall into, so the area after it comes forward instead and the whole run
+ *    of labels shuffles up. `RemovingFirst` draws it, and the shuffle is drawn
+ *    rather than described.
+ * 3. **Nothing before or after it.** A piece with one area has nowhere on it
+ *    for those books at all, so the dialog does not offer to do it. It says
+ *    what the way out is and lands on the plan, which is where deleting a
+ *    fixture goes.
+ */
+
+/**
+ * The ordinary case: an area with something before it.
+ *
+ * Its 18 books join 2B, which then holds 42. Nothing is carried by the removal
+ * itself, and the one thing that reads differently afterwards is drawn rather
+ * than claimed: the books that read `2 · Cookery` today read `2B` tomorrow.
+ *
+ * The second sentence is about the rule and it is not padding. Cookery is an
+ * area rule, so it goes when the area goes, and what happens to the books it
+ * used to claim is the whole question somebody opened this dialog to answer.
+ * It is also the honest end of the sentence "nothing moves": from then on
+ * those eighteen file in with the rest of the non-fiction, which is a thing
+ * somebody may end up carrying, on the list this app already keeps for that.
+ */
+function Removing(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Cookery"
+      ordered="The way bookcase 2 does"
+      order="By the author’s surname, which is what the whole library uses."
+      over={
+        <Sure
+          title="Its 18 books join 2B"
+          said={
+            <>
+              They stay on bookcase 2 where they are, and 2B holds 42 books
+              afterwards. The rule that sends Cookery books here goes with the
+              area, so from then on they file in with the rest of the
+              non-fiction.
+            </>
+          }
+          becomes={[{ from: '2 · Cookery', to: '2B' }]}
+          act="Remove the area"
+          onAct={() => go('bookcase')}
+          onKeep={() => go('area')}
+        />
+      }
+    />
+  )
+}
+
+/**
+ * The first area on a piece, which has nothing before it to join.
+ *
+ * This is the case the dialog would quietly get wrong. "Its books join the
+ * area before it" is the sentence somebody writes once and it is a promise
+ * this app cannot keep at the top of every piece of furniture, so the answer
+ * is the honest one in the other direction: the area after it comes forward,
+ * and every label on the piece shuffles up behind it.
+ *
+ * Drawn on the five areas of By the window rather than on bookcase 2, because
+ * the shuffle is the fact being shown and five unnamed areas shuffle four
+ * labels where three areas would shuffle one. Their labels are also the
+ * longest in the gallery, which is the case the row has to survive.
+ */
+function RemovingFirst(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="By the window · A"
+      sub="22 books, first on By the window"
+      belongs="Fiction starts here"
+      ordered="The way By the window does"
+      order="By the author’s surname, which is what the whole library uses."
+      over={
+        <Sure
+          title="Its 22 books join By the window · B"
+          said={
+            <>
+              Nothing comes before A, so its books join the area after it rather
+              than the one before. They stay where they are: 46 books in one
+              area, still the first on By the window, and fiction still starts
+              there.
+            </>
+          }
+          becomes={[
+            { from: 'By the window · B', to: 'By the window · A' },
+            { from: 'By the window · C', to: 'By the window · B' },
+            { from: 'By the window · D', to: 'By the window · C' },
+            { from: 'By the window · E', to: 'By the window · D' },
+          ]}
+          act="Remove the area"
+          onAct={() => go('bookcase')}
+          onKeep={() => go('area')}
+        />
+      }
+    />
+  )
+}
+
+/**
+ * The only area on a piece, where there is no answer and the dialog says so.
+ *
+ * A book lives in an area. A piece with one area and no other has nowhere on
+ * it for those books, so this is the one state where the dialog refuses rather
+ * than warns, and it refuses by offering the thing somebody actually meant:
+ * the desk itself can go, and then the books do move, to other furniture, with
+ * the plan in front of them first.
+ *
+ * **This is the desk one step later.** It has two areas on the furniture
+ * screen, six books on the left and four on the right; remove the right side
+ * and the left holds all ten, which is how a piece gets down to its last area
+ * without anybody deciding to make it that way.
+ */
+function RemovingOnly(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="Desk · Left side"
+      sub="10 books, the only area on the desk"
+      name="Left side"
+      belongs="Nothing sends books here"
+      ordered="The way the desk does"
+      order="Put here by hand, in whatever order they were put."
+      over={
+        <Sure
+          title="Its 10 books have nowhere else on the desk"
+          said={
+            <>
+              Every book sits in an area, and this is the only one the desk has,
+              so there is nothing here for these ten to join. Deleting the desk
+              moves them to other furniture instead, and shows you where every
+              one goes before anything happens.
+            </>
+          }
+          act="Delete the desk"
+          onAct={() => go('plan')}
+          onKeep={() => go('area')}
+        />
+      }
+    />
   )
 }
 
@@ -2056,6 +2329,22 @@ export const SCREENS: Screen[] = [
   { id: 'bookcase', name: 'One fixture', group: 'Your furniture', render: Bookcase },
   { id: 'area', name: 'One area', group: 'Your furniture', render: Area },
   { id: 'addarea', name: 'Adding an area', group: 'Your furniture', render: AddArea },
+  /* Three states of one dialog, and the second and third are the ones that get
+     skipped: the area at the top of a piece has nothing to fall into, and the
+     last area on a piece has nowhere at all. */
+  { id: 'removearea', name: 'Removing an area', group: 'Your furniture', render: Removing },
+  {
+    id: 'removefirst',
+    name: 'Removing the first one',
+    group: 'Your furniture',
+    render: RemovingFirst,
+  },
+  {
+    id: 'removeonly',
+    name: 'Removing the only one',
+    group: 'Your furniture',
+    render: RemovingOnly,
+  },
   { id: 'belongs', name: 'What belongs here', group: 'Your furniture', render: Belongs },
   { id: 'sorting', name: 'How an area is ordered', group: 'Your furniture', render: Sorting },
   { id: 'claimed', name: 'Why a book is here', group: 'Your furniture', render: Claimed },

@@ -844,6 +844,105 @@ describe('a shelf in the gallery is missing the page counts a real one is', () =
   })
 })
 
+/**
+ * The stop before an area goes, which is the one place this design system is
+ * allowed to explain itself at length.
+ *
+ * > I think deleting an area, we should show a pop up that explains to them
+ * > what's gonna happen with the books, so they can decide whether they wanna
+ * > do that or not.
+ *
+ * Three things are checked and each one is a different way this comes back
+ * wrong six months from now.
+ *
+ * **A dialog that talks about books in general.** "Books will be reassigned"
+ * is the sentence somebody writes when they are describing the feature rather
+ * than answering the question, and it is what the count is for: the owner is
+ * deciding about his own twenty-four books, not about a policy. So every
+ * dialog title carries a number and the word it counts.
+ *
+ * **A dialog whose safe answer is the easy one to miss.** The destructive
+ * button comes first and the one that changes nothing is beside it, which is
+ * `ConfirmDialog`'s arrangement in the working app and is checked here rather
+ * than described, because the order is the sort of thing a tidy-up reverses.
+ *
+ * **A way in that quietly disappears.** There was no way to remove an area
+ * anywhere in the interface at all until #281, which is how this started; a
+ * refactor that loses the button leaves the dialogs drawn and unreachable, and
+ * the screens would still all render.
+ */
+describe('removing an area explains itself before it happens', () => {
+  const drawn = (id: string) => {
+    const screen = SCREENS.find((one) => one.id === id)
+    expect(screen, `there is no screen called "${id}"`).toBeDefined()
+    return renderToStaticMarkup(screen!.render(() => {}))
+  }
+
+  const asked = SCREENS.filter((screen) =>
+    renderToStaticMarkup(screen.render(() => {})).includes('class="wf-sure"'),
+  )
+
+  it('is offered on the area screen itself', () => {
+    const markup = drawn('area')
+    const danger = markup.match(/<button[^>]*wf-btn--danger[^>]*>/g) ?? []
+
+    expect(danger.length, 'the area screen offers no way to remove it').toBe(1)
+    expect(words(markup)).toMatch(/Remove this area/)
+  })
+
+  it('says it about their books, with the count, in every state', () => {
+    expect(asked.length, 'no screen draws the dialog at all').toBeGreaterThan(2)
+
+    for (const screen of asked) {
+      const title = renderToStaticMarkup(screen.render(() => {})).match(
+        /<h2 class="wf-sure__title">([^<]+)<\/h2>/,
+      )?.[1]
+
+      expect(title, `${screen.id} draws a dialog with no title`).toBeDefined()
+      expect(title, `${screen.id} does not count the books`).toMatch(/\d/)
+      expect(title, `${screen.id} does not say what it is about`).toMatch(/books/i)
+    }
+  })
+
+  it('puts the destructive answer first and the safe one beside it', () => {
+    for (const screen of asked) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      const acts = markup.slice(markup.indexOf('class="wf-sure__acts"'))
+
+      expect(acts, `${screen.id} has no way out of the dialog`).toMatch(/Keep it/)
+      expect(
+        acts.indexOf('wf-btn--danger'),
+        `${screen.id} draws the safe answer after the dangerous one`,
+      ).toBeLessThan(acts.indexOf('Keep it'))
+    }
+  })
+
+  /**
+   * The first area on a piece has nothing before it, and a dialog that says
+   * its books join "the area before" is promising something the app cannot do
+   * at the top of every piece of furniture in the room. The promise is made in
+   * the title, so that is where this looks, and it is checked positively as
+   * well: the title names the area they do join.
+   *
+   * The body is deliberately left out of it. Saying "the area after it rather
+   * than the one before" is the sentence that makes the difference legible to
+   * somebody who has seen the ordinary dialog, and a check that forbade the
+   * words would be forbidding the explanation this issue asked for.
+   */
+  it('never promises an area before the first one', () => {
+    const markup = drawn('removefirst')
+    const title = markup.match(/<h2 class="wf-sure__title">([^<]+)<\/h2>/)?.[1]
+
+    expect(title, 'the first area claims to join something before it').not.toMatch(/before/i)
+    expect(title, 'the first area does not say where its books go').toMatch(
+      /join By the window · B/,
+    )
+    expect(markup, 'the shuffle of labels is described rather than drawn').toMatch(
+      /wf-sure__becomes/,
+    )
+  })
+})
+
 describe('the gallery', () => {
   it('renders every screen to markup', () => {
     for (const screen of SCREENS) {
