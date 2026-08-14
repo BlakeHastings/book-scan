@@ -664,6 +664,88 @@ The owner runs this. It needs the live connection string.
    simply not finished, and the gap is worth naming rather than rounding off,
    because "there are verified nightly backups" reads like the whole answer.
 
+## Something notices when this stops
+
+**Twice now the backup has stopped and the only thing that knew was a log.**
+#239 was the first, when #221 made `--source` compulsory and two nights passed
+before anybody looked. #311 was the second, with a different cause and an
+identical shape: the task was registered before `-ConnectionFile` existed, so
+every run since then has logged `FAILED: no -ConnectionFile` and dumped nothing.
+
+Once is an incident. Twice is a property of a system that has a preventive layer
+and nothing that notices, so #311 built the noticing.
+
+### What it asks
+
+`web/server/backup-watch.ts`, over `GET /api/backup`, and it asks the disk one
+question:
+
+> is there a dump in the backup directory, taken less than about a day ago,
+> whose manifest says a verification restored it and found no differences?
+
+**It never asks whether the job ran**, because the job ran on both of the nights
+nobody found out about: it started at 03:30, failed in under a second, wrote the
+reason, and exited non-zero. A check on the process would have been satisfied by
+both. The result is the one thing a broken process cannot fake.
+
+It reads two things and writes nothing: the names in the directory, and the
+manifests beside the newest few dumps. It opens no connection, and it could not
+usefully: the answer is not in the catalogue.
+
+| It says | When |
+| --- | --- |
+| `fresh` | There is a verified dump newer than 26 hours. Nothing is drawn. |
+| `stale` | The newest verified dump is older than that. |
+| `unverified` | There are dumps and not one carries `verified.ok`. The state this document calls worse than nothing: fourteen unrestored files look more like protection than an empty directory does. |
+| `none` | The directory is readable and empty. |
+| `unreachable` | The directory could not be read. `E:` is a separate physical disk, which is the right place for the dumps and is also a thing that can be unplugged, so this is its own answer and never a pass. |
+| `unwatched` | No directory was given. Nothing is claimed and nothing is drawn. |
+
+26 hours rather than 24: the schedule is nightly and carries
+`-StartWhenAvailable`, so a run made up after a sleeping desktop is back is not
+news. An alarm that fires on an ordinary Tuesday is an alarm somebody learns to
+scroll past.
+
+### Where the answer goes
+
+**The first screen of the app**, above everything else on it, as a card with the
+bad news in the title. That screen already exists to say what needs the owner,
+and he already looks at it. A second log would have been the thing that failed
+twice, written again.
+
+The card is drawn only when something is wrong. **There is no reassuring
+version of it**, deliberately: a line saying backups are fine is a line that can
+be printed over a disk nobody read.
+
+### The one thing to wire, which the owner runs
+
+The server watches `BOOKSCAN_BACKUP_DIR` and watches nothing when it is unset.
+That is the right default for a checkout and the wrong one for the machine with
+the collection on it, so the `stable` launcher has to set it. In
+`C:\Users\Blake\book-scan-production-data\run-stable.ps1`, beside where it sets
+`BOOKSCAN_DATA`:
+
+```
+$env:BOOKSCAN_BACKUP_DIR = 'E:\book-scan-backups'
+```
+
+Restart the stable server and read its first lines. It says which it did, both
+ways round, so an ordinary start is also the evidence:
+
+```
+[api] watching E:\book-scan-backups for backups of this catalogue
+```
+
+or, when the line above is missing:
+
+```
+[api] no backup directory watched; set BOOKSCAN_BACKUP_DIR to watch one
+```
+
+`curl http://127.0.0.1:3001/api/backup` answers the same thing as JSON. Under
+`aspire start` the AppHost sets the variable to empty on purpose, so a
+development checkout watches nothing whatever is in the shell.
+
 ## When it fails
 
 The log is `<BackupDir>\logs\backup-<yyyymmdd>.log`. The last line of a good run

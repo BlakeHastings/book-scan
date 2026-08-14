@@ -68,6 +68,7 @@ import { historyOf, UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
 // The work list the ledger already holds, grouped into trips (#314).
 import { outstandingWork, tripAtArea } from './carry'
+import { watchBackups } from './backup-watch'
 import {
   addAreaTo, addFixture, booksInArea, describeFixture, describeFurniture, dropArea, dropFixture,
   editArea, editFixture, planAreaRemoval, planFixtureRemoval,
@@ -291,6 +292,15 @@ export interface CreateAppOptions {
    * tests have no file to name.
    */
   dbLabel?: string
+  /**
+   * Where the dumps of this catalogue are kept, read only, for `/api/backup`.
+   *
+   * Empty or absent means nothing is watched and nothing is claimed, which is
+   * what every test and every development checkout wants. Production passes the
+   * real directory; see the startup path at the bottom of this file and
+   * `docs/backup-runbook.md`.
+   */
+  backupDir?: string
   /**
    * Resume any pending capture, warm the OCR engine, and start the background
    * hash/cover-backfill loops.
@@ -3146,6 +3156,25 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({ ok: true, counts: await store.counts(), db: options.dbLabel ?? '' })
   }))
 
+  /**
+   * Whether there is a backup of this collection anybody has proved restores.
+   *
+   * **Files on a disk, and no connection to anything** (#311). It reads the
+   * names in the backup directory and the manifests beside the newest few, and
+   * that is the whole of it: it does not ask the catalogue anything, and it
+   * could not, because the answer it wants is not in there. See
+   * `server/backup-watch.ts` for why the question is about the artefact rather
+   * than about whether a scheduled job ran.
+   *
+   * Answers `unwatched` when no directory was given, which is every development
+   * checkout and every test. Nothing is claimed in that state and no screen
+   * draws anything for it: an app that said "your collection is unprotected" on
+   * a scratch catalogue nobody owns is the alarm everybody learns to ignore.
+   */
+  app.get('/api/backup', asyncRoute(async (_req, res) => {
+    res.json(await watchBackups(options.backupDir ?? ''))
+  }))
+
   /*
    * Anything under /api that no route above matched (#332).
    *
@@ -3304,6 +3333,25 @@ if (isMainModule) {
   const COVER_DIR = join(DATA_DIR, 'covers')
   const GOOGLE_API_KEY = process.env.GOOGLE_BOOKS_API_KEY ?? ''
 
+  /*
+   * Where this server looks for evidence that the catalogue has been backed up
+   * (#311). Read only, and never created: if the directory is not there, that
+   * is the answer rather than something to fix by making one.
+   *
+   * **Unset means nothing is watched**, and an empty value means the same
+   * deliberately, so the AppHost can switch it off for a development checkout
+   * by setting it rather than by hoping nothing in the shell has set it. That is
+   * the arrangement `BOOKSCAN_DATA` already uses and it exists for the same
+   * reason: an inherited value must not be able to decide what this process
+   * touches.
+   *
+   * The name is not new. `server/backup-catalogue.ts` has read
+   * `BOOKSCAN_BACKUP_DIR` for the directory it writes into since it was
+   * written, so the tool that fills the directory and the server that watches it
+   * take the same answer from the same place.
+   */
+  const BACKUP_DIR = process.env.BOOKSCAN_BACKUP_DIR ?? ''
+
   mkdirSync(COVER_DIR, { recursive: true })
 
   // Connecting is asynchronous where opening a file was not, so the wiring
@@ -3318,11 +3366,25 @@ if (isMainModule) {
       coverDir: COVER_DIR,
       googleApiKey: GOOGLE_API_KEY,
       dbLabel: label,
+      backupDir: BACKUP_DIR,
     })
 
     app.listen(PORT, '127.0.0.1', () => {
       console.log(`[api] listening on http://127.0.0.1:${PORT}`)
       console.log(`[api] database ${label}`)
+      /*
+       * Said on every start, both ways round, for the reason the stable
+       * launcher says which variables it threw away: the state this line
+       * reports is otherwise invisible until something goes wrong, and "the
+       * check was never switched on" and "the check says everything is fine"
+       * look identical from the outside. That is the shape of the failure this
+       * whole thing exists to end.
+       */
+      console.log(
+        BACKUP_DIR
+          ? `[api] watching ${BACKUP_DIR} for backups of this catalogue`
+          : '[api] no backup directory watched; set BOOKSCAN_BACKUP_DIR to watch one',
+      )
     })
   }
 

@@ -15,7 +15,7 @@ import { useSummary } from '../app/summary'
 
 export function HomeScreen() {
   const { setRoute } = useNavigation()
-  const { counts, queueCounts, queued, carrying } = useSummary()
+  const { counts, queueCounts, queued, carrying, backup } = useSummary()
   const { openCapture } = useOpenBook()
 
   // The page under a converted screen takes the design system's paper. See
@@ -28,6 +28,7 @@ export function HomeScreen() {
       queue={queueCounts}
       queued={queued}
       carrying={carrying}
+      backup={backup}
       onAdd={() => setRoute('capture')}
       onScan={() => setRoute('scan')}
       onLibrary={() => setRoute('library')}

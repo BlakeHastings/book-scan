@@ -32,6 +32,23 @@
  * only which block comes first, so the screen now opens with what is owned
  * rather than with what is asking.
  *
+ * ## The one thing on it that is not work (#311)
+ *
+ * A card at the top saying the collection has stopped being backed up. It is
+ * the only thing on this screen nobody can act on from the phone, and it is
+ * here because the alternative was a log: the nightly backup has stopped twice,
+ * for two unrelated reasons, and both times the only thing that knew was a file
+ * on a disk and it took days for somebody to happen to look.
+ *
+ * The owner looks at this app. So the app is what says it, on the screen that
+ * already exists to tell him what needs him, and it says it about the artefact
+ * rather than about the job: the job started on both of those nights.
+ *
+ * **It draws nothing at all when there is nothing wrong**, and nothing when no
+ * directory is being watched, which is every development checkout. There is no
+ * reassuring version of this card, on purpose: a line saying backups are fine
+ * is a line that can be printed over a disk nobody read.
+ *
  * ## It holds no state, on purpose
  *
  * Everything it draws arrives as a prop, so it stays callable as a plain
@@ -47,12 +64,14 @@ import { Button } from '../design/Controls'
 import { IconFind } from '../design/Icons'
 import { List, Row, Stats } from '../design/List'
 import { Phone } from '../design/Phone'
+import { Trouble } from '../design/Trouble'
 import { clothFor } from '../lib/bookLook'
+import { troubleWith } from '../lib/backupWords'
 import { grouped } from '../lib/say'
 import { filingName } from '../../shared/shelving'
 import {
   captureName, draftFromCapture,
-  type CarryItem, type Capture, type Counts, type QueueCounts,
+  type BackupWatch, type CarryItem, type Capture, type Counts, type QueueCounts,
 } from '../lib/api'
 
 interface Props {
@@ -66,6 +85,15 @@ interface Props {
    * request that has not come back is a guess, so it is left out instead.
    */
   carrying: CarryItem[] | null
+  /**
+   * Whether the collection has a backup anybody has proved restores (#311).
+   *
+   * Null until the read answers, and null if it failed, and both of those draw
+   * nothing. So does a backup that is fine, and so does a checkout that watches
+   * no directory at all: this card is only ever on the screen when there is
+   * something wrong that nothing else was going to mention.
+   */
+  backup: BackupWatch | null
   /** Photograph a book, which is what the fourth tab is for. */
   onAdd: () => void
   /** Hold a book you already have up to the camera, to find it. */
@@ -123,7 +151,8 @@ function nameOf(capture: Capture): { title: string; sub: string } {
 }
 
 export function HomePane({
-  counts, queue, queued, carrying, onAdd, onScan, onLibrary, onQueue, onCarry, onOpenReady,
+  counts, queue, queued, carrying, backup,
+  onAdd, onScan, onLibrary, onQueue, onCarry, onOpenReady,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
@@ -150,15 +179,29 @@ export function HomePane({
     />
   )
 
+  /*
+   * Worked out before the counts are waited for, and drawn on that screen too.
+   *
+   * The two answers are independent: this one comes off a disk and the counts
+   * come out of the catalogue, so a catalogue that is slow or down must not be
+   * able to hide the news that nothing has been backed up. That combination is
+   * not far-fetched, it is the morning after the worst kind of night.
+   */
+  const trouble = troubleWith(backup)
+  const news = trouble && (
+    <Trouble kind="Backups" title={trouble.title}>{trouble.said}</Trouble>
+  )
+
   // Nothing has come back yet. Drawing zeros would be saying something false
   // about somebody's collection for as long as the first request takes.
-  if (!counts || !queue) return <Screen top={top} tabs={tabs} />
+  if (!counts || !queue) return <Screen top={top} tabs={tabs}>{news}</Screen>
 
   const waiting = waitingIn(queue)
   const ready = queued.filter((capture) => capture.status === 'ready')
 
   return (
     <Screen top={top} tabs={tabs}>
+      {news}
       {counts.total === 0 && waiting === 0 ? (
         <Nothing said="Nothing is catalogued yet." />
       ) : (

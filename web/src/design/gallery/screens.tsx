@@ -28,7 +28,7 @@
  * quietly reintroduce one.
  */
 
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { Actions, Been, Head, Part, Tagged, Tagging } from '../Book'
 import { Viewfinder } from '../Camera'
 import { Beside, Card, Confirmation, Instruction, Nothing, Said } from '../Card'
@@ -52,6 +52,7 @@ import { Phone as Frame } from '../Phone'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
 import { Sure } from '../Sure'
+import { Trouble } from '../Trouble'
 import { Corner, Portrait, TopBar, type TabName } from '../Chrome'
 
 /** Move to another screen of the gallery. */
@@ -114,7 +115,13 @@ function Phone({
   top,
   over,
 }: {
-  children: ReactElement | ReactElement[]
+  /*
+   * `ReactNode` rather than one element or an array of them, since #311: a
+   * screen that draws something only on the day it has bad news has an
+   * `undefined` in among its children on every other day, and the frame this
+   * hands off to has always taken exactly this.
+   */
+  children: ReactNode
   tab: TabName
   go: Go
   top: ReactElement
@@ -189,8 +196,21 @@ function Phone({
  * It is one function drawing both, the way `AreaScreen` draws an area and the
  * three states of being asked to remove one. A second copy of this screen with
  * a sheet on it would be six counts and two lists to keep in step.
+ *
+ * ## And the same function draws the two days it goes wrong (#311)
+ *
+ * `trouble` is drawn above everything, on the two screens below this one and on
+ * no ordinary day. The nightly copy of the collection has stopped twice now and
+ * both times the only thing that knew was a file on a disk, so the app is what
+ * says it, here, where the owner already looks for what needs him.
+ *
+ * **Above the sentence about the table rather than under "Needs you"**, which
+ * is the one arrangement decision in it. The counts under that heading are work
+ * somebody can walk over and do; this is not, and putting it in among them
+ * would make it the fourth thing to read on a screen whose other three are all
+ * a tap away from being done.
  */
-function Home(go: Go, over?: ReactElement) {
+function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
   return (
     <Phone
       tab="home"
@@ -198,6 +218,7 @@ function Home(go: Go, over?: ReactElement) {
       over={over}
       top={<TopBar title="Book scan" action={you(go, over !== undefined)} />}
     >
+      {trouble}
       <Beside>Eighteen books are waiting on the table.</Beside>
 
       <p className="wf-heading wf-heading--flush">The collection</p>
@@ -279,6 +300,56 @@ function Home(go: Go, over?: ReactElement) {
         </Button>
       </Card>
     </Phone>
+  )
+}
+
+/**
+ * The day the collection stopped being copied anywhere, and nothing said so.
+ *
+ * > the backup stopped, the failure was loud, in a file nobody reads,
+ * > everything else looked fine, and it was found by somebody happening to look,
+ * > days later
+ *
+ * That has now happened twice, for two different reasons, which is what makes
+ * it a property of this system rather than an accident. So the drawing is of the
+ * app noticing: not that the nightly job started, which it did both times, but
+ * that there is no copy of the collection on the other disk that anybody has
+ * proved restores.
+ *
+ * **The date is in it and the age is in the title.** "Three days old" is what
+ * somebody reacts to; "taken on 11 Aug" is what they check against what they
+ * remember doing. A card that said only "backups are out of date" is the log
+ * nobody reads, written on a screen.
+ */
+function Unbacked(go: Go) {
+  return Home(
+    go,
+    undefined,
+    <Trouble kind="Backups" title="The last proved backup is three days old">
+      It was taken on 11 Aug. The collection is added to most days, so
+      everything since then exists in one place only.
+    </Trouble>,
+  )
+}
+
+/**
+ * The other disk is not there, which must never read as everything being fine.
+ *
+ * The backups are on a second physical disk, which is the right place for them
+ * and is also a thing that can be unplugged, and the failure this whole card
+ * exists to catch is a check that quietly passes when it could not look. So the
+ * drawing says the app could not look, in the same weight as it says the news
+ * is bad, because to somebody standing here they mean the same thing: nobody
+ * knows whether the collection is safe.
+ */
+function NoDisk(go: Go) {
+  return Home(
+    go,
+    undefined,
+    <Trouble kind="Backups" title="The backups cannot be read">
+      Where the backups are kept did not answer, so nothing can say whether
+      there is a copy of the collection. If it is a disk, it may be unplugged.
+    </Trouble>,
   )
 }
 
@@ -3078,6 +3149,12 @@ export const SCREENS: Screen[] = [
   /* Short names. The viewer's own bar gives a name about twenty-four
      characters before it truncates, and three of these were being cut off in
      the middle of the word that told them apart. */
+  /* The two days Today has bad news on it. Drawn beside the ordinary one and
+     not instead of it: an alarm that is on the drawing every day is an alarm
+     nobody would design around, and the ordinary day is what this screen is
+     for. */
+  { id: 'unbacked', name: 'Nothing backed up', group: 'Every day', render: Unbacked },
+  { id: 'nodisk', name: 'Backups unreadable', group: 'Every day', render: NoDisk },
   { id: 'library', name: 'Library', group: 'Every day', render: Library },
   { id: 'covers', name: 'Covers, and two tags', group: 'Every day', render: CoverView },
   { id: 'listing', name: 'A list of books', group: 'Every day', render: ListView },

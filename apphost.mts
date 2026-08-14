@@ -210,6 +210,16 @@ let apiBuilder = builder
   // already reads.
   .withHttpEndpoint({ env: 'PORT' })
   .withEnvironment('BOOKSCAN_DATA', dataDir)
+  // Nothing to watch, said out loud rather than left to whatever is in the
+  // shell. `server/backup-watch.ts` answers "unwatched" for an empty value and
+  // no screen draws anything for it, which is what a development checkout
+  // wants: there is no collection here worth telling anybody about, and an
+  // alarm on a scratch catalogue is the alarm everybody learns to scroll past.
+  // Set explicitly for the same reason BOOKSCAN_DATA is: `BOOKSCAN_BACKUP_DIR`
+  // is a name `server/backup-catalogue.ts` already reads, so it may well be in
+  // the shell already, and an inherited value must not decide what an Aspire
+  // run reads off a disk.
+  .withEnvironment('BOOKSCAN_BACKUP_DIR', '')
   // Set explicitly for the same reason BOOKSCAN_DATA is: the connection has to
   // be the one this AppHost provisioned and not one inherited from a shell
   // that might name somebody's real catalogue.

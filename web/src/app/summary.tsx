@@ -26,7 +26,7 @@ import {
   type Dispatch, type ReactNode, type SetStateAction,
 } from 'react'
 import {
-  api, type CarryItem, type Capture, type Counts, type QueueCounts,
+  api, type BackupWatch, type CarryItem, type Capture, type Counts, type QueueCounts,
 } from '../lib/api'
 import { useNavigation, type Route } from './navigation'
 
@@ -73,6 +73,16 @@ export interface Summary {
    * behind it are one answer, worked out once.
    */
   readonly carrying: CarryItem[] | null
+  /**
+   * Whether the collection has a backup anybody has proved restores (#311).
+   *
+   * Null until the read answers, and null again if it fails, which is the same
+   * arrangement `carrying` keeps and is more important here: this is the one
+   * thing on the screen that exists to say something is wrong, so a request
+   * that did not come back must not be able to produce a sentence. The server
+   * has its own word for "I could not look", and it is not this one.
+   */
+  readonly backup: BackupWatch | null
 }
 
 
@@ -84,6 +94,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [queued, setQueued] = useState<Capture[]>([])
   const [carrying, setCarrying] = useState<CarryItem[] | null>(null)
+  const [backup, setBackup] = useState<BackupWatch | null>(null)
 
   useEffect(() => {
     let live = true
@@ -137,9 +148,32 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
     return () => { live = false }
   }, [route])
 
+  /**
+   * Whether anything has backed the collection up lately.
+   *
+   * On the first screen only, like `carrying` above, and for a second reason
+   * as well as that one: the answer comes off a disk that is deliberately not
+   * the one the app is on and may be asleep, and a request on every navigation
+   * would be spinning it up all day to answer a question whose answer changes
+   * once a night.
+   *
+   * A failure leaves it null and the screen then says nothing at all. That is
+   * the right silence: the server distinguishes "there is no backup" from "I
+   * could not look", and a browser that could not reach the server knows
+   * neither.
+   */
+  useEffect(() => {
+    if (route !== 'home') return
+    let live = true
+    api.backup()
+      .then((watch) => { if (live) setBackup(watch) })
+      .catch(() => { if (live) setBackup(null) })
+    return () => { live = false }
+  }, [route])
+
   return (
     <Context.Provider
-      value={{ counts, setCounts, queueCounts, setQueueCounts, queued, carrying }}
+      value={{ counts, setCounts, queueCounts, setQueueCounts, queued, carrying, backup }}
     >
       {children}
     </Context.Provider>

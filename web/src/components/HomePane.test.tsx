@@ -28,7 +28,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import { HomePane } from './HomePane'
-import type { Capture, Counts, Misfile, QueueCounts } from '../lib/api'
+import type { BackupWatch, Capture, Counts, Misfile, QueueCounts } from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
 const counts: Counts = { total: 12, fiction: 8, nonfiction: 4, checkedOut: 0 }
@@ -65,12 +65,18 @@ function misfile(over: Partial<Misfile['book']> = {}, from = '2C', to = '3A'): M
   }
 }
 
+/** What the server found where the backups are kept, with only what is drawn. */
+function watched(over: Partial<BackupWatch> & Pick<BackupWatch, 'state'>): BackupWatch {
+  return { where: 'E-drive', limitHours: 26, ...over }
+}
+
 function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
   return renderToStaticMarkup(HomePane({
     counts,
     queue: queue(),
     queued: [],
     carrying: [],
+    backup: null,
     onAdd: () => {},
     onScan: () => {},
     onLibrary: () => {},
@@ -219,6 +225,98 @@ describe('the numbers the drawing did not have to survive', () => {
     expect(html).toContain('Book #4')
   })
 
+  it('says nothing about backups on an ordinary day, in either silence', () => {
+    // Fine, and not watched at all, both draw nothing, and they have to: a
+    // reassuring line about a directory nobody read is the failure this whole
+    // card exists to end, printed the other way round (#311).
+    for (const state of ['fresh', 'unwatched'] as const) {
+      const html = home({ backup: watched({ state }) })
+      expect(html, `${state} drew a card`).not.toContain('wf-card__kind')
+      expect(words(html)).not.toMatch(/backup/i)
+    }
+  })
+})
+
+/*
+ * The other half of #311. The check itself is `server/backup-watch.test.ts`;
+ * what is here is that each answer reaches the screen as words somebody would
+ * act on, and that the two answers meaning "nothing to say" say nothing.
+ */
+describe('when the collection has stopped being backed up', () => {
+  it('says how old the last proved one is, and when it was taken', () => {
+    const html = home({
+      backup: watched({
+        state: 'stale',
+        verified: { dump: 'bookscan-20260811T154741Z.dump', takenAt: '2026-08-11T15:47:41Z' },
+        ageHours: 64,
+      }),
+    })
+
+    expect(words(html)).toContain('The last proved backup is two days old')
+    expect(words(html)).toContain('11 Aug')
+  })
+
+  it('says a disk it could not read is a disk it could not read', () => {
+    // Never "everything is fine", and never "there are no backups" either: the
+    // dumps are on a second physical disk on purpose, and a disk with its cable
+    // out is a thing nobody knows the answer about.
+    const said = words(home({ backup: watched({ state: 'unreachable', why: 'there is no such folder' }) }))
+
+    expect(said).toContain('The backups cannot be read')
+    expect(said).toContain('unplugged')
+  })
+
+  it('says a backup nobody restored is not one', () => {
+    const said = words(home({ backup: watched({ state: 'unverified' }) }))
+
+    expect(said).toContain('No backup has been proved')
+    expect(said).toContain('restored')
+  })
+
+  it('says an empty directory plainly', () => {
+    expect(words(home({ backup: watched({ state: 'none' }) })))
+      .toContain('Nothing has been backed up')
+  })
+
+  it('draws it above everything else on the screen', () => {
+    const html = home({
+      queue: queue({ ready: 6 }),
+      backup: watched({ state: 'none' }),
+    })
+
+    expect(html.indexOf('Nothing has been backed up'))
+      .toBeLessThan(html.indexOf('The collection'))
+  })
+
+  it('says it even before the catalogue has answered', () => {
+    // The morning after the worst kind of night is the one where the database
+    // is slow as well, and that must not be the morning this stays quiet.
+    const html = home({ counts: null, queue: null, backup: watched({ state: 'none' }) })
+
+    expect(words(html)).toContain('Nothing has been backed up')
+    expect(html).not.toContain('wf-stat')
+  })
+
+  it('offers no button, because nothing on this phone fixes it', () => {
+    const html = home({ backup: watched({ state: 'none' }) })
+    const card = html.slice(html.indexOf('Nothing has been backed up'))
+
+    expect(card.slice(0, card.indexOf('</section>'))).not.toContain('<button')
+  })
+
+  it('says no word out of the model, in any of its four states', () => {
+    for (const state of ['unreachable', 'none', 'unverified', 'stale'] as const) {
+      const said = words(home({ backup: watched({ state, ageHours: 64 }) }))
+      for (const word of ['run', 'range', 'shelf', 'plank', 'separator', 'capture', 'placement', 'cut']) {
+        expect(said, `the backup card says "${word}" when ${state}`).not.toMatch(
+          new RegExp(`\\b${word}\\b`, 'i'),
+        )
+      }
+    }
+  })
+})
+
+describe('the queue on the first screen', () => {
   it('lists only the ones that are ready, not the whole queue', () => {
     const html = home({
       queue: queue({ pending: 1, ready: 1 }),
