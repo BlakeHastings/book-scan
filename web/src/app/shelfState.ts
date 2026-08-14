@@ -61,6 +61,21 @@ export function useShelfState(
   const [misfileMoving, setMisfileMoving] = useState(false)
 
   const loadPlacement = useCallback(() => {
+    /*
+     * A book nothing files has nowhere to be placed, so nothing is asked (#304).
+     *
+     * The server refuses the same request for the same reason, and asking it
+     * anyway would put an error banner over a screen that is not in error: the
+     * app knows perfectly well why there is no answer, and `ShelveView` says
+     * so. Cleared rather than left, because a placement worked out before
+     * somebody unset the genre names a plank that no longer follows from
+     * anything.
+     */
+    if (rangeOfSlug(draft.genre) === null) {
+      setPlacement(null)
+      setPlacementStale(false)
+      return Promise.resolve()
+    }
     return api.previewPlacement(draft, bookId ?? undefined)
       .then((result) => {
         setPlacement(result)
@@ -113,12 +128,15 @@ export function useShelfState(
    * recorded position for anything to disagree with.
    */
   const loadMisfile = useCallback(() => {
-    if (bookId === null) {
+    // A book in neither run is in neither review: the question is whether it is
+    // where its sort order puts it, and it has no sort order to be in (#304).
+    const range = rangeOfSlug(draft.genre)
+    if (bookId === null || range === null) {
       setMisfile(null)
       setMisfileTakeable(false)
       return Promise.resolve()
     }
-    return api.misfiles(rangeOfSlug(draft.genre))
+    return api.misfiles(range)
       .then((review) => {
         setMisfile(findMisfile(review, bookId))
         setMisfileTakeable(canTakeBack(review, bookId))
@@ -199,11 +217,12 @@ export function useShelfState(
    * strip on it was drawn from where they were.
    */
   const takeMisfileBack = async () => {
-    if (!misfile) return
+    const range = rangeOfSlug(draft.genre)
+    if (!misfile || range === null) return
     setMisfileMoving(true)
     setError('')
     try {
-      await takeMoveBack(rangeOfSlug(draft.genre), misfile.book.id)
+      await takeMoveBack(range, misfile.book.id)
       await reloadShelfState()
     } catch (caught) {
       setError((caught as Error).message)

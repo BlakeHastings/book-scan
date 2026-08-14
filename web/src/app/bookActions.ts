@@ -362,11 +362,15 @@ export function useBookActions(): BookActions {
    * genuinely open; the server checks again on the write regardless.
    */
   const startBoundaryMove = async (direction: 'next' | 'previous') => {
-    if (bookId === null) return
+    // A book no genre tag claims is in neither run, so there is no boundary of
+    // one for it to cross (#304). Nothing offers this for such a book; the
+    // guard is here because the range is what the write is addressed to.
+    const range = rangeOfSlug(draft.genre)
+    if (bookId === null || range === null) return
     setBoundaryMoving(true)
     setError('')
     try {
-      await moveAcrossBoundary(rangeOfSlug(draft.genre), bookId, direction)
+      await moveAcrossBoundary(range, bookId, direction)
     } catch (caught) {
       setError((caught as Error).message)
     } finally {

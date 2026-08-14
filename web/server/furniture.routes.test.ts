@@ -61,7 +61,7 @@ async function shelve(draft: DraftBook): Promise<number> {
   await recordCredits(
     new CreditBookHandler(authors), authors, new FileAliasHandler(authors), id, draft,
   )
-  const landed = await shelves.labelFor(placement.range, id)
+  const landed = placement && await shelves.labelFor(placement.range, id)
   if (landed) await store.setLocation(id, landed)
   return id
 }

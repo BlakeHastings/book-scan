@@ -42,15 +42,35 @@ import type { DraftBook } from './store'
  * point of the whole exercise: a book can carry a person's genre and a
  * catalogue's, and which of them the shelf follows is `rangeOfGenre`'s answer
  * rather than whatever this particular save happened to say.
+ *
+ * ## A save that states nothing writes nothing, and answers null
+ *
+ * #304. When no catalogue stated a genre and no person set one, there is no
+ * claim to restate, so this restates none: not an empty claim list, which is a
+ * withdrawal, but no statement at all. **A guess already on the book therefore
+ * stays exactly where it is**, which matters because every book saved before
+ * this change carries one. Stripping those is a separate decision and it is the
+ * owner's.
+ *
+ * What comes back is still `rangeOfGenre` over what the book carries
+ * afterwards, which is the same read as ever. So a book that already had a
+ * genre tag keeps its range, and a book that has never had one answers null:
+ * nothing files it, no rule claims it, and the caller writes a row that is in
+ * neither run rather than one filed somewhere nobody chose.
  */
 export async function settleGenre(
   restateTags: RestateTagsHandler,
   tags: TagRepository,
   bookId: number,
   draft: DraftBook,
-): Promise<ShelfRange> {
+): Promise<ShelfRange | null> {
   const { tag } = genreStatedBy(draft)
   const now = new Date().toISOString()
+
+  // Nothing stated, so nothing restated, and the book is read back as it
+  // stands. An empty claim list here would be this source taking back what it
+  // said before, which is not what a silent lookup means.
+  if (!tag) return rangeOfGenre(await tags.of(bookId))
 
   await restateTags.handle({
     bookId,

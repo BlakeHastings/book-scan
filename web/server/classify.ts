@@ -1,10 +1,21 @@
 /**
- * Fiction or non-fiction, from whatever the metadata sources gave us.
+ * Fiction or non-fiction, from whatever the metadata sources gave us, and
+ * nothing at all when they gave us nothing.
  *
  * Shelf 4 is the only non-fiction shelf, so a wrong answer sends the book to a
- * different bookcase entirely. Nothing here is allowed to be silent: the
- * result always reaches the review pane as a toggle with the guess
- * pre-selected, and `source` records whether a human ever looked at it.
+ * different bookcase entirely. Nothing here is allowed to be silent: the result
+ * reaches the review pane as a toggle, and `source` records whether a human ever
+ * looked at it.
+ *
+ * **The last rung answers no genre rather than fiction** (#304). Every rung
+ * above it is grounded in something a catalogue actually said: a BISAC heading,
+ * an Open Library subject, a Dewey number, an LC class. The last one is grounded
+ * in nothing, and it used to answer `genre/fiction` with the confidence set to
+ * `unknown` and a sentence asking the person to fix it. That is a guess wearing
+ * an answer's clothes, and a save wrote it as a tag whether or not anybody read
+ * the sentence. There is no scale of definiteness here and none was added: a
+ * source either stated a genre or it did not, and `confidence` is where how
+ * strongly it said so already lives.
  */
 
 import {
@@ -24,15 +35,16 @@ export interface ClassificationInput {
 
 export interface Classification {
   /**
-   * The genre this book is guessed to be under, as the tag it means (#227).
+   * The genre this book is guessed to be under, as the tag it means (#227), or
+   * null when no source stated one (#304).
    *
    * A slug rather than a boolean, because that is the vocabulary a genre
    * travels in now: the ladder below still reasons in fiction-or-not, which is
    * the only question it can answer, and this is where that becomes a claim
    * about a tag. `claimsFrom` turns it into the row the shelf range is derived
-   * from.
+   * from, and writes no row at all when this is null.
    */
-  genre: GenreSlug
+  genre: GenreSlug | null
   confidence: Confidence
   /** Human-readable justification, shown under the toggle. */
   reason: string
@@ -142,9 +154,13 @@ export function classify(input: ClassificationInput): Classification {
     return { genre: FICTION_SLUG, confidence: 'weak', reason: 'LC class PZ (juvenile fiction)' }
   }
 
+  // Nothing said anything. Not "probably fiction", not "non-fiction because it
+  // is the other one": nobody knows, and that is the answer. The book then
+  // carries no genre tag, no rule claims it, and it waits for a person instead
+  // of being filed somewhere nobody chose.
   return {
-    genre: FICTION_SLUG,
+    genre: null,
     confidence: 'unknown',
-    reason: 'No classification signal found. Please set this yourself.',
+    reason: 'No catalogue says whether this is fiction. Please set it yourself.',
   }
 }

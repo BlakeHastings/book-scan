@@ -478,10 +478,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * A thin binding of `settleGenre` in `server/book-save.ts` to this app's own
    * `restateTags` handler and `tags` repository. The function itself moved
    * there (#234) so `scripts/seed-world.ts` can call the exact same steps
-   * rather than restate them: **`books.is_fiction` is still written, from that
-   * same answer, because the client still reads it; it decides nothing.**
+   * rather than restate them.
+   *
+   * **Null is a range** (#304): a save that states no genre writes no genre
+   * tag, and a book no genre tag claims is in neither run.
    */
-  async function settleGenre(bookId: number, draft: DraftBook): Promise<ShelfRange> {
+  async function settleGenre(bookId: number, draft: DraftBook): Promise<ShelfRange | null> {
     return settleGenreStep(restateTags, tags, bookId, draft)
   }
 
@@ -1214,7 +1216,25 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * what the review pane says. That book's save follows the person's tag and
      * the preview is one step behind it, which is the trade of not writing.
      */
-    const placement = await store.placementFor(draft, genreStatedBy(draft).range, excludeId)
+    const { range } = genreStatedBy(draft)
+    /*
+     * Nothing states a genre, so there is no run to find a gap in (#304).
+     *
+     * Refused on the same terms as a missing title above, because it is the
+     * same kind of missing: a placement is a position in one of two ordered
+     * lists, and this draft is in neither. Answering a position anyway is what
+     * this issue exists to stop. The client does not ask when it knows the
+     * answer is this, and says so on the screen instead.
+     */
+    if (range === null) {
+      res.status(400).json({
+        error:
+          'Nothing says whether this is fiction or non-fiction, '
+          + 'so there is nowhere to work out.',
+      })
+      return
+    }
+    const placement = await store.placementFor(draft, range, excludeId)
     res.json(await inDerivedScheme(placement.range, placement, excludeId))
   }))
 
@@ -1322,7 +1342,15 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * written the moment there is a row to hang it on.
      */
     let id: number
-    let placement: Placement
+    /**
+     * Where the book goes, or null when nothing files it (#304).
+     *
+     * A save that states no genre writes no genre tag, so no rule claims the
+     * book and it joins neither run. The row is written all the same, with
+     * everything anybody said about it: what it has no answer to is where on a
+     * shelf it belongs, and there is nothing here that could invent one.
+     */
+    let placement: Placement | null
     if (queued) {
       id = queued.id
       placement = await store.updateBook(id, draft, await settleGenre(id, draft))
@@ -1346,9 +1374,15 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * with nothing to reconcile.
      *
      * A location sent by the client wins, since that came from a person too.
+     *
+     * **A book nothing files has no derived label to fall back on** (#304), so
+     * nothing is recorded and the ledger keeps saying nobody has put it
+     * anywhere. A location the client did send is written as it always was:
+     * somebody can stand a book somewhere without the app knowing what it is
+     * about, and that observation is theirs rather than the shelving's.
      */
     if (!draft.location?.trim()) {
-      const landed = await shelves.labelFor(placement.range, id)
+      const landed = placement && await shelves.labelFor(placement.range, id)
       if (landed) await store.setLocation(id, landed)
     }
 
@@ -1383,7 +1417,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       // The freshly computed placement, not whatever the client previewed.
       // With two people scanning, a neighbour can appear between preview
       // and save, and the stale one would send the book to the wrong gap.
-      placement: await inDerivedScheme(
+      //
+      // Null when no genre tag claims the book, which is a saved book with
+      // nowhere the rules can put it rather than a save that failed (#304).
+      placement: placement && await inDerivedScheme(
         placement.range,
         { ...placement, ...(await store.resolveKey(draft)) },
       ),
@@ -1779,7 +1816,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     await recordCredits(id, draft)
     res.json({
       id,
-      placement: await inDerivedScheme(placement.range, placement),
+      // Null when no genre tag claims the book. See `POST /api/books` (#304).
+      placement: placement && await inDerivedScheme(placement.range, placement),
       counts: await store.counts(),
     })
   }))

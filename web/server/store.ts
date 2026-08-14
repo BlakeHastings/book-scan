@@ -173,14 +173,15 @@ export interface DraftBook {
   pages?: string
   notes?: string
   /**
-   * The genre this save states, as the tag it means (#227).
+   * The genre this save states, as the tag it means (#227), or null when
+   * nothing states one (#304).
    *
    * A slug rather than a boolean, because the tag is what decides the shelf
    * range and a boolean had room for exactly one question. Nothing in this class
    * reads it: `settleGenre` in `server/index.ts` writes it and hands back the
    * range, which arrives separately.
    */
-  genre: GenreSlug
+  genre: GenreSlug | null
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string | null
@@ -505,7 +506,7 @@ export class Store {
    *
    * `serialiseOn` is the part a transaction does not give. See `TxOptions`.
    */
-  async addBook(draft: DraftBook): Promise<{ id: number; placement: Placement }> {
+  async addBook(draft: DraftBook): Promise<{ id: number; placement: Placement | null }> {
     const now = new Date().toISOString()
     const location = draft.location?.trim() ?? ''
 
@@ -524,6 +525,13 @@ export class Store {
      * those read the rows: see `settleGenre` in `server/index.ts`.
      *
      * Known before anything is read, which is what lets the lock be taken first.
+     *
+     * **Null when this save states no genre** (#304). The book then joins
+     * neither run: there are no neighbours to read, no start label to offer and
+     * no gap to point at, so there is no placement either, and the row carries
+     * the empty range a book in no run has always carried. Nothing is
+     * serialised on, because a book that is in neither ordered list cannot
+     * disturb either one.
      */
     const { range } = genreStatedBy(draft)
 
@@ -532,19 +540,22 @@ export class Store {
     // what better-sqlite3's own nested transactions did.
     const { id, placement } = await this.db.tx(async (tx) => {
       const resolved = await this.resolveKey(draft)
-      const { predecessor, successor } = await this.neighbours(range, resolved.sortKey)
-      const placed = {
-        ...buildPlacement(
-          range,
-          predecessor,
-          successor,
-          await this.rangeStart(range),
-        ),
-        ...resolved,
+      let placed: (Placement & ResolvedKey) | null = null
+      if (range !== null) {
+        const { predecessor, successor } = await this.neighbours(range, resolved.sortKey)
+        placed = {
+          ...buildPlacement(
+            range,
+            predecessor,
+            successor,
+            await this.rangeStart(range),
+          ),
+          ...resolved,
+        }
       }
       const id = await this.insertBook(tx, draft, resolved, range, isbn, now, location)
       return { id, placement: placed }
-    }, { serialiseOn: rangeLock(range) })
+    }, range === null ? {} : { serialiseOn: rangeLock(range) })
 
     return { id, placement }
   }
@@ -558,7 +569,8 @@ export class Store {
     tx: Db,
     draft: DraftBook,
     resolved: ResolvedKey,
-    range: ShelfRange,
+    /** Null when no genre tag files this book, which is written as `''`. */
+    range: ShelfRange | null,
     isbn: { isbn13: string; isbn10: string },
     now: string,
     location: string,
@@ -592,7 +604,10 @@ export class Store {
         published: draft.published ?? '',
         pages: draft.pages ?? '',
         notes: draft.notes ?? '',
-        shelf_range: range,
+        // The empty range a book in no run carries, which is what `CaptureQueue`
+        // writes for a book nobody has shelved yet: it keeps the row out of
+        // every `shelf_range = ?` there is rather than putting it in one of them.
+        shelf_range: range ?? '',
         classification_source: draft.classificationSource ?? 'auto',
         classification_confidence: draft.classificationConfidence ?? 'unknown',
         series_name: draft.seriesName ?? '',
@@ -698,9 +713,14 @@ export class Store {
      * this runs (#223). It arrives rather than being derived here because the
      * answer is in `book_tag`, which is written through the tagging layer and
      * not through this class.
+     *
+     * **Null when no genre tag claims the book** (#304). The row is still
+     * written, and everything else about it is still recomputed; what it has no
+     * answer to is which run it joins, so the column takes the empty range and
+     * there is no placement to hand back.
      */
-    range: ShelfRange,
-  ): Promise<Placement & ResolvedKey> {
+    range: ShelfRange | null,
+  ): Promise<(Placement & ResolvedKey) | null> {
     const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
     const location = draft.location?.trim() ?? ''
 
@@ -746,7 +766,9 @@ export class Store {
           published: draft.published ?? '',
           pages: draft.pages ?? '',
           notes: draft.notes ?? '',
-          shelf_range: range,
+          // See `insertBook`: the empty range is a book in no run, not a book
+          // in the other one.
+          shelf_range: range ?? '',
           classification_source: draft.classificationSource ?? 'manual',
           classification_confidence: draft.classificationConfidence ?? 'unknown',
           series_name: draft.seriesName ?? '',
@@ -790,6 +812,11 @@ export class Store {
         tx, { id, sortKey: resolved.sortKey, location }, new Date().toISOString(),
       )
 
+      // No run to be in, so no gap in one to point at. Everything above has
+      // happened: the row is written, the credits are next, and the book is
+      // saved. What it is not is filed.
+      if (range === null) return null
+
       // Exclude the book from its own neighbour search, or it would be told to
       // sit next to itself. Read inside the transaction, and after the update,
       // so it describes the shelf this edit produced.
@@ -803,7 +830,7 @@ export class Store {
         ),
         ...resolved,
       }
-    }, { serialiseOn: rangeLock(range) })
+    }, range === null ? {} : { serialiseOn: rangeLock(range) })
   }
 
   async findByIsbn(value: string): Promise<FiledPlacedBook | undefined> {

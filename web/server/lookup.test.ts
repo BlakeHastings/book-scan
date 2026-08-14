@@ -56,10 +56,30 @@ describe('classify', () => {
     expect(result.reason).toContain('disagree')
   })
 
-  it('returns unknown rather than a silent default when there is no signal', () => {
-    // S4 is the only non-fiction shelf, so an unmarked guess would send the
-    // book to the wrong bookcase without anyone noticing.
+  it('states no genre at all when no source stated one', () => {
+    /*
+     * #304. This rung used to answer `genre/fiction` with the confidence set to
+     * `unknown` and a sentence asking the person to fix it, and a save wrote
+     * that as a tag whether or not anybody read the sentence. S4 is the only
+     * non-fiction shelf, so an unmarked guess sends the book to the wrong
+     * bookcase without anybody noticing.
+     *
+     * Every rung above this one is grounded in something a catalogue said. This
+     * one is grounded in nothing, so it says nothing.
+     */
+    expect(classify({}).genre).toBeNull()
     expect(classify({}).confidence).toBe('unknown')
+    // Subjects that are real and say nothing about this question, which is
+    // most of what Open Library returns for most books.
+    expect(classify({ subjects: ['Paperback', 'Accessible book', 'In library'] }).genre)
+      .toBeNull()
+  })
+
+  it('still answers a genre wherever a source did state one, confidence and all', () => {
+    // The change is about the rung with nothing under it, not about weakening
+    // the ladder: an LC class of PZ is a weak signal and it is still a signal.
+    expect(classify({ lcClassifications: ['PZ7.R79835'] }))
+      .toMatchObject({ genre: FICTION_SLUG, confidence: 'weak' })
   })
 
   it('reads Dewey when the catalogues are quiet', () => {
