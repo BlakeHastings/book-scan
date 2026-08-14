@@ -85,10 +85,22 @@ export type PlacedPhotographedBook = PhotographedBook & PlacementFields
 export type FiledPlacedBook = FiledPhotographedBook & PlacementFields
 
 /**
+ * The most books one listing answers with, asked for or not.
+ *
+ * Both halves of that, and it is the point of the number (#332). It is the cap a
+ * stated `limit` is clamped to, and since #332 it is also what an absent one
+ * means, so "the largest page" and "the page you get for not asking" cannot
+ * drift apart. It was already the clamp; what it was not was the default, and an
+ * absent limit meant every matching row.
+ */
+export const PAGE_LIMIT = 500
+
+/**
  * What a listing is being asked for, beyond "everything".
  *
  * Every field is optional and an absent one narrows nothing, so `{}` is the
- * whole catalogue and `{ range }` is what `listRange` has always answered.
+ * whole catalogue narrowed by nothing, and `{ range }` is what `listRange` has
+ * always answered, up to one page of it.
  */
 export interface Listing {
   /** One run of the collection. Absent means both, in bookcase order. */
@@ -99,7 +111,7 @@ export interface Listing {
   isbn?: string
   /** Slugs, all of which the book must carry, itself or under. */
   tags?: readonly string[]
-  /** How many rows this page holds. Absent means every matching row. */
+  /** How many rows this page holds. Absent means `PAGE_LIMIT` of them. */
   limit?: number
   offset?: number
 }
@@ -937,6 +949,21 @@ export class Store {
    *
    * `total` is what the query matches rather than what the page holds, because
    * the screen says "6 of 1,204" and the second number is not `books.length`.
+   *
+   * ## An absent `limit` is the largest page, not every book (#332)
+   *
+   * It used to mean no `LIMIT` clause at all, so `GET /api/books?range=all` was
+   * 1204 KB at 1200 books, about a kilobyte each, unbounded, over somebody's
+   * mobile data. Nothing was asking for it: `useListing` has always sent a page.
+   * The problem was the default, because an unbounded response was what you got
+   * for forgetting a parameter, and the client shipped a wrapper that forgot it
+   * (`api.listBooks`, deleted by the same change).
+   *
+   * `PAGE_LIMIT` is the cap a stated limit was already clamped to, so what you
+   * get for asking for everything and what you get for asking for too much are
+   * now one number defined once, rather than one number and no number. Every
+   * caller was checked: the client always pages, and the two suites that ask
+   * without a limit seed a handful of books each.
    */
   async listing(query: Listing): Promise<{ books: FiledPlacedBook[]; total: number }> {
     const where: string[] = []
@@ -991,10 +1018,10 @@ export class Store {
 
     const page: string[] = []
     const paged = [...params]
-    if (query.limit !== undefined) {
-      page.push('LIMIT ?')
-      paged.push(Math.max(1, Math.min(500, Math.floor(query.limit))))
-    }
+    page.push('LIMIT ?')
+    paged.push(query.limit === undefined
+      ? PAGE_LIMIT
+      : Math.max(1, Math.min(PAGE_LIMIT, Math.floor(query.limit))))
     if (query.offset) {
       page.push('OFFSET ?')
       paged.push(Math.max(0, Math.floor(query.offset)))

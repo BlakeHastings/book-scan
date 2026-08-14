@@ -7,10 +7,11 @@
  * wears the queue's total as a badge. Written by anything that adds, saves,
  * deletes or checks out a book.
  *
- * Re-read on every change of screen, which is what it always did. A count is
- * the cheapest thing to be wrong about and the most obvious when it is: two
- * people scan into one catalogue, so the number on the header is stale the
- * moment somebody else saves a book.
+ * The counts are re-read on every change of screen, which is what they always
+ * did. A count is the cheapest thing to be wrong about and the most obvious
+ * when it is: two people scan into one catalogue, so the number on the header
+ * is stale the moment somebody else saves a book. **The lists are not**, since
+ * #332: see `READ_THE_QUEUE` below.
  *
  * The two lists are here rather than in the first screen even though the first
  * screen is the only thing that draws them, and the reason is lifetime: they
@@ -27,7 +28,28 @@ import {
 import {
   api, type CarryItem, type Capture, type Counts, type QueueCounts,
 } from '../lib/api'
-import { useNavigation } from './navigation'
+import { useNavigation, type Route } from './navigation'
+
+/**
+ * The screens that read the queue, and there are two (#332).
+ *
+ * The counts below are re-read on every change of screen and should be: they
+ * are four integers, the header prints them everywhere, and being stale about
+ * them is the cheapest thing to be wrong about and the most obvious when it is.
+ * **The queue itself was travelling with them**, on every navigation in the
+ * app, whatever the navigation was: opening a book, opening the camera,
+ * changing a filter. `GET /api/captures` takes no page and answers the whole
+ * queue, so the app's most frequent request was also one of its least bounded
+ * ones (`docs/api-review.md`, findings 4 and 5).
+ *
+ * So the list is asked for where it is read and nowhere else, which is the same
+ * guard `carrying` below already keeps for the same reason. Nothing else drops:
+ * the queue screen loads its own list and hands the counts back through
+ * `onCounts`, and the camera sets them from what each shutter answers, so a
+ * screen that changes the queue still corrects the badge without this asking
+ * again.
+ */
+const READ_THE_QUEUE: readonly Route[] = ['home', 'shelve']
 
 export interface Summary {
   readonly counts: Counts | null
@@ -64,10 +86,24 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const [carrying, setCarrying] = useState<CarryItem[] | null>(null)
 
   useEffect(() => {
-    api.health().then((h) => setCounts(h.counts)).catch(() => {})
-    api.listCaptures()
-      .then((r) => { setQueueCounts(r.counts); setQueued(r.captures) })
+    let live = true
+    api.health()
+      .then((h) => { if (live) setCounts(h.counts) })
       .catch(() => {})
+    return () => { live = false }
+  }, [route])
+
+  useEffect(() => {
+    if (!READ_THE_QUEUE.includes(route)) return
+    let live = true
+    api.listCaptures()
+      .then((r) => {
+        if (!live) return
+        setQueueCounts(r.counts)
+        setQueued(r.captures)
+      })
+      .catch(() => {})
+    return () => { live = false }
   }, [route])
 
   /**

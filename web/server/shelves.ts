@@ -20,7 +20,7 @@ import { DrizzleOutstandingMoveRepository } from '../infrastructure/shelving/out
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DbTransactions } from '../infrastructure/shelving/transactions'
 import {
-  boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange, locationLabel,
+  boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange,
   NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt, stripWithGap,
   type RangeStart,
   type BoundaryDirection, type BoundaryMove, type BoundaryRefusal, type CarryOn,
@@ -282,18 +282,83 @@ export class Shelves {
   }
 
   /**
+   * The whole run drawn once: the boundaries, the shelves and what is on each.
+   *
+   * `groups` and `loads` are the same picture counted two ways, and reading them
+   * separately laid the run out twice for one screen. Worth having as one method
+   * rather than as two calls a route remembers to make together, because they
+   * are also then answered off one snapshot: a book saved between the two reads
+   * used to appear on a shelf whose count did not include it.
+   */
+  async shelving(range: ShelfRange): Promise<{
+    groups: ShelfGroup<ShelvedBook>[]
+    separators: Separator[]
+    loads: { label: string; count: number }[]
+  }> {
+    const separators = await this.list(range)
+    const placed = layoutRange(
+      (await this.booksIn(range)).map((row) => ({ ...row, sortKey: row.sort_key })),
+      separators,
+      await this.startOf(range),
+    )
+    const groups = groupByShelf(placed, separators)
+    // `shelfLoads` is `groupByShelf` and a count, so the count is taken off the
+    // groups already in hand rather than by grouping the same layout again.
+    return {
+      groups,
+      separators,
+      loads: groups.map((group) => ({ label: group.label, count: group.books.length })),
+    }
+  }
+
+  /**
    * Which shelf a book with this sort key would land on.
    *
    * Works for a book that is not saved yet, which is the case that matters:
-   * the shelving step has to name a real shelf before the book exists. Done by
-   * laying the run out with the newcomer slotted in, so boundaries are honoured
-   * rather than approximated from a neighbour.
+   * the shelving step has to name a real shelf before the book exists.
    */
   async shelfForSortKey(range: ShelfRange, sortKey: string): Promise<string> {
-    const start = await this.startOf(range)
-    return (await this.layoutWith(range, sortKey))
-      .find((p) => p.book.id === NEWCOMER_ID)?.label
-      ?? locationLabel(start.shelf, start.area)
+    return (await this.shelvesForSortKeys(range, [sortKey]))[0]!
+  }
+
+  /**
+   * The same question asked about many keys at once, which is one read rather
+   * than one read each.
+   *
+   * **This is #332's finding 1.** `GET /api/shelves` asked `shelfForSortKey` once
+   * per checked-out book, and that method used to lay the entire run out to
+   * answer, so the shelves screen was O(checked-out x books-in-range) on the one
+   * screen somebody opens while standing at a bookcase. Measured at 600 books it
+   * went from 55 ms with nothing out to 1497 ms with two hundred out, and both
+   * factors grow with the collection.
+   *
+   * **The books were never consulted.** Read `layoutRange`: it walks the run in
+   * order and steps a boundary whenever `startsAt <= book.sortKey`, so where a
+   * key lands is decided by the boundaries it has passed and by where the range
+   * begins, and by nothing about the other books. They are carried through the
+   * loop and never asked anything. So laying a hundred keys out together gives
+   * each one exactly the answer that laying it out among six hundred books gave,
+   * and `shelvesForSortKeys` is that same function applied to a list. It is
+   * `shelfForSortKey` that is now defined in terms of this, so there is one
+   * implementation and not two that must agree.
+   *
+   * `shelves.test.ts` holds the proof rather than the argument: the two are
+   * compared over a seeded run, every book and every gap between books.
+   */
+  async shelvesForSortKeys(range: ShelfRange, sortKeys: string[]): Promise<string[]> {
+    if (!sortKeys.length) return []
+
+    // `layoutRange` requires sort order, so the keys are ordered and put back
+    // afterwards by the position each one arrived in.
+    const ordered = sortKeys
+      .map((sortKey, at) => ({ id: at, sortKey }))
+      .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
+
+    const placed = layoutRange(ordered, await this.list(range), await this.startOf(range))
+
+    const labels = new Array<string>(sortKeys.length).fill('')
+    for (const one of placed) labels[one.book.id] = one.label
+    return labels
   }
 
   /**

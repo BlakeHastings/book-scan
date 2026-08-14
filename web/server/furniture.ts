@@ -81,24 +81,18 @@ import {
 } from '../infrastructure/shelving/furniture'
 import type { Db } from './driver'
 
-/**
- * A refusal, with the status it deserves.
+/*
+ * The refusal, and how one is said, moved out to `server/refusal.ts` (#332).
  *
- * 409 rather than 400 wherever the request was well formed and the furniture
- * was not in a state to take it, which is every refusal here that a person can
- * do something about: removing the only area on a piece, or changing a strategy
- * without having been shown what it does.
+ * It was written here and it was the better of the API's two ways of refusing:
+ * six routes went through it and answered a malformed id with a clean 404 while
+ * nineteen elsewhere hand-rolled the answer and 500'd. Nothing about it was
+ * about bookcases, and its living in a module about bookcases is most of why
+ * nobody else copied it. Re-exported so every existing importer is unchanged.
  */
-export interface Refused {
-  ok: false
-  status: number
-  error: string
-  /** What the caller has to show somebody before asking again. */
-  effect?: unknown
-}
+import { refuse, type Refused } from './refusal'
 
-const refuse = (status: number, error: string, effect?: unknown): Refused =>
-  ({ ok: false, status, error, ...(effect === undefined ? {} : { effect }) })
+export { refuse, type Refused }
 
 /** The lock every write here takes, so two people rearranging one room queue. */
 export const FURNITURE_LOCK = 'furniture'
