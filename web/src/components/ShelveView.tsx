@@ -23,6 +23,14 @@ interface Props {
   /** Called with the shelf the person has just said the book fits on. */
   onShelved: (shelvedAt: string) => void
   onBack: () => void
+  /**
+   * What the way back says, because there are two ways in since #314: a book
+   * newly scanned, and a book carried off a bookcase a rule change displaced.
+   * "Back to book details" is only true of the first, so it names the second
+   * rather than assuming there is only one, the way `MoveRunView`'s `backSaid`
+   * already does for the screen beside this one.
+   */
+  backSaid?: string
   /** Re-read placement after a move, so the strip shows the shelf as it is now. */
   onRefresh: () => Promise<unknown>
 }
@@ -64,7 +72,8 @@ interface Props {
  * The stack itself lives in `lib/cascade.ts`, pure and tested away from here.
  */
 export function ShelveView({
-  placement, stale, range, title, saving, onShelved, onBack, onRefresh,
+  placement, stale, range, title, saving, onShelved, onBack,
+  backSaid = 'Back to book details', onRefresh,
 }: Props) {
   const [cascade, setCascade] = useState(emptyCascade)
   const [busy, setBusy] = useState(false)
@@ -397,7 +406,7 @@ export function ShelveView({
       </div>
 
       <Button tone="quiet" block off={saving || busy} onPress={onBack}>
-        Back to book details
+        {backSaid}
       </Button>
     </>
   )

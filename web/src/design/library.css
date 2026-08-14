@@ -1512,10 +1512,26 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * The row under the finger follows it and the others change places around it,
  * which is the gap opening under the finger that the gallery's note said a
  * still picture could not settle. It is lifted while it is held, so the one
- * being carried is never the one you have lost track of. */
+ * being carried is never the one you have lost track of.
+ *
+ * `touch-action: none` stops a drag being read as a scroll; it says nothing
+ * about the drag being read as a text selection, which is #327: the labels
+ * smeared blue as a finger or a pointer moved a row. `user-select: none` (and
+ * its `-webkit-` spelling, for Safari) is the other half, scoped to these rows
+ * and nowhere else in the app, so a title, an author or an ISBN is still
+ * somebody's to select and copy everywhere but here. `-webkit-touch-callout`
+ * answers the same question again on an iPhone, where a held finger opens a
+ * selection callout `user-select` alone does not stop. `Order.take` in
+ * `Furniture.tsx` calls `preventDefault` on the same press for the same
+ * reason `touch-action` is a CSS property and not a suggestion: a property a
+ * browser can race against its own gesture detection is not a fix on its
+ * own, and this one is asked twice, in two different layers, rather than
+ * hoped for once. */
 .wf-order--live .wf-order__slot {
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .wf-order--live .wf-order__slot--carried {
   position: relative;

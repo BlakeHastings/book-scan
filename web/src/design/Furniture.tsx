@@ -207,6 +207,19 @@ export function Order({
 
   const take = (at: number, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!onReorder) return
+    /*
+     * The press that starts a drag is, to the browser, indistinguishable from
+     * the press that starts selecting text: both are a pointer going down and
+     * then moving. `user-select: none` says the row is not a place to select
+     * from, but a press-and-move can still ask the browser to select whatever
+     * ends up under the pointer a moment later, on some browsers, on the same
+     * gesture. Stopping the default here is what actually stops it, on a
+     * mouse and on a finger both, rather than leaving it to a CSS property to
+     * win a race against every browser's own idea of when a drag is a
+     * selection. Touch scrolling is `touch-action: none`, above; this is the
+     * same row's other native behaviour, and it needs its own answer.
+     */
+    event.preventDefault()
     const rows = [...(column.current?.children ?? [])] as HTMLElement[]
     const tops = rows.map((row) => row.getBoundingClientRect().top)
     // Equal rows, so one gap does for all of them. One row cannot be dragged
@@ -217,6 +230,10 @@ export function Order({
   }
 
   const drag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    // Belt and braces alongside the one on `take`: nothing here selects
+    // anything of its own accord, but a browser that missed the first
+    // `preventDefault` gets asked again on every move rather than once.
+    event.preventDefault()
     setCarried((held) => {
       if (!held || !held.pitch) return held
       const dy = event.clientY - held.y
