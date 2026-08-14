@@ -11,6 +11,7 @@ import { CaptureQueue } from './queue'
 import { UnknownPlank } from './placement-ledger'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
+import { layoutRange, NEWCOMER_ID } from '../shared/layout'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
@@ -406,6 +407,80 @@ describe('every catalogued book has a shelf', () => {
     const placed = await shelves.layout('fiction')
     expect(placed.find((p) => p.book.id === id)?.label).toBe('1A')
     expect((await store.getBook(id))?.location).toBe('')
+  })
+})
+
+/**
+ * #332's finding 1, which is a performance fix and therefore has to be a
+ * behaviour test: the fast answer must be the slow answer.
+ *
+ * `GET /api/shelves` asked `shelfForSortKey` once per checked-out book, and each
+ * call laid the whole run out. `shelvesForSortKeys` lays it out once for all of
+ * them, on the reasoning that where a key lands is decided by the boundaries it
+ * has passed and by nothing about the other books. This compares the two
+ * directly: `theSlowWay` is the old method written out, laying the whole run out
+ * with one newcomer merged in and picking it back out again.
+ */
+describe('the shelf a sort key lands on', () => {
+  /** The old `layoutWith`, in full, so the comparison is against the algorithm. */
+  async function theSlowWay(sortKey: string): Promise<string> {
+    const books = (await shelves.layout('fiction'))
+      .map((p) => ({ id: p.book.id, sortKey: p.book.sortKey }))
+    const merged = [...books, { id: NEWCOMER_ID, sortKey }]
+      .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
+    // Fiction begins at 1A in a database standing as the migrations leave it,
+    // which is what every other expectation in this file assumes too.
+    return layoutRange(merged, await shelves.list('fiction'))
+      .find((p) => p.book.id === NEWCOMER_ID)!.label
+  }
+
+  it('answers a batch of keys exactly as one at a time answered them', async () => {
+    for (const author of [
+      'Austen, Jane', 'Brontë, Emily', 'Carter, Angela', 'Dickens, Charles',
+      'Eliot, George', 'Forster, E M', 'Gaskell, Elizabeth', 'Hardy, Thomas',
+    ]) await add(author)
+
+    // Boundaries of both kinds, so the walk has planks and bookcases to step.
+    for (const [label, kind] of [
+      ['1A', 'area'], ['1B', 'shelf'], ['2A', 'area'],
+    ] as const) await shelves.overflow('fiction', label, kind)
+
+    const shelved = await shelves.layout('fiction')
+    expect(new Set(shelved.map((p) => p.label)).size).toBeGreaterThan(1)
+
+    /*
+     * Every book's own key, every gap between two of them, and a key below and
+     * above the whole run. The gaps are the interesting ones: a checked-out book
+     * is absent from the layout, so its key is being asked about a run that does
+     * not contain it, which is exactly this case.
+     */
+    const keys = shelved.map((p) => p.book.sortKey)
+    const asked = [
+      ' ',
+      ...keys.flatMap((key, at) => (at === 0 ? [key] : [`${keys[at - 1]!}M`, key])),
+      '~~',
+    ]
+
+    const batch = await shelves.shelvesForSortKeys('fiction', asked)
+    expect(batch).toHaveLength(asked.length)
+
+    for (const [at, key] of asked.entries()) {
+      expect(batch[at], `the shelf for ${JSON.stringify(key)}`).toBe(await theSlowWay(key))
+    }
+  })
+
+  it('answers nothing for no keys, rather than reading the run to find out', async () => {
+    await add('Austen, Jane')
+    expect(await shelves.shelvesForSortKeys('fiction', [])).toEqual([])
+  })
+
+  it('still answers one key through the method the placing card calls', async () => {
+    await add('Austen, Jane')
+    await add('Zola, Émile')
+    await shelves.overflow('fiction', '1A', 'area')
+
+    const [zola] = (await shelves.layout('fiction')).slice(-1)
+    expect(await shelves.shelfForSortKey('fiction', zola!.book.sortKey)).toBe(zola!.label)
   })
 })
 

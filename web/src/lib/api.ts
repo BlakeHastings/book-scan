@@ -1135,11 +1135,19 @@ export const api = {
     return result
   },
 
-  listBooks: (range: ShelfRange) =>
-    request<{ books: FiledBookRow[]; counts: Counts }>(`/api/books?range=${range}`),
+  /*
+   * `listBooks(range)` was here and is gone (#332).
+   *
+   * It asked `/api/books?range=` with no page, which meant the whole run, and
+   * nothing had ever called it: #315 added `findBooks` beside it and every
+   * screen went to that one. So it was a wrapper whose only remaining job was
+   * to be the first thing the next person found when they wanted a listing, and
+   * what it would have handed them is every book in the run in one response.
+   * `findBooks` answers the same question and takes a page.
+   */
 
   /**
-   * The same listing, narrowed and a page at a time (#315).
+   * The listing, narrowed and a page at a time (#315).
    *
    * One call for all three ways of looking at the library and for every state
    * of the find screen, because they are one question with different narrowings:

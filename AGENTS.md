@@ -601,6 +601,7 @@ teach people to skim past it.
 | `web/src/design/` | The design system, and the gallery that draws every screen with it. A screen built with these wears `Frame` (`src/components/Frame.tsx`) and no `chrome` in the route table |
 | `web/src/lib/api.ts` | Typed fetch wrapper, the only client to server path |
 | `web/server/index.ts` | Express routes, data directory and connection resolution |
+| `web/server/refusal.ts` | How a route says no, and how it reads an id out of a request |
 | `web/server/db.pg.ts` | The Postgres driver, and where every column is explained |
 | `web/server/driver.ts` | The `Db` seam the stores are written against |
 | `web/server/identify.ts` | Barcode decoding then OCR of the printed ISBN |
@@ -921,6 +922,19 @@ catalogue. Do not add one.
   otherwise in an issue. Do not silently change behaviour that it specifies.
 - Client and server never share a database connection. The client talks to the
   server only through `web/src/lib/api.ts`.
+- **A route reads an id with `idIn` and refuses with `Refused`**, both from
+  `web/server/refusal.ts`, and there is no `Number(req.params.id)` left in
+  `server/index.ts` to copy. There were nineteen, each written by somebody with
+  nothing better to copy, and every one of them turned a client typo into a 500
+  with a Postgres stack trace in the log (#332, `docs/api-review.md` finding 2).
+  A malformed id is the same clean 404 as an id nothing has.
+- **A listing route answers a page, and an absent `limit` is the largest page
+  rather than every row.** `Store.PAGE_LIMIT` is both, defined once, so the two
+  cannot drift. An unbounded response must never be what somebody gets for
+  forgetting a parameter (#332, finding 4). Some routes legitimately answer
+  everything: the capture queue is what a person is working through and the
+  screen filters it, so it is deliberately whole, and it is asked for on the two
+  screens that read it rather than on every navigation.
 - **Every promise the server starts and does not await goes through
   `inTheBackground`, and names what it is.** There is no
   `process.on('unhandledRejection')` under `web/` and none should be added: a

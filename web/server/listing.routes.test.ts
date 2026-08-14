@@ -21,6 +21,8 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
+import { Store, PAGE_LIMIT } from './store'
+import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { lookupIsbn } from './lookup'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
@@ -256,6 +258,39 @@ describe('a page of a listing, which is what makes this screen survive growing',
     expect(second.body.books[0].id).not.toBe(first.body.books[0].id)
     expect(second.body.total).toBe(5)
   })
+
+  /**
+   * #332's finding 4. An absent `limit` used to mean no `LIMIT` clause at all,
+   * so `GET /api/books?range=all` was 1204 KB at 1200 books, and an unbounded
+   * response was what you got for forgetting a parameter.
+   *
+   * Seeded through `Store` rather than through the route, because five hundred
+   * and one saves over HTTP is a minute this suite should not spend to prove one
+   * `LIMIT`. It is still the whole route being asked, over real HTTP, against
+   * rows a real save wrote.
+   */
+  it('answers one page at most when nobody asked for a page', async () => {
+    const store = new Store(db, new DrizzleAuthorRepository(db))
+    for (let n = 0; n <= PAGE_LIMIT; n += 1) {
+      await store.addBook({
+        title: `Book ${n}`,
+        authors: [`Author ${String(n).padStart(4, '0')}`],
+        genre: FICTION_SLUG,
+      })
+    }
+
+    const { body } = await call('/api/books?range=all')
+    expect((body.books as unknown[]).length).toBe(PAGE_LIMIT)
+    // And it still says how many there really are, which is what the screen
+    // needs to know there is another page to ask for.
+    expect(body.total).toBe(PAGE_LIMIT + 1)
+    expect(body.counts.total).toBe(PAGE_LIMIT + 1)
+
+    // The rest is reachable, so nothing has become unreadable by being past the
+    // page: it has become something a caller has to ask for.
+    const rest = await call(`/api/books?range=all&offset=${PAGE_LIMIT}`)
+    expect((rest.body.books as unknown[]).length).toBe(1)
+  }, 300_000)
 
   it('counts what the query matches rather than what the page holds', async () => {
     for (const title of ['Aaa', 'Bbb', 'Ccc']) await aBook({ title, authors: ['Le Guin'] })

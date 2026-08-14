@@ -5,6 +5,18 @@ and the layering underneath both. Nothing was changed. Where this claims
 something is slow, the number was measured against a real Postgres and the
 harness that produced it is described so it can be re-run.
 
+> **Findings 1 to 4 were fixed by #332, and finding 5 was not.** This page is
+> left as it was written, because it is the reading rather than the changelog and
+> because the numbers in it are what the fix was measured against. What has
+> changed since: `GET /api/shelves` is flat in the number of checked-out books,
+> a malformed id is a 404 on every route and `Number(req.params.id)` appears
+> nowhere in `index.ts`, an unmatched path under `/api` answers `{ "error":
+> "Not found." }`, `GET /api/books` answers at most one page when nobody asks for
+> one, `api.listBooks` is deleted, and `summary.tsx` fetches the capture queue on
+> the two screens that read it rather than on every navigation. The fourteen dead
+> routes of finding 5 are still there, deliberately: it is the one finding this
+> page itself calls bloat rather than risk.
+
 ## The short answer
 
 **It is one API, and it is broadly sound.** That is the honest verdict and it is

@@ -69,8 +69,12 @@ import { applyRunMove, planRunMove } from './relocate-run'
 import { outstandingWork, tripAtArea } from './carry'
 import {
   addAreaTo, addFixture, booksInArea, describeFixture, describeFurniture, dropArea, dropFixture,
-  editArea, editFixture, planAreaRemoval, planFixtureRemoval, type Refused,
+  editArea, editFixture, planAreaRemoval, planFixtureRemoval,
 } from './furniture'
+// How this API says no, and how it reads an id out of a request (#332). One
+// line replaces `Number(req.params.id)`, and a client typo is a 404 rather than
+// a 500 with a Postgres stack trace in the log.
+import { idIn, refused } from './refusal'
 // Why a book is here: which rule claimed it, and which ones lost (#323).
 import { claimOfBook } from './claim'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
@@ -878,7 +882,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * anyway, and the shutter waits for nothing.
    */
   app.get('/api/captures/:id', asyncRoute(async (req, res) => {
-    const capture = await queue.get(Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such capture.')
+    if (id === null) return
+
+    const capture = await queue.get(id)
     if (!capture) {
       res.status(404).json({ error: 'No such capture.' })
       return
@@ -895,8 +902,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }))
 
   app.post('/api/captures/:id/claim', asyncRoute(async (req, res) => {
+    const id = idIn(req.params.id, res, 'No such capture.')
+    if (id === null) return
+
     const who = String((req.body ?? {}).who ?? '').trim() || 'unknown'
-    const result = await queue.claim(Number(req.params.id), who)
+    const result = await queue.claim(id, who)
     if (!result.ok) {
       res.status(409).json({
         error: `That book is being worked on by ${result.heldBy}.`,
@@ -937,7 +947,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   app.patch('/api/captures/:id', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const who = String(body.who ?? '').trim() || 'unknown'
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such capture.')
+    if (id === null) return
+
     const lettingGo = body.release === true
 
     const result = await queue.edit(id, who, asCaptureEdit(body))
@@ -994,7 +1006,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * a claim on a file, which is what lets this sweep still find them.
    */
   app.delete('/api/captures/:id', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such capture.')
+    if (id === null) return
+
     const capture = await queue.get(id)
     if (!capture) {
       res.status(404).json({ error: 'No such capture.' })
@@ -1353,7 +1367,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * - `tag=` may be given more than once, and all of them must hold. A tag
    *   matches itself and anything under it.
    * - `limit=` and `offset=` are a page, and `total` says how many the query
-   *   matched rather than how many this page holds.
+   *   matched rather than how many this page holds. **An absent `limit` is the
+   *   largest page rather than every book** (#332): see `PAGE_LIMIT`. It used to
+   *   mean no limit at all, which made an unbounded response the thing you got
+   *   for forgetting a parameter.
    *
    * `counts` is unchanged and is still the whole catalogue rather than this
    * query: two screens read it for the number under the title, and it is the
@@ -1388,29 +1405,39 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({ books: found.books, total: found.total, counts: await store.counts() })
   }))
 
+  /**
+   * The shelves screen, which is somebody standing at a bookcase holding a
+   * phone.
+   *
+   * Three reads, and it used to be three plus one per checked-out book. Each of
+   * those laid the whole run out to answer where one absent book would go, so
+   * the screen got slower the more books were off the shelf, which is the state
+   * a busy household is permanently in (#332, and `docs/api-review.md`). The
+   * answer is unchanged in every field: `Shelves.shelvesForSortKeys` says why
+   * asking about a hundred keys at once gives each the answer asking about it
+   * alone gave.
+   */
   app.get('/api/shelves', asyncRoute(async (req, res) => {
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+
+    const drawn = await shelves.shelving(range)
+    /*
+     * Books off the shelf, each with the shelf it would land on.
+     *
+     * They hold no position, so they are absent from the groups above and
+     * the numbering there counts only what is physically there. This is
+     * display only: it lets the library show a gap where a book belongs
+     * instead of making an absent book invisible from the shelf it came
+     * off.
+     */
+    const off = (await store.checkedOut()).filter((book) => book.shelf_range === range)
+    const labels = await shelves.shelvesForSortKeys(range, off.map((book) => book.sort_key))
+
     res.json({
-      groups: await shelfGroups(range),
-      separators: await shelves.list(range),
-      loads: await shelves.loads(range),
-      /*
-       * Books off the shelf, each with the shelf it would land on.
-       *
-       * They hold no position, so they are absent from the groups above and
-       * the numbering there counts only what is physically there. This is
-       * display only: it lets the library show a gap where a book belongs
-       * instead of making an absent book invisible from the shelf it came
-       * off.
-       */
-      checkedOut: await Promise.all(
-        (await store.checkedOut())
-          .filter((book) => book.shelf_range === range)
-          .map(async (book) => ({
-            book,
-            label: await shelves.shelfForSortKey(range, book.sort_key),
-          })),
-      ),
+      groups: drawn.groups,
+      separators: drawn.separators,
+      loads: drawn.loads,
+      checkedOut: off.map((book, at) => ({ book, label: labels[at]! })),
     })
   }))
 
@@ -1609,13 +1636,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }))
 
   app.delete('/api/shelves/:id', asyncRoute(async (req, res) => {
+    // Before the layout below, so a request that names nothing costs no read.
+    const separatorId = idIn(req.params.id, res, 'No such boundary.')
+    if (separatorId === null) return
+
     const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const before = await shelves.layout(range)
     // The one route that goes through the application layer. It says what was
     // asked for and nothing about how it is stored, which is the whole of what
     // #172 is demonstrating; the reads either side of it still go through
     // `Shelves` because books have not been converted.
-    await removeSeparator.handle({ separatorId: Number(req.params.id) })
+    await removeSeparator.handle({ separatorId })
     res.json({
       moves: await describeMoves(range, await shelves.movesSince(range, before)),
       groups: await shelfGroups(range),
@@ -1632,7 +1663,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * route that reads a single book, and it reads the model.
    */
   app.get('/api/books/:id', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
@@ -1653,7 +1686,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * and all four are in `Store`; this is not a fifth and cannot become one.
    */
   app.get('/api/books/:id/placements', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -1662,7 +1697,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }))
 
   app.put('/api/books/:id', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     const before = await store.getBook(id)
     if (!before) {
       res.status(404).json({ error: 'No such book.' })
@@ -1795,7 +1832,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * The list comes back empty and the screen says so.
    */
   app.get('/api/books/:id/claim', asyncRoute(async (req, res) => {
-    const claimed = await claimOfBook(db, Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
+    const claimed = await claimOfBook(db, id)
     if (!claimed.ok) {
       refused(res, claimed)
       return
@@ -1805,7 +1845,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   /** What a book is under, and who said so. */
   app.get('/api/books/:id/tags', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -1821,7 +1863,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * along with everybody else's spelling of it.
    */
   app.post('/api/books/:id/tags', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -1843,7 +1887,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   /** A person takes a book back out of a tag, whoever put it there. */
   app.delete('/api/books/:id/tags', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -1870,7 +1916,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * minute. It is reported as `found: false` and nothing is written.
    */
   app.post('/api/books/:id/tags/refresh', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
@@ -1954,21 +2002,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * change lands. See `server/furniture.ts`.
    */
 
-  /** Every refusal from the furniture module, said the way a route says one. */
-  function refused(res: express.Response, result: Refused): void {
-    res.status(result.status).json({
-      error: result.error,
-      ...(result.effect === undefined ? {} : { effect: result.effect }),
-    })
-  }
-
   /** The whole room: every piece on the floor and every area on its face. */
   app.get('/api/fixtures', asyncRoute(async (_req, res) => {
     res.json(await describeFurniture(db))
   }))
 
   app.get('/api/fixtures/:id', asyncRoute(async (req, res) => {
-    const fixture = await describeFixture(db, Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such piece of furniture.')
+    if (id === null) return
+
+    const fixture = await describeFixture(db, id)
     if (!fixture) {
       res.status(404).json({ error: 'No such piece of furniture.' })
       return
@@ -1996,9 +2039,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * one that produces books in somebody's hands.
    */
   app.patch('/api/fixtures/:id', asyncRoute(async (req, res) => {
-    const edited = await editFixture(
-      db, Number(req.params.id), (req.body ?? {}) as Record<string, unknown>,
-    )
+    const id = idIn(req.params.id, res, 'No such piece of furniture.')
+    if (id === null) return
+
+    const edited = await editFixture(db, id, (req.body ?? {}) as Record<string, unknown>)
     if (!edited.ok) {
       refused(res, edited)
       return
@@ -2008,7 +2052,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   /** What removing this piece would mean, before anybody agrees to it. */
   app.get('/api/fixtures/:id/removal', asyncRoute(async (req, res) => {
-    const planned = await planFixtureRemoval(db, Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such piece of furniture.')
+    if (id === null) return
+
+    const planned = await planFixtureRemoval(db, id)
     if (!planned.ok) {
       refused(res, planned)
       return
@@ -2023,7 +2070,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * other furniture first, which is a real carry and has a plan in front of it.
    */
   app.delete('/api/fixtures/:id', asyncRoute(async (req, res) => {
-    const removed = await dropFixture(db, Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such piece of furniture.')
+    if (id === null) return
+
+    const removed = await dropFixture(db, id)
     if (!removed.ok) {
       refused(res, removed)
       return
@@ -2033,9 +2083,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   /** Cut another area into a piece, at the end or between two that exist. */
   app.post('/api/fixtures/:id/areas', asyncRoute(async (req, res) => {
-    const added = await addAreaTo(
-      db, Number(req.params.id), (req.body ?? {}) as Record<string, unknown>,
-    )
+    const id = idIn(req.params.id, res, 'No such piece of furniture.')
+    if (id === null) return
+
+    const added = await addAreaTo(db, id, (req.body ?? {}) as Record<string, unknown>)
     if (!added.ok) {
       refused(res, added)
       return
@@ -2054,9 +2105,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * somebody having been shown what it does to the run.
    */
   app.patch('/api/areas/:id', asyncRoute(async (req, res) => {
-    const edited = await editArea(
-      db, Number(req.params.id), (req.body ?? {}) as Record<string, unknown>,
-    )
+    const id = idIn(req.params.id, res, 'No such area.')
+    if (id === null) return
+
+    const edited = await editArea(db, id, (req.body ?? {}) as Record<string, unknown>)
     if (!edited.ok) {
       refused(res, edited)
       return
@@ -2075,7 +2127,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * furniture both standing at 4. This answers by identity instead.
    */
   app.get('/api/areas/:id/books', asyncRoute(async (req, res) => {
-    const read = await booksInArea(db, Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such area.')
+    if (id === null) return
+
+    const read = await booksInArea(db, id)
     if (!read.ok) {
       refused(res, read)
       return
@@ -2091,7 +2146,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * every label that reads differently afterwards.
    */
   app.get('/api/areas/:id/removal', asyncRoute(async (req, res) => {
-    const planned = await planAreaRemoval(db, Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such area.')
+    if (id === null) return
+
+    const planned = await planAreaRemoval(db, id)
     if (!planned.ok) {
       refused(res, planned)
       return
@@ -2110,7 +2168,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * last saw the book is the needs-attention list that already exists.
    */
   app.delete('/api/areas/:id', asyncRoute(async (req, res) => {
-    const removed = await dropArea(db, Number(req.params.id), new Date().toISOString())
+    const id = idIn(req.params.id, res, 'No such area.')
+    if (id === null) return
+
+    const removed = await dropArea(db, id, new Date().toISOString())
     if (!removed.ok) {
       refused(res, removed)
       return
@@ -2159,7 +2220,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * reason an author holds no name.
    */
   app.get('/api/authors/:id/books', asyncRoute(async (req, res) => {
-    const found = await authors.find(Number(req.params.id))
+    const id = idIn(req.params.id, res, 'No such author.')
+    if (id === null) return
+
+    const found = await authors.find(id)
     if (!found) {
       res.status(404).json({ error: 'No such author.' })
       return
@@ -2207,7 +2271,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * would change what the book says on its cover.
    */
   app.patch('/api/authors/aliases/:id', asyncRoute(async (req, res) => {
-    const aliasId = Number(req.params.id)
+    const aliasId = idIn(req.params.id, res, 'No such name.')
+    if (aliasId === null) return
+
     const filing = String(((req.body ?? {}) as Record<string, unknown>).filingName ?? '').trim()
     if (!filing) {
       res.status(400).json({ error: 'A name has to file under something.' })
@@ -2225,7 +2291,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   /** Who a book credits, in the order the names are printed on it. */
   app.get('/api/books/:id/authors', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -2242,7 +2310,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * saying it is really somebody already here is `POST /api/authors/merge`.
    */
   app.put('/api/books/:id/authors', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -2280,7 +2350,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * open a database to review.
    */
   app.get('/api/books/:id/captures', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -2334,7 +2406,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * either one.
    */
   app.patch('/api/books/:id/location', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
@@ -2372,7 +2446,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }))
 
   app.delete('/api/books/:id', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
@@ -2402,7 +2478,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * and putting it back is the same flow as shelving it the first time.
    */
   app.post('/api/books/:id/checkout', asyncRoute(async (req, res) => {
-    const id = Number(req.params.id)
+    const id = idIn(req.params.id, res, 'No such book.')
+    if (id === null) return
+
     const book = await store.getBook(id)
     if (!book) {
       res.status(404).json({ error: 'No such book.' })
@@ -2966,8 +3044,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * would send the request to a plank that no longer answers to that name.
    */
   app.get('/api/carry/trip', asyncRoute(async (req, res) => {
-    const from = Number(req.query.from ?? 0)
-    const to = Number(req.query.to ?? 0)
+    const missing = 'That trip names an area this collection does not have.'
+    const from = idIn(req.query.from, res, missing)
+    if (from === null) return
+    const to = idIn(req.query.to, res, missing)
+    if (to === null) return
+
     const trip = await tripAtArea(db, from, to)
     if (!trip) {
       res.status(404).json({ error: 'That trip names an area this collection does not have.' })
@@ -2979,6 +3061,31 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   app.get('/api/health', asyncRoute(async (_req, res) => {
     res.json({ ok: true, counts: await store.counts(), db: options.dbLabel ?? '' })
   }))
+
+  /*
+   * Anything under /api that no route above matched (#332).
+   *
+   * Without this, Express's own finaliser answers, and it answers with an HTML
+   * page: `<!DOCTYPE html> ... <pre>Cannot GET /api/does-not-exist</pre>`. Every
+   * request the client makes goes through `src/lib/api.ts`, which parses the
+   * body as JSON to find the `error` field, so a renamed or mistyped route
+   * surfaced in the app as a JSON parse failure and the banner showed the
+   * parser's message rather than the API's. Whoever went looking would have
+   * debugged the parser.
+   *
+   * Sixty routes answer `{ error }` and now so does the gap between them. The
+   * words are the error handler's own, because a path that matched nothing and a
+   * cover file that is not there are the same answer to the same question.
+   *
+   * Registered last of all the routes and before the error handler, which is the
+   * only place it can go: earlier and it would swallow whatever came after it,
+   * later and it would never run. It is scoped to `/api` on purpose. Everything
+   * else this server does not answer belongs to Vite in development, and the
+   * client's own routing is not this file's to 404.
+   */
+  app.use('/api', (_req: express.Request, res: express.Response) => {
+    res.status(404).json({ error: 'Not found.' })
+  })
 
   // Express identifies error-handling middleware solely by arity: a function
   // of exactly four parameters. Dropping the unused `next` here would
