@@ -1889,7 +1889,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * because the two are one control's worth of furniture and a filled or
  * outlined circle read as a third kind of thing.
  */
-.wf-cycle {
+/*
+ * Two of them now, and they are one skin: find came off the top bar when the
+ * corner became the portrait, and a search circle drawn differently from the
+ * circle beside it would read as two kinds of control on one row rather than
+ * as two round targets.
+ */
+.wf-cycle,
+.wf-round {
   flex: none;
   width: var(--tap);
   height: var(--tap);
@@ -1900,8 +1907,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border-radius: var(--r-pill);
   color: var(--link);
 }
-.wf-cycle:active { background: var(--paper-sunk); }
-.wf-cycle:focus-visible { outline: none; box-shadow: var(--focus); }
+.wf-cycle:active,
+.wf-round:active { background: var(--paper-sunk); }
+.wf-cycle:focus-visible,
+.wf-round:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * One row, whatever somebody keeps. This is what the fiction and non-fiction
@@ -2635,6 +2644,143 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   gap: var(--s2);
 }
 .wf-sure__acts > * { flex: 1 1 auto; }
+
+/* --- The corner, and what it opens ---------------------------------------- */
+
+/*
+ * The ring an avatar would be, with the cat in it. See `Chrome.tsx` for why
+ * the sitter is a cat and not a person.
+ *
+ * 34 inside the 44px corner target, which is the ordinary proportion of an
+ * avatar to the square it is tapped in, and it leaves the corner exactly as
+ * easy to hit as it was when it held a search glyph.
+ *
+ * `place-items: end center` and the clip are the whole trick: `peeking` is
+ * drawn to be cut off along its bottom edge, so standing it on the floor of a
+ * round frame makes a head looking out of a portrait. Nothing was redrawn for
+ * this.
+ */
+.wf-portrait {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: end center;
+  overflow: hidden;
+  background: var(--paper-sunk);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+}
+
+/*
+ * The sheet the corner opens, over the screen it was opened from.
+ *
+ * Absolute inside the phone rather than fixed, for the reason `.wf-sure` is:
+ * the gallery's own bar is how a theme is switched and how the index is got
+ * back to, and a wireframe of a menu that swallowed both would be a screen
+ * nobody could leave.
+ *
+ * It hangs from the top right under the corner it came out of, rather than
+ * rising from the bottom of the screen the way the confirmation does. A sheet
+ * from the bottom is for a question you must answer; this is a menu, and a
+ * menu that does not come out of the thing you pressed leaves you working out
+ * what you just opened.
+ */
+.wf-corner {
+  position: absolute;
+  inset: 0;
+  /* Over the top bar and the tab bar, both at 5, under the gallery's own frame
+     at 20. The same two neighbours `.wf-sure` sits between. */
+  z-index: 10;
+  display: grid;
+  align-items: start;
+  justify-items: end;
+  padding: var(--s3);
+  background: var(--scrim);
+}
+
+/* The way out is everywhere else, which is how every menu like this closes.
+   A real target rather than a handler on the scrim, so it can be walked out
+   of here and announced anywhere. */
+.wf-corner__away {
+  position: absolute;
+  inset: 0;
+  background: none;
+  border: 0;
+}
+
+.wf-corner__card {
+  position: relative;
+  width: 100%;
+  max-width: 300px;
+  /* Clear of the top bar it drops out of, measured at 414 by 896 with a bar
+     carrying one line and with a bar carrying two. */
+  margin-top: 52px;
+  display: grid;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--lift-3);
+}
+
+/* Where an account menu says who you are signed in as. */
+.wf-corner__who {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+.wf-corner__lines {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wf-corner__name {
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+.wf-corner__said {
+  font-size: var(--size-label);
+  color: var(--ink-2);
+}
+
+.wf-corner__ways {
+  display: grid;
+  gap: var(--s2);
+}
+
+.wf-corner__way {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  background: var(--paper-well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--ink);
+}
+.wf-corner__way:active { background: var(--paper-sunk); }
+.wf-corner__way:focus-visible { outline: none; box-shadow: var(--focus); }
+.wf-corner__way .wf-cat,
+.wf-corner__way svg { flex: none; margin-left: auto; color: var(--ink-2); }
+
+.wf-corner__word {
+  font-size: var(--size-body);
+  line-height: var(--lh-tight);
+}
+
+.wf-corner__note {
+  font-size: var(--size-label);
+  color: var(--ink-2);
+}
 
 /* --- The gallery's own frame ---------------------------------------------- */
 

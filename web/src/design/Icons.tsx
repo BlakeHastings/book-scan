@@ -20,6 +20,15 @@
  * above now names the corner rather than only the back arrow. A corner action
  * still carries an accessible name; see `Chrome.tsx`.
  *
+ * **Nothing was added here for the portrait in the corner** (#329), and that
+ * is worth saying because it is the obvious place to have put one. It is the
+ * cat, framed, and he lives in `Cat.tsx` where his other three jobs are. A
+ * twelfth glyph drawn to stand in for a cat that is already drawn is a second
+ * cat, and the set is eleven for the same reason it was eleven before.
+ *
+ * `IconFind` is drawn a row lower than it used to be, in the filter row rather
+ * than the top bar, and it is the same glyph doing the same job. See `Filter`.
+ *
  * ## The last three, and why they are drawings rather than words
  *
  * Covers, list and spines were three words in a segmented control taking a

@@ -143,6 +143,35 @@ export function Cycle({
 }
 
 /**
+ * A round target with a glyph in it, which goes somewhere rather than cycling.
+ *
+ * The same 44px circle `Cycle` wears, and it is a second component rather than
+ * a flag on that one because they are not the same control: a cycle steps
+ * through a short list and draws the state it would move you to, and this one
+ * opens something. Sharing a name would have made "the way of looking at the
+ * books is one button" a rule about two different things, which is how a
+ * pinned rule stops meaning anything.
+ *
+ * It carries no word, so `name` is the whole of what it says.
+ */
+export function Round({
+  name,
+  icon,
+  onPress,
+}: {
+  /** What pressing it does. The accessible name, and there is nothing else. */
+  name: string
+  icon: ReactNode
+  onPress?: () => void
+}) {
+  return (
+    <button type="button" className="wf-round" aria-label={name} title={name} onClick={onPress}>
+      {icon}
+    </button>
+  )
+}
+
+/**
  * One answer out of more than three, all visible at once.
  *
  * A segmented control stops working at four options and these questions have
