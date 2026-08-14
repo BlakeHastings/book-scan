@@ -105,19 +105,27 @@ jobs:
           curl -sSL https://aspire.dev/install.sh | bash
           echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
 
+      # `scripts/npm-install.mjs` runs `npm ci` and retries it a bounded number
+      # of times, but only when the failure looks like a connection that timed
+      # out rather than a dependency that genuinely cannot be installed (#342).
+      # `web`'s onnxruntime-node fetches its own binary during install, from a
+      # host the runner sometimes cannot reach; the same failure can happen
+      # again below, in "Run the journeys", as the AppHost's own install of the
+      # same tree (covered in apphost.mts by the same script), which is why a
+      # fix only here would not have been enough.
       - name: Install the app
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: web
-        run: npm ci
+        run: node ../scripts/npm-install.mjs
 
       - name: Install the AppHost
         if: steps.scope.outputs.docs_only != 'true'
-        run: npm ci
+        run: node scripts/npm-install.mjs
 
       - name: Install the suite
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
-        run: npm ci
+        run: node ../scripts/npm-install.mjs
 
       # The browser binary comes from the cache when it hits; the OS packages
       # it links against are installed either way, because they live outside

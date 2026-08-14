@@ -154,10 +154,18 @@ jobs:
           restore-keys: |
             npm-web-${{ runner.os }}-
 
+      # `scripts/npm-install.mjs` runs `npm ci` and retries it a bounded number
+      # of times, but only when the failure looks like a connection that timed
+      # out rather than a dependency that genuinely cannot be installed (#342).
+      # Two runs on unrelated changes failed right here with the same shape: a
+      # native dependency (onnxruntime-node) fetching its own binary during
+      # install, from a host the runner could not reach. This is one of two
+      # places that failure can happen; the other is the AppHost's own install,
+      # covered in apphost.mts by the same script.
       - name: Install
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: web
-        run: npm ci
+        run: node ../scripts/npm-install.mjs
 
       - name: Typecheck
         if: steps.scope.outputs.docs_only != 'true'
@@ -196,7 +204,7 @@ jobs:
         env:
           BOOKSCAN_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
-      # Three script suites, none of which needs a dependency tree. They run
+      # Four script suites, none of which needs a dependency tree. They run
       # here rather than in jobs of their own because a job is billed rounded up
       # to a whole minute and these take about a second between them.
       #
@@ -222,3 +230,10 @@ jobs:
       - name: Scope rules
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/ci-scope.test.mjs
+
+      # The classification the Install step above (and apphost.mts) relies on
+      # to tell a transient network timeout apart from a real failure. Getting
+      # it wrong in either direction defeats the point of #342.
+      - name: Install retry classifies failures correctly
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/npm-install.test.mjs
