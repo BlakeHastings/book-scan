@@ -12,8 +12,8 @@
  * scroll, and every screen converted to the design system brings its own top
  * bar and four-place tab bar, so the app's header would be a second bar above
  * them saying the same thing. That is the first screen since #303, the
- * furniture since #313, the carry flow since #314 and the cataloguing journey
- * since #316.
+ * furniture since #313, the carry flow since #314, the cataloguing journey
+ * since #316 and the move-and-plan screen since #326.
  *
  * **`carrying` still wears whatever the where-it-goes screen wears**, which is
  * the point of it calling that screen rather than copying it. That screen is
@@ -78,7 +78,13 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   tags: { view: TagsScreen, chrome: false },
   shelves: { view: ShelvesScreen, chrome: true },
   queue: { view: QueueScreen, chrome: false },
-  arrange: { view: ArrangeScreen, chrome: true },
+  /*
+   * Changing what belongs where, and the plan it produces (#326). It wore the
+   * app's frame until the whole journey was walked and this was the one screen
+   * in it still dressed as the old app: describe the furniture, change a rule,
+   * plan, apply, then carry books on screens that look like the new one.
+   */
+  arrange: { view: ArrangeScreen, chrome: false },
   scan: { view: ScanScreen, chrome: false },
 
   /*

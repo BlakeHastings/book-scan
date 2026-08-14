@@ -22,7 +22,7 @@ import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
-import { applyRunMove } from './relocate-run'
+import { applyRunMove, planRunMove } from './relocate-run'
 import { outstandingWork, tripAtArea } from './carry'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
@@ -183,6 +183,47 @@ describe('the list of books to carry', () => {
     const work = await outstandingWork(db)
     expect(work.moving).toBe(49)
     expect(work.skipped).toEqual([{ reason: 'pinned', books: 1 }])
+  })
+
+  /*
+   * #325, and it is the same claim from both ends: the plan and this list are
+   * one job of work read twice, minutes apart, by the same person. A checked out
+   * book never gets an `assigned` row, so it used to be counted by the plan and
+   * unmentioned here, and somebody told six were skipped would work a list that
+   * accounted for five and hunt for a sixth book that is not there.
+   */
+  it('counts a checked out book as left alone, the way the plan does', async () => {
+    const ids = await buildTheWorld()
+    await store.setCheckedOut(ids[0]!, true)
+
+    const planned = await planRunMove(db, 'nonfiction', 3)
+    expect(planned.ok).toBe(true)
+    const skippedByThePlan = planned.ok
+      ? planned.plan.skipped.map((one) => [one.reason, one.books.length])
+      : []
+
+    await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+    const work = await outstandingWork(db)
+
+    expect(skippedByThePlan).toEqual([['checked-out', 1]])
+    expect(work.skipped).toEqual([{ reason: 'checked-out', books: 1 }])
+    expect(work.moving).toBe(49)
+  })
+
+  /*
+   * The other half of that decision. A checked out book is counted because it is
+   * coming back, so the count has to go the moment it does, or the card silts up
+   * with books that are home.
+   */
+  it('takes it back off the moment it is back in the house', async () => {
+    const ids = await buildTheWorld()
+    await store.setCheckedOut(ids[0]!, true)
+    await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+
+    await store.setCheckedOut(ids[0]!, false)
+
+    const work = await outstandingWork(db)
+    expect(work.skipped).toEqual([])
   })
 
   it('names the books somebody carried that the newest change wants back', async () => {

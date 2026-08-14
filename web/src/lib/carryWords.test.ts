@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { plural, said, stretchOf, surnameOf, whenSaid, words } from './carryWords'
+import {
+  plural, said, skipSaid, stretchOf, surnameOf, whenSaid, words,
+} from './carryWords'
 
 describe('numbers, as the carry screens say them', () => {
   it('writes out the ones the drawn design writes out', () => {
@@ -82,5 +84,28 @@ describe('when the carrying happened', () => {
 
   it('says something rather than nothing when nobody has carried anything', () => {
     expect(whenSaid('', today)).toBe('earlier')
+  })
+})
+
+/*
+ * One voice for two screens (#325). The plan and the carry list are one job of
+ * work read twice, minutes apart, by the same person, and they used to disagree
+ * about whether a checked out book had been left alone at all.
+ */
+describe('why a book is not being carried', () => {
+  it('says every reason, in the order it is given them', () => {
+    expect(skipSaid([
+      { reason: 'pinned', books: 3 },
+      { reason: 'checked-out', books: 2 },
+      { reason: 'never-placed', books: 1 },
+    ])).toBe('Three you pinned. Two checked out. One never confirmed onto a bookcase.')
+  })
+
+  it('says a reason it has never heard of rather than swallowing it', () => {
+    expect(skipSaid([{ reason: 'melted' as never, books: 2 }])).toBe('Two left alone.')
+  })
+
+  it('says nothing at all when nothing was left alone', () => {
+    expect(skipSaid([])).toBe('')
   })
 })

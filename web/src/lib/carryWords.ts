@@ -18,6 +18,8 @@
  * it, digits with the thousands grouped.
  */
 
+import type { SkipReason } from './api'
+
 const UNITS = [
   'no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
   'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
@@ -92,6 +94,45 @@ export function stretchOf(filings: readonly string[]): string {
   if (names.length === 1 || first === last) return first
   if (names.length === 2) return `${first} and ${last}`
   return `${first} to ${last}`
+}
+
+/**
+ * Why a book is not being carried, in one voice for the two screens that say
+ * it.
+ *
+ * **The plan and the carry list are one job of work read twice**, minutes
+ * apart, by the same person. #325 found them disagreeing: the plan counted a
+ * checked out book among the ones it left alone and the list said nothing about
+ * checked out books at all, so somebody told six were skipped went to work a
+ * list that accounted for five and hunted for the sixth. The counts are settled
+ * where they are read (`server/carry.ts`); the sentences are settled here, so
+ * the two screens cannot drift into two spellings of one fact either.
+ *
+ * An unknown reason is said rather than dropped. A reason this table has not
+ * heard of is still a book the rules will not touch, and swallowing it is the
+ * omission the whole shape exists to prevent.
+ */
+const SKIP_SAID: Record<SkipReason, (n: number) => string> = {
+  pinned: (n) => `${said(n)} you pinned.`,
+  'checked-out': (n) => `${said(n)} checked out.`,
+  withdrawn: (n) => `${said(n)} withdrawn from the collection.`,
+  'never-placed': (n) => `${said(n)} never confirmed onto a bookcase.`,
+}
+
+export function skipSaid(
+  skipped: readonly { reason: SkipReason; books: number }[],
+): string {
+  return skipped
+    .map((one) => SKIP_SAID[one.reason]?.(one.books) ?? `${said(one.books)} left alone.`)
+    .join(' ')
+}
+
+/** The same reasons as a word to put beside a book's name in a list. */
+export const SKIP_WORD: Record<SkipReason, string> = {
+  pinned: 'Pinned',
+  'checked-out': 'Checked out',
+  withdrawn: 'Withdrawn',
+  'never-placed': 'Never placed',
 }
 
 /**
