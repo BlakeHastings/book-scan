@@ -264,6 +264,17 @@ which were hard won, now protect the wrong thing.
   disks are inside it. That is the one remaining gap and it is deliberate rather
   than unnoticed.
 
+- **Something notices when the backup stops, and it is the app** (#311). The
+  backup has stopped twice, for two unrelated reasons, and both times the only
+  thing that knew was a log. `web/server/backup-watch.ts` asks whether there is
+  a dump in `BOOKSCAN_BACKUP_DIR` newer than 26 hours whose manifest says a
+  verification restored it, `GET /api/backup` answers, and the first screen of
+  the app draws a card when the answer is bad. **It never checks that the job
+  ran**: it ran on both of those nights, and failed in under a second. It opens
+  no connection and writes nothing. Unset means nothing is watched and nothing
+  is claimed, which is every checkout; the AppHost sets it empty so a
+  development run cannot inherit one.
+
 `server/backup-catalogue.ts` does not read `ConnectionStrings__bookscan`, and it
 does not read anything else in the environment unless it was asked to by name.
 Its source comes from `--source`, or from `BOOKSCAN_BACKUP_SOURCE` when

@@ -151,6 +151,29 @@ export interface Counts {
   checkedOut: number
 }
 
+/**
+ * What the server found where the backups are kept.
+ *
+ * The states are the server's own words and the wire carries them rather than a
+ * sentence, so the interface decides how to say each one and the server keeps
+ * deciding what is true. `server/backup-watch.ts` explains each.
+ */
+export interface BackupWatch {
+  state: 'unwatched' | 'unreachable' | 'none' | 'unverified' | 'stale' | 'fresh'
+  /** Where it looked. Empty when nothing is watched. */
+  where: string
+  /** The age a proved backup is allowed to reach, in hours. */
+  limitHours: number
+  /** Why the directory could not be read. Only on `unreachable`. */
+  why?: string
+  /** The newest backup on the disk, whatever its verification says. */
+  newest?: { dump: string; takenAt: string }
+  /** The newest backup a verification passed on. */
+  verified?: { dump: string; takenAt: string }
+  /** How old `verified` is, in whole hours. */
+  ageHours?: number
+}
+
 export interface BookRow {
   id: number
   title: string
@@ -1498,6 +1521,16 @@ export const api = {
     request<{ plan: AreaRemovalPlan }>(`/api/areas/${id}`, { method: 'DELETE' }),
 
   health: () => request<{ ok: boolean; counts: Counts; db: string }>('/api/health'),
+
+  /**
+   * Whether there is a backup of this collection anybody has proved restores.
+   *
+   * Files on a disk, asked about once, on the first screen. Nothing here says
+   * whether a scheduled job started, because it started on both of the two
+   * occasions this went unnoticed for days (#239, #311). See
+   * `server/backup-watch.ts`.
+   */
+  backup: () => request<BackupWatch>('/api/backup'),
 }
 
 export const emptyDraft: Draft = {
