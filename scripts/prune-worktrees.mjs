@@ -38,6 +38,26 @@
 // committing after its pull request merges, this assumption stops holding and
 // this comment is where to start.
 //
+// THAT ASSUMPTION WAS WRONG, AND IT COST A WORKTREE
+// A branch gone from origin is one of two things, and the paragraph above only
+// names one of them. The other is a branch that was **never pushed**, which is
+// what every agent has while it is still working.
+//
+// On 2026-08-14 an agent stopped partway through a task, which released the
+// lock the harness holds while it runs. A merge ran this sweep, saw an unlocked
+// worktree with a clean tree on a branch origin had never heard of, and removed
+// it. The agent was then resumed into a directory that was being torn down
+// underneath it, and its test run failed on files that had stopped existing.
+// The commit survived only because `git branch -D` happened to fail after
+// `git worktree remove` succeeded.
+//
+// So the three conditions were not enough, and the missing one is the only one
+// that actually matters: **is there anything here that master does not have?**
+// That is now checked by content rather than by reachability, which is what
+// makes it survive a squash merge. A branch whose own files are identical to
+// master's has nothing to lose; a branch whose files differ has work on it,
+// whatever origin remembers.
+//
 //   node scripts/prune-worktrees.mjs            # remove what is safe
 //   node scripts/prune-worktrees.mjs --dry-run  # say what would go
 import { execFileSync } from 'node:child_process'
@@ -73,6 +93,48 @@ function worktrees() {
   }
   if (current.path) found.push(current)
   return found
+}
+
+/**
+ * The files this branch has that `master` does not, compared by content.
+ *
+ * The question a sweep actually needs answered is not "did this land" but "is
+ * anything here that exists nowhere else". Content answers it and reachability
+ * does not, which is the whole difficulty: a squash merge puts the branch's
+ * changes on master under a commit the branch has never seen, so asking whether
+ * the branch's commits are reachable refuses every worktree forever and
+ * protects nothing.
+ *
+ * So: take the files the branch changed since it left master, and ask whether
+ * those same files now differ from master. Squash merged, they are identical
+ * and this returns nothing. Never pushed, they differ and this returns them,
+ * which is an agent's unlanded work and the sweep must leave it alone.
+ *
+ * Returns `null` when the comparison cannot be made at all, which is treated as
+ * a refusal rather than as permission: not being able to tell is the one case
+ * where deleting somebody's afternoon is unrecoverable.
+ */
+function worksMasterDoesNotHave(branch) {
+  if (!branch) return null
+  try {
+    const base = git(['merge-base', 'origin/master', branch]).trim()
+    const touched = git(['diff', '--name-only', base, branch])
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    // Branched and never committed anything of its own.
+    if (touched.length === 0) return []
+
+    const differs = git(['diff', '--name-only', 'origin/master', branch, '--', ...touched])
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    return differs
+  } catch {
+    return null
+  }
 }
 
 /** The branches origin still has, so a deleted one is a finished one. */
@@ -123,6 +185,19 @@ export function main() {
     }
     if (isDirty(tree.path)) {
       kept.push(`${name}: has uncommitted changes, look at it`)
+      continue
+    }
+    const unique = worksMasterDoesNotHave(tree.branch)
+    if (unique === null) {
+      kept.push(`${name}: could not be compared against master, so left alone`)
+      continue
+    }
+    if (unique.length > 0) {
+      kept.push(
+        `${name}: ${unique.length} file(s) differ from master ` +
+        `(${unique.slice(0, 3).join(', ')}${unique.length > 3 ? ', ...' : ''}), ` +
+        'so this is unlanded work',
+      )
       continue
     }
 
