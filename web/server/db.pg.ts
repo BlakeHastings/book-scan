@@ -28,6 +28,7 @@ import {
   countProjectionDisagreements, projectionDisagreements,
 } from '../infrastructure/placement/projection'
 import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
+import { booksNoRuleClaims } from './claim'
 import type { ShelfRange } from '../shared/shelving'
 import { bindParams, lockKey, type Db, type Params, type TxOptions } from './driver'
 
@@ -795,7 +796,7 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
 
   await sayWhetherThePlacementProjectionHolds(db)
   await sayWhetherTheRulesAgreeWithTheShelf(db)
-  await sayWhetherEveryShelvedBookHasAGenre(db)
+  await sayWhetherEveryBookIsClaimed(db)
 }
 
 /**
@@ -839,7 +840,7 @@ async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
 }
 
 /**
- * Say how many shelved books no genre tag claims.
+ * Say how many books no rule claims, and which of the two states each is in.
  *
  * **The answer to "what happens if a tag goes missing" is: nothing moves, and
  * this line is how anybody finds out** (#223). `books.shelf_range` is written by
@@ -847,10 +848,9 @@ async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
  * the range it already had and stays exactly where it is. It does not become
  * unplaceable and no shelf empties.
  *
- * What it does become is a book whose position nothing can justify any more: the
- * next save files it under whatever that save states, and `0013`'s placement
- * rules already claim nothing at all. The one thing worth knowing is which
- * books.
+ * What it does become is a book whose position nothing can justify any more: no
+ * rule claims it, so no plan will ever move it. The one thing worth knowing is
+ * which books.
  *
  * **A save reaches this state too, since #304.** It used to be that the tag
  * routes were the only way in, because a save always stated one of the two
@@ -862,30 +862,37 @@ async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
  * to say which it is.
  *
  * Reported and not repaired either way, for the reason the projection check
- * above is: writing a genre back would invent an answer nobody gave.
+ * above is: writing a genre back would invent an answer nobody gave, and it is
+ * the thing #304 stopped doing on the owner's explicit instruction.
+ *
+ * **This used to ask a narrower question in SQL of its own** (#341). It was
+ * `NOT EXISTS` against two hard-coded slugs over `shelved_books`, which meant it
+ * saw a book carrying no genre tag and missed a book carrying a tag no rule
+ * asks for, and it would have started answering wrongly the first time somebody
+ * wrote a rule about a third tag. It now asks `booksNoRuleClaims`, which puts
+ * the question to `claim`, so this line, the route and the screens say the same
+ * thing about the same books by construction. That also widened what it covers:
+ * a checked out book is in the collection and is here, where the old statement
+ * read `shelved_books` and could not see one.
  */
-async function sayWhetherEveryShelvedBookHasAGenre(db: Db): Promise<void> {
-  const untagged = await db.all<{ id: number; title: string }>(
-    `SELECT b.id, b.title
-       FROM shelved_books b
-      WHERE NOT EXISTS (
-        SELECT 1 FROM book_tag bt JOIN tag t ON t.id = bt.tag_id
-         WHERE bt.book_id = b.id
-           AND t.slug IN ('genre/fiction', 'genre/non-fiction'))
-      ORDER BY b.id`,
-  )
+async function sayWhetherEveryBookIsClaimed(db: Db): Promise<void> {
+  const unclaimed = await booksNoRuleClaims(db)
 
-  if (!untagged.length) {
-    console.log('[tags] every shelved book carries a genre tag that files it')
+  if (!unclaimed.length) {
+    console.log('[placement] every book in the collection is claimed by a rule')
     return
   }
 
+  const untagged = unclaimed.filter((one) => one.why === 'untagged')
+
   console.error(
-    `[tags] ${untagged.length} shelved books carry no genre tag, so nothing files ` +
-    'them and no rule claims them: one that had a range keeps it and does not ' +
+    `[placement] ${unclaimed.length} books no rule claims, so nothing files them: ` +
+    `${untagged.length} carry no tag at all and ${unclaimed.length - untagged.length} ` +
+    'carry tags no rule asks for. One that had a range keeps it and does not ' +
     'move, and one that never had one is in neither run. Say which they are, ' +
-    'through the review pane or POST /api/books/:id/tags. ' +
-    untagged.slice(0, 20).map((one) => `#${one.id} ${one.title}`).join('; '),
+    'through the review pane or POST /api/books/:id/tags, or write a rule for ' +
+    'the tags they already carry. ' +
+    unclaimed.slice(0, 20).map((one) => `#${one.id} ${one.title}`).join('; '),
   )
 }
 

@@ -70,6 +70,17 @@ export const SHELVED: BookState = 'shelved'
 /** Off the shelf and still owned, which is a different thing from not filed. */
 export const CHECKED_OUT: BookState = 'checked_out'
 
+/**
+ * Gone from the collection, and the row kept because nothing is deleted.
+ *
+ * Named for the same reason the three around it are, and it earns the name the
+ * moment something asks a question of the collection rather than of the
+ * catalogue: `catalogued_books` holds this state on purpose, so a read that
+ * means "books somebody still owns" has to say this word, and a read that spells
+ * it is a read that can spell it wrong.
+ */
+export const WITHDRAWN: BookState = 'withdrawn'
+
 /** The scan was a mistake. A state, and not a row anybody deletes. */
 export const DISCARDED: BookState = 'discarded'
 

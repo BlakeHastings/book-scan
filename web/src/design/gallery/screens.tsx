@@ -299,6 +299,37 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
           All fifty-three
         </Button>
       </Card>
+
+      {/* #341. These books were mentioned nowhere: absent from both listings,
+          from both misfile reviews, from this screen, and from every area's
+          claimed-by-nothing card, because that card reads where a book stands
+          and a book nothing files never gets moved anywhere to be read.
+
+          A card rather than a fourth count, and the count is in its second
+          line instead. `Stats` is three across at 414 wide and says why; a
+          fourth tile puts "nothing files them" into 93px. What the rule asks
+          is that a count on this screen goes somewhere, and this one does. */}
+      <Card title="Nothing files these" kind="Twelve books">
+        <List label="Books nothing files">
+          <Row
+            title="The Peregrine"
+            sub="Baker, J. A."
+            cloth="moss"
+            place="4A"
+            onPress={() => go('unclaimed')}
+          />
+          <Row
+            title="The Living Mountain"
+            sub="Shepherd, Nan"
+            cloth="wood"
+            place="1B"
+            onPress={() => go('unclaimed')}
+          />
+        </List>
+        <Button tone="quiet" onPress={() => go('unclaimed')}>
+          All twelve
+        </Button>
+      </Card>
     </Phone>
   )
 }
@@ -2493,6 +2524,94 @@ function Claimed(go: Go) {
   )
 }
 
+/**
+ * The same screen for a book no rule claims, which until now offered nothing.
+ *
+ * **The screen said the true thing and then stopped**, which #341 named: it
+ * explains an unclaimed book and offers it no action at all, on the one screen
+ * somebody arrives at while holding the book and wondering. Every other state
+ * here has a way out. This one now has two, and they are the two the model
+ * actually has: say something about the book, or ask for the tag it already
+ * carries.
+ *
+ * **It draws the second of the two unclaimed states on purpose.** A book with no
+ * tag at all is the state #304 made real and it is drawn twice already, on the
+ * list and on the screen that settles one. A book carrying a tag no rule asks
+ * for is the other one, it is the one nothing has ever drawn, and it is where
+ * the second way out is the better answer: the household reads crime novels, so
+ * the honest fix may well be a rule about Crime rather than nine books being
+ * told they are also Fiction.
+ *
+ * **Nothing here writes a tag by itself**, which is the thing #304 stopped doing
+ * on the owner's instruction. Both buttons open a screen where a person says
+ * something; neither of them settles anything on the way past.
+ */
+function ClaimedNone(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Why it is here" sub="The Big Sleep" onBack={() => go('book')} />}
+    >
+      <Instruction>No rule asks for this book, so nothing files it.</Instruction>
+
+      <Said>
+        It is on 1C because somebody put it there, and no plan will ever move it.
+      </Said>
+
+      {/* No list of rules, because there is nothing to list: not one of them
+          asked for this book. A card drawing an empty list would look like the
+          screen was still loading, which is the failure the whole state exists
+          to avoid. */}
+      {/* The title says the part the sentence above does not. It read "Nothing
+          asked for this book", which is the instruction again in smaller type,
+          and the thing worth knowing was buried in the body. Found by looking at
+          the two of them one under the other. */}
+      <Card kind="Not one rule wanted it" title="Every rule asks about a tag">
+        <p>
+          None of yours asks about the one this book carries, so there was
+          nothing for any of them to match.
+        </p>
+      </Card>
+
+      <Card kind="What the book carries" title="One tag">
+        <Tags>
+          <Tag>Crime</Tag>
+        </Tags>
+        <p>Somebody put it under Crime, and no rule mentions Crime.</p>
+      </Card>
+
+      <Card weight="sunk" kind="Where it is" title="1C">
+        <p>That is where somebody last said it stands.</p>
+      </Card>
+
+      {/* Two buttons in the body in one wrapping row, which is exactly what the
+          claimed screen does with its two, rather than one in the body and one
+          in the foot. That split was drawn first and read as two unrelated
+          offers with a rule about it in between. */}
+      <Card
+        weight="quiet"
+        kind="Two ways to settle it"
+        title="Say more about it, or ask for Crime"
+      >
+        <p>
+          Say what else this book is and the rule that asks for that will take
+          it. Or write a rule that asks for Crime, and every book like this one
+          gets a home at once.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button tone="primary" onPress={() => go('saying')}>
+            Say what it is
+          </Button>
+          <Button tone="secondary" onPress={() => go('belongs')}>
+            Write a rule for Crime
+          </Button>
+        </div>
+      </Card>
+    </Phone>
+  )
+}
+
 /* --- Putting things right ------------------------------------------------ */
 
 /*
@@ -3144,6 +3263,226 @@ function Empty(go: Go) {
   )
 }
 
+/*
+ * --- The books nothing files ----------------------------------------------
+ *
+ * #341, and the three questions it makes the design answer.
+ *
+ * ## 1. Which of the two unclaimed states this is about
+ *
+ * **Both, and they are drawn as two blocks rather than one list**, because they
+ * are two states with two explanations and, more importantly, two different
+ * ways out.
+ *
+ * A book carrying **no tag at all** is the state #304 made real: no catalogue
+ * stated a genre, so nothing was written down. The only way out is a person
+ * saying what it is, because nobody knows anything yet.
+ *
+ * A book carrying **a tag no rule asks for** is a different thing that lands in
+ * the same place. Somebody already said something about it; what is missing is a
+ * rule. Telling nine crime novels they are also Fiction is the wrong repair when
+ * the household reads crime and the real answer is one rule about Crime.
+ *
+ * One list with twelve identical rows would have hidden that, and the screen
+ * would have offered one remedy for two problems.
+ *
+ * ## 2. What settling one of them is allowed to be
+ *
+ * **A person saying so, and nothing else.** The app writes a genre tag only when
+ * a catalogue states one, which is #304 and was the owner's explicit
+ * instruction, so there is no button here that guesses, no "file them all as
+ * non-fiction", and no default answer preselected on the screen that asks.
+ *
+ * ## 3. What saying so does to the book
+ *
+ * **It does not move it.** Only a person moving a book changes where a book is,
+ * and this list is drawn beside a carry flow that exists because of exactly that
+ * invariant. So saying what a book is puts it on the carry list when the rule
+ * that takes it wants it elsewhere, and the screen says so rather than implying
+ * the book has been dealt with.
+ */
+
+/**
+ * Everything no rule claims, in the two states it comes in.
+ *
+ * Twelve, which is what this looks like on a collection of 1,204 where one
+ * catalogue is consulted (#305). Both blocks are drawn out in full rather than
+ * summarised: the whole complaint in #341 is that these books are mentioned
+ * least, and a screen that showed three of them and a count would be repeating
+ * the fault at a smaller size.
+ */
+function Unclaimed(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar title="Nothing files these" sub="Twelve books" onBack={() => go('home')} />
+      }
+    >
+      <Instruction>
+        No rule asks for these twelve, so nothing will ever move them.
+      </Instruction>
+
+      {/* Where each one stands, because the job starts with walking to it.
+
+          The way on hangs off this card rather than off the foot of the screen,
+          which is where it was until it was looked at: twelve rows put a primary
+          button fourteen hundred pixels below the sentence explaining it, and
+          the two blocks do not have one way out between them anyway. Each block
+          now carries its own, which is the point of their being two. */}
+      <Card
+        kind="Nobody has said what they are"
+        title="Nine books"
+        foot={
+          <Button tone="primary" block onPress={() => go('saying')}>
+            Say what the first one is
+          </Button>
+        }
+      >
+        <p>
+          No catalogue named a subject for these, so nothing was written down and
+          there is nothing for a rule to ask about.
+        </p>
+        <List label="Books nobody has said anything about">
+          <Row title="The Peregrine" sub="Baker, J. A." cloth="moss" place="4A" onPress={() => go('saying')} />
+          <Row title="The Living Mountain" sub="Shepherd, Nan" cloth="wood" place="1B" onPress={() => go('saying')} />
+          <Row title="Wildwood" sub="Deakin, Roger" cloth="sky" place="1B" onPress={() => go('saying')} />
+          <Row title="Waterlog" sub="Deakin, Roger" cloth="plum" place="1B" onPress={() => go('saying')} />
+          <Row title="Arctic Dreams" sub="Lopez, Barry" cloth="sun" place="4A" onPress={() => go('saying')} />
+          <Row title="Nature Cure" sub="Mabey, Richard" cloth="wood2" place="4B" onPress={() => go('saying')} />
+          <Row title="The Rings of Saturn" sub="Sebald, W. G." cloth="moss" place="1E" onPress={() => go('saying')} />
+          <Row title="Findings" sub="Jamie, Kathleen" cloth="sky" place="4B" onPress={() => go('saying')} />
+          <Row title="Pilgrim at Tinker Creek" sub="Dillard, Annie" cloth="plum" place="4A" onPress={() => go('saying')} />
+        </List>
+      </Card>
+
+      {/* The tag rather than the place on these rows, and it is the one
+          difference between the two lists. What a person is deciding here is
+          whether Crime should have a rule, and that question is about the tag;
+          where the book happens to be standing does not help them answer it. */}
+      <Card kind="Nothing asks for what they carry" title="Three books">
+        <p>
+          Somebody already said something about these. What is missing is a rule
+          that asks for it, and one rule can take several at once. Open one to
+          see what it carries.
+        </p>
+        <List label="Books carrying a tag no rule asks for">
+          <Row title="The Big Sleep" sub="Chandler, Raymond" cloth="sun" meta="Crime" onPress={() => go('claimednone')} />
+          <Row title="The Long Goodbye" sub="Chandler, Raymond" cloth="wood" meta="Crime" onPress={() => go('claimednone')} />
+          <Row title="Gaudy Night" sub="Sayers, Dorothy L." cloth="moss" meta="Crime" onPress={() => go('claimednone')} />
+        </List>
+      </Card>
+
+      {/* Said once, here, rather than on the screen that asks: somebody who
+          settles nine books in a row should meet this sentence at the start and
+          not nine times. */}
+      <Card weight="quiet" kind="What it does not do" title="Nothing here moves a book">
+        <p>
+          Saying what a book is only gives a rule something to ask for. If that
+          rule wants it somewhere else, it joins your carry list.
+        </p>
+      </Card>
+    </Phone>
+  )
+}
+
+/**
+ * Somebody saying what one book is, which is the only way out of this state.
+ *
+ * **What is offered is the tags your own rules ask for**, and that is the whole
+ * design decision on this screen. A list of every tag in the collection would
+ * offer twenty-three answers, eighteen of which change nothing, and the person
+ * would learn that afterwards by the book not moving. Each answer says where the
+ * book would go, so choosing is choosing a place as well as a word.
+ *
+ * **Nothing is chosen when it opens.** A preselected answer is the app guessing,
+ * quietly, in the one place where the whole point is that it does not.
+ */
+function Saying(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Say what it is" sub="The Peregrine" onBack={() => go('unclaimed')} />}
+    >
+      <Instruction>Nothing knows what this book is, so no rule can ask for it.</Instruction>
+
+      {/* Everything the catalogue does hold, because the question cannot be
+          answered off a title in a bar. Added after looking at this screen: it
+          asked somebody what a book is about and showed them nothing to go on. */}
+      <Card weight="sunk" kind="All anybody knows about it" title="The Peregrine">
+        <p>Baker, J. A. &middot; Collins, 1967 &middot; 191 pages</p>
+      </Card>
+
+      <Choice
+        label="What this book is"
+        on="nothing"
+        options={[
+          { value: 'fiction', word: 'Fiction', sub: 'Goes to the bookcase by the window' },
+          { value: 'nonfiction', word: 'Non-fiction', sub: 'Goes to bookcase 2' },
+          { value: 'cookery', word: 'Cookery', sub: 'Goes to 2 · Cookery' },
+          { value: 'poetry', word: 'Poetry', sub: 'Goes to the landing' },
+        ]}
+      />
+
+      {/* Drawn and not pressable, which no other gallery screen does, and the
+          sentence under it is the reason `Button` asks for one. Nothing is
+          chosen when this opens and nothing will choose itself: this is the
+          screen where #304's instruction is either kept or quietly broken by a
+          helpful default, and a default is what somebody adds to make the button
+          work. */}
+      <Button tone="primary" block off>
+        Save and show the next one
+      </Button>
+
+      <Said>
+        Nothing is chosen. No catalogue said, and this app does not guess.
+      </Said>
+
+      <Button tone="quiet" block onPress={() => go('tags')}>
+        It is something else
+      </Button>
+
+      <Button tone="quiet" block onPress={() => go('unclaimed')}>
+        Leave it for now
+      </Button>
+
+      <Card weight="quiet" kind="Why only these four" title="These are what your rules ask for">
+        <p>
+          Anything else is yours to keep and files nothing, until you write a rule
+          that asks for it.
+        </p>
+      </Card>
+    </Phone>
+  )
+}
+
+/** Nothing unfiled, which is the state a collection with enough rules lives in. */
+function UnclaimedNone(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="Nothing files these"
+          sub="Every book is claimed"
+          onBack={() => go('home')}
+        />
+      }
+    >
+      <Nothing said="Every book has a rule that wants it.">
+        <p>Nothing is waiting for you to say what it is.</p>
+      </Nothing>
+
+      <Button tone="quiet" block onPress={() => go('furniture')}>
+        See your furniture
+      </Button>
+    </Phone>
+  )
+}
+
 export const SCREENS: Screen[] = [
   { id: 'home', name: 'Today', group: 'Every day', render: Home },
   /* Short names. The viewer's own bar gives a name about twenty-four
@@ -3208,6 +3547,14 @@ export const SCREENS: Screen[] = [
   { id: 'belongs', name: 'What belongs here', group: 'Your furniture', render: Belongs },
   { id: 'sorting', name: 'How an area is ordered', group: 'Your furniture', render: Sorting },
   { id: 'claimed', name: 'Why a book is here', group: 'Your furniture', render: Claimed },
+  /* Beside the screen it is the other state of, because that is the pair: one
+     book with rules queueing up for it, and one book nothing wanted. */
+  {
+    id: 'claimednone',
+    name: 'Nothing claims this one',
+    group: 'Your furniture',
+    render: ClaimedNone,
+  },
   { id: 'move', name: 'Move non-fiction', group: 'Putting things right', render: Move },
   { id: 'plan', name: 'The plan', group: 'Putting things right', render: Plan },
   /* The journey, in the order it is walked: the whole of the work, one trip
@@ -3222,6 +3569,17 @@ export const SCREENS: Screen[] = [
   { id: 'carrystale', name: 'The answer changed', group: 'Putting things right', render: CarryStale },
   { id: 'carryone', name: 'Only one to carry', group: 'Putting things right', render: CarryOne },
   { id: 'carrynone', name: 'Nothing to carry', group: 'Putting things right', render: CarryNone },
+  /* The other job that is putting things right, and the one that has never had
+     a screen: the books no rule claims, the screen that settles one, and the
+     day there are none. */
+  { id: 'unclaimed', name: 'Nothing files these', group: 'Putting things right', render: Unclaimed },
+  { id: 'saying', name: 'Say what a book is', group: 'Putting things right', render: Saying },
+  {
+    id: 'unclaimednone',
+    name: 'Everything is filed',
+    group: 'Putting things right',
+    render: UnclaimedNone,
+  },
 ]
 
 /*

@@ -58,7 +58,7 @@ import { TagSlug } from '../domain/tagging/tags'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { filesOf } from './photographs'
-import { Store, type DraftBook } from './store'
+import { PAGE_LIMIT, Store, type DraftBook } from './store'
 // The two steps every save takes, lifted out so the seed takes the same ones
 // (#237). What a book's shelf range and filing name are derived from.
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
@@ -78,7 +78,7 @@ import {
 // a 500 with a Postgres stack trace in the log.
 import { idIn, refused } from './refusal'
 // Why a book is here: which rule claimed it, and which ones lost (#323).
-import { claimOfBook } from './claim'
+import { booksNoRuleClaims, claimOfBook } from './claim'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
@@ -1286,6 +1286,33 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
     res.json({ plan: applied.plan, wrote: applied.wrote })
+  }))
+
+  /**
+   * Which books no rule claims, and how many there are altogether.
+   *
+   * **The question #341 says nothing could answer.** It is absent from both
+   * range listings, both misfile reviews, the first screen and every area's
+   * claimed-by-nothing card, and the tag filter cannot express it: "no rule
+   * claims it" is a question about the rules, not about a slug, and negating a
+   * tag would answer a different question that happens to overlap today.
+   *
+   * `total` beside a capped page, the same pair and the same cap `listing`
+   * answers with, for the same reason: this list is one a first screen shows a
+   * count of and a person walks a few rows of, and the worst case is a room
+   * whose rules have all been switched off, which is the whole catalogue.
+   *
+   * Under `/api/placement` rather than under `/api/books`, because it is a
+   * question about where the rules put things, and because `/api/books/:id`
+   * would have swallowed the word.
+   *
+   * **It writes nothing, and it must not learn to.** Answering this by writing a
+   * genre tag is exactly what #304 stopped doing on the owner's explicit
+   * instruction. What settles one of these books is a person saying what it is.
+   */
+  app.get('/api/placement/unclaimed', asyncRoute(async (_req, res) => {
+    const found = await booksNoRuleClaims(db)
+    res.json({ books: found.slice(0, PAGE_LIMIT), total: found.length })
   }))
 
   // ---------------------------------------------------------------------------

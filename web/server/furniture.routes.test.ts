@@ -155,6 +155,16 @@ interface SeededFurniture {
     id: number; position: number; name: string; starts_at: string;
     sort_strategy: string; note: string;
   }[]
+  /**
+   * The rules, for the switch on them.
+   *
+   * Added by #341 for the same reason the two above were: a test in this file
+   * now turns a rule off, and `RESTORE_FURNITURE` in `testdb.ts` does not put a
+   * switch back. Left uncaptured, one test switching Non-fiction off would hand
+   * every test after it a room where nothing files anything, and the failure
+   * would land in whichever one built its world next.
+   */
+  rules: { id: number; enabled: boolean; priority: number; name: string }[]
 }
 
 /**
@@ -177,6 +187,7 @@ async function captureFurniture(): Promise<SeededFurniture> {
     areas: await db.all(
       'SELECT id, position, name, starts_at, sort_strategy, note FROM area ORDER BY id',
     ),
+    rules: await db.all('SELECT id, enabled, priority, name FROM placement_rule ORDER BY id'),
   }
 }
 
@@ -192,6 +203,12 @@ async function restoreFurniture(from: SeededFurniture): Promise<void> {
       `UPDATE area SET position = ?, name = ?, starts_at = ?, sort_strategy = ?, note = ?
         WHERE id = ?`,
       [one.position, one.name, one.starts_at, one.sort_strategy, one.note, one.id],
+    )
+  }
+  for (const one of from.rules) {
+    await db.run(
+      'UPDATE placement_rule SET enabled = ?, priority = ?, name = ? WHERE id = ?',
+      [one.enabled, one.priority, one.name, one.id],
     )
   }
 }
@@ -835,5 +852,130 @@ describe('why a book is here', () => {
     const { status, body } = await get('/api/books/999999/claim')
     expect(status).toBe(404)
     expect(body.error).toBe('No such book.')
+  })
+})
+
+/**
+ * Every book no rule claims, which is the list #341 says nothing could answer.
+ *
+ * The two states are the point. A book carrying no tag at all is what #304 made
+ * real, and a book carrying a tag no rule asks for is a different thing that
+ * lands in the same place: both are unclaimed, both stand where they were left
+ * for good, and the SQL this replaces could only see the first, because it asked
+ * `NOT EXISTS` against two hard-coded slugs.
+ */
+describe('the books no rule claims', () => {
+  /** The book at the top of the non-fiction, claimed until a test says otherwise. */
+  async function first(): Promise<number> {
+    const bookcase = await nonFiction()
+    const row = await db.get<{ id: number }>(
+      'SELECT id FROM books WHERE current_area_id = ? ORDER BY sort_key LIMIT 1',
+      [bookcase.areas[0].id],
+    )
+    return Number(row!.id)
+  }
+
+  it('answers an empty list for a room where every book is claimed', async () => {
+    await buildWorld()
+    const { status, body } = await get('/api/placement/unclaimed')
+    expect(status).toBe(200)
+    expect(body.books).toEqual([])
+    expect(body.total).toBe(0)
+  })
+
+  /**
+   * The #304 state: nothing stated a genre, so no tag was written. The book is
+   * still standing where somebody put it, and saying so is what lets a person
+   * walk to it and pick it up.
+   */
+  it('names a book carrying no tag at all, and says that is why', async () => {
+    await buildWorld()
+    const id = await first()
+    await db.run('DELETE FROM book_tag WHERE book_id = ?', [id])
+
+    const { body } = await get('/api/placement/unclaimed')
+    expect(body.total).toBe(1)
+    expect(body.books).toHaveLength(1)
+    expect(body.books[0].id).toBe(id)
+    expect(body.books[0].why).toBe('untagged')
+    expect(body.books[0].tags).toEqual([])
+    expect(body.books[0].standing.label).toBe('4A')
+  })
+
+  /**
+   * The other state, and the one the old inlined SQL could not see: the book
+   * carries a tag, so a check for a missing genre tag finds nothing wrong with
+   * it, and no rule in this room asks for what it carries.
+   */
+  it('names a book carrying a tag no rule asks for, and says that is why', async () => {
+    await buildWorld()
+    const id = await first()
+    await db.run('DELETE FROM book_tag WHERE book_id = ?', [id])
+    const applied = await post(`/api/books/${id}/tags`, { slug: 'Poetry', label: 'Poetry' })
+    expect(applied.status).toBe(201)
+
+    const { body } = await get('/api/placement/unclaimed')
+    expect(body.total).toBe(1)
+    expect(body.books[0].id).toBe(id)
+    expect(body.books[0].why).toBe('unmatched')
+    expect(body.books[0].tags).toEqual(['Poetry'])
+  })
+
+  /** A tag is read by its label, so no slug may reach anybody. */
+  it('carries no slug out to anybody', async () => {
+    await buildWorld()
+    const id = await first()
+    await db.run('DELETE FROM book_tag WHERE book_id = ?', [id])
+    await post(`/api/books/${id}/tags`, { slug: 'genre/poetry', label: 'Poetry' })
+
+    const { body } = await get('/api/placement/unclaimed')
+    expect(body.total).toBe(1)
+    expect(JSON.stringify(body)).not.toMatch(/genre\//)
+  })
+
+  /**
+   * A rule somebody switched off files nothing today, so its books are in here.
+   *
+   * Deliberately the opposite of what `GET /api/books/:id/claim` does with the
+   * switch. Explaining one book, "a rule wants it and you turned it off" is
+   * worth saying, so a disabled rule is still listed there. Answering which
+   * books nothing files, a rule that is off is a rule that files nothing, and
+   * `claim` is what says so in both places.
+   */
+  it('holds every book of a rule somebody switched off', async () => {
+    const ids = await buildWorld()
+    await db.run("UPDATE placement_rule SET enabled = false WHERE name = 'Non-fiction'")
+
+    const { body } = await get('/api/placement/unclaimed')
+    // Every book but the one fiction title, which its own rule still claims.
+    expect(body.total).toBe(ids.length - 1)
+    expect(body.books.every((one: { why: string }) => one.why === 'unmatched')).toBe(true)
+  })
+
+  /**
+   * A book that has left the collection is not work. No rule places a withdrawn
+   * book by design, which the claim screen already says out loud, so counting
+   * one here would be a number that trains somebody to ignore the list.
+   */
+  it('leaves out a book that has left the collection', async () => {
+    await buildWorld()
+    const id = await first()
+    await db.run('DELETE FROM book_tag WHERE book_id = ?', [id])
+    await db.run("UPDATE books SET state = 'withdrawn' WHERE id = ?", [id])
+
+    const { body } = await get('/api/placement/unclaimed')
+    expect(body.books).toEqual([])
+    expect(body.total).toBe(0)
+  })
+
+  /** A book still waiting in the queue is not here either: the queue is its screen. */
+  it('leaves out a book nobody has catalogued yet', async () => {
+    await buildWorld()
+    const id = await first()
+    await db.run('DELETE FROM book_tag WHERE book_id = ?', [id])
+    await db.run("UPDATE books SET state = 'identified' WHERE id = ?", [id])
+
+    const { body } = await get('/api/placement/unclaimed')
+    expect(body.total).toBe(0)
   })
 })
