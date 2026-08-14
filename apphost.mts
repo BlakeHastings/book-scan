@@ -168,10 +168,44 @@ console.log(
     `volume ${volumeName}, database ${databaseName}`,
 );
 
+/**
+ * The install both `api` and `web` need, run once rather than twice.
+ *
+ * `api` and `web` are two Aspire resources pointing at the same directory,
+ * `./web`: one `package.json`, one `node_modules`. Left alone, each of
+ * `addNodeApp`/`addViteApp` gets its own default npm installer, so starting
+ * this AppHost meant two concurrent `npm install`s writing to the same
+ * `node_modules` before anything else went wrong.
+ *
+ * That "before anything else went wrong" stopped being hypothetical in #342:
+ * a native dependency in `./web` (onnxruntime-node) fetches its own binary
+ * during install, from a host that is not always reachable, and the resulting
+ * `web-installer` failure looked completely different in the job log from the
+ * identical `npm ci` failing in the workflow's own Install step minutes
+ * earlier on the same branch. Fixing only the workflow step would have left
+ * this one exactly as it was.
+ *
+ * So this replaces both default installers with one: `scripts/npm-install.mjs`
+ * is the same script the workflows call, which retries a bounded number of
+ * times and only when the failure looks like the timeout #342 was about,
+ * still failing loudly for a dependency that genuinely will not install. Both
+ * `api` and `web` wait for it below rather than installing on their own.
+ */
+const npmInstall = await builder.addExecutable(
+  'npm-install',
+  'node',
+  './web',
+  [join(here, 'scripts', 'npm-install.mjs')],
+);
+
 let apiBuilder = builder
   .addNodeApp('api', './web', 'server/index.ts')
   // tsx, because the server is TypeScript and is not built before running.
   .withRunScript('dev:server')
+  // The install above already covers this directory; Aspire's own default
+  // installer would otherwise run a second, uncoordinated `npm install` here.
+  .withNpm({ install: false })
+  .waitForCompletion(npmInstall)
   // Aspire picks the port and passes it as PORT, which server/index.ts
   // already reads.
   .withHttpEndpoint({ env: 'PORT' })
@@ -193,6 +227,9 @@ const api = await apiBuilder;
 
 const web = await builder
   .addViteApp('web', './web', { runScriptName: 'dev:client' })
+  // Same directory as `api`, same install: see `npmInstall` above.
+  .withNpm({ install: false })
+  .waitForCompletion(npmInstall)
   // VITE_PORT, not PORT: the api reads PORT, and `npm run dev` runs both
   // through concurrently in one shell, so a shared name would collide.
   .withHttpEndpoint({ env: 'VITE_PORT' })
