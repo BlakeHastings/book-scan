@@ -60,7 +60,15 @@ export function CarryingScreen() {
 
   const book = books[done]
   const [placement, setPlacement] = useState<PlacementResponse | null>(null)
-  const [range, setRange] = useState<ShelfRange>('fiction')
+  /**
+   * The run this book is in, or null when no genre tag claims it (#304).
+   *
+   * A book on a carry list was put there by a rule, so in practice it is one of
+   * the two. Null rather than a stand-in all the same, because a range is what
+   * every shuffle on this screen is addressed to and guessing one would address
+   * them to a run this book is not in.
+   */
+  const [range, setRange] = useState<ShelfRange | null>('fiction')
   const [stale, setStale] = useState(true)
   const [saving, setSaving] = useState(false)
 

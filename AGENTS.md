@@ -724,6 +724,19 @@ than only here: a person's genre tag outranks a machine's, `genre/fiction` beats
 and a book carrying no genre tag keeps the range it has and does not move.
 `applySchema` counts those books on every start and names them.
 
+**A genre tag is written automatically only when a source stated one** (#304).
+The classifier's last rung, the one with no signal under it, used to answer
+`genre/fiction` with the confidence set to `unknown`, and `statedGenre` turned
+anything that was not the fiction slug into `genre/non-fiction`, so every save
+wrote a tag whether or not anybody had classified the book. Both are gone: a
+save that states no genre writes none, the book is in neither run with an empty
+`shelf_range`, no placement comes back, and the review pane comes up with
+neither option highlighted. A person tapping one still wins and is unchanged.
+
+**A book already carrying a guessed tag keeps it.** A save that states nothing
+restates nothing, which is not the same as withdrawing. Stripping the tags every
+book saved before #304 carries is a separate decision and it is the owner's.
+
 **`books.sort_key` is still the only thing that decides where a book sits**, and
 a save still writes it by `Store`, from the filing name the alias answers. The
 credits are written by `recordCredits` from the same draft, immediately after,

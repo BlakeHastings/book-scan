@@ -46,7 +46,7 @@ import { genreStatedBy } from '../domain/tagging/genre'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
 import { backCover, frontCover, photographedBook } from './fixtures'
-import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 // Both routes that would otherwise reach the real catalogues. Saving a book
 // starts an un-awaited `fetchCoverFor`, which calls both.
@@ -263,6 +263,86 @@ describe('saving a book', () => {
     expect((await running.store.counts()).total).toBe(0)
   })
 
+  it('writes no genre tag and files nowhere when nothing states a genre', async () => {
+    /*
+     * #304, at the route. Until then every save stated one of the two slugs
+     * whatever it had been given, so a book nobody classified and no catalogue
+     * described was written as non-fiction, filed into the non-fiction run, and
+     * reported as placed. The model could already say "nobody knows"; this is
+     * the write path reaching it.
+     *
+     * The book is saved, not refused. What it has no answer to is where on a
+     * shelf it goes, and there is nothing here that could invent one.
+     */
+    const { status, body } = await post('/api/books', {
+      title: 'Untitled Object', authors: ['Ann Author'], isbn13: DUNE,
+    })
+
+    expect(status).toBe(201)
+    expect(body.placement).toBeNull()
+
+    const stored = await running.store.getBook(body.id)
+    expect(stored?.title).toBe('Untitled Object')
+    // In neither run, which is what the empty range has always meant, rather
+    // than in the other one.
+    expect(stored?.shelf_range).toBe('')
+    // No derived label either: nowhere to derive it from, and claiming the
+    // book is at 1A would be the same wrong answer somewhere else.
+    expect(stored?.location).toBe('')
+
+    const { body: tagged } = await call(`/api/books/${body.id}/tags`)
+    expect(tagged.tags.map((tag: { slug: string }) => tag.slug)).toEqual([])
+
+    // And it is counted, rather than swelling one of the two runs.
+    expect(body.counts).toEqual({ total: 1, fiction: 0, nonfiction: 0, checkedOut: 0 })
+  })
+
+  it('files it the moment a person says which it is, unchanged', async () => {
+    // The half of #304 that does not change: a person setting it by hand still
+    // wins, and everything downstream of that is exactly as it was.
+    const { body: unfiled } = await post('/api/books', {
+      title: 'Untitled Object', authors: ['Ann Author'],
+    })
+    expect(unfiled.placement).toBeNull()
+
+    const { body: filed } = await put(`/api/books/${unfiled.id}`, {
+      title: 'Untitled Object',
+      authors: ['Ann Author'],
+      genre: NON_FICTION_SLUG,
+      classificationSource: 'manual',
+    })
+
+    expect(filed.placement.range).toBe('nonfiction')
+    expect((await running.store.getBook(unfiled.id))?.shelf_range).toBe('nonfiction')
+
+    const { body: tagged } = await call(`/api/books/${unfiled.id}/tags`)
+    expect(tagged.tags.map((tag: { slug: string }) => tag.slug)).toEqual(['genre/non-fiction'])
+  })
+
+  it('leaves a genre tag a book already carries where it is', async () => {
+    /*
+     * The other thing #304 must not do. Every book saved before it carries a
+     * guessed genre tag, and taking those off is a separate decision and the
+     * owner's. A save that states nothing states nothing: it does not withdraw
+     * what somebody or some catalogue said earlier.
+     */
+    const { body: saved } = await post('/api/books', {
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
+    })
+
+    const { body: again } = await put(`/api/books/${saved.id}`, {
+      title: 'Dune', authors: ['Frank Herbert'],
+    })
+
+    // The book keeps the tag and therefore keeps the range, because the range
+    // is read back off the tags rather than off what this save happened to say.
+    expect(again.placement.range).toBe('fiction')
+    expect((await running.store.getBook(saved.id))?.shelf_range).toBe('fiction')
+
+    const { body: tagged } = await call(`/api/books/${saved.id}/tags`)
+    expect(tagged.tags.map((tag: { slug: string }) => tag.slug)).toEqual(['genre/fiction'])
+  })
+
   it('records the location a person actually gave it, not the auto-placement', async () => {
     // The auto-placed label for the very first book is always 1A; asking for
     // 1C proves the client's answer wins rather than being silently
@@ -273,6 +353,26 @@ describe('saving a book', () => {
     })
 
     expect((await running.store.getBook(body.id))?.location).toBe('1C')
+  })
+})
+
+describe('previewing where a book would go', () => {
+  it('refuses a draft nothing files, rather than answering a position anyway', async () => {
+    /*
+     * A placement is a position in one of two ordered lists, and a draft that
+     * states no genre is in neither (#304). Refused on the same terms as a
+     * draft with no title, because it is the same kind of missing, and because
+     * the alternative is a screen telling somebody to put a book between two
+     * neighbours chosen by a default nobody set.
+     *
+     * The client does not ask when it knows the answer is this: `useShelfState`
+     * skips the request and `ShelveView` says why instead.
+     */
+    const { status, body } = await post('/api/placement/preview', {
+      title: 'Untitled Object', authors: ['Ann Author'],
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('fiction or non-fiction')
   })
 })
 

@@ -12,6 +12,7 @@ import { UnknownPlank } from './placement-ledger'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
 import { layoutRange, NEWCOMER_ID } from '../shared/layout'
+import type { ShelfRange } from '../shared/shelving'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
@@ -37,11 +38,18 @@ const add = async (author: string, title = 'Book') =>
  * Where a draft would go, and saving an edit, filed under the genre the draft
  * states. The range arrives beside the draft since #223; see `store.test.ts`.
  */
+/** The range the draft's own genre files it into. A draft here always states one. */
+const rangeOf = (of: DraftBook): ShelfRange => {
+  const { range } = genreStatedBy(of)
+  if (range === null) throw new Error('That draft states no genre, so nothing files it.')
+  return range
+}
+
 const placementFor = (of: DraftBook, excludeId?: number) =>
-  store.placementFor(of, genreStatedBy(of).range, excludeId)
+  store.placementFor(of, rangeOf(of), excludeId)
 
 const updateBook = (id: number, of: DraftBook) =>
-  store.updateBook(id, of, genreStatedBy(of).range)
+  store.updateBook(id, of, rangeOf(of))
 
 const labels = async () => (await shelves.layout('fiction')).map((p) => p.label)
 

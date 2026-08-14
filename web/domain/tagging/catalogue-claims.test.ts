@@ -27,6 +27,33 @@ describe('the fiction flag as a tag', () => {
   })
 })
 
+describe('a catalogue that stated no genre', () => {
+  it('claims no genre tag, rather than the one nobody chose', () => {
+    /*
+     * #304. The genre claim used to be the first entry unconditionally, built
+     * from a slug the classifier's last rung invented when it had nothing to
+     * reason from. A book nobody classified was written as non-fiction and
+     * reported as filed.
+     */
+    expect(claimsFrom({ genre: null, confidence: 'unknown' })).toEqual([])
+  })
+
+  it('still claims the headings the catalogue did send', () => {
+    // The one thing nobody said is the one thing not written. A catalogue that
+    // listed subjects and no usable genre said those subjects, and they are
+    // worth exactly what they were worth before.
+    const claims = claimsFrom({
+      genre: null,
+      confidence: 'unknown',
+      categories: ['Juvenile Fiction / Humorous Stories'],
+      subjects: ['Paperback'],
+    })
+    expect(slugs(claims))
+      .toEqual(['subject/juvenile-fiction/humorous-stories', 'subject/paperback'])
+    expect(claims.map((one) => one.confidence)).toEqual(['high', 'medium'])
+  })
+})
+
 describe('subject headings from a catalogue', () => {
   it('keeps a BISAC heading as the path it already is', () => {
     const claims = claimsFrom({

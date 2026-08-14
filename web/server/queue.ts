@@ -218,7 +218,17 @@ export interface CaptureEdit {
   published?: string
   pages?: string
   notes?: string
-  genre?: GenreSlug
+  /**
+   * The genre stated about this capture, or null when the statement is that
+   * nobody knows (#304).
+   *
+   * Absent and null are different here, the way they are for every key on this
+   * interface. Absent is nobody having said, so the worker still owns the
+   * field; null is a lookup having come back with no genre in it, which is a
+   * thing the worker found out and is worth keeping, because it is what stops
+   * the review pane pre-selecting an answer nothing gave.
+   */
+  genre?: GenreSlug | null
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string

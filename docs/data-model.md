@@ -554,10 +554,26 @@ Three parts of the rule are worth knowing before touching it:
   `0013` writes its two rules in, so a book carrying both files the same way
   under either model.
 - **A book no genre tag claims keeps the range it has and does not move.**
-  `books.shelf_range` is written by a save and by nothing else, and a save always
-  states a genre, so the only way in is somebody taking a tag off by hand.
-  `applySchema` counts those on every start and names them; nothing repairs them,
-  for the reason nothing repairs the placement projection.
+  `books.shelf_range` is written by a save and by nothing else, so a book whose
+  tag is taken off by hand stays exactly where it is. `applySchema` counts those
+  on every start and names them; nothing repairs them, for the reason nothing
+  repairs the placement projection.
+- **A save reaches that state too, since #304.** It used to be that a save always
+  stated a genre, so taking a tag off by hand was the only way in. A genre tag is
+  now written automatically only when a source stated one: the classifier answers
+  no genre from the rung that has no signal under it, `statedGenre` reads the two
+  slugs as themselves and everything else as nothing, and `genreStatedBy` answers
+  a null tag and a null range together. Such a book is saved, carries no genre
+  tag, holds the empty `shelf_range` a book in neither run has always held, and
+  comes back from `POST /api/books` with `placement: null`. A person setting it by
+  hand is unchanged and still wins.
+
+  Two things it deliberately does not do. It does not invent a notion of a
+  definitive source: a source either stated a genre or it did not, and how
+  strongly it said so is `confidence`, which already exists. And it does not take
+  a guessed tag off a book that already carries one, because a save that states
+  nothing restates nothing; every book saved before #304 carries a guess, and
+  stripping those is the owner's decision rather than this one's.
 
 `author`, `author_alias` and `book_author` are, by #180, in the same shape: the
 three tables, `web/domain/authorship/`, `web/application/authorship/`,

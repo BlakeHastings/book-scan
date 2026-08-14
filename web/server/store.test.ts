@@ -9,7 +9,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
-import { SEP } from '../shared/shelving'
+import { SEP, type ShelfRange } from '../shared/shelving'
 import { photographTaken, recordCrop } from './photographs'
 import { UnknownPlank } from './placement-ledger'
 import { Store, type DraftBook } from './store'
@@ -65,11 +65,18 @@ async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
  * which is the same reasoning `Store.addBook` uses for a book that does not
  * exist yet.
  */
+/** The range the draft's own genre files it into. A draft here always states one. */
+const rangeOf = (of: DraftBook): ShelfRange => {
+  const { range } = genreStatedBy(of)
+  if (range === null) throw new Error('That draft states no genre, so nothing files it.')
+  return range
+}
+
 const placementFor = (of: DraftBook, excludeId?: number) =>
-  store.placementFor(of, genreStatedBy(of).range, excludeId)
+  store.placementFor(of, rangeOf(of), excludeId)
 
 const updateBook = (id: number, of: DraftBook) =>
-  store.updateBook(id, of, genreStatedBy(of).range)
+  store.updateBook(id, of, rangeOf(of))
 
 beforeEach(async () => {
   db = await openTestDatabase()
@@ -425,9 +432,10 @@ describe('editing a shelved book', () => {
     await store.addBook(draft({ title: 'Alpha', authors: ['Ann Author'], location: '1A' }))
     const { id } = await store.addBook(draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }))
 
-    const placement = await updateBook(
+    // Stated fiction, so it is filed, so there is a placement. See `rangeOf`.
+    const placement = (await updateBook(
       id, draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }),
-    )
+    ))!
     expect(placement.predecessor?.id).not.toBe(id)
     expect(placement.successor?.id).not.toBe(id)
     expect(placement.predecessor?.title).toBe('Alpha')
@@ -840,7 +848,7 @@ describe('two people scanning at once', () => {
       store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'] })),
     ])
 
-    const kinds = [gibson.placement.kind, herbert.placement.kind]
+    const kinds = [gibson.placement!.kind, herbert.placement!.kind]
     expect(
       kinds.filter((kind) => kind === 'first-in-range'),
       `both saves were told the shelf was empty: ${kinds.join(' and ')}`,
@@ -848,8 +856,8 @@ describe('two people scanning at once', () => {
 
     // And the one that was not first names the other, so the person holding it
     // is sent to a book that is genuinely on the shelf.
-    const second = gibson.placement.kind === 'first-in-range' ? herbert : gibson
-    const named = [second.placement.predecessor?.title, second.placement.successor?.title]
+    const second = gibson.placement!.kind === 'first-in-range' ? herbert : gibson
+    const named = [second.placement!.predecessor?.title, second.placement!.successor?.title]
     expect(named).toContain(second === herbert ? 'Neuromancer' : 'Dune')
 
     // Whoever won, the shelf itself is in order. That held before the fix too:

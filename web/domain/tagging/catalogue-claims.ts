@@ -67,8 +67,11 @@ export const SUBJECT = TagSlug.of('subject')
 
 /** What a lookup came back with, reduced to the parts that make tags. */
 export interface CatalogueRecord {
-  /** The classifier's verdict, which is an inference rather than a claim. */
-  genre: GenreSlug
+  /**
+   * The classifier's verdict, which is an inference rather than a claim, or
+   * null when no source stated a genre for it to infer from (#304).
+   */
+  genre: GenreSlug | null
   confidence: TagConfidence
   /** Google Books categories. BISAC, so already hierarchical. */
   categories?: readonly string[]
@@ -95,7 +98,12 @@ export function genreClaim(genre: GenreSlug, confidence: TagConfidence): TagClai
  * Everything a catalogue lookup claims about a book.
  *
  * The genre tag first, because it is the one the shelving actually reads today,
- * then the subject headings. Deduplicated on the slug, first mention winning, so
+ * then the subject headings. **There is no genre tag when no source stated a
+ * genre** (#304): the subject headings a catalogue did send are still claimed,
+ * because those are things it said, and the one thing nobody said is the one
+ * thing that is not written.
+ *
+ * Deduplicated on the slug, first mention winning, so
  * a catalogue listing "Fiction" and "FICTION" is claiming one thing rather than
  * two: that has to be settled here rather than by the store's conflict handling,
  * or the second insert would quietly overwrite the first one's confidence.
@@ -105,7 +113,8 @@ export function genreClaim(genre: GenreSlug, confidence: TagConfidence): TagClai
  * curated by publishers, Open Library subjects are typed by anybody.
  */
 export function claimsFrom(record: CatalogueRecord): TagClaim[] {
-  const claims: TagClaim[] = [genreClaim(record.genre, record.confidence)]
+  const claims: TagClaim[] =
+    record.genre ? [genreClaim(record.genre, record.confidence)] : []
 
   const heading = (raw: string, confidence: TagConfidence) => {
     const slug = TagSlug.parse(`${SUBJECT.value}/${raw}`)

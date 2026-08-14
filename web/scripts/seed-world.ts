@@ -337,7 +337,7 @@ async function shelveBook(
   const { id, placement } = await store.addBook(draft)
   await settleGenre(deps.restateTags, deps.tags, id, draft)
   await recordCredits(deps.creditBook, deps.authors, deps.fileAlias, id, draft)
-  const landed = await shelves.labelFor(placement.range, id)
+  const landed = placement && await shelves.labelFor(placement.range, id)
   if (landed) await store.setLocation(id, landed)
   return id
 }

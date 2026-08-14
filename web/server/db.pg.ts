@@ -843,19 +843,26 @@ async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
  *
  * **The answer to "what happens if a tag goes missing" is: nothing moves, and
  * this line is how anybody finds out** (#223). `books.shelf_range` is written by
- * a save and by nothing else, and a save always states a genre, so a book whose
- * tag is taken off afterwards keeps the range it already had and stays exactly
- * where it is. It does not become unplaceable and no shelf empties.
+ * a save and by nothing else, so a book whose tag is taken off afterwards keeps
+ * the range it already had and stays exactly where it is. It does not become
+ * unplaceable and no shelf empties.
  *
  * What it does become is a book whose position nothing can justify any more: the
- * next save will file it under whatever that save states, and `0013`'s placement
- * rules already claim nothing at all. So it is reported rather than repaired,
- * for the reason the projection check above is: writing a genre back would
- * invent an answer nobody gave, and the one thing worth knowing is which books.
+ * next save files it under whatever that save states, and `0013`'s placement
+ * rules already claim nothing at all. The one thing worth knowing is which
+ * books.
  *
- * `POST /api/books/:id/tags` and `DELETE /api/books/:id/tags` are the only way
- * to reach this state, which is a person deliberately taking a tag off. That is
- * theirs to do, so this does not refuse to start over it.
+ * **A save reaches this state too, since #304.** It used to be that the tag
+ * routes were the only way in, because a save always stated one of the two
+ * slugs whatever it had been given. A save that no catalogue and no person gave
+ * a genre to now writes no genre tag, so a book here is either one somebody
+ * took a tag off or one nothing has ever classified. The second kind has an
+ * empty `shelf_range` rather than a stale one: it is in neither run, so nothing
+ * about where it sits needs justifying, and what it is waiting for is a person
+ * to say which it is.
+ *
+ * Reported and not repaired either way, for the reason the projection check
+ * above is: writing a genre back would invent an answer nobody gave.
  */
 async function sayWhetherEveryShelvedBookHasAGenre(db: Db): Promise<void> {
   const untagged = await db.all<{ id: number; title: string }>(
@@ -875,8 +882,9 @@ async function sayWhetherEveryShelvedBookHasAGenre(db: Db): Promise<void> {
 
   console.error(
     `[tags] ${untagged.length} shelved books carry no genre tag, so nothing files ` +
-    'them: they keep the shelf range their last save gave them and no rule claims ' +
-    'them. Put one back through POST /api/books/:id/tags, or save the book. ' +
+    'them and no rule claims them: one that had a range keeps it and does not ' +
+    'move, and one that never had one is in neither run. Say which they are, ' +
+    'through the review pane or POST /api/books/:id/tags. ' +
     untagged.slice(0, 20).map((one) => `#${one.id} ${one.title}`).join('; '),
   )
 }

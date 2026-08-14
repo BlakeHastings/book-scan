@@ -4,7 +4,6 @@ import type {
 } from '../../shared/shelving'
 import type { FailureCounts } from '../../shared/captureFailure'
 import { genreOfRange, type GenreSlug } from '../../domain/tagging/genre'
-import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 /**
  * Naming boundary, recorded here because this file is the only client to
@@ -31,8 +30,13 @@ export interface Classification {
    * genre tag is what decides a shelf range, so there is one vocabulary for a
    * book's genre from the ladder in `server/classify.ts` through to the field
    * beside the title.
+   *
+   * **Null when no source stated one** (#304). The ladder in
+   * `server/classify.ts` reasons from what a catalogue said, and its last rung
+   * has nothing to reason from; a slug there would be a guess the save then
+   * wrote as a tag.
    */
-  genre: GenreSlug
+  genre: GenreSlug | null
   confidence: 'high' | 'medium' | 'weak' | 'unknown'
   reason: string
 }
@@ -67,8 +71,13 @@ export interface Draft {
   published: string
   pages: string
   notes: string
-  /** The genre this draft states, as a slug. See `Classification.genre`. */
-  genre: GenreSlug
+  /**
+   * The genre this draft states, as a slug, or null when nothing states one.
+   *
+   * See `Classification.genre`. Null is what the review pane draws with neither
+   * option highlighted, and what a save writes no genre tag for (#304).
+   */
+  genre: GenreSlug | null
   classificationSource: string
   classificationConfidence: string
   seriesName: string
@@ -815,7 +824,8 @@ export interface CaptureEdit {
   published?: string
   pages?: string
   notes?: string
-  genre?: GenreSlug
+  /** See `Draft.genre`. Absent is nobody having said; null is nobody knowing. */
+  genre?: GenreSlug | null
   classificationSource?: string
   classificationConfidence?: string
   seriesName?: string
@@ -1492,7 +1502,10 @@ export const api = {
 
 export const emptyDraft: Draft = {
   isbn13: '', isbn10: '', title: '', subtitle: '', authors: '', publisher: '',
-  published: '', pages: '', notes: '', genre: FICTION_SLUG,
+  // No genre, because an empty draft is nothing having been said about a book
+  // and fiction is something (#304). The review pane comes up with neither
+  // option highlighted until a lookup or a person states one.
+  published: '', pages: '', notes: '', genre: null,
   classificationSource: 'auto', classificationConfidence: 'unknown',
   seriesName: '', seriesIndex: '', location: '', lookupSource: '',
   isbnSource: '', authorFilingOverride: '',
@@ -1697,6 +1710,8 @@ export function draftFromBook(book: BookRow): Draft {
     notes: book.notes ?? '',
     // The genre tag's own answer, read back off the range it settled on. The
     // client sends a slug and reads one, and `books.is_fiction` is gone (#227).
+    // Null for a book in neither run, which is a book no genre tag claims
+    // (#304) and which must not come up showing a tag nothing stated.
     genre: genreOfRange(book.shelf_range),
     classificationSource: book.classification_source || 'manual',
     classificationConfidence: book.classification_confidence || 'unknown',

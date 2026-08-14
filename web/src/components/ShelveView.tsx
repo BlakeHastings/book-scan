@@ -17,7 +17,15 @@ interface Props {
    * and every answer here is an answer about the plank it names.
    */
   stale: boolean
-  range: ShelfRange
+  /**
+   * The run this book joins, or null when no genre tag claims it (#304).
+   *
+   * Every question this screen asks is about a plank in one of the two runs, so
+   * a book in neither is not a book this screen can ask about. It says that
+   * instead of spinning on "working out where it goes", which is what an
+   * absent placement used to look like whether the answer was coming or not.
+   */
+  range: ShelfRange | null
   title: string
   saving: boolean
   /** Called with the shelf the person has just said the book fits on. */
@@ -142,7 +150,7 @@ export function ShelveView({
    * they moved one (#111).
    */
   const overflowFrom = async (label: string, kind: 'shelf' | 'area') => {
-    if (!label || busy) return
+    if (!label || busy || range === null) return
     setBusy(true)
     setError('')
     try {
@@ -211,7 +219,7 @@ export function ShelveView({
    */
   const confirmPlaced = async () => {
     const frame = asking(cascade)
-    if (!frame || busy) return
+    if (!frame || busy || range === null) return
 
     setBusy(true)
     setError('')
@@ -248,6 +256,7 @@ export function ShelveView({
 
   /** The frame under the one just confirmed, as the shelves now stand. */
   const redraw = async (from: string, kind: 'shelf' | 'area'): Promise<Proposal> => {
+    if (range === null) throw new Error('Nothing files this book, so there is no shelf to redraw.')
     const plan = await api.planOverflow(range, from, kind, placement?.sortKey)
     if (!plan.step) throw new Error(`There is nothing left on ${from} to move along.`)
     return {
@@ -341,7 +350,16 @@ export function ShelveView({
         ) : (
           <>
             <p>
-              {known ? (
+              {range === null ? (
+                /* Not a wait, so not phrased as one. Nothing said what this
+                   book is about, so no rule claims it and no run has a gap
+                   for it. The way on is back to the field that says so. */
+                <>
+                  Nothing says whether <strong>{title}</strong> is fiction or
+                  non-fiction, so no rule claims it and there is no shelf to put
+                  it on. Go back and say which it is.
+                </>
+              ) : known ? (
                 <>
                   Put <strong>{title}</strong> in the gap at <strong>{shelfLabel}</strong>.
                   Does it fit{started(cascade) ? ' now' : ''}?
@@ -393,7 +411,10 @@ export function ShelveView({
             </div>
 
             <p className="hint">
-              {atEndOfShelf
+              {range === null
+                ? 'Every rule asks about a tag, so a book carrying none matches ' +
+                  'nothing. Saying which it is settles where it goes.'
+                : atEndOfShelf
                 ? `Nothing on ${shelfLabel || 'this area'} goes after this book, so ` +
                   'it is the one that moves. Everything already on the bookcase ' +
                   'stays where it is.'
