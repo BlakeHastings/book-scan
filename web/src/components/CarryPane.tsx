@@ -36,8 +36,8 @@ import { TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
 import { Trip, Trips } from '../design/Carrying'
 import { WfScreen } from './WfScreen'
-import { plural, said, saidBooks, stretchOf, whenSaid, words } from '../lib/carryWords'
-import type { CarryTrip, CarryWork, SkipReason } from '../lib/api'
+import { plural, said, saidBooks, skipSaid, stretchOf, whenSaid, words } from '../lib/carryWords'
+import type { CarryTrip, CarryWork } from '../lib/api'
 
 interface Props {
   /** Null while the first request is in flight. Nothing is drawn from a guess. */
@@ -48,20 +48,6 @@ interface Props {
   onLibrary: () => void
   onQueue: () => void
   onScan: () => void
-}
-
-/**
- * Why a book is not on the list, in the plan's words and the plan's order.
- *
- * The plan says what it will not touch and so does the work list, in the same
- * sentences: a list of fifty-three that had quietly dropped three pinned books
- * would be believed.
- */
-const SKIP_SAID: Record<SkipReason, (n: number) => string> = {
-  pinned: (n) => `${said(n)} you pinned.`,
-  'checked-out': (n) => `${said(n)} checked out.`,
-  withdrawn: (n) => `${said(n)} withdrawn from the collection.`,
-  'never-placed': (n) => `${said(n)} never confirmed onto a bookcase.`,
 }
 
 /** What one row says under the two labels and the count. */
@@ -177,7 +163,7 @@ export function CarryPane({
           kind="Not on this list"
           title={saidBooks(work.skipped.reduce((all, one) => all + one.books, 0))}
         >
-          <p>{work.skipped.map((one) => SKIP_SAID[one.reason](one.books)).join(' ')}</p>
+          <p>{skipSaid(work.skipped)}</p>
         </Card>
       )}
     </WfScreen>

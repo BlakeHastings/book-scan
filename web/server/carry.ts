@@ -25,7 +25,7 @@
  * through `PATCH /api/books/:id/location`, which is the same route that already
  * records where a newly shelved book went.
  *
- * ## Only books the rules have ever had an opinion about
+ * ## Only books the rules have an opinion about, and the ones that are out
  *
  * A book with no `assigned` row in its history cannot be on this list and cannot
  * have been carried onto it, so the whole read is narrowed to the ones that
@@ -33,6 +33,10 @@
  * every placement in the catalogue, and it sharpens what the skipped counts
  * mean: "three you pinned" is three books the rules wanted somewhere else and a
  * pin overruled, rather than every pinned book in the house.
+ *
+ * A checked out book has no `assigned` row and never gets one, so that narrowing
+ * hid it from this list while the plan was counting it. See
+ * `everyBookTheRulesSee` for which of the two was wrong and why (#325).
  */
 
 import {
@@ -117,17 +121,42 @@ const named = (row: BookRow): CarryableBook => ({
 })
 
 /**
- * Every book the rules have ever placed, in the order they stand on the
- * shelves.
+ * Every book the rules have ever placed, and every book that is out of the
+ * house, in the order they stand on the shelves.
  *
  * `catalogued_books`, not `shelved_books`, because a checked out or a withdrawn
  * book has to be here to be counted as skipped rather than to be quietly absent.
+ *
+ * ## The second half of that predicate is #325, and it is a decision
+ *
+ * The narrowing to books with an `assigned` row is what keeps this from folding
+ * every placement in the catalogue, and it sharpens what the counts mean: "three
+ * you pinned" is three books the rules wanted somewhere else and a pin overruled,
+ * rather than every pinned book in the house.
+ *
+ * **A checked out book has no `assigned` row and never gets one**, because
+ * `assignmentFor` writes none for a book that is not in the house. So the plan
+ * counted it among the ones it left alone and this list did not mention it at
+ * all, which is two answers to one question minutes apart: somebody told six
+ * were skipped, working a list that accounts for five, goes looking for a sixth
+ * book that is not there.
+ *
+ * The plan is the one that was right. A book somebody has out **comes back**,
+ * and when it does the rules place it, so it is work that has not happened yet
+ * rather than a book that is simply not there. It is therefore read here too, by
+ * state, and counted as skipped in the same shape pinned books already are.
+ *
+ * **Withdrawn is deliberately not included**, and that is the same question
+ * answered the other way. A withdrawn book has left the collection and is never
+ * coming back to be placed, so counting it would be a number that only ever
+ * grows on a screen about what is left to do.
  */
-async function everyBookAssigned(db: Db): Promise<CarryableBook[]> {
+async function everyBookTheRulesSee(db: Db): Promise<CarryableBook[]> {
   const rows = await db.all<BookRow>(
     `SELECT b.id, b.title, b.author_filing, b.pages
        FROM catalogued_books b
-      WHERE EXISTS (
+      WHERE b.state = 'checked_out'
+         OR EXISTS (
         SELECT 1 FROM book_placement p WHERE p.book_id = b.id AND p.kind = 'assigned')
       ORDER BY b.sort_key`,
   )
@@ -136,7 +165,7 @@ async function everyBookAssigned(db: Db): Promise<CarryableBook[]> {
 
 /** What is still to be carried, as the trips it is made of. Writes nothing. */
 export async function outstandingWork(db: Db): Promise<CarryWork> {
-  const books = await everyBookAssigned(db)
+  const books = await everyBookTheRulesSee(db)
   const where = await areaFaces(db)
   const rows = await new DrizzlePlacementLedger(db).forBooks(books.map((book) => book.id))
 

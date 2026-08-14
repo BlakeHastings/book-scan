@@ -2171,66 +2171,13 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .choice__state { font-size: 11px; color: var(--warn); }
 .choice__note { font-size: 11px; color: var(--muted); font-style: italic; }
 
-/* --- Moving a whole run to another bookcase ---------------------------- */
+/* --- The way to moving a whole stretch of books ------------------------ */
 
-/* One column, everything full width, nothing beside anything else. This is a
-   phone held in one hand in front of a bookcase, so the only horizontal
-   decision on the screen is the stepper, which is two thumb-sized targets. */
+/* The screen itself is drawn with the design system since #326, so what is
+   left here is the button on the library that reaches it. Everything the old
+   `.runmove__*` block styled went with the markup it styled. */
 
 .library__arrange { width: 100%; margin-bottom: 18px; }
-
-.runmove__back { padding: 0; min-height: 36px; color: var(--muted); }
-.runmove__head { margin: 8px 0 4px; font-size: 20px; }
-
-.runmove__pick {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  margin: 14px 0;
-}
-.runmove__pick-label { font-size: 15px; }
-.runmove__stepper { display: flex; align-items: center; gap: 8px; }
-.runmove__stepper .btn { min-width: 48px; font-size: 20px; }
-.runmove__number { min-width: 2ch; text-align: center; font-size: 22px; font-weight: 600; }
-
-.runmove__go { width: 100%; min-height: 52px; font-size: 17px; margin-bottom: 12px; }
-
-.runmove__plan {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin-bottom: 16px;
-}
-.runmove__planks { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
-.runmove__count { margin: 0 0 10px; font-size: 18px; }
-
-/* `details` rather than a hand-rolled accordion: the browser already gives it
-   a correct touch target, a correct keyboard, and the right ARIA. */
-.runmove__group {
-  border-top: 1px solid var(--line);
-  padding: 8px 0;
-  font-size: 15px;
-}
-/* Left as `list-item`, which is what keeps the disclosure triangle. Setting
-   `display: flex` to centre the text takes the marker away, and a row that
-   opens with nothing saying it opens is a row nobody taps. */
-.runmove__group summary { min-height: 44px; padding: 10px 0 10px 4px; cursor: pointer; }
-
-.runmove__books { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; }
-.runmove__books li { font-size: 14px; }
-.runmove__author { display: block; color: var(--muted); font-size: 12px; }
-
-.runmove__done {
-  border: 1px solid var(--good);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-}
-.runmove__done h3 { margin: 0 0 6px; color: var(--good); font-size: 17px; }
-.runmove__done p { margin: 0 0 12px; font-size: 15px; }
 
 
 /* --- The shelving step, on the paper it is drawn on -------------------- */
