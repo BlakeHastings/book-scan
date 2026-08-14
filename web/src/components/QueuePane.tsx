@@ -15,7 +15,7 @@ import {
 } from '../lib/swipe'
 import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
 import {
-  countFailures, failureLines, FAILURE_LABEL, failureOf,
+  countFailures, couldBeReadAgain, failureLines, FAILURE_LABEL, failureOf,
 } from '../../shared/captureFailure'
 import { coverUrl } from './PlacementCard'
 import { Card, Nothing } from '../design/Card'
@@ -110,6 +110,22 @@ export const SHOWING: Record<Which, (capture: Capture) => boolean> = {
  */
 export function whatTheyNeed(captures: Capture[]): string[] {
   return failureLines(countFailures(captures.filter(SHOWING.stuck)))
+}
+
+/**
+ * The stuck books whose photographs are worth putting through the reader again
+ * (#299).
+ *
+ * The two failures that say nothing about the book: the reader was given up on,
+ * or it broke on the way to a verdict. Offered here, above the list, rather than
+ * on each row, because the useful case is a reader that stopped and took
+ * everything queued behind it with it, which is several books at once and one
+ * decision about all of them. The other two failures want a person and a book
+ * in their hands, and a button that re-read those would be a button that
+ * produces the same answer twice.
+ */
+export function readableAgain(captures: Capture[]): Capture[] {
+  return captures.filter(couldBeReadAgain)
 }
 
 interface Props {
@@ -314,6 +330,8 @@ export function QueuePane({
   const [query, setQuery] = useState('')
   /** Ids whose discard is being held open, mirrored out of the window below. */
   const [held, setHeld] = useState<number[]>([])
+  /** True while the stuck books are being sent back through the reader. */
+  const [rereading, setRereading] = useState(false)
   const rows = useRef(new Map<number, HTMLLIElement>())
   // A fresh mount every time the pane is shown (App only renders it while
   // mode === 'queue'), so this only needs to fire once per visit.
@@ -566,6 +584,38 @@ export function QueuePane({
 
   const failed = captures.filter(SHOWING.stuck)
   const needs = whatTheyNeed(captures)
+  const rereadable = readableAgain(captures)
+
+  /**
+   * Send the stuck-through-no-fault-of-their-own ones back through the reader.
+   *
+   * One request each rather than a bulk route: each capture is its own row and
+   * its own refusal, and a book that somebody shelved from another phone while
+   * this screen was open should not stop the others going back. `allSettled`
+   * for the same reason, and the count of what actually went is what is
+   * reported rather than what was asked for.
+   */
+  const readAgain = async () => {
+    setError('')
+    setNotice('')
+    setRereading(true)
+    try {
+      const results = await Promise.allSettled(
+        rereadable.map((capture) => api.readCaptureAgain(capture.id)),
+      )
+      const sent = results.filter((result) => result.status === 'fulfilled').length
+      const refused = results.length - sent
+      setNotice(
+        `${sent === 1 ? 'Reading it' : `Reading ${sent} of them`} again.`
+        + (refused ? ` ${refused} had already left the queue.` : ''),
+      )
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setRereading(false)
+      load()
+    }
+  }
 
   const counted = (word: string, n: number) => (n > 0 ? `${word} ${n}` : word)
 
@@ -613,6 +663,22 @@ export function QueuePane({
           <ul className="queue__needs">
             {needs.map((line) => <li key={line}>{line}</li>)}
           </ul>
+          {/* The way back from a reader that stopped, without going and
+              finding the books again (#299). */}
+          {rereadable.length > 0 && (
+            <Button
+              tone="primary"
+              block
+              off={rereading}
+              onPress={() => { void readAgain() }}
+            >
+              {rereading
+                ? 'Sending them back...'
+                : rereadable.length === 1
+                  ? 'Read its photos again'
+                  : `Read those ${rereadable.length} books' photos again`}
+            </Button>
+          )}
         </Card>
       )}
 

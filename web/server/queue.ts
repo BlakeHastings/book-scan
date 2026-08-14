@@ -5,11 +5,18 @@
  * the person holding the book wait for it is the wrong trade, so a capture is
  * accepted the moment the photos exist and read afterwards.
  *
- * The worker is deliberately serial. That is not just simplicity: tesseract.js
- * workers process one job at a time and zbar-wasm keeps a module-level scanner,
- * so two overlapping identifications on the same process can interleave badly.
- * Draining one at a time removes that whole class of problem, which matters as
- * soon as two people are scanning into the same server.
+ * The worker is deliberately serial, and #299 settled that it stays that way
+ * rather than leaving it as an assumption. `identify` serialises every caller
+ * in the process for reasons that are properties of its dependencies rather
+ * than of this file, and the comment on `identifyChain` in `server/identify.ts`
+ * is where they are written down. Draining one at a time here is the same
+ * decision said once more at the level a person can see.
+ *
+ * What #299 did change is that a reading now has a bound on it. A capture whose
+ * reading is given up on lands as `failed` with a note saying the reader
+ * stopped, and `readAgain` below is how somebody sends it back through. So one
+ * stuck capture costs this loop a minute and one book, where it used to cost
+ * every book behind it for the life of the process.
  *
  * ## There is no `captures` table any more (#183)
  *
@@ -34,6 +41,7 @@
  */
 
 import type { Db } from './driver'
+import { ReadingTimedOut } from './deadline'
 import { identify } from './identify'
 import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
 import {
@@ -48,7 +56,8 @@ import {
 import { resolveIsbnPair } from '../shared/isbn'
 import type { GenreSlug } from '../domain/tagging/genre'
 import {
-  countFailures, PROCESSING_ERROR_NOTE, type FailureCounts,
+  countFailures, PROCESSING_ERROR_NOTE, READING_TIMEOUT_NOTE,
+  type FailureCounts,
 } from '../shared/captureFailure'
 import {
   DISCARDED, QUEUED_STATES, QUEUE_STATUS_OF_STATE, STATE_OF_QUEUE_STATUS,
@@ -735,6 +744,41 @@ export class CaptureQueue {
     )
   }
 
+  /**
+   * Read this capture's photographs again, from the beginning.
+   *
+   * **The retry half of #299.** A reading that is given up on leaves a capture
+   * `failed` with a note saying so, which is a state somebody can see; this is
+   * the state being one somebody can do something about. Without it the only
+   * way back was to photograph the book again, which means finding it and
+   * picking it up, for a fault that was never about the book.
+   *
+   * `analysed` is cleared rather than left alone, so this means what it says:
+   * every photograph on the capture is offered to the reader again. A slot that
+   * read perfectly well the first time costs a second of a background pass to
+   * confirm it, which is cheaper than a rule about which slots are worth
+   * redoing.
+   *
+   * The note goes with it. "Read it again" stops being true the moment somebody
+   * has, and a stale instruction on a row is the same defect as the "use Change
+   * ISBN" note `edit` clears.
+   *
+   * Only a queued capture. A book that has been shelved is not read by this
+   * worker any more, and one somebody discarded is not coming back through a
+   * button that says read.
+   */
+  async readAgain(id: number): Promise<CaptureRow | undefined> {
+    const result = await this.db.run(
+      `UPDATE books
+          SET "state" = '${STATE_OF_QUEUE_STATUS.pending}',
+              analysed = '', scan_note = '', processed_at = NULL
+        WHERE id = @id AND "state" IN (${QUEUED_SQL})`,
+      { id },
+    )
+    if (result.changes === 0) return undefined
+    return this.get(id)
+  }
+
   /** Record what the crop detector made of one of this book's photographs. */
   async setCrop(id: number, slot: CropSlot, name: string): Promise<void> {
     await recordCrop(this.db, id, slot, name)
@@ -1048,6 +1092,14 @@ export class CaptureQueue {
 
   private async process(capture: CaptureRow): Promise<void> {
     const analysed = new Set(capture.analysed.split(',').filter(Boolean))
+    /**
+     * Which photograph the reader is holding, for the catch below.
+     *
+     * Only ever set while `identify` is in flight, so it is null unless the
+     * thing that threw was the reading itself, which is the one failure that
+     * says nothing about the photograph it was given.
+     */
+    let reading: Slot | null = null
 
     try {
       // Only slots that have arrived and have not been read yet, back first
@@ -1098,7 +1150,9 @@ export class CaptureQueue {
         // The front is the only one worth a title pass, and only while the
         // book is still unidentified.
         const wantTitle = slot === 'front' && !lookup?.found
+        reading = slot
         const read = await identify(image, { wantTitle })
+        reading = null
 
         if (wantTitle && read.coverLines.length) {
           coverLines = read.coverLines
@@ -1254,6 +1308,30 @@ export class CaptureQueue {
         }
       }
     } catch (error) {
+      /*
+       * A reading that was abandoned, which is #299, rather than one that broke.
+       *
+       * Two things follow from it and both are about not lying to the next
+       * person. The slot goes back to being unread: it was marked read before
+       * the reading started, so that a photograph whose file has gone missing
+       * is not offered to the worker forever, and a reading nobody ever
+       * finished has not read anything. And the note carries its own prefix, so
+       * `failureOf` can tell somebody to read it again rather than to pick the
+       * book up and type an ISBN in.
+       */
+      const abandoned = error instanceof ReadingTimedOut
+      if (abandoned && reading) analysed.delete(reading)
+
+      // Said out loud, always. A capture nobody could read is a fact the owner
+      // needs, and the whole cost of #294 was a failure path that wrote a row
+      // and told nobody. This is the line that says a reader stopped, which
+      // otherwise looks from the outside exactly like a busy queue.
+      console.warn(
+        `[queue] capture ${capture.id}: ${abandoned ? 'the reading was given up on' : 'the reading failed'}`
+        + `${reading ? ` on the ${reading}` : ''}:`,
+        (error as Error).message,
+      )
+
       await this.db.run(
         // Guarded for the same reason the write above is: a pass that threw
         // must not resurrect a scan somebody discarded while it was running.
@@ -1263,10 +1341,15 @@ export class CaptureQueue {
           WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
         [
           [...analysed].join(','),
-          // The prefix is the only record that this pass threw rather than
-          // finished, which is what tells a broken read apart from a book no
-          // catalogue has. See `failureOf`.
-          `${PROCESSING_ERROR_NOTE} ${(error as Error).message}`,
+          // The prefix is the only record of which of these two happened, which
+          // is what tells a broken read, an abandoned one and a book no
+          // catalogue has apart from each other. See `failureOf`.
+          abandoned
+            ? `${READING_TIMEOUT_NOTE} the ${reading ?? 'photograph'} was given up on after `
+              + `${Math.round((error as ReadingTimedOut).ms / 1000)} seconds. `
+              + 'Nothing is known to be wrong with it: the reader stopped before it '
+              + 'reached a verdict. Read it again.'
+            : `${PROCESSING_ERROR_NOTE} ${(error as Error).message}`,
           new Date().toISOString(),
           capture.id,
         ],

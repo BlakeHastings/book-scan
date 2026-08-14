@@ -8,6 +8,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { backCover, barcodePng, frontCover, glossy } from './fixtures'
 import sharp from 'sharp'
+import { ReadingTimedOut } from './deadline'
 import { coverHash, distance } from './imagehash'
 import {
   decodeBarcodes, identify, pickCoverLines, pickTitle, regionAroundBarcode,
@@ -178,6 +179,64 @@ describe('concurrent identification', () => {
     expect(dune.isbn13).toBe(ISBN)
     expect(none.isbn13).toBe('')
   }, 60_000)
+})
+
+/**
+ * A reading that does not come back (#299).
+ *
+ * Nothing here is stubbed, deliberately. What is being asserted is that the
+ * bound is wired to the real pipeline and that the process-wide chain above
+ * survives one, and a stubbed reading would only prove that a promise can be
+ * raced against a timer. So these run a genuine front cover, which measurably
+ * takes seconds, against a bound of a few milliseconds.
+ *
+ * The bound in production is `READING_TIMEOUT_MS`, and it is a minute; these
+ * pass their own so the suite does not have to wait one out.
+ */
+describe('a reading that is given up on', () => {
+  it('ends, rather than waiting for something that is not coming', async () => {
+    await expect(identify(await frontCover('DUNE', 'Frank Herbert'), {
+      wantTitle: true, timeoutMs: 5,
+    })).rejects.toBeInstanceOf(ReadingTimedOut)
+  }, 120_000)
+
+  it('says what it gave up on, in words that reach a person', async () => {
+    // This message becomes the note on a stuck capture and the body of a 504,
+    // so it has to name the thing that stopped rather than read as a fault.
+    await expect(identify(await frontCover('DUNE', 'Frank Herbert'), {
+      wantTitle: true, timeoutMs: 5,
+    })).rejects.toThrow('Reading this photograph did not finish within')
+  }, 120_000)
+
+  it('lets the next reading through, which is the whole of the defect', async () => {
+    /*
+     * The chain is process-wide, so before #299 one reading that never returned
+     * held every later one behind it until somebody restarted the server. This
+     * is that sequence: an abandoned reading, then an ordinary one, in that
+     * order, through the same chain.
+     */
+    await expect(identify(await frontCover('DUNE', 'Frank Herbert'), {
+      wantTitle: true, timeoutMs: 5,
+    })).rejects.toBeInstanceOf(ReadingTimedOut)
+
+    const after = await identify(await backCover(ISBN), { ocrEnabled: false })
+    expect(after.isbn13).toBe(ISBN)
+    expect(after.source).toBe('barcode')
+  }, 180_000)
+
+  it('leaves the reader working, not just the queue moving', async () => {
+    // A queue that advances onto a reader that can no longer read anything is
+    // half a fix. The abandoned pass took tesseract workers with it, so the
+    // pass after it has to be able to reach OCR and not only the barcode path.
+    await identify(await frontCover('DUNE', 'Frank Herbert'), {
+      wantTitle: true, timeoutMs: 5,
+    }).catch(() => {})
+
+    const after = await identify(await frontCover('DUNE', 'Frank Herbert'), {
+      wantTitle: true,
+    })
+    expect(after.coverLines.join(' ').toUpperCase()).toContain('DUNE')
+  }, 180_000)
 })
 
 describe('pre-ISBN-13 paperback: UPC barcode, ISBN only in print', () => {

@@ -21,6 +21,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import sharp, { type Sharp } from 'sharp'
+import { withDeadline } from './deadline'
 import { scanGrayBuffer } from '@undecaf/zbar-wasm'
 import { prepareZXingModule, readBarcodesFromImageFile } from 'zxing-wasm/reader'
 import { paddleOcr, shutdownPaddle } from './paddle'
@@ -31,6 +32,88 @@ import {
 } from '../shared/isbn'
 
 export type IsbnSource = 'barcode' | 'ocr' | ''
+
+// ---------------------------------------------------------------------------
+// Bounds
+//
+// Nothing in here used to have one, and #299 is what that cost: a reading that
+// never came back held the serial chain below and every later scan queued
+// behind it for the life of the process, silently.
+// ---------------------------------------------------------------------------
+
+/**
+ * How long one reading may take before it is given up on.
+ *
+ * **Measured, on this machine, against the generated covers in
+ * `server/fixtures.ts`**, three rounds each through the real pipeline:
+ *
+ * ```
+ * back cover with a barcode          mean   28ms   max   33ms
+ * glossy back cover with a barcode   mean   26ms   max   29ms
+ * back cover, printed ISBN only      mean 1297ms   max 1554ms
+ * back cover with nothing on it      mean 2039ms   max 2223ms
+ * front cover, wanting a title       mean 4073ms   max 4466ms
+ * the very first reading, cold       6370ms
+ * ```
+ *
+ * The front cover is the worst case and that is not an accident: it is the one
+ * photograph with no barcode to short-circuit on, so it pays the zbar ladder,
+ * paddle and the whole tesseract ladder. The browser suite reads one in about
+ * six to seven seconds against a real server, which agrees with the cold
+ * number here rather than with the warm one, and a phone sends a larger
+ * photograph than a fixture does.
+ *
+ * So the slowest honest reading anybody has measured is about seven seconds,
+ * and this is roughly eight to ten times that. Deliberately not tighter: a
+ * spurious timeout marks a good capture as failed and sends somebody to a book
+ * that needed nothing, which is the same shape of waste #148 was about. And
+ * deliberately not looser than the ninety seconds `duplicate.steps.ts` waits,
+ * so a wedged reading becomes a failure the suite can see rather than a suite
+ * timeout nobody can read.
+ *
+ * What it buys, said as the queue sees it: `CaptureQueue.process` reads slots
+ * inside one `try`, so the first timeout ends that capture. **One wedged
+ * reading costs the queue sixty seconds and one capture, not the rest of the
+ * process.**
+ */
+export const READING_TIMEOUT_MS = 60_000
+
+/**
+ * How long one tesseract rung may hold a worker.
+ *
+ * Half the reading bound, so a rung that has stopped is taken off its worker
+ * and the pool heals while the reading it belonged to is still running. A
+ * single rung costs one to two seconds of the measured four-and-a-half above,
+ * so this is more than ten times one.
+ *
+ * This is the bound that matters for the pool rather than for the caller.
+ * `withWorker` marks a slot busy for the length of a job and has no way to
+ * interrupt one, so a job that never returns used to hold its slot forever:
+ * four of those and OCR is finished for the life of the process, whatever the
+ * caller does about its own timeout.
+ */
+const OCR_JOB_TIMEOUT_MS = 30_000
+
+/**
+ * How long the first use may spend fetching language data.
+ *
+ * tesseract.js downloads about 15 MB of `eng.traineddata` the first time a
+ * worker is created on a machine, and until #299 nothing bounded it, so a
+ * connection that stalled rather than failed looked exactly like the bug this
+ * file is about. 15 MB over a poor connection at half a megabit is about four
+ * minutes, so five is the point past which it is a stalled download and not a
+ * slow one.
+ *
+ * Longer than a reading's own bound on purpose. `warmOcr` fetches this at
+ * startup with nobody waiting on it, and a reading that arrives mid-download
+ * gives up on its own sixty seconds and leaves the download running, so the
+ * next one finds it ready.
+ */
+const POOL_START_TIMEOUT_MS = 5 * 60 * 1000
+
+// `ReadingTimedOut` and `withDeadline` live in `server/deadline.ts`. See the
+// comment at the top of that file for why a class this file is about is not
+// exported from this file.
 
 export interface IdentifyResult {
   isbn13: string
@@ -421,13 +504,57 @@ function newWorker(): Promise<Worker> {
   })
 }
 
+/**
+ * Start the pool once, and let a failed start be tried again.
+ *
+ * **The reset is the point, not the timeout.** `poolReady ??=` caches whatever
+ * the first call produced, so a download that failed or stalled used to be
+ * cached as the answer for the life of the process: every later reading awaited
+ * the same dead promise and OCR was over until somebody restarted the server.
+ * Clearing it means the next reading pays for another attempt, which is what
+ * `paddle.ts` already does with its models and for the same reason.
+ */
 function startPool(): Promise<void> {
-  return (poolReady ??= (async () => {
-    const workers = await Promise.all(
-      Array.from({ length: POOL_SIZE }, () => newWorker()),
-    )
-    pool = workers.map((worker) => ({ worker, busy: false, jobs: 0 }))
-  })())
+  return (poolReady ??= withDeadline(
+    (async () => {
+      const workers = await Promise.all(
+        Array.from({ length: POOL_SIZE }, () => newWorker()),
+      )
+      // A start that was given up on can still come back, after a later one has
+      // already filled the pool. Its workers are four idle WASM heaps nothing
+      // will ever hand out, so they go rather than displacing the live ones.
+      if (pool.length) {
+        await Promise.all(workers.map((worker) => worker.terminate().catch(() => {})))
+        return
+      }
+      pool = workers.map((worker) => ({ worker, busy: false, jobs: 0 }))
+    })(),
+    POOL_START_TIMEOUT_MS,
+    'Fetching the OCR language data',
+  ).catch((error: unknown) => {
+    poolReady = null
+    throw error
+  }))
+}
+
+/**
+ * Replace the worker in a slot, keeping the old one only if that fails.
+ *
+ * Losing a slot outright is worse than keeping a bad worker: `withWorker` waits
+ * for a free slot and a pool that has shrunk to nothing would leave every later
+ * reading waiting on one that never appears. A kept-but-broken worker fails its
+ * next job inside `OCR_JOB_TIMEOUT_MS` and gets another chance at being
+ * replaced, which is a slow recovery rather than none.
+ */
+async function replaceWorker(slot: PooledWorker): Promise<void> {
+  const old = slot.worker
+  slot.jobs = 0
+  try {
+    slot.worker = await newWorker()
+    void old.terminate().catch(() => {})
+  } catch {
+    // Keep the old one rather than losing the slot entirely.
+  }
 }
 
 /** Take a worker, use it alone, give it back. */
@@ -441,27 +568,64 @@ async function withWorker<T>(fn: (worker: Worker) => Promise<T>): Promise<T> {
   }
 
   slot.busy = true
+  let stuck = false
   try {
-    return await fn(slot.worker)
+    /*
+     * Bounded, because this is the one place a job can be abandoned and the
+     * thing it was holding actually given back. A tesseract job runs inside a
+     * worker thread with no way to cancel it, so the caller's own deadline
+     * would leave this slot marked busy forever: the reading recovers and the
+     * pool does not, and after four of them nothing here reads anything again.
+     */
+    return await withDeadline(
+      fn(slot.worker), OCR_JOB_TIMEOUT_MS, 'An OCR pass', () => { stuck = true },
+    )
   } finally {
     slot.jobs += 1
 
     // A worker's WASM heap grows with the largest image it has seen and never
     // shrinks, so a server left running for days would keep the high-water
-    // mark of every one of them.
-    if (slot.jobs >= JOBS_BEFORE_RECYCLE) {
-      const old = slot.worker
-      slot.jobs = 0
-      try {
-        slot.worker = await newWorker()
-        void old.terminate()
-      } catch {
-        // Keep the old one rather than losing the slot entirely.
-      }
+    // mark of every one of them. A stuck worker is replaced for a different
+    // reason: the abandoned job is still inside it, and terminating it is the
+    // only thing that stops it.
+    if (stuck) {
+      console.warn('[ocr] a pass stopped responding; replacing its worker')
+      await replaceWorker(slot)
+    } else if (slot.jobs >= JOBS_BEFORE_RECYCLE) {
+      await replaceWorker(slot)
     }
 
     slot.busy = false
     waiting.shift()?.()
+  }
+}
+
+/**
+ * Fetch the language data before anybody is waiting on it.
+ *
+ * The other half of #299's third symptom. tesseract.js downloads about 15 MB
+ * the first time a worker is created on a machine, and with nothing warming it
+ * that download landed on whoever scanned first after every restart, on a
+ * phone-facing server, on the one photograph that needs OCR most. A slow
+ * connection there is indistinguishable from a wedged reader.
+ *
+ * Says how long it took, because that is what tells the two apart afterwards:
+ * a line in `aspire logs api` saying the reader took four minutes to come up is
+ * a slow download, and no line at all by the time somebody is scanning is not.
+ *
+ * Never throws: nothing may be able to start the server. A failed warm leaves
+ * `poolReady` cleared, so the first real reading tries again.
+ */
+export async function warmOcr(): Promise<void> {
+  const started = Date.now()
+  try {
+    await startPool()
+    console.log(`[ocr] tesseract ready in ${Date.now() - started}ms`)
+  } catch (error) {
+    console.error(
+      `[ocr] tesseract unavailable after ${Date.now() - started}ms:`,
+      (error as Error).message,
+    )
   }
 }
 
@@ -868,32 +1032,83 @@ export interface IdentifyOptions {
    * it when a recognisable cover will do, as at the shelf.
    */
   barcodeEffort?: 'fast' | 'thorough'
+  /**
+   * A tighter bound than `READING_TIMEOUT_MS` for this one call.
+   *
+   * There for a test that needs a reading to be abandoned without having to
+   * wait a minute for it, and for any caller that genuinely cannot spend the
+   * default. Nothing in the server passes it: one bound, in one place, is what
+   * stops two of them drifting apart.
+   */
+  timeoutMs?: number
 }
 
 /**
  * One identification at a time, process-wide.
  *
- * A tesseract.js worker handles a single job at a time and zbar-wasm keeps a
- * module-level scanner, so two overlapping calls can interleave and corrupt
- * each other's results. That never happened with one person scanning; with
- * two phones pointed at the same server it happens immediately. Serialising
- * here covers both the queue worker and the live /api/identify path.
+ * ## Why this is still serial, which #299 asked to be settled rather than assumed
+ *
+ * The original reason was two things and one of them has since gone. Tesseract
+ * used to be a single worker; it is a pool of four now, and `withWorker` hands
+ * a job a worker of its own and takes it back, which is exactly the supported
+ * answer to that half. So tesseract no longer needs this.
+ *
+ * **zbar-wasm does, and it is not a style preference.** `scanGrayBuffer` builds
+ * its image with `_malloc` into the module's WASM heap and then reads the
+ * decoded symbols back through a captured `HEAPU8.buffer`, and the scanner
+ * itself is one module-level instance shared by every caller (`let m` in
+ * `@undecaf/zbar-wasm/dist/main.mjs`). Two overlapping ladders therefore share
+ * one non-reentrant C scanner *and* can grow the heap under each other between
+ * the scan and the read of its results, which detaches the buffer the symbols
+ * are being read out of. That is a wrong ISBN on somebody's book rather than a
+ * crash, which is the worst way for it to fail. PaddleOCR is one service
+ * instance with one detection and one recognition session behind it, so it has
+ * the same shape of answer.
+ *
+ * And the reason underneath both: one reading already uses the whole machine.
+ * Four tesseract workers, paddle, and sharp on libvips threads. Running two
+ * captures at once on a phone-facing server does not halve the queue, it
+ * doubles how long each book takes, and what a person is actually waiting on is
+ * the book in their hands rather than the queue's throughput.
+ *
+ * So it stays serial, and #299's real complaint is answered by the bound rather
+ * than by concurrency: a reading that does not come back is abandoned after
+ * `READING_TIMEOUT_MS`, the chain moves on, and one wedged capture costs the
+ * queue a minute instead of the life of the process.
  */
 let identifyChain: Promise<unknown> = Promise.resolve()
 
 function serialise<T>(work: () => Promise<T>): Promise<T> {
   const result = identifyChain.then(work, work)
-  // Keep the chain alive even if this job rejects.
+  // Keep the chain alive even if this job rejects, which since #299 includes
+  // rejecting because it was abandoned.
   identifyChain = result.then(() => undefined, () => undefined)
   return result
 }
 
-/** Barcode first, OCR second. Never throws. */
+/**
+ * Barcode first, OCR second.
+ *
+ * Throws exactly one thing, and only since #299: `ReadingTimedOut`, when the
+ * reading did not finish inside `READING_TIMEOUT_MS`. Every other failure is
+ * still absorbed into the result, which is what "never throws" used to mean
+ * here and still means for everything that is a fact about the photograph. A
+ * reader that stopped is not one of those.
+ *
+ * What the deadline can and cannot do is worth being exact about. It guarantees
+ * the caller is answered and the chain above advances. It cannot stop the
+ * abandoned pass, because WASM has no cancel: that pass may still be inside
+ * zbar when the next reading starts, which is the very overlap this chain
+ * exists to prevent. That exposure lasts until the abandoned pass gives up, and
+ * it is the price of the alternative, which is a queue that stops for good.
+ */
 export function identify(
   input: Buffer,
   options: IdentifyOptions = {},
 ): Promise<IdentifyResult> {
-  return serialise(() => identifyNow(input, options))
+  const bound = options.timeoutMs ?? READING_TIMEOUT_MS
+  return serialise(() =>
+    withDeadline(identifyNow(input, options), bound, 'Reading this photograph'))
 }
 
 async function identifyNow(

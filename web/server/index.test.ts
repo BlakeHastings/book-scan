@@ -1901,6 +1901,52 @@ describe('editing a capture that is still in the queue', () => {
 })
 
 /**
+ * Sending a stuck capture back through the reader (#299).
+ *
+ * The half of that issue that is not the bound. A reading that is given up on
+ * leaves a capture `failed` saying so, which is a state somebody can see, and
+ * this route is what makes it a state somebody can do something about: without
+ * it the only way back was to find the book and photograph it again, for a
+ * fault that was never about the book.
+ */
+describe('reading a capture again', () => {
+  const queued = async () =>
+    new CaptureQueue(running.db, () => null).add({ back: 'b.jpg', front: 'f.jpg' })
+
+  const rowOf = (id: number) => new CaptureQueue(running.db, () => null).get(id)
+
+  it('puts the capture back in the queue', async () => {
+    const capture = await queued()
+    // Read once already, and stuck: what the route is for is the second look.
+    await new CaptureQueue(running.db, () => null).drain()
+    expect((await rowOf(capture.id))!.status).toBe('failed')
+
+    const { status, body } = await post(`/api/captures/${capture.id}/read`, {})
+
+    expect(status).toBe(200)
+    expect(body.capture.status).toBe('pending')
+    expect(body.capture.analysed).toBe('')
+  })
+
+  it('404s on an id nothing has, and on one that is not an id at all', async () => {
+    expect((await post('/api/captures/999999/read', {})).status).toBe(404)
+    // The `idIn` rule: a client typo is the same clean 404 as a missing row,
+    // never a 500 with a Postgres stack trace behind it (#332).
+    expect((await post('/api/captures/notanumber/read', {})).status).toBe(404)
+  })
+
+  it('409s on a book that has left the queue, and says which it is', async () => {
+    const capture = await queued()
+    await shelve(capture.id)
+
+    const { status, body } = await post(`/api/captures/${capture.id}/read`, {})
+
+    expect(status).toBe(409)
+    expect(body.error).toContain('left the queue')
+  })
+})
+
+/**
  * Walking away from a claimed capture (#150).
  *
  * The claim is a five minute lease, so a person who leaves without handing

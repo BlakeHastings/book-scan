@@ -151,7 +151,10 @@ describe('what the counts say', () => {
     // #148: the sentence that sent somebody to retype an ISBN that was already
     // correct. The count stays, the diagnosis lives on the queue.
     const html = home({
-      queue: queue({ failed: 9, failures: { noIsbn: 4, uncatalogued: 5, errored: 0 } }),
+      queue: queue({
+        failed: 9,
+        failures: { noIsbn: 4, uncatalogued: 5, errored: 0, timedOut: 0 },
+      }),
     })
     expect(html).toContain('stuck')
     expect(html).not.toContain('need an ISBN')

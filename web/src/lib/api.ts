@@ -1036,6 +1036,18 @@ export const api = {
       },
     ),
 
+  /**
+   * Send a capture back through the reader (#299).
+   *
+   * For the one whose reading was given up on rather than finishing. It comes
+   * back `pending`, and the queue is already polling while anything is pending,
+   * so the row updates itself from there without this having to wait.
+   */
+  readCaptureAgain: (id: number) =>
+    request<{ capture: Capture; counts: QueueCounts }>(
+      `/api/captures/${id}/read`, { method: 'POST' },
+    ),
+
   deleteCapture: (id: number) =>
     request<{ ok: true; counts: QueueCounts; photosRemoved: number }>(
       `/api/captures/${id}`, { method: 'DELETE' },

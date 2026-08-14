@@ -11,6 +11,7 @@
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { ReadingTimedOut } from './deadline'
 import type { Db } from './driver'
 import { CaptureQueue, editsOn } from './queue'
 import { identify } from './identify'
@@ -679,7 +680,8 @@ describe('why the failed ones failed', () => {
 
     const counts = await running.counts()
     expect(counts.failed).toBe(2)
-    expect(counts.failures).toEqual({ noIsbn: 1, uncatalogued: 1, errored: 0 })
+    expect(counts.failures)
+      .toEqual({ noIsbn: 1, uncatalogued: 1, errored: 0, timedOut: 0 })
 
     expect((await running.get(uncatalogued.id))!.isbn13).toBe(DUNE)
     expect((await running.get(blank.id))!.isbn13).toBe('')
@@ -693,13 +695,142 @@ describe('why the failed ones failed', () => {
 
     const counts = await running.counts()
     expect(counts.failed).toBe(1)
-    expect(counts.failures).toEqual({ noIsbn: 0, uncatalogued: 0, errored: 1 })
+    expect(counts.failures)
+      .toEqual({ noIsbn: 0, uncatalogued: 0, errored: 1, timedOut: 0 })
   })
 
   it('reports nothing wrong when nothing has failed', async () => {
     await add()
     expect((await queue.counts()).failures)
-      .toEqual({ noIsbn: 0, uncatalogued: 0, errored: 0 })
+      .toEqual({ noIsbn: 0, uncatalogued: 0, errored: 0, timedOut: 0 })
+  })
+})
+
+/**
+ * A reading that was given up on, and the way back from one (#299).
+ *
+ * The defect this is about is not visible in any of these assertions and is
+ * worth stating: before the bound there was nothing to assert on, because the
+ * drain never returned. `identify` held a process-wide chain, `drain` awaited
+ * `process`, and every capture behind the stuck one waited for the life of the
+ * server with no error, no note and nothing on screen to distinguish it from a
+ * queue that was merely busy.
+ *
+ * `ReadingTimedOut` comes from `server/deadline.ts` rather than from
+ * `./identify`, which this file replaces wholesale, and that is why it lives
+ * there: an `instanceof` against a stubbed module's missing export throws
+ * inside the very catch that is there to cope with a throw.
+ */
+describe('a reading that was given up on', () => {
+  const abandoned = () => new ReadingTimedOut('Reading this photograph', 60_000)
+
+  const wedged = () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockRejectedValue(abandoned())
+    return running
+  }
+
+  it('leaves the capture stuck and visible rather than looking untouched', async () => {
+    const running = wedged()
+    const capture = await running.attach(null, 'back', 'b.jpg')
+    await running.drain()
+
+    const after = (await running.get(capture.id))!
+    expect(after.status).toBe('failed')
+    expect(after.note).toContain('the reader stopped')
+    expect(after.note).toContain('Read it again')
+  })
+
+  it('is counted as its own kind of stuck, not as a photograph nobody could read', async () => {
+    // The two send a person to different places. `errored` and `noIsbn` say go
+    // and find the book; this says the book was never looked at.
+    const running = wedged()
+    await running.attach(null, 'back', 'b.jpg')
+    await running.drain()
+
+    expect((await running.counts()).failures)
+      .toEqual({ noIsbn: 0, uncatalogued: 0, errored: 0, timedOut: 1 })
+  })
+
+  it('does not record the photograph it never read as read', async () => {
+    // The slot is marked read before the reading starts, so a photograph whose
+    // file has gone is not offered forever. A reading nobody finished has read
+    // nothing, and leaving the mark on would make the retry below find nothing
+    // to do and settle the capture as failed all over again.
+    const running = wedged()
+    const capture = await running.attach(null, 'back', 'b.jpg')
+    await running.drain()
+
+    expect((await running.get(capture.id))!.analysed).toBe('')
+  })
+
+  it('does not stop the queue: the next capture is read', async () => {
+    const running = wedged()
+    const stuck = await running.attach(null, 'back', 'stuck.jpg')
+    const behind = await running.attach(null, 'back', 'behind.jpg')
+
+    // The reader recovers between the two, which is what the bound buys: the
+    // second book is read rather than queued behind the first for good.
+    vi.mocked(identify)
+      .mockRejectedValueOnce(abandoned())
+      .mockResolvedValue(readBarcode(DUNE))
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+
+    await running.drain()
+
+    expect((await running.get(stuck.id))!.status).toBe('failed')
+    expect((await running.get(behind.id))!.status).toBe('ready')
+    expect((await running.get(behind.id))!.isbn13).toBe(DUNE)
+  })
+
+  it('goes back through the reader, and the second reading counts', async () => {
+    const running = wedged()
+    const capture = await running.attach(null, 'back', 'b.jpg')
+    await running.drain()
+    expect((await running.get(capture.id))!.status).toBe('failed')
+
+    vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+
+    const back = await running.readAgain(capture.id)
+    expect(back!.status).toBe('pending')
+    await running.drain()
+
+    const after = (await running.get(capture.id))!
+    expect(after.status).toBe('ready')
+    expect(after.isbn13).toBe(DUNE)
+    // "Read it again" stops being true the moment somebody has.
+    expect(after.note).toBe('')
+  })
+
+  it('offers every photograph again, not only the one that stopped', async () => {
+    // A capture can have read its back and stopped on its front. Clearing the
+    // lot is the rule rather than a judgement about which slots are worth
+    // redoing, and a slot that read cleanly costs a second to confirm.
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockResolvedValue(readNothing())
+    const capture = await running.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })
+    await running.drain()
+    expect((await running.get(capture.id))!.analysed).not.toBe('')
+
+    await running.readAgain(capture.id)
+    expect((await running.get(capture.id))!.analysed).toBe('')
+  })
+
+  it('will not re-read a book that has left the queue', async () => {
+    // A shelved book is not read by this worker any more, and a discarded one
+    // is not coming back through a button that says read.
+    const shelved = await add()
+    await shelve(shelved.id)
+    expect(await queue.readAgain(shelved.id)).toBeUndefined()
+
+    const thrownAway = await add()
+    await queue.discard(thrownAway.id)
+    expect(await queue.readAgain(thrownAway.id)).toBeUndefined()
+  })
+
+  it('says nothing about a capture that never existed', async () => {
+    expect(await queue.readAgain(999_999)).toBeUndefined()
   })
 })
 
