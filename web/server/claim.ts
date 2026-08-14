@@ -23,6 +23,14 @@
  * place for it would file it somewhere nobody asked for and report nothing,
  * which is the failure the null exists to prevent.
  *
+ * ## Two questions, one decision
+ *
+ * `claimOfBook` explains one book and `booksNoRuleClaims` finds every book in
+ * that state, and they are in one file because they are one question asked from
+ * two ends. Both put it to `claim` rather than to SQL, so a room with a third
+ * rule in it, a rule somebody switched off, or a condition using `under` cannot
+ * be answered one way by the list and another way by the explanation.
+ *
  * ## Nothing here writes anything
  *
  * It reads the rules, the ledger and the vocabulary and folds them. Where the
@@ -35,6 +43,7 @@
  * leave somebody unable to see what the pin is overruling.
  */
 
+import { WITHDRAWN } from '../domain/books/state'
 import { labelFor, type Slot } from '../domain/placement/geography'
 import { standingOf } from '../domain/placement/ledger'
 import { claim, matches, placementOf, type PlacementRule } from '../domain/placement/rules'
@@ -186,4 +195,113 @@ export async function claimOfBook(db: Db, id: number): Promise<Claimed> {
       withdrawn: standing.withdrawn,
     },
   }
+}
+
+// ---------------------------------------------------------------------------
+// Every book no rule claims, which is the question nothing could answer
+// ---------------------------------------------------------------------------
+
+/**
+ * Why no rule claims this book, which is two different states and not one.
+ *
+ * - `untagged`: it carries no tag at all. This is the state #304 made real. No
+ *   catalogue stated a genre, so no genre tag was written, so every rule fails
+ *   at its first condition.
+ * - `unmatched`: it carries tags and no rule asks for them. A book tagged
+ *   Poetry in a room with no rule about Poetry is here, and so is a book whose
+ *   only tag is one somebody applied for their own reasons.
+ *
+ * Both are unclaimed, both have the same consequence, and the sentence a screen
+ * writes about them is not the same sentence, which is why the read says which
+ * rather than leaving each caller to work it out from an empty list of tags.
+ *
+ * **A rule that is switched off does not put a book in here by itself.** It
+ * would if the switch were ignored, and `claimOfBook` deliberately ignores it
+ * when explaining one book, because "one does and you turned it off" is worth
+ * saying. Here the question is which books nothing files today, and a rule that
+ * is off files nothing today. The screen for one book is where the switch gets
+ * named.
+ */
+export type Unclaimed = 'untagged' | 'unmatched'
+
+/** One book no rule claims, as a list of them needs it. */
+export interface UnclaimedBook {
+  id: number
+  title: string
+  authorFiling: string
+  /** Where somebody last said it stands. Null when nobody ever has. */
+  standing: AtAPlace | null
+  /** What it carries, by the label a person reads. Empty when `untagged`. */
+  tags: string[]
+  why: Unclaimed
+}
+
+interface UnclaimedRow {
+  id: number
+  title: string
+  author_filing: string
+  current_area_id: number | null
+  slugs: string[] | null
+  labels: string[] | null
+}
+
+/**
+ * Every book in the collection that no rule claims, in the order they stand.
+ *
+ * **This is the question nothing could answer.** The listing's tag filter has no
+ * negation and could not express it anyway: "no rule claims it" is not "has no
+ * genre tag", and the only SQL that ever asked anything like it was inlined in
+ * the driver behind a `console.error`, hard-coded to two slugs, so it missed
+ * every book carrying a tag no rule wants and would have gone quietly wrong the
+ * first time somebody wrote a third rule.
+ *
+ * So the question is put to `claim`, which is the thing that decides, exactly
+ * the way `booksInArea` puts it for one row of books. The tags come back beside
+ * each book in one pass and the fold happens here. **There is no second
+ * precedence rule written in SQL**, and there cannot be one to drift: a rule
+ * with three conditions, `under` against `is`, a rule somebody switched off, and
+ * whatever `RULE_FIELDS` grows next are all answered by the same function the
+ * placement itself uses.
+ *
+ * ## Which books it is asked of
+ *
+ * Shelved and checked out, and not withdrawn. A withdrawn book has left the
+ * collection and no rule places it by design, which is what the claim screen
+ * already says out loud; putting books nobody owns any more at the top of a list
+ * of work would be the count that trains somebody to ignore the list. A book
+ * still in the queue is not here either, for `listRange`'s reason: it has no
+ * name and no place yet, and the queue is the screen built to act on it.
+ *
+ * ## Unbounded, like `areaDisagreements`
+ *
+ * The caller decides how many to say out loud. The total is the number that
+ * matters and it is what the first screen shows; the names are what explain it.
+ */
+export async function booksNoRuleClaims(db: Db): Promise<UnclaimedBook[]> {
+  const rows = await db.all<UnclaimedRow>(
+    `SELECT b.id, b.title, b.author_filing, b.current_area_id,
+            array_remove(array_agg(t.slug), NULL) AS slugs,
+            array_remove(array_agg(t.label), NULL) AS labels
+       FROM catalogued_books b
+       LEFT JOIN book_tag bt ON bt.book_id = b.id
+       LEFT JOIN tag t ON t.id = bt.tag_id
+      WHERE b."state" != ?
+      GROUP BY b.id, b.title, b.author_filing, b.current_area_id, b.sort_key
+      ORDER BY b.sort_key`,
+    [WITHDRAWN],
+  )
+
+  const { rules } = await furnitureIn(db)
+  const labels = await plankLabels(db)
+
+  return rows
+    .filter((row) => claim(rules, { tagSlugs: row.slugs ?? [] }) === null)
+    .map((row) => ({
+      id: Number(row.id),
+      title: row.title,
+      authorFiling: row.author_filing ?? '',
+      standing: placeOf(row.current_area_id === null ? null : Number(row.current_area_id), labels),
+      tags: row.labels ?? [],
+      why: (row.slugs ?? []).length === 0 ? 'untagged' : 'unmatched',
+    }))
 }
