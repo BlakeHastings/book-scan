@@ -17,8 +17,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import {
-  canShelve, photoCount, QueueRow, SHOWING, statusLine, whatTheyNeed,
-  type RowGesture, type Which,
+  canShelve, photoCount, QueueRow, readableAgain, SHOWING, statusLine,
+  whatTheyNeed, type RowGesture, type Which,
 } from './QueuePane'
 import type { Capture, CaptureStatus } from '../lib/api'
 
@@ -237,6 +237,14 @@ describe('what a failed row says is wrong', () => {
       .toBe('could not be read')
   })
 
+  /* Not "could not be read", which is the line above and would be a lie here:
+     nothing read this book's photographs, so nothing found them wanting. */
+  it('says the reader stopped rather than blaming the photographs', () => {
+    expect(failed({
+      note: 'Reading these photos timed out: the back was given up on after 60 seconds.',
+    })).toBe('reading it took too long')
+  })
+
   it('leaves every other status alone', () => {
     expect(statusLine(capture({ status: 'pending' }))).toBe('reading photos')
     expect(statusLine(capture({ status: 'ready' }))).toBe('identified')
@@ -281,6 +289,11 @@ describe('what the queue says the stuck books need', () => {
   const errored = capture({
     id: 3, status: 'failed', note: 'Could not process these photos: out of memory',
   })
+  const timedOut = capture({
+    id: 8,
+    status: 'failed',
+    note: 'Reading these photos timed out: the back was given up on after 60 seconds.',
+  })
 
   it('asks for an ISBN by hand only for the ones with no ISBN', () => {
     expect(whatTheyNeed([noIsbn])).toEqual(['1 need an ISBN by hand.'])
@@ -300,13 +313,25 @@ describe('what the queue says the stuck books need', () => {
     expect(whatTheyNeed([errored])).toEqual(['1 hit an error while being read.'])
   })
 
+  /* #299. The same mistake #148 was about, from the other end: this book's
+     photographs were never looked at, so a line sending somebody to handle it
+     would be sending them to a book that may need nothing. */
+  it('does not blame the photographs of a book nothing read', () => {
+    expect(whatTheyNeed([timedOut])).toEqual([
+      '1 timed out while being read. Nothing is wrong with the photographs; '
+      + 'read them again.',
+    ])
+  })
+
   /* Three books, three different jobs, and the screen has to separate them
      rather than counting them together the way the status alone would. */
-  it('keeps the three apart when all three are on the table', () => {
-    expect(whatTheyNeed([noIsbn, uncatalogued, errored])).toEqual([
+  it('keeps the four apart when all four are on the table', () => {
+    expect(whatTheyNeed([noIsbn, uncatalogued, errored, timedOut])).toEqual([
       '1 need an ISBN by hand.',
       '1 need details by hand. No catalogue has their ISBN.',
       '1 hit an error while being read.',
+      '1 timed out while being read. Nothing is wrong with the photographs; '
+      + 'read them again.',
     ])
   })
 
@@ -408,5 +433,55 @@ describe('a discard that has not happened yet', () => {
   it('offers no way to open a book that is on its way out', () => {
     const { tree } = row({}, true)
     expect(find(tree, 'queue__open')).toBeNull()
+  })
+})
+
+/**
+ * Which stuck books the queue offers to read again (#299).
+ *
+ * The control this decides is the only way back from a reader that stopped
+ * without going and finding the books. Offering it too widely is worse than
+ * not offering it: a second reading of a book whose ISBN read perfectly well
+ * and which no catalogue has produces the very same answer, so the button
+ * would be one somebody presses and waits on for nothing.
+ */
+describe('which stuck books are worth reading again', () => {
+  const timedOut = capture({
+    id: 1,
+    status: 'failed',
+    note: 'Reading these photos timed out: the back was given up on after 60 seconds.',
+  })
+  const errored = capture({
+    id: 2, status: 'failed', note: 'Could not process these photos: out of memory',
+  })
+  const noIsbn = capture({
+    id: 3, status: 'failed', note: 'No ISBN could be read from these photos.',
+  })
+  const uncatalogued = capture({
+    id: 4,
+    status: 'failed',
+    isbn13: '9781234567897',
+    note: 'Barcode on the back reads 9781234567897, but no catalogue has it.',
+  })
+
+  it('offers the ones nothing ever read', () => {
+    expect(readableAgain([timedOut, errored]).map((c) => c.id)).toEqual([1, 2])
+  })
+
+  it('leaves out the ones that want a person and a book in their hands', () => {
+    expect(readableAgain([noIsbn, uncatalogued])).toEqual([])
+  })
+
+  it('picks the readable ones out of a queue holding all four', () => {
+    expect(readableAgain([noIsbn, timedOut, uncatalogued, errored]).map((c) => c.id))
+      .toEqual([1, 2])
+  })
+
+  it('leaves out the ones nothing is wrong with', () => {
+    expect(readableAgain([
+      capture({ id: 5, status: 'ready' }),
+      capture({ id: 6, status: 'pending' }),
+      capture({ id: 7, status: 'done' }),
+    ])).toEqual([])
   })
 })

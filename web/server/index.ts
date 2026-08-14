@@ -26,7 +26,8 @@ import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 
 import { lookupIsbn, searchTitle } from './lookup'
-import { identify } from './identify'
+import { ReadingTimedOut } from './deadline'
+import { identify, warmOcr } from './identify'
 import { warmPaddle } from './paddle'
 import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
@@ -989,6 +990,51 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       released: lettingGo,
       counts: await queue.counts(),
     })
+  }))
+
+  /**
+   * Read a capture's photographs again (#299).
+   *
+   * The way back from a reading that was given up on. `identify` has a bound on
+   * it now, so a reader that stops costs one capture and a minute instead of
+   * the whole queue for the life of the process, but the capture it costs is
+   * left `failed` saying so, and a state somebody can see is only half of it:
+   * the other half is being able to act on it without going and finding the
+   * book again.
+   *
+   * A POST rather than a PATCH of the capture, because this states nothing
+   * about the book. It asks for work to be done, which is what `POST` is for
+   * here, and it deliberately does not go through `PATCH /api/captures/:id`:
+   * that route is a person's statements about a book, and the whole precedence
+   * rule rests on nothing else writing there.
+   *
+   * Answers as soon as the capture is back in the queue. The reading itself is
+   * the background pass, as it always is, and the client already polls for it.
+   */
+  app.post('/api/captures/:id/read', asyncRoute(async (req, res) => {
+    const id = idIn(req.params.id, res, 'No such capture.')
+    if (id === null) return
+
+    const capture = await queue.readAgain(id)
+    if (!capture) {
+      // Told apart, because the two need different things said. A capture that
+      // has left the queue is not a typo, it is a book somebody has already
+      // dealt with, and telling them "no such capture" would send them looking
+      // for one.
+      const existing = await queue.get(id)
+      res.status(existing ? 409 : 404).json({
+        error: existing
+          ? 'That book has left the queue, so there is nothing left to read.'
+          : 'No such capture.',
+      })
+      return
+    }
+
+    inTheBackground(
+      queue.drain(), `reading the photographs of capture ${id} again`,
+    )
+
+    res.json({ capture, counts: await queue.counts() })
   }))
 
   /**
@@ -3119,6 +3165,26 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
 
+    /*
+     * A reading that was given up on, answered as itself (#299).
+     *
+     * `POST /api/identify/isbn` and `POST /api/books/scan` read a photograph
+     * with somebody stood in front of the result, so a reader that has stopped
+     * reaches a person rather than a background pass. 504 rather than 500,
+     * because nothing here is broken in a way a retry cannot fix, and the
+     * message says what happened instead of "something went wrong": a person
+     * who is told the reader gave up will hold the book up again, and one who
+     * is told nothing will decide the app is broken. Handled here rather than
+     * at each route so a route added later cannot forget it.
+     */
+    if (err instanceof ReadingTimedOut) {
+      console.warn('[api] a reading was given up on:', err.message)
+      res.status(504).json({
+        error: `${err.message} Nothing was stored. Try that photograph again.`,
+      })
+      return
+    }
+
     console.error('[api] unhandled route error:', err)
     res.status(httpStatus).json({ error: 'Something went wrong.' })
   })
@@ -3128,8 +3194,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
     // After the port is open, so a slow or unreachable cover service never
     // delays the server being usable.
+    //
+    // `warmOcr` joins `warmPaddle` here, and it is the third symptom of #299.
+    // tesseract.js fetches about 15 MB of language data the first time a worker
+    // exists on a machine, and nothing was warming it, so that download landed
+    // on the first person to photograph a book with no readable barcode after
+    // every restart. On a phone-facing server, on a poor connection, that is
+    // indistinguishable from the wedged reader this issue is about. Both warms
+    // report how long they took, which is what tells the two apart afterwards.
     setTimeout(() => {
       void warmPaddle()
+        .then(() => warmOcr())
         .then(() => hashInBackground())
         .then(() => backfillCoversInBackground())
         .catch((caught) => {
