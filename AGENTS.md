@@ -353,6 +353,16 @@ file's cleanup can name, let alone delete, another file's directory. **If you
 add a test that writes files, take a root from there rather than reaching for
 `web/data`**, and remove that root and nothing above it.
 
+**Run it in the foreground and wait for it.** Three agent sessions have now been
+lost by backgrounding the test run and waiting for a notification that never
+arrived: the work was finished, uncommitted, and stranded in a worktree until
+somebody came looking. The run takes a couple of minutes. Waiting for it costs
+that; not waiting for it has cost the whole task, three times.
+
+The same applies to anything else you are tempted to background so you can do
+something else meanwhile. **You have nothing else to do.** A task that ends with
+its work uncommitted is a task nobody can tell succeeded from one that crashed.
+
 **`npm test` needs Docker, for the whole run.** That started at stage F and it
 got worse at stage I. It is a real regression in what it takes to contribute,
 accepted by the owner rather than stumbled into: a suite that does not exercise
