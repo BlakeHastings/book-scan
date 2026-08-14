@@ -46,13 +46,13 @@ import {
   type Look,
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
-import { IconCamera, IconEdit, IconFind } from '../Icons'
+import { IconCamera, IconEdit } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Phone as Frame } from '../Phone'
 import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
 import { Sure } from '../Sure'
-import { TopBar, type TabName } from '../Chrome'
+import { Corner, Portrait, TopBar, type TabName } from '../Chrome'
 
 /** Move to another screen of the gallery. */
 export type Go = (screen: string) => void
@@ -64,6 +64,29 @@ export interface Screen {
   /** The heading it files under in the index. */
   group: string
   render: (go: Go) => ReactElement
+}
+
+/**
+ * The corner, on every screen a person lives on.
+ *
+ * Six of them draw it: the first screen, the three library screens, and the
+ * queue in both its states. Those are exactly the screens with no back arrow,
+ * which is the rule rather than a list: a corner action is the one thing a
+ * screen offers, and a screen you arrived at already has one (Edit, on a
+ * book). Somewhere you live has the same corner wherever you are, which is
+ * what makes it worth learning, and it is why the furniture is now reachable
+ * from anywhere rather than from the foot of one screen.
+ *
+ * It is a function because the icon is an element and the name and the
+ * destination are the same on all six: written out per screen it would be six
+ * chances for one of them to say something slightly different.
+ */
+function you(go: Go, open = false) {
+  return {
+    word: 'Your room',
+    icon: <Portrait />,
+    onPress: () => go(open ? 'home' : 'menu'),
+  }
 }
 
 /** Which screen each of the four tabs opens, in the gallery. */
@@ -153,10 +176,28 @@ function Phone({
  * The order within each block did not change, only which block comes first.
  * This inverts what the screen leads with: it opened with what is asking for
  * attention and closed with what is owned; it now opens with what is owned.
+ *
+ * ## The corner, and the menu drawn over this screen (#329)
+ *
+ * This screen had nothing in its top right and now has the portrait, because
+ * this is where somebody who has never seen the app is standing when they go
+ * looking for the thing they cannot find. The menu is drawn over this one for
+ * the same reason: the walk that had no beginning is Today, the corner, your
+ * furniture, and it is now three taps that can be followed by somebody who has
+ * been told none of them.
+ *
+ * It is one function drawing both, the way `AreaScreen` draws an area and the
+ * three states of being asked to remove one. A second copy of this screen with
+ * a sheet on it would be six counts and two lists to keep in step.
  */
-function Home(go: Go) {
+function Home(go: Go, over?: ReactElement) {
   return (
-    <Phone tab="home" go={go} top={<TopBar title="Book scan" />}>
+    <Phone
+      tab="home"
+      go={go}
+      over={over}
+      top={<TopBar title="Book scan" action={you(go, over !== undefined)} />}
+    >
       <Beside>Eighteen books are waiting on the table.</Beside>
 
       <p className="wf-heading wf-heading--flush">The collection</p>
@@ -292,6 +333,7 @@ function LibraryTop({
       tags={tags}
       note={note}
       onTags={() => go('tags')}
+      onFind={() => go('find')}
       look={view}
       onLook={(next) => go(VIEW_SCREENS[next])}
     />
@@ -372,7 +414,7 @@ function Library(go: Go) {
         <TopBar
           title="Library"
           sub="1,204 books"
-          action={{ word: 'Find', icon: <IconFind />, onPress: () => go('find') }}
+          action={you(go)}
         />
       }
     >
@@ -396,7 +438,16 @@ function Library(go: Go) {
           sentence under it about adding one and dividing it into areas. Two
           things wrong with it, and the owner named both: the app has no reason
           to summarise what somebody's furniture is made of, and it was a
-          paragraph doing a link's job. "It's definitely not that." */}
+          paragraph doing a link's job. "It's definitely not that."
+
+          It stays now the corner opens onto the same place, and that is a
+          deliberate second door rather than an oversight. The fault this
+          codebase keeps naming is a second door that *takes the middle of a
+          screen*, which the camera card did; this is at the foot, after every
+          book somebody owns, and it is exactly where a person who has just
+          scrolled past all of them wants it. The menu is the way in for
+          somebody who has never found it; this is the way on for somebody who
+          is already looking at the furniture drawn as books. */}
       <div className="wf-under">
         {/* Not "see the bookcases": what it opens is five pieces and two of
             them are a crate and a desk. The category word goes neutral even
@@ -451,7 +502,7 @@ function CoverView(go: Go) {
         <TopBar
           title="Library"
           sub="6 of 1,204 books"
-          action={{ word: 'Find', icon: <IconFind />, onPress: () => go('find') }}
+          action={you(go)}
         />
       }
     >
@@ -477,7 +528,7 @@ function ListView(go: Go) {
         <TopBar
           title="Library"
           sub="1,204 books"
-          action={{ word: 'Find', icon: <IconFind />, onPress: () => go('find') }}
+          action={you(go)}
         />
       }
     >
@@ -1421,7 +1472,11 @@ function Done(go: Go) {
 
 function Queue(go: Go) {
   return (
-    <Phone tab="queue" go={go} top={<TopBar title="Queue" sub="18 books on the table" />}>
+    <Phone
+      tab="queue"
+      go={go}
+      top={<TopBar title="Queue" sub="18 books on the table" action={you(go)} />}
+    >
       {/*
         "Processing", not "Reading": the owner read the old word as the app
         telling him he was in the middle of a novel, rather than as it working
@@ -1450,6 +1505,160 @@ function Queue(go: Go) {
           <Row title="No barcode read" sub="Photographed 11:40" cloth="wood2" meta="Type the ISBN" onPress={() => go('review')} />
           <Row title="9781857231380" sub="No catalogue has it" cloth="sun" meta="Fill it in" onPress={() => go('review')} />
         </List>
+      </Card>
+    </Phone>
+  )
+}
+
+/* --- Your room ------------------------------------------------------------ */
+
+/**
+ * The menu the corner opens, over the screen it was opened from.
+ *
+ * This is `Home` with a sheet on it rather than a screen of its own, which is
+ * the point: a menu is not a place you can be, the same way find is not, and
+ * the screen underneath has not gone anywhere. `Corner` carries the argument
+ * about what is in it; what is here is the content.
+ *
+ * **The two counts are the same two counts the destinations say.** "Five
+ * pieces, sixteen areas" is the furniture screen's own second line, word for
+ * word, because a menu that summarises a screen in its own words is two
+ * sentences that have to be kept agreeing.
+ */
+function RoomMenu(go: Go) {
+  return Home(
+    go,
+    <Corner
+      said="1,204 books, five pieces of furniture"
+      ways={[
+        {
+          word: 'Your furniture',
+          note: 'Five pieces, sixteen areas',
+          onPress: () => go('furniture'),
+        },
+        {
+          word: 'Settings',
+          note: 'The order they file in, and which hand',
+          onPress: () => go('settings'),
+        },
+      ]}
+      onClose={() => go('home')}
+    />,
+  )
+}
+
+/**
+ * Settings, which is two answers this app already holds and had nowhere to ask
+ * for.
+ *
+ * **Nothing here was invented, and the shape of the screen is the finding.**
+ * The instruction was not to draw a page of switches, so what is on it was
+ * arrived at by going and looking for every answer this app already keeps, and
+ * then taking off the ones that are already somewhere better.
+ *
+ * ## The two that had no home
+ *
+ * **How your books are ordered** is `collection.default_sort_strategy`, one row
+ * in the schema, and its comment says why it is a collection-level fact rather
+ * than a rule on every piece: "a default expressed on every fixture would have
+ * to be changed on every fixture and could then disagree with itself." Two
+ * screens in this gallery already read it out loud. The area screen says an
+ * area is ordered "The way bookcase 2 does", and the ordering screen says "By
+ * the author's surname, which is what the whole library uses". That is this
+ * value, said twice, by two screens that both defer to a setting no screen has
+ * ever offered.
+ *
+ * **Which hand you hold the phone in** is the one the design system asked for
+ * by name. `Camera.tsx`, on the switch in the viewfinder's far corner: "In the
+ * app it belongs beside the rest of the settings and this is the wireframe
+ * standing in for one." This is that one.
+ *
+ * ## The four that are already somewhere better
+ *
+ * The app remembers six answers today. Four of them sit beside the thing they
+ * change and should stay there: which of the three ways you are looking at the
+ * library, whether a queued book shows its front or its spine, which lens the
+ * camera uses, and whether the torch is lit. A settings screen that collected
+ * those would be taking controls off the screens they act on in order to look
+ * fuller than the app is.
+ *
+ * ## The second half is the answer to the ring in the corner
+ *
+ * Somebody who taps an avatar and works through the menu is, sooner or later,
+ * looking for the account. This is where they arrive, and it says the true
+ * thing plainly and once: there is no account, everybody in the house is
+ * working on the same books, and that is why the answer above it is kept on
+ * the phone rather than anywhere a second phone could read it.
+ *
+ * It offers nothing. There is no sign-in greyed out, no "coming soon" and no
+ * field for a name. #171 is a decision nobody has made, and a door drawn for
+ * it here would be this wireframe making it.
+ *
+ * ## What is not on it, and none of it is an oversight
+ *
+ * **Day and night**: the app follows the phone already, both palettes are in
+ * `tokens.css` under `prefers-color-scheme`, and a switch here would be a
+ * control nobody asked for over a question the phone has answered.
+ * **Backing up and exporting**: `docs/backup-runbook.md` is a job somebody does
+ * by hand at a terminal, the server has no endpoint for either, and a button
+ * would be a promise with nothing behind it. **A name for the collection**:
+ * `collection.name` is a real column, and it is left off because no screen in
+ * this app shows it, so a field for it would be a control with no visible
+ * effect. **Who checked a book out**: checking out records no borrower at all,
+ * and `claimed_by` is a lease held by a browser rather than a person. **A
+ * version**: there is no version string anywhere in the app to show.
+ */
+function SettingsScreen(go: Go) {
+  return (
+    <Phone tab="home" go={go} top={<TopBar title="Settings" onBack={() => go('menu')} />}>
+      <div>
+        <span className="wf-field__label">How your books are ordered</span>
+        <div style={{ height: 6 }} />
+        {/*
+          The same four answers the area's ordering screen offers, in the same
+          words, minus the one that cannot apply: an area can be ordered "the
+          way bookcase 2 does" and a collection has nothing above it to ask.
+          The schema says so as a constraint rather than as a comment.
+        */}
+        <Choice
+          label="How your books are ordered"
+          on="author"
+          options={[
+            { value: 'author', word: 'By the author' },
+            { value: 'title', word: 'By the title' },
+            { value: 'year', word: 'By the year it came out' },
+            { value: 'tag', word: 'By tag', sub: 'Not ready to be offered yet', off: true },
+          ]}
+        />
+      </div>
+      {/* Under the control rather than over it, and it is the sentence that
+          makes this a setting rather than a preference: it is the answer every
+          piece of furniture and every area gives when it has not been asked
+          the question itself. */}
+      <Said>Every bookcase and every area follows this unless it says otherwise.</Said>
+
+      <div>
+        <span className="wf-field__label">Which hand you hold the phone in</span>
+        <div style={{ height: 6 }} />
+        <Segmented
+          label="Which hand you hold the phone in"
+          on="right"
+          options={[
+            { value: 'left', word: 'Left' },
+            { value: 'right', word: 'Right' },
+          ]}
+        />
+      </div>
+      <Said>
+        The shutter goes to that edge, under the thumb of the hand already
+        holding the phone, and the photographs go to the other one.
+      </Said>
+
+      <Card kind="Nobody signs in" title="Everybody in the house shares one collection">
+        <p>
+          Nothing here knows who you are. What you choose here is remembered on
+          this phone and on no other.
+        </p>
       </Card>
     </Phone>
   )
@@ -2851,7 +3060,11 @@ function Plan(go: Go) {
 
 function Empty(go: Go) {
   return (
-    <Phone tab="queue" go={go} top={<TopBar title="Queue" sub="Nothing on the table" />}>
+    <Phone
+      tab="queue"
+      go={go}
+      top={<TopBar title="Queue" sub="Nothing on the table" action={you(go)} />}
+    >
       <Nothing said="Even the cat couldn't find anything to knock off the table." />
       <Button tone="primary" block onPress={() => go('camera')}>
         Open the camera
@@ -2888,6 +3101,11 @@ export const SCREENS: Screen[] = [
   { id: 'done', name: 'Shelved', group: 'Cataloguing', render: Done },
   { id: 'queue', name: 'The queue', group: 'Cataloguing', render: Queue },
   { id: 'empty', name: 'An empty queue', group: 'Cataloguing', render: Empty },
+  /* The corner and what it opens, in front of the furniture rather than beside
+     it: this pair is the way in, and the four screens under the next heading
+     are what it was a way in to. */
+  { id: 'menu', name: 'The corner opened', group: 'Your room', render: RoomMenu },
+  { id: 'settings', name: 'Settings', group: 'Your room', render: SettingsScreen },
   /* The ids are the URLs and they stay put. The names are read, so they take
      the neutral word: not every piece in the room is a bookcase. */
   { id: 'furniture', name: 'All five pieces', group: 'Your furniture', render: Furniture },
@@ -2947,6 +3165,7 @@ export const GROUPS = [
   'Every day',
   'Finding a book',
   'Cataloguing',
+  'Your room',
   'Your furniture',
   'Putting things right',
 ]

@@ -310,6 +310,48 @@ describe('the way of looking at the books is one named button beside the filter'
 })
 
 /**
+ * Finding stayed as easy to reach as it was when it owned the corner.
+ *
+ * The corner became the portrait, so find moved to the row above the books,
+ * and the whole risk in that trade is named in #329: "losing a corner action
+ * and gaining a harder-to-find one is a downgrade dressed as a tidy-up." That
+ * is not a thing that happens on the pull request that makes the trade; it is
+ * a thing that happens a year later, when somebody tidies a row that has two
+ * circles on it and leaves the one that draws.
+ *
+ * So what is pinned is the requirement rather than the drawing: **on every
+ * screen that lists books there is a named target to find one, on the row
+ * above them, and it is one press.** If the owner would rather it were a field,
+ * or a word, or back in the corner, this goes red and is rewritten with it,
+ * which is what a rule that is one round old should do.
+ *
+ * The name is checked and its wording is not, for the reason the corner action
+ * and the view switcher are checked that way: the fault that actually arrives
+ * is a glyph with nothing announcing it.
+ */
+describe('finding is one press from every screen that lists books', () => {
+  const LIBRARY = ['library', 'covers', 'listing']
+
+  it('draws one named way to find a book, in the row above the books', () => {
+    for (const id of LIBRARY) {
+      const screen = SCREENS.find((one) => one.id === id)
+      expect(screen, `there is no screen called "${id}"`).toBeDefined()
+
+      const markup = renderToStaticMarkup(screen!.render(() => {}))
+      const buttons = markup.match(/<button[^>]*wf-round[^>]*>/g) ?? []
+
+      expect(buttons.length, `${id} offers ${buttons.length} ways to find a book`).toBe(1)
+      expect(buttons[0], `${id} has an unnamed way to find a book`).toMatch(
+        /aria-label="[^"]+"/,
+      )
+      expect(markup, `${id} draws it outside the row above the books`).toMatch(
+        /<div class="wf-filter">.*wf-round/s,
+      )
+    }
+  })
+})
+
+/**
  * What a book's page is about, which the owner had to say twice.
  *
  * > This is the detailed view for a book. Where it is, is one part of that.

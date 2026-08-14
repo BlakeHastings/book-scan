@@ -20,10 +20,17 @@
  * The tab bar is untouched by that. Five icons on a strip with no words is the
  * guessing game above; one icon in a corner, on a screen whose title already
  * says what you are looking at, is not.
+ *
+ * **An avatar is an icon and the rule reaches it too.** On the screens a
+ * person lives on, the corner is now `Portrait`, and a picture is the one kind
+ * of glyph somebody is tempted to leave unnamed because it looks like a thing
+ * rather than a symbol. It carries its word the same way the search glyph
+ * does. See `Portrait` for what is in it and why it is not a face.
  */
 
 import type { ReactNode } from 'react'
-import { IconBack, IconCamera, IconHome, IconQueue, IconShelves } from './Icons'
+import { Cat } from './Cat'
+import { IconBack, IconCamera, IconHome, IconOnward, IconQueue, IconShelves } from './Icons'
 
 export function TopBar({
   title,
@@ -69,6 +76,131 @@ export function TopBar({
   )
 }
 
+/**
+ * The round thing in the corner, and the person who is not in it.
+ *
+ * The owner asked for the corner to become an avatar:
+ *
+ * > We replace the search system in the top right corner with a profile
+ * > picture, like an avatar, top right corner.
+ *
+ * ## An avatar's whole job is to say which person is signed in
+ *
+ * There is nobody to say. #171 is deferred, there are no accounts, no session
+ * and no password; one database is one collection and every route is open. So
+ * a face, a silhouette or a pair of initials in this corner is not a
+ * placeholder for something not built yet, it is a portrait of somebody who
+ * does not exist, and the damage it does is specific and immediate: the first
+ * tap goes looking for "Sign out", "Switch account" or "Somebody else's
+ * books", and finds furniture. Then the second thing that reads it is a person
+ * in this house wondering whose books these are.
+ *
+ * **So the affordance is kept and the sitter is changed.** Round, top right,
+ * opens a short menu of the things that are yours: that is what the owner
+ * asked for and it is what makes the furniture findable. What sits inside the
+ * ring is the cat, who is the only face this app honestly has, and who nobody
+ * has ever tapped expecting a login. It is a profile picture of the resident
+ * rather than of the account holder.
+ *
+ * He is `peeking`, which is the pose drawn to be cut off by an edge: in a slot
+ * it is ears over a shelf edge, and in a ring it is a head filling a portrait.
+ * One drawing, two frames, and nothing new to keep in step.
+ *
+ * The name announced is **Your room**, not "You" and not "Account". See
+ * `Corner` for the rest of that argument; the short of it is that everything
+ * behind this target is about the room and the books in it.
+ */
+export function Portrait() {
+  return (
+    <span className="wf-portrait">
+      <Cat pose="peeking" size={22} />
+    </span>
+  )
+}
+
+/**
+ * What the corner opens: the short list of things that are yours.
+ *
+ * ## Where a person's name would be, the collection is
+ *
+ * An account menu opens with who you are signed in as. This one opens with
+ * what you have, because that is the honest answer to the same question, and
+ * because a menu that simply started with two rows would leave the ring above
+ * it looking like a login somebody forgot to build. There is no "sign out",
+ * not greyed out and not "coming soon": #171 is a decision nobody has made,
+ * and drawing a door for it here would be this wireframe making it.
+ *
+ * ## Two ways in, and why not three
+ *
+ * **Your furniture** is the whole reason this exists: those screens are good
+ * and nothing led to them. It is called what the screen it opens is called,
+ * because a menu entry and its destination disagreeing about the name of a
+ * thing is the same fault as two components sharing one.
+ *
+ * **Settings** is the owner's own second thought ("preferences, or maybe not
+ * preferences, instead settings") and it is kept, because it is the one word
+ * in an interface nobody has to be taught, and the point of this change is
+ * that things stop being unfindable.
+ *
+ * Your tags is deliberately not a third row. It is already one press from the
+ * top of every library screen, and a second door to a room the screen already
+ * opens is the fault the first screen had its camera card taken off for.
+ *
+ * ## It closes by being tapped away from
+ *
+ * The way out is the whole of the rest of the screen, which is how every sheet
+ * like this behaves and is why the screen under it is drawn in full rather
+ * than hidden. It is a real target here rather than a scrim with a handler on
+ * it, so the wireframe can be walked out of as well as into.
+ */
+export function Corner({
+  said,
+  ways,
+  onClose,
+}: {
+  /** What the collection is, said where a person's name would be. */
+  said: string
+  ways: { word: string; note: string; onPress?: () => void }[]
+  onClose?: () => void
+}) {
+  return (
+    <div className="wf-corner" role="dialog" aria-modal="true" aria-label="Your room">
+      <button
+        type="button"
+        className="wf-corner__away"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="wf-corner__card">
+        <div className="wf-corner__who">
+          <Portrait />
+          <span className="wf-corner__lines">
+            <span className="wf-corner__name">Your room</span>
+            <span className="wf-corner__said">{said}</span>
+          </span>
+        </div>
+
+        <div className="wf-corner__ways">
+          {ways.map((way) => (
+            <button
+              type="button"
+              className="wf-corner__way"
+              key={way.word}
+              onClick={way.onPress}
+            >
+              <span className="wf-corner__lines">
+                <span className="wf-corner__word">{way.word}</span>
+                <span className="wf-corner__note">{way.note}</span>
+              </span>
+              <IconOnward size={18} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export type TabName = 'home' | 'library' | 'scan' | 'queue'
 
 /**
@@ -87,9 +219,13 @@ export type TabName = 'home' | 'library' | 'scan' | 'queue'
  *
  * He is right, and the reason generalises. A tab is a *place you can be*, and
  * looking for a book is not somewhere you go, it is something you do to the
- * thing you are already looking at. It now lives where it is done, as the one
- * action in the library's top right, and the search icon in `Icons.tsx` is
- * still the same glyph doing the same job in a better spot.
+ * thing you are already looking at.
+ *
+ * It went to the library's top right, and #329 moved it one row further down
+ * for the same reason it left the tab bar: the corner is now the portrait, and
+ * find belongs with the row that already says which books you are looking at.
+ * The glyph has not changed and neither has the count of presses; see `Filter`
+ * in `Finding.tsx` for the measurement.
  */
 const TABS: { name: TabName; word: string; icon: ReactNode }[] = [
   { name: 'home', word: 'Today', icon: <IconHome /> },

@@ -38,7 +38,7 @@
  */
 
 import type { ReactElement, ReactNode } from 'react'
-import { Cycle } from './Controls'
+import { Cycle, Round } from './Controls'
 import { IconCovers, IconFind, IconList, IconOnward, IconSpines } from './Icons'
 
 /**
@@ -237,11 +237,33 @@ const NAME: Record<Look, string> = {
  * itself, and if each built its own row they would agree until one of them was
  * edited. The filter itself did not move and did not shrink: it is the same row,
  * with a 44px circle now sitting at the end of it.
+ *
+ * ## Finding is on this row now, and it had to end up no harder to reach
+ *
+ * The corner became the avatar, so find had to go somewhere, and the owner
+ * said where: "we make sure that the library page has the ability for the user
+ * to search using that search feature, even if we just represented there as
+ * like a search button or something like that."
+ *
+ * The trap in that sentence is that losing a corner action and gaining a
+ * harder-to-find one is a downgrade wearing a tidy-up's clothes. So the test
+ * is reach rather than presence, and this row passes it: **one press, from the
+ * first row of the page, on every screen the corner served.** Measured at 414
+ * by 896, the glyph moved 56px down and 20px in from the top right corner,
+ * which on a phone held in one hand is nearer the thumb than where it was, not
+ * further. It also costs no height, because this row was already here.
+ *
+ * It sits **beside the filter and before the view switcher**, which is the
+ * order of what the two round buttons do rather than an arrangement. The
+ * filter and find both change *which* books you are looking at; the switcher
+ * changes how they are drawn, and it stays at the end of the row where it was
+ * already reviewed and approved.
  */
 export function Filter({
   tags,
   note,
   onTags,
+  onFind,
   look,
   onLook,
 }: {
@@ -250,6 +272,8 @@ export function Filter({
   /** How many books that leaves. Words, not a bare number. */
   note: string
   onTags?: () => void
+  /** Finding, which used to be the one action in the corner. */
+  onFind?: () => void
   look: Look
   /** Given the view being moved to, which is the one the button draws. */
   onLook?: (next: Look) => void
@@ -259,6 +283,7 @@ export function Filter({
   return (
     <div className="wf-filter">
       <Picked tags={tags} note={note} onPress={onTags} />
+      <Round name="Find a book" icon={<IconFind size={20} />} onPress={onFind} />
       <Cycle name={NAME[next]} icon={ICON[next]} onPress={() => onLook?.(next)} />
     </div>
   )
