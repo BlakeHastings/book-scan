@@ -13,8 +13,10 @@
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { isValidElement, type ReactElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { InHand, IN_HAND } from './Controls'
 import { SCREENS } from './gallery/screens'
 import { MEDIAN_PAGES, spineWidth, spines } from './Shelf'
 
@@ -554,6 +556,22 @@ describe('the book a screen is about is marked on itself, not ringed', () => {
  * this screen is a target. The tab bar is deliberately not covered by either:
  * photographing a book is one tap away from here and from everywhere else, and
  * that is the point of taking the card off.
+ *
+ * ## The one exception, and it is pinned as an exception (#355)
+ *
+ * There is one door on this screen and it is the way to the *other* camera:
+ * the one you point at a book you already own. It is here because the rule
+ * above is about doors to rooms the tab bar already opens, and no tab opens
+ * that one. It lost this screen's corner to the portrait and went from one
+ * press to three without anybody choosing that, and one press is what the
+ * owner already approved.
+ *
+ * What is pinned is that there is **exactly one** of them, so the answer to
+ * "may this screen have a button on it" stays no for everything else, and that
+ * it goes to the book in your hand rather than to a room with a tab. The
+ * wording is checked because the wording is the only thing that says which of
+ * the two cameras it is, and getting that wrong is the fault that costs
+ * somebody a book catalogued twice.
  */
 describe('the first screen is counts, and every count goes somewhere', () => {
   const home = () => {
@@ -575,7 +593,54 @@ describe('the first screen is counts, and every count goes somewhere', () => {
   it('does not offer the camera', () => {
     expect(words(home())).not.toMatch(/camera|photograph/i)
   })
+
+  it('has one door on it, and it is the book in your hand', () => {
+    const markup = home()
+    const doors = markup.match(/class="wf-inhand"/g) ?? []
+
+    expect(doors.length, `the first screen draws ${doors.length} of these`).toBe(1)
+    expect(words(markup), 'the door does not say which camera it opens').toContain(IN_HAND)
+  })
+
+  it('is one press from the camera that reads a book you already own', () => {
+    // The measurement #355 exists to restore, taken the way that issue takes
+    // it: from this screen, with nothing opened first. A door that was named
+    // right and landed somewhere else would pass every check above and still
+    // be the regression, so what is pinned is where pressing it goes.
+    let went = ''
+    const screen = SCREENS.find((one) => one.id === 'home')!
+    const door = findIn(screen.render((to) => { went = to }), InHand)
+
+    expect(door, 'the first screen has no way to the book in your hand').toBeDefined()
+    ;(door!.props as { onPress?: () => void }).onPress?.()
+
+    expect(went, 'the first screen presses through to the wrong screen').toBe('inhand')
+    expect(SCREENS.some((one) => one.id === went), 'it goes nowhere').toBe(true)
+  })
 })
+
+/**
+ * The first element of a given kind in a drawn screen, or nothing.
+ *
+ * Rendered markup cannot be pressed, and what a target does is exactly the
+ * part of a wireframe that markup does not carry. So a screen's own tree is
+ * walked instead, which is the cheapest way to ask "and where does that one
+ * go" without putting a DOM in this project's test setup.
+ */
+function findIn(node: ReactNode, kind: unknown): ReactElement | undefined {
+  if (Array.isArray(node)) {
+    for (const one of node) {
+      const found = findIn(one, kind)
+      if (found) return found
+    }
+    return undefined
+  }
+
+  if (!isValidElement(node)) return undefined
+  if (node.type === kind) return node
+
+  return findIn((node.props as { children?: ReactNode }).children, kind)
+}
 
 /**
  * One row of books is one area, and nothing splits a row.

@@ -15,7 +15,7 @@ import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 
 export function HomeScreen() {
-  const { setRoute } = useNavigation()
+  const { setRoute, openScanner } = useNavigation()
   const { counts, queueCounts, queued, carrying, backup } = useSummary()
   const { openCapture } = useOpenBook()
   /*
@@ -36,6 +36,13 @@ export function HomeScreen() {
       carrying={carrying}
       backup={backup}
       onAdd={() => setRoute('capture')}
+      /*
+       * The other camera (#355), through the one way in there is: `openScanner`
+       * remembers where it was opened from, so giving up on it comes back here
+       * rather than to whichever screen it used to land on. `setRoute('scan')`
+       * written out here would be the fifth caller that forgot to.
+       */
+      onInHand={openScanner}
       corner={room.action}
       menu={room.sheet}
       onLibrary={() => setRoute('library')}
