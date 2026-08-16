@@ -676,9 +676,7 @@ describe('nothing on a screen has a gender in it', () => {
  *
  * Both halves are checked, because the rail is the half that comes back: it is
  * the obvious way to add a fourth kind of photograph to this screen, and it
- * was the arrangement here for two rounds. What cannot be checked from markup
- * is that a swipe works, and that is deliberate; there is no gesture behind
- * the drawing and this test does not pretend there is one.
+ * was the arrangement here for two rounds.
  */
 describe('a book wears its photographs rather than listing them', () => {
   it('draws the spine against the front, and no rail under either', () => {
@@ -696,6 +694,75 @@ describe('a book wears its photographs rather than listing them', () => {
       const face = markup.indexOf('wf-shot--face')
       expect(sliver, `${id} draws no cropped spine`).toBeGreaterThan(-1)
       expect(face, `${id} draws the spine after the front`).toBeGreaterThan(sliver)
+    }
+  })
+})
+
+/**
+ * The other pictures are reachable, by a swipe and by something that is not one.
+ *
+ * > It should be possible to swipe on the book cover to be able to see the
+ * > catalogue image, the front picture, the back picture. Right now we can't
+ * > swipe on it.
+ *
+ * The gesture itself cannot be driven from here: this suite renders markup and
+ * has no DOM to move a finger across. What it can hold is the three things the
+ * gesture rests on, each of which is a way the swipe has already been lost or
+ * could be lost again by somebody tidying.
+ *
+ * **Every photograph is in the strip**, not only the front. Drawing `deck[0]`
+ * and nothing else is what this screen did for two rounds, and it is the state
+ * a swipe silently degrades back to.
+ *
+ * **The strip is a scroll container.** That is the only reason a sideways
+ * gesture and the page scrolling down do not fight: the browser picks the axis
+ * and gives the other one away. Take `overflow-x` or the snapping off and the
+ * pictures stop moving without anything else looking wrong.
+ *
+ * **The dots are buttons.** A swipe is undiscoverable and a mouse has none, so
+ * a person who never swipes still reaches every photograph. They were spans
+ * with a `listitem` role and no behaviour, which read the same and did nothing.
+ */
+describe("a book's photographs answer to a swipe, and to somebody who does not", () => {
+  const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+
+  it('puts every photograph in the strip rather than only the front', () => {
+    for (const id of ['book', 'thin']) {
+      const markup = renderToStaticMarkup(
+        SCREENS.find((one) => one.id === id)!.render(() => {}),
+      )
+
+      // Front, Back and Downloaded. The spine is the sliver and is never
+      // swiped past: it is the one you look for a book by.
+      expect(
+        (markup.match(/wf-shot--face/g) ?? []).length,
+        `${id} draws only the front of the deck`,
+      ).toBe(3)
+      expect(markup, `${id} has no strip to swipe`).toMatch(/wf-deck__track/)
+    }
+  })
+
+  it('scrolls that strip natively, which is what leaves the page its own axis', () => {
+    const rule = css.match(/\.wf-deck__track\s*\{[^}]*\}/)?.[0] ?? ''
+
+    expect(rule, 'the strip is not a scroll container').toMatch(/overflow-x:\s*auto/)
+    expect(rule, 'a swipe would not land on a photograph').toMatch(/scroll-snap-type:\s*x/)
+    expect(rule, 'a swipe past the end would reach the browser').toMatch(
+      /overscroll-behavior-x:\s*contain/,
+    )
+  })
+
+  it('leaves a way through the photographs for somebody with no swipe', () => {
+    for (const id of ['book', 'thin']) {
+      const markup = renderToStaticMarkup(
+        SCREENS.find((one) => one.id === id)!.render(() => {}),
+      )
+      const dots = markup.match(/<button[^>]*class="wf-dot[^"]*"[^>]*>/g) ?? []
+
+      expect(dots.length, `${id} draws no dot that can be pressed`).toBe(3)
+      // Every one names the photograph it goes to, and says whether there is
+      // one to go to at all.
+      for (const dot of dots) expect(dot, `${id} has an unnamed dot`).toMatch(/aria-label="/)
     }
   })
 })

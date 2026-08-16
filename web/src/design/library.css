@@ -2392,6 +2392,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * empty shape of itself and that rule is written once, above.
  */
 .wf-shots--book {
+  /* One width, read twice: by the photograph and by the strip it scrolls in.
+     Two numbers here would drift the moment either is adjusted, and the drift
+     would show as the dots landing between pictures. */
+  --face: 110px;
   display: grid;
   grid-template-columns: auto auto;
   grid-template-rows: auto auto;
@@ -2414,7 +2418,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    one. It is what keeps the sliver and the front from reading as one flat
    rectangle here. */
 .wf-shots--book .wf-shot--face .wf-shot__box {
-  width: 110px;
+  width: var(--face);
   border-radius: 2px var(--r-sm) var(--r-sm) 2px;
 }
 .wf-shots--book .wf-shot--face.wf-shot--taken .wf-shot__box {
@@ -2434,7 +2438,43 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * now: only the part that sticks out is drawn.
  */
 .wf-deck { position: relative; display: block; }
-.wf-deck .wf-shot { position: relative; z-index: 1; }
+.wf-deck .wf-shot {
+  position: relative;
+  z-index: 1;
+  /* One photograph fills the strip exactly, so the distance the strip scrolls
+     by and the width of a picture are the same number and the dots cannot
+     land between two of them. */
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+/*
+ * The strip the photographs scroll in, which is a scroll container rather than
+ * a drag handler and is the whole reason a swipe across the book does not
+ * fight the page scrolling down it.
+ *
+ * The browser reads the first few pixels of a gesture, decides which axis it
+ * belongs to, and hands the other axis to the page. A pointer-drag has to make
+ * that decision itself from the same few pixels and gets a diagonal thumb
+ * wrong. `.gallery__track` in `styles.css` is the same answer on the review
+ * screen and has been since #78.
+ *
+ * `contain` keeps a swipe past the last photograph from becoming the browser's
+ * back gesture, and the scrollbar is hidden because this is 110 pixels wide and
+ * a bar across it would be most of the bottom of the book.
+ */
+.wf-deck__track {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: var(--face);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.wf-deck__track::-webkit-scrollbar { display: none; }
 .wf-deck__behind {
   position: absolute;
   z-index: 0;
@@ -2446,10 +2486,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--paper-sunk);
 }
-/* The shape of the missing thing, in the box where it would be. */
+/* The shape of the missing thing, in the box where it would be, with the kind
+   it is missing named above it: three of these are reachable by swiping and
+   they are otherwise the same box. */
 .wf-shots--book .wf-shot__none {
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 2px;
   padding: var(--s2);
   text-align: center;
   color: var(--ink-2);
@@ -2458,31 +2502,46 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * How many photographs there are, which of them is showing, and which kinds
- * nobody has taken. This is the whole of what a still drawing can honestly say
- * about a swipe, and it is deliberately all of it: there is no gesture behind
- * these, because a wireframe that implements a carousel is a second
- * implementation of the app.
+ * nobody has taken.
  *
  * A filled dot is a photograph; an empty one is a kind nobody has taken yet,
  * which is the same thing the dashed box says and the reason the rail is not
- * missed. The one showing is drawn long.
+ * missed. The one showing is drawn long, and it follows the swipe rather than
+ * being fixed on the first.
+ *
+ * Each one is a button, because a swipe is undiscoverable on its own and a
+ * mouse has no swipe at all. The mark is drawn by the pseudo-element so the
+ * target can be far bigger than the mark: six pixels is a dot and not a thing
+ * anybody hits with a thumb. `.gallery__dot` in `styles.css` is the same shape
+ * for the same reason.
  */
 .wf-shots__dots {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 0;
 }
 .wf-dot {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.wf-dot::after {
+  content: '';
   width: 6px;
   height: 6px;
   border-radius: var(--r-pill);
   border: 1px solid var(--line-strong);
 }
-.wf-dot--taken { background: var(--ink-2); border-color: var(--ink-2); }
-.wf-dot--showing { width: 18px; }
-.wf-dot--showing.wf-dot--taken { background: var(--ink); border-color: var(--ink); }
+.wf-dot--taken::after { background: var(--ink-2); border-color: var(--ink-2); }
+.wf-dot--showing::after { width: 18px; }
+.wf-dot--showing.wf-dot--taken::after { background: var(--ink); border-color: var(--ink); }
 
 /*
  * A tag, drawn as firmly as whoever said it.
