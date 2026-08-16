@@ -13,14 +13,22 @@
  * does in `BookDetail.test.tsx`.
  */
 
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import {
-  canShelve, photoCount, QueueRow, readableAgain, SHOWING, statusLine,
-  whatTheyNeed, type RowGesture, type Which,
+  canShelve, lookOf, photoCount, photoOf, QueueRow, readableAgain, SHOWING,
+  statusLine, type RowGesture, type Which,
 } from './QueuePane'
+import { QUEUE_PHOTOS } from '../lib/queuePhoto'
 import type { Capture, CaptureStatus } from '../lib/api'
+
+/** This screen's own source, for the two rules that are about what is not on it. */
+const PANE = readFileSync(
+  new URL('./QueuePane.tsx', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+  'utf8',
+)
 
 const gesture: RowGesture = {
   onPointerDown: () => {},
@@ -267,92 +275,163 @@ describe('what a failed row says is wrong', () => {
  *
  * The rule the issue left behind is that **the count belongs on the first
  * screen and the diagnosis belongs on the queue**, because "9 need an ISBN by
- * hand" sent somebody to retype five ISBNs that were already correct. The first
- * screen says how many are stuck; this screen is the only place that says what
- * they need, one line per kind, so somebody sorting a stack knows which of them
- * is a typing job and which of them is a book no catalogue has heard of.
+ * hand" sent somebody to retype five ISBNs that were already correct.
  *
- * Pinned here because it is a wording, and a wording is what gets quietly
- * changed. `whatTheyNeed` reads the same helper the row and the first screen
- * read, so all three still cannot say different things about one book.
+ * Every test below was written against a card above the list that said it once
+ * for the pile. #349 took that card off, and the owner said why: "we don't need
+ * that section that says how many are stuck, they already know, it's in the top
+ * right underneath the stuck." The count is his already, twice over; what he
+ * has nowhere else is which of these books is which. **So none of these went
+ * with the card. Each one is the case it always was, asked of the row that
+ * carries the diagnosis now**, and the last of them is the removal itself.
+ *
+ * The block above asks `statusLine` four of the same questions, and this one
+ * asks the drawn row, deliberately: a helper that gets the words right while
+ * the row prints none of them is the exact state taking a summary off could
+ * leave behind, and it would pass every test up there.
  */
-describe('what the queue says the stuck books need', () => {
-  const noIsbn = capture({
-    id: 1, status: 'failed', note: 'No ISBN could be read from these photos.',
-  })
-  const uncatalogued = capture({
-    id: 2,
+describe('what the queue says a stuck book needs', () => {
+  const noIsbn = { status: 'failed', note: 'No ISBN could be read from these photos.' } as const
+  const uncatalogued = {
     status: 'failed',
     isbn13: '9781234567897',
     note: 'Barcode on the back reads 9781234567897, but no catalogue has it.',
-  })
-  const errored = capture({
-    id: 3, status: 'failed', note: 'Could not process these photos: out of memory',
-  })
-  const timedOut = capture({
-    id: 8,
+  } as const
+  const errored = {
+    status: 'failed', note: 'Could not process these photos: out of memory',
+  } as const
+  const timedOut = {
     status: 'failed',
     note: 'Reading these photos timed out: the back was given up on after 60 seconds.',
-  })
+  } as const
 
-  it('asks for an ISBN by hand only for the ones with no ISBN', () => {
-    expect(whatTheyNeed([noIsbn])).toEqual(['1 need an ISBN by hand.'])
+  /** The book, as somebody standing over the table reads it. */
+  const said = (over: Partial<Capture>) => renderToStaticMarkup(row(over).tree)
+
+  it('asks for an ISBN by hand only on a book with no ISBN', () => {
+    expect(said(noIsbn)).toContain('needs an ISBN')
   })
 
   /* The exact case #148 was reported for. This book's ISBN is present and
-     correct, so a line telling anybody to type one in is the defect. */
+     correct, so anything telling anybody to type one in is the defect. */
   it('sends nobody to retype an ISBN that read perfectly well', () => {
-    const said = whatTheyNeed([uncatalogued])
-    expect(said).toEqual([
-      '1 need details by hand. No catalogue has their ISBN.',
-    ])
-    expect(said.join(' ')).not.toContain('need an ISBN by hand')
+    const html = said(uncatalogued)
+    expect(html).toContain('no catalogue has its ISBN')
+    expect(html).not.toContain('needs an ISBN')
+    expect(html).not.toContain('need an ISBN by hand')
   })
 
   it('says a read that broke is a read that broke', () => {
-    expect(whatTheyNeed([errored])).toEqual(['1 hit an error while being read.'])
+    expect(said(errored)).toContain('could not be read')
   })
 
   /* #299. The same mistake #148 was about, from the other end: this book's
-     photographs were never looked at, so a line sending somebody to handle it
-     would be sending them to a book that may need nothing. */
+     photographs were never looked at, so telling somebody to handle it would be
+     sending them to a book that may need nothing. */
   it('does not blame the photographs of a book nothing read', () => {
-    expect(whatTheyNeed([timedOut])).toEqual([
-      '1 timed out while being read. Nothing is wrong with the photographs; '
-      + 'read them again.',
-    ])
+    const html = said(timedOut)
+    expect(html).toContain('reading it took too long')
+    expect(html).not.toContain('could not be read')
   })
 
-  /* Three books, three different jobs, and the screen has to separate them
-     rather than counting them together the way the status alone would. */
+  /* Four books, four different jobs, and the screen has to separate them rather
+     than saying one thing about all of them the way the status alone would. */
   it('keeps the four apart when all four are on the table', () => {
-    expect(whatTheyNeed([noIsbn, uncatalogued, errored, timedOut])).toEqual([
-      '1 need an ISBN by hand.',
-      '1 need details by hand. No catalogue has their ISBN.',
-      '1 hit an error while being read.',
-      '1 timed out while being read. Nothing is wrong with the photographs; '
-      + 'read them again.',
-    ])
+    const table = [
+      [noIsbn, 'needs an ISBN'],
+      [uncatalogued, 'no catalogue has its ISBN'],
+      [errored, 'could not be read'],
+      [timedOut, 'reading it took too long'],
+    ] as const
+
+    const drawn = table.map(([one]) => said(one))
+
+    table.forEach(([, line], at) => {
+      expect(drawn[at], `a stuck book never says "${line}"`).toContain(line)
+      drawn.forEach((html, other) => {
+        if (other !== at) expect(html, `two of the four say "${line}"`).not.toContain(line)
+      })
+    })
   })
 
-  it('counts the ones that need the same thing together', () => {
-    expect(whatTheyNeed([noIsbn, { ...noIsbn, id: 4 }]))
-      .toEqual(['2 need an ISBN by hand.'])
+  /* This was "counts the ones that need the same thing together", which is what
+     a summary did with two books wanting one job. The books do it themselves
+     now, and the point of the case is unchanged: two of them, each saying it. */
+  it('says it on every book that needs it rather than once for the pile', () => {
+    expect(said(noIsbn)).toContain('needs an ISBN')
+
+    const second = said({ ...noIsbn, id: 4, title_guess: 'Piranesi' })
+    expect(second).toContain('needs an ISBN')
+    expect(second).toContain('Piranesi')
   })
 
-  /* Nothing at all, rather than "0 need an ISBN by hand": a queue with nothing
-     wrong in it should not spend a line of a phone screen saying so, and a
-     zero on this screen is the kind of number that gets acted on. */
-  it('says nothing at all when nothing is stuck', () => {
-    expect(whatTheyNeed([
-      capture({ id: 5, status: 'ready' }),
-      capture({ id: 6, status: 'pending' }),
-      capture({ id: 7, status: 'done' }),
-    ])).toEqual([])
+  /* Nothing at all, rather than "0 need an ISBN by hand": a book with nothing
+     wrong with it must not carry a word about ISBNs, and a zero anywhere on
+     this screen is the kind of number that gets acted on. */
+  it('says nothing of the sort on a book with nothing wrong with it', () => {
+    for (const status of ['ready', 'pending', 'done'] as CaptureStatus[]) {
+      const html = said({ status })
+      expect(html, `a ${status} book is told it needs something`)
+        .not.toContain('needs an ISBN')
+      expect(html).not.toContain('ISBN by hand')
+      expect(html).not.toContain('could not be read')
+    }
   })
 
-  it('says nothing about an empty queue', () => {
-    expect(whatTheyNeed([])).toEqual([])
+  /*
+   * This was "says nothing about an empty queue", which was the summary
+   * declining to draw itself. There is no summary to decline now, so the case
+   * is the removal: the way it comes back is somebody putting a helpful count
+   * back over the list, one card at a time, which is a thing no rendered row
+   * can notice. Pinned on the screen's own source, the way `design.test.tsx`
+   * pins the drawings that must not return.
+   */
+  it('says it on the books and never in a summary above them', () => {
+    expect(PANE, 'the summary above the list is back').not.toMatch(/need a hand/)
+    expect(PANE, 'something is wording a summary again')
+      .not.toMatch(/whatTheyNeed|failureLines/)
+  })
+})
+
+/**
+ * The two controls above the books, which #349 made one control and one row.
+ *
+ * > We shouldn't do the spine versus cover selector there, and the way that we
+ * > have it. We should do it the same way we did on the library page, where we
+ * > just have the icon next to the search system that switches between spine or
+ * > cover.
+ *
+ * There were two segmented controls on this screen and the one that survives is
+ * the one that chooses which books you are looking at. Which photograph they are
+ * drawn by is the library's round button at the end of the library's row, which
+ * is the same component and not a copy of it: a second switcher spelling out its
+ * own two words for the same two pictures is what the pinned rule about two
+ * things sharing a name is there to stop.
+ *
+ * The shape is checked on this screen's source, because the pane cannot be
+ * rendered here (it reads storage and asks the server the moment it mounts) and
+ * because what actually comes back is a helpful edit reaching for `Segmented`
+ * again when a third photograph turns up.
+ */
+describe('the controls above the books', () => {
+  it('switches the photograph with the row the library uses', () => {
+    expect(PANE, 'the queue draws a switcher of its own again').toMatch(/<Filter\b/)
+    expect(PANE).toMatch(/from '\.\.\/design\/Finding'/)
+  })
+
+  it('keeps one segmented control, and it is the one that chooses which books', () => {
+    expect((PANE.match(/<Segmented\b/g) ?? []).length).toBe(1)
+    expect(PANE).toMatch(/label="Which ones"/)
+  })
+
+  it('offers the two photographs a queued book has and no third', () => {
+    // A capture has a front and a spine worth recognising a book by, so the
+    // button steps between two of the library's three ways of looking. Both
+    // directions, because a mapping that lost one would leave one press of a
+    // two-press cycle doing nothing at all.
+    expect(lookOf('front')).toBe('covers')
+    expect(lookOf('spine')).toBe('spines')
+    for (const photo of QUEUE_PHOTOS) expect(photoOf(lookOf(photo))).toBe(photo)
   })
 })
 

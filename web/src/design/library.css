@@ -1896,6 +1896,17 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
+ * What the row leads with on a screen that narrows by typing, which today is
+ * the queue and its search box. It takes the room the tag row takes, so the
+ * circles at the end of the row sit where they sit on the library and the two
+ * rows read as one control in two places rather than as two arrangements.
+ */
+.wf-filter__lead {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
  * The circle. A full 44px target like every other one here, sitting at the end
  * of the filter row rather than out at the screen's edge: the search glyph
  * above it is allowed past the content margin because a top bar is chrome, and

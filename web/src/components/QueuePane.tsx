@@ -7,20 +7,20 @@ import {
 import { newestFirst } from '../lib/queueOrder'
 import { filterQueue } from '../lib/queueSearch'
 import {
-  PHOTO_LABEL, QUEUE_PHOTOS, queueThumb, rememberedPhoto,
-  rememberPhoto, type QueuePhoto,
+  queueThumb, rememberedPhoto, rememberPhoto, type QueuePhoto,
 } from '../lib/queuePhoto'
 import {
   beginSwipe, moveSwipe, swipeArmed, type Swipe,
 } from '../lib/swipe'
 import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
 import {
-  countFailures, couldBeReadAgain, failureLines, FAILURE_LABEL, failureOf,
+  couldBeReadAgain, FAILURE_LABEL, failureOf,
 } from '../../shared/captureFailure'
 import { coverUrl } from './PlacementCard'
-import { Card, Nothing } from '../design/Card'
+import { Nothing } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Segmented } from '../design/Controls'
+import { Filter, type Look } from '../design/Finding'
 import { Phone } from '../design/Phone'
 
 /**
@@ -95,21 +95,29 @@ export const SHOWING: Record<Which, (capture: Capture) => boolean> = {
 }
 
 /**
- * What the stuck books need, rather than how many of them there are.
+ * The two photographs a queued book can be drawn by, said in the design
+ * system's own words for how books are drawn (#349).
  *
- * #148 in its second half. The count belongs on the first screen, which has it:
- * "3 stuck", one tap from here. What that screen cannot say, and what a person
- * standing in front of this list needs before they pick a book up, is that two
- * of them want an ISBN typing in and one of them wants details by hand because
- * no catalogue has an ISBN that read perfectly well.
+ * The library's switcher steps through covers, a list and the books standing
+ * up. This screen has two of those three, because a row draws one picture of
+ * one book and there is no list view of a photograph. Naming them as `Look`s
+ * rather than keeping a second vocabulary beside it is what makes the two
+ * screens one control: same component, same icons, same sentences, and no
+ * second name in the library for the thing the library already names.
  *
- * The same helper the row reads, so the two cannot say different things about
- * the same book, and split out of the pane so the wording is pinned: this is
- * the sentence #148 was about, and it is the one most likely to be quietly
- * reworded by somebody later.
+ * #148 is not touched by any of this. What a stuck book needs is said on the
+ * book, by `statusLine`, which is where it belongs and where it stays.
  */
-export function whatTheyNeed(captures: Capture[]): string[] {
-  return failureLines(countFailures(captures.filter(SHOWING.stuck)))
+const QUEUE_LOOKS: readonly Look[] = ['covers', 'spines']
+
+/** Which of those two a remembered choice of photograph is. */
+export function lookOf(photo: QueuePhoto): Look {
+  return photo === 'spine' ? 'spines' : 'covers'
+}
+
+/** And back, for the answer the switcher hands over. */
+export function photoOf(look: Look): QueuePhoto {
+  return look === 'spines' ? 'spine' : 'front'
 }
 
 /**
@@ -583,7 +591,6 @@ export function QueuePane({
   const searching = query.trim().length > 0
 
   const failed = captures.filter(SHOWING.stuck)
-  const needs = whatTheyNeed(captures)
   const rereadable = readableAgain(captures)
 
   /**
@@ -657,69 +664,76 @@ export function QueuePane({
         />
       )}
 
-      {/* What the stuck ones need, said once, above the books it is about. */}
-      {needs.length > 0 && (
-        <Card kind="Stuck" title={`${failed.length} need a hand`}>
-          <ul className="queue__needs">
-            {needs.map((line) => <li key={line}>{line}</li>)}
-          </ul>
-          {/* The way back from a reader that stopped, without going and
-              finding the books again (#299). */}
-          {rereadable.length > 0 && (
-            <Button
-              tone="primary"
-              block
-              off={rereading}
-              onPress={() => { void readAgain() }}
-            >
-              {rereading
-                ? 'Sending them back...'
-                : rereadable.length === 1
-                  ? 'Read its photos again'
-                  : `Read those ${rereadable.length} books' photos again`}
-            </Button>
-          )}
-        </Card>
+      {/*
+        The way back from a reader that stopped, without going and finding the
+        books again (#299).
+
+        It used to live inside a card that summarised what the stuck books
+        need, and #349 took that summary off: the count is on the first screen
+        and on the control above this, and what each book needs is on the book.
+        The button was never part of the summary. It is one decision about
+        several books at once, so it stays above the list it acts on, saying in
+        its own words how many it would send.
+
+        **Secondary now, and that came out of looking at it.** Inside the card
+        it was the primary thing in a box about stuck books. Standing on the
+        screen it was a full-width filled button above everything, which claims
+        to be what this screen is for, and this screen is for picking a book up
+        and shelving it. The design system is explicit that a screen has at
+        most one primary and that it is the one thing the screen is for.
+      */}
+      {rereadable.length > 0 && (
+        <Button
+          tone="secondary"
+          block
+          off={rereading}
+          onPress={() => { void readAgain() }}
+        >
+          {rereading
+            ? 'Sending them back...'
+            : rereadable.length === 1
+              ? 'Read its photos again'
+              : `Read those ${rereadable.length} books' photos again`}
+        </Button>
       )}
 
+      {/*
+        The row above the books, which is the library's row with this screen's
+        search box in front of it (#349). The switcher at the end of it is the
+        same component, drawing the same icons and announcing the same
+        sentences as the one on the library.
+      */}
       <div className="queue__tools">
-        <div className="queue__search">
-          <input
-            type="search"
-            className="queue__search-input"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by title or author"
-            aria-label="Search the queue by title or author"
-            autoComplete="off"
-          />
-          {/* Spelled out rather than left to the keyboard's own clear button,
-              which is not there on every phone and is not there at all once
-              the keyboard is dismissed. */}
-          {searching && (
-            <button
-              type="button"
-              className="queue__search-clear"
-              onClick={() => setQuery('')}
-              aria-label="Clear the search"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-
-        {/* Which photograph of the book you are looking at. Front by default:
-            a book being worked through is face up in somebody's hands, not
-            shelved end on. */}
-        <Segmented
-          label="Which photo to show"
-          on={photo}
-          onPick={choosePhoto}
-          options={QUEUE_PHOTOS.map((option) => ({
-            value: option,
-            word: PHOTO_LABEL[option],
-          }))}
-        />
+        <Filter
+          look={lookOf(photo)}
+          looks={QUEUE_LOOKS}
+          onLook={(next) => choosePhoto(photoOf(next))}
+        >
+          <div className="queue__search">
+            <input
+              type="search"
+              className="queue__search-input"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by title or author"
+              aria-label="Search the queue by title or author"
+              autoComplete="off"
+            />
+            {/* Spelled out rather than left to the keyboard's own clear button,
+                which is not there on every phone and is not there at all once
+                the keyboard is dismissed. */}
+            {searching && (
+              <button
+                type="button"
+                className="queue__search-clear"
+                onClick={() => setQuery('')}
+                aria-label="Clear the search"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </Filter>
       </div>
 
       {error && <div className="warn" onClick={() => setError('')}>{error}</div>}

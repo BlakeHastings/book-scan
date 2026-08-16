@@ -186,11 +186,26 @@ export function Picked({
  */
 export type Look = 'covers' | 'list' | 'spines'
 
-/** Pressing the switcher takes you to the next of the three, and round again. */
-const NEXT: Record<Look, Look> = {
-  covers: 'list',
-  list: 'spines',
-  spines: 'covers',
+/** All three, in the order the button steps through them. */
+const LOOKS: readonly Look[] = ['covers', 'list', 'spines']
+
+/**
+ * Pressing the switcher takes you to the next of the ones the screen offers,
+ * and round again.
+ *
+ * A list and a function rather than the fixed table this was, because the queue
+ * offers two of these three: a queued book is either face up in your hands or
+ * shelved end on, and there is no list view of one book's photograph. The
+ * alternative was a second switcher with its own two words for the same two
+ * pictures, and two controls that mean the same thing is the fault the design
+ * rules already name.
+ *
+ * A `look` that is not among them lands on the first rather than throwing: this
+ * is a drawing decision, and no screen should go blank over one.
+ */
+function after(look: Look, looks: readonly Look[]): Look {
+  const at = looks.indexOf(look)
+  return looks[(at + 1) % looks.length] ?? looks[0]!
 }
 
 /**
@@ -258,32 +273,72 @@ const NAME: Record<Look, string> = {
  * filter and find both change *which* books you are looking at; the switcher
  * changes how they are drawn, and it stays at the end of the row where it was
  * already reviewed and approved.
+ *
+ * ## The queue wears the same row, led by its search box (#349)
+ *
+ * The queue had a segmented control of its own for which photograph a waiting
+ * book is drawn by, and the owner asked for this instead:
+ *
+ * > We shouldn't do the spine versus cover selector there, and the way that we
+ * > have it. We should do it the same way we did on the library page, where we
+ * > just have the icon next to the search system that switches between spine or
+ * > cover.
+ *
+ * So it is this row, called by that screen too, and what changes between them
+ * is only what the row **leads** with. The library leads with the tags and a
+ * circle to find a book; the queue leads with the box it already had, which is
+ * both of those in one control, because it narrows the list as you type. Given
+ * a lead, neither the tag row nor the find circle is drawn: a screen that
+ * narrows by typing has no second filter and no second way to find anything.
+ *
+ * The switcher itself is the same component with the same icons and the same
+ * sentences on both, which is the whole point of it being here rather than
+ * written twice.
  */
 export function Filter({
   tags,
-  note,
+  note = '',
   onTags,
   onFind,
   look,
+  looks = LOOKS,
   onLook,
+  children,
 }: {
   /** The chosen tags, as labels. Nothing chosen says so. */
   tags?: string[]
   /** How many books that leaves. Words, not a bare number. */
-  note: string
+  note?: string
   onTags?: () => void
   /** Finding, which used to be the one action in the corner. */
   onFind?: () => void
   look: Look
+  /**
+   * The ways of looking this screen has, in the order the button steps round.
+   * All three unless a screen says otherwise.
+   */
+  looks?: readonly Look[]
   /** Given the view being moved to, which is the one the button draws. */
   onLook?: (next: Look) => void
+  /**
+   * What the row leads with, where a screen narrows by typing rather than by
+   * tags. Given one, `tags`, `note`, `onTags` and `onFind` have nothing to
+   * draw and are not read.
+   */
+  children?: ReactNode
 }) {
-  const next = NEXT[look]
+  const next = after(look, looks)
 
   return (
     <div className="wf-filter">
-      <Picked tags={tags} note={note} onPress={onTags} />
-      <Round name="Find a book" icon={<IconFind size={20} />} onPress={onFind} />
+      {children ? (
+        <div className="wf-filter__lead">{children}</div>
+      ) : (
+        <>
+          <Picked tags={tags} note={note} onPress={onTags} />
+          <Round name="Find a book" icon={<IconFind size={20} />} onPress={onFind} />
+        </>
+      )}
       <Cycle name={NAME[next]} icon={ICON[next]} onPress={() => onLook?.(next)} />
     </div>
   )
