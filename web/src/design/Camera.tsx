@@ -191,7 +191,15 @@ export function Viewfinder({
       {over}
 
       <div className="wf-view__bar">
-        <Shots shots={shots} act on="picture" />
+        {/*
+          A camera that keeps nothing draws no strip of what it kept, and one
+          of the two does keep nothing: the camera that reads a book already in
+          the collection takes a frame, answers with an identity and throws the
+          frame away. An empty rail there is a list announced as "Photographs"
+          with no photographs in it, and a gap where the bar expects a control.
+          The span holds the near cluster against its own edge.
+        */}
+        {shots.length > 0 ? <Shots shots={shots} act on="picture" /> : <span />}
         <div className="wf-view__near">
           {also && (
             <button

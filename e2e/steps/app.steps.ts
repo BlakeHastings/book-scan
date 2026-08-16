@@ -37,31 +37,34 @@ When('I open the app', async ({ page, webUrl }) => {
 /**
  * The one way in for a book the catalogue already has.
  *
- * ## The door moved, and this is the whole of what changed here (#350)
+ * ## The door moved twice, and this is where it ended up (#350, #355)
  *
- * It used to be the first screen's top right, one tap from where every one of
- * these scenarios starts. That corner is the profile icon now, and the camera
- * that identifies a book already in your hand went to the screen about finding
- * a book, which is where the rest of finding lives.
+ * It was the first screen's top right, one tap from where every one of these
+ * scenarios starts. That corner is the profile icon now, so the camera that
+ * identifies a book already in your hand went to the screen about finding a
+ * book: Library, find, then the corner of the find screen, which is three
+ * taps and four with the shutter.
  *
- * So this walks the door rather than knowing a shortcut: **Library, find, then
- * the corner of the find screen.** Every step of it is a target a person can
- * see from the one before, which is the point of writing it out; a journey
- * that reached the camera by setting a route would keep passing on the day
- * nothing in the interface led there any more, which is exactly the failure
- * this file caught.
+ * Nobody chose that, and #355 gave the first screen a door to the same camera
+ * back, under the collection's counts. So this walks the door a person walks:
+ * **one tap from the first screen, and the shutter is the second.** Back to
+ * what it cost before the corner changed hands.
  *
- * **Four taps where it was two**, and the count is deliberately visible here:
- * three to reach the camera and the shutter. That is the price of the corner
- * and it is named in the pull request rather than buried in a step.
+ * It is written out as taps rather than shortcut through a route on purpose,
+ * and that is the half of this step that matters more than the count: a
+ * journey that reached the camera by setting a route would keep passing on the
+ * day nothing in the interface led there any more, which is exactly the
+ * failure this file caught the first time the door moved.
+ *
+ * The find screen's corner still works and is still the door from there. It is
+ * not walked here because these scenarios all start on the first screen, and a
+ * journey should walk what the person it stands for would walk.
  *
  * The wait before the shutter is a wait on a frame arriving, same as the
  * cataloguing camera, because a shutter pressed before the fake device has
  * delivered anything photographs an empty canvas.
  */
 When('I scan the book', async ({ page }) => {
-  await page.locator('button.wf-tab', { hasText: 'Library' }).click()
-  await page.getByRole('button', { name: 'Find a book' }).click()
   await page.getByRole('button', { name: 'Find the book in your hand' }).click()
   await expect
     .poll(

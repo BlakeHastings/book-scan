@@ -8,6 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { IconOnward } from './Icons'
 
 export function Button({
   children,
@@ -331,5 +332,49 @@ export function Field({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The way to the camera that reads a book you are already holding.
+ *
+ * ## Why this is a component and not a button written out twice
+ *
+ * There are two doors to that camera and there have to be: the screen about
+ * finding a book has one in its corner, and the first screen has this. Written
+ * out separately they are two doors that agree until one of them is edited,
+ * and the thing they have to agree about is the **wording**, because the
+ * wording is the only part of either that says which of this app's two cameras
+ * it opens. So the sentence lives here, once, and both callers take `IN_HAND`.
+ *
+ * ## It is a row of words with no glyph in it, and that is the icon rule
+ *
+ * `Icons.tsx` says an icon exists in exactly three places: where a word is
+ * already beside it, in a corner of the screen, or inside a control with no
+ * room for a word. A full-width row has room for the word, so it gets the
+ * word. It would have been the camera glyph otherwise, and the first screen
+ * already draws that glyph in the tab bar under "Scan", where it means the
+ * *other* camera. Two cameras and one picture, on the one screen where getting
+ * them the wrong way round costs somebody a book catalogued twice.
+ *
+ * The chevron is the one every list row wears and says only that this goes
+ * somewhere.
+ *
+ * ## What it costs the screen it is on
+ *
+ * One row, at the end of the collection, and nothing above it moves. The first
+ * screen is counts and this is not one, so it is drawn as a door rather than
+ * as a tile, and it is not in the middle of anything: the card that used to
+ * offer a camera there was taken off for eating the middle of the screen
+ * somebody opens most often, and that argument survives this.
+ */
+export const IN_HAND = 'Find the book in your hand'
+
+export function InHand({ onPress }: { onPress?: () => void }) {
+  return (
+    <button type="button" className="wf-inhand" onClick={onPress}>
+      <span className="wf-inhand__word">{IN_HAND}</span>
+      <IconOnward size={18} />
+    </button>
   )
 }

@@ -847,6 +847,45 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   line-height: 1.15;
 }
 
+/*
+ * The one door on the first screen, drawn under the counts it belongs to.
+ *
+ * **Raised paper inside a hairline**, which is the skin the two round targets
+ * on the library's filter row wear, and it is the same fact drawn at another
+ * size: those are how you find a book on the screen that lists them, and this
+ * is how you find the one already in your hand. The counts around it are sunk
+ * paper, so the door lifts off the page where they sit in it, and that is the
+ * whole of what says it is not a fifth count.
+ *
+ * It is deliberately not a filled button. The one filled button in this system
+ * is the thing a screen is *for*, and the first screen is for its numbers.
+ *
+ * Full width, so the target is the row rather than the words in it. See
+ * `InHand` in `Controls.tsx` for why there is no glyph on it.
+ */
+.wf-inhand {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--ink);
+}
+.wf-inhand:active { background: var(--paper-sunk); }
+.wf-inhand:focus-visible { outline: none; box-shadow: var(--focus); }
+.wf-inhand svg { flex: none; margin-left: auto; color: var(--ink-2); }
+
+.wf-inhand__word {
+  font-family: var(--face-book);
+  font-size: var(--size-body);
+  line-height: var(--lh-tight);
+}
+
 /* A field. Sunk, because you are putting something into it. */
 .wf-field { display: grid; gap: var(--s1); }
 .wf-field__label {
@@ -1104,8 +1143,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   right: var(--s3);
 }
 
-/* Beside the way out, clear of both corners. Only the app puts anything here,
-   and only ever one thing: the light, on the shot that wants it. */
+/* Beside the way out, clear of both corners. The app puts the light here, on
+   the shot that wants it, and the camera that reads a book already in your
+   hand puts the one line saying so: it keeps no photographs, so it has no rail
+   of them to say what it is pointed at. One thing at a time either way. */
 .wf-view__top {
   position: absolute;
   top: calc(var(--s3) + env(safe-area-inset-top));

@@ -28,6 +28,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import { HomePane } from './HomePane'
+import { IN_HAND } from '../design/Controls'
 import type { BackupWatch, Capture, Counts, Misfile, QueueCounts } from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
@@ -78,6 +79,7 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
     carrying: [],
     backup: null,
     onAdd: () => {},
+    onInHand: () => {},
     /* The corner (#350). `RoomMenu` decides what it says and what it opens;
        this screen is handed one, so this is a stand-in of the same shape. */
     corner: { word: 'Your room', icon: null, onPress: () => {} },
@@ -107,6 +109,14 @@ describe('the design rules that reach the app', () => {
 
   it('does not offer the camera', () => {
     expect(words(home())).not.toMatch(/camera|photograph/i)
+  })
+
+  it('has one door on it, and it is the book in your hand (#355)', () => {
+    const html = home()
+    const doors = html.match(/class="wf-inhand"/g) ?? []
+
+    expect(doors.length, `the first screen draws ${doors.length} of these`).toBe(1)
+    expect(words(html)).toContain(IN_HAND)
   })
 
   it('puts the collection above the things asking for attention (#283)', () => {
@@ -184,6 +194,33 @@ describe('the numbers the drawing did not have to survive', () => {
     })
     expect(html).toContain('2 books are waiting on the table.')
     expect(html).not.toContain('Nothing is catalogued yet.')
+  })
+
+  it('offers no way to find a book when there is nothing to find one against', () => {
+    // A door to an empty room, on the screen whose whole argument is that
+    // everything on it earns its place. The wireframe draws a library of
+    // 1,204 and never sees this (#355).
+    const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
+
+    expect(home({ counts: empty })).not.toContain('wf-inhand')
+    expect(home({ counts: { ...empty, total: 1 } })).toContain('wf-inhand')
+  })
+
+  it('offers it for a book on the table, with nothing catalogued at all', () => {
+    // #122's journey: somebody else photographed this book an hour ago and the
+    // way to find that out is to hold it up. A collection can be entirely on
+    // the table on its first evening, and that is the evening two people are
+    // most likely to photograph one book twice.
+    const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
+
+    expect(home({ counts: empty, queue: queue({ pending: 2 }) })).toContain('wf-inhand')
+  })
+
+  it('offers it only once the catalogue has answered', () => {
+    // The same reason the counts wait: a door drawn against a number that has
+    // not arrived is a guess about somebody's collection.
+    expect(home({ counts: null })).not.toContain('wf-inhand')
+    expect(home({ queue: null })).not.toContain('wf-inhand')
   })
 
   it('draws nothing but the frame until the first answer comes back', () => {

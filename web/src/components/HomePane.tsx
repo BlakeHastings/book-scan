@@ -49,6 +49,29 @@
  * reassuring version of this card, on purpose: a line saying backups are fine
  * is a line that can be printed over a disk nobody read.
  *
+ * ## The one door on it, which is a thing that was taken away by accident (#355)
+ *
+ * The paragraph above about the camera card is still true and this is not it.
+ * That card offered the camera the tab bar opens, which is the one that
+ * catalogues a book nobody has yet. This is the other camera: the one you
+ * point at a book you already own, which no tab reaches and which had this
+ * screen's corner until the corner became the profile icon.
+ *
+ * Nobody chose what that cost. The owner asked for a profile icon and got one;
+ * he did not ask for the thing this app is for, standing in a room holding a
+ * book and wondering whether you already own it, to go from **one press to
+ * three**. It is one press again, and the corner is not taken back: the corner
+ * is spoken for and the reason it is spoken for is good.
+ *
+ * It sits under the collection's counts rather than above them, so nothing the
+ * owner has already approved moves, and it is drawn as a door rather than a
+ * tile because it is not a count and the screen must not read as though it
+ * were. **It is not drawn on the day there is nothing at all**: no catalogue
+ * and nothing on the table is a camera that can answer nothing, and a spare
+ * screen does not carry a door to an empty room. A book on the table counts,
+ * and that is not a technicality: holding up a book somebody else has already
+ * photographed is how the second capture of it does not get made (#122).
+ *
  * ## It holds no state, on purpose
  *
  * Everything it draws arrives as a prop, so it stays callable as a plain
@@ -60,7 +83,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import { Beside, Card, Nothing } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
-import { Button } from '../design/Controls'
+import { Button, InHand } from '../design/Controls'
 import { List, Row, Stats } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Trouble } from '../design/Trouble'
@@ -95,6 +118,15 @@ interface Props {
   backup: BackupWatch | null
   /** Photograph a book, which is what the fourth tab is for. */
   onAdd: () => void
+  /**
+   * The other camera: hold a book you already own up to it (#355).
+   *
+   * **Not `onAdd` and never the same handler.** One of these two catalogues a
+   * book the collection has never seen and the other identifies one it
+   * already has, and landing on the wrong one from here means somebody
+   * photographing a book they own into a second record.
+   */
+  onInHand: () => void
   /**
    * The one action in the corner, which is the way to your own room (#350).
    *
@@ -160,7 +192,7 @@ function nameOf(capture: Capture): { title: string; sub: string } {
 
 export function HomePane({
   counts, queue, queued, carrying, backup,
-  onAdd, corner, menu, onLibrary, onQueue, onCarry, onOpenReady,
+  onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onOpenReady,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
@@ -229,6 +261,20 @@ export function HomePane({
           { n: grouped(counts.checkedOut), word: 'checked out', onPress: onLibrary },
         ]}
       />
+
+      {/*
+        The way to the book in your hand, closing the collection block (#355).
+
+        Drawn once there is anything to hold a book against, which is the
+        catalogue **or** the table, and not only the catalogue. A book waiting
+        on the table is one this collection already has a start on: holding its
+        twin up is how somebody finds the capture a housemate made instead of
+        photographing it a second time, which is the whole of #122 and is a
+        journey. That is the same emptiness the sentence above draws `Nothing`
+        for, and on that day this door leads to a camera that can answer
+        nothing about a book.
+      */}
+      {(counts.total > 0 || waiting > 0) && <InHand onPress={onInHand} />}
 
       <p className="wf-heading wf-heading--flush">Needs you</p>
       <Stats

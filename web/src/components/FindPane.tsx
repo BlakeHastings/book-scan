@@ -48,7 +48,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Button } from '../design/Controls'
+import { Button, IN_HAND } from '../design/Controls'
 import { Covers, type CoverItem } from '../design/Covers'
 import { Nothing } from '../design/Card'
 import { SearchField, Suggestion, Suggestions } from '../design/Finding'
@@ -163,12 +163,14 @@ export function FindPane() {
           onBack={() => setRoute('library')}
           /* A glyph in a corner carries its word as its accessible name, which
              is the pinned rule, and this one names the book rather than the
-             camera: what it does is find the one you are holding. */
-          action={{
-            word: 'Find the book in your hand',
-            icon: <IconCamera />,
-            onPress: openScanner,
-          }}
+             camera: what it does is find the one you are holding.
+
+             The sentence itself comes out of the design system since #355,
+             because the first screen has a door to this same camera again and
+             the wording is the only part of either that says which of the two
+             cameras it opens. Two of them typed out separately are two that
+             agree until one is edited. */
+          action={{ word: IN_HAND, icon: <IconCamera />, onPress: openScanner }}
         />
       }
     >

@@ -34,7 +34,7 @@ import { Viewfinder } from '../Camera'
 import { Beside, Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
 import { Cat } from '../Cat'
-import { Button, Choice, Field, Segmented } from '../Controls'
+import { Button, Choice, Field, InHand, IN_HAND, Segmented } from '../Controls'
 import { Covers, covers } from '../Covers'
 import {
   Filter,
@@ -229,6 +229,19 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
           { n: '2', word: 'checked out', onPress: () => go('listing') },
         ]}
       />
+
+      {/* The one thing on this screen that is not a count, and it closes the
+          collection rather than opening the screen: everything above it is the
+          screen as it was approved, and this is the question you ask a
+          collection while standing in front of it with a book in your hand.
+
+          It is here because that camera lost this screen's corner to the
+          portrait and went from one press to three (#355), and because it is
+          the only door in the app that nothing else offers: the tab bar opens
+          the other camera, the one that catalogues a book nobody has. A door
+          to a room the tabs already open is what the old camera card was and
+          it is still not allowed. */}
+      <InHand onPress={() => go('inhand')} />
 
       <p className="wf-heading wf-heading--flush">Needs you</p>
       {/* Fifty-three to carry, which is what the number looks like the week
@@ -1048,13 +1061,26 @@ function Thin(go: Go) {
  * silently.
  */
 
-/** Everything above the results, which is the same on all five. */
+/**
+ * Everything above the results, which is the same on all five.
+ *
+ * The corner is the fifth way of answering this screen's question and it was
+ * built without ever being drawn (#350): the wireframe had one camera and the
+ * app has two, so the second one moved here and the drawing did not follow.
+ * That gap is most of how its door came to be three presses from the first
+ * screen with nobody deciding so, which is #355. It is drawn now, and it is
+ * the same sentence the first screen's row carries.
+ *
+ * It is a glyph because it is a corner, which is the one place `Icons.tsx`
+ * allows one without a word beside it, and it carries the word as its name.
+ */
 function FindTop(go: Go, sub?: string) {
   return (
     <TopBar
       title="Find a book"
       sub={sub}
       onBack={() => go('library')}
+      action={{ word: IN_HAND, icon: <IconCamera />, onPress: () => go('inhand') }}
     />
   )
 }
@@ -1334,6 +1360,63 @@ function SpineShot(go: Go) {
         shots={spineFirst(go)}
         onLeave={() => go('home')}
         onDone={() => go('review')}
+      />
+    </div>
+  )
+}
+
+/**
+ * The other camera, and the wireframe has never had it.
+ *
+ * **This app has two cameras and they do different jobs.** The one above
+ * photographs a book nobody has catalogued and keeps three photographs of it.
+ * This one is pointed at a book you already own: it takes a frame, works out
+ * which book it is, opens it, and keeps nothing. Two screens, two doors, two
+ * jobs.
+ *
+ * The gallery drew only the first, and that omission has cost something real.
+ * When the corner became the portrait, the pull request that made the trade
+ * wrote "the gallery has one camera; this app has two" as its reason for that
+ * door not being in the drawing at all, and the door then moved twice without
+ * anybody being able to see what it was moving away from. One press became
+ * three (#355). So it is drawn, and the two doors that reach it, the first
+ * screen's row and the find screen's corner, both land here.
+ *
+ * **It is the same frame rather than a second one.** `Viewfinder` is a picture
+ * with things floating on it, and this is that with no photographs to keep and
+ * no book to be finished with: `Camera.tsx` says plainly that a second
+ * component emitting `.wf-view` is the fault `Shots.tsx` was made to end.
+ * Sharing a frame is not the same as merging the cameras, any more than the
+ * spine shot above is a third one.
+ *
+ * The app draws this screen with something older than the design system and
+ * this drawing is ahead of it, which is the ordinary state of a wireframe
+ * here. Bringing that screen up to this is its own issue and not this one:
+ * #355 is about how far away the door is, not about what is behind it.
+ */
+function InHandCamera(go: Go) {
+  return (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        /* Nothing is kept, so there is no rail of what was kept. */
+        shots={[]}
+        /* And because nothing is kept, nothing else on this screen says what
+           it is for. The camera above needs no sentence because its rail of
+           photographs names the next shot; take the rail away and a striped
+           rectangle is all somebody arriving here can see. Six words, in the
+           app's own, floating rather than in a bar. */
+        top={<span className="wf-view__chip">Hold a book up</span>}
+        /* The shutter is the whole of this screen: it reads the book in front
+           of it and hands you the book's own page. Nothing here writes
+           anything, which is why it is behind no confirmation. */
+        onShutter={() => go('book')}
+        /* Two ways out, both to where it was opened from, and the app really
+           does have both: the far corner is where a back arrow belongs and the
+           near one is the only thing a thumb can reach while the other hand is
+           holding a book. `Camera.tsx` has the argument about the reach. */
+        onLeave={() => go('home')}
+        onDone={() => go('home')}
+        done="Done"
       />
     </div>
   )
@@ -3510,6 +3593,15 @@ export const SCREENS: Screen[] = [
   { id: 'findtag', name: 'Typing a tag', group: 'Finding a book', render: FindTag },
   { id: 'findnone', name: 'Nothing matches', group: 'Finding a book', render: FindNone },
   { id: 'tags', name: 'All twenty-three tags', group: 'Finding a book', render: TagsScreen },
+  /* Filed here rather than under Cataloguing, and that is the whole point of
+     it: this is the camera you point at a book you already own, so it belongs
+     with finding one. The camera under the next heading is the other one. */
+  {
+    id: 'inhand',
+    name: 'The book in your hand',
+    group: 'Finding a book',
+    render: InHandCamera,
+  },
   { id: 'spine', name: 'Framing the spine', group: 'Cataloguing', render: SpineShot },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
