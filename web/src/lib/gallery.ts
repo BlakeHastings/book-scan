@@ -298,6 +298,11 @@ export function gallery(sources: GallerySources, shape: SpineShape = 'unknown'):
  *
  * Rounding rather than flooring, so a scroll stopped a pixel short of a snap
  * point still reports the frame the reader is looking at.
+ *
+ * Read by two galleries, not one: this one and the book page's, which is
+ * `TheBook` in `src/design/Shots.tsx` (#351). Both are scroll containers with
+ * snap points and both have to say which photograph is showing, so this is one
+ * answer with two callers rather than the same rounding written twice.
  */
 export function frameAtScroll(scrollLeft: number, frameWidth: number, count: number): number {
   if (frameWidth <= 0 || count <= 0) return 0
