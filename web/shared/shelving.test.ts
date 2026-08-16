@@ -376,6 +376,28 @@ describe('bookCover', () => {
 })
 
 describe('reviewShelving', () => {
+  /**
+   * A plank, as the furniture would hand it over: an id, a label and where it
+   * stands.
+   *
+   * The tests below name planks the way a person does, `1A` and `2C`, and this
+   * turns that into the shape the check reads. Two labels for one plank is the
+   * case #356 is about, so a label is never the key here either: `plank` is what
+   * decides identity and the label is only what a row would show.
+   */
+  const planks = new Map<string, { id: number; fixture: number; plank: number }>()
+  const plank = (label: string) => {
+    const found = planks.get(label)
+    if (found) return found
+    const made = {
+      id: planks.size + 1,
+      fixture: Number.parseInt(label, 10),
+      plank: label.replace(/^\d+/, '').charCodeAt(0) - 65,
+    }
+    planks.set(label, made)
+    return made
+  }
+
   const book = (
     id: number,
     location: string,
@@ -387,7 +409,12 @@ describe('reviewShelving', () => {
     authorFiling: `Author, A${id}`,
     authors: '',
     location,
+    areaId: location.trim() ? plank(location).id : null,
     derivedLocation,
+    derivedAreaId: derivedLocation.trim() ? plank(derivedLocation).id : null,
+    standing: location.trim()
+      ? { fixture: plank(location).fixture, plank: plank(location).plank }
+      : null,
     sortKey: String(id).padStart(3, '0'),
     checkedOut: false,
     ...over,
@@ -450,11 +477,26 @@ describe('reviewShelving', () => {
     ]))).toEqual([2, 3, 4])
   })
 
-  it('does not call a book misfiled over the way its label was typed', () => {
-    // s4 b and S4B are the same plank. Comparing the strings would send
-    // somebody across the room for nothing.
-    expect(ids(reviewShelving([book(1, 's4 b', 'S4B')]))).toEqual([])
-    expect(ids(reviewShelving([book(1, '4B', '4B')]))).toEqual([])
+  it('judges the plank rather than what it is called', () => {
+    // One plank, rendered twice: the ledger writes what the piece is called and
+    // the layout writes where it stands. Reading the strings sends somebody
+    // across the room for nothing, and #356 is what happened when it did.
+    const one = book(1, '4B', '4B')
+    expect(ids(reviewShelving([
+      { ...one, location: 'Hall shelf · B', derivedLocation: '4B' },
+    ]))).toEqual([])
+    expect(ids(reviewShelving([book(2, '4B', '4B')]))).toEqual([])
+  })
+
+  it('does not stop judging a book because its bookcase has a name', () => {
+    // The defect exactly: a label the check could not parse took the book out
+    // of the answer, so a book in the wrong place came back as nothing to do.
+    const stray = book(1, '3C', '1A')
+    const review = reviewShelving([
+      { ...stray, location: 'Hall shelf · C', derivedLocation: 'Hall shelf · A' },
+    ])
+    expect(review.excluded).toEqual([])
+    expect(ids(review)).toEqual([1])
   })
 
   it('leaves a book nobody has ever placed out of it', () => {
@@ -471,10 +513,14 @@ describe('reviewShelving', () => {
     expect(review.excluded[0]!.reason).toBe('checked-out')
   })
 
-  it('sets aside a label it cannot read instead of guessing at it', () => {
-    const review = reviewShelving([book(1, 'in the box', '1A')])
+  it('says so when the run has nowhere to put a book, rather than passing it', () => {
+    // The one way left to reach this check and not be judged by it, and it is
+    // about the furniture rather than about the book. It is reported so the
+    // count can be said out loud: a book nobody has looked at is not a book
+    // that is fine.
+    const review = reviewShelving([book(1, '1A', '')])
     expect(review.misfiles).toEqual([])
-    expect(review.excluded[0]!.reason).toBe('unreadable-location')
+    expect(review.excluded.map((e) => [e.book.id, e.reason])).toEqual([[1, 'unplaceable']])
   })
 
   it('orders the list by where the books are, since that is the walk', () => {

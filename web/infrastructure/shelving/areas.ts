@@ -58,6 +58,7 @@
  * same way and for the same reason.
  */
 
+import type { AreaFace } from '../../domain/placement/carry'
 import { entryAreaOf, type PlacementRule, type RuleOperator } from '../../domain/placement/rules'
 import {
   labelFor, slotsInOrder, type Area, type Fixture, type Slot,
@@ -309,6 +310,7 @@ export async function runRuleOf(db: Db, range: ShelfRange): Promise<PlacementRul
 
 interface PlankRow {
   id: number
+  fixture_id: number
   fixture_position: number
   fixture_name: string
   position: number
@@ -316,38 +318,92 @@ interface PlankRow {
 }
 
 /**
- * What every area is called, retired ones included.
+ * Every area there has ever been, with what it reads as and where it stands.
  *
  * `furnitureIn` answers the collection as it stands and so cannot answer this: a
  * book can be recorded on a plank somebody has since taken out, and what a
  * person wrote down is still `4A`. Same reading as `withPlacements` makes for
  * the wire, through the same `labelFor` and the same `faceOf`, so a plan names
  * the plank the catalogue names.
+ *
+ * **Keyed on the id, and the id is the point.** A label is a rendering of an
+ * area and changes the moment somebody names a piece; the key does not. Anything
+ * deciding whether two places are the same place reads the key, and anything
+ * showing a person where to walk reads the label. #356 is what happens when
+ * those two jobs are given to the same string.
  */
-export async function plankLabels(db: Db): Promise<Map<number, string>> {
+export async function areaFaces(db: Db): Promise<Map<number, AreaFace>> {
   const rows = await db.all<PlankRow>(
-    `SELECT a.id, f.position AS fixture_position, f.name AS fixture_name,
-            a.position, a.name
+    `SELECT a.id, a.position, a.name, f.id AS fixture_id,
+            f.position AS fixture_position, f.name AS fixture_name
        FROM area a JOIN fixture f ON f.id = a.fixture_id`,
   )
 
-  return new Map(rows.map((row) => [Number(row.id), labelFor({
-    fixture: {
-      id: 0,
-      position: row.fixture_position,
-      kind: '',
-      name: row.fixture_name,
-      sortStrategy: 'inherit',
-    },
-    area: {
-      id: Number(row.id),
-      fixtureId: 0,
-      position: faceOf(row.position),
-      name: row.name,
-      startsAt: '',
-      sortStrategy: 'inherit',
-    },
-  })]))
+  return new Map(rows.map((row) => {
+    const position = faceOf(row.position)
+    return [Number(row.id), {
+      label: labelFor({
+        fixture: {
+          id: Number(row.fixture_id),
+          position: row.fixture_position,
+          kind: '',
+          name: row.fixture_name,
+          sortStrategy: 'inherit',
+        },
+        area: {
+          id: Number(row.id),
+          fixtureId: Number(row.fixture_id),
+          position,
+          name: row.name,
+          startsAt: '',
+          sortStrategy: 'inherit',
+        },
+      }),
+      fixtureId: Number(row.fixture_id),
+      fixturePosition: row.fixture_position,
+      areaPosition: position,
+    }]
+  }))
+}
+
+/** What every area is called, for a caller that needs nothing else about it. */
+export async function plankLabels(db: Db): Promise<Map<number, string>> {
+  return new Map(
+    [...await areaFaces(db)].map(([id, face]) => [id, face.label]),
+  )
+}
+
+/**
+ * Which area of a run a sort key lands in, or null when the run has no areas.
+ *
+ * **`layoutRange`'s walk, said as the row it lands on rather than as the label
+ * it draws.** Every area after the first is a boundary (`boundariesFrom`), so
+ * this steps the ones the key has reached and answers the last of them, and the
+ * run's first area for a key below every anchor, because a book that sorts
+ * before the first boundary is on the first plank.
+ *
+ * **Anchor order, not position order, and that is load bearing.** `layoutRange`
+ * sorts the boundary list by anchor, so a run whose anchors do not ascend with
+ * its positions draws a plank's worth of books somewhere other than where the
+ * rules walking the areas in order would put them. That disagreement is exactly
+ * what `areaDisagreements` exists to catch, and walking positions here would
+ * have made it agree with the rules by construction and stop catching anything.
+ *
+ * That this agrees with `layoutRange` on a well formed run is not left as an
+ * argument: `shelves.test.ts` lays a seeded run out both ways and compares where
+ * every key landed, plank for plank.
+ */
+export function areaOfKey(run: readonly RunArea[], sortKey: string): RunArea | null {
+  if (!run.length) return null
+
+  let landed = run[0]!
+  const ordered = [...run.slice(1)]
+    .sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : 0))
+  for (const area of ordered) {
+    if (area.startsAt > sortKey) break
+    landed = area
+  }
+  return landed
 }
 
 interface ExistingRow {

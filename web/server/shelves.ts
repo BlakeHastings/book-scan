@@ -9,7 +9,8 @@ import type { FiledBookRow } from './db.pg'
 import type { Db } from './driver'
 import { withPhotographs, type FiledPhotographedBook } from './photographs'
 import { withPlacements, type PlacementFields } from './placement-ledger'
-import { bandOf } from '../infrastructure/shelving/areas'
+import { areaFaces, areaOfKey, bandOf, runAreasOf } from '../infrastructure/shelving/areas'
+import type { AreaFace } from '../domain/placement/carry'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
@@ -60,18 +61,34 @@ export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
  */
 export type ShelvedBook = FiledPhotographedBook & PlacementFields & { sortKey: string }
 
-/** A row as the misfile check sees it: where it is, and where it belongs. */
+/**
+ * A row as the misfile check sees it: where it is, and where it belongs.
+ *
+ * **Both sides arrive as an area and a label, and the area is the answer.** The
+ * label each side reads as comes from the same `labelFor`, so the two sides
+ * agree about what a place is called as well as about which place it is; before
+ * #356 one side was rendered by the ledger and the other by the ordinal walk,
+ * and naming a bookcase made them two vocabularies for one plank.
+ */
 const toFiled = (
   row: FiledBookRow & PlacementFields,
-  derived: string,
+  at: number | null,
+  belongs: number | null,
+  faces: Map<number, AreaFace>,
   checkedOut: boolean,
 ): FiledBook => ({
   id: row.id,
   title: row.title,
   authorFiling: row.author_filing,
   authors: row.authors,
-  location: row.location,
-  derivedLocation: derived,
+  location: (at === null ? '' : faces.get(at)?.label) ?? '',
+  areaId: at,
+  derivedLocation: (belongs === null ? '' : faces.get(belongs)?.label) ?? '',
+  derivedAreaId: belongs,
+  standing: at === null || !faces.has(at) ? null : {
+    fixture: faces.get(at)!.fixturePosition,
+    plank: faces.get(at)!.areaPosition,
+  },
   sortKey: row.sort_key,
   checkedOut,
 })
@@ -830,26 +847,62 @@ export class Shelves {
   }
 
   /**
+   * The area of this range each of these sort keys lands in.
+   *
+   * The same walk `shelvesForSortKeys` makes, answered as the row rather than as
+   * the label: the boundary list that walk steps over is derived from these very
+   * areas (`boundariesFrom`), so asking the run directly is one reading of one
+   * sequence instead of two that have to agree.
+   *
+   * Null for every key when the range has no run at all, which is a rule
+   * pointing at furniture that has been taken out. That is a fact about the
+   * furniture and the review says so out loud rather than quietly judging
+   * nothing.
+   */
+  async areasForSortKeys(range: ShelfRange, sortKeys: string[]): Promise<(number | null)[]> {
+    if (!sortKeys.length) return []
+    const run = await runAreasOf(this.db, range)
+    return sortKeys.map((sortKey) => areaOfKey(run, sortKey)?.id ?? null)
+  }
+
+  /** The area one sort key lands in, or null when the run has none to give. */
+  async areaForSortKey(range: ShelfRange, sortKey: string): Promise<number | null> {
+    return (await this.areasForSortKeys(range, [sortKey]))[0] ?? null
+  }
+
+  /**
    * Which books in this range are not where the catalogue says they belong.
    *
    * The two halves of the comparison come from different places on purpose.
-   * The recorded location is whatever a person last confirmed, read straight
-   * off the row. The derived location is recomputed here from sort order and
-   * the shelf boundaries, so inserting a book earlier in the alphabet, moving
-   * a boundary, or editing an author all shift it while the recorded one
+   * Where the book is is whatever a person last confirmed, read out of the
+   * ledger's projection. Where it belongs is recomputed here from sort order and
+   * the areas the run is cut into, so inserting a book earlier in the alphabet,
+   * moving a boundary, or editing an author all shift it while the recorded one
    * stays put.
    *
-   * Strictly read only. Detection that quietly rewrote a location to make the
+   * **Both halves are area ids** (#356). They used to be labels, and labels are
+   * renderings: the ledger renders `Hall shelf · A` for a named piece and the
+   * ordinal walk renders `2A` for the same plank, so the comparison could read
+   * one side and not the other and set every book on that piece aside.
+   *
+   * Strictly read only. Detection that quietly rewrote a placement to make the
    * disagreement go away would destroy the record of where the book actually
-   * is, which is the one thing that column is for.
+   * is, which is the one thing the ledger is for.
    *
    * Checked-out books are pulled in explicitly. They are absent from the
    * layout, having no position, and dropping them silently would leave the
    * caller unable to tell "not misfiled" from "not considered".
    */
   async review(range: ShelfRange): Promise<ShelvingReview> {
-    const onShelf = (await this.layout(range))
-      .map((placed) => toFiled(placed.book, placed.label, false))
+    const faces = await areaFaces(this.db)
+    const placed = await this.layout(range)
+    const belongs = await this.areasForSortKeys(
+      range,
+      placed.map((one) => one.book.sortKey),
+    )
+
+    const onShelf = placed.map((one, at) =>
+      toFiled(one.book, one.book.area_id, belongs[at] ?? null, faces, false))
 
     const off = (
       await withPlacements(this.db, await this.db.all<FiledBookRow>(
@@ -859,7 +912,7 @@ export class Shelves {
           ORDER BY sort_key ASC`,
         [range, CHECKED_OUT],
       ))
-    ).map((row) => toFiled(row, '', true))
+    ).map((row) => toFiled(row, row.area_id, null, faces, true))
 
     return reviewShelving([...onShelf, ...off])
   }

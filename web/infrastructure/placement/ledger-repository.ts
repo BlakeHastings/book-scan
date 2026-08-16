@@ -116,9 +116,19 @@ export class DrizzlePlacementLedger implements PlacementLedger {
  * accepts any label `parseLocation` accepts, so a person may record `9Z`, and
  * `0015` counts those rather than inventing furniture to hold them.
  *
- * Only unnamed fixtures and areas are matched, because naming either changes the
- * label: a book recorded at `1A` is on the first plank of the first bookcase,
- * and a bookcase somebody has called "Hall shelf" no longer answers to `1`.
+ * **A named piece answers to its number too, and #356 is why.** This used to
+ * match only `f.name = '' AND a.name = ''`, on the reasoning that a bookcase
+ * somebody has called "Hall shelf" no longer answers to `1`. It does: naming a
+ * piece changes what it reads as and changes nothing about where it stands, and
+ * a position is an address rather than a rendering. The layout goes on calling
+ * that plank `1A`, because `locationLabel` is built from ordinals, so every
+ * label the app hands back to itself, the one a save records a book at and the
+ * one the misfile list offers to move it to, was refused the moment a piece got
+ * a name. A person who has never seen the number is not typing it in.
+ *
+ * Lowest id first where two pieces stand at one position, which is the rule
+ * `fixturesIn` and `runAreasOf` already read a band by: the piece that was there
+ * first is the one this range's own furniture is in.
  */
 export async function areaForLabel(
   db: Db,
@@ -127,9 +137,40 @@ export async function areaForLabel(
 ): Promise<number | null> {
   const row = await db.get<{ id: number }>(
     `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
-      WHERE f.position = ? AND a.position = ? AND f.name = '' AND a.name = ''
+      WHERE f.position = ? AND a.position = ?
       ORDER BY f.id, a.id LIMIT 1`,
     [fixturePosition, areaPosition],
+  )
+  return row ? Number(row.id) : null
+}
+
+/**
+ * The same, for a label this app wrote down rather than one a person is sending.
+ *
+ * **It answers a plank that has been taken off the face**, which is the whole
+ * difference. `outstanding_move` holds the two labels a boundary move drew, and
+ * a move that empties the last area of a run takes that area's boundary out with
+ * it, so the receipt names a plank `areaForLabel` will never find: a retired
+ * area's position is `-(plank + 1)`. A person standing in the room still calls
+ * it `1B`, and the receipt is about what happened rather than about what is on
+ * the floor now.
+ *
+ * A plank on the face wins over one retired from the same position, which is the
+ * only way two rows can read as one label.
+ *
+ * Not offered to the write path, and that is deliberate: recording a book onto a
+ * plank the collection has taken out stays refused.
+ */
+export async function areaForRecordedLabel(
+  db: Db,
+  fixturePosition: number,
+  areaPosition: number,
+): Promise<number | null> {
+  const row = await db.get<{ id: number }>(
+    `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
+      WHERE f.position = ? AND (a.position = ? OR a.position = ?)
+      ORDER BY (a.position >= 0) DESC, f.id, a.id LIMIT 1`,
+    [fixturePosition, areaPosition, -(areaPosition + 1)],
   )
   return row ? Number(row.id) : null
 }

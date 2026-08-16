@@ -548,22 +548,38 @@ export interface FiledBook {
   /** The printed string this book carries. See `Neighbour.authors`. */
   authors: string
   /**
-   * Where a person last said this book physically is.
+   * Where a person last said this book physically is, as a label to read.
    *
-   * Empty when nobody has ever said. That is not the same as the book being in
-   * the wrong place, and the difference is the whole reason this is a separate
-   * field rather than something derived.
+   * Empty when nobody has ever said. **Nothing is decided from this**: it is a
+   * rendering of `areaId`, and the label a piece of furniture reads as changes
+   * the moment somebody names it. See `areaId`.
    */
   location: string
   /**
-   * Where sort order and the shelf boundaries put it now.
+   * The area a person last put this book in, which is where it actually is.
+   *
+   * Null when nobody has ever said. This is the identity half of `location` and
+   * it is the half the judgement is made on.
+   */
+  areaId: number | null
+  /**
+   * Where sort order and the furniture put it now, as a label to read.
    *
    * Recomputed from the catalogue every time, so editing an author, a series
-   * or the fiction flag moves this while `location` stays where it was. That
-   * is exactly the re-shelving case: the book has to physically move, and the
-   * gap between these two fields is what says so.
+   * or the genre moves this while `location` stays where it was. That is
+   * exactly the re-shelving case: the book has to physically move, and the gap
+   * between the two areas is what says so.
    */
   derivedLocation: string
+  /** The area the order now puts it in. Null when the run has none to give. */
+  derivedAreaId: number | null
+  /**
+   * Where the area it is in stands, for ordering the walk. Null with `areaId`.
+   *
+   * Ordinals rather than the label, because the list is walked in the order the
+   * furniture stands in the room and a name sorts alphabetically.
+   */
+  standing: { fixture: number; plank: number } | null
   sortKey: string
   /** Off the shelf entirely, so it holds no physical position at all. */
   checkedOut: boolean
@@ -575,8 +591,19 @@ export type ExcludedReason =
   | 'checked-out'
   /** Catalogued but never confirmed onto a shelf. Nothing to compare. */
   | 'never-placed'
-  /** A label that does not parse as a location, so ranks are not comparable. */
-  | 'unreadable-location'
+  /**
+   * The run this book files into has no area to put it on, so there is nothing
+   * to compare where it is against.
+   *
+   * The one remaining way a book can reach this check and not be judged by it,
+   * and it means the furniture is missing rather than the book: a range whose
+   * rule points at a piece that has been taken out has no run at all. **A count
+   * of these is a fact somebody needs and never a row to drop quietly.** This
+   * replaces `unreadable-location`, which was reached by a label the check could
+   * not parse and took 181 of 238 books out of the answer the day a bookcase was
+   * given a name (#356). Labels are no longer read here at all.
+   */
+  | 'unplaceable'
 
 export interface Excluded {
   book: FiledBook
@@ -586,10 +613,20 @@ export interface Excluded {
 /** A book whose physical position disagrees with where it now belongs. */
 export interface Misfile {
   book: FiledBook
-  /** Canonical label for where it is. */
+  /** What to read for where it is. */
   from: string
-  /** Canonical label for where it belongs. */
+  /** What to read for where it belongs. */
   to: string
+  /**
+   * The area it belongs in, which is what saying "moved it" writes.
+   *
+   * The label is for the person and the id is for the request, and they are two
+   * fields for the reason `/api/carry/trip` takes two ids: a label is derived
+   * from where a piece stands and what it is called, so somebody naming a
+   * bookcase between drawing this list and acting on a row would send the write
+   * to a plank that no longer answers to that name.
+   */
+  toAreaId: number
   /** One line, ready to read standing in front of the shelves. */
   instruction: string
 }
@@ -609,11 +646,25 @@ export interface ShelvingReview {
  * where a book physically is. The two drift apart as books are shelved, and
  * this is the only thing that notices.
  *
- * A misfile is a book that is *on a shelf*, whose recorded location is
- * readable, and which does not compare equal to the location its sort position
- * now lands on. Nothing else. In particular this function never writes: a book
- * reported here stays exactly where the catalogue says it is until a person
- * says they moved it.
+ * A misfile is a book that is *on a shelf* and is not in the area its sort
+ * position now lands in. Nothing else. In particular this function never
+ * writes: a book reported here stays exactly where the catalogue says it is
+ * until a person says they moved it.
+ *
+ * ## It compares areas, not what they are called
+ *
+ * An area has an id and a label is a rendering of it, which is why
+ * `docs/data-model.md` has no label column and why `labelFor` is the only place
+ * one comes from. The two sides of this comparison are rendered by different
+ * code: the ledger renders the area a person put the book in, and the layout
+ * renders the plank an ordinal walk lands on. Those agree only while nothing is
+ * named, so the day a bookcase was given a name the check could read one side
+ * and not the other and set 181 of 238 books aside, and answered an empty list
+ * that read as "everything is fine" (#356).
+ *
+ * So the judgement is `areaId` against `derivedAreaId` and the labels are only
+ * ever shown to somebody. **Nothing here parses a label**, and a comparison
+ * added below that does is this defect coming back on the next rename.
  *
  * ## Why this rather than the ordering invariant
  *
@@ -655,29 +706,25 @@ export function reviewShelving(books: FiledBook[]): ShelvingReview {
       continue
     }
 
-    const recorded = (book.location ?? '').trim()
-    if (!recorded) {
+    if (book.areaId === null) {
       excluded.push({ book, reason: 'never-placed' })
       continue
     }
 
-    // Compare parsed ranks, not strings, or `s4 b` and `S4B` read as a book
-    // that needs carrying across the room.
-    const at = parseLocation(recorded)
-    const belongs = parseLocation(book.derivedLocation ?? '')
-    if (!at || !belongs) {
-      excluded.push({ book, reason: 'unreadable-location' })
+    if (book.derivedAreaId === null) {
+      excluded.push({ book, reason: 'unplaceable' })
       continue
     }
 
-    if (compareLocations(recorded, book.derivedLocation) === 0) continue
+    if (book.areaId === book.derivedAreaId) continue
 
-    const from = formatLocation(at)
-    const to = formatLocation(belongs)
+    const from = book.location
+    const to = book.derivedLocation
     misfiles.push({
       book,
       from,
       to,
+      toAreaId: book.derivedAreaId,
       instruction:
         `${book.title} (${bestKnownAuthor(book.authorFiling, book.authors) || 'unknown author'}) is at ` +
         `${from} and belongs at ${to}.`,
@@ -685,9 +732,12 @@ export function reviewShelving(books: FiledBook[]): ShelvingReview {
   }
 
   // Ordered by where the book currently is, because that is the order somebody
-  // walks the shelves picking them up.
+  // walks the shelves picking them up. Where the furniture stands rather than
+  // what it is called: a piece named "Hall shelf" is not walked to between 1 and
+  // 2 because H sorts there.
   misfiles.sort((a, b) =>
-    compareLocations(a.from, b.from) ||
+    (a.book.standing?.fixture ?? 0) - (b.book.standing?.fixture ?? 0) ||
+    (a.book.standing?.plank ?? 0) - (b.book.standing?.plank ?? 0) ||
     (a.book.sortKey < b.book.sortKey ? -1 : a.book.sortKey > b.book.sortKey ? 1 : 0))
 
   return { misfiles, excluded }

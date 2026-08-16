@@ -64,7 +64,7 @@ import { PAGE_LIMIT, Store, type DraftBook } from './store'
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
 // A location naming a plank nobody has is refused rather than recorded (#232).
 // See the location route, and `recordPlaced`.
-import { historyOf, UnknownPlank } from './placement-ledger'
+import { areaOfRecordedLocation, historyOf, UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
 // The work list the ledger already holds, grouped into trips (#314).
 import { outstandingWork, tripAtArea } from './carry'
@@ -82,7 +82,7 @@ import { booksNoRuleClaims, claimOfBook } from './claim'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
-  bookCover, buildPlacement, compareLocations, formatLocation, parseLocation, shelfImage,
+  bookCover, buildPlacement, formatLocation, parseLocation, shelfImage,
   type Placement, type ShelfRange, type ShelfSlot,
 } from '../shared/shelving'
 
@@ -649,9 +649,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * where somebody decides whether there is anything left to do.
    *
    * Matches `reviewShelving`'s own carve-outs, not just its misfile test: a
-   * location nobody has ever recorded, or one that does not parse, is not a
-   * disagreement to draw a gap over, so those still settle here exactly as
+   * book nobody has ever placed, and a run with no area to put it on, are not
+   * disagreements to draw a gap over, so those still settle here exactly as
    * they did before this book had a recorded location at all.
+   *
+   * **And it compares the same way, which is by area** (#356). It used to parse
+   * both labels, so a named bookcase made the recorded one unreadable and every
+   * book on that piece drew as settled here while the misfile list, once that
+   * was fixed, said it was not. Two screens disagreeing about one book is
+   * exactly what #90 says must not happen, so there is one comparison and this
+   * is it.
    */
   async function settledRow(range: 'fiction' | 'nonfiction', sortKey: string, id: number) {
     const row = await store.getBook(id)
@@ -660,11 +667,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const strip = await shelves.stripOf(range, id)
     if (!strip) return null
 
-    const recorded = (row.location ?? '').trim()
-    if (recorded) {
-      const at = parseLocation(recorded)
-      const belongs = parseLocation(strip.label)
-      if (at && belongs && compareLocations(recorded, strip.label) !== 0) return null
+    if (row.area_id !== null) {
+      const belongs = await shelves.areaForSortKey(range, sortKey)
+      if (belongs !== null && belongs !== row.area_id) return null
     }
 
     return {
@@ -2545,6 +2550,14 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * away and `checked_out` means it is in somebody's bag. So it is refused too,
    * and the message says which of the two was probably meant. No screen sends
    * either one.
+   *
+   * **It also takes an `areaId`, and that is the form a screen should send**
+   * (#356). A label is derived from where a piece stands and what it is called,
+   * so a list drawn a minute ago and acted on now can name a plank by a name
+   * nobody uses any more. The misfile list sends the id for the same reason
+   * `/api/carry/trip` takes two of them. The label form stays because a person
+   * standing at a shelf types `1A`, and because that is what every screen that
+   * reads a plank off a layout already sends.
    */
   app.patch('/api/books/:id/location', asyncRoute(async (req, res) => {
     const id = idIn(req.params.id, res, 'No such book.')
@@ -2555,7 +2568,24 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
 
-    const label = String((req.body ?? {}).location ?? '').trim()
+    const body = (req.body ?? {}) as { location?: unknown; areaId?: unknown }
+    if (body.areaId !== undefined) {
+      const areaId = idIn(body.areaId, res, 'There is no such plank to put a book on.')
+      if (areaId === null) return
+
+      try {
+        await store.setLocationIn(id, areaId)
+      } catch (error) {
+        if (!(error instanceof UnknownPlank)) throw error
+        res.status(400).json({ error: error.message })
+        return
+      }
+      await shelves.clearOutstandingMove(id)
+      res.json({ book: await store.getBook(id) })
+      return
+    }
+
+    const label = String(body.location ?? '').trim()
     if (!label) {
       res.status(400).json({
         error: 'Say which plank the book is on. A book that has left the shelves ' +
@@ -3141,6 +3171,23 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const review = await shelves.review(range)
     const outstanding = await shelves.outstandingMoves(range)
 
+    /*
+     * A receipt holds the two labels the layout drew when the move was made, and
+     * a label is a rendering, so the receipt has to be read back as the planks it
+     * names before anything is compared with it. `areaOfLocation` is the one
+     * place that reading is done, and it reaches a plank the move itself took
+     * off the face, which is the ordinary case: emptying the last area of a run
+     * takes its boundary out.
+     *
+     * The receipt's own labels are left alone: rewriting somebody's record to
+     * make a comparison easier is the mistake this whole area exists not to make.
+     */
+    const receipts = await Promise.all(outstanding.map(async (move) => ({
+      bookId: move.bookId,
+      from: await areaOfRecordedLocation(db, move.from),
+      to: await areaOfRecordedLocation(db, move.to),
+    })))
+
     res.json({
       ...review,
       /*
@@ -3150,16 +3197,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
        * assignment to withdraw, and moving the boundary to close it would be a
        * new decision about the furniture made on the person's behalf.
        *
-       * Both labels have to still agree with the receipt. If they do not, the
+       * Both planks have to still agree with the receipt. If they do not, the
        * shelves have moved on since the move and taking it back would not put
        * the book back, which `retractMove` would refuse anyway. Better not to
        * offer it than to offer it and refuse.
        */
       outstandingMoves: review.misfiles
-        .filter((misfile) => outstanding.some((move) =>
-          move.bookId === misfile.book.id
-          && move.from === misfile.from
-          && move.to === misfile.to))
+        .filter((misfile) => receipts.some((receipt) =>
+          receipt.bookId === misfile.book.id
+          && receipt.from !== null && receipt.from === misfile.book.areaId
+          && receipt.to !== null && receipt.to === misfile.toAreaId))
         .map((misfile) => misfile.book.id),
     })
   }))

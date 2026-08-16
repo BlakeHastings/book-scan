@@ -852,6 +852,13 @@ moves a book between those two states.
 `books.current_area_id` projection, through `server/placement-ledger.ts`, **on its
 own transaction handle** (#185).
 
+`Store.setLocationIn` is `setLocation` with the label already resolved to the
+plank, writing the same row through the same file on the same handle, so it is
+that statement rather than a fifth. It exists because a screen acting on a list
+the server drew sends the area id, not the label the row showed: a label is a
+rendering of where a piece stands and what it is called, and #356 is what
+happened when identity was carried on one.
+
 **If you add a fifth, it goes in `Store` beside those four and it records a
 placement.** A route that writes a location without one is the defect #200 found
 in `capture`, where the recording lived where the request was handled and the

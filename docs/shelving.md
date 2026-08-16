@@ -389,9 +389,19 @@ slow silent drift, and it costs one query.
 ### How it is actually checked
 
 `reviewShelving` in `web/shared/shelving.ts` does not compare each book with
-the one before it. It compares each book's **recorded** location, which is
-whatever a person last confirmed, against its **derived** location, which is
-recomputed from sort order and the shelf boundaries every time it is asked.
+the one before it. It compares the **area a person last put the book in**
+against the **area sort order and the furniture put it in now**, recomputed
+every time it is asked.
+
+**Areas, not labels, and that distinction was learned the hard way (#356).** A
+label is a rendering of an area and this app has two renderers: the ledger
+renders `Hall shelf · A` for a piece somebody has named, and the ordinal walk
+renders `2A` for the same plank. While nothing was named the two agreed, and a
+comparison of the strings looked correct. The day a bookcase was given a name,
+the check could read one side and not the other, set 181 of 238 books aside, and
+answered an empty list, which reads as "everything is fine". A label is what
+somebody standing at the shelf reads; the id is what says two places are one
+place.
 
 That is a strictly stronger form of the same invariant, and a kinder one:
 
@@ -406,9 +416,17 @@ That is a strictly stronger form of the same invariant, and a kinder one:
 
 Three cases are excluded rather than reported, and returned separately so the
 exclusion is visible instead of silent. A **checked-out** book is off the shelf
-and holds no position to disagree with. A book with **no recorded location**
-was never confirmed onto a shelf, so there is nothing to compare. A label that
-**does not parse** as a location leaves the ranks incomparable.
+and holds no position to disagree with. A book **never placed** was never
+confirmed onto a shelf, so there is nothing to compare. A book the run has
+**nowhere to put** cannot be judged at all, which is a fact about the furniture
+rather than about the book: it means the range's rule points at a piece with no
+area on its face.
+
+**Visible means drawn, not merely returned.** The last of those three is counted
+and said on the library screen whenever it is not zero, above the list rather
+than under it, because the list being empty is exactly what a silent exclusion
+makes it. That is the correction #356 asked for, and `unreadable-location`, the
+reason it replaces, no longer exists: nothing here reads a label.
 
 The check is read only. It never rewrites a location to make a disagreement go
 away: the recorded location is the record of where the book physically is, and

@@ -23,12 +23,16 @@ const misfile: Misfile = {
     authorFiling: 'Herbert, Frank',
     authors: 'Frank Herbert',
     location: 'A1',
+    areaId: 11,
     derivedLocation: 'B2',
+    derivedAreaId: 22,
+    standing: { fixture: 1, plank: 0 },
     sortKey: 'herbert frank dune',
     checkedOut: false,
   },
   from: 'A1',
   to: 'B2',
+  toAreaId: 22,
   instruction: 'Move Dune from A1 to B2',
 }
 
@@ -233,7 +237,8 @@ describe('confirming from the detail view', () => {
     const [call] = calls
     expect(calls).toHaveLength(1)
     expect(call?.path).toBe('/api/books/7/location')
-    expect(JSON.parse(String(call?.init?.body))).toEqual({ location: 'B2' })
+    // The plank as an id, not as the label the notice showed. See #356.
+    expect(JSON.parse(String(call?.init?.body))).toEqual({ areaId: 22 })
   })
 
   it('cannot be tapped twice while the write is in flight', () => {

@@ -735,11 +735,19 @@ describe('the areas following the boundaries after a divider moves', () => {
     )
 
     const found = await disagreements(pool)
-    // Everything from the anchor written out of place to the next anchor the run
-    // already had. Past `key-0055` both readings have stepped over the same
-    // three boundaries, so they agree again.
+    /*
+     * Everything from the anchor written out of place up to the next bookcase,
+     * which is where the two walks come back together: past `key-0088` both have
+     * stepped over every anchor on bookcase 1 and land on the same rows again.
+     *
+     * It used to stop at `key-0055`, and that was the check comparing labels
+     * (#356). Between those two anchors the readings have each stepped over
+     * three boundaries, so both *draw* `1D` and the strings matched, while they
+     * are standing on two different area rows. The row is what a placement
+     * names, so those books are a disagreement and are now reported as one.
+     */
     expect(found[0]).toBe('Book 031: the layout says 1C, the rules say 1B')
-    expect(found).toHaveLength(fictionFrom('key-0030', 'key-0055'))
+    expect(found).toHaveLength(fictionFrom('key-0030', 'key-0088'))
   })
 
   it('gains an area when a plank boundary is added', async () => {

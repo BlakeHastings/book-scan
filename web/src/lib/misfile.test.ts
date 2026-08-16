@@ -7,8 +7,8 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { canTakeBack, findMisfile, recordMoved, takeMoveBack } from './misfile'
-import type { Misfile, ShelvingReview } from './api'
+import { canTakeBack, findMisfile, notChecked, recordMoved, takeMoveBack } from './misfile'
+import type { ExcludedReason, Misfile, ShelvingReview } from './api'
 
 const flagged = (id: number, from: string, to: string): Misfile => ({
   book: {
@@ -17,12 +17,16 @@ const flagged = (id: number, from: string, to: string): Misfile => ({
     authorFiling: 'Herbert, Frank',
     authors: 'Frank Herbert',
     location: from,
+    areaId: id * 10,
     derivedLocation: to,
+    derivedAreaId: id * 10 + 1,
+    standing: { fixture: 1, plank: 0 },
     sortKey: `herbert frank book ${id}`,
     checkedOut: false,
   },
   from,
   to,
+  toAreaId: id * 10 + 1,
   instruction: `Move Book ${id} from ${from} to ${to}`,
 })
 
@@ -59,17 +63,58 @@ describe('findMisfile', () => {
   })
 })
 
+/**
+ * The count that must never be silent (#356).
+ *
+ * A book the check could not judge is not a book the check found fine, and the
+ * defect this is here about was the two being indistinguishable from the
+ * screen: an empty list with 181 books quietly set aside behind it.
+ */
+describe('notChecked', () => {
+  const aside = (...reasons: ExcludedReason[]): ShelvingReview => ({
+    misfiles: [],
+    excluded: reasons.map((reason, at) => ({ book: flagged(at + 1, '1A', '1B').book, reason })),
+  })
+
+  it('says nothing at all when every book was judged', () => {
+    expect(notChecked(review())).toEqual({ count: 0, said: '' })
+    expect(notChecked(null)).toEqual({ count: 0, said: '' })
+  })
+
+  it('says nothing for the exclusions that are about the book rather than the check', () => {
+    // Off the shelf and never placed are both answered elsewhere on the screen,
+    // and neither means the check could not do its job.
+    expect(notChecked(aside('checked-out', 'never-placed')).count).toBe(0)
+  })
+
+  it('counts the books it could not judge and says so out loud', () => {
+    const one = notChecked(aside('unplaceable'))
+    expect(one.count).toBe(1)
+    expect(one.said).toContain('One book is')
+
+    const two = notChecked(aside('unplaceable', 'unplaceable', 'checked-out'))
+    expect(two.count).toBe(2)
+    expect(two.said).toContain('2 books are')
+    expect(two.said).toContain('nowhere on the furniture')
+  })
+})
+
 describe('recordMoved', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
   /*
    * The single write this feature makes, checked against the wire rather than
    * against a mock of the client: confirming has to reach the one endpoint
-   * that changes a recorded location, carrying the shelf the book was carried
+   * that changes a recorded location, carrying the plank the book was carried
    * TO. Writing anything else, or writing nothing, loses the only record of
    * where the book physically is.
+   *
+   * **The plank goes over as an id and not as the label the row showed** (#356).
+   * A label is a rendering of where a piece stands and what it is called, so a
+   * row read before somebody renamed a bookcase would ask the server to find a
+   * plank by a name it no longer answers to.
    */
-  it('writes the shelf the book was carried to, through the location endpoint', async () => {
+  it('writes the plank the book was carried to, through the location endpoint', async () => {
     const calls: Array<{ path: string; init?: RequestInit }> = []
     vi.stubGlobal('fetch', (path: string, init?: RequestInit) => {
       calls.push({ path, init })
@@ -82,7 +127,7 @@ describe('recordMoved', () => {
     expect(calls).toHaveLength(1)
     expect(call?.path).toBe('/api/books/7/location')
     expect(call?.init?.method).toBe('PATCH')
-    expect(JSON.parse(String(call?.init?.body))).toEqual({ location: 'B2' })
+    expect(JSON.parse(String(call?.init?.body))).toEqual({ areaId: 71 })
   })
 })
 
