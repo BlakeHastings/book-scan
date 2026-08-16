@@ -205,6 +205,10 @@ interface AreaRow {
  * scenario, including a retired area, which is one at a negative position kept
  * only because a `book_placement` named it. The truncate cascades to
  * `book_placement`, so by the time these run nothing names an area at all.
+ *
+ * **A name is put back too**, because a name is not decoration: every label on a
+ * piece is derived from it, so a scenario that calls bookcase 1 "Hall shelf"
+ * leaves every scenario after it reading `Hall shelf · A` where it seeded `1A`.
  */
 const RESTORE_FURNITURE = [
   'DELETE FROM area WHERE position <> 0 OR fixture_id NOT IN ' +
@@ -212,6 +216,8 @@ const RESTORE_FURNITURE = [
   'DELETE FROM fixture WHERE id NOT IN ' +
   '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
   "UPDATE area SET starts_at = '' WHERE starts_at <> ''",
+  "UPDATE fixture SET name = '' WHERE name <> ''",
+  "UPDATE area SET name = '' WHERE name <> ''",
 ]
 
 /**
@@ -394,6 +400,22 @@ export class Catalogue {
       `SELECT a.id, f.position AS fixture_position, a.position,
               f.name AS fixture_name, a.name
          FROM area a JOIN fixture f ON f.id = a.fixture_id`,
+    )
+  }
+
+  /**
+   * Give a bookcase a name, which is what the furniture screens are for.
+   *
+   * Written straight in rather than driven through those screens, for the reason
+   * the books are: this is a scenario's setup, and what it is about is what
+   * happens to every other screen afterwards. Naming a piece moves nothing and
+   * changes no id; every label on it reads differently, and #356 is what that
+   * cost the day it was first done.
+   */
+  async nameFixture(fixturePosition: number, name: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE fixture SET name = $1 WHERE position = $2',
+      [name, fixturePosition],
     )
   }
 

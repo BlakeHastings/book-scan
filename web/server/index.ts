@@ -64,7 +64,7 @@ import { PAGE_LIMIT, Store, type DraftBook } from './store'
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
 // A location naming a plank nobody has is refused rather than recorded (#232).
 // See the location route, and `recordPlaced`.
-import { areaOfLocation, historyOf, UnknownPlank } from './placement-ledger'
+import { areaOfRecordedLocation, historyOf, UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
 // The work list the ledger already holds, grouped into trips (#314).
 import { outstandingWork, tripAtArea } from './carry'
@@ -3175,16 +3175,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * A receipt holds the two labels the layout drew when the move was made, and
      * a label is a rendering, so the receipt has to be read back as the planks it
      * names before anything is compared with it. `areaOfLocation` is the one
-     * place that reading is done, and it is the same one `PATCH .../location`
-     * makes of a label a person sends.
+     * place that reading is done, and it reaches a plank the move itself took
+     * off the face, which is the ordinary case: emptying the last area of a run
+     * takes its boundary out.
      *
      * The receipt's own labels are left alone: rewriting somebody's record to
      * make a comparison easier is the mistake this whole area exists not to make.
      */
     const receipts = await Promise.all(outstanding.map(async (move) => ({
       bookId: move.bookId,
-      from: await areaOfLocation(db, move.from),
-      to: await areaOfLocation(db, move.to),
+      from: await areaOfRecordedLocation(db, move.from),
+      to: await areaOfRecordedLocation(db, move.to),
     })))
 
     res.json({

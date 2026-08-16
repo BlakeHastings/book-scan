@@ -75,7 +75,9 @@ import { faceOf } from '../infrastructure/shelving/areas'
 import { CHECKED_OUT } from '../domain/books/state'
 import { areaIndex } from '../shared/layout'
 import { parseLocation } from '../shared/shelving'
-import { areaForLabel, DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
+import {
+  areaForLabel, areaForRecordedLabel, DrizzlePlacementLedger,
+} from '../infrastructure/placement/ledger-repository'
 import type { Db } from './driver'
 
 /** What every write here needs to know about the book being moved. */
@@ -101,6 +103,25 @@ export async function areaOfLocation(db: Db, label: string): Promise<number | nu
   if (position < 0) return null
 
   return areaForLabel(db, parsed.shelf, position)
+}
+
+/**
+ * The same reading, for a label this app wrote down rather than one it was sent.
+ *
+ * Only `outstanding_move` holds such a label: the two the layout drew when a
+ * boundary moved. Reading them back as planks is what lets the misfile list
+ * decide whether a row is a move it opened without comparing one rendering of a
+ * place against another (#356), and it has to reach a retired plank, because the
+ * move that wrote the receipt is the thing that retired it.
+ */
+export async function areaOfRecordedLocation(db: Db, label: string): Promise<number | null> {
+  const parsed = parseLocation(label)
+  if (!parsed) return null
+
+  const position = areaIndex(parsed.section)
+  if (position < 0) return null
+
+  return areaForRecordedLabel(db, parsed.shelf, position)
 }
 
 /**

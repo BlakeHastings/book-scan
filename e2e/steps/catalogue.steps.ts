@@ -119,6 +119,18 @@ async function fillUp(apiUrl: string, label: string, kind: 'area' | 'shelf') {
     .toBe(true)
 }
 
+/**
+ * A piece of furniture with a name on it, which is what the furniture screens
+ * are for and what #356 turned out to cost.
+ *
+ * It moves nothing: every area keeps its id and every book keeps the area it was
+ * placed in. What changes is that every label on the piece is a phrase rather
+ * than a number, which is exactly the thing that must not decide anything.
+ */
+Given('bookcase {int} is called {string}', async ({ catalogue }, position: number, name: string) => {
+  await catalogue.nameFixture(position, name)
+})
+
 /** A plank with a second one after it. */
 Given(
   '{string} filled up, so its last book started a new area',

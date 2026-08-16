@@ -992,6 +992,43 @@ describe('shelving a book onto a bookcase', () => {
     expect((await misfiles()).misfiles).toEqual([])
   })
 
+  /**
+   * Which misfiles the app opened, which is what puts "Undo the move" on a row.
+   *
+   * The receipt holds the two labels the layout drew when the move was made, and
+   * a label is a rendering, so it is read back as the planks it names before
+   * anything is compared with it (#356). Comparing the receipt's strings against
+   * a row's would take the button away the moment somebody named a bookcase, and
+   * the only way out of a mistapped move would be to claim a walk.
+   */
+  it('names the misfile it opened, so the row can offer to take it back', async () => {
+    await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    await seed('Dune', 'Frank Herbert')
+    const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
+    await post('/api/shelves/overflow', { range: 'fiction', label: '1A', kind: 'area' })
+    await patch(`/api/books/${dispossessed}/location`, { location: '1B' })
+    expect((await misfiles()).misfiles).toEqual([])
+
+    /*
+     * Moving the only book of the last area back takes that area's boundary out
+     * with it, so the receipt's `1B` names a plank that is no longer on the
+     * face. It is still the plank the book is recorded on, which is why the
+     * receipt is read back with `areaOfRecordedLocation`.
+     */
+    await post('/api/shelves/move', { range: 'fiction', id: dispossessed, direction: 'previous' })
+
+    expect((await misfiles()).outstandingMoves).toEqual([dispossessed])
+
+    const fixture = await running.db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    await patch(`/api/fixtures/${fixture!.id}`, { name: 'Hall shelf' })
+
+    const named = await misfiles()
+    expect(named.misfiles[0].from).toBe('Hall shelf · B')
+    expect(named.outstandingMoves).toEqual([dispossessed])
+  })
+
   it('leaves a recorded location alone when an edit carries no observation', async () => {
     await splitFiction('shelf', 'area', 'area')
     const id = await seed('The Dispossessed', 'Ursula K. Le Guin')

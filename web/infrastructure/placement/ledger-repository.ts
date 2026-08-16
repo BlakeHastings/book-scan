@@ -143,3 +143,34 @@ export async function areaForLabel(
   )
   return row ? Number(row.id) : null
 }
+
+/**
+ * The same, for a label this app wrote down rather than one a person is sending.
+ *
+ * **It answers a plank that has been taken off the face**, which is the whole
+ * difference. `outstanding_move` holds the two labels a boundary move drew, and
+ * a move that empties the last area of a run takes that area's boundary out with
+ * it, so the receipt names a plank `areaForLabel` will never find: a retired
+ * area's position is `-(plank + 1)`. A person standing in the room still calls
+ * it `1B`, and the receipt is about what happened rather than about what is on
+ * the floor now.
+ *
+ * A plank on the face wins over one retired from the same position, which is the
+ * only way two rows can read as one label.
+ *
+ * Not offered to the write path, and that is deliberate: recording a book onto a
+ * plank the collection has taken out stays refused.
+ */
+export async function areaForRecordedLabel(
+  db: Db,
+  fixturePosition: number,
+  areaPosition: number,
+): Promise<number | null> {
+  const row = await db.get<{ id: number }>(
+    `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
+      WHERE f.position = ? AND (a.position = ? OR a.position = ?)
+      ORDER BY (a.position >= 0) DESC, f.id, a.id LIMIT 1`,
+    [fixturePosition, areaPosition, -(areaPosition + 1)],
+  )
+  return row ? Number(row.id) : null
+}
