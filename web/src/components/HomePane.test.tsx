@@ -56,12 +56,16 @@ function misfile(over: Partial<Misfile['book']> = {}, from = '2C', to = '3A'): M
   return {
     book: {
       id: 7, title: 'Underland', authorFiling: 'Macfarlane, Robert',
-      authors: 'Robert Macfarlane', location: from, derivedLocation: to,
+      authors: 'Robert Macfarlane',
+      location: from, areaId: 23,
+      derivedLocation: to, derivedAreaId: 30,
+      standing: { fixture: 2, plank: 2 },
       sortKey: 'macfarlane robert|underland', checkedOut: false,
       ...over,
     },
     from,
     to,
+    toAreaId: 30,
     instruction: `Move Underland from ${from} to ${to}`,
   }
 }

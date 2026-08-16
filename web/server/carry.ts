@@ -41,11 +41,10 @@
 
 import {
   booksOnArea, carryWork,
-  type AreaFace, type CarryableBook, type CarryWork, type StandingBook,
+  type CarryableBook, type CarryWork, type StandingBook,
 } from '../domain/placement/carry'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
-import { faceOf } from '../infrastructure/shelving/areas'
-import { labelFor } from '../domain/placement/geography'
+import { areaFaces } from '../infrastructure/shelving/areas'
 import type { Db } from './driver'
 
 interface BookRow {
@@ -54,15 +53,6 @@ interface BookRow {
   author_filing: string
   /** Text, the way the catalogue holds it: "336", "" or "336 pages". */
   pages: string | null
-}
-
-interface FaceRow {
-  id: number
-  fixture_id: number
-  fixture_position: number
-  fixture_name: string
-  position: number
-  name: string
 }
 
 /**
@@ -75,44 +65,11 @@ interface FaceRow {
  * phone is standing in front of `4A`, so `4A` is the label a trip has to say and
  * `faceOf` is what turns the stored negative back into it.
  *
- * The same reading `plankLabels` makes and the same one `withPlacements` makes
- * for the wire, through the same `labelFor` and the same `faceOf`. What this
- * adds over `plankLabels` is where each area stands, which is what puts the
- * trips in the order somebody walks them.
+ * It reads out of `infrastructure/shelving/areas.ts` because the misfile review
+ * needs exactly the same answer (#356), and two readings of "where does this
+ * area stand and what does it read as" is how the two sides of that check came
+ * to speak different vocabularies in the first place.
  */
-async function areaFaces(db: Db): Promise<Map<number, AreaFace>> {
-  const rows = await db.all<FaceRow>(
-    `SELECT a.id, a.position, a.name, f.id AS fixture_id,
-            f.position AS fixture_position, f.name AS fixture_name
-       FROM area a JOIN fixture f ON f.id = a.fixture_id`,
-  )
-
-  return new Map(rows.map((row) => {
-    const position = faceOf(row.position)
-    return [Number(row.id), {
-      label: labelFor({
-        fixture: {
-          id: Number(row.fixture_id),
-          position: row.fixture_position,
-          kind: '',
-          name: row.fixture_name,
-          sortStrategy: 'inherit',
-        },
-        area: {
-          id: Number(row.id),
-          fixtureId: Number(row.fixture_id),
-          position,
-          name: row.name,
-          startsAt: '',
-          sortStrategy: 'inherit',
-        },
-      }),
-      fixtureId: Number(row.fixture_id),
-      fixturePosition: row.fixture_position,
-      areaPosition: position,
-    }]
-  }))
-}
 
 const named = (row: BookRow): CarryableBook => ({
   id: Number(row.id),

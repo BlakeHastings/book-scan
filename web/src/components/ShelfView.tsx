@@ -3,7 +3,7 @@ import {
   api, type CheckedOutAt, type Counts, type FiledBookRow, type Misfile, type Move,
   type ShelfGroupDto, type ShelvingReviewResponse,
 } from '../lib/api'
-import { canTakeBack, takeMoveBack } from '../lib/misfile'
+import { canTakeBack, notChecked, takeMoveBack } from '../lib/misfile'
 import { missingFrom, rowOf } from '../lib/shelfRow'
 import {
   LIBRARY_VIEWS, rememberedView, rememberView, VIEW_DESCRIPTION, VIEW_LABEL,
@@ -229,6 +229,14 @@ export function ShelfView({
   const misfiles = review?.misfiles ?? []
   const unplaced = (review?.excluded ?? [])
     .filter((entry) => entry.reason === 'never-placed').length
+  /*
+   * Books the check could not judge at all, which is a different thing from
+   * books it judged and found fine, and the difference is the whole of #356: a
+   * check that quietly sets 181 of 238 books aside answers an empty list, and an
+   * empty list reads as "everything is fine". So the count is drawn whenever it
+   * is not zero, above the list rather than under it.
+   */
+  const unjudged = notChecked(review)
 
   const removeSeparator = async (id: number) => {
     setError('')
@@ -283,6 +291,17 @@ export function ShelfView({
         <button className="btn btn--ghost library__arrange" onClick={onFurniture}>
           See your furniture
         </button>
+      )}
+
+      {/* Louder than a hint, and above the list rather than below it, because
+          it is the one line that says the list underneath is not the whole
+          answer. Nothing here is actionable book by book: what is missing is
+          furniture, so it says so and says how many books are behind it. */}
+      {!loading && unjudged.count > 0 && (
+        <section className="attention">
+          <h3 className="attention__head">Not checked ({unjudged.count})</h3>
+          <p className="hint">{unjudged.said}</p>
+        </section>
       )}
 
       {/* The re-shelving list. Locations are descriptive, so the catalogue can

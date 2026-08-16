@@ -8,11 +8,14 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
+import { editFixture } from './furniture'
 import { UnknownPlank } from './placement-ledger'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
-import { layoutRange, NEWCOMER_ID } from '../shared/layout'
+import { areaLabel, layoutRange, NEWCOMER_ID } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
+import { areaFaces } from '../infrastructure/shelving/areas'
+import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
@@ -480,6 +483,60 @@ describe('the shelf a sort key lands on', () => {
   it('answers nothing for no keys, rather than reading the run to find out', async () => {
     await add('Austen, Jane')
     expect(await shelves.shelvesForSortKeys('fiction', [])).toEqual([])
+    expect(await shelves.areasForSortKeys('fiction', [])).toEqual([])
+  })
+
+  /**
+   * The proof that the area a key lands in is the plank the layout draws it on.
+   *
+   * `areasForSortKeys` walks the run as rows and `shelvesForSortKeys` walks the
+   * boundaries derived from those rows, and the misfile check believes they are
+   * two readings of one sequence. So it is checked rather than argued: every
+   * key, every gap, both ends, plank for plank.
+   */
+  it('lands a key in the very area the layout draws it on', async () => {
+    for (const author of [
+      'Austen, Jane', 'Brontë, Emily', 'Carter, Angela', 'Dickens, Charles',
+      'Eliot, George', 'Forster, E M',
+    ]) await add(author)
+    for (const [label, kind] of [
+      ['1A', 'area'], ['1B', 'shelf'], ['2A', 'area'],
+    ] as const) await shelves.overflow('fiction', label, kind)
+
+    const keys = (await shelves.layout('fiction')).map((p) => p.book.sortKey)
+    const asked = [' ', ...keys.flatMap((key, at) =>
+      (at === 0 ? [key] : [`${keys[at - 1]!}M`, key])), '~~']
+
+    const faces = await areaFaces(db)
+    const labels = await shelves.shelvesForSortKeys('fiction', asked)
+    const areas = await shelves.areasForSortKeys('fiction', asked)
+
+    for (const [at, key] of asked.entries()) {
+      const face = faces.get(areas[at]!)
+      expect(face, `an area for ${JSON.stringify(key)}`).toBeDefined()
+      expect(`${face!.fixturePosition}${areaLabel(face!.areaPosition)}`).toBe(labels[at])
+    }
+  })
+
+  /**
+   * And it goes on landing there once the piece has a name, which is the whole
+   * of #356 said about one function.
+   */
+  it('lands a key in the same area after the bookcase is named', async () => {
+    await add('Austen, Jane')
+    await add('Zola, Émile')
+    await shelves.overflow('fiction', '1A', 'area')
+
+    const keys = (await shelves.layout('fiction')).map((p) => p.book.sortKey)
+    const before = await shelves.areasForSortKeys('fiction', keys)
+    expect(new Set(before).size).toBe(2)
+
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    await editFixture(db, fixture!.id, { name: 'Hall shelf' })
+
+    expect(await shelves.areasForSortKeys('fiction', keys)).toEqual(before)
   })
 
   it('still answers one key through the method the placing card calls', async () => {
@@ -1273,5 +1330,118 @@ describe('misfile detection', () => {
     const review = await shelves.review('fiction')
     expect(review.misfiles).toEqual([])
     expect(review.excluded).toEqual([])
+  })
+
+  /**
+   * #356, and the reason the check compares ids rather than labels.
+   *
+   * Naming a bookcase is what the furniture screens are for, and it changes
+   * nothing about where any book is: every area keeps its id, every placement
+   * keeps the area it names, and the only thing that reads differently is the
+   * label, which is derived. So a review taken either side of a rename has to
+   * say exactly the same thing about exactly the same books.
+   */
+  it('says the same thing about the same books once a bookcase is named', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    await shelves.overflow('fiction', '1A', 'area')
+    expect(await flagged()).toHaveLength(1)
+
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    const named = await editFixture(db, fixture!.id, { name: 'Hall shelf' })
+    expect(named.ok).toBe(true)
+
+    const review = await shelves.review('fiction')
+    expect(review.excluded).toEqual([])
+    expect(review.misfiles.map((m) => m.book.id)).toEqual([bob])
+  })
+
+  /**
+   * The write side of the same defect, and the one that loses work rather than
+   * hiding it.
+   *
+   * A save records where the book landed by handing the label the layout drew
+   * straight back to the ledger, and the layout draws `1A` whatever the piece is
+   * called. `areaForLabel` used to match only unnamed furniture, so naming a
+   * bookcase made every one of those labels name no plank: the save refused, and
+   * the book had no recorded position at all.
+   */
+  it('records a book put on a bookcase that has a name', async () => {
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    await editFixture(db, fixture!.id, { name: 'Hall shelf' })
+
+    const id = await shelve('Ann Author')
+
+    expect((await store.getBook(id))?.location).toBe('Hall shelf · A')
+    const review = await shelves.review('fiction')
+    expect(review.misfiles).toEqual([])
+    expect(review.excluded).toEqual([])
+  })
+
+  /**
+   * The other half of the same claim: a settled collection stays settled.
+   *
+   * Comparing labels reported nothing here too, which is what made the defect
+   * invisible. What said it was wrong was the count of books the check had set
+   * aside, so that is what this asserts.
+   */
+  it('does not set a single book aside because its bookcase has a name', async () => {
+    await shelve('Ann Author')
+    await shelve('Bob Baker')
+
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    await editFixture(db, fixture!.id, { name: 'Hall shelf' })
+
+    const review = await shelves.review('fiction')
+    expect(review.excluded).toEqual([])
+    expect(review.misfiles).toEqual([])
+  })
+})
+
+/**
+ * The other comparison of two readings, and it had the same defect (#356).
+ *
+ * `areaDisagreements` places every shelved book twice, once as the app draws it
+ * and once as the rules claim it, and `applySchema` runs it on every start. Its
+ * two readings render a label with different functions, so naming a bookcase
+ * would have had it report every correctly shelved book on that piece: the
+ * opposite symptom of the misfile list's, out of one cause.
+ */
+describe('the drift check the app makes about itself on every start', () => {
+  /**
+   * A book with the tag its range comes from, which is what a rule reads.
+   *
+   * `store.addBook` writes the range; the tag is written beside it by
+   * `settleGenre` in the save route, and this check asks the rules rather than
+   * the column, so a book with no tag is claimed by nothing.
+   */
+  const tagged = async (author: string) => {
+    const id = await add(author)
+    await db.run(
+      `INSERT INTO book_tag (book_id, tag_id, source, confidence, added_at)
+       SELECT ?, id, 'person', 'stated', '2026-08-16' FROM tag WHERE slug = ?`,
+      [id, FICTION_SLUG],
+    )
+    return id
+  }
+
+  it('says nothing about the books on a bookcase that has a name', async () => {
+    await tagged('Ann Author')
+    await tagged('Bob Baker')
+    await shelves.overflow('fiction', '1A', 'area')
+    expect(await areaDisagreements(db)).toEqual([])
+
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    await editFixture(db, fixture!.id, { name: 'Hall shelf' })
+
+    expect((await areaDisagreements(db)).map(describeAreaDisagreement)).toEqual([])
   })
 })

@@ -71,6 +71,11 @@ const TRUNCATE =
  * kept only because a `book_placement` named it, and the truncate cascades to
  * `book_placement`, so by the time these run nothing names an area at all and
  * the deletes are free.
+ *
+ * **A name is put back too**, because a name is not decoration: every label on a
+ * piece is derived from it, so a test that calls bookcase 1 "Hall shelf" leaves
+ * every following test in the file reading `Hall shelf · A` where it seeded
+ * `1A`. `0013` leaves both names empty and this is what puts them back.
  */
 const RESTORE_FURNITURE = [
   'DELETE FROM area WHERE position <> 0 OR fixture_id NOT IN ' +
@@ -78,6 +83,8 @@ const RESTORE_FURNITURE = [
   'DELETE FROM fixture WHERE id NOT IN ' +
   '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
   "UPDATE area SET starts_at = '' WHERE starts_at <> ''",
+  "UPDATE fixture SET name = '' WHERE name <> ''",
+  "UPDATE area SET name = '' WHERE name <> ''",
 ]
 
 interface Catalogue {

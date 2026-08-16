@@ -44,6 +44,21 @@
  * checked by its own arithmetic proves that it is self-consistent, which is the
  * one thing that was never in doubt.
  *
+ * ## What it compares is the plank, not what the plank is called (#356)
+ *
+ * The two readings render a label with different functions, and they have to:
+ * `layoutRange` renders from ordinals and the rules render through `labelFor`,
+ * which says the name a person gave the piece. While nothing was named the two
+ * strings matched and comparing them looked right. **The moment a bookcase is
+ * given a name, every correctly shelved book on it disagrees**, because one side
+ * says `2A` and the other says `Hall shelf · A` about the one plank, and this
+ * check would have printed the whole collection on every start.
+ *
+ * So it compares area ids and prints labels. `areaOfKey` is what turns the
+ * layout's walk into the row it landed on, it is the same reader `Shelves`
+ * answers "where does this book belong" with, and `shelves.test.ts` proves it
+ * lands each key on the very plank `layoutRange` draws it on.
+ *
  * ## Reported, not repaired
  *
  * Nothing here writes. Repairing on sight would destroy the evidence of how a
@@ -57,7 +72,7 @@ import { placementOf } from '../../domain/placement/rules'
 import { GENRE_RANGES } from '../../domain/tagging/genre'
 import type { Db } from '../../server/driver'
 import { layoutRange } from '../../shared/layout'
-import { bandsOf, boundariesOf, furnitureIn } from './areas'
+import { areaOfKey, bandsOf, boundariesFrom, furnitureIn, runAreasOf } from './areas'
 
 /** One book the two readings put in different places. */
 export interface AreaDisagreement {
@@ -89,8 +104,10 @@ interface BookRow {
  * orderings, because the order the boundaries come back in is what decides where
  * two sharing an anchor are stepped over.
  */
-async function underTheLayout(db: Db): Promise<Map<number, { title: string; label: string }>> {
-  const placed = new Map<number, { title: string; label: string }>()
+async function underTheLayout(
+  db: Db,
+): Promise<Map<number, { title: string; label: string; areaId: number | null }>> {
+  const placed = new Map<number, { title: string; label: string; areaId: number | null }>()
   const bands = await bandsOf(db)
 
   for (const { range } of GENRE_RANGES) {
@@ -102,14 +119,23 @@ async function underTheLayout(db: Db): Promise<Map<number, { title: string; labe
       [range],
     )
 
+    // One read of the run, used both ways: the boundary list the layout walks is
+    // derived from these rows, so the plank a book lands on and the plank the
+    // walk draws it on are two readings of one sequence rather than two reads
+    // that have to agree.
+    const run = await runAreasOf(db, range)
     const layout = layoutRange(
       books.map((row) => ({ id: row.id, title: row.title, sortKey: row.sort_key })),
-      await boundariesOf(db, range),
+      boundariesFrom(range, run),
       band.start,
     )
 
     for (const one of layout) {
-      placed.set(one.book.id, { title: one.book.title, label: one.label })
+      placed.set(one.book.id, {
+        title: one.book.title,
+        label: one.label,
+        areaId: areaOfKey(run, one.book.sortKey)?.id ?? null,
+      })
     }
   }
 
@@ -117,7 +143,9 @@ async function underTheLayout(db: Db): Promise<Map<number, { title: string; labe
 }
 
 /** Where the rules and the areas put every shelved book, run through the domain. */
-async function underRules(db: Db): Promise<Map<number, string>> {
+async function underRules(
+  db: Db,
+): Promise<Map<number, { label: string; areaId: number | null }>> {
   const { order, rules } = await furnitureIn(db)
 
   const books = await db.all<BookRow & { slugs: string[] }>(
@@ -129,12 +157,14 @@ async function underRules(db: Db): Promise<Map<number, string>> {
       GROUP BY b.id, b.title, b.sort_key`,
   )
 
-  const placed = new Map<number, string>()
+  const placed = new Map<number, { label: string; areaId: number | null }>()
   for (const row of books) {
     const found = placementOf({ sortKey: row.sort_key, tagSlugs: row.slugs ?? [] }, rules, order)
-    // Empty rather than thrown, so a book the rules cannot place shows up as a
+    // Nothing rather than thrown, so a book the rules cannot place shows up as a
     // disagreement instead of stopping the check.
-    placed.set(row.id, found ? labelFor(found.slot) : '')
+    placed.set(row.id, found
+      ? { label: labelFor(found.slot), areaId: found.slot.area.id }
+      : { label: '', areaId: null })
   }
   return placed
 }
@@ -150,10 +180,11 @@ export async function areaDisagreements(db: Db): Promise<AreaDisagreement[]> {
   const [layout, rules] = await Promise.all([underTheLayout(db), underRules(db)])
 
   const found: AreaDisagreement[] = []
-  for (const [bookId, { title, label }] of layout) {
-    const fromRules = rules.get(bookId) ?? ''
-    if (fromRules !== label) {
-      found.push({ bookId, title, fromLayout: label, fromRules })
+  for (const [bookId, { title, label, areaId }] of layout) {
+    const claimed = rules.get(bookId) ?? { label: '', areaId: null }
+    // The plank, not what it is called. See the note above about #356.
+    if (areaId === null || claimed.areaId !== areaId) {
+      found.push({ bookId, title, fromLayout: label, fromRules: claimed.label })
     }
   }
 

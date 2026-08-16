@@ -954,6 +954,20 @@ const setLocation = (id: number, location: string) =>
   })
 
 /**
+ * The same, said as the plank rather than as its name.
+ *
+ * For a screen acting on a row the server drew, which is where a label is the
+ * wrong key: it is derived from where a piece stands and what it is called, so
+ * a list read a minute ago can name a plank by a name nobody uses now. The same
+ * reason `/api/carry/trip` is asked with two ids. See #356.
+ */
+const setLocationIn = (id: number, areaId: number) =>
+  request<{ book: FiledBookRow }>(`/api/books/${id}/location`, {
+    method: 'PATCH',
+    body: JSON.stringify({ areaId }),
+  })
+
+/**
  * Check a book out, or check it in. Nothing is deleted either way.
  *
  * Asking for the state it is already in is a no-op: `outcome` says whether
@@ -1412,6 +1426,7 @@ export const api = {
     request<TripAtAnArea>(`/api/carry/trip?from=${from}&to=${to}`),
 
   setLocation,
+  setLocationIn,
 
   /*
    * The furniture (#307's routes, #313's screens).

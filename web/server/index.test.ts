@@ -693,6 +693,65 @@ describe('updating a location', () => {
     const { status } = await patch('/api/books/999/location', { location: '1A' })
     expect(status).toBe(404)
   })
+
+  /**
+   * The form a screen sends, and the reason it exists (#356).
+   *
+   * A screen is acting on a plank the server drew for it, and the label it was
+   * drawn with is a rendering of where that piece stands and what it is called.
+   * Sending the id says which plank without asking the server to read its own
+   * writing back.
+   */
+  it('takes the plank as an id, which is what a list the server drew sends', async () => {
+    await splitFiction('shelf', 'area', 'area')
+    const { id } = await running.store.addBook({
+      title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
+    })
+    const area = await running.db.get<{ id: number }>(
+      `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
+        WHERE f.position = 2 AND a.position = 2`,
+    )
+
+    const { status, body } = await patch(`/api/books/${id}/location`, { areaId: area!.id })
+
+    expect(status).toBe(200)
+    expect(body.book.location).toBe('2C')
+    expect((await running.store.getBook(id))?.location).toBe('2C')
+  })
+
+  it('refuses an area id nothing has, and leaves the book where it was', async () => {
+    const { id } = await running.store.addBook({
+      title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
+    })
+
+    const { status } = await patch(`/api/books/${id}/location`, { areaId: 987654 })
+
+    expect(status).toBe(400)
+    expect((await running.store.getBook(id))?.location).toBe('1A')
+  })
+
+  /**
+   * The write path #356 broke, from the outside.
+   *
+   * Naming a bookcase made every positional label name no plank, so the one
+   * route that records where somebody put a book refused the labels the app
+   * itself had drawn a second earlier.
+   */
+  it('still takes a positional label once the bookcase has a name', async () => {
+    await splitFiction('shelf', 'area', 'area')
+    const { id } = await running.store.addBook({
+      title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
+    })
+    const fixture = await running.db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 2 ORDER BY id LIMIT 1',
+    )
+    await patch(`/api/fixtures/${fixture!.id}`, { name: 'Hall shelf' })
+
+    const { status, body } = await patch(`/api/books/${id}/location`, { location: '2C' })
+
+    expect(status).toBe(200)
+    expect(body.book.location).toBe('Hall shelf · C')
+  })
 })
 
 describe('checking a book out and back in by id', () => {

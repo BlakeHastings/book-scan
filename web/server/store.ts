@@ -68,7 +68,7 @@ import { rangeLock } from './shelves'
  * commit together.
  */
 import {
-  recordCheckedOut, recordPlaced, withPlacements, withPlacementsOf,
+  recordCheckedOut, recordPlaced, recordPlacedIn, withPlacements, withPlacementsOf,
   type PlacementFields,
 } from './placement-ledger'
 
@@ -869,6 +869,31 @@ export class Store {
       )
       if (!moved) return
       await recordPlaced(tx, { id, sortKey: moved.sort_key, location }, at)
+    })
+  }
+
+  /**
+   * The same, said as the plank rather than as its name.
+   *
+   * **Not a fifth statement**: it is this one with the label already resolved,
+   * and it writes the same `placed` row through the same file on the same
+   * transaction handle. It exists because a label is a rendering and a caller
+   * acting on a list the server drew should not have to hand that rendering back
+   * to be read again, which is how a named bookcase came to refuse the very
+   * labels the app itself had just written (#356).
+   *
+   * Refuses an area the collection does not have, by throwing, exactly as the
+   * label form refuses a plank nobody owns.
+   */
+  async setLocationIn(id: number, areaId: number): Promise<void> {
+    const at = new Date().toISOString()
+    await this.db.tx(async (tx) => {
+      const moved = await tx.get<{ sort_key: string }>(
+        'SELECT sort_key FROM books WHERE id = ?',
+        [id],
+      )
+      if (!moved) return
+      await recordPlacedIn(tx, { id, sortKey: moved.sort_key, location: '' }, areaId, at)
     })
   }
 

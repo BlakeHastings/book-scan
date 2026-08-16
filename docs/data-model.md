@@ -778,17 +778,28 @@ translation module in `web/server/placement-ledger.ts`.
 
 **Cut over by #232, and the three columns are gone.** The ledger is where a book
 is, `books.current_area_id` is the projection a shelf is drawn from, and
-`withPlacements` in `web/server/placement-ledger.ts` derives `location` and
-`checked_out_at` for the wire. No statement anywhere reads a location from
-`books`, because there is no location on `books`. `reviewShelving` still computes
-the misfile list from a recorded location against a derived label, and what
-changed underneath it is that the recorded side is now read out of the rows like
-the derived side.
+`withPlacements` in `web/server/placement-ledger.ts` derives `location`,
+`area_id` and `checked_out_at` for the wire. No statement anywhere reads a
+location from `books`, because there is no location on `books`.
+
+**`reviewShelving` computes the misfile list from areas, not from labels
+(#356).** It compared a recorded label against a derived one, which worked only
+because both renderers agreed while nothing had a name: the ledger renders
+`Hall shelf · A` and the ordinal walk renders `2A` for one plank, so naming a
+bookcase took every book on it out of the check and answered an empty list. That
+is why `area_id` travels beside `location` on the wire and why `Misfile` carries
+`toAreaId` beside `to`: a label answers "what does somebody read" and only the id
+answers "is this the same place". This is the same rule the labels-are-derived
+note above states, applied to the comparison rather than to the storage.
 
 **This one is written on every move, the way #200 taught.** There are exactly
 four statements in this repository that change where a book is, and all four are
 in `Store`: the insert in `addBook`, the update in `updateBook`, `setLocation`
-and `setCheckedOut`. Each calls `server/placement-ledger.ts` on the transaction
+and `setCheckedOut`. `setLocationIn` is not a fifth: it is `setLocation` with the
+label already resolved to the plank, writing the same row through the same file
+on the same handle, and it exists because a caller acting on a list the server
+drew should not have to hand a rendering back to be read again (#356). Each calls
+`server/placement-ledger.ts` on the transaction
 handle that is writing the book, so a placement cannot be written without a row,
 and since #232 there is nowhere else for one to be written. That is the same
 write-through #200 moved `capture` onto after finding five

@@ -113,7 +113,9 @@ export async function areaOfLocation(db: Db, label: string): Promise<number | nu
  */
 export class UnknownPlank extends Error {
   constructor(readonly label: string) {
-    super(`There is no plank called ${label}, so a book cannot be recorded on it.`)
+    super(label
+      ? `There is no plank called ${label}, so a book cannot be recorded on it.`
+      : 'There is no such plank, so a book cannot be recorded on it.')
   }
 }
 
@@ -137,13 +139,34 @@ export async function recordPlaced(db: Db, book: PlacedBook, at: string): Promis
   const areaId = await areaOfLocation(db, label)
   if (areaId === null) throw new UnknownPlank(label)
 
+  await recordPlacedIn(db, book, areaId, at, `recorded at ${label}`)
+}
+
+/**
+ * The same, for a caller that already holds the plank rather than its name.
+ *
+ * The area is checked to exist rather than trusted, because an id off a screen
+ * is a claim about the furniture like any other and the ledger's foreign key
+ * would otherwise answer it with a constraint violation halfway through a
+ * transaction instead of with a sentence somebody can read.
+ */
+export async function recordPlacedIn(
+  db: Db,
+  book: PlacedBook,
+  areaId: number,
+  at: string,
+  reason = 'recorded on the plank it was put on',
+): Promise<void> {
+  const area = await db.get<{ id: number }>('SELECT id FROM area WHERE id = ?', [areaId])
+  if (!area) throw new UnknownPlank('')
+
   await new DrizzlePlacementLedger(db).record({
     bookId: book.id,
     kind: 'placed',
     areaId,
     sortKey: book.sortKey,
     actor: 'person',
-    reason: `recorded at ${label}`,
+    reason,
     createdAt: at,
   })
 }
@@ -163,15 +186,27 @@ export async function recordPlaced(db: Db, book: PlacedBook, at: string): Promis
 export interface PlacementFields {
   /** Where a person last said the book is, or '' for a book nobody has placed. */
   location: string
+  /**
+   * The area `location` is a rendering of, or null for a book nobody has placed.
+   *
+   * `books.current_area_id` itself. It travels beside the label because a label
+   * answers "what does somebody read" and only the id answers "is this the same
+   * place", and giving one string both jobs is what switched misfile detection
+   * off for every book on a named bookcase (#356).
+   */
+  area_id: number | null
   /** Set while the book is off the shelf, null while it is on one. */
   checked_out_at: string | null
 }
 
 /** A book nowhere, which is every book nobody has put anywhere. */
-export const NOT_PLACED: PlacementFields = { location: '', checked_out_at: null }
+export const NOT_PLACED: PlacementFields = {
+  location: '', area_id: null, checked_out_at: null,
+}
 
 interface PlacementRow {
   id: number
+  area_id: number | null
   fixture_id: number | null
   fixture_position: number | null
   fixture_name: string | null
@@ -190,7 +225,11 @@ interface PlacementRow {
  * and the two would part company the first time somebody named a bookcase.
  */
 function fieldsOf(row: PlacementRow): PlacementFields {
-  return { location: labelOf(row), checked_out_at: row.checked_out_at }
+  return {
+    location: labelOf(row),
+    area_id: row.area_id === null ? null : Number(row.area_id),
+    checked_out_at: row.checked_out_at,
+  }
 }
 
 /** Where a joined fixture and area read as a label, or '' for neither. */
@@ -319,7 +358,8 @@ export async function withPlacements<Row extends { id: number }>(
   if (!rows.length) return []
 
   const found = await db.all<PlacementRow>(
-    `SELECT b.id, f.id AS fixture_id, f.position AS fixture_position, f.name AS fixture_name,
+    `SELECT b.id, b.current_area_id AS area_id,
+            f.id AS fixture_id, f.position AS fixture_position, f.name AS fixture_name,
             a.position AS area_position, a.name AS area_name,
             CASE WHEN b.state = ? THEN
               (SELECT p.created_at FROM book_placement p
