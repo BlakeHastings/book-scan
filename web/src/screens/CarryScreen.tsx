@@ -23,7 +23,7 @@ import { useNavigation } from '../app/navigation'
 import { usePaper } from '../app/paper'
 
 export function CarryScreen() {
-  const { setRoute } = useNavigation()
+  const { openScanner, setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const { choose } = useArmful()
   const [work, setWork] = useState<CarryWork | null>(null)
@@ -57,7 +57,7 @@ export function CarryScreen() {
       onHome={() => setRoute('home')}
       onLibrary={() => setRoute('library')}
       onQueue={() => setRoute('queue')}
-      onScan={() => setRoute('scan')}
+      onScan={openScanner}
     />
   )
 }

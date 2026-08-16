@@ -14,7 +14,7 @@ import { useNavigation } from '../app/navigation'
 import { usePaper } from '../app/paper'
 
 export function CarryStaleScreen() {
-  const { setRoute } = useNavigation()
+  const { openScanner, setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const [work, setWork] = useState<CarryWork | null>(null)
   usePaper()
@@ -33,7 +33,7 @@ export function CarryStaleScreen() {
       onCarry={() => setRoute('carry')}
       onHome={() => setRoute('home')}
       onQueue={() => setRoute('queue')}
-      onScan={() => setRoute('scan')}
+      onScan={openScanner}
     />
   )
 }

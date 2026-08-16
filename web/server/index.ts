@@ -71,7 +71,7 @@ import { outstandingWork, tripAtArea } from './carry'
 import { watchBackups } from './backup-watch'
 import {
   addAreaTo, addFixture, booksInArea, describeFixture, describeFurniture, dropArea, dropFixture,
-  editArea, editFixture, planAreaRemoval, planFixtureRemoval,
+  editArea, editCollection, editFixture, planAreaRemoval, planFixtureRemoval,
 } from './furniture'
 // How this API says no, and how it reads an id out of a request (#332). One
 // line replaces `Number(req.params.id)`, and a client typo is a 404 rather than
@@ -2126,6 +2126,26 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   /** The whole room: every piece on the floor and every area on its face. */
   app.get('/api/fixtures', asyncRoute(async (_req, res) => {
     res.json(await describeFurniture(db))
+  }))
+
+  /**
+   * What the whole collection falls back on (#350).
+   *
+   * The one write about the collection itself, and there is no `GET` beside it:
+   * `GET /api/fixtures` already answers `defaultSortStrategy` and a second read
+   * of one column would be a second answer to keep agreeing with the first.
+   *
+   * No id in the path, because there is one collection. The day there is more
+   * than one is #171, and it is a change to every route here rather than to the
+   * shape of this one.
+   */
+  app.patch('/api/collection', asyncRoute(async (req, res) => {
+    const edited = await editCollection(db, (req.body ?? {}) as Record<string, unknown>)
+    if (!edited.ok) {
+      refused(res, edited)
+      return
+    }
+    res.json({ collection: { defaultSortStrategy: edited.defaultSortStrategy } })
   }))
 
   app.get('/api/fixtures/:id', asyncRoute(async (req, res) => {

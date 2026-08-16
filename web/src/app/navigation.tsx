@@ -50,6 +50,12 @@ export type Route =
    */
   | 'furniture' | 'fixture' | 'area' | 'addarea' | 'belongs' | 'sorting'
   /*
+   * What the corner opens onto (#350). Not one of the furniture six: it is
+   * about the collection rather than about a piece of it, and it is reached
+   * from the same menu the furniture is reached from.
+   */
+  | 'settings'
+  /*
    * Why one book is here (#323). Not part of the six: two screen groups reach
    * it, the furniture and the book page, and it goes back to whichever one it
    * was opened from rather than to a fixed place.
@@ -119,6 +125,36 @@ export interface Navigation {
   readonly openClaim: (bookId: number) => void
   /** Back to the screen the claim was opened from, whichever it was. */
   readonly closeClaim: () => void
+  /**
+   * Open one of the two screens the corner leads to, from wherever you are.
+   *
+   * **The corner is on more than one screen, which is the whole reason this
+   * exists** (#350). The furniture screen's back arrow used to go to the
+   * library and nowhere else, which was already a wrinkle #333 named: walking
+   * in from the menu and straight back out landed you on your books rather
+   * than where you started. Now the menu can be opened from the first screen
+   * as well, so "back to the library" would be wrong more often than it is
+   * right, and the answer is the one `openArranging` already uses: remember
+   * the screen that offered it.
+   */
+  readonly openRoom: (screen: 'furniture' | 'settings') => void
+  /** Back to the screen the corner was opened from, whichever one it was. */
+  readonly leaveRoom: () => void
+  /**
+   * Open the scanner: the camera that reads a book you are already holding.
+   *
+   * **Every way in goes through this and closing it comes back here** (#350).
+   * It used to be `setRoute('scan')` from five screens and one `setRoute('home')`
+   * to leave, so giving up on the scanner put you on the first screen whichever
+   * screen you had opened it from. That was survivable while its only real door
+   * was the first screen's corner; the profile icon has that corner now and the
+   * scanner's door moved to the screen about finding a book, where being
+   * dropped two screens away from what you were searching is somebody's search
+   * thrown out.
+   */
+  readonly openScanner: () => void
+  /** Back to the screen the scanner was opened from. */
+  readonly leaveScanner: () => void
 }
 
 const Context = createContext<Navigation | null>(null)
@@ -136,6 +172,17 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const [arrangeBack, setArrangeBack] = useState<Route>('shelves')
   const [claiming, setClaiming] = useState<number | null>(null)
   const [claimBack, setClaimBack] = useState<Route>('review')
+  /*
+   * Where the corner was pressed. The library is the fallback because that is
+   * where the furniture was reached from before there was a corner, and
+   * because a screen that has never been opened from anywhere still has to
+   * have a way out.
+   */
+  const [roomBack, setRoomBack] = useState<Route>('library')
+  /* Where the scanner was opened from. The first screen is the fallback for the
+     same reason the library is above: a screen has to have a way out even if
+     nothing ever recorded a way in. */
+  const [scanBack, setScanBack] = useState<Route>('home')
 
   /**
    * Open the shelves on a particular run, from the top.
@@ -176,6 +223,25 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setRoute('claimed')
   }
 
+  /*
+   * Deliberately not recorded when the corner is opened from one of these two
+   * screens itself. Nothing opens the corner from inside the furniture today,
+   * and if something ever does, a back arrow that returns you to the screen you
+   * are already on is a button that does nothing.
+   */
+  const openRoom = (screen: 'furniture' | 'settings') => {
+    if (route !== 'furniture' && route !== 'settings') setRoomBack(route)
+    setRoute(screen)
+  }
+
+  const openScanner = () => {
+    /* Not from inside itself, and it can be: finishing with a scanned book
+       lands back in the scanner, and a way out that returned you to the
+       scanner would be a button that does nothing. */
+    if (route !== 'scan') setScanBack(route)
+    setRoute('scan')
+  }
+
   return (
     <Context.Provider
       value={{
@@ -190,6 +256,10 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         claiming,
         openClaim,
         closeClaim: () => setRoute(claimBack),
+        openRoom,
+        leaveRoom: () => setRoute(roomBack),
+        openScanner,
+        leaveScanner: () => setRoute(scanBack),
       }}
     >
       {children}

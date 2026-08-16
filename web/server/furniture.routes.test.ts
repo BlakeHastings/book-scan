@@ -165,6 +165,15 @@ interface SeededFurniture {
    * would land in whichever one built its world next.
    */
   rules: { id: number; enabled: boolean; priority: number; name: string }[]
+  /**
+   * The collection's own default, for the same reason the rules are here.
+   *
+   * Added by #350, which gave that column a route. A test that orders the whole
+   * house by title would otherwise hand every test after it a room where every
+   * area that inherits is ordered by title, and the failure would land in
+   * whichever one read an ordering next.
+   */
+  collections: { id: number; default_sort_strategy: string }[]
 }
 
 /**
@@ -188,6 +197,7 @@ async function captureFurniture(): Promise<SeededFurniture> {
       'SELECT id, position, name, starts_at, sort_strategy, note FROM area ORDER BY id',
     ),
     rules: await db.all('SELECT id, enabled, priority, name FROM placement_rule ORDER BY id'),
+    collections: await db.all('SELECT id, default_sort_strategy FROM collection ORDER BY id'),
   }
 }
 
@@ -210,6 +220,11 @@ async function restoreFurniture(from: SeededFurniture): Promise<void> {
       'UPDATE placement_rule SET enabled = ?, priority = ?, name = ? WHERE id = ?',
       [one.enabled, one.priority, one.name, one.id],
     )
+  }
+  for (const one of from.collections) {
+    await db.run('UPDATE collection SET default_sort_strategy = ? WHERE id = ?', [
+      one.default_sort_strategy, one.id,
+    ])
   }
 }
 
@@ -318,6 +333,90 @@ describe('reading the room', () => {
     expect((await nonFiction()).areas.map((one: { holds: string }) => one.holds)).toEqual([
       'Non-fiction starts here', 'Put here by hand', 'Put here by hand',
     ])
+  })
+})
+
+/**
+ * The one settable thing about the collection itself (#350).
+ *
+ * `collection.default_sort_strategy` has been a real column since the furniture
+ * became rows, and two screens have read it out loud since #313: an area says
+ * it is ordered "the way bookcase 2 does" and the ordering screen says that is
+ * "by the author". Nothing anywhere could change it, and the settings screen
+ * the corner opens is where it is now asked for.
+ *
+ * So what is proved here is that changing it **changes something**, which is
+ * the whole difference between a setting and a switch that does nothing: the
+ * value comes back off the read, and every area that inherits is ordered
+ * differently afterwards. The two refusals are checked in the same breath,
+ * because a screen that offered either would be offering a button the server
+ * answers 400 to.
+ */
+describe('how the whole collection is ordered', () => {
+  it('writes it, and every area that inherits is ordered by it afterwards', async () => {
+    await buildWorld()
+
+    const before = await nonFiction()
+    expect(before.sortStrategy).toBe('inherit')
+    expect(before.areas.map((one: { ordering: string }) => one.ordering))
+      .toEqual(['author', 'author', 'author'])
+
+    const set = await patch('/api/collection', { defaultSortStrategy: 'title' })
+    expect(set.status).toBe(200)
+    expect(set.body.collection.defaultSortStrategy).toBe('title')
+
+    const { body } = await get('/api/fixtures')
+    expect(body.defaultSortStrategy).toBe('title')
+    expect((await nonFiction()).areas.map((one: { ordering: string }) => one.ordering))
+      .toEqual(['title', 'title', 'title'])
+  })
+
+  /**
+   * An area that has been given an order of its own is not touched by this, and
+   * that is the point of the cascade rather than an accident of it: a run is
+   * only ever reordered by somebody changing that run.
+   */
+  it('leaves an area that has chosen for itself exactly where it was', async () => {
+    await buildWorld()
+    const middle = (await nonFiction()).areas[1]
+    await patch(`/api/areas/${middle.id}`, { sortStrategy: 'published', acknowledge: true })
+
+    await patch('/api/collection', { defaultSortStrategy: 'title' })
+
+    expect((await nonFiction()).areas.map((one: { ordering: string }) => one.ordering))
+      .toEqual(['title', 'published', 'title'])
+  })
+
+  it('refuses inherit, which has nothing above it to ask', async () => {
+    await buildWorld()
+
+    const set = await patch('/api/collection', { defaultSortStrategy: 'inherit' })
+    expect(set.status).toBe(400)
+    expect(set.body.error).toMatch(/nothing above it/)
+    expect((await get('/api/fixtures')).body.defaultSortStrategy).toBe('author')
+  })
+
+  /*
+   * By tag orders a run by its first tag slug, which is a sensible thing to ask
+   * of one area and files a whole house by an accident of the vocabulary. The
+   * seed row for it has said "Never the collection default" since the table was
+   * written, and until something offered the choice that was a note nobody
+   * could enforce.
+   */
+  it('refuses tag, which is a way to order one area and not a house', async () => {
+    await buildWorld()
+
+    const set = await patch('/api/collection', { defaultSortStrategy: 'tag' })
+    expect(set.status).toBe(400)
+    expect(set.body.error).toMatch(/cannot be ordered by tag/)
+    expect((await get('/api/fixtures')).body.defaultSortStrategy).toBe('author')
+  })
+
+  it('refuses a word that is not a way of ordering anything', async () => {
+    await buildWorld()
+
+    expect((await patch('/api/collection', { defaultSortStrategy: 'colour' })).status).toBe(400)
+    expect((await patch('/api/collection', {})).status).toBe(400)
   })
 })
 

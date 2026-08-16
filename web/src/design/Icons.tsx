@@ -1,7 +1,7 @@
 /**
  * Every icon in the redesign, drawn inline.
  *
- * There are eleven, and that is the whole set on purpose. An icon here exists
+ * There are twelve, and that is the whole set on purpose. An icon here exists
  * only where a word is already beside it (the tab bar), where the target is a
  * corner of the screen (back, and the one action in the top right), or where
  * the target sits inside a control that has no room for a word and is already
@@ -20,11 +20,14 @@
  * above now names the corner rather than only the back arrow. A corner action
  * still carries an accessible name; see `Chrome.tsx`.
  *
- * **Nothing was added here for the portrait in the corner** (#329), and that
- * is worth saying because it is the obvious place to have put one. It is the
- * cat, framed, and he lives in `Cat.tsx` where his other three jobs are. A
- * twelfth glyph drawn to stand in for a cat that is already drawn is a second
- * cat, and the set is eleven for the same reason it was eleven before.
+ * **The twelfth is `IconPerson`, and it arrived by the owner overruling the
+ * drawing** (#350). #329 drew the corner as the cat and added nothing here,
+ * on the argument that a face in that ring is a portrait of an account nobody
+ * has. The owner read that argument and chose the other way, saying in the
+ * same breath that multi-user is coming and that we are not there yet: he is
+ * taking the shape that will be right later over the one that is honest today,
+ * and it is his call. So there is a person in the set now, and everything the
+ * drawing put underneath it is kept, which is `Chrome.tsx`'s note.
  *
  * `IconFind` is drawn a row lower than it used to be, in the filter row rather
  * than the top bar, and it is the same glyph doing the same job. See `Filter`.
@@ -118,6 +121,24 @@ export function IconFind(p: Props) {
     <Glyph {...p}>
       <circle cx="11" cy="11" r="6.5" />
       <path d="M15.8 15.8 20 20" />
+    </Glyph>
+  )
+}
+
+/**
+ * A person: a head and the shoulders under it.
+ *
+ * The glyph in the ring in the top right, and the plainest drawing of one
+ * there is, on purpose. It is a door to your own room rather than a claim
+ * about who is holding the phone, so it is not initials, not a photograph and
+ * not a silhouette with hair on it: anything that looks like a *particular*
+ * person is the app asserting there is one, and there is not. See `Portrait`.
+ */
+export function IconPerson(p: Props) {
+  return (
+    <Glyph {...p}>
+      <circle cx="12" cy="9" r="3.5" />
+      <path d="M5.8 19.6a6.2 6.2 0 0 1 12.4 0" />
     </Glyph>
   )
 }

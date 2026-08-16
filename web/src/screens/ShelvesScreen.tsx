@@ -20,7 +20,7 @@ import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 
 export function ShelvesScreen() {
-  const { libraryReturn, setLibraryReturn, openArranging, setRoute } = useNavigation()
+  const { libraryReturn, setLibraryReturn, openArranging, openRoom } = useNavigation()
   const { openFromLibrary } = useOpenBook()
 
   return (
@@ -33,9 +33,12 @@ export function ShelvesScreen() {
          through to say where "back" goes. */
       onArrange={openArranging}
       /* The way through to the furniture, which #313 put on this screen. It
-         stays with the screen it was put on rather than moving to the library,
-         which has its own way there once #313's own entry point settles. */
-      onFurniture={() => setRoute('furniture')}
+         stays where it was put: the corner's menu is the way in for somebody
+         who has never found the furniture, and this is the way on for somebody
+         already standing in front of the bookcases. Through `openRoom` since
+         #350 so that the back arrow over there returns here rather than to the
+         library. */
+      onFurniture={() => openRoom('furniture')}
     />
   )
 }

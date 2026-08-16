@@ -63,6 +63,20 @@ One row. `default_sort_strategy`, and the owner when this becomes multi-user.
 A default expressed as a rule on every fixture would have to be changed on every
 fixture, and could then disagree with itself. It lives in one place.
 
+**It is settable since #350**, by `PATCH /api/collection`, which is the settings
+screen the corner's menu opens. Two of the five strategies are refused there and
+neither refusal is a formality: `inherit` has nothing above a collection to ask,
+which is the check constraint on the column, and `tag` orders a run by its first
+tag slug, which files a whole house by an accident of the vocabulary and is what
+its own seed row means by "Never the collection default". The list of what is
+left is `COLLECTION_STRATEGIES` in `domain/placement/strategies.ts`, and both the
+route and the screen read it.
+
+Writing it moves no book. Where a book belongs is worked out from these values
+whenever anybody asks, and where a book *is* changes only when somebody carries
+one, so the effect of this is that the furniture screens start saying something
+different and the difference becomes the carry list.
+
 ### Fixture, Area
 
 `fixture(id, collection_id, kind, name, position, sort_strategy, note)`

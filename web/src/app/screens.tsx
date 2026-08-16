@@ -47,6 +47,7 @@ import { LibraryScreen } from '../screens/LibraryScreen'
 import { QueueScreen } from '../screens/QueueScreen'
 import { ReviewScreen } from '../screens/ReviewScreen'
 import { ScanScreen } from '../screens/ScanScreen'
+import { SettingsScreen } from '../screens/SettingsScreen'
 import { ShelveScreen } from '../screens/ShelveScreen'
 import { ShelvesScreen } from '../screens/ShelvesScreen'
 import { SortingScreen } from '../screens/SortingScreen'
@@ -98,6 +99,14 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   addarea: { view: AddAreaScreen, chrome: false },
   belongs: { view: BelongsScreen, chrome: false },
   sorting: { view: SortingScreen, chrome: false },
+
+  /*
+   * What the corner opens onto (#350). Not one of the furniture six: it is
+   * about the collection rather than about a piece of it. It wears the same
+   * frame for the same reason they do, which is that it brings its own top bar
+   * and its own four-place tab bar.
+   */
+  settings: { view: SettingsScreen, chrome: false },
 
   /*
    * Why one book is here (#323). Not one of the furniture six: the book page

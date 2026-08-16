@@ -23,11 +23,13 @@ import { useNavigation, type Route } from '../app/navigation'
 /**
  * Where each tab goes.
  *
- * Four places, and finding is not one of them: it is the one action in the
- * library's top right, because looking for a book is not somewhere you go, it is
- * something you do to what you are already looking at. The camera is `capture`
- * rather than `scan`, which is the other camera: `scan` finds a book you are
- * already holding and has its own door on the first screen.
+ * Four places, and finding is not one of them: it is a round target on the row
+ * above the books, because looking for a book is not somewhere you go, it is
+ * something you do to what you are already looking at. It was the library's
+ * top right until #350 gave that corner to the profile icon, and it moved down
+ * one row rather than away. The camera is `capture` rather than `scan`, which
+ * is the other camera: `scan` finds a book you are already holding, and its
+ * door is the corner of the screen about finding a book.
  */
 const TAB_ROUTES: Record<TabName, Route> = {
   home: 'home',
