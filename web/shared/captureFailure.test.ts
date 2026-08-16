@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  countFailures, couldBeReadAgain, failureLines, failureOf, FAILURE_LABEL,
+  countFailures, couldBeReadAgain, failureOf, FAILURE_LABEL,
   noFailures, PROCESSING_ERROR_NOTE, READING_TIMEOUT_NOTE,
 } from './captureFailure'
 
@@ -97,29 +97,59 @@ describe('counting them', () => {
   })
 })
 
-describe('what Home says about them', () => {
+/**
+ * What the app says about them, which is now said on the book rather than over
+ * a list of them.
+ *
+ * These three were `failureLines`, the counted sentences the queue drew above
+ * its books. #349 took that summary off, so they moved down here onto the words
+ * a single capture gets, which is where the same protection now belongs. The
+ * incident is unchanged and so are the assertions in substance: a book carrying
+ * a good ISBN that no catalogue has must never be told to have one typed in.
+ */
+describe('what the app says about them', () => {
+  const failed = (over: { isbn13?: string; note?: string }) =>
+    FAILURE_LABEL[failureOf({ isbn13: '', note: '', ...over })]
+
   it('does not send anybody to type in an ISBN that is already there', () => {
-    // The defect, stated as the sentence it produced: nine failures, five of
-    // them with a good ISBN, and one line telling the person to type nine.
-    const lines = failureLines({ noIsbn: 4, uncatalogued: 5, errored: 0, timedOut: 0 })
-    expect(lines).toContain('4 need an ISBN by hand.')
-    expect(lines.join(' ')).not.toContain('9 need an ISBN')
+    // The defect, stated as the books it was reported for: nine failures, five
+    // of them with a good ISBN, and one sentence telling the person to type
+    // nine. Each of the five now says what is actually wrong with it.
+    const said = failed({
+      isbn13: '9781234567897',
+      note: 'Barcode on the back reads 9781234567897, but no catalogue has it.',
+    })
+    expect(said).toBe('no catalogue has its ISBN')
+    expect(said).not.toContain('needs an ISBN')
   })
 
   it('names the job for each kind rather than one job for all of them', () => {
-    expect(failureLines({ noIsbn: 1, uncatalogued: 2, errored: 3, timedOut: 4 })).toEqual([
-      '1 need an ISBN by hand.',
-      '2 need details by hand. No catalogue has their ISBN.',
-      '3 hit an error while being read.',
-      '4 timed out while being read. Nothing is wrong with the photographs; '
-      + 'read them again.',
-    ])
+    expect(failed({ note: 'No ISBN could be read from these photos.' }))
+      .toBe('needs an ISBN')
+    expect(failed({
+      isbn13: '9781234567897',
+      note: 'Barcode on the back reads 9781234567897, but no catalogue has it.',
+    })).toBe('no catalogue has its ISBN')
+    expect(failed({ note: `${PROCESSING_ERROR_NOTE} out of memory` }))
+      .toBe('could not be read')
+    expect(failed({ note: `${READING_TIMEOUT_NOTE} the back was given up on.` }))
+      .toBe('reading it took too long')
+
+    // Four jobs, four sentences, none of them shared: the whole of #148 is that
+    // two of these used to be the same words.
+    expect(new Set(Object.values(FAILURE_LABEL)).size).toBe(4)
   })
 
-  it('leaves out a kind with nothing in it', () => {
-    expect(failureLines({ noIsbn: 0, uncatalogued: 3, errored: 0, timedOut: 0 }))
-      .toEqual(['3 need details by hand. No catalogue has their ISBN.'])
-    expect(failureLines(noFailures)).toEqual([])
+  it('leaves the counting to the screens that count', () => {
+    // The sentences these replaced left a kind out when it held nothing, so
+    // that no line of a phone screen said "0 need an ISBN by hand". These
+    // cannot have that problem at all: each is said on one book, by that book,
+    // and a kind with nothing in it simply has no row. So none of them counts
+    // anything, which is also #148's split held in one line: the count is the
+    // first screen's, the diagnosis is the book's.
+    for (const label of Object.values(FAILURE_LABEL)) {
+      expect(label, `"${label}" counts books`).not.toMatch(/\d/)
+    }
   })
 
   it('has a short form of each for the queue row', () => {

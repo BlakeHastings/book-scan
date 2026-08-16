@@ -114,6 +114,14 @@ export function countFailures(failed: FailureFacts[]): FailureCounts {
  * What one such capture needs, short enough to sit on a queue row beside the
  * book's title. The row prints the worker's note underneath, which says which
  * photograph and which digits; this is the headline.
+ *
+ * **This is now the only wording #148 left behind.** There was a second set
+ * here, `failureLines`, which counted the four and said them as sentences over
+ * the list ("4 need an ISBN by hand."). The summary it wrote is gone (#349):
+ * the owner has the count on the first screen and on the control above the
+ * books, and what he does not have anywhere else is which book is which, which
+ * is what these four say on the book itself. Nothing else called it, so it went
+ * with the card rather than sitting here waiting to word a screen nobody has.
  */
 export const FAILURE_LABEL: Record<CaptureFailure, string> = {
   noIsbn: 'needs an ISBN',
@@ -122,37 +130,4 @@ export const FAILURE_LABEL: Record<CaptureFailure, string> = {
   // Not "could not be read", which is what `errored` says and would be a lie
   // here: nothing read these photographs, so nothing found them wanting.
   timedOut: 'reading it took too long',
-}
-
-/**
- * The same three counted, as sentences for Home.
- *
- * Each one names the action rather than the state, because Home is where the
- * work gets sorted before anybody picks a book up. Zero of something is left
- * out entirely: a queue with nothing wrong in that way should not spend a line
- * of a phone screen saying so.
- */
-export function failureLines(counts: FailureCounts): string[] {
-  const lines: string[] = []
-  if (counts.noIsbn) {
-    lines.push(`${counts.noIsbn} need an ISBN by hand.`)
-  }
-  if (counts.uncatalogued) {
-    lines.push(
-      `${counts.uncatalogued} need details by hand. No catalogue has their ISBN.`,
-    )
-  }
-  if (counts.errored) {
-    lines.push(`${counts.errored} hit an error while being read.`)
-  }
-  if (counts.timedOut) {
-    // Says what to do rather than what happened, like the three above it, and
-    // the thing to do is not to pick the book up. Nobody read these
-    // photographs, so nothing is known to be wrong with them.
-    lines.push(
-      `${counts.timedOut} timed out while being read. `
-      + 'Nothing is wrong with the photographs; read them again.',
-    )
-  }
-  return lines
 }
