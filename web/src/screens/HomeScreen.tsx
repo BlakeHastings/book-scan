@@ -8,6 +8,7 @@
  */
 
 import { HomePane } from '../components/HomePane'
+import { useRoomMenu } from '../components/RoomMenu'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 import { usePaper } from '../app/paper'
@@ -17,6 +18,11 @@ export function HomeScreen() {
   const { setRoute } = useNavigation()
   const { counts, queueCounts, queued, carrying, backup } = useSummary()
   const { openCapture } = useOpenBook()
+  /*
+   * The corner, and the sheet it opens (#350). `HomePane` holds no state, so
+   * the menu is opened out here and handed down as two props.
+   */
+  const room = useRoomMenu()
 
   // The page under a converted screen takes the design system's paper. See
   // `app/paper.ts`, which is these three lines with a name on them.
@@ -30,7 +36,8 @@ export function HomeScreen() {
       carrying={carrying}
       backup={backup}
       onAdd={() => setRoute('capture')}
-      onScan={() => setRoute('scan')}
+      corner={room.action}
+      menu={room.sheet}
       onLibrary={() => setRoute('library')}
       onQueue={() => setRoute('queue')}
       onCarry={() => setRoute('carry')}

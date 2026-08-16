@@ -46,7 +46,6 @@
 import { Button } from '../design/Controls'
 import { Covers, type CoverItem } from '../design/Covers'
 import { Filter } from '../design/Finding'
-import { IconFind } from '../design/Icons'
 import { List, Row } from '../design/List'
 import { Nothing } from '../design/Card'
 import { Shelf, type ShelfItem } from '../design/Shelf'
@@ -60,12 +59,16 @@ import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 import { Frame } from './Frame'
 import { More } from './More'
+import { useRoomMenu } from './RoomMenu'
 import type { FiledBookRow } from '../lib/api'
 
 export function LibraryPane() {
   const { setRoute } = useNavigation()
   const { look, setLook, narrowing } = useBrowsing()
   const { viewBook } = useOpenBook()
+  /* The corner, and the sheet it opens (#350). The same one the first screen
+     draws, from the same place, so the two cannot drift. */
+  const room = useRoomMenu()
 
   const listing = useListing({
     range: 'all',
@@ -94,18 +97,23 @@ export function LibraryPane() {
   return (
     <Frame
       tab="library"
-      top={
-        <TopBar
-          title="Library"
-          sub={counted}
-          action={{ word: 'Find', icon: <IconFind />, onPress: () => setRoute('find') }}
-        />
-      }
+      over={room.sheet}
+      top={<TopBar title="Library" sub={counted} action={room.action} />}
     >
+      {/*
+        Finding left the corner with #350 and came down one row, which is the
+        trade #329 named the risk in: "losing a corner action and gaining a
+        harder-to-find one is a downgrade dressed as a tidy-up." It is still one
+        press, from the first row of the page, and at 414 by 896 it is 56px
+        lower and 20px further in from the edge than it was, which on a phone
+        held in one hand is nearer the thumb rather than further from it. It
+        costs no height: this row was already here.
+      */}
       <Filter
         tags={narrowing.map((tag) => tag.label)}
         note={counts ? `${grouped(total)} books` : ''}
         onTags={() => setRoute('tags')}
+        onFind={() => setRoute('find')}
         look={look}
         onLook={setLook}
       />

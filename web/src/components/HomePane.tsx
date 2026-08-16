@@ -61,7 +61,6 @@ import type { ReactElement, ReactNode } from 'react'
 import { Beside, Card, Nothing } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
-import { IconFind } from '../design/Icons'
 import { List, Row, Stats } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Trouble } from '../design/Trouble'
@@ -96,8 +95,17 @@ interface Props {
   backup: BackupWatch | null
   /** Photograph a book, which is what the fourth tab is for. */
   onAdd: () => void
-  /** Hold a book you already have up to the camera, to find it. */
-  onScan: () => void
+  /**
+   * The one action in the corner, which is the way to your own room (#350).
+   *
+   * Handed in rather than built here, and the sheet it opens with it, because
+   * the same corner is on the library screen and one of them written out twice
+   * is two corners that agree until one is edited. `components/RoomMenu.tsx`
+   * is where it is decided; this screen only has a top right.
+   */
+  corner: { word: string; icon: ReactNode; onPress: () => void }
+  /** That menu, while it is open. */
+  menu?: ReactElement
   onLibrary: () => void
   onQueue: () => void
   /**
@@ -152,7 +160,7 @@ function nameOf(capture: Capture): { title: string; sub: string } {
 
 export function HomePane({
   counts, queue, queued, carrying, backup,
-  onAdd, onScan, onLibrary, onQueue, onCarry, onOpenReady,
+  onAdd, corner, menu, onLibrary, onQueue, onCarry, onOpenReady,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
@@ -165,17 +173,17 @@ export function HomePane({
     <TopBar
       title="Book scan"
       /*
-       * Not in the drawing, and named in the pull request as a departure. The
-       * gallery has one camera; this app has two, and the second one, the one
-       * that finds a book you are already holding, has no other door in the
-       * whole interface. It carries a word as its accessible name because
-       * every glyph in a corner does.
+       * The profile icon, and the reason this is where it matters most: this is
+       * the screen somebody who has never seen the app is standing on when they
+       * go looking for the thing they cannot find.
+       *
+       * It replaced "Find the book in your hand", which was in this corner and
+       * is not in the drawing at all: the gallery has one camera and this app
+       * has two. That camera did not lose its door, it moved to the screen
+       * about finding a book, which is where it belonged once finding stopped
+       * being a corner action. See `FindPane`.
        */
-      action={{
-        word: 'Find the book in your hand',
-        icon: <IconFind />,
-        onPress: onScan,
-      }}
+      action={corner}
     />
   )
 
@@ -194,13 +202,13 @@ export function HomePane({
 
   // Nothing has come back yet. Drawing zeros would be saying something false
   // about somebody's collection for as long as the first request takes.
-  if (!counts || !queue) return <Screen top={top} tabs={tabs}>{news}</Screen>
+  if (!counts || !queue) return <Screen top={top} tabs={tabs} over={menu}>{news}</Screen>
 
   const waiting = waitingIn(queue)
   const ready = queued.filter((capture) => capture.status === 'ready')
 
   return (
-    <Screen top={top} tabs={tabs}>
+    <Screen top={top} tabs={tabs} over={menu}>
       {news}
       {counts.total === 0 && waiting === 0 ? (
         <Nothing said="Nothing is catalogued yet." />
@@ -287,15 +295,17 @@ export function HomePane({
  * files use is `--line`, and inside here the warm one wins.
  */
 function Screen({
-  top, tabs, children,
+  top, tabs, over, children,
 }: {
   top: ReactElement
   tabs: Record<TabName, () => void>
+  /** The corner's menu, when it is open, drawn over the screen it came out of. */
+  over?: ReactElement
   children?: ReactNode
 }) {
   return (
     <div className="wf">
-      <Phone tab="home" onTab={(name) => tabs[name]()} top={top}>
+      <Phone tab="home" onTab={(name) => tabs[name]()} top={top} over={over}>
         {children}
       </Phone>
     </div>

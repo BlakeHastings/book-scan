@@ -15,7 +15,7 @@ import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 
 export function ScanScreen() {
-  const { setRoute } = useNavigation()
+  const { leaveScanner, setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const { setToast } = useCameraSession()
   const { openBook, openCapture } = useOpenBook()
@@ -78,7 +78,11 @@ export function ScanScreen() {
     <ScanCamera
       onIdentified={(id) => void openScanned(id)}
       onWaiting={(capture) => void openWaiting(capture)}
-      onClose={() => setRoute('home')}
+      /* Back to whichever screen opened it (#350), which used to be the first
+         screen whatever you had come from. Its main door is the corner of the
+         find screen now, and dropping somebody two screens away from the
+         search they were part way through is throwing that search out. */
+      onClose={leaveScanner}
     />
   )
 }

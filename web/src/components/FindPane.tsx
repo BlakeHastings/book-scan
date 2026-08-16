@@ -30,6 +30,21 @@
  * somebody typing "mieville" would otherwise be eight searches. The listing
  * underneath keeps what it has while the next answer is in flight, so the screen
  * does not blink between keystrokes.
+ *
+ * ## The fifth reading is the book itself, and it is in the corner
+ *
+ * This app has two cameras. One photographs a book nobody has catalogued yet;
+ * the other reads the barcode off a book that is already in the collection and
+ * opens it, which is the same question this screen's field asks and the
+ * fastest possible way to ask it: no typing, and no chance of typing thirteen
+ * digits wrong.
+ *
+ * It lived in the first screen's top right and #350 gave that corner to the
+ * profile icon, so it came here rather than being lost. This is where it
+ * belongs anyway, by the same argument that took find off the tab bar: looking
+ * for a book is something you do to what you are looking at, and this is the
+ * screen for looking for a book. One press from the row above the library's
+ * books, which is where finding now lives.
  */
 
 import { useEffect, useState } from 'react'
@@ -37,6 +52,7 @@ import { Button } from '../design/Controls'
 import { Covers, type CoverItem } from '../design/Covers'
 import { Nothing } from '../design/Card'
 import { SearchField, Suggestion, Suggestions } from '../design/Finding'
+import { IconCamera } from '../design/Icons'
 import { TopBar } from '../design/Chrome'
 import { clothFor, coverArt, filedAs } from '../lib/bookLook'
 import { grouped } from '../lib/say'
@@ -60,7 +76,7 @@ import { api, type FiledBookRow, type TagRow } from '../lib/api'
 const SETTLE = 250
 
 export function FindPane() {
-  const { setRoute } = useNavigation()
+  const { openScanner, setRoute } = useNavigation()
   const { typed, setTyped, setNarrowing } = useBrowsing()
   const { viewBook } = useOpenBook()
 
@@ -140,7 +156,21 @@ export function FindPane() {
   return (
     <Frame
       tab="library"
-      top={<TopBar title="Find a book" sub={sub()} onBack={() => setRoute('library')} />}
+      top={
+        <TopBar
+          title="Find a book"
+          sub={sub()}
+          onBack={() => setRoute('library')}
+          /* A glyph in a corner carries its word as its accessible name, which
+             is the pinned rule, and this one names the book rather than the
+             camera: what it does is find the one you are holding. */
+          action={{
+            word: 'Find the book in your hand',
+            icon: <IconCamera />,
+            onPress: openScanner,
+          }}
+        />
+      }
     >
       <SearchField typed={typed} onType={setTyped} reads={saysWhat(found)} />
 

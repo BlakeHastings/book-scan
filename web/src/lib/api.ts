@@ -1416,7 +1416,7 @@ export const api = {
   /*
    * The furniture (#307's routes, #313's screens).
    *
-   * Ten calls, and not one of them takes a label: a label is worked out from
+   * Eleven calls, and not one of them takes a label: a label is worked out from
    * where a thing sits, so there is nothing to send and nothing worth keeping.
    * Every write answers with the thing re-described and with `becomes`, and a
    * screen redraws from that rather than from what it had.
@@ -1424,6 +1424,23 @@ export const api = {
 
   /** The whole room: every piece on the floor and every area on its face. */
   furniture: () => request<FurnitureDto>('/api/fixtures'),
+
+  /**
+   * What the whole collection falls back on when nothing nearer has an opinion.
+   *
+   * The eleventh call, and the only one about the collection rather than about
+   * a piece of it. There is no read beside it because `furniture()` already
+   * answers `defaultSortStrategy`, and no id in the path because there is one
+   * collection.
+   *
+   * Refused for `inherit`, which has nothing above it to ask, and for `tag`,
+   * which is a way to order one area and not a way to order a house.
+   */
+  editCollection: (defaultSortStrategy: SortStrategyCode) =>
+    request<{ collection: { defaultSortStrategy: SortStrategyCode } }>('/api/collection', {
+      method: 'PATCH',
+      body: JSON.stringify({ defaultSortStrategy }),
+    }),
 
   addFixture: (piece: { kind?: string; name?: string; position?: number }) =>
     request<{ fixture: FixtureDto }>('/api/fixtures', {

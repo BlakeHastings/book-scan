@@ -68,7 +68,8 @@ import {
 import { GENRE_RANGES } from '../domain/tagging/genre'
 import type { ShelfRange } from '../shared/shelving'
 import {
-  INHERIT, SORT_STRATEGIES, strategyFor, type OrderingStrategy, type SortStrategy,
+  COLLECTION_STRATEGIES, INHERIT, SORT_STRATEGIES, strategyFor,
+  type OrderingStrategy, type SortStrategy,
 } from '../domain/placement/strategies'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { furnitureIn, retireOrRemove, ruleForRange } from '../infrastructure/shelving/areas'
@@ -76,7 +77,8 @@ import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import {
   areaOnAFace, areasOnFaces, booksNaming, collectionId, collectionStrategy,
   fixtureOnTheFloor, fixturesOnTheFloor, insertArea, insertFixture, nextFixturePosition,
-  offerableStrategies, removeFixtureIfUnused, resequenceFace, updateArea, updateFixture,
+  offerableStrategies, removeFixtureIfUnused, resequenceFace, updateArea,
+  updateCollectionStrategy, updateFixture,
   whatHoldsFixture, type AreaRow, type FixtureRow,
 } from '../infrastructure/shelving/furniture'
 import type { Db } from './driver'
@@ -569,6 +571,58 @@ const asPosition = (value: unknown): number | undefined | null => {
   if (value === undefined) return undefined
   const position = Number(value)
   return Number.isInteger(position) ? position : null
+}
+
+export type EditedCollection =
+  | { ok: true; defaultSortStrategy: OrderingStrategy }
+  | Refused
+
+/**
+ * Change what the whole collection falls back on.
+ *
+ * The one settable thing about the collection, and the reason it now has a
+ * route: `default_sort_strategy` has been a real column since #184 and two
+ * screens already read it out loud, an area saying it is ordered "the way
+ * bookcase 2 does" and the ordering screen saying that is "by the author's
+ * surname, which is what the whole library uses". Nothing anywhere could
+ * change it. #350's settings screen is where it is asked for.
+ *
+ * ## Two answers are refused and neither is a validation formality
+ *
+ * `inherit` has nothing above it to ask, which is a check constraint on the
+ * column rather than an opinion here. `tag` is refused because the seed row for
+ * it says "Never the collection default": ordering a whole house by the first
+ * tag slug on each book files a library by an accident of the vocabulary. Both
+ * come off `COLLECTION_STRATEGIES` in the domain, so the list is stated once
+ * and the screen offering the choice reads the same one.
+ *
+ * ## It writes one column and moves nothing
+ *
+ * Exactly the bargain `editFixture` strikes with a piece's own strategy. Where
+ * a book belongs is worked out from these values whenever anybody asks; where a
+ * book *is* only changes when a person carries it. So the effect of this is
+ * that the furniture screens start saying something different about the order,
+ * and the carry list is what the difference becomes.
+ */
+export async function editCollection(
+  db: Db,
+  input: { defaultSortStrategy?: unknown },
+): Promise<EditedCollection> {
+  const strategy = asStrategy(input.defaultSortStrategy)
+  if (strategy === null) return refuse(400, 'That is not a way of ordering books.')
+  if (strategy === undefined) return refuse(400, 'Nothing was said to change.')
+  if (strategy === INHERIT) {
+    return refuse(400, 'A collection has nothing above it to take its order from.')
+  }
+  if (!COLLECTION_STRATEGIES.includes(strategy)) {
+    return refuse(400, 'A whole collection cannot be ordered by tag.')
+  }
+
+  return db.tx(async (tx) => {
+    const written = await updateCollectionStrategy(tx, strategy)
+    if (!written) return refuse(404, 'There is no collection to change.')
+    return { ok: true as const, defaultSortStrategy: strategy }
+  }, { serialiseOn: FURNITURE_LOCK })
 }
 
 export type AddedFixture = { ok: true; fixture: DescribedFixture } | Refused

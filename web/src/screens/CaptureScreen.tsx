@@ -24,8 +24,8 @@
  * What did change is what floats on the picture. The row of navigation chips
  * along the top is gone, because the drawn screen has one way out and it is
  * the round target in the corner; the lens list, the diagnostics and the
- * handedness switch are behind the one settings target in the far corner,
- * which is where `design/Camera.tsx` says a switch pressed once ever belongs;
+ * handedness switch are behind the one target in the far corner, which is
+ * where `design/Camera.tsx` says a switch pressed once ever belongs;
  * and the slot chips are `Shots`, which draws the photograph rather than a
  * lettered box, because a blurred photograph is the thing somebody needs to
  * see.
@@ -38,6 +38,7 @@ import {
   thumbnail, type Slot,
 } from '../lib/scanner'
 import { captureSteadiest, describeBurst } from '../lib/steady'
+import { rememberHand, rememberedHand } from '../lib/hand'
 import { api, type LookupResponse, type QueueMatch } from '../lib/api'
 import { canShelve } from '../components/QueuePane'
 import { QueuedAlready } from '../components/QueuedAlready'
@@ -58,19 +59,12 @@ function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
   return order.find((slot) => !shots[slot]) ?? from
 }
 
-/**
- * Which edge the shutter is on, remembered.
- *
- * A fact about the hand somebody holds a phone in, so it does not change
- * between sittings and should not be asked twice. Kept here rather than in
- * `cameraSession.tsx` deliberately: that file describes a device, and this is
- * about where a control is drawn.
+/*
+ * Which edge the shutter is on used to be read and written here, because this
+ * was the only screen that could ask. It is `lib/hand.ts` now (#350): the
+ * settings screen asks the same question, and one answer read from two places
+ * has to be spelled once or the two screens disagree about what somebody chose.
  */
-const HAND_KEY = 'bookscan.hand'
-
-function rememberedHand(): Hand {
-  return localStorage.getItem(HAND_KEY) === 'left' ? 'left' : 'right'
-}
 
 export function CaptureScreen() {
   const { setRoute } = useNavigation()
@@ -363,13 +357,19 @@ export function CaptureScreen() {
         far={
           /* Lens choice, diagnostics and which hand holds the phone. All set
              once and then never touched, so the far corner is exactly where
-             they belong and none of them earns permanent space. */
+             they belong and none of them earns permanent space.
+
+             **It said "Settings" until #350**, which built a screen of that
+             name. Two different things called Settings, one opening the app's
+             and one opening a sheet about this camera, is the fault the design
+             rules call two things sharing a name. It is called what its own
+             sheet has always been headed, which is what it opens. */
           <button
             type="button"
             className="wf-view__far wf-view__chip"
             onClick={() => setSettingsOpen((open) => !open)}
           >
-            Settings
+            Camera
           </button>
         }
         over={
@@ -460,11 +460,18 @@ export function CaptureScreen() {
                   )}
 
                   {/*
-                    Which hand holds the phone. The drawing keeps this in the
-                    far corner of the picture and says why it is here instead:
-                    "in the app it belongs beside the rest of the settings".
-                    A person doing this has a book in one hand, and the shutter
-                    has to be under the thumb of the other one.
+                    Which hand holds the phone. A person doing this has a book
+                    in one hand, and the shutter has to be under the thumb of
+                    the other one.
+
+                    **The settings screen asks the same question since #350**,
+                    which is where `design/Camera.tsx` always said it belonged:
+                    "in the app it belongs beside the rest of the settings". It
+                    stays here as well, because this is the one place somebody
+                    discovers they need it, standing at a bookcase with the
+                    shutter under the wrong thumb. It is not a second copy: both
+                    read and write `lib/hand.ts`, so choosing here moves the
+                    switch there and choosing there moves the shutter here.
                   */}
                   <h4 className="cam__sheet-subhead">Which hand</h4>
                   <div className="cam__lenses">
@@ -475,7 +482,7 @@ export function CaptureScreen() {
                         aria-pressed={hand === side}
                         onClick={() => {
                           setHand(side)
-                          localStorage.setItem(HAND_KEY, side)
+                          rememberHand(side)
                         }}
                       >
                         {side === 'left' ? 'Shutter on the left' : 'Shutter on the right'}

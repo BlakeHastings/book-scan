@@ -2746,12 +2746,21 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * round frame makes a head looking out of a portrait. Nothing was redrawn for
  * this.
  */
+/*
+ * The ring in the corner.
+ *
+ * It held the cat, drawn to be cut off by the bottom of the frame, so it was
+ * `place-items: end center` with the overflow hidden. It holds a person glyph
+ * now (#350), which is a whole drawing rather than a cropped one, so it is
+ * centred and the crop is kept only because the ring is round.
+ */
 .wf-portrait {
   width: 34px;
   height: 34px;
   display: grid;
-  place-items: end center;
+  place-items: center;
   overflow: hidden;
+  color: var(--ink-2);
   background: var(--paper-sunk);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-pill);

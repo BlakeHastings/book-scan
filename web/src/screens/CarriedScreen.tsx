@@ -20,7 +20,7 @@ import { useNavigation } from '../app/navigation'
 import { usePaper } from '../app/paper'
 
 export function CarriedScreen() {
-  const { setRoute } = useNavigation()
+  const { openScanner, setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const { trip, done, choose, putBack } = useArmful()
   const [board, setBoard] = useState<StandingBook[] | null>(null)
@@ -53,7 +53,7 @@ export function CarriedScreen() {
       onTrip={(next) => { choose(next); setRoute('trip') }}
       onHome={() => { putBack(); setRoute('home') }}
       onQueue={() => { putBack(); setRoute('queue') }}
-      onScan={() => { putBack(); setRoute('scan') }}
+      onScan={() => { putBack(); openScanner() }}
     />
   )
 }

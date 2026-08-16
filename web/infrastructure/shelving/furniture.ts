@@ -168,6 +168,32 @@ export async function collectionStrategy(db: Db): Promise<SortStrategy> {
   return row?.default_sort_strategy ?? 'author'
 }
 
+/**
+ * Change what the collection falls back on.
+ *
+ * The same `ORDER BY id LIMIT 1` every other read of this row uses, because
+ * there is one collection and the ordering is how that is said without a
+ * constant. Answers whether a row was there to write: a database with no
+ * collection in it is a database with no schema, and a silent no-op would look
+ * from the screen exactly like a setting that saves.
+ *
+ * It moves no book and reorders nothing by itself, which is the same bargain
+ * `updateFixture` strikes with `sort_strategy`: this is the answer the
+ * placement rules read next time they are asked where a book belongs, and the
+ * difference between that and where a book actually stands is the carry list.
+ */
+export async function updateCollectionStrategy(
+  db: Db,
+  strategy: SortStrategy,
+): Promise<boolean> {
+  const row = await db.get<{ id: number }>('SELECT id FROM collection ORDER BY id LIMIT 1')
+  if (!row) return false
+  await db.run('UPDATE collection SET default_sort_strategy = ? WHERE id = ?', [
+    strategy, Number(row.id),
+  ])
+  return true
+}
+
 export interface NewFixture {
   collectionId: number
   kind: string

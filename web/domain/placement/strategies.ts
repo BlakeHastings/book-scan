@@ -57,6 +57,26 @@ export const INHERIT = 'inherit'
 export type OrderingStrategy = Exclude<SortStrategy, typeof INHERIT>
 
 /**
+ * The strategies a whole collection may fall back on, which is not all of them.
+ *
+ * Two are missing and each for its own stated reason.
+ *
+ * `inherit` is refused by the schema: there is nothing above a collection to
+ * ask, and the check constraint on `collection.default_sort_strategy` says so
+ * rather than leaving it to whoever writes the next screen.
+ *
+ * `tag` is the interesting one. It orders a run by its first tag slug, which is
+ * a sensible thing to ask of one area of one bookcase and a meaningless thing
+ * to ask of a whole house: it would file every book somebody owns by an
+ * alphabetical accident of the vocabulary, and the seed row for it has said
+ * "Never the collection default" since the table was written. That sentence was
+ * a note nobody could enforce until something offered the choice; #350 offers
+ * it, so the note becomes this list, and the route that writes the column reads
+ * it rather than restating it.
+ */
+export const COLLECTION_STRATEGIES: readonly OrderingStrategy[] = ['author', 'title', 'published']
+
+/**
  * Whether a strategy is offerable yet.
  *
  * `sort_strategy.available` exists so a strategy can be a row without being a

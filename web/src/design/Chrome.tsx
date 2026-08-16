@@ -25,12 +25,11 @@
  * person lives on, the corner is now `Portrait`, and a picture is the one kind
  * of glyph somebody is tempted to leave unnamed because it looks like a thing
  * rather than a symbol. It carries its word the same way the search glyph
- * does. See `Portrait` for what is in it and why it is not a face.
+ * does. See `Portrait` for what is in it and what it must not promise.
  */
 
 import type { ReactNode } from 'react'
-import { Cat } from './Cat'
-import { IconBack, IconCamera, IconHome, IconOnward, IconQueue, IconShelves } from './Icons'
+import { IconBack, IconCamera, IconHome, IconOnward, IconPerson, IconQueue, IconShelves } from './Icons'
 
 export function TopBar({
   title,
@@ -77,43 +76,59 @@ export function TopBar({
 }
 
 /**
- * The round thing in the corner, and the person who is not in it.
+ * The round thing in the corner: a profile icon, and the account it must not
+ * promise.
  *
  * The owner asked for the corner to become an avatar:
  *
- * > We replace the search system in the top right corner with a profile
- * > picture, like an avatar, top right corner.
+ * > The top right corner should be a profile picture like icon, and then
+ * > whenever you select it, it should open up that menu, and in there should
+ * > be an option to change fixtures [...] We're gonna use that in the future
+ * > whenever we have a multi user set up, but we're not there yet.
  *
- * ## An avatar's whole job is to say which person is signed in
+ * ## The drawing said the cat, the owner said the person, and that is settled
  *
- * There is nobody to say. #171 is deferred, there are no accounts, no session
- * and no password; one database is one collection and every route is open. So
- * a face, a silhouette or a pair of initials in this corner is not a
- * placeholder for something not built yet, it is a portrait of somebody who
- * does not exist, and the damage it does is specific and immediate: the first
- * tap goes looking for "Sign out", "Switch account" or "Somebody else's
- * books", and finds furniture. Then the second thing that reads it is a person
- * in this house wondering whose books these are.
+ * #329 drew the cat here rather than a face, and the argument was that an
+ * avatar's whole job is to say which person is signed in: #171 is deferred,
+ * there are no accounts, no session and no password, so a face in this ring is
+ * a portrait of somebody who does not exist and the first tap goes looking for
+ * "Sign out" and finds furniture.
  *
- * **So the affordance is kept and the sitter is changed.** Round, top right,
- * opens a short menu of the things that are yours: that is what the owner
- * asked for and it is what makes the furniture findable. What sits inside the
- * ring is the cat, who is the only face this app honestly has, and who nobody
- * has ever tapped expecting a login. It is a profile picture of the resident
- * rather than of the account holder.
+ * **The owner read that and chose the other way** (#350), knowing the reason
+ * and giving his own in the same breath: multi-user is coming and this is the
+ * shape that will be right when it does. Choosing what will be right later
+ * over what is honest today is his call, not this file's, and it is written
+ * down here so nobody quietly puts the cat back in six months.
  *
- * He is `peeking`, which is the pose drawn to be cut off by an edge: in a slot
- * it is ears over a shelf edge, and in a ring it is a head filling a portrait.
- * One drawing, two frames, and nothing new to keep in step.
+ * ## What the drawing got right is kept underneath it, and it is most of it
  *
- * The name announced is **Your room**, not "You" and not "Account". See
- * `Corner` for the rest of that argument; the short of it is that everything
- * behind this target is about the room and the books in it.
+ * The damage a face does is real whoever decided on it, so every part of #329
+ * that was aimed at the damage rather than at the sitter stays:
+ *
+ * - **The menu opens with the collection where a name would be.** An account
+ *   menu opens with who you are signed in as; this one opens with what you
+ *   have, which is the honest answer to the same question and is what stops
+ *   the ring above reading as a login somebody forgot to wire up.
+ * - **Settings says it plainly, once**, at the place somebody hunting for the
+ *   account finally arrives: everybody in the house shares one collection.
+ * - **There is no sign-in anywhere.** Not a door, not an account name, and
+ *   nothing greyed out and labelled coming soon. #171 is a decision nobody has
+ *   made and drawing a door for it would be this making it.
+ *
+ * So the glyph is `IconPerson`, which is a head and a pair of shoulders and
+ * deliberately nothing more: no initials, no photograph and no silhouette with
+ * a haircut. Anything that reads as a *particular* person is the claim this
+ * must not make. **It is a door to your own room, not a statement about who is
+ * using the app.**
+ *
+ * The name announced is **Your room**, not "You" and not "Account", and the
+ * name did not change when the sitter did: the thing behind this target is
+ * still the room and the books in it. See `Corner`.
  */
 export function Portrait() {
   return (
     <span className="wf-portrait">
-      <Cat pose="peeking" size={22} />
+      <IconPerson size={20} />
     </span>
   )
 }
@@ -152,6 +167,14 @@ export function Portrait() {
  * like this behaves and is why the screen under it is drawn in full rather
  * than hidden. It is a real target here rather than a scrim with a handler on
  * it, so the wireframe can be walked out of as well as into.
+ *
+ * ## Every line on it is given rather than written here
+ *
+ * `said` and each `note` are counts of somebody's own collection, so this
+ * draws what it is handed and invents nothing. **A note is optional and an
+ * absent one is drawn as nothing at all**, which is what the app needs while
+ * the room is still being read: a menu that guessed at "five pieces" for the
+ * length of one request would be saying something false about a house.
  */
 export function Corner({
   said,
@@ -160,7 +183,7 @@ export function Corner({
 }: {
   /** What the collection is, said where a person's name would be. */
   said: string
-  ways: { word: string; note: string; onPress?: () => void }[]
+  ways: { word: string; note?: string; onPress?: () => void }[]
   onClose?: () => void
 }) {
   return (
@@ -190,7 +213,7 @@ export function Corner({
             >
               <span className="wf-corner__lines">
                 <span className="wf-corner__word">{way.word}</span>
-                <span className="wf-corner__note">{way.note}</span>
+                {way.note && <span className="wf-corner__note">{way.note}</span>}
               </span>
               <IconOnward size={18} />
             </button>

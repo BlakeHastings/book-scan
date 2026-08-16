@@ -26,7 +26,7 @@ import { api } from '../lib/api'
 import { renumbering } from '../lib/furniture'
 
 export function FurnitureScreen() {
-  const { setRoute } = useNavigation()
+  const { leaveRoom, setRoute } = useNavigation()
   const { openFixture, openArea, setFixtureId, setAreaId } = useArranging()
   const { room, error, busy, write } = useRoom()
   const [ordering, setOrdering] = useState<number[] | null>(null)
@@ -55,7 +55,14 @@ export function FurnitureScreen() {
       busy={busy}
       error={error}
       tabs={tabs}
-      onBack={() => setRoute('library')}
+      /*
+       * Back to wherever this was opened from (#350), which is the wrinkle
+       * #333 named and left: this went to the library and nowhere else, so
+       * walking in from the corner and straight back out landed you on your
+       * books rather than where you started. The corner is on two screens now,
+       * so a fixed target would be wrong more often than right.
+       */
+      onBack={leaveRoom}
       onFixture={openFixture}
       onArea={openArea}
       onAddArea={(fixtureId) => {

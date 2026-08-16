@@ -18,7 +18,7 @@ import { useNavigation } from '../app/navigation'
 import { usePaper } from '../app/paper'
 
 export function TripScreen() {
-  const { setRoute } = useNavigation()
+  const { openScanner, setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const { trip, pickUp } = useArmful()
   const [at, setAt] = useState<TripAtAnArea | null>(null)
@@ -53,7 +53,7 @@ export function TripScreen() {
       onBack={() => setRoute(only ? 'home' : 'carry')}
       onHome={() => setRoute('home')}
       onQueue={() => setRoute('queue')}
-      onScan={() => setRoute('scan')}
+      onScan={openScanner}
     />
   )
 }
