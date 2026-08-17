@@ -392,6 +392,45 @@ describe('a person tagging a book', () => {
   it('is 404 on a book that is not there', async () => {
     expect((await post('/api/books/9999/tags', { slug: 'mine/lent-out' })).status).toBe(404)
   })
+
+  /**
+   * The one that loses work, and it loses it without saying anything.
+   *
+   * A save states a genre, and when a person answered it the source of that
+   * statement is `person`. Restating a source takes back everything that source
+   * no longer claims, so the claim "this book is non-fiction" was the whole of
+   * what that person had ever said about the book: tag it Comic book, tap an
+   * answer, save, and the Comic book tag was deleted. Nothing failed, nothing
+   * was logged, and the row was simply not there afterwards.
+   *
+   * `within` on the restatement is the fix and `domain/tagging/tags.test.ts`
+   * pins the arithmetic, but the defect was never in the arithmetic. It was in
+   * what `settleGenre` asked for, which is a seam neither that test nor the two
+   * genre tests above reach: both of those assert on a book carrying nothing but
+   * a genre, so a save that swept the rest away read as correct.
+   *
+   * A genre stated by a catalogue or a guess could never have done this, because
+   * a source may only ever retract its own rows. The one that bites is a person
+   * being overwritten by the same person, which is why this book gets its tag by
+   * hand and its genre by hand.
+   */
+  it('keeps what somebody said about a book when a genre is settled afterwards', async () => {
+    const id = await aBook({ classificationSource: 'auto' })
+    await post(`/api/books/${id}/tags`, { slug: 'subject/comic-book', label: 'Comic book' })
+
+    await put(`/api/books/${id}`, {
+      title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE,
+      genre: NON_FICTION_SLUG, classificationSource: 'manual',
+    })
+
+    const carried = await tagsOf(id)
+    expect(carried, 'a save that never mentioned it deleted a tag somebody added by hand')
+      .toContain('subject/comic-book:person')
+    // And the genre it did state is settled the way it always was: the answer
+    // written, the guess retired, and not both genres at once.
+    expect(carried).toContain('genre/non-fiction:person')
+    expect(carried).not.toContain('genre/fiction:guess')
+  })
 })
 
 describe('the vocabulary', () => {

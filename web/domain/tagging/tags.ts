@@ -242,14 +242,41 @@ export class BookTags {
    * Duplicate claims are collapsed on the slug, first one winning. A catalogue
    * that lists "Fiction" and "FICTION" is claiming one thing, and this is where
    * that becomes true rather than in the store's conflict handling.
+   *
+   * ## A source can speak about one part of the vocabulary
+   *
+   * `within` narrows what the source is restating to the tags at or under one
+   * slug, so everything it said anywhere else is left exactly as it stands.
+   *
+   * That is not a convenience. A save states a genre, and a genre is one
+   * question about a book; restating it as though it were everything the person
+   * had ever said would take off every other tag they had applied, and a person
+   * who tags a book Comic book and then taps Fiction would watch the first one
+   * disappear on the save with nothing anywhere reporting it. The rule this
+   * class exists for is that a machine may not retract a person's judgement, and
+   * this is the same rule read one level in: a statement about the genre is not
+   * a statement about anything else.
+   *
+   * A caller passing `within` is saying its claims are all at or under that
+   * slug. Claims outside it would be written and then be outside anything a
+   * later restatement of the same scope could take back.
    */
-  restatedBy(source: TagSource, claims: readonly TagClaim[]): Restatement {
+  restatedBy(
+    source: TagSource,
+    claims: readonly TagClaim[],
+    within?: TagSlug,
+  ): Restatement {
     const claimed = new Map<string, TagClaim>()
     for (const claim of claims) {
       if (!claimed.has(claim.slug.value)) claimed.set(claim.slug.value, claim)
     }
 
-    const mine = new Map(this.from(source).map((entry) => [entry.slug.value, entry]))
+    const speaksTo = (slug: TagSlug) => !within || slug.isAtOrUnder(within)
+    const mine = new Map(
+      this.from(source)
+        .filter((entry) => speaksTo(entry.slug))
+        .map((entry) => [entry.slug.value, entry]),
+    )
 
     const retracted = [...mine.values()].filter((entry) => !claimed.has(entry.slug.value))
     const applied = [...claimed.values()].filter((claim) => {
@@ -260,6 +287,9 @@ export class BookTags {
     const rewritten = new Set(applied.map((claim) => claim.slug.value))
     const untouched = this.applied.filter((entry) =>
       entry.source !== source
+      // Said by this source but about something else, which this statement is
+      // silent on rather than withdrawing.
+      || !mine.has(entry.slug.value)
       || (claimed.has(entry.slug.value) && !rewritten.has(entry.slug.value)))
 
     return { retracted, applied, untouched }

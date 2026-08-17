@@ -19,7 +19,7 @@
  * silently, and a silent loss is the kind nobody reports.
  */
 
-import { BookTags, type TagClaim, type TagSource } from '../../domain/tagging/tags'
+import { BookTags, type TagClaim, type TagSlug, type TagSource } from '../../domain/tagging/tags'
 import type { BookTransactions, TagRepository } from './ports'
 
 /** What one source says about one book, right now. */
@@ -34,6 +34,18 @@ export interface RestateTags {
    * from.
    */
   claims: readonly TagClaim[]
+  /**
+   * The part of the vocabulary this source is speaking about, where it is
+   * speaking about one part rather than about everything it has ever said.
+   *
+   * Absent means everything, which is what a catalogue lookup means: it has
+   * just re-read the whole record and what it no longer lists it no longer
+   * claims. A save states one question, the genre, and passes that namespace,
+   * so tags the same person applied about anything else are not withdrawn by a
+   * statement that was never about them. Without it, tapping Fiction on a book
+   * somebody had just tagged Comic book took the Comic book tag off, silently.
+   */
+  within?: TagSlug
   /** Human readable names for the slugs, where the source supplied one. */
   labels?: ReadonlyMap<string, string>
   /** When this was said. Injected, so a timestamp in a test is not the clock's. */
@@ -47,14 +59,14 @@ export class RestateTagsHandler {
   ) {}
 
   async handle(command: RestateTags): Promise<void> {
-    const { bookId, source, claims, now } = command
+    const { bookId, source, claims, within, now } = command
 
     await this.transactions.forBook(bookId, async () => {
       // Read inside the transaction, and serialised on the book: two lookups
       // finishing at once would otherwise each compute a retraction from a
       // picture the other had already changed.
       const current = BookTags.of(await this.tags.of(bookId))
-      const { retracted, applied } = current.restatedBy(source, claims)
+      const { retracted, applied } = current.restatedBy(source, claims, within)
 
       if (retracted.length) {
         await this.tags.retract(bookId, retracted.map((entry) => entry.slug), source)

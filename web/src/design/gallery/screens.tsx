@@ -50,6 +50,7 @@ import {
 import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
 import { IconCamera, IconEdit, IconInHand } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
+import { Make, Naming } from '../Naming'
 import { Phone as Frame } from '../Phone'
 import { Queued } from '../Queue'
 import { Shelf, spines, type Cloth, type ShelfItem } from '../Shelf'
@@ -1531,11 +1532,55 @@ function InHandCamera(go: Go) {
   )
 }
 
-function Review(go: Go) {
+/**
+ * The tags on the check-the-details screen, drawn once for the four states of
+ * it that exist.
+ *
+ * The two above the box and the ones under it are not the same kind of thing,
+ * and that is the part worth keeping straight. Fiction and non-fiction are one
+ * question with two answers and at most one of them holds; everything else a
+ * book carries is a set somebody adds to. Drawn as one wrapping row all the
+ * same, because a person reading it sees tags, and #304's separation is about
+ * what gets *written* rather than about what gets drawn.
+ */
+function reviewTags(go: Go, mine: string[] = []) {
+  return (
+    <div>
+      {/*
+        Was a two-way switch between fiction and non-fiction, which is
+        `books.shelf_range` wearing a coat and, worse, a claim that a book
+        is one thing. The owner: "the range is fiction versus non-fiction
+        when in reality we should have different tags there, where one of
+        those tags is like fiction, non-fiction, stuff like that."
+      */}
+      <span className="wf-field__label">Tags</span>
+      <div style={{ height: 6 }} />
+      <Tags>
+        <Tag tone="on" onPress={() => {}}>Fiction</Tag>
+        <Tag onPress={() => {}}>Non-fiction</Tag>
+        {mine.map((word) => (
+          <Tag tone="on" key={word} onPress={() => {}}>{word}</Tag>
+        ))}
+        <AddTag onPress={() => go('naming')}>Add a tag</AddTag>
+      </Tags>
+    </div>
+  )
+}
+
+/**
+ * The check-the-details screen, with whatever is drawn over it.
+ *
+ * One body and four screens, because the three states of naming a tag are the
+ * same screen with a panel on it. Drawn twice they would be two review screens
+ * that agreed until one of them was edited, which is the fault the frame itself
+ * was moved out of this file to avoid.
+ */
+function reviewScreen(go: Go, mine: string[], over?: ReactElement) {
   return (
     <Phone
       tab="queue"
       go={go}
+      over={over}
       top={<TopBar title="Check the details" sub="Read off the barcode" onBack={() => go('queue')} />}
     >
       {/*
@@ -1592,24 +1637,7 @@ function Review(go: Go) {
         the first two, and adding another is one press rather than a choice
         between two answers neither of which may be the one.
       */}
-      <div>
-        {/*
-          Was a two-way switch between fiction and non-fiction, which is
-          `books.shelf_range` wearing a coat and, worse, a claim that a book
-          is one thing. The owner: "the range is fiction versus non-fiction
-          when in reality we should have different tags there, where one of
-          those tags is like fiction, non-fiction, stuff like that."
-        */}
-        <span className="wf-field__label">Tags</span>
-        <div style={{ height: 6 }} />
-        <Tags>
-          <Tag onPress={() => {}}>Fiction</Tag>
-          <Tag onPress={() => {}}>Literary</Tag>
-          <Tag onPress={() => {}}>Booker</Tag>
-          <Tag onPress={() => {}}>Read it</Tag>
-          <AddTag onPress={() => {}}>Add a tag</AddTag>
-        </Tags>
-      </div>
+      {reviewTags(go, mine)}
 
       <Button tone="primary" block onPress={() => go('where')}>
         That is the book
@@ -1618,6 +1646,116 @@ function Review(go: Go) {
         Leave it in the queue
       </Button>
     </Phone>
+  )
+}
+
+function Review(go: Go) {
+  return reviewScreen(go, ['Literary', 'Booker'])
+}
+
+/* --- Naming a tag that is not there yet ----------------------------------- */
+
+/**
+ * The tags this collection already keeps, as the box offers them back.
+ *
+ * Counts and all, because "112 books" is what tells somebody that the Fantasy
+ * they are about to tap is the Fantasy they already use rather than a word that
+ * happens to match. The second line is the nesting, said in words: the slug is
+ * the identity and `design.test.tsx` refuses a screen that draws one.
+ */
+function NamingFound(go: Go) {
+  return reviewScreen(
+    go,
+    ['Literary', 'Booker'],
+    <Naming
+      typed="comic"
+      caret
+      onClose={() => go('review')}
+      reads="Two of your tags read like that."
+    >
+      <Suggestions label="Tags reading like comic">
+        <Suggestion name="Comic book" where="Subject" books={31} onPress={() => go('review')} />
+        <Suggestion
+          name="Comic strip"
+          where="Subject"
+          books={4}
+          onPress={() => go('review')}
+        />
+      </Suggestions>
+
+      {/*
+        Offered under what already exists rather than instead of it, and that
+        order is the design. Somebody scanning their second comic book has to
+        meet the tag before they meet the way to make another one, or the
+        collection grows a second word for one idea and nothing anywhere
+        reports it: two tags, two counts, and a rule that claims half the
+        books it was written for.
+      */}
+      <Make name="Comic" where="Subject" onPress={() => go('review')} />
+    </Naming>,
+  )
+}
+
+/**
+ * Nothing in the collection means it, so a new tag is what is offered.
+ *
+ * This is the owner's own example: "let's say I scan a comic book and I want to
+ * add a comic book tag." The panel says what the tag will be called and where it
+ * will sit, because where it sits is what decides which rules can ever reach it,
+ * and finding that out later by the book not moving is not finding it out.
+ */
+function NamingNew(go: Go) {
+  return reviewScreen(
+    go,
+    ['Literary', 'Booker'],
+    <Naming
+      typed="comic book"
+      caret
+      onClose={() => go('review')}
+      reads="Nothing of yours reads like that yet."
+    >
+      <Make name="Comic book" where="Subject" onPress={() => go('review')} />
+
+      <Said>
+        A new tag goes under Subject, where your catalogue's own words go, so a
+        rule can ask for it. Fiction and non-fiction are the two above.
+      </Said>
+    </Naming>,
+  )
+}
+
+/**
+ * The near miss, which is the hard part of this whole screen.
+ *
+ * "Comic Book" and "comic books" are one idea and two slugs, and slugs are
+ * byte-ordered, so stored as typed they are two rows that sort apart, two
+ * counts that are each half the answer, and two rules to write. Nothing reports
+ * it, because nothing is broken: they are simply two tags.
+ *
+ * **So the offer to make one is not drawn at all here**, rather than drawn
+ * beside a warning. A panel that said "this looks similar, carry on?" is a panel
+ * where the second comic book makes the second comic book tag, which is the
+ * thing being prevented. What is offered is the tag they already keep.
+ */
+function NamingSame(go: Go) {
+  return reviewScreen(
+    go,
+    ['Literary', 'Booker'],
+    <Naming
+      typed="comic books"
+      caret
+      onClose={() => go('review')}
+      reads="You already keep this one."
+    >
+      <Suggestions label="The tag you already keep for that">
+        <Suggestion name="Comic book" where="Subject" books={31} onPress={() => go('review')} />
+      </Suggestions>
+
+      <Said>
+        Comic books and Comic book are the same word to this app, so there is one
+        tag rather than two. Add the one you have, or type something else.
+      </Said>
+    </Naming>,
   )
 }
 
@@ -1676,11 +1814,14 @@ function ReviewNone(go: Go) {
       <Field label="Files under" placeholder="Worked out from the author" />
       <Field label="Series" placeholder="Not in a series" />
 
+      {/* The same door as the screen above, and it goes to the same place: a
+          book no catalogue answered for is the one most in need of somebody
+          saying what it is, so this is where naming a tag matters most. */}
       <div>
         <span className="wf-field__label">Tags</span>
         <div style={{ height: 6 }} />
         <Tags>
-          <AddTag onPress={() => {}}>Add a tag</AddTag>
+          <AddTag onPress={() => go('naming')}>Add a tag</AddTag>
         </Tags>
       </div>
 
@@ -4095,6 +4236,18 @@ export const SCREENS: Screen[] = [
     name: 'Nothing came back',
     group: 'Cataloguing',
     render: ReviewNone,
+  },
+  /* Naming a tag, in the three states that are not each other: the collection
+     already keeps something reading like it, the collection keeps nothing like
+     it, and the near miss. The third is the one worth walking, because it is
+     the only place the app says no. */
+  { id: 'naming', name: 'Adding a tag', group: 'Cataloguing', render: NamingFound },
+  { id: 'namingnew', name: 'A tag you have not got', group: 'Cataloguing', render: NamingNew },
+  {
+    id: 'namingsame',
+    name: 'Nearly one you have',
+    group: 'Cataloguing',
+    render: NamingSame,
   },
   { id: 'where', name: 'Where it goes', group: 'Cataloguing', render: WhereItGoes },
   { id: 'done', name: 'Shelved', group: 'Cataloguing', render: Done },

@@ -308,9 +308,21 @@ export class Catalogue {
    * emptied anyway: it holds a foreign key into `books`, so CASCADE reaches it.
    */
   async reset(): Promise<void> {
+    /*
+     * `tag` is on the list since #372, and it is the vocabulary rather than what
+     * any book carries. CASCADE from `books` already takes `book_tag`, so an
+     * emptied catalogue had no tagged books and still knew every word anybody
+     * had ever typed. A scenario about naming a tag that does not exist yet
+     * would then pass once and be offered the tag it made on every run
+     * afterwards, which is the kind of green nobody reads twice.
+     *
+     * Nothing is lost by it. The two genre slugs are written by `define` on the
+     * first save that states one, and the labels it gives them are the labels
+     * the migration gave them.
+     */
     await this.pool.query(
       'TRUNCATE book_authors, books, author_filing, ' +
-      'author, author_alias RESTART IDENTITY CASCADE',
+      'author, author_alias, tag RESTART IDENTITY CASCADE',
     )
     for (const statement of RESTORE_FURNITURE) await this.pool.query(statement)
   }
@@ -493,6 +505,36 @@ export class Catalogue {
       'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM queued_books',
     )
     return row!.n
+  }
+
+  /**
+   * What one book is under, and who said each one.
+   *
+   * Read from `books` rather than from a view, because a scenario asks this of a
+   * book that is still in the queue as readily as of one on a shelf: a tag is
+   * written the moment somebody says it, and a capture has been a row in `books`
+   * since #183.
+   *
+   * The source travels with it, and that is most of why this exists. "The book
+   * carries a comic book tag" is a weaker claim than the one #372 has to make,
+   * which is that a *person's* tag survives a save that states a genre. Those
+   * are different rows and only one of them is a person's.
+   */
+  async tagsOf(title: string): Promise<{ slug: string; label: string; source: string }[]> {
+    return this.all(
+      `SELECT t.slug, t.label, bt.source
+         FROM books b
+         JOIN book_tag bt ON bt.book_id = b.id
+         JOIN tag t ON t.id = bt.tag_id
+        WHERE b.title = $1
+        ORDER BY t.slug, bt.source`,
+      [title],
+    )
+  }
+
+  /** Every tag the collection keeps, whether or not a book carries it. */
+  async vocabulary(): Promise<{ slug: string; label: string }[]> {
+    return this.all('SELECT slug, label FROM tag ORDER BY slug')
   }
 
   async close(): Promise<void> {

@@ -3088,6 +3088,114 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-sure__acts > * { flex: 1 1 auto; }
 
+/* --- Naming a tag --------------------------------------------------------- */
+
+/*
+ * A panel from the top, and every other thing drawn over a screen here is a
+ * card from the bottom.
+ *
+ * The difference is the keyboard. `.wf-sure` and `.wf-corner` sit low because
+ * that is where a thumb answers a question; this one is a question answered by
+ * typing, and on a phone the keyboard takes the bottom two thirds the moment
+ * the field takes focus. A card anchored to the bottom would be a card behind
+ * the keyboard, and what would go is the list of what the collection already
+ * means, which is the whole point of the screen. So the field is at the top and
+ * the answers hang under it: measured at 414 by 896, the field and four answers
+ * are above a keyboard.
+ *
+ * Fixed rather than absolute, which is the other departure and the same reason.
+ * `.wf-sure` is absolute inside the screen so that the gallery's own bar stays
+ * reachable, and that works because the screens it sits on are about as tall as
+ * the phone. The check-the-details screen is three times that, so an absolute
+ * panel would be pinned to the top of a long scroll rather than to the top of
+ * what somebody is looking at. It is still under the gallery's frame at 20, so
+ * the theme switch and the way back to the index are still on top of it.
+ */
+.wf-name {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+}
+
+.wf-name__panel {
+  width: 100%;
+  /* The phone's own column, so the panel and the screen under it are the same
+     width on a tablet rather than one filling the glass. */
+  max-width: 480px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: var(--lift-3);
+}
+
+.wf-name__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s4) var(--s4) var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+/*
+ * The panel's own bar does not stick, and the reason is worth the two lines.
+ *
+ * Every top bar in this system is sticky at the top of the page, and in the
+ * gallery it is sticky 38px down so it clears the gallery's own frame. Neither
+ * is true inside here: the panel is fixed and the part that scrolls is the body
+ * under the bar, so there is nothing for the bar to stick to and the 38 is an
+ * offset into a frame it is not in. Left alone it took the offset anyway and
+ * came down over the field, hiding the top half of the box somebody is about to
+ * type in. Found by looking at it at 414 by 896.
+ */
+.wf-name .wf-top { position: static; }
+
+/* And in the gallery the panel starts under the frame instead, which is the
+   same trade `.wf-screen--camera` already makes for the same reason: the bar is
+   how a theme is switched and how the index is got back to. */
+.wf-frame ~ .wf-screen .wf-name { top: 38px; }
+
+/*
+ * The offer to make one that is not there.
+ *
+ * Dashed, like every other thing in this system that is not there yet, and it
+ * sits under the answers that are: `AddTag` at the end of a row of real tags
+ * and `AddBox` under a piece of furniture make the same move, and this should
+ * read as the third of them rather than as a fourth idea.
+ */
+.wf-make {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--s2) var(--s3);
+  background: none;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.wf-make:active { background: var(--paper-sunk); }
+.wf-make:focus-visible { outline: none; box-shadow: var(--focus); }
+.wf-make__text { display: grid; gap: 1px; min-width: 0; }
+.wf-make__name { font-family: var(--face-book); }
+.wf-make__where { font-size: var(--size-small); color: var(--ink-2); }
+.wf-make__add {
+  margin-left: auto;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--link);
+}
+
 /* --- The corner, and what it opens ---------------------------------------- */
 
 /*

@@ -1228,6 +1228,35 @@ export const api = {
   bookTags: (id: number) => request<{ tags: AppliedTag[] }>(`/api/books/${id}/tags`),
 
   /**
+   * Somebody saying what a book is, which is `source: 'person'` and the only
+   * kind of tag no automatic rewrite may take back.
+   *
+   * The tag is defined if the collection has not got it yet and applied in the
+   * one call, because it is one act: nothing here creates a word nobody has put
+   * on a book. Which slug and which label is decided before this is called, by
+   * `domain/tagging/naming.ts`, so that the rule about two spellings of one idea
+   * is testable without a network.
+   *
+   * It reaches a queued capture as readily as a shelved book, because since #183
+   * a capture is a row in `books` from its first photograph. That is what lets
+   * the check-the-details screen write a person's tag at the moment they say it,
+   * rather than carrying it in a draft as far as the shelving step and hoping
+   * the walk between the two screens survives.
+   */
+  applyTag: (id: number, tag: { slug: string; label: string }) =>
+    request<{ tags: AppliedTag[] }>(`/api/books/${id}/tags`, {
+      method: 'POST',
+      body: JSON.stringify(tag),
+    }),
+
+  /** Taking one back off, whoever put it there. */
+  removeTag: (id: number, slug: string) =>
+    request<{ tags: AppliedTag[] }>(
+      `/api/books/${id}/tags?slug=${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
+
+  /**
    * Where a book has been, newest first.
    *
    * Read only. There are four statements that write a placement and all four are
