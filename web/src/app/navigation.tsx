@@ -69,6 +69,14 @@ export type Route =
    */
   | 'carry' | 'trip' | 'carrying' | 'carried' | 'carrystale'
   /*
+   * The books no rule claims (#341). Beside the carrying screens rather than
+   * among them: it is the other half of putting things right, and it is the one
+   * kind of work no count on the first screen can hold, because such a book is
+   * in no range, on no carry list and in no review. Reached from the first
+   * screen's third door and from nowhere else.
+   */
+  | 'unclaimed'
+  /*
    * The library's own screens (#315). `book` is a book's own page, which is
    * about the book; `review` is the form its record is corrected on, and the two
    * are one journey rather than two doors to one room. `find` and `tags` are

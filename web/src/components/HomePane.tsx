@@ -69,7 +69,7 @@
  * reassuring version of this card, on purpose: a line saying backups are fine
  * is a line that can be printed over a disk nobody read.
  *
- * ## The two doors, and what is deliberately not one
+ * ## The three doors, and what is deliberately not one
  *
  * **The book in your hand** (#355) is the camera you point at a book you
  * already own, which no tab reaches and which had this screen's corner until
@@ -79,10 +79,23 @@
  * own it, to go from **one press to three**. It is one press again, and the
  * corner is not taken back.
  *
- * **Carrying** is the other, and it is here because nothing else reaches it
+ * **Carrying** is the second, and it is here because nothing else reaches it
  * either: a rule change can displace fifty books in an afternoon, the carry
  * list is a flow of its own since #314, and the tab bar opens four rooms of
  * which it is not one.
+ *
+ * **The books no rule claims** is the third and last (#341), and its argument
+ * is stronger than either. A book with no genre tag is the honest outcome
+ * whenever no catalogue states one, which is what #304 settled, and such a book
+ * appears in no range listing, in neither misfile review, in none of these five
+ * counts and on no area's claimed-by-nothing card, because that card reads the
+ * area a book has and this book has none. It stands where somebody left it and
+ * no plan will ever move it. So without this row the app mentions the books
+ * most in need of a person less than it mentions any other kind, which is the
+ * whole of the complaint that issue makes.
+ *
+ * Three is the ceiling and this reaches it. The next thing that wants a row
+ * here takes one of these off.
  *
  * What is not here is anything with a tab: photographing a book, the queue and
  * the library are all one press already. Nor finding a book by name, which is
@@ -106,7 +119,7 @@
 
 import type { ReactElement, ReactNode } from 'react'
 import { TopBar, type TabName } from '../design/Chrome'
-import { CarryBooks, Doors, InHand } from '../design/Controls'
+import { CarryBooks, Doors, InHand, SayWhat } from '../design/Controls'
 import { Stats } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Trouble } from '../design/Trouble'
@@ -123,6 +136,17 @@ interface Props {
    * request that has not come back is a guess, so it is left out instead.
    */
   carrying: CarryItem[] | null
+  /**
+   * How many books no rule claims (#341). Null until the read has answered.
+   *
+   * The count and not the books, because this screen never names them: that is
+   * the deletion round eight made twice over, and the list is one press away on
+   * the screen whose whole job it is. Null draws no door at all, which is the
+   * same discipline `carrying` keeps and for the same reason: "none" and
+   * "nobody answered" are different things to say to somebody deciding whether
+   * there is work waiting.
+   */
+  unclaimed: number | null
   /**
    * Whether the collection has a backup anybody has proved restores (#311).
    *
@@ -163,6 +187,15 @@ interface Props {
    * there are, and what somebody is being invited to do about them.
    */
   onCarry: () => void
+  /**
+   * Go and say what the books no rule claims are (#341).
+   *
+   * The one door here with no count above it, and that is the point rather than
+   * an omission: the five counts are the five the owner named and both suites
+   * pin the list, so this job's only way of being on this screen at all is the
+   * row that says what to do about it.
+   */
+  onUnclaimed: () => void
 }
 
 /** How many books are on the table, which is the whole queue. */
@@ -171,8 +204,8 @@ function waitingIn(queue: QueueCounts): number {
 }
 
 export function HomePane({
-  counts, queue, carrying, backup,
-  onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry,
+  counts, queue, carrying, unclaimed, backup,
+  onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onUnclaimed,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
@@ -251,10 +284,21 @@ export function HomePane({
         room. The camera answers a book against the catalogue **or** the table,
         and the second half of that is not a technicality (#122).
       */}
-      {(counts.total > 0 || waiting > 0 || (carrying && carrying.length > 0)) && (
+      {(counts.total > 0 || waiting > 0
+        || (carrying && carrying.length > 0)
+        || (unclaimed !== null && unclaimed > 0)) && (
         <Doors>
           {(counts.total > 0 || waiting > 0) && <InHand onPress={onInHand} />}
           {carrying && carrying.length > 0 && <CarryBooks onPress={onCarry} />}
+          {/*
+            The books no rule claims (#341), and this row is the whole of what
+            this screen says about them. There is no count above it and there
+            cannot be: the five are the five the owner named. A person who never
+            walks the furniture would otherwise never learn that a dozen of
+            their books stand where nothing will ever move them, which is the
+            complaint that issue is.
+          */}
+          {unclaimed !== null && unclaimed > 0 && <SayWhat onPress={onUnclaimed} />}
         </Doors>
       )}
     </Screen>

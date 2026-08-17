@@ -68,6 +68,10 @@ const why = (over: Partial<BookClaim> = {}): string =>
     tabs,
     onBack: () => {},
     onRule: () => {},
+    /* Saying what the book is (#341). What that opens is `SayingPane` and its
+       own file checks it; what this file is about is when the way in is drawn
+       at all. */
+    onSay: () => {},
   }) as ReactElement)
 
 const area = (over: Partial<AreaDto> = {}): AreaDto => ({
@@ -158,6 +162,56 @@ describe('why a book is here', () => {
     expect(words(html)).toContain('a book carrying none matches nothing')
     // Nothing to open, because there is no rule to open.
     expect(html).not.toContain('wf-claim')
+  })
+
+  /*
+   * #341's complaint about this screen, in one check each way round.
+   *
+   * "The claim screen offers an unclaimed book no action at all." Every other
+   * state here offers something, and the way this regresses is not somebody
+   * deleting the card: it is somebody drawing it for a book that already has a
+   * rule, where the actions are opening that rule and pinning the book, and the
+   * screen would then be offering three things for one decision.
+   */
+  it('offers an unclaimed book something to do, which it never used to', () => {
+    const said = words(why({ claims: [], wanted: null, tags: [] }))
+
+    expect(said).toContain('Say what it is')
+    expect(said).toContain('Nobody has said anything about it')
+  })
+
+  it('names the other repair for a book carrying a tag no rule asks for', () => {
+    // The two unclaimed states are not one, and the sentence is not the same:
+    // somebody has already said this book is Crime, so telling it that it is
+    // also Fiction is the wrong answer and a rule about Crime is the right one.
+    const said = words(why({ claims: [], wanted: null, tags: ['Crime'] }))
+
+    expect(said).toContain('A rule about Crime would take them all')
+    expect(said).not.toContain('Nobody has said anything about it')
+  })
+
+  it('offers it to nobody for a book that already has a rule', () => {
+    expect(words(why())).not.toContain('Say what it is')
+  })
+
+  it('offers it to nobody for a book that has left the collection', () => {
+    // A withdrawn book is unclaimed by design, which the sentence above already
+    // says. Inviting somebody to classify a book they no longer own is the row
+    // that teaches people to ignore this screen.
+    const said = words(why({ claims: [], wanted: null, tags: [], withdrawn: true }))
+
+    expect(said).toContain('It has left the collection')
+    expect(said).not.toContain('Say what it is')
+  })
+
+  it('opens that on a screen of its own rather than writing a tag here', () => {
+    // This screen explains a claim. A box to type a tag into on it would be a
+    // second place a tag can be applied from, and the one that got the next fix
+    // would be whichever screen somebody happened to be looking at.
+    const html = why({ claims: [], wanted: null, tags: [] })
+
+    expect(html).not.toContain('wf-name')
+    expect(html).not.toContain('wf-field')
   })
 
   it('says a pin beats the rule that would otherwise have had it', () => {

@@ -72,6 +72,16 @@ export interface Summary {
    */
   readonly carrying: CarryItem[] | null
   /**
+   * How many books no rule claims (#341). Null until the read answers.
+   *
+   * The number and not the list, which is the opposite way round from
+   * `carrying` and is deliberate: the first screen draws a door and never names
+   * one of these books, and the screen that does name them reads the list
+   * itself, a page at a time. Keeping the whole list here would be holding a
+   * read for a screen that is not the one asking for it.
+   */
+  readonly unclaimed: number | null
+  /**
    * Whether the collection has a backup anybody has proved restores (#311).
    *
    * Null until the read answers, and null again if it fails, which is the same
@@ -91,6 +101,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const [counts, setCounts] = useState<Counts | null>(null)
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
   const [carrying, setCarrying] = useState<CarryItem[] | null>(null)
+  const [unclaimed, setUnclaimed] = useState<number | null>(null)
   const [backup, setBackup] = useState<BackupWatch | null>(null)
 
   useEffect(() => {
@@ -142,6 +153,33 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   }, [route])
 
   /**
+   * How many books no rule claims (#341).
+   *
+   * On the first screen only, like `carrying` above and for the same reason:
+   * that is the only screen that reads it, and the screen the door opens asks
+   * again for itself, because a person who has just said what three books are
+   * wants the list they left, not the one this held.
+   *
+   * `total` and not the page: the door is drawn from whether there are any at
+   * all, and the route answers the whole count beside a capped page precisely so
+   * a caller wanting the number does not have to page through the books to get
+   * it.
+   *
+   * A failure leaves it null and no door is drawn. That is the right silence
+   * here: a row inviting somebody to go and settle a dozen books, drawn because
+   * a request did not come back, is a walk to a screen that will say there is
+   * nothing to do.
+   */
+  useEffect(() => {
+    if (route !== 'home') return
+    let live = true
+    api.unclaimed()
+      .then((found) => { if (live) setUnclaimed(found.total) })
+      .catch(() => { if (live) setUnclaimed(null) })
+    return () => { live = false }
+  }, [route])
+
+  /**
    * Whether anything has backed the collection up lately.
    *
    * On the first screen only, like `carrying` above, and for a second reason
@@ -166,7 +204,9 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
 
   return (
     <Context.Provider
-      value={{ counts, setCounts, queueCounts, setQueueCounts, carrying, backup }}
+      value={{
+        counts, setCounts, queueCounts, setQueueCounts, carrying, unclaimed, backup,
+      }}
     >
       {children}
     </Context.Provider>

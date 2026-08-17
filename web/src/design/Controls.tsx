@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { IconCarry, IconInHand, IconOnward } from './Icons'
+import { IconCarry, IconInHand, IconOnward, IconSaying } from './Icons'
 
 export function Button({
   children,
@@ -442,4 +442,31 @@ export const CARRY_BOOKS = 'Carry books where they belong'
 
 export function CarryBooks({ onPress }: { onPress?: () => void }) {
   return <Door word={CARRY_BOOKS} icon={<IconCarry size={20} />} mark="carry" onPress={onPress} />
+}
+
+/**
+ * The way to the books no rule claims, which is #341 and the third door.
+ *
+ * **This screen is where the app finally mentions them.** A book nothing files
+ * is the honest outcome whenever no catalogue states a genre, which is #304, and
+ * until now it appeared in no listing, no review and no count: the books most in
+ * need of a person were the ones the app said least about. It stands exactly
+ * where somebody left it and no plan will ever move it, so nothing else on this
+ * screen was ever going to raise it.
+ *
+ * **Not a sixth count**, and that is a decision rather than a shortage of room.
+ * The five counts are the five the owner named, in his order, and both suites
+ * pin the list; a sixth tile would also put "nothing files them" into a third of
+ * 414px. What the design system already has for a job with a flow of its own and
+ * no tab is a door, which is what carrying got in the same round.
+ *
+ * **It is drawn only when there is something to say**, like the door beside it.
+ * A collection with enough rules lives with none of these, and a walk to a list
+ * of nothing is the door-to-an-empty-room fault the first screen keeps being
+ * defended against.
+ */
+export const SAY_WHAT = 'Say what the books nothing files are'
+
+export function SayWhat({ onPress }: { onPress?: () => void }) {
+  return <Door word={SAY_WHAT} icon={<IconSaying size={20} />} mark="saying" onPress={onPress} />
 }

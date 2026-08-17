@@ -1,7 +1,7 @@
 /**
  * Every icon in the redesign, drawn inline.
  *
- * There are fourteen, and that is the whole set on purpose. An icon here exists
+ * There are fifteen, and that is the whole set on purpose. An icon here exists
  * only where a word is already beside it (the tab bar), where the target is a
  * corner of the screen (back, and the one action in the top right), or where
  * the target sits inside a control that has no room for a word and is already
@@ -17,7 +17,8 @@
  *
  * `IconInHand` is that one and `IconCarry` is the other action beside it, drawn
  * at the same weight so the two read as one list rather than as one button and
- * one row that happens to look like it.
+ * one row that happens to look like it. `IconSaying` joined them in #341 and is
+ * the third of that clause rather than a fourth kind of exception.
  *
  * The third of those is the camera at the end of the ISBN field, and it is the
  * owner's: "on the right side of it, we should show like a camera icon for
@@ -190,6 +191,34 @@ export function IconCarry(p: Props) {
       <path d="M5.2 4.4v15.2" />
       <path d="M13.2 12h7.6" />
       <path d="M17.6 8.6 21 12l-3.4 3.4" />
+    </Glyph>
+  )
+}
+
+/**
+ * Saying what a book is: a book, and a label to put on it.
+ *
+ * The third action on the first screen (#341), drawn to the pattern the other
+ * two already set: the book on the left at the same size and weight, and the
+ * one thing this action does to it on the right. `IconCarry` puts an arrow
+ * there because the job is a walk; this puts a tag there because the job is a
+ * word, and a rule claims a book by its tags.
+ *
+ * **The pair it must not be mistaken for is `IconInHand`**, which is directly
+ * above it on the screen that draws both. That was found by looking rather than
+ * reasoned: the tag was first drawn as a small rotated square with a hole in it,
+ * and at 20px beside a book it is a blob, which is what the lens on the other
+ * glyph also is at that size. So the two doors read as the same picture. The tag
+ * is now a label pointing at the book, wide and flat where the lens is round,
+ * and its hole is far enough from the edge to survive being drawn at 20px.
+ */
+export function IconSaying(p: Props) {
+  return (
+    <Glyph {...p}>
+      <rect x="2.6" y="4.4" width="8" height="15.2" rx="1.3" />
+      <path d="M5.2 4.4v15.2" />
+      <path d="M14 8.4h6.6a1.4 1.4 0 0 1 1.4 1.4v4.4a1.4 1.4 0 0 1-1.4 1.4H14l-2.4-3.6Z" />
+      <circle cx="15.4" cy="12" r="0.9" />
     </Glyph>
   )
 }
