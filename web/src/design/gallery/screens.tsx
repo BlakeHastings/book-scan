@@ -53,7 +53,7 @@ import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Phone as Frame } from '../Phone'
 import { Queued } from '../Queue'
 import { Shelf, spines, type Cloth, type ShelfItem } from '../Shelf'
-import { Shots, type Shot } from '../Shots'
+import { Shots, threeSlots, type Shot } from '../Shots'
 import { Sure } from '../Sure'
 import { Trouble } from '../Trouble'
 import { Corner, FIXTURES_WORD, Portrait, TopBar, type TabName } from '../Chrome'
@@ -1401,6 +1401,39 @@ function spineFirst(go: Go): Shot[] {
 }
 
 /**
+ * The same photographs at the top of the details screen, in the order somebody
+ * reads them rather than the order the camera fills them.
+ *
+ * > The spine should be on the far left, not on the far right. The front should
+ * > be right next to the spine. The catalogue image should be there if it is
+ * > available [...] If the catalogue image is not available, then it should
+ * > just be the spine, the front, and our back.
+ *
+ * Three slots, drawn twice in this gallery because the two answers look
+ * different and both are ordinary: nearly every book somebody scans a barcode
+ * off has a downloaded cover, and every book no catalogue answered for has
+ * none. `threeSlots` is what decides which, so the drawing cannot come apart
+ * from the screen.
+ */
+function detailSlots(go: Go, downloaded?: Cloth) {
+  return threeSlots(
+    /* The spine is cropped to the spine, which is why it is drawn as a sliver
+       wherever it is drawn. It leads here, which it did not: the camera takes
+       it last and this screen was showing the camera's order. */
+    { word: 'Spine', cloth: 'moss', sliver: true, onPress: () => go('spine') },
+    /* Not pressable, and drawn at all only when there is one. It is the
+       publisher's picture of the edition rather than a photograph of this
+       copy, so there is no shutter that could take it again; the way to change
+       it is the ISBN field below. */
+    { word: 'Downloaded', catalogue: true, cloth: downloaded },
+    [
+      { word: 'Front', cloth: 'wood', onPress: () => go('camera') },
+      { word: 'Back', next: true, onPress: () => go('camera') },
+    ],
+  )
+}
+
+/**
  * The camera, which is the picture and nothing else.
  *
  * No `Phone` around it, and that is the point rather than an omission: no top
@@ -1511,8 +1544,16 @@ function Review(go: Go) {
         the owner found immediately: "we are not showing any images here. We
         wanna show those images and enable them to retake them if they don't
         like them because they're blurry."
+
+        Three slots since #373, and this is the book that has a downloaded
+        cover: the spine, then the cover a catalogue holds, then the two
+        photographs somebody took sharing the last slot with a swipe between
+        them. The cover and the front sit next to each other on purpose, which
+        is the comparison this whole screen exists for: an ISBN is thirteen
+        digits nobody can verify by reading, and the picture is the one part of
+        a lookup a person can confirm at a glance.
       */}
-      <Shots shots={shotsOf(go)} act size="big" />
+      <Shots {...detailSlots(go, 'sky')} act size="big" />
 
       <Card kind="Found in Open Library" title="Never Let Me Go">
         <p>Ishiguro, Kazuo &middot; Faber &middot; 2005 &middot; 288 pages</p>
@@ -1573,6 +1614,84 @@ function Review(go: Go) {
       <Button tone="primary" block onPress={() => go('where')}>
         That is the book
       </Button>
+      <Button tone="quiet" block onPress={() => go('queue')}>
+        Leave it in the queue
+      </Button>
+    </Phone>
+  )
+}
+
+/**
+ * The same screen for a book no catalogue answered for, which is the state the
+ * three slots read differently in.
+ *
+ * > If the catalogue image is not available, then it should just be the spine,
+ * > the front, and our back.
+ *
+ * So there is no downloaded cover, no empty frame where one would be, and no
+ * swipe: the two photographs somebody took have a slot each, because the room
+ * the cover would have taken is theirs. **This is the half that comes back.** A
+ * fourth kind of picture drawn as an empty dashed box is the obvious thing to
+ * reach for, it is what the book's own page does with the same kind, and it is
+ * wrong here: this screen is for judging a photograph and there is nothing to
+ * judge in a picture nobody downloaded.
+ *
+ * Everything else on it is the state the app already draws when a lookup found
+ * nothing: quiet rather than alarmed, the fields empty with what goes in them
+ * said, and the one thing that would let this book be shelved is a title
+ * somebody types off the cover.
+ */
+function ReviewNone(go: Go) {
+  return (
+    <Phone
+      tab="queue"
+      go={go}
+      top={<TopBar title="Check the details" sub="Typed in by hand" onBack={() => go('queue')} />}
+    >
+      <Shots {...detailSlots(go)} act size="big" />
+
+      {/* Quiet, which is the weight for something that is not there yet. It
+          was the loud card for a round, and a screen for checking details led
+          with an apology. */}
+      <Card weight="quiet" kind="Nothing came back" title="Fill it in from the book">
+        <p>
+          No catalogue answered for this one. Nothing has been filled in for you:
+          what the cover photograph reads is underneath, as evidence rather than
+          as an answer.
+        </p>
+      </Card>
+
+      <Field
+        label="ISBN"
+        value="9781873982273"
+        action={{
+          name: 'Read the barcode on the back instead',
+          icon: <IconCamera size={20} />,
+          onPress: () => go('camera'),
+        }}
+      />
+
+      <Field label="Title" placeholder="Off the title page" />
+      <Field label="Author" placeholder="Separate two names with a comma" />
+      <Field label="Files under" placeholder="Worked out from the author" />
+      <Field label="Series" placeholder="Not in a series" />
+
+      <div>
+        <span className="wf-field__label">Tags</span>
+        <div style={{ height: 6 }} />
+        <Tags>
+          <AddTag onPress={() => {}}>Add a tag</AddTag>
+        </Tags>
+      </div>
+
+      {/* Drawn and not pressable, with the reason under it rather than in a
+          tooltip: this is a phone, there is no hover, and nothing here says
+          what a book is yet. */}
+      <Button tone="primary" block off>
+        That is the book
+      </Button>
+      <Said>Type the title off the book to shelve it.</Said>
+
       <Button tone="quiet" block onPress={() => go('queue')}>
         Leave it in the queue
       </Button>
@@ -3968,6 +4087,15 @@ export const SCREENS: Screen[] = [
   { id: 'spine', name: 'Framing the spine', group: 'Cataloguing', render: SpineShot },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
+  /* Beside it, because the top of that screen has two answers and both are
+     ordinary: a book a catalogue holds a cover for, and a book nothing
+     answered for at all. */
+  {
+    id: 'reviewnone',
+    name: 'Nothing came back',
+    group: 'Cataloguing',
+    render: ReviewNone,
+  },
   { id: 'where', name: 'Where it goes', group: 'Cataloguing', render: WhereItGoes },
   { id: 'done', name: 'Shelved', group: 'Cataloguing', render: Done },
   { id: 'queue', name: 'The queue', group: 'Cataloguing', render: Queue },

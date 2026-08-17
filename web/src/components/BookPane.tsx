@@ -94,7 +94,7 @@ import {
   type PlacementStrip,
 } from '../lib/api'
 import { clothFor, pagesOf } from '../lib/bookLook'
-import { coverThumbUrl } from './PlacementCard'
+import { coverThumbUrl, coverUrl } from './PlacementCard'
 import { rememberedFirstPicture } from '../lib/firstPicture'
 import { grouped } from '../lib/say'
 import { spineLabel } from '../lib/shelfRow'
@@ -408,9 +408,23 @@ export function BookPane() {
  * `sliver`, which is what stands it against the front rather than beside it, and
  * a crop is preferred to the whole photograph for the reason the gallery prefers
  * one: the room the book was photographed in is not part of the book.
+ *
+ * **And the whole photograph goes with it**, which is the other half of that
+ * sentence (#373). Cropping is right for a book on a page and wrong for a
+ * picture somebody has tapped to look at, so each shot carries both: the crop
+ * to draw, and the photograph it was taken from for the full screen view.
+ *
+ * The second one is asked for at no width at all, which is deliberate: the
+ * server resizes to a short list and the largest of them is 640, which is less
+ * than a phone's own screen holds. The book page's lightbox has asked for the
+ * file itself since it existed, and this is that request moved rather than a
+ * cheaper one substituted for it.
  */
 function shotsOf(book: BookRow): Shot[] {
   const of = (file: string, crop: string) => coverThumbUrl(crop || file, 320)
+  /* Nothing where there is no photograph, so an absent one stays absent rather
+     than becoming a url to a file that is not there. */
+  const whole = (file: string) => coverUrl(file) || undefined
 
   return [
     {
@@ -418,16 +432,19 @@ function shotsOf(book: BookRow): Shot[] {
       sliver: true,
       cloth: book.edge_image ? clothFor(book.id) : undefined,
       photo: of(book.edge_image, book.edge_crop),
+      full: whole(book.edge_image),
     },
     {
       word: 'Front',
       cloth: book.front_image ? clothFor(book.id + 1) : undefined,
       photo: of(book.front_image, book.front_crop),
+      full: whole(book.front_image),
     },
     {
       word: 'Back',
       cloth: book.back_image ? clothFor(book.id + 2) : undefined,
       photo: of(book.back_image, book.back_crop),
+      full: whole(book.back_image),
     },
     {
       word: 'Downloaded',
@@ -438,6 +455,9 @@ function shotsOf(book: BookRow): Shot[] {
       catalogue: true,
       cloth: book.cover_image ? clothFor(book.id + 3) : undefined,
       photo: coverThumbUrl(book.cover_image, 320),
+      // Nothing was ever cut off a downloaded cover, so the whole of it is
+      // what is already drawn, only larger.
+      full: whole(book.cover_image),
     },
   ]
 }

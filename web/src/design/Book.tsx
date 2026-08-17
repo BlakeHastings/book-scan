@@ -104,6 +104,19 @@ export function Part({
  * and the review draw, because a second one is what this file already learned
  * not to have.
  *
+ * ## Tapping one opens it whole (#373)
+ *
+ * > It should be possible that if we just tap the image of the spine or of the
+ * > book, that we get a full screen view of it that can be exited out of, or
+ * > you can swipe on to go see any of the other images.
+ *
+ * `Shots` does all of it and this asks for it, which is the whole of the wiring:
+ * `full` turns each drawn picture into a target and brings the view with it.
+ * This is the only thing in the design system that asks, and that is deliberate
+ * rather than incidental. The other place a book is drawn this way is a queue
+ * row, which is one whole button and cannot hold another, so the way that row
+ * is protected is by nobody asking on its behalf.
+ *
  * ## It fills the width, which it did not
  *
  * > It seems like the upper area doesn't actually fully expand to fill the
@@ -148,7 +161,7 @@ export function Head({
 }) {
   return (
     <div className="wf-book">
-      <Shots shots={shots} mode="book" first={first} />
+      <Shots shots={shots} mode="book" first={first} full />
       <div className="wf-book__of">
         <h2 className="wf-book__title">{title}</h2>
         <p className="wf-book__by">{by}</p>
