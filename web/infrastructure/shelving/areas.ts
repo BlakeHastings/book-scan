@@ -571,10 +571,18 @@ export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
    * carried a book there it does not exist. Naming it `2C` on a piece somebody
    * has called "Hall shelf" would be the very mismatch this is here to close,
    * so the piece is asked for its name and only the letter is invented.
+   *
+   * One piece per position, the one that was there first, which is the reading
+   * `runAreasOf` makes of the same shelves. Two pieces standing at one position
+   * is what a second bookcase pushed into the same place looks like, and the run
+   * is the one that was there.
    */
-  const pieces = new Map((await db.all<{ id: number; position: number; name: string }>(
-    'SELECT id, position, name FROM fixture WHERE position >= 0',
-  )).map((row) => [row.position, row]))
+  const pieces = new Map<number, { id: number; name: string }>()
+  for (const row of await db.all<{ id: number; position: number; name: string }>(
+    'SELECT id, position, name FROM fixture WHERE position >= 0 ORDER BY position, id',
+  )) {
+    if (!pieces.has(row.position)) pieces.set(row.position, row)
+  }
 
   return {
     addressOf(areaId) {

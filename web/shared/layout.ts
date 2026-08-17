@@ -128,13 +128,6 @@ export function plankAt(label: string): PlankAt | null {
 }
 
 /**
- * Assign every book a shelf by filling each one to its recorded capacity.
- *
- * `books` must already be in sort order; that ordering is the shelf order.
- * Books past the last separator land on a final, open-ended shelf, which is
- * where everything sits before any capacity has been marked at all.
- */
-/**
  * Which plank, as the furniture is numbered rather than as anybody reads it.
  *
  * The whole of what this file knows about a place, and it knows nothing about
@@ -161,6 +154,13 @@ export type RangeStart = PlankAt
 
 export const FIRST_SHELF: RangeStart = { shelf: 1, area: 0 }
 
+/**
+ * Assign every book a shelf by filling each one to its recorded capacity.
+ *
+ * `books` must already be in sort order; that ordering is the shelf order.
+ * Books past the last separator land on a final, open-ended shelf, which is
+ * where everything sits before any capacity has been marked at all.
+ */
 export function layoutRange<T extends LayoutInput>(
   books: T[],
   separators: Separator[],
