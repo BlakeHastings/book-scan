@@ -115,7 +115,7 @@ export function counted(n: number, one: string, many = `${one}s`): string {
 export const plural = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`
 
-/** What the whole room adds up to, as the line under "Your furniture". */
+/** What the whole room adds up to, as the line under "Your fixtures". */
 export function roomSaid(fixtures: readonly FixtureDto[]): string {
   const areas = fixtures.reduce((total, piece) => total + piece.areas.length, 0)
   const sentence = `${counted(fixtures.length, 'piece')}, ${counted(areas, 'area')}`

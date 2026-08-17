@@ -91,7 +91,7 @@ export function CarryPane({
         </Nothing>
 
         <Button tone="quiet" block onPress={onLibrary}>
-          See your furniture
+          See your fixtures
         </Button>
       </WfScreen>
     )

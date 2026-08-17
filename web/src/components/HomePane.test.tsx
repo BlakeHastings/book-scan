@@ -86,7 +86,7 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
     onInHand: () => {},
     /* The corner (#350). `RoomMenu` decides what it says and what it opens;
        this screen is handed one, so this is a stand-in of the same shape. */
-    corner: { word: 'Your room', icon: null, onPress: () => {} },
+    corner: { word: 'Your fixtures', icon: null, onPress: () => {} },
     onLibrary: () => {},
     onQueue: () => {},
     onCarry: () => {},
