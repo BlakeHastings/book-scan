@@ -29,7 +29,7 @@
  */
 
 import type { ReactElement, ReactNode } from 'react'
-import { Actions, Been, Head, Part, Tagged, Tagging } from '../Book'
+import { Actions, Head, Part, Tagged, Tagging, Where } from '../Book'
 import { Viewfinder } from '../Camera'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
@@ -657,25 +657,44 @@ function ListView(go: Go) {
  * > what they're here for.
  *
  * Above the fold: the book, its facts, its tags, and what you can do about it.
- * Below it, in this order: where it sits, why it sits there, where it has been,
- * and more by this author. Somebody arriving at a book either wants to do
- * something or wants to know where it is, and the knowing is what they scroll
- * to anyway, so putting the doing first costs it nothing.
+ * Below it, in this order: where it sits, why it sits there, and more by this
+ * author. Somebody arriving at a book either wants to do something or wants to
+ * know where it is, and the knowing is what they scroll to anyway, so putting
+ * the doing first costs it nothing.
  *
  * Three things moved to get there and each one is the owner's: the tags went up
  * under the ISBN, the actions went up to where "where it is" used to sit, and
  * "who wrote it" became "more by this author" with the same content under it.
- * Two things did not move: "why it is here" stays under the drawing of the
- * board, and "where it has been" stays exactly as it is, which is the one part
- * of this screen he has said twice that he likes.
+ * One thing did not move: "why it is here" stays under the drawing of the
+ * board.
  *
- * **They are the same book by the same author, and that is the point.** One
- * record is as full as this catalogue gets and the other is nearly empty,
- * which is what most of a real collection looks like, and putting them on one
- * author shows what survives a thin record: who wrote it, and what else of
- * theirs is in the house. Everything that is missing is drawn as the empty
- * shape of itself rather than left off, because a gap somebody can fill is a
- * thing to know.
+ * ## Round eight: four headings off, one section gone, one hidden
+ *
+ * The order above survived it and the headings mostly did not. "What it is
+ * about" is the tags, and they are up in the head beside the picture now.
+ * "What you can do" is a row of buttons with nothing over it. "Where it is" is
+ * the board, which says where it is by being looked at. "Where it has been" is
+ * gone with its ledger. "More by this author" is the one heading left, and it
+ * is drawn only where the catalogue has something else by them.
+ *
+ * And the pictures changed order: the one a catalogue holds comes first where
+ * there is one, with a setting on the settings screen to have it the other way
+ * round.
+ *
+ * **The first two are the same book by the same author, and that is the
+ * point.** One record is as full as this catalogue gets and the other is
+ * nearly empty, which is what most of a real collection looks like, and
+ * putting them on one author shows what survives a thin record: who wrote it,
+ * what else of theirs is in the house, and where it is. Everything that is
+ * missing is drawn as the empty shape of itself rather than left off, because
+ * a gap somebody can fill is a thing to know.
+ *
+ * **The third one is the case neither of those can draw**, because both are by
+ * an author with nine books here: a book whose author has nothing else in the
+ * catalogue, which is what nearly every book in a new collection is. It is a
+ * third screen rather than a change to one of the two, because the pair above
+ * is a comparison and the thin one is already carrying three other states at
+ * once.
  *
  * ## Round three took the sentences off both of them
  *
@@ -765,6 +784,21 @@ function Book(go: Go) {
         />
       }
     >
+      {/*
+        The picture a catalogue holds is the one this opens on, which is the
+        first thing round eight changed: "we should show the catalogue picture
+        of the front of the book first if possible, instead of the one the user
+        took." The kinds are still listed in the order they are taken, and
+        `deckOrder` is what brings the downloaded one to the front, so the
+        drawing and the app cannot disagree about it. `first` is left at its
+        default here because the default is what somebody who has never opened
+        the settings screen gets, and that is the screen to draw.
+
+        The tags are in the head now, under the publisher and the ISBN and
+        beside the picture: "those should be up underneath where we have the
+        ISBN, publisher, all of that." They had a heading of their own, three
+        sections down, and it said nothing the chips do not.
+      */}
       <Head
         title="The Left Hand of Darkness"
         by="Ursula K. Le Guin"
@@ -772,36 +806,34 @@ function Book(go: Go) {
           { word: 'Front', cloth: 'plum' },
           { word: 'Spine', cloth: 'plum', sliver: true },
           { word: 'Back', cloth: 'wood' },
-          { word: 'Downloaded', cloth: 'sky' },
+          { word: 'Downloaded', cloth: 'sky', catalogue: true },
         ]}
         facts={['Ace, 1969. 304 pages.', 'Hainish Cycle, book four', 'ISBN 9780441478125']}
+        tags={
+          <Tagging>
+            <Tagged word="Fiction" from="person" who="You said so, on 3 June" />
+            <Tagged word="Science fiction" from="catalogue" who="Open Library says so" />
+            <Tagged
+              word="Anthropology"
+              from="guess"
+              who="The app guessed it, and it is not sure"
+            />
+          </Tagging>
+        }
       />
 
-      {/* Straight under the publisher and the ISBN, because that is where he
-          put them: "those should be up underneath where we have the ISBN,
-          publisher, all of that." What a book is about is a fact about the
-          book, and it was three sections down under everything about where it
-          sits. */}
-      <Part head="What it is about">
-        <Tagging>
-          <Tagged word="Fiction" from="person" who="You said so, on 3 June" />
-          <Tagged word="Science fiction" from="catalogue" who="Open Library says so" />
-          <Tagged
-            word="Anthropology"
-            from="guess"
-            who="The app guessed it, and it is not sure"
-          />
-        </Tagging>
-      </Part>
-
       {/*
-        Three, and the count is the design.
+        Three buttons and no heading over them.
 
-        These are the two he named, "check it out" and "moved it", and the one
-        he allowed, "or maybe other actions like moving it". Everything else a
-        person can do to this book is either already on the screen or belongs
-        beside the thing it acts on, and this row is the first thing a thumb
-        reaches, which is exactly the row that fills up:
+        > And "what you can do", we don't need that text there either. We should
+        > just enable them to take action on a book with a series of buttons.
+
+        The heading went and the row did not: these are the two he named,
+        "check it out" and "moved it", and the one he allowed, "or maybe other
+        actions like moving it". Everything else a person can do to this book is
+        either already on the screen or belongs beside the thing it acts on, and
+        this row is the first thing a thumb reaches, which is exactly the row
+        that fills up:
 
         - **Edit** is the named action in the top right and has been since the
           screen existed. A second door to it here is the fault the first screen
@@ -816,25 +848,25 @@ function Book(go: Go) {
           screen in this gallery. It arrives with the screen that asks whether
           you meant it, not as a fourth small button beside "It moved".
       */}
-      <Part head="What you can do">
-        <Actions>
-          <Button tone="secondary" small>
-            Check it out
-          </Button>
-          <Button tone="quiet" small onPress={() => go('where')}>
-            It moved
-          </Button>
-          <Button tone="quiet" small onPress={() => go('carry')}>
-            Move it
-          </Button>
-        </Actions>
-      </Part>
+      <Actions>
+        <Button tone="secondary" small>
+          Check it out
+        </Button>
+        <Button tone="quiet" small onPress={() => go('where')}>
+          It moved
+        </Button>
+        <Button tone="quiet" small onPress={() => go('carry')}>
+          Move it
+        </Button>
+      </Actions>
 
-      {/* Below the fold now, and unchanged apart from losing the sentence over
-          it. The board is how you find the book in the room and it names the
-          two books either side, and the cat on top of it says which one it is.
-          Why it is here sits under the drawing, where the question gets asked. */}
-      <Part head="Where it is">
+      {/* Below the fold, and with nothing written over it: "instead of where it
+          is, once again, we don't need that text there. Looking at this tells
+          them where it is." The board is how you find the book in the room and
+          it names the two books either side, and the cat on top of it says
+          which one it is. Why it is here sits under the drawing, where the
+          question gets asked, and it is the one part of this the owner kept. */}
+      <Where>
         <div className="wf-bleed">
           <Shelf label="1C" note="Third along" items={row} />
         </div>
@@ -843,26 +875,12 @@ function Book(go: Go) {
             Why it is here
           </Button>
         </Actions>
-      </Part>
+      </Where>
 
-      {/* Untouched, on purpose. "I like the where it has been. That should
-          stay. I really like that." */}
-      <Part head="Where it has been" note="Five moves">
-        <Been
-          rows={[
-            { what: 'Put on 1C', who: 'You carried it', when: '4 Aug' },
-            { what: 'Meant for 1C', who: 'The app, when you said 1B was full', when: '2 Aug' },
-            { what: 'Brought back', who: 'Put back where it came off', when: '28 Jul' },
-            { what: 'Taken out', when: '12 Jul' },
-            { what: 'Put on 1B', who: 'You carried it', when: '3 Jun' },
-          ]}
-        />
-      </Part>
-
-      {/* The same content under the heading he asked for: "instead of who wrote
-          it and then have the author there, we could just have more by this
-          author and then the same stuff, so they can see it." The name and what
-          it files under stay, because they are what the heading is about. */}
+      {/* The last heading on the page, and the only one that survives, because
+          it is the one thing here nothing else on the screen says: "I do like
+          the more by this author though." The name and what it files under stay
+          under it, because they are what the heading is about. */}
       <Part head="More by this author" note="Nine of theirs">
         <p className="wf-book__by" style={{ margin: 0 }}>
           Ursula K. Le Guin
@@ -883,9 +901,19 @@ function Book(go: Go) {
  * standing against the empty front, which is what most of a real collection
  * looks like: a shelf gets photographed a spine at a time.
  *
+ * ## It is the screen the picture setting has no answer for
+ *
+ * There is no downloaded cover on this record, so there is nothing to bring to
+ * the front and the photograph somebody took leads whatever the setting says.
+ * That is the "if possible" in the owner's sentence, drawn: the alternative is
+ * a book opening on an empty box with "No photograph" written in it, which is
+ * the one outcome the reordering must not produce. The kind is still in the
+ * deck and still has a dot, because a cover nobody has downloaded is a thing
+ * to know and a thing to fix.
+ *
  * The two things that are as good as they are on the full record are the two
- * that come from somewhere other than a catalogue: who wrote it, and where it
- * has been.
+ * that come from somewhere other than a catalogue: who wrote it, and what else
+ * of theirs is in the house.
  */
 function Thin(go: Go) {
   return (
@@ -908,9 +936,18 @@ function Thin(go: Go) {
           { word: 'Front' },
           { word: 'Spine', cloth: 'wood', sliver: true },
           { word: 'Back' },
-          { word: 'Downloaded' },
+          { word: 'Downloaded', catalogue: true },
         ]}
         facts={['No publisher, year or length', 'No ISBN']}
+        tags={
+          <Tagging>
+            <Tagged
+              word="Fiction"
+              from="guess"
+              who="The app guessed it from the title, and it is not sure"
+            />
+          </Tagging>
+        }
       />
 
       <Card
@@ -929,59 +966,47 @@ function Thin(go: Go) {
         }
       />
 
-      <Part head="What it is about">
-        <Tagging>
-          <Tagged
-            word="Fiction"
-            from="guess"
-            who="The app guessed it from the title, and it is not sure"
-          />
-        </Tagging>
-      </Part>
-
       {/*
-        Two, and they are not the rich book's three, because this book is in
-        the house rather than on a bookcase. Putting it back is the one thing
-        somebody holding it can do, and saying what it is, is the one thing
-        worth doing to a record this thin: the only tag on it is a guess, and a
-        guess is what the app rewrites and a person's word is not.
+        Two buttons, and they are not the rich book's three, because this book
+        is in the house rather than on a bookcase. Putting it back is the one
+        thing somebody holding it can do, and saying what it is, is the one
+        thing worth doing to a record this thin: the only tag on it is a guess,
+        and a guess is what the app rewrites and a person's word is not.
 
         "It moved" and "Move it" are deliberately not here. A book nobody has
         put anywhere has not moved, and offering to move it is offering to move
         it from nowhere.
       */}
-      <Part head="What you can do">
-        <Actions>
-          <Button tone="secondary" small onPress={() => go('where')}>
-            Put it back
-          </Button>
-          <Button tone="quiet" small>
-            Say what it is
-          </Button>
-        </Actions>
-      </Part>
+      <Actions>
+        <Button tone="secondary" small onPress={() => go('where')}>
+          Put it back
+        </Button>
+        <Button tone="quiet" small>
+          Say what it is
+        </Button>
+      </Actions>
 
-      {/* One word, and it is the whole section. The rich book has a board
-          drawn under this heading and reads its own label off it; this book has
-          no board to read, so the label is the answer, and the date it went out
-          is the first row of where it has been. */}
-      <Part head="Where it is">
+      {/*
+        A label, and it is the whole section. The rich book has a board here and
+        reads its own label off it; this book has no board to read, so the label
+        is the answer.
+
+        **It said "Out", and one word was not enough once the heading came
+        off.** "Looking at this tells them where it is" is true of a drawn
+        board and is not true of a pill with one word in it: under a heading
+        reading "Where it is", "Out" was an answer, and on its own between a row
+        of buttons and the next section it was a word nobody had asked a
+        question for. So the label says the whole thing on the screens that have
+        no board, which is the only place this arises. Found by looking at it.
+      */}
+      <Where>
         {/* Wrapped, because a section is a grid and a grid stretches what is
             put in it: the label went the width of the phone and read as an
             empty field waiting to be filled in. Found by looking at it. */}
         <div>
-          <Place quiet>Out</Place>
+          <Place quiet>Out of the house</Place>
         </div>
-      </Part>
-
-      <Part head="Where it has been" note="Two moves">
-        <Been
-          rows={[
-            { what: 'Taken out', when: '2 Aug' },
-            { what: 'Put on 1C', who: 'You carried it', when: '14 May' },
-          ]}
-        />
-      </Part>
+      </Where>
 
       <Part head="More by this author" note="Nine of theirs">
         <p className="wf-book__by" style={{ margin: 0 }}>
@@ -990,6 +1015,94 @@ function Thin(go: Go) {
         <Said>Files under Le Guin, Ursula K.</Said>
         {AlsoTheirs(go)}
       </Part>
+    </Phone>
+  )
+}
+
+/**
+ * A book whose author has nothing else here, which is nearly every book in a
+ * new collection.
+ *
+ * > And if there's nothing else in the catalogue by that author, we shouldn't
+ * > show "more by this author" at all.
+ *
+ * **The section is not on this screen at all**: not a heading over an empty
+ * box, not a card saying nothing else of theirs is catalogued, not a count of
+ * one. A heading whose only content is that there is no content is a heading
+ * somebody scrolls past on most of their books.
+ *
+ * Nothing is lost by it going. Who wrote it is on the screen twice already, in
+ * the bar and under the title, and what it files under is what the bar says.
+ * The section was never carrying those; it was carrying the list, and there is
+ * no list.
+ *
+ * Everything else about this book is ordinary, on purpose. It has both kinds of
+ * front picture, so it is also where the downloaded one being first is easiest
+ * to see, and it stands on a bookcase, so the board is drawn.
+ */
+function Lone(go: Go) {
+  const row: ShelfItem[] = [
+    ...spines(['Waters, Sarah', 'Whitehead, Colson']),
+    {
+      kind: 'spine',
+      text: 'Williams, John',
+      cloth: 'moss',
+      pages: 288,
+      here: true,
+    },
+    ...spines(['Woolf, Virginia', 'Yanagihara, Hanya'], 3),
+  ]
+
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="Stoner"
+          sub="Williams, John"
+          onBack={() => go('library')}
+          action={{ word: 'Edit', icon: <IconEdit /> }}
+        />
+      }
+    >
+      <Head
+        title="Stoner"
+        by="John Williams"
+        shots={[
+          { word: 'Front', cloth: 'moss' },
+          { word: 'Spine', cloth: 'moss', sliver: true },
+          { word: 'Back' },
+          { word: 'Downloaded', cloth: 'wood2', catalogue: true },
+        ]}
+        facts={['Vintage, 2003. 288 pages.', 'ISBN 9780099561545']}
+        tags={
+          <Tagging>
+            <Tagged word="Fiction" from="catalogue" who="Open Library says so" />
+            <Tagged word="Campus novel" from="person" who="You said so, on 11 July" />
+          </Tagging>
+        }
+      />
+
+      <Actions>
+        <Button tone="secondary" small>
+          Check it out
+        </Button>
+        <Button tone="quiet" small onPress={() => go('where')}>
+          It moved
+        </Button>
+      </Actions>
+
+      <Where>
+        <div className="wf-bleed">
+          <Shelf label="2B" note="Third along" items={row} />
+        </div>
+        <Actions>
+          <Button tone="quiet" small onPress={() => go('claimed')}>
+            Why it is here
+          </Button>
+        </Actions>
+      </Where>
     </Phone>
   )
 }
@@ -1526,7 +1639,7 @@ function Placing({
   )
 }
 
-function Where(go: Go) {
+function WhereItGoes(go: Go) {
   const row: ShelfItem[] = [
     ...spines(['Mantel, Hilary', 'Miéville, China']),
     { kind: 'gap' },
@@ -1579,7 +1692,7 @@ function Where(go: Go) {
  * That still left three cats: the loaf, the cat #288 put on the placed book,
  * and the cat `Shelf` puts at the end of every run as a bookend. The loaf is
  * the one that is gone: he sat over the deleted sentence and had nothing left
- * to be pleased about once it was gone. The bookend stays. `Where`, the
+ * to be pleased about once it was gone. The bookend stays. `WhereItGoes`, the
  * screen this one follows, draws the same 2C with the same bookend at the end
  * of it; dropping it only here would have a bookend leave the shelf the
  * moment a book is placed on it, which reads as the drawing losing furniture
@@ -2035,6 +2148,35 @@ function SettingsScreen(go: Go) {
       <Said>
         The shutter goes to that edge, under the thumb of the hand already
         holding the phone, and the photographs go to the other one.
+      </Said>
+
+      {/*
+        > We should show the catalogue picture of the front of the book first if
+        > possible, instead of the one the user took. We should probably add that
+        > as a setting the user can set if they would like.
+
+        Here rather than on the book's page, which is the rule this screen was
+        built on: a control belongs beside the thing it acts on only when it is
+        about that one thing, and this is an answer somebody gives once about
+        every book in the house. A switch on a book's page would be asked again
+        on the next book and would be a fifth thing on a page whose whole
+        complaint was that it had too much on it.
+      */}
+      <div>
+        <span className="wf-field__label">Which picture of a book comes first</span>
+        <div style={{ height: 6 }} />
+        <Segmented
+          label="Which picture of a book comes first"
+          on="catalogue"
+          options={[
+            { value: 'catalogue', word: 'The downloaded one' },
+            { value: 'yours', word: 'The one you took' },
+          ]}
+        />
+      </div>
+      <Said>
+        A book with no downloaded cover opens on the photograph you took, either
+        way.
       </Said>
 
       <Card kind="Nobody signs in" title="Everybody in the house shares one collection">
@@ -3788,6 +3930,12 @@ export const SCREENS: Screen[] = [
     group: 'Every day',
     render: Thin,
   },
+  {
+    id: 'lone',
+    name: 'A book whose author has nothing else here',
+    group: 'Every day',
+    render: Lone,
+  },
   { id: 'find', name: 'Find, before you type', group: 'Finding a book', render: Find },
   { id: 'finding', name: 'Typing a name', group: 'Finding a book', render: Finding },
   { id: 'findisbn', name: 'Typing an ISBN', group: 'Finding a book', render: FindIsbn },
@@ -3806,7 +3954,7 @@ export const SCREENS: Screen[] = [
   { id: 'spine', name: 'Framing the spine', group: 'Cataloguing', render: SpineShot },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
-  { id: 'where', name: 'Where it goes', group: 'Cataloguing', render: Where },
+  { id: 'where', name: 'Where it goes', group: 'Cataloguing', render: WhereItGoes },
   { id: 'done', name: 'Shelved', group: 'Cataloguing', render: Done },
   { id: 'queue', name: 'The queue', group: 'Cataloguing', render: Queue },
   /* The three states of it that are not the middle one. Forty is what a bigger

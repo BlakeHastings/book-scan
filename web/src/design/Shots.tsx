@@ -110,6 +110,18 @@ export interface Shot {
    */
   sliver?: boolean
   /**
+   * This picture came out of a catalogue rather than out of the camera.
+   *
+   * At most one of them, and it is the publisher's picture of the edition
+   * rather than a picture of this copy. A flag rather than matching on the
+   * word for the reason `sliver` is one: "Downloaded" is a label, and a label
+   * is the thing somebody rewrites without knowing what reads it.
+   *
+   * `deckOrder` is the only thing that reads it, and what it decides is which
+   * picture a book opens on.
+   */
+  catalogue?: boolean
+  /**
    * The photograph itself, where there is one.
    *
    * The gallery has none and stands a cloth in for each, which is what `cloth`
@@ -135,6 +147,47 @@ export interface Shot {
 }
 
 /**
+ * Which of a book's pictures somebody wants to see first.
+ *
+ * > On the book detail view, we should show the catalogue picture of the front
+ * > of the book first if possible, instead of the one the user took. We should
+ * > probably add that as a setting the user can set if they would like.
+ *
+ * Two answers to one question, and the question is a preference rather than a
+ * property of a book, so it is stored on the phone: `lib/firstPicture.ts` is
+ * where it is kept and the settings screen is where it is asked, the same
+ * arrangement `lib/hand.ts` and the camera already have.
+ */
+export type FirstPicture = 'catalogue' | 'yours'
+
+/**
+ * The order the pictures are swiped through, given which one comes first.
+ *
+ * **"If possible" is the whole of this function.** A catalogue picture is
+ * brought to the front only when there is one; a book nobody has downloaded a
+ * cover for keeps the photograph somebody took at the front rather than
+ * opening on an empty frame with "No photograph" written in it, which is what
+ * moving an absent picture would produce and is the one outcome this must not
+ * have. Every kind stays in the deck either way, because a kind nobody has
+ * photographed is still a thing to know and a thing to fix.
+ *
+ * Nothing else moves. The rest keep the order they were handed in, which is
+ * the order they are taken in, so choosing the catalogue picture changes one
+ * thing rather than reshuffling the deck.
+ *
+ * Pure, exported and drawn by one component, so the gallery and the app cannot
+ * disagree about which picture a book opens on.
+ */
+export function deckOrder(deck: Shot[], first: FirstPicture): Shot[] {
+  if (first !== 'catalogue') return deck
+
+  const at = deck.findIndex((one) => one.catalogue && Boolean(one.cloth || one.photo))
+  if (at <= 0) return deck
+
+  return [deck[at]!, ...deck.filter((_, index) => index !== at)]
+}
+
+/**
  * The photographs of one book: what exists, what is next, and, where a person
  * is allowed to, the way to take any of them again.
  *
@@ -150,6 +203,7 @@ export function Shots({
   size,
   on = 'paper',
   mode = 'rail',
+  first = 'catalogue',
 }: {
   shots: Shot[]
   /**
@@ -174,8 +228,13 @@ export function Shots({
    * the spine standing against the front, with the rest behind it.
    */
   mode?: 'rail' | 'book'
+  /**
+   * Which picture the book opens on. Read only by `mode="book"`: a rail draws
+   * every photograph at once and has no first.
+   */
+  first?: FirstPicture
 }) {
-  if (mode === 'book') return <TheBook shots={shots} size={size} />
+  if (mode === 'book') return <TheBook shots={shots} size={size} first={first} />
 
   const className = [
     'wf-shots',
@@ -311,10 +370,38 @@ export function Shots({
  * cannot be pressed would be a swipe drawn and not delivered, and the dots are
  * `<button>`s, which cannot legally sit inside the button the whole row is. The
  * book's own page is where the other photographs are, one tap away.
+ *
+ * ## Which of them the book opens on
+ *
+ * The deck has an order and the owner has an opinion about the front of it:
+ * the picture a catalogue holds, where there is one, rather than the
+ * photograph somebody took. That is `deckOrder`, above, and it is one function
+ * so that changing the answer cannot leave the dots counting one deck while
+ * the strip scrolls another.
+ *
+ * **It cannot reach the row above.** A deck of one is returned untouched, by
+ * `deckOrder`'s own arithmetic rather than by a caller remembering to ask for
+ * it: there is nothing at an index above zero to bring to the front. A queue
+ * row hands this one photograph, so the row draws exactly what it drew, and
+ * the ordering is a question only a page with a real deck ever asks.
  */
-function TheBook({ shots, size }: { shots: Shot[]; size?: 'small' | 'big' }) {
+function TheBook({ shots, size, first }: {
+  shots: Shot[]
+  size?: 'small' | 'big'
+  first: FirstPicture
+}) {
   const spine = shots.find((one) => one.sliver)
-  const deck = shots.filter((one) => !one.sliver)
+  /*
+   * The pictures a swipe goes through, in the order somebody asked for.
+   *
+   * The spine is not one of them and never was: it stands against the front
+   * and is the one you look for a book by. Which of the rest leads is
+   * `deckOrder`, and it is worked out here rather than by each caller so the
+   * dots, the card behind and the frame that is showing all count the same
+   * deck. `held` below is built from this list, so changing the answer starts
+   * the swipe at the front again, which is what it does for a different book.
+   */
+  const deck = deckOrder(shots.filter((one) => !one.sliver), first)
 
   /*
    * Which photograph is showing. Kept because two other things have to agree

@@ -30,6 +30,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { SettingsPane } from './SettingsPane'
 import type { FurnitureDto, SortStrategyCode } from '../lib/api'
+import type { FirstPicture } from '../design/Shots'
 import type { Hand } from '../design/Camera'
 import type { TabName } from '../design/Chrome'
 
@@ -55,6 +56,7 @@ function room(defaultSortStrategy: SortStrategyCode = 'author'): FurnitureDto {
 function drawn(over: {
   room?: FurnitureDto | null
   hand?: Hand
+  firstPicture?: FirstPicture
   busy?: boolean
   error?: string
 } = {}): string {
@@ -62,18 +64,37 @@ function drawn(over: {
     <SettingsPane
       room={over.room === undefined ? room() : over.room}
       hand={over.hand ?? 'right'}
+      firstPicture={over.firstPicture ?? 'catalogue'}
       busy={over.busy ?? false}
       error={over.error ?? ''}
       tabs={tabs}
       onBack={() => {}}
       onOrder={() => {}}
       onHand={() => {}}
+      onFirstPicture={() => {}}
     />,
   )
 }
 
 /** The words on the screen, with the markup and therefore the class names gone. */
 const words = (markup: string): string => markup.replace(/<[^>]*>/g, ' ')
+
+/**
+ * One segmented control, by the name it carries.
+ *
+ * There are two of them on this screen now, one per answer the phone
+ * remembers, so "exactly one option is marked" has to be asked of a control
+ * rather than of the page. Asking it of the page passed while there was one
+ * and would pass again on a screen where one control had both options lit and
+ * the other had none.
+ */
+function segmented(markup: string, label: string): string {
+  const found = markup.match(
+    new RegExp(`<div class="wf-seg" role="group" aria-label="${label}">.*?</div>`, 's'),
+  )
+  expect(found, `there is no control called "${label}"`).not.toBeNull()
+  return found![0]
+}
 
 describe('how your books are ordered', () => {
   it('offers the three a whole collection can take, in this app words', () => {
@@ -145,16 +166,61 @@ describe('how your books are ordered', () => {
 describe('which hand you hold the phone in', () => {
   it('draws the hand that is stored as the one that is on', () => {
     for (const hand of ['left', 'right'] as Hand[]) {
-      const markup = drawn({ hand })
-      const on = markup.match(/<button[^>]*wf-seg__opt--on[^>]*>([^<]+)</)?.[1]
+      const seg = segmented(drawn({ hand }), 'Which hand you hold the phone in')
+      const on = seg.match(/<button[^>]*wf-seg__opt--on[^>]*>([^<]+)</)?.[1]
 
       expect(on?.toLowerCase(), `${hand} is stored and something else is drawn`).toBe(hand)
-      expect((markup.match(/wf-seg__opt--on/g) ?? []).length).toBe(1)
+      expect((seg.match(/wf-seg__opt--on/g) ?? []).length).toBe(1)
     }
   })
 
   it('says what choosing one does, since the camera is another screen', () => {
     expect(words(drawn())).toMatch(/The shutter goes to that edge/)
+  })
+})
+
+/**
+ * Which picture of a book comes first, which is the one setting on this screen
+ * that arrived because a screen elsewhere wanted it (#365).
+ *
+ * The same two checks the hand gets, because they are the two ways a setting
+ * lies: drawing something other than what is stored, and not saying what
+ * choosing it does. The third is this one's own, and it is the sentence about
+ * a book with no downloaded cover. Most books in a young collection have none,
+ * so somebody who chooses the downloaded one and then opens four books that
+ * ignore the choice needs that said on the screen where they chose.
+ */
+describe('which picture of a book comes first', () => {
+  it('draws the answer that is stored as the one that is on', () => {
+    const said: Record<FirstPicture, RegExp> = {
+      catalogue: /The downloaded one/,
+      yours: /The one you took/,
+    }
+
+    for (const first of ['catalogue', 'yours'] as FirstPicture[]) {
+      const seg = segmented(drawn({ firstPicture: first }), 'Which picture of a book comes first')
+      const on = seg.match(/<button[^>]*wf-seg__opt--on[^>]*>([^<]+)</)?.[1]
+
+      expect(on, `${first} is stored and nothing is drawn as chosen`).toBeDefined()
+      expect(on!, `${first} is stored and something else is drawn`).toMatch(said[first])
+      expect((seg.match(/wf-seg__opt--on/g) ?? []).length).toBe(1)
+    }
+  })
+
+  it('says the one thing that would otherwise read as the setting being broken', () => {
+    expect(words(drawn())).toMatch(
+      /A book with no downloaded cover opens on the photograph you took/,
+    )
+  })
+
+  it('offers the two answers and no third', () => {
+    const said = words(drawn())
+
+    expect(said).toMatch(/The downloaded one/)
+    expect(said).toMatch(/The one you took/)
+    // The word the model uses for that picture is "catalogue" and no screen
+    // says it to anybody; the book page calls it the downloaded one.
+    expect(said, 'the setting calls it something no screen calls it').not.toMatch(/catalogue/i)
   })
 })
 

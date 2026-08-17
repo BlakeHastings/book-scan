@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { Doors, InHand, IN_HAND } from './Controls'
 import { SCREENS, TAB_SCREENS, type Go, type Screen } from './gallery/screens'
 import { MEDIAN_PAGES, spineWidth, spines } from './Shelf'
+import { deckOrder } from './Shots'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
@@ -363,35 +364,79 @@ describe('finding is one press from every screen that lists books', () => {
  * Both halves of that are here as a check rather than as a paragraph, because
  * both are the kind of thing that comes back one helpful edit at a time: a
  * page that leads with where the book sits is the screen he rejected, and a
- * page with one section on it is that screen wearing a different heading.
+ * page that is a location widget with something small above it is that screen
+ * wearing a different heading.
  *
  * Deliberately not a measurement of how tall the section is. Pixels are not
  * available here, and a character count of markup would fail on somebody
- * writing a longer sentence, which is not the thing being protected. What is
- * protected is the order and the count: the book itself is drawn before the
- * page says where it sits, and where it sits is one of several sections.
+ * writing a longer sentence, which is not the thing being protected.
+ *
+ * ## What round eight changed here, and what it did not
+ *
+ * This used to count the page's headings and require at least four of them,
+ * with "Where it is" among them. Three of those headings are gone now: the
+ * tags moved up beside the picture, the actions are a row of buttons with
+ * nothing over them, the board is not introduced, and the ledger of where a
+ * book has been went entirely. Counting headings would now count one.
+ *
+ * **The rule did not move and has not been weakened.** It was never "a book
+ * page has four headings"; that was a proxy for it, and the proxy is what the
+ * owner's change broke. What the rule says is that the page is about the book,
+ * and every piece of material this page carries about the book is now named
+ * here and required to be above the place: the book itself, its facts, what it
+ * is about, and what can be done with it. That is a stricter statement than a
+ * count of headings, and it is stricter in the direction the rule cares about,
+ * because the way back to the screen he rejected is the place climbing rather
+ * than a heading going missing. Removing location material, which is all this
+ * round did to this section, agrees with the rule rather than straining it.
  */
 describe('a book screen is about the book, not about where it sits', () => {
-  const BOOKS = ['book', 'thin']
+  const BOOKS = ['book', 'thin', 'lone']
 
-  it('draws several sections, and the book before where it is', () => {
+  it('draws the book, its facts, its tags and its actions before the place', () => {
     for (const id of BOOKS) {
       const screen = SCREENS.find((one) => one.id === id)
       expect(screen, `there is no screen called "${id}"`).toBeDefined()
 
       const markup = renderToStaticMarkup(screen!.render(() => {}))
-      const heads = [
-        ...markup.matchAll(/<section class="wf-part" aria-label="([^"]+)"/g),
-      ].map((found) => found[1])
-
-      expect(heads.length, `${id} draws ${heads.length} sections`).toBeGreaterThanOrEqual(4)
-      expect(heads, `${id} never says where the book is`).toContain('Where it is')
-
-      const book = markup.indexOf('class="wf-book"')
       const where = markup.indexOf('aria-label="Where it is"')
-      expect(book, `${id} never draws the book itself`).toBeGreaterThan(-1)
-      expect(where, `${id} says where the book is before saying what it is`).toBeGreaterThan(
-        book,
+      expect(where, `${id} never says where the book is`).toBeGreaterThan(-1)
+
+      /* Each one is a thing the page says about the book rather than about the
+         shelf, and each has to be above the place. Named individually so a
+         failure says which of them slipped below it. */
+      const about: Record<string, string> = {
+        'the book itself': 'class="wf-book"',
+        'its photographs': 'wf-shots--book',
+        'its facts': 'class="wf-book__fact"',
+        'what it is about': 'class="wf-voices"',
+        'what you can do': 'class="wf-actions"',
+      }
+
+      for (const [what, mark] of Object.entries(about)) {
+        const at = markup.indexOf(mark)
+        expect(at, `${id} does not draw ${what}`).toBeGreaterThan(-1)
+        expect(at, `${id} says where the book is before it draws ${what}`).toBeLessThan(where)
+      }
+    }
+  })
+
+  /*
+   * The section is still named on the element even though the name is not
+   * written on the screen, and that is deliberate rather than an oversight
+   * left over from the heading. A sighted reader has the board in front of
+   * them, which is the owner's whole point; a screen reader has a run of
+   * spines and nothing saying what the run is. Taking the label off as well
+   * would be reading his "we don't need that text there" as an instruction
+   * about the accessibility tree, which it is not.
+   */
+  it('still names the place for somebody who cannot look at the drawing', () => {
+    for (const id of BOOKS) {
+      const markup = renderToStaticMarkup(
+        SCREENS.find((one) => one.id === id)!.render(() => {}),
+      )
+      expect(markup, `${id} draws the place with nothing naming it`).toMatch(
+        /<section class="wf-part" aria-label="Where it is"/,
       )
     }
   })
@@ -412,44 +457,98 @@ describe('a book screen is about the book, not about where it sits', () => {
  * that comes back one helpful edit at a time: where a book sits is the most
  * concrete thing on the page and it will keep trying to climb.
  *
- * Checked as the order of the section headings rather than as a list of what
- * the sections contain, because the headings are what a person scrolling reads
- * and they are what the owner named. The three that moved are all here: the
- * tags went up under the ISBN, the actions went up above everything about
- * where the book is, and "who wrote it" became "more by this author" and went
- * to the bottom with the same content under it.
+ * Checked as the order things are drawn in rather than as a list of what each
+ * one contains. It used to be checked as the order of the headings, and round
+ * eight took four of the five headings off:
+ *
+ * > And "what you can do", we don't need that text there either. We should
+ * > just enable them to take action on a book with a series of buttons. [...]
+ * > And instead of "where it is", once again, we don't need that text there.
+ * > Looking at this tells them where it is.
+ *
+ * The order he settled in round six is untouched by that and is still what is
+ * pinned: what a book is about, then what you can do with it, then where it
+ * sits, then the rest of the author. Only the way of reading the order off the
+ * page changed, because a page with one heading on it cannot be checked by its
+ * headings.
  */
 describe('a book page puts what you can do above where the book sits', () => {
-  const BOOKS = ['book', 'thin']
+  const BOOKS = ['book', 'thin', 'lone']
 
-  const headsOf = (id: string) => {
+  const drawn = (id: string) => {
     const screen = SCREENS.find((one) => one.id === id)
     expect(screen, `there is no screen called "${id}"`).toBeDefined()
-    const markup = renderToStaticMarkup(screen!.render(() => {}))
-    return [...markup.matchAll(/<section class="wf-part" aria-label="([^"]+)"/g)].map(
-      (found) => found[1]!,
-    )
+    return renderToStaticMarkup(screen!.render(() => {}))
   }
 
-  it('draws the tags, then the actions, then everything about where it is', () => {
+  const headsOf = (id: string) =>
+    [...drawn(id).matchAll(/<h2 class="wf-part__title">([^<]+)</g)].map((found) => found[1]!)
+
+  it('draws the tags, then the actions, then where it is', () => {
     for (const id of BOOKS) {
-      const heads = headsOf(id)
-      const at = (head: string) => {
-        expect(heads, `${id} has no section called "${head}"`).toContain(head)
-        return heads.indexOf(head)
+      const markup = drawn(id)
+      const at = (what: string, mark: string) => {
+        const found = markup.indexOf(mark)
+        expect(found, `${id} does not draw ${what}`).toBeGreaterThan(-1)
+        return found
       }
 
-      expect(at('What it is about'), `${id} leads with something other than the book`).toBe(0)
-      expect(at('What you can do')).toBeGreaterThan(at('What it is about'))
-      expect(at('Where it is')).toBeGreaterThan(at('What you can do'))
-      expect(at('Where it has been')).toBeGreaterThan(at('Where it is'))
-      expect(at('More by this author')).toBeGreaterThan(at('Where it has been'))
+      const tags = at('what it is about', 'class="wf-voices"')
+      const actions = at('what you can do', 'class="wf-actions"')
+      const where = at('where it is', 'aria-label="Where it is"')
+
+      expect(actions, `${id} offers nothing to do until after the place`).toBeGreaterThan(tags)
+      expect(where, `${id} says where the book sits before offering anything`)
+        .toBeGreaterThan(actions)
     }
+  })
+
+  /*
+   * The one heading left, and the one screen that must not have it. "More by
+   * this author" is drawn last where the catalogue has something else by them,
+   * and is not drawn at all where it has not: a heading whose only content is
+   * that there is no content is on most books in a new collection.
+   */
+  it('finishes with the author, and leaves the author out where there is no more', () => {
+    for (const id of ['book', 'thin']) {
+      const markup = drawn(id)
+      expect(headsOf(id), `${id} does not finish with the author`).toEqual([
+        'More by this author',
+      ])
+      expect(
+        markup.indexOf('aria-label="More by this author"'),
+        `${id} puts the author above where the book sits`,
+      ).toBeGreaterThan(markup.indexOf('aria-label="Where it is"'))
+    }
+
+    expect(headsOf('lone'), 'a book with nothing else by its author still asks').toEqual([])
+    expect(drawn('lone')).not.toMatch(/More by this author/)
   })
 
   it('has no section left called "who wrote it", which is what that one was', () => {
     for (const id of BOOKS) {
       expect(headsOf(id), `${id} still asks who wrote it`).not.toContain('Who wrote it')
+    }
+  })
+
+  /*
+   * The four headings the owner took off, checked as words on the screen
+   * rather than as sections, because the way each of them comes back is
+   * somebody writing the sentence again somewhere slightly different. Each one
+   * was replaced by nothing: the tags read as facts, the buttons say what they
+   * do, and the board says where the book is by being looked at.
+   */
+  it('writes none of the four headings he took off, in any form', () => {
+    for (const id of BOOKS) {
+      const said = words(drawn(id))
+      for (const gone of [
+        /What it is about/i,
+        /What you can do/i,
+        /Where it is/i,
+        /Where it has been/i,
+      ]) {
+        expect(said, `${id} writes ${gone} on the screen again`).not.toMatch(gone)
+      }
     }
   })
 
@@ -813,7 +912,7 @@ describe('nothing on a screen has a gender in it', () => {
  */
 describe('a book wears its photographs rather than listing them', () => {
   it('draws the spine against the front, and no rail under either', () => {
-    for (const id of ['book', 'thin']) {
+    for (const id of ['book', 'thin', 'lone']) {
       const markup = renderToStaticMarkup(
         SCREENS.find((one) => one.id === id)!.render(() => {}),
       )
@@ -860,7 +959,7 @@ describe("a book's photographs answer to a swipe, and to somebody who does not",
   const css = readFileSync(join(HERE, 'library.css'), 'utf8')
 
   it('puts every photograph in the strip rather than only the front', () => {
-    for (const id of ['book', 'thin']) {
+    for (const id of ['book', 'thin', 'lone']) {
       const markup = renderToStaticMarkup(
         SCREENS.find((one) => one.id === id)!.render(() => {}),
       )
@@ -886,7 +985,7 @@ describe("a book's photographs answer to a swipe, and to somebody who does not",
   })
 
   it('leaves a way through the photographs for somebody with no swipe', () => {
-    for (const id of ['book', 'thin']) {
+    for (const id of ['book', 'thin', 'lone']) {
       const markup = renderToStaticMarkup(
         SCREENS.find((one) => one.id === id)!.render(() => {}),
       )
@@ -897,6 +996,93 @@ describe("a book's photographs answer to a swipe, and to somebody who does not",
       // one to go to at all.
       for (const dot of dots) expect(dot, `${id} has an unnamed dot`).toMatch(/aria-label="/)
     }
+  })
+})
+
+/**
+ * The picture a catalogue holds is the one a book opens on, where there is one.
+ *
+ * > On the book detail view, we should show the catalogue picture of the front
+ * > of the book first if possible, instead of the one the user took.
+ *
+ * **"If possible" is the half that has to be checked.** Bringing a downloaded
+ * cover to the front is three lines; bringing one to the front when there is
+ * none is a book that opens on an empty dashed box with "No photograph"
+ * written in it, and every book in a new collection is that book. So both
+ * cases are pinned, and they are pinned on the dots, which are what name the
+ * pictures in the order they are swiped through.
+ *
+ * The arithmetic itself is `deckOrder`, which is pure and is checked here
+ * directly as well: the drawn screens prove the component reads it and these
+ * prove it answers correctly for the cases no screen happens to draw.
+ */
+describe('a book opens on the picture a catalogue holds, where there is one', () => {
+  /** The photographs in the order the swipe reaches them, off the dots. */
+  const deckOf = (id: string) => {
+    const markup = renderToStaticMarkup(
+      SCREENS.find((one) => one.id === id)!.render(() => {}),
+    )
+    return [...markup.matchAll(/<button[^>]*class="wf-dot[^"]*"[^>]*aria-label="([^"]+)"/g)]
+      .map((found) => found[1]!)
+  }
+
+  it('leads with the downloaded one on a book that has one', () => {
+    for (const id of ['book', 'lone']) {
+      expect(deckOf(id)[0], `${id} opens on somebody's photograph`).toBe('Downloaded')
+    }
+  })
+
+  it('leads with the photograph somebody took when nothing was downloaded', () => {
+    // Not "Downloaded, not photographed", which is the empty first frame this
+    // exists to prevent. The kind is still in the deck and still has a dot.
+    expect(deckOf('thin')[0], 'a book with no downloaded cover opens on an empty frame')
+      .toBe('Front, not photographed')
+    expect(deckOf('thin'), 'the downloaded one fell out of the deck entirely')
+      .toContain('Downloaded, not photographed')
+  })
+
+  it('moves nothing else, whichever way round it is', () => {
+    const front = { word: 'Front', cloth: 'plum' as const }
+    const back = { word: 'Back', cloth: 'wood' as const }
+    const downloaded = { word: 'Downloaded', cloth: 'sky' as const, catalogue: true }
+    const deck = [front, back, downloaded]
+
+    expect(deckOrder(deck, 'catalogue')).toEqual([downloaded, front, back])
+    expect(deckOrder(deck, 'yours')).toEqual(deck)
+    expect(deckOrder([front, back], 'catalogue')).toEqual([front, back])
+    expect(
+      deckOrder([front, back, { word: 'Downloaded', catalogue: true }], 'catalogue'),
+      'an absent downloaded cover was brought to the front',
+    ).toEqual([front, back, { word: 'Downloaded', catalogue: true }])
+  })
+
+  /*
+   * The queue row draws this same component and hands it one photograph
+   * (#363), so this ordering has to be incapable of touching it. It is, by
+   * arithmetic rather than by a caller remembering to opt out: with one
+   * picture in the deck there is nothing at an index above zero to bring to
+   * the front. Checked on the drawn row as well as on the function, because
+   * the row is where a regression would actually be seen.
+   */
+  it('leaves a deck of one exactly as it was, which is what a queue row has', () => {
+    const only = { word: 'Front', cloth: 'moss' as const }
+    const alone = { word: 'Downloaded', cloth: 'moss' as const, catalogue: true }
+
+    expect(deckOrder([only], 'catalogue')).toEqual([only])
+    expect(deckOrder([alone], 'catalogue')).toEqual([alone])
+
+    const markup = renderToStaticMarkup(
+      SCREENS.find((one) => one.id === 'queue')!.render(() => {}),
+    )
+    const rows = (markup.match(/wf-shots--book-small/g) ?? []).length
+    expect(rows, 'the queue draws no books at all').toBeGreaterThan(1)
+    expect(
+      (markup.match(/wf-shot--face/g) ?? []).length,
+      'a queue row grew a second picture',
+    ).toBe(rows)
+    expect(markup, 'a queue row grew dots it cannot deliver a swipe for').not.toMatch(
+      /class="wf-dot/,
+    )
   })
 })
 
