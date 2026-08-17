@@ -156,22 +156,32 @@ export function AddBox({ children, onPress }: { children: ReactNode; onPress?: (
  * **What a still picture cannot settle**: the lift, the gap opening under the
  * finger, whether the list scrolls when you drag past the end. Those are felt
  * rather than seen, and this draws only what they rest on either side of.
+ *
+ * ## There is no number down the side of it
+ *
+ * There was: `fixture.position`, drawn against each row as the place it stood
+ * in. The owner, looking at his own four bookshelves: "I think it'll confuse
+ * them that there's a number next to the fixture and that number doesn't make
+ * any sense. Right now I'm looking at one, four, five and six for bookshelf
+ * one, two, three and four" (#367).
+ *
+ * He is right and the number is not fixable, because it is not wrong. A piece's
+ * position is the place it stands in a room that is allowed a gap and allowed
+ * two pieces on one number, and `docs/data-model.md` says why: refusing either
+ * would refuse a room somebody has. Closing the gap to make the column read 1
+ * to 4 would relabel every area on every piece that moved.
+ *
+ * So the number comes off and nothing takes its place. **The order is the
+ * information**: this row is above that one, and dragging it changes which. The
+ * one thing the number was really saying, which is that an unnamed piece is
+ * called after where it stands and so are its areas, is said where it can be
+ * read instead, in the names and labels the pieces will have afterwards.
  */
 export function Order({
   slots,
-  places,
   onReorder,
 }: {
-  slots: { label: string; name: string; on?: boolean }[]
-  /**
-   * What each place down the column is called, which does **not** travel with
-   * the piece standing in it.
-   *
-   * The column is a set of numbered places and a piece is dragged into one, so
-   * the numbers stay put and the names move through them. Left out, each piece
-   * carries its own label, which is right for a column nobody can drag.
-   */
-  places?: string[]
+  slots: { name: string; on?: boolean }[]
   /**
    * Given one, the column can be dragged: it is called with the order the
    * pieces are in once a finger comes off, as indices into what was handed in.
@@ -245,13 +255,22 @@ export function Order({
     })
   }
 
+  /*
+   * The finger comes off, and the move is told to whoever owns the order.
+   *
+   * The telling is here rather than inside a `setCarried` updater, which is
+   * where it was. An updater is not a place to do anything: React runs it
+   * during a render and runs it twice in development, so a room reordered by a
+   * drag logged "cannot update a component while rendering a different one"
+   * every time, naming this component and the screen above it. Found by opening
+   * the console while dragging (#367). `carried` is read straight, which is
+   * correct in an event handler.
+   */
   const drop = () => {
-    setCarried((held) => {
-      if (held && held.at !== held.from) {
-        onReorder?.(moveWithin(slots.map((_, at) => at), held.from, held.at))
-      }
-      return null
-    })
+    if (carried && carried.at !== carried.from) {
+      onReorder?.(moveWithin(slots.map((_, at) => at), carried.from, carried.at))
+    }
+    setCarried(null)
   }
 
   /**
@@ -282,11 +301,12 @@ export function Order({
         return (
           <button
             /*
-             * Where it sits in what was handed in, and not its label: the
-             * owner has two pieces both standing at 4, so a label is not a
-             * name for one row. This one is unique, and it is stable while the
-             * display order changes under a finger, which is what lets React
-             * carry the row it is already drawing rather than redraw it.
+             * Where it sits in what was handed in, and not what it says: the
+             * owner has two pieces both standing at 4, and unnamed they are
+             * both called "Bookcase 4", so what a row reads is not a name for
+             * one row. This is unique, and it is stable while the display
+             * order changes under a finger, which is what lets React carry the
+             * row it is already drawing rather than redraw it.
              */
             key={which}
             type="button"
@@ -305,7 +325,6 @@ export function Order({
             onPointerCancel={carried ? drop : undefined}
             onKeyDown={(event) => key(at, event)}
           >
-            <span className="wf-order__n">{places?.[at] ?? slot.label}</span>
             <span className="wf-order__name">{slot.name}</span>
             <span className="wf-order__grip" aria-hidden="true" />
           </button>

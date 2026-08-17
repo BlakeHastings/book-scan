@@ -5,6 +5,11 @@
  * The books come from the area's own route, by identity. There is no second
  * request and no matching: `GET /api/areas/:id/books` is what #318 asked for
  * and what replaced the label match this screen's sibling used to make.
+ *
+ * **Two screens open this and back is whichever one did** (#367): the area, and
+ * the screen that says why a book is where it is, which lands here on the area a
+ * rule points at. Going back to the area from the second of those was a screen
+ * inventing a destination for somebody who had never been there.
  */
 
 import { useEffect, useState } from 'react'
@@ -15,8 +20,8 @@ import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
 import { api, type AreaBook } from '../lib/api'
 
 export function BelongsScreen() {
-  const { setRoute, openArranging, openClaim } = useNavigation()
-  const { fixtureId, areaId } = useArranging()
+  const { openArranging, openClaim } = useNavigation()
+  const { fixtureId, areaId, back } = useArranging()
   const { room, error, setError } = useRoom()
   const [books, setBooks] = useState<AreaBook[]>([])
   const tabs = useRoomTabs()
@@ -42,7 +47,7 @@ export function BelongsScreen() {
       books={books}
       error={error}
       tabs={tabs}
-      onBack={() => setRoute('area')}
+      onBack={() => back('area')}
       onChange={() => { if (area?.rule?.range) openArranging(area.rule.range) }}
       onClaimed={openClaim}
     />

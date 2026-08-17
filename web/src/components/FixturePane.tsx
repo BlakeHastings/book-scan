@@ -2,6 +2,19 @@
  * One piece of furniture: what it is called, what it is, where it stands, and
  * the way to take it out of the room.
  *
+ * ## It does not draw the piece
+ *
+ * There was a drawing of it at the top, the areas under it and a way to cut
+ * another one in. The owner took it off (#367): "on the edit view we shouldn't
+ * have that there. It should just have what you call it, what it is, where it
+ * stands." It is the second time he has given that note about this drawing over
+ * a screen that is for something else, the first being the area screen, where
+ * "you see Bookcase 2 and that's taking up so much of the screen".
+ *
+ * Nothing is unreachable for it. Every area, and the way to add one, is on the
+ * room, drawn against the piece it belongs to, which is the screen somebody was
+ * on before they opened this one.
+ *
  * ## You move it by moving it
  *
  * There were two buttons under "where it stands", "move it earlier" and "move
@@ -34,11 +47,9 @@
 import { Card } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
-import { AddBox, AreaBox, Nest, Order } from '../design/Furniture'
+import { Order } from '../design/Furniture'
 import type { FixtureDto, FixtureRemoval, FurnitureDto } from '../lib/api'
-import {
-  addAreaSaid, labelsIfNamed, pieceNote, pieceSaid, places, plural,
-} from '../lib/furniture'
+import { labelsIfNamed, pieceSaid, places, plural } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 
 /** The three things this screen can change, before anybody presses Save. */
@@ -60,15 +71,13 @@ interface Props {
   tabs: Record<TabName, () => void>
   onBack: () => void
   onDraft: (draft: FixtureDraft) => void
-  onArea: (areaId: number) => void
-  onAddArea: () => void
   onSave: () => void
   onDelete: () => void
 }
 
 export function FixturePane({
   room, piece, draft, removal, busy, error, tabs,
-  onBack, onDraft, onArea, onAddArea, onSave, onDelete,
+  onBack, onDraft, onSave, onDelete,
 }: Props) {
   const top = (
     <TopBar
@@ -103,23 +112,6 @@ export function FixturePane({
     <RoomFrame top={top} tabs={tabs}>
       <Trouble said={error} />
 
-      <Nest
-        name={pieceSaid(piece)}
-        note={pieceNote(piece)}
-        holds={piece.holds}
-      >
-        {piece.areas.map((area) => (
-          <AreaBox
-            key={area.id}
-            reads={area.label}
-            books={area.books}
-            holds={area.holds}
-            onPress={() => onArea(area.id)}
-          />
-        ))}
-        <AddBox onPress={onAddArea}>{addAreaSaid(piece.kind)}</AddBox>
-      </Nest>
-
       <Field
         label="What you call it"
         placeholder="Not named"
@@ -141,11 +133,9 @@ export function FixturePane({
         <div style={{ height: 6 }} />
         <Order
           slots={standing.map((one) => ({
-            label: String(one.position),
             name: one.id === piece.id ? (draft.name.trim() || pieceSaid(one)) : pieceSaid(one),
             on: one.id === piece.id,
           }))}
-          places={places(standing).map(String)}
           onReorder={(moved) => onDraft({ ...draft, order: moved.map((at) => draft.order[at]!) })}
         />
       </div>

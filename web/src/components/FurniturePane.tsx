@@ -26,7 +26,7 @@ import { FIXTURES_WORD, TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
 import { AddBox, AreaBox, Nest, Order } from '../design/Furniture'
 import type { FurnitureDto } from '../lib/api'
-import { addAreaSaid, pieceNote, pieceSaid, places, roomSaid } from '../lib/furniture'
+import { addAreaSaid, pieceNote, pieceSaid, plural, renamings, roomSaid } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 
 interface Props {
@@ -83,29 +83,64 @@ export function FurniturePane({
    */
   if (ordering) {
     const order = ordering.map((at) => room.fixtures[at]!)
+    const renamed = renamings(order)
+    /*
+     * Whether anything has been dragged at all.
+     *
+     * Found by opening this on a room of four unnamed bookcases: with nothing
+     * moved there is nothing to rename, and a card saying so because "every
+     * piece you have named keeps its name" was giving a true answer with a
+     * false reason attached. Every piece there is called after where it stands
+     * and every one of them would read differently the moment it was dragged.
+     */
+    const moved = order.some((piece, at) => piece.id !== room.fixtures[at]!.id)
     return (
       <RoomFrame top={top} tabs={tabs}>
         <Instruction>Drag a piece to where it stands in the room.</Instruction>
         <Trouble said={error} />
         <Order
-          slots={order.map((piece) => ({
-            label: String(piece.position),
-            name: pieceSaid(piece),
-          }))}
-          places={places(order).map(String)}
+          slots={order.map((piece) => ({ name: pieceSaid(piece) }))}
           onReorder={(moved) => onReorder(moved.map((at) => ordering[at]!))}
         />
-        {/* What each piece ends up numbered, which is the whole of what saving
-            does: a piece's number is where it stands, and every area on it is
-            called after it. The numbers themselves do not change, because they
-            are this room's and it is allowed to have a gap in them. */}
+        {/*
+          What saving actually does, said in what somebody reads rather than in
+          the numbers underneath it.
+
+          This card promised "what they will be numbered" and listed
+          `fixture.position` for each piece, which is the number the owner could
+          not make sense of beside his own four bookshelves (#367). The numbers
+          are not the change: they stay exactly where they are, gap and
+          duplicate and all, and the pieces move through them. What changes is
+          what an unnamed piece and its areas are called, because those are
+          worked out from where it stands, and on a room where every piece has
+          a name nothing changes at all. That last case is worth saying out
+          loud: it is the reassurance the numbers were failing to give.
+        */}
         <Card
           weight="sunk"
-          kind="What they will be numbered"
-          title={order
-            .map((piece, at) => `${pieceSaid(piece)} ${places(order)[at]}`)
-            .join(', ')}
-        />
+          kind="What they will be called"
+          title={renamed.pieces.length
+            ? renamed.pieces.map((one) => `${one.from} becomes ${one.to}`).join(', ')
+            : moved
+              ? 'Nothing is renamed. Every piece keeps what it is called, and so '
+                + 'does every area on it.'
+              : 'Nothing has moved yet.'}
+        >
+          {/*
+            The areas as a count rather than as a list. Written out in full this
+            was eleven clauses for a room of four, and every one of them the
+            same fact as the line above it: an area is called after the piece it
+            is on. The count is worked out from the labels rather than from the
+            number of areas, so it is the real one.
+          */}
+          {renamed.areas.length > 0 && (
+            <p>
+              Every area is called after the piece it is on. That changes{' '}
+              {plural(renamed.areas.length, 'area label')} as well,{' '}
+              {renamed.areas[0]!.from} to {renamed.areas[0]!.to} and so on.
+            </p>
+          )}
+        </Card>
         <Button tone="primary" block onPress={busy ? undefined : onSaveOrder}>
           {busy ? 'Saving' : 'Save the order'}
         </Button>

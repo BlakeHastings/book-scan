@@ -18,20 +18,43 @@
  *
  * A piece nothing files onto answers an empty list, which is correct: there is
  * no order to cut.
+ *
+ * ## With no books there is no decision, and the button used to wait for one
+ *
+ * The screen exists to ask which book the new area starts at, so it would not
+ * let anybody past until one had been picked. On a run with nothing standing in
+ * it there is no book to pick and there never will be, so the button was dead:
+ * pressing "add the area" did nothing at all, for ever (#367). The owner: "if
+ * the user adds a new area to the fixture and there's no books there, there's no
+ * decision to be made, we should just add it."
+ *
+ * **So the empty run is added straight away, anchored where the run it follows
+ * is anchored.** Not at the beginning: the areas of a piece are read in the
+ * order the books run along it and the server refuses a face whose anchors do
+ * not ascend, so an area cut in after `Cookery` cannot open before it. Equal
+ * anchors are allowed and are already real in this catalogue, which is what an
+ * area emptied by a boundary move leaves behind; the new area takes the empty
+ * stretch its neighbour was holding, and because that stretch is empty no book
+ * moves and nothing is carried.
+ *
+ * **Whether the run is empty is a fact this screen has to wait for.** The books
+ * arrive from a request, so "none came back" and "none have come back yet" look
+ * identical for as long as it takes, and offering the decisionless version of
+ * the screen in that gap would let somebody cut an unanchored area into a run
+ * of books by pressing quickly.
  */
 
 import { useEffect, useState } from 'react'
 import { AddAreaPane, type SplitBook } from '../components/AddAreaPane'
 import { useArranging } from '../app/arranging'
-import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
 import { api } from '../lib/api'
 
 export function AddAreaScreen() {
-  const { setRoute } = useNavigation()
-  const { fixtureId, areaId, setAreaId } = useArranging()
+  const { fixtureId, areaId, setAreaId, instead, back } = useArranging()
   const { room, error, setError, busy, write } = useRoom()
   const [books, setBooks] = useState<SplitBook[]>([])
+  const [coming, setComing] = useState(true)
   const [at, setAt] = useState<number | null>(null)
   const tabs = useRoomTabs()
   useDesignPage()
@@ -49,15 +72,23 @@ export function AddAreaScreen() {
   const cutting = area?.id ?? null
 
   useEffect(() => {
-    if (cutting === null) return
+    // A piece with no areas has no run to ask about, and it is the one case
+    // where an empty list is known without asking anybody.
+    if (cutting === null) { setComing(false); return }
     let stale = false
+    setComing(true)
     api.areaBooks(cutting)
       .then((read) => {
         if (stale) return
         setBooks(read.books.map(({ id, title, authorFiling, sortKey }): SplitBook =>
           ({ id, title, authorFiling, sortKey })))
+        setComing(false)
       })
-      .catch((caught) => setError((caught as Error).message))
+      .catch((caught) => {
+        if (stale) return
+        setError((caught as Error).message)
+        setComing(false)
+      })
     return () => { stale = true }
   }, [cutting, setError])
 
@@ -66,11 +97,19 @@ export function AddAreaScreen() {
     const start = at === null ? null : books[at] ?? null
     const done = await write(() => api.addArea(piece.id, {
       position: area ? area.position + 1 : 0,
-      startsAt: start ? start.sortKey : '',
+      /*
+       * Three cases and one line. A book was picked, so the new area opens at
+       * it; there is no area to cut, so it opens at the beginning; or the run
+       * it follows is empty, so it opens where that run opens, which is the
+       * only anchor that both ascends and takes no book off anybody.
+       */
+      startsAt: start ? start.sortKey : area ? area.startsAt : '',
     }))
     if (done) {
       setAreaId(done.area.id)
-      setRoute('area')
+      // The area that has just been made, in the place of the screen that made
+      // it: back from it is where the adding was started, not this screen again.
+      instead('area')
     }
   }
 
@@ -79,11 +118,18 @@ export function AddAreaScreen() {
       piece={piece}
       area={piece && piece.areas.length ? area : null}
       books={books}
+      coming={coming}
       at={at}
       busy={busy}
       error={error}
       tabs={tabs}
-      onBack={() => setRoute(areaId === null ? 'fixture' : 'area')}
+      /*
+       * Where somebody came from, which is the room as often as it is the
+       * piece: this screen is reached from the room's own list, from an area
+       * being split, and it used to answer all of them with the piece's edit
+       * page (#367).
+       */
+      onBack={() => back('fixture')}
       onPick={setAt}
       onAdd={add}
     />

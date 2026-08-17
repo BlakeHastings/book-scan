@@ -1701,7 +1701,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-on-fill);
   box-shadow: var(--lift-1);
 }
-.wf-order__n { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* No number down the side of this. It was `fixture.position`, which is the
+   place a piece stands in a room that is allowed a gap and allowed two pieces
+   on one number, and beside four bookshelves it read one, four, five, six. See
+   `Order` in `Furniture.tsx`: the order is the information. */
 .wf-order__name {
   min-width: 0;
   overflow: hidden;

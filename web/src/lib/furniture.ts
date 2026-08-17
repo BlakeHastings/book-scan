@@ -154,6 +154,62 @@ export function kindSaid(kind: string): string {
 export const pieceSaid = (piece: Pick<FixtureDto, 'name' | 'kind' | 'position'>): string =>
   piece.name.trim() || `${kindSaid(piece.kind)} ${piece.position}`
 
+/** Something a person reads as it reads now, and as it will read. */
+export interface Renaming {
+  from: string
+  to: string
+}
+
+/**
+ * Everything a person reads that reads differently once the pieces stand in
+ * this order.
+ *
+ * The screen's own `becomes`, worked out before anything is written and in the
+ * same shape the server answers a write with. It replaced a card promising
+ * "what they will be numbered", which listed the numbers this list deliberately
+ * leaves alone and which was the number the owner could make no sense of
+ * (#367). What changes when a room is put in order is not a number, it is what
+ * things are called, and for most of a named room the answer is nothing at all.
+ *
+ * **A piece with a name is not renamed by moving it**, and neither are its
+ * areas: a label is worked out from the name where there is one and from the
+ * position where there is not. So a room somebody has named reads the same
+ * wherever the pieces stand, and this says so rather than showing them numbers
+ * to prove it.
+ *
+ * The pieces and the areas come back apart because a screen says them
+ * differently. Four pieces changing name is four things somebody reads; the
+ * nine area labels underneath them are the same fact again, and reading them
+ * out in full turned the card into a paragraph nobody would finish. Seen by
+ * opening it. The area labels are still worked out rather than assumed, because
+ * a count of them is only worth printing if it is the real one.
+ */
+export function renamings(order: readonly FixtureDto[]): {
+  pieces: Renaming[]
+  areas: Renaming[]
+} {
+  const numbers = places(order)
+  const pieces: Renaming[] = []
+  const areas: Renaming[] = []
+
+  order.forEach((piece, at) => {
+    const position = numbers[at]!
+    if (position === piece.position) return
+
+    const called = pieceSaid(piece)
+    const willBe = pieceSaid({ ...piece, position })
+    if (called !== willBe) pieces.push({ from: called, to: willBe })
+
+    const before = labelsIfNamed(piece, piece.areas, { name: piece.name, position: piece.position })
+    const after = labelsIfNamed(piece, piece.areas, { name: piece.name, position })
+    before.forEach((label, index) => {
+      if (label !== after[index]) areas.push({ from: label, to: after[index]! })
+    })
+  })
+
+  return { pieces, areas }
+}
+
 /**
  * Where a rule points, said the way this app says a place.
  *

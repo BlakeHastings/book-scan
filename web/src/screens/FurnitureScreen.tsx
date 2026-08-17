@@ -26,8 +26,8 @@ import { api } from '../lib/api'
 import { renumbering } from '../lib/furniture'
 
 export function FurnitureScreen() {
-  const { leaveRoom, setRoute } = useNavigation()
-  const { openFixture, openArea, setFixtureId, setAreaId } = useArranging()
+  const { leaveRoom } = useNavigation()
+  const { openFixture, openArea, setFixtureId, setAreaId, onward } = useArranging()
   const { room, error, busy, write } = useRoom()
   const [ordering, setOrdering] = useState<number[] | null>(null)
   const tabs = useRoomTabs()
@@ -73,7 +73,7 @@ export function FurnitureScreen() {
          */
         setFixtureId(fixtureId)
         setAreaId(null)
-        setRoute('addarea')
+        onward('addarea')
       }}
       onAddFixture={addFixture}
       onOrder={() => setOrdering(room ? room.fixtures.map((_, at) => at) : null)}

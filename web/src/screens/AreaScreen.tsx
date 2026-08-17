@@ -19,13 +19,11 @@
 import { useEffect, useState } from 'react'
 import { AreaPane, type Asking } from '../components/AreaPane'
 import { useArranging } from '../app/arranging'
-import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
 import { api } from '../lib/api'
 
 export function AreaScreen() {
-  const { setRoute } = useNavigation()
-  const { fixtureId, areaId } = useArranging()
+  const { fixtureId, areaId, onward, instead, back } = useArranging()
   const { room, error, setError, busy, write } = useRoom()
   const [name, setName] = useState<string | null>(null)
   const [asking, setAsking] = useState<Asking | null>(null)
@@ -59,7 +57,9 @@ export function AreaScreen() {
     if (!area) return
     const done = await write(() => api.dropArea(area.id))
     setAsking(null)
-    if (done) setRoute('fixture')
+    // The area this screen is about has gone, so the piece it was on takes its
+    // place rather than standing on top of it: back is still where you came in.
+    if (done) instead('fixture')
   }
 
   return (
@@ -71,16 +71,16 @@ export function AreaScreen() {
       busy={busy}
       error={error}
       tabs={tabs}
-      onBack={() => setRoute('fixture')}
+      onBack={() => back('fixture')}
       onName={setName}
       onSaveName={() => area && write(() => api.editArea(area.id, { name: (name ?? '').trim() }))}
-      onBelongs={() => setRoute('belongs')}
-      onSorting={() => setRoute('sorting')}
-      onSplit={() => setRoute('addarea')}
+      onBelongs={() => onward('belongs')}
+      onSorting={() => onward('sorting')}
+      onSplit={() => onward('addarea')}
       onAsk={ask}
       onKeep={() => setAsking(null)}
       onRemove={remove}
-      onPiece={() => { setAsking(null); setRoute('fixture') }}
+      onPiece={() => { setAsking(null); onward('fixture') }}
     />
   )
 }
