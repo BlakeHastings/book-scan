@@ -36,7 +36,15 @@ import type { PlacementStrip } from './api'
 
 /** The plank somebody said would not take another book. */
 export interface Frame {
-  /** The plank that is full, which is the argument the server is asked with. */
+  /**
+   * The plank that is full, which is what the server is asked about.
+   *
+   * The id and not the label (#359). Every rung of a cascade asks a write route
+   * to move a real book, and a label is a rendering: it changes the moment
+   * somebody names the bookcase, and on a named one it is not even the string
+   * the layout numbers the plank with. `from` is that plank said for a person.
+   */
+  fromAreaId: number
   from: string
   /** Whether a plank that has to be made would be a new area or a new bookcase. */
   kind: 'shelf' | 'area'
@@ -51,8 +59,16 @@ export interface Proposal {
   title: string
   /** Written down the spine hanging under the gap. */
   authorFiling: string
-  /** The plank it goes on. */
+  /** The plank it goes on, as the person reads it. */
   to: string
+  /**
+   * That same plank, said as the plank.
+   *
+   * Null while the plank is one the proposal would make, which is the state in
+   * which there is nothing to record a book on. A frame is asked again against
+   * the shelves before it is confirmed, and the plank exists by then.
+   */
+  toAreaId: number | null
   /** That plank drawn, with the gap where the book goes. */
   strip: PlacementStrip | null
 }

@@ -15,7 +15,7 @@ import { join } from 'node:path'
 
 import { Given, Then, When } from './fixtures.js'
 import { BOOK_IN_HAND, stubBookByTitle } from '../support/books.js'
-import type { BookRow, PlankRow } from '../support/database.js'
+import type { BookRow, Catalogue, PlankRow } from '../support/database.js'
 
 Given('the catalogue is empty', async ({ catalogue }) => {
   await catalogue.reset()
@@ -97,23 +97,30 @@ Given('the catalogue already holds:', async ({ apiUrl }, table: DataTable) => {
  * reported as misfiled, and "nothing should need attention" later would then
  * be testing the seed rather than the move.
  */
-async function fillUp(apiUrl: string, label: string, kind: 'area' | 'shelf') {
+async function fillUp(
+  apiUrl: string,
+  catalogue: Catalogue,
+  label: string,
+  kind: 'area' | 'shelf',
+) {
   const response = await fetch(`${apiUrl}/api/shelves/overflow`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ range: 'fiction', label, kind }),
+    // The plank, which is what a screen sends: it is holding one, and an
+    // address is a rendering the route would have to read back (#359).
+    body: JSON.stringify({ range: 'fiction', areaId: await catalogue.plankId(label), kind }),
   })
   expect(response.ok, `filling ${label} failed: ${response.status}`).toBe(true)
 
   const { step } = (await response.json()) as {
-    step: { id: number; to: string } | null
+    step: { id: number; toAreaId: number | null } | null
   }
   expect(step, `${label} had no book to give up`).toBeTruthy()
 
   const recorded = await fetch(`${apiUrl}/api/books/${step!.id}/location`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ location: step!.to }),
+    body: JSON.stringify({ areaId: step!.toAreaId }),
   })
   expect(recorded.ok, `recording the displaced book failed: ${recorded.status}`)
     .toBe(true)
@@ -134,8 +141,8 @@ Given('bookcase {int} is called {string}', async ({ catalogue }, position: numbe
 /** A plank with a second one after it. */
 Given(
   '{string} filled up, so its last book started a new area',
-  async ({ apiUrl }, label: string) => {
-    await fillUp(apiUrl, label, 'area')
+  async ({ apiUrl, catalogue }, label: string) => {
+    await fillUp(apiUrl, catalogue, label, 'area')
   },
 )
 
@@ -148,8 +155,8 @@ Given(
  * full. So the arrangement is spelled as the sequence of times that happened,
  * which is both what the room looks like and how it got that way.
  */
-Given('the areas filled up in this order:', async ({ apiUrl }, table: DataTable) => {
-  for (const row of table.raw()) await fillUp(apiUrl, row[0] ?? '', 'area')
+Given('the areas filled up in this order:', async ({ apiUrl, catalogue }, table: DataTable) => {
+  for (const row of table.raw()) await fillUp(apiUrl, catalogue, row[0] ?? '', 'area')
 })
 
 /**
@@ -162,25 +169,27 @@ Given('the areas filled up in this order:', async ({ apiUrl }, table: DataTable)
  */
 Given(
   '{string} filled up twice, so its last two books are on bookcase 2',
-  async ({ apiUrl }, label: string) => {
+  async ({ apiUrl, catalogue }, label: string) => {
     for (let round = 1; round <= 2; round += 1) {
       const response = await fetch(`${apiUrl}/api/shelves/overflow`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ range: 'fiction', label, kind: 'shelf' }),
+        body: JSON.stringify({
+          range: 'fiction', areaId: await catalogue.plankId(label), kind: 'shelf',
+        }),
       })
       expect(response.ok, `filling ${label} (round ${round}) failed: ${response.status}`)
         .toBe(true)
 
       const { step } = (await response.json()) as {
-        step: { id: number; to: string } | null
+        step: { id: number; toAreaId: number | null } | null
       }
       expect(step, `${label} had no book to give up on round ${round}`).toBeTruthy()
 
       const recorded = await fetch(`${apiUrl}/api/books/${step!.id}/location`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ location: step!.to }),
+        body: JSON.stringify({ areaId: step!.toAreaId }),
       })
       expect(recorded.ok, `recording the displaced book failed: ${recorded.status}`)
         .toBe(true)

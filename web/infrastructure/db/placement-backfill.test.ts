@@ -57,9 +57,12 @@ import { PgDb, SCHEMA } from '../../server/db.pg'
 import { Shelves } from '../../server/shelves'
 import { areaDisagreements, describeAreaDisagreement } from '../shelving/area-drift'
 import { DrizzleSeparatorRepository } from '../shelving/separator-repository'
-import type { SeparatorKind } from '../../shared/layout'
+import { plankAt, type PlankAt, type SeparatorKind } from '../../shared/layout'
 import { MigrationFailed, migrateToLatest } from './migrate'
 import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+
+/** The plank an address names, as `shelves.test.ts` says it. See #359. */
+const plank = (label: string): PlankAt => plankAt(label)!
 
 /** The migration this file is about, named once. */
 const FURNITURE = '0013_the_shelves_become_fixtures_and_rules'
@@ -953,7 +956,7 @@ describe('the areas following the boundaries after a person moves a book', () =>
     const { pool, shelves } = await backfilled()
     const before = await areas(pool)
 
-    expect((await shelves.overflow('fiction', '3B', 'area')).ok).toBe(true)
+    expect((await shelves.overflow('fiction', plank('3B'), 'area')).ok).toBe(true)
 
     expect(await areas(pool)).toBe(before + 1)
     expect(await disagreements(pool)).toEqual([])
@@ -965,7 +968,7 @@ describe('the areas following the boundaries after a person moves a book', () =>
 
     // 1B exists already, so this re-anchors the boundary that opens it rather
     // than making one.
-    expect((await shelves.overflow('fiction', '1A', 'area')).ok).toBe(true)
+    expect((await shelves.overflow('fiction', plank('1A'), 'area')).ok).toBe(true)
 
     expect(await areas(pool)).toBe(before)
     expect(await disagreements(pool)).toEqual([])

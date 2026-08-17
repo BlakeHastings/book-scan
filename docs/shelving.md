@@ -672,6 +672,29 @@ moved the book, through `PATCH /api/books/:id/location`. The boundary move and
 the location write are two statements, and both are needed. Making only the
 first leaves the book recorded on the plank it came off.
 
+### Which plank, and what the plank is called
+
+Two different jobs, and one string used to do both. **A plank is named for a
+person and identified by its area**, and every route that decides where a book
+goes takes the area: `POST /api/shelves/overflow` and its `/plan`, and the
+plank a boundary move offers, which comes back as a row rather than as a label.
+
+`docs/data-model.md` says labels are derived at read time, and this is why. A
+label is built from where a piece stands and what its owner called it, so the
+same plank reads `1B` off the ordinal walk and `Hall shelf · B` off a named
+bookcase. While nothing was named the two agreed and using either as a key
+looked correct. #356 is what happened to the reading side the day a bookcase was
+first named, and #359 is the same thing on the side that writes: the button said
+`Move it on to 1B` on the screen whose recorded location said `Hall shelf · B`,
+and the string it said was the key it sent.
+
+Inside `web/shared/layout.ts` a plank is still a pair of ordinals, because pure
+arithmetic over a run cannot know anything else, and `PlankAt` is that pair.
+`Shelves.addressOf` is the one door between an area id and it. Everything a
+person reads is built by `labelFor`, the same function the ledger renders a
+recorded location with, so what a button says and what the catalogue says are
+one sentence.
+
 ### A move is a placement, so it goes through the shelving step
 
 Picking a boundary book in the library does not finish the move. It moves the

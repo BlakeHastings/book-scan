@@ -124,12 +124,13 @@ export function ShelveScreen() {
     }
   }
 
-  const shelveIt = async (shelvedAt: string) => {
+  const shelveIt = async (shelvedAt: number) => {
     // Read before the save, which is what clears the book in hand on the
-    // paths that go back where they came from.
+    // paths that go back where they came from. The plank was answered about by
+    // id and is named here for the sentence, which is the split #359 makes.
     const ending: Shelved = {
       title,
-      area: shelvedAt || placement?.derivedLocation || '',
+      area: placement?.derivedLocation ?? '',
       placement: withTheBookIn(),
     }
     const fresh = bookId === null

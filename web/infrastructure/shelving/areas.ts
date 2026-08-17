@@ -66,7 +66,7 @@ import {
 import type { SortStrategy } from '../../domain/placement/strategies'
 import { GENRE_RANGES } from '../../domain/tagging/genre'
 import type { Db } from '../../server/driver'
-import type { RangeStart, Separator } from '../../shared/layout'
+import type { PlankAt, RangeStart, Separator } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 
 /** One area as the boundaries describe it: where it hangs and what it opens at. */
@@ -516,6 +516,104 @@ export async function runAreasOf(db: Db, range: ShelfRange): Promise<RunArea[]> 
 /** Every boundary in a range, in the order a book meets them. */
 export async function boundariesOf(db: Db, range: ShelfRange): Promise<Separator[]> {
   return boundariesFrom(range, await runAreasOf(db, range))
+}
+
+/** The plank of a run standing at this address, or null when none does. */
+export function areaAt(run: readonly RunArea[], where: PlankAt): RunArea | null {
+  return run.find((area) =>
+    area.fixturePosition === where.shelf && area.position === where.area) ?? null
+}
+
+/**
+ * One plank, said both ways.
+ *
+ * **The id decides and the label is read**, which is the whole of #356 and of
+ * #359 after it. Anything working out where a book goes reads `areaId`; anything
+ * putting a sentence in front of a person reads `label`.
+ *
+ * `areaId` is null for exactly one plank: the one a plan proposes to make and
+ * has not made yet. There is no row to name, so there is nothing to identify it
+ * by, and the caller's job at that point is to make it rather than to write a
+ * book onto it.
+ */
+export interface Plank {
+  areaId: number | null
+  label: string
+}
+
+/**
+ * A run's planks, ready to be named or identified without going back to the
+ * database for each one.
+ *
+ * The layout addresses a plank as a pair of ordinals (`PlankAt`), because that
+ * is all the arithmetic in shared/layout.ts can know. The furniture addresses it
+ * as a row. This is the join between the two, read once, and it is what lets a
+ * route take an id in, hand the layout the address it understands, and put a
+ * name in front of a person on the way back out.
+ */
+export interface RunPlanks {
+  /** Where in this run a plank stands, or null when the run has no such plank. */
+  addressOf(areaId: number): PlankAt | null
+  /** The plank at an address, identified and named. */
+  at(where: PlankAt): Plank
+  /** What one plank is called, or '' when this collection has no such area. */
+  labelOf(areaId: number): string
+  /** What every plank of the run is called, in the order a book meets them. */
+  labels(): string[]
+}
+
+export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
+  const run = await runAreasOf(db, range)
+  const faces = await areaFaces(db)
+  /*
+   * The pieces, for the one plank that has no row: a cascade that fills a
+   * bookcase proposes a plank below the last one, and until somebody says they
+   * carried a book there it does not exist. Naming it `2C` on a piece somebody
+   * has called "Hall shelf" would be the very mismatch this is here to close,
+   * so the piece is asked for its name and only the letter is invented.
+   */
+  const pieces = new Map((await db.all<{ id: number; position: number; name: string }>(
+    'SELECT id, position, name FROM fixture WHERE position >= 0',
+  )).map((row) => [row.position, row]))
+
+  return {
+    addressOf(areaId) {
+      const area = run.find((one) => one.id === areaId)
+      return area ? { shelf: area.fixturePosition, area: area.position } : null
+    },
+    at(where) {
+      const area = areaAt(run, where)
+      if (area) return { areaId: area.id, label: faces.get(area.id)?.label ?? '' }
+
+      const piece = pieces.get(where.shelf)
+      return {
+        areaId: null,
+        label: labelFor({
+          fixture: {
+            id: piece?.id ?? 0,
+            position: where.shelf,
+            kind: '',
+            name: piece?.name ?? '',
+            sortStrategy: 'inherit',
+          },
+          area: {
+            id: 0,
+            fixtureId: piece?.id ?? 0,
+            position: where.area,
+            name: '',
+            startsAt: '',
+            sortStrategy: 'inherit',
+          },
+        }),
+      }
+    },
+    labelOf(areaId) {
+      return faces.get(areaId)?.label ?? ''
+    },
+    labels() {
+      return run.map((area) => faces.get(area.id)?.label ?? '')
+    },
+  }
 }
 
 /**

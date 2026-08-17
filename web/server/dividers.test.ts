@@ -23,7 +23,7 @@ import type { Db } from './driver'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
-import { libraryRows, type LibraryRow, type ShelfGroup } from '../shared/layout'
+import { libraryRows, plankAt, type LibraryRow, type ShelfGroup } from '../shared/layout'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let db: Db
@@ -124,10 +124,12 @@ const openers = async () => {
  * only way a boundary comes into existence in this app.
  */
 const fillUp = async (label: string, kind: 'area' | 'shelf') => {
-  const result = await shelves.overflow('fiction', label, kind)
+  const result = await shelves.overflow('fiction', plankAt(label)!, kind)
   expect(result.ok, `filling ${label} failed: ${result.error ?? ''}`).toBe(true)
   const step = result.step!
-  await store.setLocation(step.moved.id, step.to)
+  // The plank, not its name: what the person is told to carry the book to is a
+  // place, and only the id says which place that is (#359).
+  await store.setLocationIn(step.moved.id, result.planks!.to.areaId!)
 }
 
 /**

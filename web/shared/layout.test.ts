@@ -643,7 +643,11 @@ describe('carryOn', () => {
     expect(before).toEqual(['11A', '21A', 'new1A', '31B', '41B'])
 
     const plan = carryOn(placing(books, separators, 'BB'), separators, '1A', 'area')
-    expect(plan).toEqual({ from: '1A', to: '1B', shift: { id: 1, startsAt: 'BB' } })
+    expect(plan).toEqual({
+      from: '1A', to: '1B',
+      fromAt: { shelf: 1, area: 0 }, toAt: { shelf: 1, area: 1 },
+      shift: { id: 1, startsAt: 'BB' },
+    })
 
     // The book moves and nothing already shelved does, which is the whole
     // point: the person is holding the one that has to go somewhere else.
@@ -671,7 +675,11 @@ describe('carryOn', () => {
     // book is the only thing on it.
     const books = run('AB')
     const plan = carryOn(placing(books, [], 'C'), [], '1A', 'area')
-    expect(plan).toEqual({ from: '1A', to: '1B', create: { startsAt: 'C', kind: 'area' } })
+    expect(plan).toEqual({
+      from: '1A', to: '1B',
+      fromAt: { shelf: 1, area: 0 }, toAt: { shelf: 1, area: 1 },
+      create: { startsAt: 'C', kind: 'area' },
+    })
     expect(where(applied(books, [], 'C', plan!))).toEqual(['11A', '21A', 'new1B'])
   })
 

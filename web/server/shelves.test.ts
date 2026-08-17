@@ -12,7 +12,7 @@ import { editFixture } from './furniture'
 import { UnknownPlank } from './placement-ledger'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
-import { areaLabel, layoutRange, NEWCOMER_ID } from '../shared/layout'
+import { areaLabel, layoutRange, NEWCOMER_ID, plankAt, type PlankAt } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
 import { areaFaces } from '../infrastructure/shelving/areas'
 import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
@@ -32,6 +32,13 @@ beforeEach(async () => {
 })
 
 afterAll(closeTestDatabase)
+
+/**
+ * The plank an address names, which is what a route works out from the area id a
+ * screen sends before it asks for anything (#359). Written out here so a test
+ * can go on saying `1A` while the code it drives takes the plank.
+ */
+const plank = (label: string): PlankAt => plankAt(label)!
 
 /** Authors chosen so alphabetical order matches the argument order. */
 const add = async (author: string, title = 'Book') =>
@@ -56,6 +63,22 @@ const updateBook = (id: number, of: DraftBook) =>
 
 const labels = async () => (await shelves.layout('fiction')).map((p) => p.label)
 
+/**
+ * Which way a book can be carried, as the two planks read.
+ *
+ * `boundaryOptions` answers a plank each way rather than a label each way
+ * (#359), and most of these tests are about whether a direction is open at all.
+ * The tests that are about identity, which is the ones with a named bookcase in
+ * them, read `areaId` off the row instead.
+ */
+const offered = async (bookId: number, range: ShelfRange = 'fiction') => {
+  const options = await shelves.boundaryOptions(range, bookId)
+  return {
+    next: options.next?.label ?? null,
+    previous: options.previous?.label ?? null,
+  }
+}
+
 describe('before anything is marked full', () => {
   it('puts every book on the first shelf', async () => {
     await add('Ann Author')
@@ -70,25 +93,33 @@ describe('saying a shelf is full', () => {
     const bob = await add('Bob Baker')
     expect(await labels()).toEqual(['1A', '1A'])
 
-    const result = await shelves.overflow('fiction', '1A', 'area')
+    const result = await shelves.overflow('fiction', plank('1A'), 'area')
     expect(result.ok).toBe(true)
     expect(result.step?.moved.id).toBe(bob)
     expect(result.step?.from).toBe('1A')
     expect(result.step?.to).toBe('1B')
     expect(await labels()).toEqual(['1A', '1B'])
-    expect(result.moves).toEqual([{ id: bob, from: '1A', to: '1B' }])
+    expect(result.moves).toEqual([{
+      id: bob, from: '1A', to: '1B',
+      fromAt: { shelf: 1, area: 0 }, toAt: { shelf: 1, area: 1 },
+    }])
+    // The plank beside the name for it, and it is the plank the layout now puts
+    // the displaced book on. That is what the person records when they say they
+    // have carried it, and a name could not have said it (#359).
+    expect(result.planks?.to.label).toBe('1B')
+    expect(result.planks?.to.areaId).toBe(await shelves.areaOf('fiction', bob))
   })
 
   it('can start a whole new bookcase instead', async () => {
     await add('Ann Author')
     await add('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'shelf')
+    await shelves.overflow('fiction', plank('1A'), 'shelf')
     expect(await labels()).toEqual(['1A', '2A'])
   })
 
   it('refuses a shelf with only one book on it', async () => {
     await add('Ann Author')
-    const result = await shelves.overflow('fiction', '1A', 'area')
+    const result = await shelves.overflow('fiction', plank('1A'), 'area')
     expect(result.ok).toBe(false)
     expect(result.error).toContain('holds only one book')
   })
@@ -97,11 +128,11 @@ describe('saying a shelf is full', () => {
     await add('Ann Author')
     const bob = await add('Bob Baker')
     const cal = await add('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')      // Cal to A2
+    await shelves.overflow('fiction', plank('1A'), 'area')      // Cal to A2
     expect(await labels()).toEqual(['1A', '1A', '1B'])
 
     // A1 still will not do; say so again.
-    const second = await shelves.overflow('fiction', '1A', 'area')
+    const second = await shelves.overflow('fiction', plank('1A'), 'area')
     expect(second.step?.moved.id).toBe(bob)
     expect(await labels()).toEqual(['1A', '1B', '1B'])
     expect(cal).toBeGreaterThan(0)
@@ -120,7 +151,7 @@ describe('proposing the move without making it', () => {
     await add('Ann Author')
     const bob = await add('Bob Baker')
 
-    const plan = await shelves.proposeOverflow('fiction', '1A', 'area')
+    const plan = await shelves.proposeOverflow('fiction', plank('1A'), 'area')
     expect(plan.ok).toBe(true)
     expect(plan.step?.moved.id).toBe(bob)
     expect(plan.step?.to).toBe('1B')
@@ -135,9 +166,9 @@ describe('proposing the move without making it', () => {
     await add('Bob Baker')
     const cal = await add('Cal Church')
     // Cal is already on 1B, so the gap Bob would take is in front of him.
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
-    const plan = await shelves.proposeOverflow('fiction', '1A', 'area')
+    const plan = await shelves.proposeOverflow('fiction', plank('1A'), 'area')
     expect(plan.strip?.label).toBe('1B')
     expect(plan.strip?.gapIndex).toBe(0)
     expect(plan.strip?.books.map((p) => p.book.id)).toEqual([cal])
@@ -150,7 +181,7 @@ describe('proposing the move without making it', () => {
       { title: 'Book', authors: ['Bob Baker'], genre: FICTION_SLUG } as never,
     )).sortKey
 
-    const plan = await shelves.proposeOverflow('fiction', '1A', 'area', key)
+    const plan = await shelves.proposeOverflow('fiction', plank('1A'), 'area', key)
     expect(plan.carry?.from).toBe('1A')
     expect(plan.carry?.to).toBe('1B')
     expect(await shelves.list('fiction')).toHaveLength(0)
@@ -158,9 +189,9 @@ describe('proposing the move without making it', () => {
 
   it('reports the refusals rather than pretending a move is available', async () => {
     await add('Ann Author')
-    expect((await shelves.proposeOverflow('fiction', '1A', 'area')).error)
+    expect((await shelves.proposeOverflow('fiction', plank('1A'), 'area')).error)
       .toContain('holds only one book')
-    expect((await shelves.proposeOverflow('fiction', '9Z', 'area')).error)
+    expect((await shelves.proposeOverflow('fiction', plank('9Z'), 'area')).error)
       .toContain('There is no shelf 9Z')
   })
 })
@@ -178,13 +209,13 @@ describe('confirming a move that was proposed a while ago', () => {
     const cal = await add('Cal Church')
 
     // What the person was told to move, before anything else happened.
-    const plan = await shelves.proposeOverflow('fiction', '1A', 'area')
+    const plan = await shelves.proposeOverflow('fiction', plank('1A'), 'area')
     expect(plan.step?.moved.id).toBe(cal)
 
     // Somebody else takes Cal off 1A in the meantime.
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
-    const applied = await shelves.overflow('fiction', '1A', 'area', '', cal)
+    const applied = await shelves.overflow('fiction', plank('1A'), 'area', '', cal)
     expect(applied.ok).toBe(false)
     expect(applied.error).toContain('changed')
     // And it changed nothing on the way to saying so.
@@ -195,7 +226,7 @@ describe('confirming a move that was proposed a while ago', () => {
     await add('Ann Author')
     const bob = await add('Bob Baker')
 
-    const applied = await shelves.overflow('fiction', '1A', 'area', '', bob)
+    const applied = await shelves.overflow('fiction', plank('1A'), 'area', '', bob)
     expect(applied.ok).toBe(true)
     expect(await labels()).toEqual(['1A', '1B'])
   })
@@ -220,11 +251,11 @@ describe('placing a book on a shelf that is full', () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
     expect(await labels()).toEqual(['1A', '1A', '1B'])
 
-    const result = await shelves.overflow('fiction', '1A', 'area', await keyFor('Bob Baxter'))
+    const result = await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Bob Baxter'))
     expect(result.ok).toBe(true)
     expect(result.carry).toMatchObject({ from: '1A', to: '1B' })
     // Nobody was displaced, and no book already on a shelf changed shelf.
@@ -239,10 +270,10 @@ describe('placing a book on a shelf that is full', () => {
     await shelve('Ann Author')
     await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
-    const carried = await shelves.overflow('fiction', '1A', 'area', await keyFor('Bob Baxter'))
+    const carried = await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Bob Baxter'))
     const baxter = await add('Bob Baxter')
     expect(await shelves.labelFor('fiction', baxter)).toBe(carried.carry?.to)
     expect(await labels()).toEqual(['1A', '1A', '1B', '1B'])
@@ -254,11 +285,11 @@ describe('placing a book on a shelf that is full', () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
     // Bailey sorts between Author and Baker, so Baker is still to his right.
-    const result = await shelves.overflow('fiction', '1A', 'area', await keyFor('Ann Bailey'))
+    const result = await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Ann Bailey'))
     expect(result.carry).toBeUndefined()
     expect(result.step?.moved.id).toBe(bob)
     expect(result.step?.from).toBe('1A')
@@ -271,7 +302,7 @@ describe('placing a book on a shelf that is full', () => {
     await shelve('Ann Author')
     await shelve('Bob Baker')
 
-    const result = await shelves.overflow('fiction', '1A', 'area', await keyFor('Cal Church'))
+    const result = await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Cal Church'))
     expect(result.ok).toBe(true)
     expect(result.carry).toMatchObject({ from: '1A', to: '1B' })
     expect(result.moves).toEqual([])
@@ -285,7 +316,7 @@ describe('placing a book on a shelf that is full', () => {
     await shelve('Ann Author')
     await shelve('Bob Baker')
 
-    const result = await shelves.overflow('fiction', '1A', 'shelf', await keyFor('Cal Church'))
+    const result = await shelves.overflow('fiction', plank('1A'), 'shelf', await keyFor('Cal Church'))
     expect(result.carry?.to).toBe('2A')
     const cal = await add('Cal Church')
     expect(await shelves.labelFor('fiction', cal)).toBe('2A')
@@ -298,14 +329,14 @@ describe('placing a book on a shelf that is full', () => {
     // the book in hand goes at the end: it moves, not the one on the shelf.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(bob, '1B')
     expect(await labels()).toEqual(['1A', '1B'])
 
-    expect((await shelves.overflow('fiction', '1A', 'area')).ok).toBe(false)
+    expect((await shelves.overflow('fiction', plank('1A'), 'area')).ok).toBe(false)
     // Bailey goes after Author and before Baker, so 1A is where he belongs and
     // there is nothing on it to his right.
-    expect((await shelves.overflow('fiction', '1A', 'area', await keyFor('Ann Bailey'))).carry)
+    expect((await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Ann Bailey'))).carry)
       .toMatchObject({ from: '1A', to: '1B' })
   })
 
@@ -315,11 +346,11 @@ describe('placing a book on a shelf that is full', () => {
     // gets the cascade.
     const ids: number[] = []
     for (const a of ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs']) ids.push(await shelve(a))
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(ids[3]!, '1B')
     expect(await labels()).toEqual(['1A', '1A', '1A', '1B'])
 
-    const result = await shelves.overflow('fiction', '1B', 'area', await keyFor('Ann Baxter'))
+    const result = await shelves.overflow('fiction', plank('1B'), 'area', await keyFor('Ann Baxter'))
     expect(result.carry).toBeUndefined()
     // 1B holds one book, so the cascade has nothing to give up and says so.
     expect(result.ok).toBe(false)
@@ -331,11 +362,11 @@ describe('placing a book on a shelf that is full', () => {
     await shelve('Ann Author')
     await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
     expect((await shelves.review('fiction')).misfiles).toEqual([])
 
-    const carried = await shelves.overflow('fiction', '1A', 'area', await keyFor('Bob Baxter'))
+    const carried = await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Bob Baxter'))
     const baxter = await add('Bob Baxter')
     await store.setLocation(baxter, carried.carry!.to)
 
@@ -350,7 +381,7 @@ describe('a book inserted into a shelf', () => {
     // nothing moves on its own.
     await add('Bob Baker')
     await add('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     const before = await shelves.layout('fiction')
 
     await add('Ann Author')
@@ -363,7 +394,7 @@ describe('removing a boundary', () => {
   it('merges the shelves back and reports the books coming home', async () => {
     await add('Ann Author')
     const bob = await add('Bob Baker')
-    const created = await shelves.overflow('fiction', '1A', 'area')
+    const created = await shelves.overflow('fiction', plank('1A'), 'area')
     expect(await labels()).toEqual(['1A', '1B'])
 
     const before = await shelves.layout('fiction')
@@ -371,7 +402,10 @@ describe('removing a boundary', () => {
 
     expect(await labels()).toEqual(['1A', '1A'])
     expect(await shelves.movesSince('fiction', before)).toEqual([
-      { id: bob, from: '1B', to: '1A' },
+      {
+        id: bob, from: '1B', to: '1A',
+        fromAt: { shelf: 1, area: 1 }, toAt: { shelf: 1, area: 0 },
+      },
     ])
     expect(created.ok).toBe(true)
   })
@@ -383,7 +417,7 @@ describe('ranges are independent', () => {
     await add('Bob Baker')
     await store.addBook({ title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG })
 
-    await shelves.overflow('fiction', '1A', 'shelf')
+    await shelves.overflow('fiction', plank('1A'), 'shelf')
     expect((await shelves.layout('nonfiction')).map((p) => p.label)).toEqual(['4A'])
   })
 })
@@ -402,7 +436,7 @@ describe('every catalogued book has a shelf', () => {
     ]) ids.push(await add(a))
 
     for (const label of ['1A', '1A', '1B']) {
-      await shelves.overflow('fiction', label, 'area')
+      await shelves.overflow('fiction', plank(label), 'area')
     }
 
     const placed = await shelves.layout('fiction')
@@ -454,7 +488,7 @@ describe('the shelf a sort key lands on', () => {
     // Boundaries of both kinds, so the walk has planks and bookcases to step.
     for (const [label, kind] of [
       ['1A', 'area'], ['1B', 'shelf'], ['2A', 'area'],
-    ] as const) await shelves.overflow('fiction', label, kind)
+    ] as const) await shelves.overflow('fiction', plank(label), kind)
 
     const shelved = await shelves.layout('fiction')
     expect(new Set(shelved.map((p) => p.label)).size).toBeGreaterThan(1)
@@ -501,7 +535,7 @@ describe('the shelf a sort key lands on', () => {
     ]) await add(author)
     for (const [label, kind] of [
       ['1A', 'area'], ['1B', 'shelf'], ['2A', 'area'],
-    ] as const) await shelves.overflow('fiction', label, kind)
+    ] as const) await shelves.overflow('fiction', plank(label), kind)
 
     const keys = (await shelves.layout('fiction')).map((p) => p.book.sortKey)
     const asked = [' ', ...keys.flatMap((key, at) =>
@@ -525,7 +559,7 @@ describe('the shelf a sort key lands on', () => {
   it('lands a key in the same area after the bookcase is named', async () => {
     await add('Austen, Jane')
     await add('Zola, Émile')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
     const keys = (await shelves.layout('fiction')).map((p) => p.book.sortKey)
     const before = await shelves.areasForSortKeys('fiction', keys)
@@ -542,7 +576,7 @@ describe('the shelf a sort key lands on', () => {
   it('still answers one key through the method the placing card calls', async () => {
     await add('Austen, Jane')
     await add('Zola, Émile')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
     const [zola] = (await shelves.layout('fiction')).slice(-1)
     expect(await shelves.shelfForSortKey('fiction', zola!.book.sortKey)).toBe(zola!.label)
@@ -710,12 +744,12 @@ describe('a book in the catalogue that is not on a shelf', () => {
     const ann = await add('Ann Author')
     await add('Cathy Clark')
     await unidentified('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
     // Two books either side of one boundary, so Ann has somewhere to go. A
     // third row in the layout would change which plank holds what and could
     // make the offer describe a move nobody can carry out.
-    expect(await shelves.boundaryOptions('fiction', ann)).toEqual({
+    expect(await offered(ann)).toEqual({
       next: '1B', previous: null,
     })
   })
@@ -773,7 +807,7 @@ describe('moving a book across an area boundary', () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')       // Cal alone on 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
     await store.setLocation(cal, '1B')
     expect(await labels()).toEqual(['1A', '1A', '1B'])
 
@@ -789,7 +823,7 @@ describe('moving a book across an area boundary', () => {
     await shelve('Ann Author')
     await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
     expect((await carry(cal, 'previous')).ok).toBe(true)
@@ -802,7 +836,7 @@ describe('moving a book across an area boundary', () => {
     const ann = await shelve('Ann Author')
     await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
     const result = await shelves.moveAcrossBoundary('fiction', ann, 'next')
@@ -814,7 +848,7 @@ describe('moving a book across an area boundary', () => {
   it('refuses the first book of the first area', async () => {
     const ann = await shelve('Ann Author')
     await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
     const result = await shelves.moveAcrossBoundary('fiction', ann, 'previous')
     expect(result.ok).toBe(false)
@@ -824,7 +858,7 @@ describe('moving a book across an area boundary', () => {
   it('refuses the last book of the last area, and says where areas come from', async () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
     const result = await shelves.moveAcrossBoundary('fiction', bob, 'next')
     expect(result.ok).toBe(false)
@@ -838,11 +872,11 @@ describe('moving a book across an area boundary', () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')       // Cal to 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal to 1B
     await store.setLocation(cal, '1B')
-    await shelves.overflow('fiction', '1A', 'area')       // Bob to 1B as well
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob to 1B as well
     await store.setLocation(bob, '1B')
-    await shelves.overflow('fiction', '1B', 'area')       // Cal on to 1C
+    await shelves.overflow('fiction', plank('1B'), 'area')       // Cal on to 1C
     await store.setLocation(cal, '1C')
     expect(await labels()).toEqual(['1A', '1B', '1C'])
 
@@ -854,9 +888,9 @@ describe('moving a book across an area boundary', () => {
   it('moves nothing but the book in your hand', async () => {
     const ids: number[] = []
     for (const a of ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs']) ids.push(await shelve(a))
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(ids[3]!, '1B')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(ids[2]!, '1B')
 
     const result = await shelves.moveAcrossBoundary('fiction', ids[1]!, 'next')
@@ -868,7 +902,7 @@ describe('moving a book across an area boundary', () => {
     // problem two ways, so they must compose rather than fight.
     const ids: number[] = []
     for (const a of ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs']) ids.push(await shelve(a))
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(ids[3]!, '1B')
     expect(await labels()).toEqual(['1A', '1A', '1A', '1B'])
 
@@ -876,7 +910,7 @@ describe('moving a book across an area boundary', () => {
     expect(await labels()).toEqual(['1A', '1A', '1B', '1B'])
 
     // 1B will not take the pair after all: its last book goes on to 1C.
-    const step = await shelves.overflow('fiction', '1B', 'area')
+    const step = await shelves.overflow('fiction', plank('1B'), 'area')
     expect(step.step?.moved.id).toBe(ids[3])
     expect(await labels()).toEqual(['1A', '1A', '1B', '1C'])
   })
@@ -886,7 +920,7 @@ describe('moving a book across an area boundary', () => {
     // straight back as a book to go and move.
     const ids: number[] = []
     for (const a of ['Ann Author', 'Bob Baker', 'Cal Church']) ids.push(await shelve(a))
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(ids[2]!, '1B')
     expect((await shelves.review('fiction')).misfiles).toEqual([])
 
@@ -903,7 +937,7 @@ describe('moving a book across an area boundary', () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
     await shelves.moveAcrossBoundary('fiction', bob, 'next')
@@ -924,9 +958,9 @@ describe('moving a book across an area boundary', () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'shelf')       // Cal on to bookcase 2
+    await shelves.overflow('fiction', plank('1A'), 'shelf')       // Cal on to bookcase 2
     await store.setLocation(cal, '2A')
-    await shelves.overflow('fiction', '1A', 'shelf')       // Bob joins him there
+    await shelves.overflow('fiction', plank('1A'), 'shelf')       // Bob joins him there
     await store.setLocation(bob, '2A')
     expect(await labels()).toEqual(['1A', '2A', '2A'])
     expect((await shelves.review('fiction')).misfiles).toEqual([])
@@ -947,7 +981,7 @@ describe('moving a book across an area boundary', () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'shelf')
+    await shelves.overflow('fiction', plank('1A'), 'shelf')
     await store.setLocation(cal, '2A')
     expect(await labels()).toEqual(['1A', '1A', '2A'])
 
@@ -962,7 +996,7 @@ describe('moving a book across an area boundary', () => {
     // at the two ends of the run and nowhere else.
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'shelf')
+    await shelves.overflow('fiction', plank('1A'), 'shelf')
     await store.setLocation(bob, '2A')
 
     expect((await shelves.moveAcrossBoundary('fiction', ann, 'previous')).error)
@@ -993,21 +1027,86 @@ describe('moving a book across an area boundary', () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')       // Cal alone on 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
     await store.setLocation(cal, '1B')
     expect(await labels()).toEqual(['1A', '1A', '1B'])
 
     // Ann: first on 1A, but nothing before it to carry it to; Bob follows her
     // on the same plank, so she is not last either.
-    expect(await shelves.boundaryOptions('fiction', ann)).toEqual({ next: null, previous: null })
+    expect(await offered(ann)).toEqual({ next: null, previous: null })
 
     // Bob: last on 1A with 1B to go to; Ann sits before him on the same
     // plank, so the other direction is refused.
-    expect(await shelves.boundaryOptions('fiction', bob)).toEqual({ next: '1B', previous: null })
+    expect(await offered(bob)).toEqual({ next: '1B', previous: null })
 
     // Cal: the only book on 1B, so both ends are his own, and 1A is there to
     // go back to; there is nothing after 1B yet.
-    expect(await shelves.boundaryOptions('fiction', cal)).toEqual({ next: null, previous: '1A' })
+    expect(await offered(cal)).toEqual({ next: null, previous: '1A' })
+  })
+
+  /**
+   * #359, reproduced before anything was changed.
+   *
+   * The button on a book's own page said `Move it on to 1B` while the same
+   * page's recorded location said `Hall shelf · B`: two names for one plank, on
+   * one screen. The move is offered and the location is written from the same
+   * plank, so they are named by the same `labelFor` now, and the id travels
+   * beside the name because only the id says whether two places are one place.
+   */
+  it('offers a move to the plank by the name the book\'s own page uses', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
+    await store.setLocation(cal, '1B')
+
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    expect((await editFixture(db, fixture!.id, { name: 'Hall shelf' })).ok).toBe(true)
+
+    const onto = (await shelves.boundaryOptions('fiction', bob)).next
+    expect(onto?.label).toBe('Hall shelf · B')
+    // The same plank the catalogue records Cal on, and said so by id.
+    expect(onto?.areaId).toBe((await store.getBook(cal))?.area_id)
+
+    const back = (await shelves.boundaryOptions('fiction', cal)).previous
+    expect(back?.label).toBe('Hall shelf · A')
+    expect(back?.areaId).toBe((await store.getBook(bob))?.area_id)
+  })
+
+  /**
+   * The refusals name the plank the same way, which is the half a rename could
+   * quietly change without anything failing.
+   *
+   * A refusal is read by whoever just tapped the button, standing at the piece
+   * they named. `Only the first or last book of 1A` sends them to look for a
+   * plank the app has stopped calling that anywhere else, and there is nothing
+   * to check it against: the move did not happen either way.
+   */
+  it('names the plank in a refusal the way the shelves name it', async () => {
+    const ann = await shelve('Ann Author')
+    await shelve('Bob Baker')
+    await shelves.overflow('fiction', plank('1A'), 'area')
+
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    await editFixture(db, fixture!.id, { name: 'Hall shelf' })
+
+    // Ann is first on the first plank of the run, so there is nothing before it.
+    const back = await shelves.moveAcrossBoundary('fiction', ann, 'previous')
+    expect(back.ok).toBe(false)
+    expect(back.error).toContain('no area before Hall shelf · A')
+
+    // And with a book after her on the same plank, she is not last either.
+    await shelve('Ann Aztec')
+    const on = await shelves.moveAcrossBoundary('fiction', ann, 'next')
+    expect(on.ok).toBe(false)
+    expect(on.error).toContain('first or last book of Hall shelf · A')
+
+    // Nothing moved for either refusal, which is what a refusal is.
+    expect(await labels()).toEqual(['1A', '1A', '1B'])
   })
 })
 
@@ -1037,7 +1136,7 @@ describe('taking a boundary move back', () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')       // Cal alone on 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
     await store.setLocation(cal, '1B')
 
     await shelves.moveAcrossBoundary('fiction', bob, 'next')
@@ -1061,7 +1160,7 @@ describe('taking a boundary move back', () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
     await shelves.moveAcrossBoundary('fiction', bob, 'next')
@@ -1085,11 +1184,11 @@ describe('taking a boundary move back', () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')       // Cal on to 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal on to 1B
     await store.setLocation(cal, '1B')
-    await shelves.overflow('fiction', '1A', 'area')       // Bob joins him
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob joins him
     await store.setLocation(bob, '1B')
-    await shelves.overflow('fiction', '1B', 'area')       // Cal on to 1C
+    await shelves.overflow('fiction', plank('1B'), 'area')       // Cal on to 1C
     await store.setLocation(cal, '1C')
     expect(await labels()).toEqual(['1A', '1B', '1C'])
 
@@ -1099,7 +1198,7 @@ describe('taking a boundary move back', () => {
 
     // The opposite move is available and would answer 1C: the empty area's
     // boundary and 1C's are on the same anchor, and it moves both.
-    expect(await shelves.boundaryOptions('fiction', bob)).toEqual({ next: '1C', previous: null })
+    expect(await offered(bob)).toEqual({ next: '1C', previous: null })
 
     expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
     expect(await labels()).toEqual(['1A', '1B', '1C'])
@@ -1114,7 +1213,7 @@ describe('taking a boundary move back', () => {
   it('makes again a boundary the move took out', async () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')       // Bob alone on 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob alone on 1B
     await store.setLocation(bob, '1B')
     expect(await shelves.list('fiction')).toHaveLength(1)
 
@@ -1145,7 +1244,7 @@ describe('taking a boundary move back', () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
     await shelves.moveAcrossBoundary('fiction', bob, 'next')
@@ -1160,7 +1259,7 @@ describe('taking a boundary move back', () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
     await shelves.moveAcrossBoundary('fiction', bob, 'next')
 
@@ -1180,11 +1279,11 @@ describe('taking a boundary move back', () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
-    await shelves.overflow('fiction', '1A', 'area')       // Cal on to 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal on to 1B
     await store.setLocation(cal, '1B')
-    await shelves.overflow('fiction', '1A', 'area')       // Bob joins him
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob joins him
     await store.setLocation(bob, '1B')
-    await shelves.overflow('fiction', '1B', 'area')       // Cal on to 1C
+    await shelves.overflow('fiction', plank('1B'), 'area')       // Cal on to 1C
     await store.setLocation(cal, '1C')
     expect(await labels()).toEqual(['1A', '1B', '1C'])
 
@@ -1225,7 +1324,7 @@ describe('misfile detection', () => {
 
     // The person says 1A will not take another. Bob physically moves to 1B,
     // but nobody has said so yet, so the catalogue still has him at 1A.
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
     expect(await flagged()).toEqual([[bob, '1A', '1B']])
   })
@@ -1233,7 +1332,7 @@ describe('misfile detection', () => {
   it('drops a book off the list once a person says they moved it', async () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     expect(await flagged()).toHaveLength(1)
 
     await store.setLocation(bob, '1B')
@@ -1246,7 +1345,7 @@ describe('misfile detection', () => {
     // is has been destroyed by the thing that only meant to notice.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
 
     const before = await store.getBook(bob)
     await shelves.review('fiction')
@@ -1261,7 +1360,7 @@ describe('misfile detection', () => {
     await shelve('Ann Author')
     await shelve('Mary Mills')
     const id = await shelve('Zoe Zola')
-    await shelves.overflow('fiction', '1A', 'area')       // Zola alone on 1B
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Zola alone on 1B
     await store.setLocation(id, '1B')
     expect(await flagged()).toEqual([])
 
@@ -1344,7 +1443,7 @@ describe('misfile detection', () => {
   it('says the same thing about the same books once a bookcase is named', async () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     expect(await flagged()).toHaveLength(1)
 
     const fixture = await db.get<{ id: number }>(
@@ -1434,7 +1533,7 @@ describe('the drift check the app makes about itself on every start', () => {
   it('says nothing about the books on a bookcase that has a name', async () => {
     await tagged('Ann Author')
     await tagged('Bob Baker')
-    await shelves.overflow('fiction', '1A', 'area')
+    await shelves.overflow('fiction', plank('1A'), 'area')
     expect(await areaDisagreements(db)).toEqual([])
 
     const fixture = await db.get<{ id: number }>(

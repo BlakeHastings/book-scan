@@ -337,8 +337,9 @@ async function shelveBook(
   const { id, placement } = await store.addBook(draft)
   await settleGenre(deps.restateTags, deps.tags, id, draft)
   await recordCredits(deps.creditBook, deps.authors, deps.fileAlias, id, draft)
-  const landed = placement && await shelves.labelFor(placement.range, id)
-  if (landed) await store.setLocation(id, landed)
+  // The plank, exactly as the save route records one (#359).
+  const landed = placement && await shelves.areaOf(placement.range, id)
+  if (landed !== null && landed !== undefined) await store.setLocationIn(id, landed)
   return id
 }
 
@@ -358,9 +359,12 @@ async function progressShelf(store: Store, shelves: Shelves, range: ShelfRange, 
   const last = groups.at(-1)
   if (!last) return
 
-  const result = await shelves.overflow(range, last.label, kind)
-  if (result.ok && result.step) {
-    await store.setLocation(result.step.moved.id, result.step.to)
+  const result = await shelves.overflow(range, { shelf: last.shelf, area: last.area }, kind)
+  // Recorded on the plank, not on what the plank is called. The step names its
+  // destination in ordinals and the run may stand on a piece somebody has named,
+  // in which case those two strings are different and only the id is the place.
+  if (result.ok && result.step && result.planks?.to.areaId !== null) {
+    await store.setLocationIn(result.step.moved.id, result.planks!.to.areaId!)
   }
 }
 

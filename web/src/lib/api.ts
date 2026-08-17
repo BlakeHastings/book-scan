@@ -114,6 +114,22 @@ export interface StripBook {
   pages?: string
 }
 
+/**
+ * One plank, said both ways.
+ *
+ * **The label is what somebody reads and the id is what the app sends back.** A
+ * label is derived from where a piece stands and what its owner called it, so a
+ * screen drawn a minute ago can name a plank by a name nobody uses now, and on a
+ * named bookcase it is not even the string the layout numbers the plank with.
+ * The id is the plank. See #356, and #359 for the writing half of it.
+ *
+ * Null only for a plank a proposal would make and has not made yet.
+ */
+export interface Plank {
+  areaId: number | null
+  label: string
+}
+
 /** A single shelf seen end on, with the space the new book goes in. */
 export interface PlacementStrip {
   label: string
@@ -132,14 +148,22 @@ export interface PlacementStrip {
    * position can be offered one (#96). The server refuses the move itself
    * regardless of what this said a moment ago.
    */
-  boundary?: { next: string | null; previous: string | null }
+  boundary?: { next: Plank | null; previous: Plank | null }
 }
 
 export interface PlacementResponse extends Placement {
   authorFiling: string
   sortKey: string
-  /** Shelf in the derived scheme (A1, B2). What the shelving step asks about. */
+  /** What the plank the shelving step asks about is called, for the person. */
   derivedLocation?: string
+  /**
+   * That same plank, said as the plank (#359).
+   *
+   * What "It fits, save" writes down and what "no room" is asked about. Null
+   * when the run has no plank to put this book on, which is a rule pointing at
+   * furniture somebody has taken out, and the step refuses rather than guessing.
+   */
+  derivedAreaId?: number | null
   strip?: PlacementStrip | null
 }
 
@@ -323,10 +347,27 @@ export interface AuthorDto {
   aliases: { id: number; displayName: string; filingName: string; isPrimary: boolean }[]
 }
 
-export interface Move {
-  id: number
+/**
+ * A book going from one plank to another, said both ways at both ends.
+ *
+ * The two labels are what somebody reads on the way to the shelf; the two ids
+ * are what gets written down when they say the book is there (#359). Both are
+ * needed and neither will do on its own: on a bookcase whose owner has named it,
+ * the label is not the string the layout numbers the plank with, and a label
+ * read off a screen a minute old can name a plank by a name nobody uses now.
+ *
+ * `toAreaId` is null for one plank only: the one a proposal would make and has
+ * not made yet, which cannot be written to because it does not exist.
+ */
+export interface PlankStep {
   from: string
   to: string
+  fromAreaId: number | null
+  toAreaId: number | null
+}
+
+export interface Move extends PlankStep {
+  id: number
   /** Filled in by the server so the list reads as books, not row ids. */
   title?: string
 }
@@ -1195,12 +1236,17 @@ export const api = {
    * put the book and been told it fits, so it says so through the one route
    * that changes a position.
    *
-   * `shelvedAt` empty means this is an ordinary edit and nobody observed
+   * `shelvedAt` null means this is an ordinary edit and nobody observed
    * anything, which leaves the recorded location exactly where it was, and now
    * leaves whether the book is on the bookcase alone for the same reason (#87).
    * Both are physical facts, both are observed at the shelf and nowhere else,
    * so one condition governs both: correcting a note cannot state where a book
    * is, and it cannot state that it is back either.
+   *
+   * **It is the plank, not what the plank is called** (#359). The step drew that
+   * plank a moment ago and knows which one it is; handing the label back would
+   * make the server work out from a string which row the screen had meant, and
+   * on a bookcase somebody has named there are two strings for that row.
    *
    * Putting the book back is safe to say on every confirmed placement rather
    * than only when the caller believes the book was down, because asking for
@@ -1211,11 +1257,10 @@ export const api = {
    * down, and misfile detection then reported that same book as needing to
    * make the move they had already made.
    */
-  updateAndShelve: async (id: number, draft: Draft, shelvedAt: string) => {
+  updateAndShelve: async (id: number, draft: Draft, shelvedAt: number | null) => {
     const result = await updateBook(id, draft)
-    const observed = shelvedAt.trim()
-    if (observed) {
-      await setLocation(id, observed)
+    if (shelvedAt !== null) {
+      await setLocationIn(id, shelvedAt)
       await setCheckedOut(id, false)
     }
     return result
@@ -1328,22 +1373,20 @@ export const api = {
    */
   planOverflow: (
     range: ShelfRange,
-    label: string,
+    areaId: number,
     kind: 'shelf' | 'area',
     sortKey = '',
   ) =>
     request<{
       /** The book in your hand goes on instead. No id: it is not saved yet. */
-      carry: { from: string; to: string } | null
+      carry: PlankStep | null
       /** `id` is the displaced book, so where it lands can be recorded. */
-      step: {
-        id: number; title: string; from: string; to: string; authorFiling: string
-      } | null
+      step: (PlankStep & { id: number; title: string; authorFiling: string }) | null
       /** The plank it is going on, with the gap where it goes. */
       strip: PlacementStrip | null
     }>('/api/shelves/overflow/plan', {
       method: 'POST',
-      body: JSON.stringify({ range, label, kind, sortKey }),
+      body: JSON.stringify({ range, areaId, kind, sortKey }),
     }),
 
   /**
@@ -1356,21 +1399,21 @@ export const api = {
    */
   overflowShelf: (
     range: ShelfRange,
-    label: string,
+    areaId: number,
     kind: 'shelf' | 'area',
     sortKey = '',
     expectId = 0,
   ) =>
     request<{
       /** The book in your hand goes on instead. No id: it is not saved yet. */
-      carry: { from: string; to: string } | null
+      carry: PlankStep | null
       /** `id` is the displaced book, so where it lands can be recorded. */
-      step: { id: number; title: string; from: string; to: string } | null
+      step: (PlankStep & { id: number; title: string }) | null
       groups: ShelfGroupDto[]
       moves: Move[]
     }>('/api/shelves/overflow', {
       method: 'POST',
-      body: JSON.stringify({ range, label, kind, sortKey, expectId }),
+      body: JSON.stringify({ range, areaId, kind, sortKey, expectId }),
     }),
 
   /**
@@ -1394,7 +1437,7 @@ export const api = {
     direction: 'next' | 'previous',
   ) =>
     request<{
-      move: { id: number; title: string; from: string; to: string } | null
+      move: (PlankStep & { id: number; title: string }) | null
       groups: ShelfGroupDto[]
       moves: Move[]
     }>('/api/shelves/move', {
@@ -1418,7 +1461,7 @@ export const api = {
   retractMove: (range: ShelfRange, id: number) =>
     request<{
       /** Which way the book went back, or null when nothing was outstanding. */
-      move: { from: string; to: string } | null
+      move: PlankStep | null
       groups: ShelfGroupDto[]
       moves: Move[]
     }>('/api/shelves/retract', {

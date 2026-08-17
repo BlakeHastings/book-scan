@@ -18,12 +18,23 @@ import {
   started, whereYouAre, type Cascade, type Done, type Frame,
 } from './cascade'
 
+/**
+ * The plank ids are invented and only have to be distinct: what the stack does
+ * with them is carry them back to the route that writes (#359). The labels are
+ * what the drawing says, and the two are deliberately not derived from each
+ * other, because that is the whole point of there being two.
+ */
 const frame = (
   title: string, from: string, to: string, id = 1, kind: 'shelf' | 'area' = 'area',
 ): Frame => ({
+  fromAreaId: 100 + from.charCodeAt(from.length - 1),
   from,
   kind,
-  proposal: { id, title, authorFiling: `${title} author`, to, strip: null },
+  proposal: {
+    id, title, authorFiling: `${title} author`, to,
+    toAreaId: 100 + to.charCodeAt(to.length - 1),
+    strip: null,
+  },
 })
 
 /** What a frame becomes once somebody says they carried the book. */
@@ -123,7 +134,7 @@ describe('unwinding', () => {
 
     cascade = repropose(cascade, {
       id: 1, title: 'The Dispossessed', authorFiling: 'Le Guin, Ursula K.',
-      to: '1B', strip: null,
+      to: '1B', toAreaId: 2, strip: null,
     })
     // The plank it is full of is still the one that was said to be full.
     expect(asking(cascade)?.from).toBe('1A')

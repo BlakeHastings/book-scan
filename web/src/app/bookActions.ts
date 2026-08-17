@@ -45,8 +45,14 @@ const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
 export type Landing = 'origin' | 'here'
 
 export interface BookActions {
-  /** Finish shelving a book, and go wherever the landing says. */
-  readonly save: (shelvedAt?: string, land?: Landing) => Promise<boolean>
+  /**
+   * Finish shelving a book, and go wherever the landing says.
+   *
+   * `shelvedAt` is the plank the person just said the book fits on, or null for
+   * an edit nobody made a statement about the room in. The plank rather than its
+   * name, for the reason `ShelveView.onShelved` gives (#359).
+   */
+  readonly save: (shelvedAt?: number | null, land?: Landing) => Promise<boolean>
   /** Write edits to a catalogued book without leaving it. */
   readonly saveEdits: () => Promise<boolean>
   readonly deleteBook: () => Promise<void>
@@ -90,8 +96,8 @@ export function useBookActions(): BookActions {
    * which hands the screen back to the camera for the next one, and editing a
    * catalogued book, where throwing you out to the camera would be absurd.
    *
-   * `shelvedAt` is the shelf the person has just been told to put the book on
-   * and answered "it fits" about. Empty for an ordinary edit, where nobody has
+   * `shelvedAt` is the plank the person has just been told to put the book on
+   * and answered "it fits" about. Null for an ordinary edit, where nobody has
    * been anywhere near the shelves and the recorded location must be left
    * alone, along with whether the book is on the bookcase at all.
    *
@@ -100,7 +106,7 @@ export function useBookActions(): BookActions {
    * anything: a save that used to check a book in on the strength of the book
    * being out is what destroyed take-down times, since editing a note is not a
    * statement about where a book is (#87). Both statements a placement makes
-   * now travel with the label, in `api.updateAndShelve`.
+   * now travel with the plank, in `api.updateAndShelve`.
    *
    * A new book needs nothing here: POST /api/books records where it landed as
    * part of the insert. Only the update path had the gap, and it is the path a
@@ -108,7 +114,7 @@ export function useBookActions(): BookActions {
    */
   const persist = async (
     stay: boolean,
-    shelvedAt = '',
+    shelvedAt: number | null = null,
     land: Landing = 'origin',
   ): Promise<boolean> => {
     book.setSaving(true)
@@ -161,7 +167,7 @@ export function useBookActions(): BookActions {
   // Named wrappers rather than passing persist straight to a handler: onClick
   // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
   /** Finish shelving a book, and go wherever the landing says. */
-  const save = (shelvedAt = '', land: Landing = 'origin') =>
+  const save = (shelvedAt: number | null = null, land: Landing = 'origin') =>
     persist(false, shelvedAt, land)
 
   /** Write edits to a catalogued book without leaving it. */

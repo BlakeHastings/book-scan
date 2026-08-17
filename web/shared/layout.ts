@@ -17,7 +17,7 @@
  * If that shelf will not take it either, they say so again and it walks on.
  */
 
-import type { ShelfRange } from './shelving'
+import { parseLocation, type ShelfRange } from './shelving'
 
 /**
  * Which boundary this is.
@@ -102,19 +102,62 @@ export function locationLabel(shelf: number, area: number): string {
 }
 
 /**
+ * `locationLabel` read backwards: the plank an address of this form names.
+ *
+ * Here for the reason `areaIndex` above is here: an inverse that lives away from
+ * what it inverts stops being one, and the two have to change together or a
+ * plank gets one address and answers to another.
+ *
+ * **This is not the way to find out where a book goes.** An address is a
+ * rendering of a pair of ordinals and nothing more; what says two places are one
+ * place is the area's id, which is why the routes take one (#356, #359) and why
+ * `Shelves.addressOf` is the single door between an id and this form. What this
+ * is for is reading back an address the app itself wrote a moment ago, which is
+ * what a seeder and a test do when they say a named plank is full.
+ *
+ * Null for anything that is not one, including a label somebody has typed a
+ * fixture's name into: `Hall shelf · B` is a rendering for a person and names no
+ * plank here.
+ */
+export function plankAt(label: string): PlankAt | null {
+  const parsed = parseLocation(label)
+  if (!parsed) return null
+
+  const area = areaIndex(parsed.section)
+  return area < 0 ? null : { shelf: parsed.shelf, area }
+}
+
+/**
  * Assign every book a shelf by filling each one to its recorded capacity.
  *
  * `books` must already be in sort order; that ordering is the shelf order.
  * Books past the last separator land on a final, open-ended shelf, which is
  * where everything sits before any capacity has been marked at all.
  */
-/** Where a range begins on the furniture. Non-fiction lives on bookcase 4. */
-export interface RangeStart {
+/**
+ * Which plank, as the furniture is numbered rather than as anybody reads it.
+ *
+ * The whole of what this file knows about a place, and it knows nothing about
+ * what the place is called: `locationLabel` renders one of these and the
+ * rendering is thrown away by everything that has to decide something. A run's
+ * areas stand in this order and carry their own ids, so a caller holding a pair
+ * of numbers can ask the furniture which row it is (`areaAt` in
+ * infrastructure/shelving/areas.ts) and name it for a person from there.
+ *
+ * This is what a plan hands back beside its label. Without it the only thing a
+ * caller had to say where a book was going was a string built out of two
+ * ordinals, which is a rendering, and #356 is what happens when a rendering is
+ * asked to be an identity.
+ */
+export interface PlankAt {
   /** Bookcase, 1-based. */
   shelf: number
   /** Plank within it, 0-based. */
   area: number
 }
+
+/** Where a range begins on the furniture. Non-fiction lives on bookcase 4. */
+export type RangeStart = PlankAt
 
 export const FIRST_SHELF: RangeStart = { shelf: 1, area: 0 }
 
@@ -159,6 +202,9 @@ export interface Move {
   id: number
   from: string
   to: string
+  /** The two planks as the furniture is numbered. See `PlankAt`. */
+  fromAt: PlankAt
+  toAt: PlankAt
 }
 
 /**
@@ -172,13 +218,19 @@ export interface Move {
  * step with them.
  */
 export function diffLayout(before: Placed[], after: Placed[]): Move[] {
-  const was = new Map(before.map((p) => [p.book.id, p.label]))
+  const was = new Map(before.map((p) => [p.book.id, p]))
   const moves: Move[] = []
 
   for (const placed of after) {
     const from = was.get(placed.book.id)
-    if (from !== undefined && from !== placed.label) {
-      moves.push({ id: placed.book.id, from, to: placed.label })
+    if (from !== undefined && from.label !== placed.label) {
+      moves.push({
+        id: placed.book.id,
+        from: from.label,
+        to: placed.label,
+        fromAt: { shelf: from.shelf, area: from.area },
+        toAt: { shelf: placed.shelf, area: placed.area },
+      })
     }
   }
 
@@ -324,6 +376,9 @@ export interface Overflow {
   moved: LayoutInput
   from: string
   to: string
+  /** The two planks as the furniture is numbered. See `PlankAt`. */
+  fromAt: PlankAt
+  toAt: PlankAt
   /** Boundary to create, when the shelf it moves onto does not exist yet. */
   create?: { startsAt: string; kind: SeparatorKind }
   /** Boundary to move earlier, when the next shelf already exists. */
@@ -357,15 +412,23 @@ export function overflow(
 
   const moved = group.books[group.books.length - 1]!.book
   const nextGroup = groups[index + 1]
+  const fromAt: PlankAt = { shelf: group.shelf, area: group.area }
+  // One step along the run, which is either the plank below or the top of the
+  // next bookcase. The label is that address rendered, never the other way
+  // round: the address is what says which plank, and the string is for reading.
+  const step = (kind: SeparatorKind): { to: string; toAt: PlankAt } => {
+    const toAt: PlankAt = kind === 'shelf'
+      ? { shelf: group.shelf + 1, area: 0 }
+      : { shelf: group.shelf, area: group.area + 1 }
+    return { to: locationLabel(toAt.shelf, toAt.area), toAt }
+  }
 
   if (!nextGroup) {
     return {
       moved,
       from: label,
-      to: locationLabel(
-        kindIfNew === 'shelf' ? group.shelf + 1 : group.shelf,
-        kindIfNew === 'shelf' ? 0 : group.area + 1,
-      ),
+      fromAt,
+      ...step(kindIfNew),
       create: { startsAt: moved.sortKey, kind: kindIfNew },
     }
   }
@@ -380,7 +443,8 @@ export function overflow(
     return {
       moved,
       from: label,
-      to: locationLabel(group.shelf + 1, 0),
+      fromAt,
+      ...step('shelf'),
       create: { startsAt: moved.sortKey, kind: 'shelf' },
     }
   }
@@ -388,6 +452,7 @@ export function overflow(
   return {
     moved,
     from: label,
+    fromAt,
     /*
      * One boundary along from where the book is, not "the label of the next
      * group".
@@ -403,10 +468,7 @@ export function overflow(
      * so its kind decides the step. Deriving both from the same separator is
      * what keeps the label and the layout in agreement.
      */
-    to: locationLabel(
-      nextGroup.opensWith?.kind === 'shelf' ? group.shelf + 1 : group.shelf,
-      nextGroup.opensWith?.kind === 'shelf' ? 0 : group.area + 1,
-    ),
+    ...step(nextGroup.opensWith?.kind === 'shelf' ? 'shelf' : 'area'),
     // The next shelf now starts one book earlier.
     shift: nextGroup.opensWith
       ? { id: nextGroup.opensWith.id, startsAt: moved.sortKey }
@@ -460,6 +522,9 @@ export interface BoundaryMove {
   moved: LayoutInput
   from: string
   to: string
+  /** The two planks as the furniture is numbered. See `PlankAt`. */
+  fromAt: PlankAt
+  toAt: PlankAt
   /** Boundaries to re-anchor, and the sort key each one now starts at. */
   shift: { id: number; startsAt: string }[]
   /** Boundaries to drop, because nothing is left for them to start at. */
@@ -468,7 +533,12 @@ export interface BoundaryMove {
 
 export type BoundaryOutcome =
   | { ok: true; move: BoundaryMove }
-  | { ok: false; reason: BoundaryRefusal; at: string }
+  /**
+   * The plank the refusal is about, so the sentence can name it the way the
+   * book's own page does. `at` is the rendering and `atAt` is the plank; a
+   * refusal at no plank at all (`not-shelved`) has neither.
+   */
+  | { ok: false; reason: BoundaryRefusal; at: string; atAt: PlankAt | null }
 
 /**
  * Take the first or last book of an area and put it on the plank next door.
@@ -506,23 +576,26 @@ export function boundaryMove<T extends LayoutInput>(
   direction: BoundaryDirection,
 ): BoundaryOutcome {
   const index = placed.findIndex((p) => p.book.id === bookId)
-  if (index === -1) return { ok: false, reason: 'not-shelved', at: '' }
+  if (index === -1) return { ok: false, reason: 'not-shelved', at: '', atAt: null }
 
   const here = placed[index]!
   const before = placed[index - 1]
   const after = placed[index + 1]
 
   const between = (low: string, high: string) => boundariesBetween(separators, low, high)
+  // Where a plank stands, taken off the layout that drew it rather than parsed
+  // back out of the string it drew. See `PlankAt`.
+  const plankOf = (one: Placed<T>): PlankAt => ({ shelf: one.shelf, area: one.area })
+  const refused = (reason: BoundaryRefusal): BoundaryOutcome =>
+    ({ ok: false, reason, at: here.label, atAt: plankOf(here) })
 
   if (direction === 'next') {
     // Last on its plank: either nothing follows, or what follows is elsewhere.
-    if (after && after.label === here.label) {
-      return { ok: false, reason: 'not-at-boundary', at: here.label }
-    }
-    if (!after) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+    if (after && after.label === here.label) return refused('not-at-boundary')
+    if (!after) return refused('no-adjacent-area')
 
     const crossed = between(here.book.sortKey, after.book.sortKey)
-    if (!crossed.length) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+    if (!crossed.length) return refused('no-adjacent-area')
 
     return {
       ok: true,
@@ -530,6 +603,8 @@ export function boundaryMove<T extends LayoutInput>(
         moved: here.book,
         from: here.label,
         to: after.label,
+        fromAt: plankOf(here),
+        toAt: plankOf(after),
         // The next area now begins one book earlier, at this one.
         shift: crossed.map((s) => ({ id: s.id, startsAt: here.book.sortKey })),
         remove: [],
@@ -537,13 +612,11 @@ export function boundaryMove<T extends LayoutInput>(
     }
   }
 
-  if (before && before.label === here.label) {
-    return { ok: false, reason: 'not-at-boundary', at: here.label }
-  }
-  if (!before) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+  if (before && before.label === here.label) return refused('not-at-boundary')
+  if (!before) return refused('no-adjacent-area')
 
   const crossed = between(before.book.sortKey, here.book.sortKey)
-  if (!crossed.length) return { ok: false, reason: 'no-adjacent-area', at: here.label }
+  if (!crossed.length) return refused('no-adjacent-area')
 
   return {
     ok: true,
@@ -551,6 +624,8 @@ export function boundaryMove<T extends LayoutInput>(
       moved: here.book,
       from: here.label,
       to: before.label,
+      fromAt: plankOf(here),
+      toAt: plankOf(before),
       // The area this book is leaving now begins at whatever follows it. With
       // nothing following, it has no first book, so the boundary describes a
       // place no book is on and goes.
@@ -573,6 +648,9 @@ export interface CarryOn {
   from: string
   /** The plank it goes on instead. */
   to: string
+  /** The two planks as the furniture is numbered. See `PlankAt`. */
+  fromAt: PlankAt
+  toAt: PlankAt
   /** Boundary to re-anchor to the book being placed. */
   shift?: { id: number; startsAt: string }
   /** Boundary to create, when the plank it goes on does not exist yet. */
@@ -645,13 +723,17 @@ export function carryOn<T extends LayoutInput>(
   )
   const next = crossed[0]
 
-  const step = (kind: SeparatorKind) => ({
-    from: label,
-    to: locationLabel(
-      kind === 'shelf' ? here.shelf + 1 : here.shelf,
-      kind === 'shelf' ? 0 : here.area + 1,
-    ),
-  })
+  const step = (kind: SeparatorKind) => {
+    const toAt: PlankAt = kind === 'shelf'
+      ? { shelf: here.shelf + 1, area: 0 }
+      : { shelf: here.shelf, area: here.area + 1 }
+    return {
+      from: label,
+      to: locationLabel(toAt.shelf, toAt.area),
+      fromAt: { shelf: here.shelf, area: here.area },
+      toAt,
+    }
+  }
 
   /*
    * No boundary to cross, or a new bookcase asked for where the next boundary
@@ -685,6 +767,8 @@ export const NEWCOMER_ID = -1
 export interface Strip<T extends LayoutInput> {
   /** The shelf the newcomer lands on. */
   label: string
+  /** That shelf as the furniture is numbered, so it can be named. See `PlankAt`. */
+  at: PlankAt
   /** Everything already on that shelf, left to right. */
   books: Placed<T>[]
   /** How many of those books sit to the left of the gap. */
@@ -716,6 +800,7 @@ export function stripWithGap<T extends LayoutInput>(
 
   return {
     label: found.label,
+    at: found.at,
     books: found.books.filter((p) => p.book.id !== id),
     // Its index within the row, which is exactly the count to its left.
     gapIndex: found.index,
@@ -739,13 +824,14 @@ export function stripAround<T extends LayoutInput>(
 export function stripAt<T extends LayoutInput>(
   placed: Placed<T>[],
   id: number,
-): { label: string; books: Placed<T>[]; index: number } | null {
-  const at = placed.find((p) => p.book.id === id)
-  if (!at) return null
+): { label: string; at: PlankAt; books: Placed<T>[]; index: number } | null {
+  const on = placed.find((p) => p.book.id === id)
+  if (!on) return null
 
-  const books = placed.filter((p) => p.label === at.label)
+  const books = placed.filter((p) => p.label === on.label)
   return {
-    label: at.label,
+    label: on.label,
+    at: { shelf: on.shelf, area: on.area },
     books,
     index: books.findIndex((p) => p.book.id === id),
   }
