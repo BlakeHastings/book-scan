@@ -28,15 +28,27 @@
  * phone. Three things answer that, and none of them is a promise:
  *
  * - **It asks for a page.** `useListing` fetches sixty books and asks for the
- *   next sixty when somebody reaches the bottom, so what arrives and what is
- *   drawn are both bounded however large the catalogue gets. The route grew
- *   `limit`, `offset` and `total` for this.
+ *   next sixty when the end of what has loaded arrives on screen, so what
+ *   arrives and what is drawn are both bounded however large the catalogue
+ *   gets. The route grew `limit`, `offset` and `total` for this.
  * - **The boards are cut from the same page.** The books standing up are the
  *   listing grouped into the areas it is already in order for, so the third view
  *   costs no second request and no second scroll.
  * - **A picture is asked for at the size it is drawn.** 320 pixels wide for a
  *   tile about 120 across, which the server resizes; the full files are tens of
  *   megabytes across a screen of them.
+ *
+ * **The second of those undid the first, and #364 is the repair.** A page of
+ * sixty books adds a screenful of height to the covers and to the list, and
+ * adds almost none to the boards, where one area is one row of spines that
+ * scrolls sideways rather than a column that grows. The bottom of the listing
+ * was therefore permanently on screen there, "reached the bottom" was
+ * permanently true, and this screen quietly fetched the whole catalogue on
+ * arrival, sixty at a time, in half a second, with nobody scrolling.
+ * `src/components/More.tsx` and `src/lib/reachingTheEnd.ts` carry the rule that
+ * ends it, and what it costs the boards is said there: where the drawing does
+ * not get taller, there is no downward scroll to fetch on, and the button is
+ * what advances the page, which is what that button has always been for.
  *
  * What is left is said in the pull request rather than hidden: a count beside an
  * area is only drawn once that area has finished loading, because the last row
@@ -131,27 +143,38 @@ export function LibraryPane() {
       {look === 'spines' && <SpineView books={books} complete={complete} onOpen={open} />}
 
       {!complete && total > 0 && (
-        <More shown={books.length} total={total} loading={loading} onMore={listing.more} />
+        <More total={total} loading={loading} onMore={listing.more} />
       )}
 
       {/*
         The way through to the other half of what this screen used to be.
 
-        The drawn library has one quiet button at the bottom, to the furniture.
-        This one goes to the shelves as a job of work: the areas as the order
-        says they should be, with the disagreements listed. Most of what was on
-        it now has a home of its own, since #313 gave the furniture screens and
-        #314 gave the carrying its flow, and what has not is the reason this is
-        still here: moving a whole run to another piece of furniture is reached
-        from there and from nowhere else.
+        It said "Check the bookcases against the order" and the owner could not
+        say what that meant (#364): "I'm not sure what that means." Two words
+        were doing the damage. **The order** is this codebase talking to itself
+        about filing rules. **Bookcases** is the noun he has corrected twice,
+        most recently as #362 is sweeping the interface onto fixtures, and
+        naming any piece of furniture here is wrong anyway, because what is
+        behind this is not about the furniture.
 
-        Deliberately not worded as books to carry. That is #314's flow and it is
-        one tap from the first screen; two doors to one room is the fault this
-        design keeps taking things off screens for.
+        He led with taking it off, and it was checked before it was kept. Two of
+        the three things behind it are reachable elsewhere now: the furniture is
+        one tap from the corner (#350), and pointing a stretch of books at
+        another piece is reached from the rule that files them (#323). **The
+        third is not.** The list of books whose recorded spot disagrees with
+        where the filing order puts them is drawn on that screen and on no
+        other, it is what somebody acts on, and #358 has just repaired it after
+        it had been silently dropping 181 books. Deleting the only door to it
+        would delete it.
+
+        So it stays and it is named for what a person gets. Not "books to
+        carry", which is #314's flow, one tap from the first screen, and a
+        different question: that one is work a rule change made, and this one is
+        a book that ended up somewhere the filing order does not put it.
       */}
       <div className="wf-under">
         <Button tone="quiet" onPress={() => setRoute('shelves')}>
-          Check the bookcases against the order
+          Books that are not where they should be
         </Button>
       </div>
     </Frame>

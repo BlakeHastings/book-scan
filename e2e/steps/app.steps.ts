@@ -531,7 +531,9 @@ async function toTheShelves(page: Page): Promise<void> {
   const groups = page.locator('.shelfgroup').first()
   if (await groups.isVisible()) return
 
-  const through = page.getByRole('button', { name: 'Check the bookcases against the order' })
+  // Renamed by #364. It said "Check the bookcases against the order", which the
+  // owner could not read, and it is now named for the list behind it.
+  const through = page.getByRole('button', { name: 'Books that are not where they should be' })
   await expect(through).toBeVisible({ timeout: QUEUE_TIMEOUT })
   await through.click()
   await expect(groups).toBeVisible({ timeout: QUEUE_TIMEOUT })
