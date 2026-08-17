@@ -128,7 +128,7 @@ rather than to `:root`, which the working app already owns. There is no routing
 library: a hash is enough, the server never sees it, and the phone's back
 button walks the gallery for free.
 
-**Your furniture** is the arranging half of it, at `#/design/furniture` and the
+**Your fixtures** is the arranging half of it, at `#/design/furniture` and the
 six screens after it: what you own and in what order, one piece and where it
 stands, one area and its name, adding another area, saying what belongs in one,
 choosing how it is ordered, and why a book ended up where it did.

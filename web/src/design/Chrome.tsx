@@ -118,12 +118,12 @@ export function TopBar({
  * So the glyph is `IconPerson`, which is a head and a pair of shoulders and
  * deliberately nothing more: no initials, no photograph and no silhouette with
  * a haircut. Anything that reads as a *particular* person is the claim this
- * must not make. **It is a door to your own room, not a statement about who is
- * using the app.**
+ * must not make. **It is a door to your own fixtures, not a statement about
+ * who is using the app.**
  *
- * The name announced is **Your room**, not "You" and not "Account", and the
- * name did not change when the sitter did: the thing behind this target is
- * still the room and the books in it. See `Corner`.
+ * The name announced is **Your fixtures**, not "You" and not "Account", and
+ * the name did not change when the sitter did: the thing behind this target
+ * is still the collection and the books in it. See `Corner`.
  */
 export function Portrait() {
   return (
@@ -132,6 +132,32 @@ export function Portrait() {
     </span>
   )
 }
+
+/**
+ * The one word the corner, its menu row and the screen they both lead to all
+ * say, so a fourth caller cannot quietly say something else.
+ *
+ * ## Furniture lost to fixtures, and that is settled
+ *
+ * #333 named this menu **Your furniture**, deliberately over "My fixtures",
+ * and gave its reason in the same breath: it is what the screen it opens is
+ * titled, this app says "your" and never "my", and "a fixture is a landlord's
+ * word for a thing; furniture is what you say about your own room." The
+ * corner itself was **Your room**, for the same reason a face was the cat:
+ * there is no account to say who "you" are, so the menu opened with what you
+ * have rather than who you are.
+ *
+ * **The owner overruled both** (#362), and he had already said the same thing
+ * once before, about the pieces themselves rather than the room they stand
+ * in: "they're not bookcases, they are fixtures" (#272). Room and furniture
+ * are both words for something this app does not have; fixtures is the word
+ * it has actually used since #272 for what is really in it. So the corner,
+ * the menu row and the screen they lead to all say **Your fixtures**, one
+ * word in three places, and #333's reason for the old words is kept here
+ * rather than deleted, so the next person who reaches for "furniture" or
+ * "room" finds out why they left before putting either back.
+ */
+export const FIXTURES_WORD = 'Your fixtures'
 
 /**
  * What the corner opens: the short list of things that are yours.
@@ -147,10 +173,12 @@ export function Portrait() {
  *
  * ## Two ways in, and why not three
  *
- * **Your furniture** is the whole reason this exists: those screens are good
+ * **Your fixtures** is the whole reason this exists: those screens are good
  * and nothing led to them. It is called what the screen it opens is called,
- * because a menu entry and its destination disagreeing about the name of a
- * thing is the same fault as two components sharing one.
+ * and what the corner above it is called too, because a menu entry and its
+ * destination disagreeing about the name of a thing is the same fault as two
+ * components sharing one. See `FIXTURES_WORD` for that name and for the
+ * argument #362 overruled to arrive at it.
  *
  * **Settings** is the owner's own second thought ("preferences, or maybe not
  * preferences, instead settings") and it is kept, because it is the one word
@@ -187,7 +215,7 @@ export function Corner({
   onClose?: () => void
 }) {
   return (
-    <div className="wf-corner" role="dialog" aria-modal="true" aria-label="Your room">
+    <div className="wf-corner" role="dialog" aria-modal="true" aria-label={FIXTURES_WORD}>
       <button
         type="button"
         className="wf-corner__away"
@@ -198,7 +226,7 @@ export function Corner({
         <div className="wf-corner__who">
           <Portrait />
           <span className="wf-corner__lines">
-            <span className="wf-corner__name">Your room</span>
+            <span className="wf-corner__name">{FIXTURES_WORD}</span>
             <span className="wf-corner__said">{said}</span>
           </span>
         </div>

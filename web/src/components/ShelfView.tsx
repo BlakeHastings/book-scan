@@ -289,7 +289,7 @@ export function ShelfView({
           even though each piece is named for what it is. */}
       {onFurniture && (
         <button className="btn btn--ghost library__arrange" onClick={onFurniture}>
-          See your furniture
+          See your fixtures
         </button>
       )}
 

@@ -53,7 +53,7 @@ import { Shelf, spines, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
 import { Sure } from '../Sure'
 import { Trouble } from '../Trouble'
-import { Corner, Portrait, TopBar, type TabName } from '../Chrome'
+import { Corner, FIXTURES_WORD, Portrait, TopBar, type TabName } from '../Chrome'
 
 /** Move to another screen of the gallery. */
 export type Go = (screen: string) => void
@@ -84,7 +84,7 @@ export interface Screen {
  */
 function you(go: Go, open = false) {
   return {
-    word: 'Your room',
+    word: FIXTURES_WORD,
     icon: <Portrait />,
     onPress: () => go(open ? 'home' : 'menu'),
   }
@@ -568,7 +568,7 @@ function Library(go: Go) {
             them are a crate and a desk. The category word goes neutral even
             though the pieces above it are named for what they are. */}
         <Button tone="quiet" onPress={() => go('furniture')}>
-          See your furniture
+          See your fixtures
         </Button>
       </div>
     </Phone>
@@ -1695,7 +1695,7 @@ function Queue(go: Go) {
   )
 }
 
-/* --- Your room ------------------------------------------------------------ */
+/* --- The corner ------------------------------------------------------------ */
 
 /**
  * The menu the corner opens, over the screen it was opened from.
@@ -1706,7 +1706,7 @@ function Queue(go: Go) {
  * about what is in it; what is here is the content.
  *
  * **The two counts are the same two counts the destinations say.** "Five
- * pieces, sixteen areas" is the furniture screen's own second line, word for
+ * pieces, sixteen areas" is the fixtures screen's own second line, word for
  * word, because a menu that summarises a screen in its own words is two
  * sentences that have to be kept agreeing.
  */
@@ -1714,10 +1714,10 @@ function RoomMenu(go: Go) {
   return Home(
     go,
     <Corner
-      said="1,204 books, five pieces of furniture"
+      said="1,204 books, five fixtures"
       ways={[
         {
-          word: 'Your furniture',
+          word: FIXTURES_WORD,
           note: 'Five pieces, sixteen areas',
           onPress: () => go('furniture'),
         },
@@ -1849,7 +1849,7 @@ function SettingsScreen(go: Go) {
   )
 }
 
-/* --- Your furniture ------------------------------------------------------- */
+/* --- Your fixtures --------------------------------------------------------- */
 
 /*
  * The four pieces in the room, what is under each of them, and what each one
@@ -1960,7 +1960,7 @@ function Furniture(go: Go) {
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title="Your furniture" sub="Five pieces, sixteen areas" onBack={() => go('library')} />}
+      top={<TopBar title={FIXTURES_WORD} sub="Five pieces, sixteen areas" onBack={() => go('library')} />}
     >
       <Nest
         name="By the window"
@@ -3123,7 +3123,7 @@ function CarryNone(go: Go) {
       </Nothing>
 
       <Button tone="quiet" block onPress={() => go('furniture')}>
-        See your furniture
+        See your fixtures
       </Button>
     </Phone>
   )
@@ -3560,7 +3560,7 @@ function UnclaimedNone(go: Go) {
       </Nothing>
 
       <Button tone="quiet" block onPress={() => go('furniture')}>
-        See your furniture
+        See your fixtures
       </Button>
     </Phone>
   )
@@ -3612,39 +3612,39 @@ export const SCREENS: Screen[] = [
   /* The corner and what it opens, in front of the furniture rather than beside
      it: this pair is the way in, and the four screens under the next heading
      are what it was a way in to. */
-  { id: 'menu', name: 'The corner opened', group: 'Your room', render: RoomMenu },
-  { id: 'settings', name: 'Settings', group: 'Your room', render: SettingsScreen },
+  { id: 'menu', name: 'The corner opened', group: 'The corner', render: RoomMenu },
+  { id: 'settings', name: 'Settings', group: 'The corner', render: SettingsScreen },
   /* The ids are the URLs and they stay put. The names are read, so they take
      the neutral word: not every piece in the room is a bookcase. */
-  { id: 'furniture', name: 'All five pieces', group: 'Your furniture', render: Furniture },
-  { id: 'bookcase', name: 'One fixture', group: 'Your furniture', render: Bookcase },
-  { id: 'area', name: 'One area', group: 'Your furniture', render: Area },
-  { id: 'addarea', name: 'Adding an area', group: 'Your furniture', render: AddArea },
+  { id: 'furniture', name: 'All five pieces', group: 'Your fixtures', render: Furniture },
+  { id: 'bookcase', name: 'One fixture', group: 'Your fixtures', render: Bookcase },
+  { id: 'area', name: 'One area', group: 'Your fixtures', render: Area },
+  { id: 'addarea', name: 'Adding an area', group: 'Your fixtures', render: AddArea },
   /* Three states of one dialog, and the second and third are the ones that get
      skipped: the area at the top of a piece has nothing to fall into, and the
      last area on a piece has nowhere at all. */
-  { id: 'removearea', name: 'Removing an area', group: 'Your furniture', render: Removing },
+  { id: 'removearea', name: 'Removing an area', group: 'Your fixtures', render: Removing },
   {
     id: 'removefirst',
     name: 'Removing the first one',
-    group: 'Your furniture',
+    group: 'Your fixtures',
     render: RemovingFirst,
   },
   {
     id: 'removeonly',
     name: 'Removing the only one',
-    group: 'Your furniture',
+    group: 'Your fixtures',
     render: RemovingOnly,
   },
-  { id: 'belongs', name: 'What belongs here', group: 'Your furniture', render: Belongs },
-  { id: 'sorting', name: 'How an area is ordered', group: 'Your furniture', render: Sorting },
-  { id: 'claimed', name: 'Why a book is here', group: 'Your furniture', render: Claimed },
+  { id: 'belongs', name: 'What belongs here', group: 'Your fixtures', render: Belongs },
+  { id: 'sorting', name: 'How an area is ordered', group: 'Your fixtures', render: Sorting },
+  { id: 'claimed', name: 'Why a book is here', group: 'Your fixtures', render: Claimed },
   /* Beside the screen it is the other state of, because that is the pair: one
      book with rules queueing up for it, and one book nothing wanted. */
   {
     id: 'claimednone',
     name: 'Nothing claims this one',
-    group: 'Your furniture',
+    group: 'Your fixtures',
     render: ClaimedNone,
   },
   { id: 'move', name: 'Move non-fiction', group: 'Putting things right', render: Move },
@@ -3692,7 +3692,7 @@ export const GROUPS = [
   'Every day',
   'Finding a book',
   'Cataloguing',
-  'Your room',
-  'Your furniture',
+  'The corner',
+  'Your fixtures',
   'Putting things right',
 ]

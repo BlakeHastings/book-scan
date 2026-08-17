@@ -39,9 +39,12 @@
  *
  * ## Two ways in, and why not three
  *
- * **Your furniture** is the reason this exists, and it is called exactly what
- * the screen it opens is titled: a menu entry disagreeing with its destination
- * is the same fault as two components sharing a name.
+ * **Your fixtures** is the reason this exists, and it is called exactly what
+ * the corner above it and the screen it opens are both called: a menu entry
+ * disagreeing with its destination is the same fault as two components
+ * sharing a name. It was **Your furniture**, opened from **Your room**, until
+ * #362 overruled #333's argument for both; see `FIXTURES_WORD` in
+ * `Chrome.tsx` for the argument and the reversal.
  *
  * **Settings** is the owner's own second thought ("preferences, or maybe not
  * preferences, instead settings"). It is the one word in an interface nobody
@@ -54,15 +57,12 @@
  */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
-import { Corner, Portrait } from '../design/Chrome'
+import { Corner, FIXTURES_WORD, Portrait } from '../design/Chrome'
 import { useNavigation } from '../app/navigation'
 import { useSummary } from '../app/summary'
 import { api, type FurnitureDto } from '../lib/api'
 import { counted, roomSaid } from '../lib/furniture'
 import { grouped } from '../lib/say'
-
-/** The word the corner carries, which is its accessible name and its only one. */
-export const ROOM_WORD = 'Your room'
 
 export interface RoomMenu {
   /** The one action in the top right, ready for `TopBar`. */
@@ -80,12 +80,12 @@ export interface RoomMenu {
  */
 export function roomLine(books: number | null, pieces: number | null): string {
   /* Digits for the books and a word for the pieces, which is the line this app
-     already draws elsewhere: "1,204 books" is a count and "five pieces" is a
+     already draws elsewhere: "1,204 books" is a count and "five fixtures" is a
      sentence, and somewhere around a dozen is where one becomes the other. */
   const said = books === null ? '' : `${grouped(books)} ${books === 1 ? 'book' : 'books'}`
   if (pieces === null) return said || 'Everything you own'
-  const furniture = `${counted(pieces, 'piece')} of furniture`
-  return said ? `${said}, ${furniture}` : furniture
+  const fixtures = counted(pieces, 'fixture')
+  return said ? `${said}, ${fixtures}` : fixtures
 }
 
 export function useRoomMenu(): RoomMenu {
@@ -113,7 +113,7 @@ export function useRoomMenu(): RoomMenu {
   }, [open, room])
 
   const action = {
-    word: ROOM_WORD,
+    word: FIXTURES_WORD,
     icon: <Portrait />,
     onPress: () => setOpen(true),
   }
@@ -127,8 +127,8 @@ export function useRoomMenu(): RoomMenu {
         said={roomLine(counts?.total ?? null, room ? room.fixtures.length : null)}
         ways={[
           {
-            word: 'Your furniture',
-            /* The furniture screen's own second line, word for word, because a
+            word: FIXTURES_WORD,
+            /* The fixtures screen's own second line, word for word, because a
                menu that summarised a screen in its own words would be two
                sentences somebody has to keep agreeing. */
             note: room ? roomSaid(room.fixtures) : undefined,

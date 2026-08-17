@@ -15,18 +15,18 @@ import { roomLine } from './RoomMenu'
 
 describe('what the corner says where a name would be', () => {
   it('says the collection when both answers are in', () => {
-    expect(roomLine(1204, 5)).toBe('1,204 books, five pieces of furniture')
+    expect(roomLine(1204, 5)).toBe('1,204 books, five fixtures')
   })
 
   it('counts one of either without reading as a template', () => {
-    expect(roomLine(1, 1)).toBe('1 book, one piece of furniture')
+    expect(roomLine(1, 1)).toBe('1 book, one fixture')
   })
 
   it('says only what has come back, and never a zero it has not been told', () => {
     // A menu that drew "0 books" for the length of one request would be saying
     // somebody's library is empty, which is the one thing this app must not
     // say by accident.
-    expect(roomLine(null, 5)).toBe('five pieces of furniture')
+    expect(roomLine(null, 5)).toBe('five fixtures')
     expect(roomLine(1204, null)).toBe('1,204 books')
   })
 
@@ -38,6 +38,6 @@ describe('what the corner says where a name would be', () => {
   })
 
   it('says a real zero, because an empty collection is an answer', () => {
-    expect(roomLine(0, 0)).toBe('0 books, no pieces of furniture')
+    expect(roomLine(0, 0)).toBe('0 books, no fixtures')
   })
 })

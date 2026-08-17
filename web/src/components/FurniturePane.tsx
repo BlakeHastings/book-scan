@@ -1,5 +1,5 @@
 /**
- * Your furniture: the room, as boxes inside boxes.
+ * Your fixtures: the room, as boxes inside boxes.
  *
  * The screen the owner asked for first. He is going to sit down with his own
  * bookcases and type them in, so what this has to survive is his room rather
@@ -22,7 +22,7 @@
  */
 
 import { Card, Instruction } from '../design/Card'
-import { TopBar, type TabName } from '../design/Chrome'
+import { FIXTURES_WORD, TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
 import { AddBox, AreaBox, Nest, Order } from '../design/Furniture'
 import type { FurnitureDto } from '../lib/api'
@@ -57,7 +57,7 @@ export function FurniturePane({
 }: Props) {
   const top = (
     <TopBar
-      title="Your furniture"
+      title={FIXTURES_WORD}
       sub={room ? roomSaid(room.fixtures) : undefined}
       onBack={onBack}
     />
