@@ -20,7 +20,7 @@ import {
   FileAliasHandler, MergeAuthorsHandler,
 } from '../../application/authorship/curate-authors'
 import { PrintedName, nameKey } from '../../domain/authorship/authors'
-import { dropScratchDatabases, migratedDatabase } from '../db/testdb'
+import { closeScratchDatabases, migratedDatabase } from '../db/testdb'
 import { DrizzleAuthorRepository, NAME_KEY_SQL } from './author-repository'
 import { statement } from '../db/query'
 
@@ -50,7 +50,7 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 }, 60_000)
 
 describe('the fold that says two spellings are one name', () => {

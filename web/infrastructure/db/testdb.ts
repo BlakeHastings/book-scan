@@ -13,11 +13,11 @@
  * that matters.
  */
 
-import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { inject } from 'vitest'
+import { scratchName } from '../../server/testdb'
 import { migrateToLatest } from './migrate'
 
 /**
@@ -31,7 +31,12 @@ const HOSTILE_COLLATIONS = ['en_US.utf8', 'en_US.UTF-8', 'en-US-x-icu']
 
 const serverUrl = () => process.env.BOOKSCAN_TEST_DATABASE_URL ?? inject('postgresUrl')
 
-const opened: { pool: pg.Pool; name: string }[] = []
+/**
+ * The pools this file has open. Not the database names: nothing here drops one
+ * any more, and the sweep in `server/pgcontainer.ts` finds them by the tag in
+ * their name rather than by being told.
+ */
+const opened: pg.Pool[] = []
 
 export function poolFor(connectionString: string): pg.Pool {
   /*
@@ -57,7 +62,7 @@ export function poolFor(connectionString: string): pg.Pool {
 /** An empty database of its own. Nothing has been applied to it. */
 export async function scratchDatabase(): Promise<pg.Pool> {
   const server = serverUrl()
-  const name = `bookscan_scratch_${randomBytes(6).toString('hex')}`
+  const name = scratchName('scratch')
 
   const admin = poolFor(server)
   try {
@@ -82,7 +87,7 @@ export async function scratchDatabase(): Promise<pg.Pool> {
   const target = new URL(server)
   target.pathname = `/${name}`
   const pool = poolFor(target.href)
-  opened.push({ pool, name })
+  opened.push(pool)
   return pool
 }
 
@@ -130,51 +135,35 @@ export async function migrationsThrough(pool: pg.Pool, tag: string): Promise<voi
 }
 
 /**
- * Give the connections back and drop the databases this file made.
+ * Give the connections back. The databases this file made are left standing.
  *
- * Called from an `afterAll`. A pool left open holds the worker alive; a database
- * left behind matters on a server the escape hatch pointed at, which is exactly
- * the server somebody has to live with.
+ * Called from an `afterAll`. A pool left open holds the worker alive, which is
+ * why this still has to happen here.
  *
- * **Four connections, not ten and not one.** This used to run the drops through
- * `Promise.all` over a bare `poolFor` pool, which is what the comment here
- * called "one admin connection for every drop" without being one: a `Pool`
- * serving several concurrent queries opens a connection per query, up to its
- * default of ten, exactly because nothing here waits for the previous drop to
- * finish before issuing the next. Measured against a real server with
- * `pg_stat_activity` (#226): at the tail of a full run, dozens of connections
- * per file sitting on `postgres`, `active`, waiting on `IPC/CheckpointStart`.
- * `DROP DATABASE` forces a checkpoint, so a burst of concurrent drops queues
- * behind the same one, and every drop waiting in that queue is a connection
- * held open rather than a connection doing anything.
+ * **The drops used to happen here too, and that is what #343 was.** `DROP
+ * DATABASE` forces an immediate checkpoint and waits for it, and a checkpoint
+ * flushes every dirty buffer in the server rather than the dropped database's,
+ * so a file dropping its half dozen databases from an `afterAll` waits on
+ * fifteen other worker processes' writes and stalls them in return. Measured
+ * across three full runs on this machine: this function alone accounted for 357
+ * to 495 seconds of waiting per run, a median of 4.7 to 10.2 seconds a call and
+ * a worst case of 73, inside runs whose test files spanned about 110 seconds.
+ * Creating those same databases cost 19 to 32 seconds in total.
  *
- * **Serialising onto one connection was tried and measured worse, not just
- * cautious.** Postgres coalesces concurrent checkpoint requests: several drops
- * in flight together are satisfied by one checkpoint pass, where the same
- * drops sent one at a time each wait for a fresh round with the housekeeping
- * cost of a full ledger checkpoint paid every time. A single connection took
- * seven files past the sixty second hook timeout that were fine before, with
- * every test in them passing right up to the hook. `max: 4` keeps most of that
- * batching (measured: peak concurrent connections held around 40 on a 16 core
- * machine, where ten per file measured near 80) without opening the flood a
- * bare `Pool` did. `WITH (FORCE)` stays: it is what stops a drop waiting on a
- * connection something else has not finished closing, a different wait from
- * the checkpoint one above.
+ * They are dropped in `server/pgcontainer.ts`'s teardown now, once, after the
+ * last test in the run, or not at all when the run started the container that
+ * is about to be removed with them inside it. The name carries this run's tag
+ * so that sweep can find them and can only find this run's.
+ *
+ * **What #226 learned here is not lost, it moved with the drops.** Four
+ * connections rather than ten or one, because a `Pool` opens a connection per
+ * concurrent query and because Postgres coalesces concurrent checkpoint
+ * requests into one pass, so serialising the drops measured worse than batching
+ * them. That reasoning now lives beside the sweep that does the dropping.
  */
-export async function dropScratchDatabases(): Promise<void> {
+export async function closeScratchDatabases(): Promise<void> {
   const made = opened.splice(0)
   if (!made.length) return
 
-  await Promise.all(made.map(({ pool }) => pool.end().catch(() => undefined)))
-
-  const admin = new pg.Pool({ connectionString: serverUrl(), max: 4 })
-  admin.on('error', () => {})
-  try {
-    await Promise.all(made.map(({ name }) =>
-      admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`)
-        // A scratch database left behind is not worth failing a green run over.
-        .catch(() => undefined)))
-  } finally {
-    await admin.end().catch(() => undefined)
-  }
+  await Promise.all(made.map((pool) => pool.end().catch(() => undefined)))
 }

@@ -34,25 +34,24 @@ import pg from 'pg'
 import { afterAll, describe, expect, it } from 'vitest'
 import { SCHEMA } from '../../server/db.pg'
 import { MigrationFailed, migrateToLatest } from './migrate'
-import { dropScratchDatabases, scratchDatabase } from './testdb'
+import { closeScratchDatabases, scratchDatabase } from './testdb'
 
 /**
- * An empty database of its own, dropped when the file finishes.
+ * An empty database of its own, handed back when the file finishes.
  *
- * The making and dropping moved to `testdb.ts` when #179 added two more files
- * that need the same thing. It is the same database this file always made,
- * created with a linguistic collation on purpose: a byte ordered one would make
- * every `COLLATE "C"` comparison below vacuous by ordering correctly whatever
- * the column said.
+ * The making moved to `testdb.ts` when #179 added two more files that need the
+ * same thing. It is the same database this file always made, created with a
+ * linguistic collation on purpose: a byte ordered one would make every `COLLATE
+ * "C"` comparison below vacuous by ordering correctly whatever the column said.
  */
 const scratch = scratchDatabase
 
 afterAll(async () => {
-  await dropScratchDatabases()
-  // Four or five databases, each with a DROP to wait for behind whatever
-  // checkpoint Postgres is already running for somebody else's. Takes the
-  // repository's default hook timeout rather than pinning one here; see
-  // vitest.config.ts for what that default now buys and why (#226).
+  // Connections only. Dropping the four or five databases used to happen here
+  // and was where this file waited behind whatever checkpoint Postgres was
+  // already running for somebody else's drop; #343 moved every drop in the
+  // suite to after the last test. See infrastructure/db/testdb.ts.
+  await closeScratchDatabases()
 })
 
 /**

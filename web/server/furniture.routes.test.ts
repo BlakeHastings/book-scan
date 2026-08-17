@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { closeTestDatabase, openTestDatabase } from './testdb'
+import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { Store, type DraftBook } from './store'
@@ -111,8 +111,16 @@ async function buildWorld(books = 6, cuts = [2, 4]): Promise<number[]> {
   return ids
 }
 
-/** The owner's own room: fifty non-fiction books cut 8, 20 and 22. */
-const buildTheWorld = () => buildWorld(50, [8, 28])
+/**
+ * The owner's own room: fifty non-fiction books cut 8, 20 and 22.
+ *
+ * Built once, in the `beforeAll` below, and put back by the two tests that want
+ * it (#343). Fifty saves through the whole path is about 250 sequential round
+ * trips, and on a machine running this suite beside another one those two tests
+ * measured 24 seconds against a twenty second budget and took the run red.
+ * Putting a kept copy back costs one round trip and gives them the same room.
+ */
+const buildTheWorld = () => openTestDatabase('the_owners_room')
 
 interface Answer {
   status: number
@@ -146,96 +154,33 @@ async function everyPlacement(): Promise<{ id: number; area_id: number | null }[
   return db.all('SELECT id, area_id FROM book_placement ORDER BY id')
 }
 
-interface SeededFurniture {
-  fixtures: {
-    id: number; position: number; kind: string; name: string;
-    sort_strategy: string; note: string;
-  }[]
-  areas: {
-    id: number; position: number; name: string; starts_at: string;
-    sort_strategy: string; note: string;
-  }[]
-  /**
-   * The rules, for the switch on them.
-   *
-   * Added by #341 for the same reason the two above were: a test in this file
-   * now turns a rule off, and `RESTORE_FURNITURE` in `testdb.ts` does not put a
-   * switch back. Left uncaptured, one test switching Non-fiction off would hand
-   * every test after it a room where nothing files anything, and the failure
-   * would land in whichever one built its world next.
-   */
-  rules: { id: number; enabled: boolean; priority: number; name: string }[]
-  /**
-   * The collection's own default, for the same reason the rules are here.
-   *
-   * Added by #350, which gave that column a route. A test that orders the whole
-   * house by title would otherwise hand every test after it a room where every
-   * area that inherits is ordered by title, and the failure would land in
-   * whichever one read an ordering next.
-   */
-  collections: { id: number; default_sort_strategy: string }[]
-}
-
 /**
- * The furniture as the migration leaves it, put back between tests.
+ * This file used to capture the furniture in its first `beforeEach` and write
+ * it back in every later one, because `openTestDatabase` restored the *shape*
+ * of the seeded furniture and nothing else, and this is the file that renames a
+ * bookcase, renumbers one, switches a rule off (#341) and reorders the whole
+ * house (#350). Each of those arrived as another column to remember, and each
+ * one was found the same way: by a test in this file handing the next one a
+ * room it did not expect.
  *
- * `openTestDatabase` restores the *shape* of the seeded furniture, deleting the
- * areas and fixtures a test added, and it has never had to restore anything
- * else: nothing in this repository could rename a bookcase or renumber one until
- * now. This file does exactly that, so a test that calls bookcase 4 "Hall shelf"
- * would hand the next one a room with no plank called `4A` in it, and the
- * failure lands in whichever test built its world next.
+ * That is gone, and not because it stopped mattering. `openTestDatabase` copies
+ * every table in the catalogue and puts every table back (#343), so there is
+ * nothing left for a file to remember on its own, and the next column somebody
+ * adds is covered by existing rather than by being listed here.
  */
-let seeded: SeededFurniture | undefined
-
-async function captureFurniture(): Promise<SeededFurniture> {
-  return {
-    fixtures: await db.all(
-      'SELECT id, position, kind, name, sort_strategy, note FROM fixture ORDER BY id',
-    ),
-    areas: await db.all(
-      'SELECT id, position, name, starts_at, sort_strategy, note FROM area ORDER BY id',
-    ),
-    rules: await db.all('SELECT id, enabled, priority, name FROM placement_rule ORDER BY id'),
-    collections: await db.all('SELECT id, default_sort_strategy FROM collection ORDER BY id'),
-  }
-}
-
-async function restoreFurniture(from: SeededFurniture): Promise<void> {
-  for (const one of from.fixtures) {
-    await db.run(
-      'UPDATE fixture SET position = ?, kind = ?, name = ?, sort_strategy = ?, note = ? WHERE id = ?',
-      [one.position, one.kind, one.name, one.sort_strategy, one.note, one.id],
-    )
-  }
-  for (const one of from.areas) {
-    await db.run(
-      `UPDATE area SET position = ?, name = ?, starts_at = ?, sort_strategy = ?, note = ?
-        WHERE id = ?`,
-      [one.position, one.name, one.starts_at, one.sort_strategy, one.note, one.id],
-    )
-  }
-  for (const one of from.rules) {
-    await db.run(
-      'UPDATE placement_rule SET enabled = ?, priority = ?, name = ? WHERE id = ?',
-      [one.enabled, one.priority, one.name, one.id],
-    )
-  }
-  for (const one of from.collections) {
-    await db.run('UPDATE collection SET default_sort_strategy = ? WHERE id = ?', [
-      one.default_sort_strategy, one.id,
-    ])
-  }
-}
-
-beforeAll(() => {
+beforeAll(async () => {
   scratch = scratchRoot('furniture')
+
+  // The owner's fifty, built once and kept, for the two tests that want it.
+  db = await openTestDatabase()
+  store = new Store(db, new DrizzleAuthorRepository(db))
+  shelves = new Shelves(db)
+  await buildWorld(50, [8, 28])
+  await keepThisCatalogue('the_owners_room')
 })
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  if (seeded) await restoreFurniture(seeded)
-  else seeded = await captureFurniture()
   store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
 

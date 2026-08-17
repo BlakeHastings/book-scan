@@ -26,7 +26,7 @@ import { join } from 'node:path'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
+import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { dumpFileName, manifestFileName } from './backup'
 import { createApp, type BookScanApp } from './index'
@@ -49,7 +49,7 @@ afterAll(async () => {
       one.server.close((error) => (error ? reject(error) : resolve()))
     })
   }
-  await dropScratchDatabases()
+  await closeScratchDatabases()
   removeScratchRoot(scratch)
   running.length = 0
 })

@@ -275,10 +275,10 @@ describe('transactions', () => {
 
   it('closes', async () => {
     // A connection of its own to the same database, rather than the one the
-    // rest of this file is sharing. Closing the shared one would take the
-    // harness's database with it, and the harness drops a database on the way
-    // out, which is a `DROP DATABASE` waiting behind every other file's inside
-    // one test's timeout.
+    // rest of this file is sharing. Closing the shared one would leave every
+    // test after this one without a catalogue, because `closeTestDatabase`
+    // forgets the pool it closed and the next `openTestDatabase` would build a
+    // second database rather than empty this one.
     const own = new PgDb(new pg.Pool({ connectionString: testDatabaseUrl() }))
     await own.close()
     await expect(own.all('SELECT 1')).rejects.toThrow()

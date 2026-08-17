@@ -35,7 +35,7 @@ import { TagSlug, type AppliedTag, type TagConfidence, type TagSource } from '..
 import { SCHEMA } from '../../server/db.pg'
 import { buildSortKey, filingName, type ShelfRange } from '../../shared/shelving'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /**
  * The catalogues open right now, given back as each test finishes with one.
@@ -52,7 +52,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ import { PgDb } from '../../server/db.pg'
 import type { Db } from '../../server/driver'
 import { RecordPhotographsHandler } from '../../application/capture/record-photographs'
 import { verdictOf } from '../../domain/capture/photographs'
-import { dropScratchDatabases, migratedDatabase } from '../db/testdb'
+import { closeScratchDatabases, migratedDatabase } from '../db/testdb'
 import { DrizzleCaptureRepository } from './capture-repository'
 
 let pool: pg.Pool
@@ -50,7 +50,7 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 describe('recording a photograph', () => {

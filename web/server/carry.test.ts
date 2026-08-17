@@ -16,8 +16,8 @@
  * would let them drift about what the room looks like.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { closeTestDatabase, openTestDatabase } from './testdb'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
@@ -82,14 +82,49 @@ async function buildTheWorld(): Promise<number[]> {
   return ids
 }
 
-beforeEach(async () => {
+/**
+ * The ids `buildTheWorld` handed back, which every test reads and none rebuilds.
+ */
+let world: number[] = []
+
+/**
+ * One database for the file, and one world built in it, put back between tests
+ * (#343).
+ *
+ * **Two things were wrong here and they compounded.** The file closed the
+ * database in an `afterEach`, and closing it is what makes the next
+ * `openTestDatabase()` build another one rather than reset this one, so twelve
+ * tests meant twelve `CREATE DATABASE`, twelve schemas applied and twelve `DROP
+ * DATABASE`; and a drop forces an immediate checkpoint across the whole server,
+ * which stalls every other worker's writes as well as this one's. Then each of
+ * those twelve tests built the world again, at about 250 sequential round trips
+ * to the server it had just finished stalling. This file and
+ * `relocate-run.test.ts` were the only two doing either, and they are the two
+ * #343 was filed about, which is not a coincidence: they were losing to the
+ * contention they were generating.
+ *
+ * Measured on this machine, running beside another full suite: the first test
+ * here took 78 seconds against a twenty second budget, and 25 of the 12 tests'
+ * seconds were the database being made and dropped. Built once and put back, a
+ * test starts in one round trip.
+ *
+ * Every test still gets the world untouched, because `keepThisCatalogue` copies
+ * every table and `openTestDatabase` puts every table back. What it does not get
+ * is the *building* of the world twelve times, and nothing here was proving
+ * anything by that: the room is the setup, and what these tests are about is the
+ * list of books to carry out of it.
+ */
+beforeAll(async () => {
   db = await openTestDatabase()
   store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
+
+  world = await buildTheWorld()
+  await keepThisCatalogue('the_owners_room')
 })
 
-afterEach(async () => {
-  await closeTestDatabase()
+beforeEach(async () => {
+  await openTestDatabase('the_owners_room')
 })
 
 afterAll(async () => {
@@ -98,7 +133,6 @@ afterAll(async () => {
 
 describe('the list of books to carry', () => {
   it('is empty until somebody changes their mind about where books belong', async () => {
-    await buildTheWorld()
 
     const work = await outstandingWork(db)
 
@@ -109,7 +143,6 @@ describe('the list of books to carry', () => {
 
   it('is the trips the applied plan implies, biggest piece first, areas in order',
     async () => {
-      await buildTheWorld()
       await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
       const work = await outstandingWork(db)
@@ -127,7 +160,6 @@ describe('the list of books to carry', () => {
    * involved is the person saying where they put it.
    */
   it('loses a book the moment somebody says they carried it', async () => {
-    await buildTheWorld()
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
     const trip = (await outstandingWork(db)).trips[0]!
@@ -139,7 +171,6 @@ describe('the list of books to carry', () => {
   })
 
   it('says how much of a trip is already done, so resuming is not starting', async () => {
-    await buildTheWorld()
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
     const trip = (await outstandingWork(db)).trips[0]!
@@ -151,7 +182,6 @@ describe('the list of books to carry', () => {
   })
 
   it('empties as the last book of a trip goes down', async () => {
-    await buildTheWorld()
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
     const trip = (await outstandingWork(db)).trips[0]!
@@ -164,7 +194,7 @@ describe('the list of books to carry', () => {
   })
 
   it('counts a pinned book as left alone rather than dropping it silently', async () => {
-    const ids = await buildTheWorld()
+    const ids = world
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
     const area = (await db.get<{ current_area_id: number }>(
@@ -193,7 +223,7 @@ describe('the list of books to carry', () => {
    * accounted for five and hunt for a sixth book that is not there.
    */
   it('counts a checked out book as left alone, the way the plan does', async () => {
-    const ids = await buildTheWorld()
+    const ids = world
     await store.setCheckedOut(ids[0]!, true)
 
     const planned = await planRunMove(db, 'nonfiction', 3)
@@ -216,7 +246,7 @@ describe('the list of books to carry', () => {
    * with books that are home.
    */
   it('takes it back off the moment it is back in the house', async () => {
-    const ids = await buildTheWorld()
+    const ids = world
     await store.setCheckedOut(ids[0]!, true)
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
@@ -227,7 +257,6 @@ describe('the list of books to carry', () => {
   })
 
   it('names the books somebody carried that the newest change wants back', async () => {
-    await buildTheWorld()
     await applyRunMove(db, 'nonfiction', 3, '2026-08-09T10:00:00.000Z')
 
     const trip = (await outstandingWork(db)).trips[0]!
@@ -250,7 +279,6 @@ describe('the list of books to carry', () => {
 describe('one trip, read at the area the books come off', () => {
   it('draws everything standing on the area, and says which of it is going',
     async () => {
-      await buildTheWorld()
       await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
       const trip = (await outstandingWork(db)).trips[0]!
@@ -264,7 +292,7 @@ describe('one trip, read at the area the books come off', () => {
     })
 
   it('keeps a pinned book on the area and says it is staying', async () => {
-    const ids = await buildTheWorld()
+    const ids = world
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
     const area = (await db.get<{ current_area_id: number }>(
@@ -289,7 +317,6 @@ describe('one trip, read at the area the books come off', () => {
   })
 
   it('answers nothing for a pair of areas this collection does not have', async () => {
-    await buildTheWorld()
 
     expect(await tripAtArea(db, 9999, 9998)).toBeNull()
   })

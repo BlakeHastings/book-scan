@@ -78,8 +78,14 @@ The safety here is structural, not just a request:
   The database holds bare filenames joined against the data directory at read
   time. Both variables are live at once until the cover storage work lands.
 - No test reads or writes the catalogue. Every test file that opens a database
-  creates a scratch one of its own on a throwaway container and drops it
-  afterwards, and the harness reads **only** `BOOKSCAN_TEST_DATABASE_URL` to
+  creates a scratch one of its own on a throwaway container. **No test file
+  drops one** (#343): a `DROP DATABASE` forces an immediate checkpoint across
+  the whole server, and 160 of them issued from `afterAll` hooks while other
+  files are mid-test is what made the suite fail under its own load. The
+  container is removed with them inside it, and a run pointed at a server by
+  `BOOKSCAN_TEST_DATABASE_URL` sweeps its own databases, by a tag in their
+  names, after the last test. The harness reads **only**
+  `BOOKSCAN_TEST_DATABASE_URL` to
   find a server: never `DATABASE_URL`, never `ConnectionStrings__*`. That is
   the same rule as `BOOKSCAN_DATA` and it exists for the same reason, so **do
   not set `BOOKSCAN_TEST_DATABASE_URL` in a shell** either, except at a scratch
@@ -118,6 +124,22 @@ The safety here is structural, not just a request:
 If you add a test that needs a database, take one from `web/server/testdb.ts`
 like the existing ones do (see `web/server/store.test.ts`). Never write a test
 that touches a path outside the repository.
+
+**`openTestDatabase()` in a `beforeEach` is the whole reset, and a file should
+not write its own.** It copies every table in the catalogue when the file's
+database is made and puts every table back between tests, so there is no list of
+things to remember and nothing for a new column or a new table to be missing
+from. Two files used to close and rebuild the database per test to get a clean
+floor and a third kept its own capture of the furniture; all three were working
+around a reset that did not cover the rows they wrote, and all three are gone.
+
+**If a file's fixture costs more than its tests do, build it once.**
+`keepThisCatalogue('a_name')` takes the catalogue as it stands as a state
+`openTestDatabase('a_name')` puts back in one round trip. `carry.test.ts`,
+`relocate-run.test.ts` and `furniture.routes.test.ts` shelve fifty books through
+the whole save path to build the owner's room and used to do it in every test;
+that is about 250 sequential round trips, and it is what took those files past a
+twenty second budget on a busy machine.
 
 ## The second rule: `stable` is not yours to touch
 

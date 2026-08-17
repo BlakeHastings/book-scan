@@ -18,7 +18,7 @@ import type { Db } from '../../server/driver'
 import { RestateTagsHandler } from '../../application/tagging/restate-tags'
 import { ApplyTagHandler, RemoveTagHandler } from '../../application/tagging/apply-tag'
 import { TagSlug } from '../../domain/tagging/tags'
-import { dropScratchDatabases, migratedDatabase } from '../db/testdb'
+import { closeScratchDatabases, migratedDatabase } from '../db/testdb'
 import { DbBookTransactions } from './transactions'
 import { DrizzleTagRepository, vocabularyQuery } from './tag-repository'
 
@@ -48,7 +48,7 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 describe('the vocabulary', () => {
