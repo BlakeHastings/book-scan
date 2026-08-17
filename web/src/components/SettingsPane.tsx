@@ -1,10 +1,21 @@
 /**
- * Settings: the two answers this app already holds and had nowhere to ask for.
+ * Settings: the answers this app already holds and had nowhere to ask for.
  *
  * **Nothing on it was invented, and the shortness of it is the finding.** The
  * instruction in #329 was not to draw a page of switches, so what is here was
  * arrived at by going and looking for every answer the app already keeps, and
  * then taking off the ones that already live somewhere better.
+ *
+ * ## The third one arrived with a screen that wanted it (#365)
+ *
+ * **Which picture of a book comes first** is here for the same reason as the
+ * other two rather than as an exception to them. The owner asked for the
+ * downloaded cover to lead on a book's page "if possible", and then for it to
+ * be settable; a switch on the book page would be asked again on every book,
+ * on a page that round of work was taking things off. It is one answer about
+ * every book in the house, so it is asked once here. `lib/firstPicture.ts` is
+ * where it is kept and a book's page is the only thing that reads it, exactly
+ * the arrangement the hand and the camera already have.
  *
  * ## The two that had no home, and both change something
  *
@@ -80,7 +91,9 @@ import { Card, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Choice, Segmented } from '../design/Controls'
 import type { FurnitureDto, SortStrategyCode } from '../lib/api'
+import type { FirstPicture } from '../design/Shots'
 import type { Hand } from '../design/Camera'
+import { FIRST_PICTURE_WORD } from '../lib/firstPicture'
 import { HAND_WORD } from '../lib/hand'
 import { orderingSaid } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
@@ -104,16 +117,20 @@ interface Props {
   room: FurnitureDto | null
   /** Which hand, read out of the same place the camera reads it from. */
   hand: Hand
+  /** Which picture, read out of the same place a book's page reads it from. */
+  firstPicture: FirstPicture
   busy: boolean
   error: string
   tabs: Record<TabName, () => void>
   onBack: () => void
   onOrder: (code: SortStrategyCode) => void
   onHand: (hand: Hand) => void
+  onFirstPicture: (first: FirstPicture) => void
 }
 
 export function SettingsPane({
-  room, hand, busy, error, tabs, onBack, onOrder, onHand,
+  room, hand, firstPicture, busy, error, tabs,
+  onBack, onOrder, onHand, onFirstPicture,
 }: Props) {
   const top = <TopBar title="Settings" onBack={onBack} />
 
@@ -167,6 +184,29 @@ export function SettingsPane({
       <Said>
         The shutter goes to that edge, under the thumb of the hand already
         holding the phone, and the photographs go to the other one.
+      </Said>
+
+      <div>
+        <span className="wf-field__label">Which picture of a book comes first</span>
+        <div style={{ height: 6 }} />
+        <Segmented
+          label="Which picture of a book comes first"
+          on={firstPicture}
+          onPick={onFirstPicture}
+          options={[
+            { value: 'catalogue' as FirstPicture, word: FIRST_PICTURE_WORD.catalogue },
+            { value: 'yours' as FirstPicture, word: FIRST_PICTURE_WORD.yours },
+          ]}
+        />
+      </div>
+      {/* The honest half of the answer, and it is not a caveat: most books in
+          a young collection have no downloaded cover at all, so this is what
+          the setting does on most of them. Saying it here is what keeps
+          somebody from choosing the downloaded one and deciding the setting is
+          broken on the next four books they open. */}
+      <Said>
+        A book with no downloaded cover opens on the photograph you took, either
+        way.
       </Said>
 
       <Card kind="Nobody signs in" title="Everybody in the house shares one collection">

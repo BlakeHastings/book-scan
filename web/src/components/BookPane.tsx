@@ -21,8 +21,45 @@
  * > where it is, which might be what they're here for.
  *
  * The book, its facts, its tags, what you can do. Then, on scrolling: where it
- * sits, where it has been, and what else is here by the same author. A test
- * pins that order on the drawn screens and this page is built to it.
+ * sits, and what else is here by the same author. A test pins that order on the
+ * drawn screens and this page is built to it.
+ *
+ * ## Round eight took the headings off it (#365)
+ *
+ * > And "what you can do", we don't need that text there either. [...] And
+ * > instead of "where it is", once again, we don't need that text there.
+ * > Looking at this tells them where it is.
+ *
+ * Four of the five headings are gone and only one of the five sections went
+ * with them. The tags are in the head, beside the picture and under the ISBN,
+ * because what a book is about is a fact about the book. The actions are a row
+ * of buttons, and every button that was under that heading is still in the row.
+ * The board draws where the book is without being introduced, and "why is it
+ * here" stays under it, which is the one part of that section the owner kept.
+ *
+ * **Where it has been went entirely**, section and heading and the request
+ * behind it: this page asked `api.placements` for the ledger and no longer
+ * does, so it makes four requests rather than five. The moves themselves are
+ * untouched. They are the record of where a book actually is,
+ * `/api/books/:id/placements` still answers with them, and the misfile list
+ * still rests on the difference between the app assigning a book and somebody
+ * carrying one. Nothing draws them now.
+ *
+ * **More by this author is not drawn at all** when the catalogue has nothing
+ * else by them, which is nearly every book in a new collection. Nothing is lost
+ * by its going: the name is in the bar and under the title, and what it files
+ * under is what the bar says.
+ *
+ * ## The picture a catalogue holds comes first
+ *
+ * > We should show the catalogue picture of the front of the book first if
+ * > possible, instead of the one the user took.
+ *
+ * "If possible" is doing real work in that sentence and `deckOrder` in
+ * `design/Shots.tsx` is where it is answered: a downloaded cover leads only
+ * where there is one, so a book without one still opens on the photograph
+ * somebody took rather than on an empty frame. Which way round it is comes off
+ * `lib/firstPicture.ts`, which the settings screen writes.
  *
  * ## Editing is an action on this page rather than the whole of it
  *
@@ -31,18 +68,18 @@
  * one journey rather than two doors to one room. The pencil in the corner opens
  * the form, which is exactly what the corner has meant since the first round.
  *
- * ## Five requests, and none of them blocks the book
+ * ## Four requests, and none of them blocks the book
  *
- * The record, its tags, where it has been, where it sits and the rest of the
- * author arrive separately, and each section draws when its own answer does.
- * The alternative is one request that waits for the slowest of them before the
- * title appears, on a page somebody often opens to read one line of.
+ * The record, its tags, where it sits and the rest of the author arrive
+ * separately, and each part draws when its own answer does. The alternative is
+ * one request that waits for the slowest of them before the title appears, on a
+ * page somebody often opens to read one line of.
  */
 
 import { useEffect, useState } from 'react'
-import { Actions, Been, Head, Part, Tagged, Tagging } from '../design/Book'
+import { Actions, Head, Part, Tagged, Tagging, Where } from '../design/Book'
 import { Button } from '../design/Controls'
-import { Card, Nothing } from '../design/Card'
+import { Nothing } from '../design/Card'
 import { IconEdit } from '../design/Icons'
 import { List, Place, Row } from '../design/List'
 import { Shelf, type ShelfItem } from '../design/Shelf'
@@ -52,14 +89,14 @@ import {
   api,
   draftFromBook,
   type AppliedTag,
-  type Been as Move,
   type BookRow,
   type Credit,
   type PlacementStrip,
 } from '../lib/api'
 import { clothFor, pagesOf } from '../lib/bookLook'
 import { coverThumbUrl } from './PlacementCard'
-import { grouped, shortDate } from '../lib/say'
+import { rememberedFirstPicture } from '../lib/firstPicture'
+import { grouped } from '../lib/say'
 import { spineLabel } from '../lib/shelfRow'
 import { useBrowsing } from '../app/browsing'
 import { useNavigation } from '../app/navigation'
@@ -74,11 +111,20 @@ export function BookPane() {
   const [book, setBook] = useState<BookRow | null>(null)
   const [credits, setCredits] = useState<Credit[]>([])
   const [tags, setTags] = useState<AppliedTag[]>([])
-  const [been, setBeen] = useState<{ moves: Move[]; total: number }>({ moves: [], total: 0 })
   const [strip, setStrip] = useState<PlacementStrip | null>(null)
   const [theirs, setTheirs] = useState<{ books: BookRow[]; name: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  /*
+   * Which picture a book opens on, read once when the page mounts.
+   *
+   * A preference rather than a live value: it is changed on another screen,
+   * getting there means leaving this one, and coming back mounts this again.
+   * Reading `localStorage` on every render to catch a change that cannot
+   * happen while this is on screen would be work done on every keystroke
+   * elsewhere for nothing.
+   */
+  const [firstPicture] = useState(rememberedFirstPicture)
 
   /** Read the record again, which is what every action here changes. */
   const reread = () => {
@@ -104,10 +150,6 @@ export function BookPane() {
     api.bookTags(viewing)
       .then((answer) => { if (live) setTags(answer.tags) })
       .catch(() => { if (live) setTags([]) })
-
-    api.placements(viewing)
-      .then((answer) => { if (live) setBeen({ moves: answer.been, total: answer.total }) })
-      .catch(() => { if (live) setBeen({ moves: [], total: 0 }) })
 
     return () => { live = false }
   }, [viewing])
@@ -165,14 +207,25 @@ export function BookPane() {
 
   const out = Boolean(book.checked_out_at)
 
+  /*
+   * Everything else of theirs, which is the list and also the condition.
+   *
+   * The book on the screen is always in what the server answers with, so "is
+   * there anything else by this author" is this list being empty rather than a
+   * count of one, and working it out once means the section cannot be drawn on
+   * a different answer from the one it lists.
+   */
+  const others = theirs ? theirs.books.filter((one) => one.id !== book.id) : []
+
   const checkOut = async (leaving: boolean) => {
     setBusy(true)
     setError('')
     try {
       await api.setCheckedOut(book.id, leaving)
+      // The record, and nothing else. Taking a book out changes where it is
+      // and what this page offers, both of which come off the record; the
+      // ledger that also changed is no longer drawn anywhere.
       reread()
-      const answer = await api.placements(book.id)
-      setBeen({ moves: answer.been, total: answer.total })
     } catch (caught) {
       setError((caught as Error).message)
     } finally {
@@ -182,69 +235,84 @@ export function BookPane() {
 
   return (
     <Frame tab="library" top={top}>
+      {/* The tags are in the head now, under the publisher and the ISBN and
+          beside the picture, because that is where the owner put them: what a
+          book is about is a fact about the book, and it had a heading three
+          sections down that said nothing the chips do not. A book nobody has
+          said anything about gets the line rather than an empty row, because
+          "nothing has been said" is a thing to know and a thing to fix. */}
       <Head
         title={book.title}
         by={book.authors || 'Nobody is credited'}
         shots={shotsOf(book)}
         facts={factsOf(book)}
+        first={firstPicture}
+        tags={
+          tags.length > 0 ? (
+            <Tagging>
+              {tags.map((tag) => (
+                <Tagged key={tag.slug} word={tag.label} from={tag.source} who={whoSaid(tag)} />
+              ))}
+            </Tagging>
+          ) : (
+            <p className="wf-said">Nothing has been said about what this one is.</p>
+          )
+        }
       />
 
       {error && <Nothing said="That did not work.">{error}</Nothing>}
 
-      {/* Straight under the publisher and the ISBN, because that is where the
-          owner put them: what a book is about is a fact about the book. */}
-      <Part head="What it is about">
-        {tags.length > 0 ? (
-          <Tagging>
-            {tags.map((tag) => (
-              <Tagged key={tag.slug} word={tag.label} from={tag.source} who={whoSaid(tag)} />
-            ))}
-          </Tagging>
-        ) : (
-          <p className="wf-said">Nothing has been said about what this one is.</p>
-        )}
-      </Part>
-
       {/*
-        What a person can do, the moment they arrive.
+        What a person can do, the moment they arrive, as buttons and with
+        nothing written over them: "we don't need that text there either. We
+        should just enable them to take action on a book with a series of
+        buttons."
 
-        Three things are drawn and the rest are deliberately not. Editing is the
-        pencil in the corner and has been since the first round; a second door to
-        it here is the fault the first screen had its camera card taken off for.
-        Carrying a book to where the rules want it is a journey of its own and
-        the screen for it is being built beside this one, so it is not offered
-        here as a button that goes nowhere.
+        The heading came off and the row is exactly as it was. Three things are
+        drawn and the rest are deliberately not. Editing is the pencil in the
+        corner and has been since the first round; a second door to it here is
+        the fault the first screen had its camera card taken off for. Carrying a
+        book to where the rules want it is a journey of its own and the screen
+        for it is being built beside this one, so it is not offered here as a
+        button that goes nowhere.
       */}
-      <Part head="What you can do">
-        <Actions>
-          {out ? (
-            <Button tone="secondary" small onPress={() => void openBook(book.id)}>
-              Put it back
-            </Button>
-          ) : (
-            <Button tone="secondary" small onPress={() => void checkOut(true)}>
-              {busy ? 'Just a moment' : 'Check it out'}
-            </Button>
-          )}
-          {!out && (
-            <Button tone="quiet" small onPress={() => void openBook(book.id)}>
-              It moved
-            </Button>
-          )}
-          {!book.isbn13 && (
-            <Button tone="quiet" small onPress={() => void openBook(book.id)}>
-              Say what it is
-            </Button>
-          )}
-        </Actions>
-      </Part>
+      <Actions>
+        {out ? (
+          <Button tone="secondary" small onPress={() => void openBook(book.id)}>
+            Put it back
+          </Button>
+        ) : (
+          <Button tone="secondary" small onPress={() => void checkOut(true)}>
+            {busy ? 'Just a moment' : 'Check it out'}
+          </Button>
+        )}
+        {!out && (
+          <Button tone="quiet" small onPress={() => void openBook(book.id)}>
+            It moved
+          </Button>
+        )}
+        {!book.isbn13 && (
+          <Button tone="quiet" small onPress={() => void openBook(book.id)}>
+            Say what it is
+          </Button>
+        )}
+      </Actions>
 
-      {/* Below the fold, and drawn rather than said. The board names the books
+      {/* Below the fold, drawn rather than said, and no longer announced:
+          "looking at this tells them where it is." The board names the books
           either side and the cat on top of it says which one this is. */}
-      <Part head="Where it is">
+      <Where>
+        {/*
+          The board answers for itself and the labels have to answer for
+          themselves, which is what changed when the heading came off. "Out"
+          and "1C" were answers under a heading reading "Where it is" and are
+          two words with no question on a page that no longer asks one, so the
+          two labels that are not a drawing say the whole thing. Found by
+          looking at the checked-out book with the heading taken off.
+        */}
         {out ? (
           <div>
-            <Place quiet>Out</Place>
+            <Place quiet>Out of the house</Place>
           </div>
         ) : strip ? (
           <div className="wf-bleed">
@@ -252,7 +320,7 @@ export function BookPane() {
           </div>
         ) : book.location ? (
           <div>
-            <Place>{book.location}</Place>
+            <Place>On {book.location}</Place>
           </div>
         ) : (
           <div>
@@ -262,72 +330,72 @@ export function BookPane() {
 
         {/*
           Why it is there rather than somewhere else (#323), which is a rule
-          with a name and is the one thing this section could not say. The same
+          with a name and is the one thing this part could not say. The same
           screen the furniture reaches, so the household gets one explanation of
           the rules rather than two written for two places. It sits under the
-          drawing rather than in "what you can do", because it answers nothing
-          about the book and everything about where it sits.
+          drawing rather than in the row of actions above, because it answers
+          nothing about the book and everything about where it sits, and it is
+          the one thing here the owner kept when the rest of this went.
         */}
         <Actions>
           <Button tone="quiet" small onPress={() => openClaim(book.id)}>
             Why is it here?
           </Button>
         </Actions>
-      </Part>
+      </Where>
 
-      <Part head="Where it has been" note={moves(been.total)}>
-        {been.moves.length > 0 ? (
-          <Been rows={been.moves.map(asRow)} />
-        ) : (
-          <p className="wf-said">Nobody has written down where this one goes.</p>
-        )}
-      </Part>
+      {/*
+        Drawn only where there is more, which is the last of #365:
 
-      <Part
-        head="More by this author"
-        note={theirs ? `${grouped(theirs.books.length)} of theirs` : undefined}
-      >
-        <p className="wf-book__by" style={{ margin: 0 }}>
-          {book.authors || 'Nobody is credited'}
-        </p>
-        {credits[0]?.filingName && (
-          <p className="wf-said">Files under {credits[0].filingName}</p>
-        )}
+        > And if there's nothing else in the catalogue by that author, we
+        > shouldn't show "more by this author" at all.
 
-        {theirs && theirs.books.length > 1 ? (
-          <>
-            <List label="Others by them">
-              {theirs.books
-                .filter((one) => one.id !== book.id)
-                .slice(0, 5)
-                .map((one) => (
-                  <Row
-                    key={one.id}
-                    title={one.title}
-                    sub={one.published || ''}
-                    cloth={clothFor(one.id)}
-                    photo={coverThumbUrl(one.front_crop || one.front_image || one.cover_image, 160)}
-                    place={one.location || undefined}
-                    onPress={() => viewBook(one.id)}
-                  />
-                ))}
-            </List>
-            {theirs.books.length > 6 && (
-              <Actions>
-                <Button
-                  tone="quiet"
-                  small
-                  onPress={() => { setTyped(theirs.name); setRoute('find') }}
-                >
-                  All {grouped(theirs.books.length)} of theirs
-                </Button>
-              </Actions>
-            )}
-          </>
-        ) : (
-          <Card weight="quiet" title="Nothing else of theirs is catalogued" />
-        )}
-      </Part>
+        That covers three states with one condition. While the answer is still
+        coming there is nothing to head, so nothing is drawn and the page does
+        not jump; where the answer is that this is the only book of theirs,
+        there is nothing to head either, and the card that used to say so is
+        gone with the heading over it. Only the third state draws, and it is
+        the one with a list under it.
+
+        Nothing is lost in the other two. The name is in the bar and under the
+        title, and what it files under is what the bar says, so the two lines
+        this section opened with are on the screen either way.
+      */}
+      {others.length > 0 && theirs && (
+        <Part head="More by this author" note={`${grouped(theirs.books.length)} of theirs`}>
+          <p className="wf-book__by" style={{ margin: 0 }}>
+            {book.authors || 'Nobody is credited'}
+          </p>
+          {credits[0]?.filingName && (
+            <p className="wf-said">Files under {credits[0].filingName}</p>
+          )}
+
+          <List label="Others by them">
+            {others.slice(0, 5).map((one) => (
+              <Row
+                key={one.id}
+                title={one.title}
+                sub={one.published || ''}
+                cloth={clothFor(one.id)}
+                photo={coverThumbUrl(one.front_crop || one.front_image || one.cover_image, 160)}
+                place={one.location || undefined}
+                onPress={() => viewBook(one.id)}
+              />
+            ))}
+          </List>
+          {others.length > 5 && (
+            <Actions>
+              <Button
+                tone="quiet"
+                small
+                onPress={() => { setTyped(theirs.name); setRoute('find') }}
+              >
+                All {grouped(theirs.books.length)} of theirs
+              </Button>
+            </Actions>
+          )}
+        </Part>
+      )}
     </Frame>
   )
 }
@@ -363,6 +431,11 @@ function shotsOf(book: BookRow): Shot[] {
     },
     {
       word: 'Downloaded',
+      // The one that did not come out of the camera, and the one the owner
+      // wants first. The list stays in the order the photographs are taken in;
+      // `deckOrder` is what moves this one to the front, and only when
+      // `cover_image` says there is one to move.
+      catalogue: true,
       cloth: book.cover_image ? clothFor(book.id + 3) : undefined,
       photo: coverThumbUrl(book.cover_image, 320),
     },
@@ -404,36 +477,14 @@ function whoSaid(tag: AppliedTag): string {
   return 'The app guessed it, and it is not sure'
 }
 
-/** How many moves, said in words above the ledger. */
-function moves(total: number): string | undefined {
-  if (!total) return undefined
-  return total === 1 ? 'One move' : `${grouped(total)} moves`
-}
-
-/**
- * One row of the ledger, as a sentence.
- *
- * The kinds are the model's and the words are not: `assigned` is the app
- * deciding where a book should go and `placed` is somebody having carried it,
- * which is the difference the whole misfile list rests on, so it is the one
- * difference this has to say out loud.
+/*
+ * `moves` and `asRow` were here, and they turned the ledger's rows into the
+ * sentences the bottom of this page read out. The section is gone, so the
+ * words for it are too rather than being kept warm for a screen nobody has
+ * asked for. The rows themselves are untouched and the route that answers with
+ * them is still there; if the ledger is ever wanted again it comes back with
+ * whatever screen wants it, said the way that screen needs.
  */
-function asRow(move: Move): { what: string; who?: string; when: string } {
-  const when = shortDate(move.at)
-  const at = move.location ? ` on ${move.location}` : ''
-
-  if (move.kind === 'checked_out') return { what: 'Taken out', when }
-  if (move.kind === 'checked_in') return { what: 'Brought back', when }
-  if (move.kind === 'withdrawn') return { what: 'Given away', when }
-  if (move.kind === 'assigned') return { what: `Meant for${at}`.trim(), who: 'The app', when }
-  if (move.kind === 'pinned') return { what: `Kept${at}`, who: 'You said so', when }
-
-  return {
-    what: `Put${at}`,
-    who: move.actor === 'person' ? 'You carried it' : 'The app',
-    when,
-  }
-}
 
 /**
  * The run this book stands in, with this book marked.

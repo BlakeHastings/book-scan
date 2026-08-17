@@ -2355,6 +2355,20 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-book__fact { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
 
 /*
+ * The tags, under the publisher and the ISBN and beside the picture, which is
+ * where the owner asked for them: "the tags should be underneath where we show
+ * the publisher and the ISBN, next to the picture."
+ *
+ * They wrap inside this column rather than across the page, which is the point
+ * of putting them here: a chip that ran the full width would read as a row of
+ * its own and be the heading back in a different shape. `.wf-voices` already
+ * wraps, so this is one gap and nothing else. The column is `display: grid`
+ * with a 2px gap for lines of text, and a run of chips needs more air than a
+ * line of text does.
+ */
+.wf-book__of .wf-voices { margin-top: var(--s2); }
+
+/*
  * Every photograph of one book, and one block of rules for all of them.
  *
  * There were two blocks here, from two components of the same name, and they
@@ -2760,25 +2774,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    label that survived for a book on no bookcase is `.wf-place`, which already
    existed. See the note where `Here` was, in Book.tsx. */
 
-/* Where it has been: one row a move, newest first. */
-.wf-been { display: grid; }
-.wf-been__row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s3);
-  padding: var(--s2) 0;
-  border-top: 1px solid var(--line);
-  font-size: var(--size-small);
-}
-.wf-been__row:first-child { border-top: 0; padding-top: 0; }
-.wf-been__what { min-width: 0; display: grid; gap: 1px; }
-.wf-been__who { color: var(--ink-2); }
-.wf-been__when {
-  margin-left: auto;
-  flex: none;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
+/* Where it has been was a ledger of moves at the foot of a book's page, with
+   `.wf-been` and four names under it. The owner cut the section: "I think we
+   just get rid of the where it has been section." The rows it read are still
+   the app's record of where a book is; nothing draws them, so nothing here
+   styles them. See the note where `Been` was, in Book.tsx. */
 
 /* --- The stop before something irreversible -------------------------------- */
 

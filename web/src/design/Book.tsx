@@ -24,11 +24,24 @@
  * **know** where it is, and the second of those is what they scroll to anyway.
  * So the top of the page is the book, its facts, its tags and what can be done
  * about it, and everything that answers "where" is below the fold: where it
- * sits, why it sits there, where it has been, and what else is here by the same
- * author. Putting the doing first costs the knowing nothing.
+ * sits, why it sits there, and what else is here by the same author. Putting
+ * the doing first costs the knowing nothing.
  *
  * The screens are where that order lives, in `gallery/screens.tsx`, because it
  * is an arrangement of sections rather than a property of any one of them.
+ *
+ * ## Round eight took most of the headings off
+ *
+ * > And "what you can do", we don't need that text there either. We should just
+ * > enable them to take action on a book with a series of buttons.
+ *
+ * Three headings went and none of their contents did. The tags moved up beside
+ * the picture, under the publisher and the ISBN, and read as facts about the
+ * book; the actions are a row of buttons with nothing over them, because a
+ * button says what pressing it does; the board draws where the book is without
+ * being introduced. `Part` is still here and still has a heading, because one
+ * section left on the page genuinely needs announcing: what else there is by
+ * the same author is not visible from anything else on the screen.
  *
  * ## Nothing here is a table of fields
  *
@@ -40,7 +53,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { Shots, type Shot } from './Shots'
+import { Shots, type FirstPicture, type Shot } from './Shots'
 
 /**
  * A section of the page: a title, an optional count beside it, and content.
@@ -107,6 +120,8 @@ export function Head({
   by,
   shots,
   facts,
+  tags,
+  first = 'catalogue',
 }: {
   title: string
   /** Credited as printed, which is not always what it files under. */
@@ -115,10 +130,25 @@ export function Head({
   shots: Shot[]
   /** One line each: publisher and year, the series, the ISBN. */
   facts: string[]
+  /**
+   * What the book is about, under the publisher and the ISBN and beside the
+   * picture, which is where the owner put it:
+   *
+   * > The tags should be underneath where we show the publisher and the ISBN,
+   * > next to the picture. We should just have the tags get listed there and
+   * > wrapped, rather than "what it is about" as a separate header.
+   *
+   * A heading of its own said nothing the chips do not, and it cost a section
+   * on a page whose whole complaint was that it had too many. What a book is
+   * about is a fact about the book, so it reads with the other facts.
+   */
+  tags?: ReactNode
+  /** Which picture the book opens on. See `FirstPicture`. */
+  first?: FirstPicture
 }) {
   return (
     <div className="wf-book">
-      <Shots shots={shots} mode="book" />
+      <Shots shots={shots} mode="book" first={first} />
       <div className="wf-book__of">
         <h2 className="wf-book__title">{title}</h2>
         <p className="wf-book__by">{by}</p>
@@ -127,6 +157,7 @@ export function Head({
             {fact}
           </p>
         ))}
+        {tags}
       </div>
     </div>
   )
@@ -223,35 +254,50 @@ export function Actions({ children }: { children: ReactNode }) {
  */
 
 /**
- * Where it has been, which the catalogue can answer now.
+ * Where the book stands, drawn and not announced.
  *
- * Every move is a row, so this is not a second record kept for the screen: it
- * is the same rows the app reads to say where the book is, read further back.
- * It earns the space at the bottom of the page for one reason, which the two
- * screens show between them: for a book in the house it is history, and for a
- * book that is out of the house it is the only thing that says where it goes
- * back.
+ * > And instead of "where it is", once again, we don't need that text there.
+ * > Looking at this tells them where it is.
  *
- * A row says who, where that is not obvious. Somebody carrying a book and the
- * app deciding a book should move are different events, and the ledger is what
- * knows which one happened.
+ * So this is a `Part` with the heading taken off it, and it is a component of
+ * its own rather than a flag on that one because the argument for the missing
+ * heading has to live somewhere. **The section is still named**, on the
+ * element: a sighted reader has the board in front of them and a screen reader
+ * has a run of spines with no sentence anywhere saying what it is a run of.
+ * The name is the same words the heading used, so nothing is renamed, only
+ * unwritten. That is #262's rule reaching this heading: the drawing says it,
+ * and a line of text over the drawing is a second thing to keep true.
+ *
+ * ## It stays below everything about the book, and it stays one section
+ *
+ * The pinned rule is that a book screen is about the book rather than about
+ * where it sits, and this round takes material off this section rather than
+ * adding any: the ledger of where it has been is gone entirely and the heading
+ * with it. What is left is the board, and the one question a person asks after
+ * looking at it, which is why a rule put the book there. That is a fact about
+ * the book.
  */
-export function Been({
-  rows,
-}: {
-  rows: { what: string; when: string; who?: string }[]
-}) {
+export function Where({ children }: { children: ReactNode }) {
   return (
-    <div className="wf-been" role="list" aria-label="Where it has been">
-      {rows.map((row) => (
-        <div className="wf-been__row" role="listitem" key={`${row.what}${row.when}`}>
-          <span className="wf-been__what">
-            {row.what}
-            {row.who && <span className="wf-been__who">{row.who}</span>}
-          </span>
-          <span className="wf-been__when">{row.when}</span>
-        </div>
-      ))}
-    </div>
+    <section className="wf-part" aria-label="Where it is">
+      {children}
+    </section>
   )
 }
+
+/*
+ * There was a `Been` here, and it is gone with the section it drew.
+ *
+ * It listed every move a book had made, newest first, and the owner had said
+ * twice that he liked it. He then read the page again and cut it:
+ *
+ * > I think we can get rid of "where it has been" as well [...] Actually, I
+ * > think we just get rid of the "where it has been" section.
+ *
+ * Nothing replaced it and nothing shorter was written in its place, which is
+ * the trap #262 names. The moves themselves are untouched: they are the same
+ * rows the app reads to say where a book is, `/api/books/:id/placements` still
+ * answers with them, and the misfile list still rests on the difference
+ * between the app assigning a book and somebody carrying one. What is gone is
+ * a screen that read them out.
+ */
