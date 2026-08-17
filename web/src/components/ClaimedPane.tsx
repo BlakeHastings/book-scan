@@ -23,6 +23,14 @@
  * the way out is said with it, because a book in that state stands exactly where
  * somebody left it and no plan will ever move it.
  *
+ * **And since #341 the way out is a button rather than a sentence.** That issue
+ * named this screen by name: it explained an unclaimed book and offered it no
+ * action at all, on the one screen somebody reaches while holding the book and
+ * wondering. It offers #377's panel now, which is the one way this app adds a
+ * tag by hand, and it is the same panel the list of these books opens. Nothing
+ * here writes a tag by itself, which is #304 and was the owner's explicit
+ * instruction.
+ *
  * ## Where it is and where the rules want it are two facts
  *
  * They disagree exactly when the book is waiting to be carried, and that
@@ -65,6 +73,19 @@ interface Props {
    * id would make somebody look it up again.
    */
   onRule: (rule: RuleDto) => void
+  /**
+   * Say what this book is, for the state that used to offer nothing (#341).
+   *
+   * A book no rule claims is the one state on this screen with no way out drawn
+   * on it: every other one has a rule to open or a pin to make, and this one
+   * explained itself and stopped, on the screen somebody arrives at holding the
+   * book and wondering.
+   *
+   * It opens the screen the list of these books opens, rather than a panel of
+   * its own. Two screens reaching one way of saying what a book is, the way two
+   * screens already reach this one.
+   */
+  onSay: () => void
 }
 
 /** Where the rules want it, said against where it actually is. */
@@ -86,7 +107,7 @@ function wanted(claim: BookClaim) {
     + 'That is why it is on your carry list.'
 }
 
-export function ClaimedPane({ claim, room, error, tabs, onBack, onRule }: Props) {
+export function ClaimedPane({ claim, room, error, tabs, onBack, onRule, onSay }: Props) {
   const top = (
     <TopBar title="Why it is here" sub={claim?.book.title} onBack={onBack} />
   )
@@ -101,6 +122,17 @@ export function ClaimedPane({ claim, room, error, tabs, onBack, onRule }: Props)
 
   const won = claim.claims.find((one) => one.won) ?? null
   const said = wanted(claim)
+
+  /*
+   * Whether saying something more about this book is work worth offering.
+   *
+   * Not for a withdrawn book: it has left the collection and no rule places it
+   * by design, which the sentence above already says, and inviting somebody to
+   * classify a book they no longer own is the count that trains people to
+   * ignore a screen. A checked-out book is still owned and still needs filing
+   * when it comes back, so it is offered.
+   */
+  const unclaimed = !won && !claim.withdrawn
 
   return (
     <RoomFrame top={top} tabs={tabs}>
@@ -188,6 +220,47 @@ export function ClaimedPane({ claim, room, error, tabs, onBack, onRule }: Props)
           <p>
             Change the rule so it stops asking for this book, or pin the book where it
             is. A pinned book is left alone by every rule, for good.
+          </p>
+        </Card>
+      )}
+
+      {/*
+        The state that used to end here (#341). Every other one on this screen
+        offers something and this one said the true thing and stopped, on the
+        screen somebody arrives at while holding the book.
+
+        One button and not the two the drawing has. The other one there writes a
+        rule that asks for the tag the book already carries, and it is the better
+        answer for a household that reads crime: one rule takes all nine at once
+        rather than nine books being told they are also Fiction. Nothing in this
+        app creates a rule, so it is said as the fact it is rather than drawn as
+        a button that would have nowhere to go.
+
+        The one button opens the screen the list of these books opens, so there
+        is one way of saying what a book is however somebody arrived at it.
+      */}
+      {unclaimed && (
+        <Card
+          weight="quiet"
+          kind="What you can do about it"
+          /* The title carries the thought and the button carries the act. They
+             both read "Say what it is" until this was looked at, which is the
+             instruction written twice in two sizes. */
+          title={claim.tags.length > 0
+            ? `A rule about ${claim.tags[0]} would take them all`
+            : 'Nobody has said anything about it'}
+          foot={
+            <Button tone="primary" block onPress={onSay}>
+              Say what it is
+            </Button>
+          }
+        >
+          <p>
+            {claim.tags.length > 0
+              ? 'Say what else this book is, and the rule that asks for that takes it. '
+                + 'That settles one book; a rule settles every book like it.'
+              : 'Every rule asks about a tag, so there is nothing for any of them to '
+                + 'match. Say what it is and the rule that asks for that will take it.'}
           </p>
         </Card>
       )}

@@ -35,7 +35,7 @@ import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
 import { Cat } from '../Cat'
 import {
-  Button, CarryBooks, Choice, Doors, Field, InHand, IN_HAND, Segmented,
+  Button, CarryBooks, Choice, Doors, Field, InHand, IN_HAND, SayWhat, Segmented,
 } from '../Controls'
 import { Covers, covers } from '../Covers'
 import {
@@ -188,12 +188,19 @@ function Phone({
  * no photograph, and how many carry a genre nobody confirmed, are both true and
  * neither leads anywhere a person can do anything about today.
  *
- * ## Two actions, and the argument is about what is not on it
+ * ## Three actions, and the argument is about what is not on it
  *
  * **Find the book in your hand**, which is the camera no tab opens and which
- * this screen owes a press to (#355), and **carry books where they belong**,
- * which is the one job in this app that has a flow of its own and no door in
- * the tab bar.
+ * this screen owes a press to (#355); **carry books where they belong**, which
+ * is the one job in this app that has a flow of its own and no door in the tab
+ * bar; and **say what the books nothing files are** (#341), which is the other
+ * one, and which nothing on this screen mentioned at all until it was added.
+ *
+ * That third one is the ceiling reached rather than a fourth thing sneaking on.
+ * It earns the row on the argument the other two earn theirs on: no tab opens
+ * it, and no count here holds those books. They are not the collection, not the
+ * table and not the carry list, so a person could open this app every day and
+ * never learn they exist, which is exactly what #341 says happened.
  *
  * Photographing a book, the queue and the library are all tabs, one press from
  * here and from everywhere else, and a button for a room the tab bar already
@@ -261,9 +268,18 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
         ]}
       />
 
+      {/* Three, which is the ceiling, and the third is #341's. The books no
+          rule claims had a card on this screen in the drawing that answered
+          that issue's question; round eight took every card off this screen for
+          saying a second time what a count said, and this one is not that: no
+          count here holds these books and none can, because they are not the
+          collection, not the table and not the carry list. So it is a door, in
+          the row round eight made for exactly this, and it is drawn only on a
+          day it can do something. */}
       <Doors>
         <InHand onPress={() => go('inhand')} />
         <CarryBooks onPress={() => go('carry')} />
+        <SayWhat onPress={() => go('unclaimed')} />
       </Doors>
     </Phone>
   )

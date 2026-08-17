@@ -28,7 +28,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import { HomePane } from './HomePane'
-import { CARRY_BOOKS, IN_HAND } from '../design/Controls'
+import { CARRY_BOOKS, IN_HAND, SAY_WHAT } from '../design/Controls'
 import type { BackupWatch, Counts, Misfile, QueueCounts } from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
@@ -67,6 +67,10 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
     counts,
     queue: queue(),
     carrying: [],
+    /* Nothing unfiled is the ordinary day, so it is the default here: a door
+       drawn in every one of these renders would make the tests below say
+       nothing about when it is drawn. */
+    unclaimed: 0,
     backup: null,
     onAdd: () => {},
     onInHand: () => {},
@@ -76,6 +80,7 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
     onLibrary: () => {},
     onQueue: () => {},
     onCarry: () => {},
+    onUnclaimed: () => {},
     ...over,
   }) as ReactElement)
 }
@@ -132,8 +137,10 @@ describe('the design rules that reach the app', () => {
   it('offers few things to do, and nothing a tab already reaches', () => {
     // The ceiling rather than the count, for the reason the gallery's copy of
     // this rule gives: the fault is a screen of buttons, which is the thing
-    // this round was called to fix said another way.
-    const html = home({ carrying: [misfile()] })
+    // this round was called to fix said another way. Asked on the busiest day
+    // this screen has, which since #341 is three doors: something to find,
+    // something to carry, and something to say what it is.
+    const html = home({ carrying: [misfile()], unclaimed: 12 })
     const doors = html.match(/class="wf-door[ "]/g) ?? []
 
     expect(doors.length, `the first screen offers ${doors.length} things to do`)
@@ -267,6 +274,49 @@ describe('the numbers the drawing did not have to survive', () => {
     // the door-to-an-empty-room fault wearing the other camera's clothes.
     expect(home({ carrying: [] })).not.toContain(CARRY_BOOKS)
     expect(words(home({ carrying: [misfile()] }))).toContain(CARRY_BOOKS)
+  })
+
+  /*
+   * #341, and the whole of what this screen says about those books.
+   *
+   * The issue's complaint is that a book no rule claims appears in no listing,
+   * in neither review, in none of these five counts and on no area's card, so
+   * the books most in need of a person are the ones the app mentions least. The
+   * five counts are the five the owner named and both suites pin that list, so
+   * the only thing that can carry this is the row that says what to do about it.
+   */
+  it('offers a way to the books nothing files, when there are any', () => {
+    expect(words(home({ unclaimed: 12 }))).toContain(SAY_WHAT)
+    expect(home({ unclaimed: 12 })).toContain('wf-door--saying')
+  })
+
+  it('offers it on the day there is one, which is the day it matters most', () => {
+    // Twelve is the drawing's number and one is the state a collection reaches
+    // on the way to none. A door that only turned up for a crowd would leave
+    // the last book unfindable, which is the whole failure this closes.
+    expect(words(home({ unclaimed: 1 }))).toContain(SAY_WHAT)
+  })
+
+  it('offers nothing of the sort once every book is claimed', () => {
+    // The door-to-an-empty-room fault, which is what took the camera card off
+    // this screen and is what keeps the carry door off it on a settled day.
+    expect(words(home({ unclaimed: 0 }))).not.toContain(SAY_WHAT)
+  })
+
+  it('offers nothing of the sort until the read has answered', () => {
+    // Null is "nobody answered", not "none". A row inviting somebody to settle a
+    // dozen books, drawn because a request did not come back, is a walk to a
+    // screen that will say there is nothing to do.
+    expect(words(home({ unclaimed: null }))).not.toContain(SAY_WHAT)
+  })
+
+  it('adds no sixth count for them, because the five are the five he named', () => {
+    const html = home({ unclaimed: 12, queue: queue({ ready: 6 }), carrying: [misfile()] })
+
+    expect(said(html)).toEqual([
+      'catalogued', 'checked out', 'ready to shelve', 'to carry', 'stuck',
+    ])
+    expect(html, 'the first screen names one of those books').not.toContain('wf-row')
   })
 
   it('counts a long carry list rather than naming three of it', () => {

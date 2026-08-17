@@ -15,7 +15,7 @@ import { useSummary } from '../app/summary'
 
 export function HomeScreen() {
   const { setRoute, openScanner } = useNavigation()
-  const { counts, queueCounts, carrying, backup } = useSummary()
+  const { counts, queueCounts, carrying, unclaimed, backup } = useSummary()
   /*
    * The corner, and the sheet it opens (#350). `HomePane` holds no state, so
    * the menu is opened out here and handed down as two props.
@@ -31,6 +31,7 @@ export function HomeScreen() {
       counts={counts}
       queue={queueCounts}
       carrying={carrying}
+      unclaimed={unclaimed}
       backup={backup}
       onAdd={() => setRoute('capture')}
       /*
@@ -45,6 +46,7 @@ export function HomeScreen() {
       onLibrary={() => setRoute('library')}
       onQueue={() => setRoute('queue')}
       onCarry={() => setRoute('carry')}
+      onUnclaimed={() => setRoute('unclaimed')}
     />
   )
 }

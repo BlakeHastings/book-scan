@@ -15,15 +15,20 @@
  *
  * Everything either of them offers to do still comes from the book itself
  * (#59); this file only wires the book in hand to whichever draws it.
+ *
+ * **Saying what a book is used to be a hook in this file and is now in
+ * `app/tagging.ts`** (#341). Nothing about it changed except where it lives: the
+ * screen about the books no rule claims needs the same act, and the way that
+ * ends up as two ways of saying what a book is, disagreeing about what a busy
+ * panel looks like, is somebody copying twenty lines rather than moving them.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Chrome } from '../app/Chrome'
 import { BookDetail } from '../components/BookDetail'
 import { CaptureReview } from '../components/CaptureReview'
 import { PlacementView } from '../components/ShelfStrip'
 import { filingName } from '../../shared/shelving'
-import { api, type AppliedTag, type TagRow } from '../lib/api'
 import type { TabName } from '../design/Chrome'
 import { useBookActions } from '../app/bookActions'
 import { useBookInHand } from '../app/bookInHand'
@@ -31,90 +36,7 @@ import { useErrorBanner } from '../app/errorBanner'
 import { useLeaving } from '../app/leaving'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
-
-/**
- * What a person has said this book is, and the vocabulary they said it in.
- *
- * State only this screen uses, so it lives in this screen's file, which is the
- * rule `src/screens` is arranged by. It is deliberately not in `bookInHand`:
- * these are rows in the database rather than fields of a draft, and the reason
- * they can be is #183. A capture is a row in `books` from its first photograph,
- * so there is somewhere to hang a tag on long before anybody shelves the book.
- *
- * **Written the moment it is said, rather than carried in the draft.** That is
- * the same decision the capture autosave already made, and for the same reason
- * (#65): one person photographs, another works out what the book is, a third
- * shelves it, and the middle person's work has to survive them putting the phone
- * down. A tag held in React until the shelving step is a tag lost by the browser
- * being closed, and a person's tag is the one kind of tag nothing else in this
- * system is allowed to reproduce.
- *
- * Only a person's are shown. A book out of Open Library carries up to twelve
- * subject headings, and a wall of them on the screen somebody is trying to get a
- * book off is not what a fast path looks like.
- */
-function useTagging(bookId: number | null) {
-  const [tags, setTags] = useState<AppliedTag[]>([])
-  const [vocabulary, setVocabulary] = useState<TagRow[]>([])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  /* Both at once when the book changes, and both dropped when it does. The
-     `live` flag is what stops an answer for the last book landing on this one,
-     which on a queue somebody is working through is a second apart. */
-  useEffect(() => {
-    setError('')
-    if (bookId === null) {
-      setTags([])
-      return
-    }
-
-    let live = true
-    setTags([])
-    void api.bookTags(bookId)
-      .then((answer) => {
-        if (live) setTags(answer.tags.filter((tag) => tag.source === 'person'))
-      })
-      .catch(() => { /* The tags are an addition to this screen, not the screen. */ })
-    return () => { live = false }
-  }, [bookId])
-
-  /* The vocabulary is the collection's rather than the book's, so it is read
-     once and not again per book. */
-  useEffect(() => {
-    let live = true
-    void api.tags()
-      .then((answer) => { if (live) setVocabulary(answer.tags) })
-      .catch(() => { /* An empty vocabulary offers nothing and refuses nothing. */ })
-    return () => { live = false }
-  }, [])
-
-  const said = (answer: { tags: AppliedTag[] }) => {
-    setTags(answer.tags.filter((tag) => tag.source === 'person'))
-  }
-
-  const add = useCallback((tag: { slug: string; label: string }) => {
-    if (bookId === null) return
-    setBusy(true)
-    setError('')
-    api.applyTag(bookId, tag)
-      .then(said)
-      .catch((caught) => setError((caught as Error).message))
-      .finally(() => setBusy(false))
-  }, [bookId])
-
-  const remove = useCallback((slug: string) => {
-    if (bookId === null) return
-    setBusy(true)
-    setError('')
-    api.removeTag(bookId, slug)
-      .then(said)
-      .catch((caught) => setError((caught as Error).message))
-      .finally(() => setBusy(false))
-  }, [bookId])
-
-  return { tags, vocabulary, busy, error, add, remove }
-}
+import { useTagging } from '../app/tagging'
 
 export function ReviewScreen() {
   const { setRoute } = useNavigation()

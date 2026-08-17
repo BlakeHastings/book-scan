@@ -673,6 +673,33 @@ export interface BookClaim {
   withdrawn: boolean
 }
 
+/**
+ * Why no rule claims a book, which is two states and not one (#341).
+ *
+ * - `untagged`: it carries no tag at all, which is the state #304 made real. No
+ *   catalogue stated a genre, so none was written, so every rule fails at its
+ *   first condition. The only way out is somebody saying what it is.
+ * - `unmatched`: it carries tags and no rule asks for any of them. Somebody has
+ *   already said something about it; what is missing is a rule.
+ *
+ * Both are unclaimed and both have the same consequence, and the sentence a
+ * screen writes about them is not the same sentence, which is why the read says
+ * which rather than leaving a screen to guess it from an empty list of tags.
+ */
+export type Unclaimed = 'untagged' | 'unmatched'
+
+/** One book no rule claims, as the list of them needs it. */
+export interface UnclaimedBook {
+  id: number
+  title: string
+  authorFiling: string
+  /** Where somebody last said it stands. Null when nobody ever has. */
+  standing: AtAPlace | null
+  /** What it carries, by label and never by slug. Empty when `untagged`. */
+  tags: string[]
+  why: Unclaimed
+}
+
 export type SortStrategyCode = 'inherit' | 'author' | 'title' | 'published' | 'tag'
 
 export interface AreaDto {
@@ -1566,6 +1593,26 @@ export const api = {
    * not an error.
    */
   bookClaim: (id: number) => request<{ claim: BookClaim }>(`/api/books/${id}/claim`),
+
+  /**
+   * Every book no rule claims, and how many there are (#341).
+   *
+   * **The question nothing in the app could ask.** No listing expresses it: the
+   * tag filter has no negation and negating a tag would answer a different
+   * question anyway, because "no rule claims it" is about the rules rather than
+   * about a slug. `booksNoRuleClaims` puts it to the same function that places a
+   * book, so this list and the claim screen cannot disagree about one.
+   *
+   * `total` beside a capped page, which is `findBooks`' pair: the count is what
+   * the first screen's door is drawn from, and the names are what explain it.
+   *
+   * Read only, and it must stay that way. Answering it by writing a genre tag is
+   * exactly what #304 stopped doing on the owner's explicit instruction; what
+   * settles one of these books is a person saying what it is, through
+   * `applyTag`.
+   */
+  unclaimed: () =>
+    request<{ books: UnclaimedBook[]; total: number }>('/api/placement/unclaimed'),
 
   /** What removing an area would do to its books. Writes nothing. */
   areaRemoval: (id: number) =>

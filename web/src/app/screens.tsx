@@ -53,6 +53,7 @@ import { ShelvesScreen } from '../screens/ShelvesScreen'
 import { SortingScreen } from '../screens/SortingScreen'
 import { TagsScreen } from '../screens/TagsScreen'
 import { TripScreen } from '../screens/TripScreen'
+import { UnclaimedScreen } from '../screens/UnclaimedScreen'
 
 export interface ScreenEntry {
   readonly view: ComponentType
@@ -120,4 +121,11 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   carrying: { view: CarryingScreen, chrome: false },
   carried: { view: CarriedScreen, chrome: false },
   carrystale: { view: CarryStaleScreen, chrome: false },
+
+  /*
+   * The books no rule claims (#341), which is the other half of putting things
+   * right: a carry list is books the rules want somewhere else, and this is
+   * books the rules have no opinion about at all.
+   */
+  unclaimed: { view: UnclaimedScreen, chrome: false },
 }
