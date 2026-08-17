@@ -1,5 +1,5 @@
 /**
- * Where the app opens: what is worth knowing, and nothing else.
+ * Where the app opens: what is worth knowing, and what to do about it.
  *
  * This is the first screen drawn with the design system rather than described
  * by it. Everything on it comes from `src/design`, the same components the
@@ -16,6 +16,28 @@
  * to a room the tabs already open, and it was taking the middle of the screen
  * somebody opens most often.
  *
+ * ## What round eight took off it, and it is a third of what was here (#361)
+ *
+ * Two headings, one sentence and two lists of books. The owner walked it and
+ * named the fault before he named the fix:
+ *
+ * > At the top we have "forty books are waiting on the table", and then we show
+ * > them again, like the "needs you". So I don't know if we need that. And then
+ * > we have "ready to shelve" again.
+ *
+ * **How many books are ready to shelve was on this screen three times**: in the
+ * sentence at the top, in a count in the middle, and as a card at the bottom
+ * naming two of them. The count is the one that stays. The queue is one press
+ * away in the tab bar and is the screen whose whole job is that list, so the
+ * card was a worse copy of it drawn on the screen somebody opens most often.
+ * The same argument takes the carry card, and it is the argument that took the
+ * camera card off two rounds ago.
+ *
+ * What genuinely left with the sentence is the count of books still being
+ * looked up: they are neither ready nor stuck, so no count here holds them.
+ * They are on the queue, which is one press, and they stop being pending on
+ * their own within about a minute.
+ *
  * ## Every number goes somewhere
  *
  * That is a pinned rule of the design system and it is the easy one to lose in
@@ -25,12 +47,10 @@
  * carry list, which is where the trips are and where somebody says they have
  * carried a book. That last one went to the library until #314 built the flow.
  *
- * ## The collection leads (#283)
- *
- * "The collection" sat last, under everything asking for attention, and round
- * six moved it above "Needs you". The order within each block did not change,
- * only which block comes first, so the screen now opens with what is owned
- * rather than with what is asking.
+ * Five counts and five destinations, and the headings they used to sit under
+ * are gone: "the collection" and "needs you" were the shape #283 gave this
+ * screen and #361 took away, because a person reading five numbers does not
+ * need to be told which two of them are about the shelf.
  *
  * ## The one thing on it that is not work (#311)
  *
@@ -49,58 +69,54 @@
  * reassuring version of this card, on purpose: a line saying backups are fine
  * is a line that can be printed over a disk nobody read.
  *
- * ## The one door on it, which is a thing that was taken away by accident (#355)
+ * ## The two doors, and what is deliberately not one
  *
- * The paragraph above about the camera card is still true and this is not it.
- * That card offered the camera the tab bar opens, which is the one that
- * catalogues a book nobody has yet. This is the other camera: the one you
- * point at a book you already own, which no tab reaches and which had this
- * screen's corner until the corner became the profile icon.
+ * **The book in your hand** (#355) is the camera you point at a book you
+ * already own, which no tab reaches and which had this screen's corner until
+ * the corner became the profile icon. Nobody chose what that cost: the owner
+ * asked for a profile icon and got one; he did not ask for the thing this app
+ * is for, standing in a room holding a book and wondering whether you already
+ * own it, to go from **one press to three**. It is one press again, and the
+ * corner is not taken back.
  *
- * Nobody chose what that cost. The owner asked for a profile icon and got one;
- * he did not ask for the thing this app is for, standing in a room holding a
- * book and wondering whether you already own it, to go from **one press to
- * three**. It is one press again, and the corner is not taken back: the corner
- * is spoken for and the reason it is spoken for is good.
+ * **Carrying** is the other, and it is here because nothing else reaches it
+ * either: a rule change can displace fifty books in an afternoon, the carry
+ * list is a flow of its own since #314, and the tab bar opens four rooms of
+ * which it is not one.
  *
- * It sits under the collection's counts rather than above them, so nothing the
- * owner has already approved moves, and it is drawn as a door rather than a
- * tile because it is not a count and the screen must not read as though it
- * were. **It is not drawn on the day there is nothing at all**: no catalogue
- * and nothing on the table is a camera that can answer nothing, and a spare
- * screen does not carry a door to an empty room. A book on the table counts,
- * and that is not a technicality: holding up a book somebody else has already
- * photographed is how the second capture of it does not get made (#122).
+ * What is not here is anything with a tab: photographing a book, the queue and
+ * the library are all one press already. Nor finding a book by name, which is
+ * one press from the row above the books on every library screen and would put
+ * a second row saying "find" next to this one, on the single screen where two
+ * ways of finding must not be confused.
+ *
+ * **Neither door is drawn when it can do nothing.** The camera needs something
+ * to hold a book against, which is the catalogue **or** the table: holding up
+ * the twin of a book waiting on the table is how somebody finds the photograph
+ * a housemate took instead of making a second one, which is the whole of #122.
+ * The carry door needs something to carry.
  *
  * ## It holds no state, on purpose
  *
  * Everything it draws arrives as a prop, so it stays callable as a plain
- * function and its test can render it as markup. The two extra reads the
- * design asks for, the queue itself and the books that need carrying, are made
- * by `App` beside the two it already made.
+ * function and its test can render it as markup. The extra read the design asks
+ * for, the books that need carrying, is made by `App` beside the two it already
+ * made.
  */
 
 import type { ReactElement, ReactNode } from 'react'
-import { Beside, Card, Nothing } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
-import { Button, InHand } from '../design/Controls'
-import { List, Row, Stats } from '../design/List'
+import { CarryBooks, Doors, InHand } from '../design/Controls'
+import { Stats } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Trouble } from '../design/Trouble'
-import { clothFor } from '../lib/bookLook'
 import { troubleWith } from '../lib/backupWords'
 import { grouped } from '../lib/say'
-import { filingName } from '../../shared/shelving'
-import {
-  captureName, draftFromCapture,
-  type BackupWatch, type CarryItem, type Capture, type Counts, type QueueCounts,
-} from '../lib/api'
+import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
 
 interface Props {
   counts: Counts | null
   queue: QueueCounts | null
-  /** The queue itself, so the ones ready to shelve can be named and opened. */
-  queued: Capture[]
   /**
    * Books that are not where they now belong. Null until the read has
    * answered, which is a different thing from none: a count drawn from a
@@ -142,57 +158,21 @@ interface Props {
   onQueue: () => void
   /**
    * Go and carry them, which is a flow of its own since #314 and used to be the
-   * library's needs-attention list. Both counts on this card open it, because
-   * both are about the same books.
+   * library's needs-attention list. The count and the door both open it,
+   * because they are two different things said about the same books: how many
+   * there are, and what somebody is being invited to do about them.
    */
   onCarry: () => void
-  onOpenReady: (capture: Capture) => void
 }
-
-/**
- * The bindings a placeholder thumbnail is drawn in.
- *
- * A row in the gallery wears a cloth because the wireframe has no photographs;
- * a row here wears one because `Row` has nowhere to put a photograph yet, and
- * giving it one belongs with the library screen, which draws hundreds of them.
- * Picked off the book's own id so a book is the same colour every time it is
- * drawn rather than a different one on every render.
- */
-/*
- * Both of these were written here first and both moved out when the library
- * screen needed them: a book has to be the same colour on this screen and on
- * that one, and a number has to be said the same way on both. `lib/bookLook.ts`
- * and `lib/say.ts`.
- */
 
 /** How many books are on the table, which is the whole queue. */
 function waitingIn(queue: QueueCounts): number {
   return queue.pending + queue.ready + queue.failed
 }
 
-/**
- * The one sentence on the screen.
- *
- * The drawing spells its number out, because it is one number somebody typed.
- * This one is whatever the queue holds, so it is digits: spelling every number
- * a real queue can reach is a table nobody would keep true.
- */
-function onTheTable(waiting: number): string {
-  if (waiting === 0) return 'Nothing is waiting on the table.'
-  if (waiting === 1) return 'One book is waiting on the table.'
-  return `${grouped(waiting)} books are waiting on the table.`
-}
-
-/** What a queued book is called, and who this collection files it under. */
-function nameOf(capture: Capture): { title: string; sub: string } {
-  const draft = draftFromCapture(capture)
-  const first = draft.authors.split(',')[0]?.trim() ?? ''
-  return { title: captureName(capture).text, sub: first ? filingName(first) : '' }
-}
-
 export function HomePane({
-  counts, queue, queued, carrying, backup,
-  onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onOpenReady,
+  counts, queue, carrying, backup,
+  onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
@@ -210,10 +190,9 @@ export function HomePane({
        * go looking for the thing they cannot find.
        *
        * It replaced "Find the book in your hand", which was in this corner and
-       * is not in the drawing at all: the gallery has one camera and this app
-       * has two. That camera did not lose its door, it moved to the screen
-       * about finding a book, which is where it belonged once finding stopped
-       * being a corner action. See `FindPane`.
+       * is a row on the screen now. The gallery has one camera and this app has
+       * two; that camera did not lose its door, it moved down the screen and
+       * onto the screen about finding a book. See `FindPane`.
        */
       action={corner}
     />
@@ -237,48 +216,24 @@ export function HomePane({
   if (!counts || !queue) return <Screen top={top} tabs={tabs} over={menu}>{news}</Screen>
 
   const waiting = waitingIn(queue)
-  const ready = queued.filter((capture) => capture.status === 'ready')
+  /*
+   * Nothing owned and nothing photographed, which is a real evening rather than
+   * a state to be defended against: it is the first one. The cat sleeps through
+   * it instead of the screen saying "nothing is catalogued yet" over a tile
+   * that reads nought catalogued, which is the same fact twice and is what this
+   * round took off the screen everywhere else.
+   */
+  const bare = counts.total === 0 && waiting === 0
 
   return (
     <Screen top={top} tabs={tabs} over={menu}>
       {news}
-      {counts.total === 0 && waiting === 0 ? (
-        <Nothing said="Nothing is catalogued yet." />
-      ) : (
-        <Beside>{onTheTable(waiting)}</Beside>
-      )}
 
-      <p className="wf-heading wf-heading--flush">The collection</p>
-      {/*
-        Two counts where the drawing has three. The middle one is "9 added this
-        week", and nothing the browser can ask answers it: a book carries no
-        date it was added on the wire. Left out rather than approximated, and
-        named in the pull request.
-      */}
       <Stats
+        cat={bare ? 'sleeping' : 'sitting'}
         items={[
           { n: grouped(counts.total), word: 'catalogued', onPress: onLibrary },
           { n: grouped(counts.checkedOut), word: 'checked out', onPress: onLibrary },
-        ]}
-      />
-
-      {/*
-        The way to the book in your hand, closing the collection block (#355).
-
-        Drawn once there is anything to hold a book against, which is the
-        catalogue **or** the table, and not only the catalogue. A book waiting
-        on the table is one this collection already has a start on: holding its
-        twin up is how somebody finds the capture a housemate made instead of
-        photographing it a second time, which is the whole of #122 and is a
-        journey. That is the same emptiness the sentence above draws `Nothing`
-        for, and on that day this door leads to a camera that can answer
-        nothing about a book.
-      */}
-      {(counts.total > 0 || waiting > 0) && <InHand onPress={onInHand} />}
-
-      <p className="wf-heading wf-heading--flush">Needs you</p>
-      <Stats
-        items={[
           { n: grouped(queue.ready), word: 'ready to shelve', onPress: onQueue },
           ...(carrying
             ? [{ n: grouped(carrying.length), word: 'to carry', onPress: onCarry }]
@@ -287,46 +242,20 @@ export function HomePane({
         ]}
       />
 
-      {ready.length > 0 && (
-        <Card title="Ready to shelve">
-          <List label="Ready to shelve">
-            {ready.slice(0, 3).map((capture) => {
-              const named = nameOf(capture)
-              return (
-                <Row
-                  key={capture.id}
-                  title={named.title}
-                  sub={named.sub}
-                  cloth={clothFor(capture.id)}
-                  onPress={() => onOpenReady(capture)}
-                />
-              )
-            })}
-          </List>
-          <Button tone="quiet" onPress={onQueue}>
-            All {grouped(waiting)}
-          </Button>
-        </Card>
-      )}
+      {/*
+        The things to do, under the numbers they are about.
 
-      {carrying && carrying.length > 0 && (
-        <Card title="Books to carry">
-          <List label="Books to carry">
-            {carrying.slice(0, 3).map((one) => (
-              <Row
-                key={one.book.id}
-                title={one.book.title}
-                sub={one.book.authorFiling}
-                cloth={clothFor(one.book.id)}
-                meta={`${one.from} to ${one.to}`}
-                onPress={onCarry}
-              />
-            ))}
-          </List>
-          <Button tone="quiet" onPress={onCarry}>
-            All {grouped(carrying.length)}
-          </Button>
-        </Card>
+        Each is drawn only on a day it can do something, which is why there is
+        no `Doors` at all on the first evening: a screen whose whole argument is
+        that everything on it earns its place cannot carry a door to an empty
+        room. The camera answers a book against the catalogue **or** the table,
+        and the second half of that is not a technicality (#122).
+      */}
+      {(counts.total > 0 || waiting > 0 || (carrying && carrying.length > 0)) && (
+        <Doors>
+          {(counts.total > 0 || waiting > 0) && <InHand onPress={onInHand} />}
+          {carrying && carrying.length > 0 && <CarryBooks onPress={onCarry} />}
+        </Doors>
       )}
     </Screen>
   )

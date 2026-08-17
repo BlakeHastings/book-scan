@@ -8,6 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { Cat } from './Cat'
 import { IconOnward } from './Icons'
 import type { Cloth } from './Shelf'
 
@@ -148,8 +149,7 @@ export function Place({ children, quiet = false }: { children: ReactNode; quiet?
 }
 
 /**
- * Three counts in a row. Three, because a fourth does not fit at 414 wide
- * without the words wrapping to three lines each.
+ * The counts, three across and wrapping, with the cat at the end of them.
  *
  * **A count with an `onPress` is a target rather than a label**, and on the
  * first screen every one of them has one. The owner asked for that screen to
@@ -157,11 +157,40 @@ export function Place({ children, quiet = false }: { children: ReactNode; quiet?
  * six ready to shelve opens the queue, three to carry opens the carry list. Its
  * accessible name is the number and the word together, which is what somebody
  * would say out loud.
+ *
+ * ## Five of them, ungrouped, since #361
+ *
+ * > So we get rid of the collection, and we get rid of "needs you", and instead
+ * > we just have those numbers there: catalogued, checked out, ready to shelve,
+ * > to carry, stuck.
+ *
+ * Three is still the width, because a fourth column at 414 wide puts a word
+ * like "ready to shelve" into 93px; what changed is that they now wrap, so five
+ * counts are three and two rather than a heading and a heading. The row used to
+ * flow as a single line of columns so that a count the catalogue had not
+ * answered yet left two sharing the width instead of a hole, and wrapping keeps
+ * that: a missing count closes up.
+ *
+ * ## And the cat sits at the end of them
+ *
+ * > We still should have the cat icon on this screen though, because it's cute.
+ *
+ * The sentence he sat beside is gone, so he needs somewhere to be, and the
+ * sixth cell of a five-count grid is somewhere he already belongs: closing a
+ * run is one of the three jobs he has. He is drawn here rather than handed in
+ * so the gallery and the app cannot end up with two cats at two sizes.
+ *
+ * **He is asleep when the whole collection is**, which is the one thing on this
+ * screen that says a wall of zeros is a new collection rather than a broken
+ * one, and it costs no sentence to say it.
  */
 export function Stats({
   items,
+  cat,
 }: {
   items: { n: string; word: string; onPress?: () => void }[]
+  /** The bookend: sitting on an ordinary day, asleep when there is nothing. */
+  cat?: 'sitting' | 'sleeping'
 }) {
   return (
     <div className="wf-stats">
@@ -188,6 +217,11 @@ export function Stats({
           </div>
         )
       })}
+      {cat && (
+        <div className="wf-stats__cat">
+          <Cat pose={cat} size={cat === 'sitting' ? 58 : 40} />
+        </div>
+      )}
     </div>
   )
 }

@@ -13,12 +13,18 @@
  * is stale the moment somebody else saves a book. **The lists are not**, since
  * #332: see `READ_THE_QUEUE` below.
  *
- * The two lists are here rather than in the first screen even though the first
- * screen is the only thing that draws them, and the reason is lifetime: they
+ * `carrying` is here rather than in the first screen even though the first
+ * screen is the only thing that reads it, and the reason is lifetime: it
  * outlived that screen in the component this came out of, so leaving home and
  * coming back drew the previous answer while the new one was in flight rather
- * than dropping a whole row out of the layout for a moment. `carrying` keeps
- * its own guard, so it is still asked for only while the first screen is up.
+ * than dropping a count out of the layout for a moment. It keeps its own guard,
+ * so it is still asked for only while the first screen is up.
+ *
+ * **The queue itself is no longer one of these** (#361). The first screen named
+ * the two books nearest the top of it in a card, the owner took that card off
+ * for saying a third time what the count above it said, and nothing else here
+ * read the list: the queue screen loads its own. The counts it arrived with are
+ * still read, because two of them are on the first screen.
  */
 
 import {
@@ -26,7 +32,7 @@ import {
   type Dispatch, type ReactNode, type SetStateAction,
 } from 'react'
 import {
-  api, type BackupWatch, type CarryItem, type Capture, type Counts, type QueueCounts,
+  api, type BackupWatch, type CarryItem, type Counts, type QueueCounts,
 } from '../lib/api'
 import { useNavigation, type Route } from './navigation'
 
@@ -57,20 +63,12 @@ export interface Summary {
   readonly queueCounts: QueueCounts | null
   readonly setQueueCounts: Dispatch<SetStateAction<QueueCounts | null>>
   /**
-   * The queue itself, kept off the same read the counts come from.
-   *
-   * The first screen names the books that are ready to shelve rather than only
-   * counting them, and this is the list they come out of. No second request:
-   * `listCaptures` already answered both.
-   */
-  readonly queued: Capture[]
-  /**
    * Books that are not where they now belong. Null until the read answers.
    *
-   * Flattened out of the trips, because the first screen names three books and
-   * counts the rest; the trips themselves are the carry screen's job. Reading
-   * the same route it does is the point: the number on the door and the number
-   * behind it are one answer, worked out once.
+   * Flattened out of the trips, because the first screen wants how many there
+   * are; the trips themselves are the carry screen's job. Reading the same
+   * route it does is the point: the number on the door and the number behind it
+   * are one answer, worked out once.
    */
   readonly carrying: CarryItem[] | null
   /**
@@ -92,7 +90,6 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const { route } = useNavigation()
   const [counts, setCounts] = useState<Counts | null>(null)
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null)
-  const [queued, setQueued] = useState<Capture[]>([])
   const [carrying, setCarrying] = useState<CarryItem[] | null>(null)
   const [backup, setBackup] = useState<BackupWatch | null>(null)
 
@@ -108,11 +105,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
     if (!READ_THE_QUEUE.includes(route)) return
     let live = true
     api.listCaptures()
-      .then((r) => {
-        if (!live) return
-        setQueueCounts(r.counts)
-        setQueued(r.captures)
-      })
+      .then((r) => { if (live) setQueueCounts(r.counts) })
       .catch(() => {})
     return () => { live = false }
   }, [route])
@@ -173,7 +166,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
 
   return (
     <Context.Provider
-      value={{ counts, setCounts, queueCounts, setQueueCounts, queued, carrying, backup }}
+      value={{ counts, setCounts, queueCounts, setQueueCounts, carrying, backup }}
     >
       {children}
     </Context.Provider>

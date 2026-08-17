@@ -1,11 +1,23 @@
 /**
  * Every icon in the redesign, drawn inline.
  *
- * There are twelve, and that is the whole set on purpose. An icon here exists
+ * There are fourteen, and that is the whole set on purpose. An icon here exists
  * only where a word is already beside it (the tab bar), where the target is a
  * corner of the screen (back, and the one action in the top right), or where
  * the target sits inside a control that has no room for a word and is already
  * labelled by it. Anywhere else the answer in this app is the word itself.
+ *
+ * **The last two arrived with the first screen's actions** (#361), and they are
+ * the first clause rather than a fourth: an action there is a full-width row
+ * with its sentence written across it, which is a word already beside the
+ * glyph, exactly as a tab is. The owner asked for one of them by name:
+ *
+ * > And then underneath those, we have the button for "find the book in your
+ * > hand", and that should have an icon.
+ *
+ * `IconInHand` is that one and `IconCarry` is the other action beside it, drawn
+ * at the same weight so the two read as one list rather than as one button and
+ * one row that happens to look like it.
  *
  * The third of those is the camera at the end of the ISBN field, and it is the
  * owner's: "on the right side of it, we should show like a camera icon for
@@ -121,6 +133,63 @@ export function IconFind(p: Props) {
     <Glyph {...p}>
       <circle cx="11" cy="11" r="6.5" />
       <path d="M15.8 15.8 20 20" />
+    </Glyph>
+  )
+}
+
+/**
+ * The book in your hand: a closed book, and a lens looking at it.
+ *
+ * **It is deliberately not a camera**, and that is the whole reason it exists.
+ * This app has two cameras, one that catalogues a book nobody has photographed
+ * and one that identifies a book you already own, and #355 was the cost of the
+ * two being confused. The first screen draws both: the cataloguing one is the
+ * tab in the bar with `IconCamera` under the word "Scan", and this is the row
+ * above it. Giving the row a camera would have put one glyph on the two doors
+ * that must never be mistaken for each other, on the one screen that offers
+ * both, which is how somebody photographs a book they already own into a second
+ * record.
+ *
+ * **It is `IconFind` with a book in front of it, and the resemblance is the
+ * point.** That one is the magnifier on the row above the books and means
+ * finding a book by typing its name; this one means finding the book you are
+ * holding. Both are finding, so both may look like finding; the pair that must
+ * never look alike is this and the camera.
+ *
+ * Three drawings of it were rendered at 20px before this one was kept. A book
+ * on an open palm is the obvious idea and it is a blob at this size: the arc of
+ * the hand closes the bottom of the book and the whole thing reads as a bag.
+ */
+export function IconInHand(p: Props) {
+  return (
+    <Glyph {...p}>
+      <rect x="2.8" y="4" width="8.6" height="12.4" rx="1.3" />
+      <path d="M5.2 4v12.4" />
+      <circle cx="16.4" cy="13.6" r="4.2" />
+      <path d="M19.5 16.7 21.6 18.8" />
+    </Glyph>
+  )
+}
+
+/**
+ * Carrying: a book, and the way it has to go.
+ *
+ * The other action on the first screen, and the job is one book at a time
+ * moving from where it stands to where it now belongs, so the drawing is a book
+ * with an arrow beside it. Beside rather than over it, which was the first
+ * attempt: an arc drawn across the top of a small rectangle reads as a padlock.
+ *
+ * Not an armful either. A stack of three rounded bars at this size is
+ * `IconQueue` with different spacing, and that one is two inches below it in
+ * the tab bar.
+ */
+export function IconCarry(p: Props) {
+  return (
+    <Glyph {...p}>
+      <rect x="2.6" y="4.4" width="8" height="15.2" rx="1.3" />
+      <path d="M5.2 4.4v15.2" />
+      <path d="M13.2 12h7.6" />
+      <path d="M17.6 8.6 21 12l-3.4 3.4" />
     </Glyph>
   )
 }

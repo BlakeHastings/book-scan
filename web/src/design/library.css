@@ -485,21 +485,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-card__foot > * { flex: 1 1 auto; }
 
-/* The cat, and the one sentence beside him. Both numbers were written into
-   the first screen by hand before this was a component; they are the grid
-   step and the heading size, and they are read from the tokens now. */
-.wf-beside {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-}
-
-.wf-beside__said {
-  margin: 0;
-  font-family: var(--face-book);
-  font-size: var(--size-heading);
-  text-wrap: balance;
-}
+/* `.wf-beside` was here, and it was the cat with one sentence beside him at
+   the top of the first screen. The sentence went in #361 for saying what the
+   counts under it said; the rules went with it rather than sitting here
+   unused, which is how a stylesheet fills up with drawings of things nobody
+   draws. The cat is at the end of the counts now: see `.wf-stats__cat`. */
 
 /* The one line the whole screen exists to say. Book face, because it names
    books. */
@@ -888,20 +878,32 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * step down, and the whole row is shorter by about a fifth. The number is
  * bigger than before regardless, because it is what the card is for.
  *
- * ## Three across, and it used to say so in the template
+ * ## Three across and wrapping, since there are five of them (#361)
  *
- * `repeat(3, 1fr)` is right for a wireframe, where every number is known and
- * there are always three. It is wrong for the app: a count the catalogue
- * cannot answer yet is left out rather than drawn as a guess, so a row of two
- * would have kept a third of the width empty and read as a tile that failed to
- * load. Auto columns share the row between however many arrive; three still
- * land on thirds, so nothing in the gallery moves.
+ * It was a single line of auto columns, which shared the row between however
+ * many counts arrived: three on the wireframe, two on an app whose carry review
+ * had not answered yet, and never a hole where a tile failed to load. Five
+ * counts cannot be a line at 414 wide, so the columns are fixed at three and
+ * the row wraps, and the same protection survives in a different form: a
+ * missing count closes the grid up rather than leaving a gap in it.
+ *
+ * The cat takes the cell after the last count, which on an ordinary day is the
+ * sixth of six. He is not a tile: no well behind him, and he stands on the
+ * floor of the row rather than in the middle of it, because he is sitting at
+ * the end of a run of numbers the way he sits at the end of a run of books.
  */
 .wf-stats {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--s2);
+}
+
+.wf-stats__cat {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: var(--tap);
+  padding-bottom: var(--s1);
 }
 
 .wf-stat {
@@ -909,7 +911,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   gap: 0;
   justify-items: center;
   align-content: center;
-  padding: var(--s2) var(--s1);
+  padding: var(--s3) var(--s1);
   border: 0;
   border-radius: var(--r-md);
   background: var(--paper-sunk);
@@ -939,39 +941,61 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The one door on the first screen, drawn under the counts it belongs to.
+ * The things you can do on the first screen, under the counts.
  *
- * **Raised paper inside a hairline**, which is the skin the two round targets
- * on the library's filter row wear, and it is the same fact drawn at another
- * size: those are how you find a book on the screen that lists them, and this
- * is how you find the one already in your hand. The counts around it are sunk
- * paper, so the door lifts off the page where they sit in it, and that is the
- * whole of what says it is not a fifth count.
+ * **Raised paper inside a hairline, with a shadow under it**, where the counts
+ * above sit in the page: the numbers are the page and the doors come off it.
+ * That is the whole of what says a door is not a sixth count, and it is the
+ * half the owner said was missing: "it doesn't look like a button, it doesn't
+ * look like an action that they can take."
+ *
+ * Three parts, and the first is why the row now reads as a target at a glance:
+ * a glyph on a warm chip, the sentence, and the chevron every row that goes
+ * somewhere wears. The chip is board, which is the colour of a plank in both
+ * themes, so the mark is warm rather than tinted with a hue that would be
+ * claiming a meaning it does not have.
  *
  * It is deliberately not a filled button. The one filled button in this system
- * is the thing a screen is *for*, and the first screen is for its numbers.
+ * is the thing a screen is *for*, and this screen has two doors, neither of
+ * which outranks the other.
  *
- * Full width, so the target is the row rather than the words in it. See
- * `InHand` in `Controls.tsx` for why there is no glyph on it.
+ * Full width and 56px, so the target is the row rather than the words in it.
  */
-.wf-inhand {
+.wf-doors {
+  display: grid;
+  gap: var(--s2);
+}
+
+.wf-door {
   display: flex;
   align-items: center;
-  gap: var(--s2);
+  gap: var(--s3);
   width: 100%;
-  min-height: var(--tap);
+  min-height: 56px;
   padding: var(--s2) var(--s3);
   text-align: left;
   background: var(--paper-raised);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
+  box-shadow: var(--lift-1);
   color: var(--ink);
 }
-.wf-inhand:active { background: var(--paper-sunk); }
-.wf-inhand:focus-visible { outline: none; box-shadow: var(--focus); }
-.wf-inhand svg { flex: none; margin-left: auto; color: var(--ink-2); }
+.wf-door:active { background: var(--paper-sunk); box-shadow: none; }
+.wf-door:focus-visible { outline: none; box-shadow: var(--focus); }
+.wf-door > svg { flex: none; margin-left: auto; color: var(--ink-2); }
 
-.wf-inhand__word {
+.wf-door__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  background: var(--board);
+  color: var(--ink);
+}
+
+.wf-door__word {
   font-family: var(--face-book);
   font-size: var(--size-body);
   line-height: var(--lh-tight);
@@ -2250,6 +2274,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   stroke-width: 6;
   stroke-linecap: round;
 }
+/* The same curve, wider and underneath, so the tail has an edge where it lies
+   on the page. Without it he loses his tail at night, which is the fault the
+   rim exists to prevent everywhere else on him. */
+.wf-cat__tail--rim { stroke: var(--cat-rim); stroke-width: 9; }
 /* The second pass over the silhouette: fill only, so the rim survives where
    the cat meets the page and disappears where he meets himself. */
 .wf-cat__fill { fill: var(--cat); stroke: none; }

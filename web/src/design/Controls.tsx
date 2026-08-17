@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { IconOnward } from './Icons'
+import { IconCarry, IconInHand, IconOnward } from './Icons'
 
 export function Button({
   children,
@@ -336,45 +336,110 @@ export function Field({
 }
 
 /**
+ * One thing you can do, drawn so that it plainly can be done.
+ *
+ * ## Why it stopped being a row of words
+ *
+ * This was a hairline row with a sentence in it and a chevron at the end, and
+ * the owner read it and said what was wrong with it (#361):
+ *
+ * > I don't like the "find the book in your hand" button that we have there.
+ * > It doesn't look like a button, it doesn't look like an action that they can
+ * > take.
+ *
+ * So a door now carries three things rather than one: a glyph in a chip at the
+ * front, the sentence, and the chevron. The glyph is what makes it read as a
+ * target from across the room, and the chip is what makes the glyph a mark
+ * rather than a decoration floating in the row. It is raised paper with a
+ * shadow under it, where the counts above it are sunk into the page, so the
+ * actions lift off the screen the numbers sit in.
+ *
+ * **It is still not a filled button.** The one filled button in this system is
+ * the thing a screen is *for*, and a screen has at most one; the first screen
+ * has two doors and neither of them outranks the other.
+ *
+ * ## Why the words live here and not where they are used
+ *
+ * Every door is drawn twice, once by the gallery and once by the app, and the
+ * only part of a door that says which room it opens is its sentence. Written
+ * out in both places they are two doors that agree until one is edited, and
+ * for `IN_HAND` that disagreement has a price attached: it is one of this
+ * app's two cameras, and landing on the other one is somebody photographing a
+ * book they already own into a second record. So each sentence is a constant
+ * here, next to the component that draws it.
+ */
+export function Doors({ children }: { children: ReactNode }) {
+  return <div className="wf-doors">{children}</div>
+}
+
+export function Door({
+  word,
+  icon,
+  mark,
+  onPress,
+}: {
+  /** What pressing it does, written across the row. */
+  word: string
+  icon: ReactNode
+  /**
+   * A name for this particular door, so a rule can be written about one of
+   * them. There is exactly one way to the camera that reads a book you already
+   * own, and that is checked rather than described (#355).
+   */
+  mark?: string
+  onPress?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`wf-door${mark ? ` wf-door--${mark}` : ''}`}
+      onClick={onPress}
+    >
+      <span className="wf-door__mark" aria-hidden="true">{icon}</span>
+      <span className="wf-door__word">{word}</span>
+      <IconOnward size={18} />
+    </button>
+  )
+}
+
+/**
  * The way to the camera that reads a book you are already holding.
  *
- * ## Why this is a component and not a button written out twice
+ * ## There are two doors to it and there have to be
  *
- * There are two doors to that camera and there have to be: the screen about
- * finding a book has one in its corner, and the first screen has this. Written
- * out separately they are two doors that agree until one of them is edited,
- * and the thing they have to agree about is the **wording**, because the
- * wording is the only part of either that says which of this app's two cameras
- * it opens. So the sentence lives here, once, and both callers take `IN_HAND`.
- *
- * ## It is a row of words with no glyph in it, and that is the icon rule
- *
- * `Icons.tsx` says an icon exists in exactly three places: where a word is
- * already beside it, in a corner of the screen, or inside a control with no
- * room for a word. A full-width row has room for the word, so it gets the
- * word. It would have been the camera glyph otherwise, and the first screen
- * already draws that glyph in the tab bar under "Scan", where it means the
- * *other* camera. Two cameras and one picture, on the one screen where getting
- * them the wrong way round costs somebody a book catalogued twice.
- *
- * The chevron is the one every list row wears and says only that this goes
- * somewhere.
+ * The screen about finding a book has one in its corner, and the first screen
+ * has this. Both take `IN_HAND` and both wear `IconInHand`, so the sentence and
+ * the glyph are each decided once: what they have to agree about is **which of
+ * this app's two cameras this is**, and that is the whole of what either says.
  *
  * ## What it costs the screen it is on
  *
- * One row, at the end of the collection, and nothing above it moves. The first
- * screen is counts and this is not one, so it is drawn as a door rather than
- * as a tile, and it is not in the middle of anything: the card that used to
- * offer a camera there was taken off for eating the middle of the screen
- * somebody opens most often, and that argument survives this.
+ * One row, under the counts. The card that used to offer the *other* camera
+ * here was taken off for eating the middle of the screen somebody opens most
+ * often, and that argument survives this: a door to a room the tab bar already
+ * opens is still not allowed, and no tab opens this one.
  */
 export const IN_HAND = 'Find the book in your hand'
 
 export function InHand({ onPress }: { onPress?: () => void }) {
-  return (
-    <button type="button" className="wf-inhand" onClick={onPress}>
-      <span className="wf-inhand__word">{IN_HAND}</span>
-      <IconOnward size={18} />
-    </button>
-  )
+  return <Door word={IN_HAND} icon={<IconInHand size={20} />} mark="inhand" onPress={onPress} />
+}
+
+/**
+ * The way to the books that are not where they now belong.
+ *
+ * The second action on the first screen, and the argument for it being there is
+ * that nothing else reaches it: the tab bar opens four rooms and this is not
+ * one of them, and a rule change can displace fifty books in an afternoon
+ * without anybody touching a shelf. The count above it says how many; this says
+ * what to do about them, in the words somebody would use for the job.
+ *
+ * **It is drawn only when there is something to carry.** A door to an empty
+ * room is the fault the first screen keeps being defended against, and this one
+ * would be a walk to a bookcase for nothing.
+ */
+export const CARRY_BOOKS = 'Carry books where they belong'
+
+export function CarryBooks({ onPress }: { onPress?: () => void }) {
+  return <Door word={CARRY_BOOKS} icon={<IconCarry size={20} />} mark="carry" onPress={onPress} />
 }

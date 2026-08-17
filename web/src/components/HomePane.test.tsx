@@ -5,13 +5,13 @@
  *
  * The first is the design rules that reach this screen, which `design.test.tsx`
  * pins for the gallery and nothing pinned for the app: every count is a target,
- * the collection comes above what is asking for attention (#283), and the
- * camera is not offered here.
+ * the five counts are ungrouped and in the order the owner named them (#361),
+ * and the camera that catalogues a book is not offered here.
  *
  * The second is what the drawing did not have to survive, because it was drawn
  * with numbers somebody chose: nothing catalogued, nothing waiting, a count
- * that has not come back yet, one book rather than several, and four digits.
- * A wireframe never sees any of those.
+ * that has not come back yet, and four digits. A wireframe never sees any of
+ * those.
  *
  * #148 is why this file existed before. It said "9 need an ISBN by hand" when
  * five of those nine already had a valid ISBN off a barcode, so the sentence is
@@ -28,27 +28,14 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import { HomePane } from './HomePane'
-import { IN_HAND } from '../design/Controls'
-import type { BackupWatch, Capture, Counts, Misfile, QueueCounts } from '../lib/api'
+import { CARRY_BOOKS, IN_HAND } from '../design/Controls'
+import type { BackupWatch, Counts, Misfile, QueueCounts } from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
 const counts: Counts = { total: 12, fiction: 8, nonfiction: 4, checkedOut: 0 }
 
 function queue(over: Partial<QueueCounts> = {}): QueueCounts {
   return { pending: 0, ready: 0, failed: 0, done: 0, failures: noFailures, ...over }
-}
-
-/** A queued book, with only the fields this screen reads filled in. */
-function capture(over: Partial<Capture> = {}): Capture {
-  return {
-    id: 1, status: 'ready', front_image: '', back_image: '', edge_image: '',
-    isbn13: '', isbn10: '', isbn_source: '', title_guess: '', cover_text: '',
-    analysed: '', draft_json: '', edit_json: '', edited_by: '', edited_at: null,
-    note: '', claimed_by: '', claimed_at: null, book_id: null,
-    created_at: '', processed_at: null,
-    front_crop: '', back_crop: '', edge_crop: '', cropped: '',
-    ...over,
-  }
 }
 
 /** A book that is not where it belongs, as the shelving review answers one. */
@@ -79,7 +66,6 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
   return renderToStaticMarkup(HomePane({
     counts,
     queue: queue(),
-    queued: [],
     carrying: [],
     backup: null,
     onAdd: () => {},
@@ -90,7 +76,6 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
     onLibrary: () => {},
     onQueue: () => {},
     onCarry: () => {},
-    onOpenReady: () => {},
     ...over,
   }) as ReactElement)
 }
@@ -98,6 +83,11 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
 /** The words on the screen, with the markup and the class names gone. */
 function words(markup: string): string {
   return markup.replace(/<[^>]*>/g, ' ')
+}
+
+/** Every count on the screen, in the order somebody reads them. */
+function said(markup: string): string[] {
+  return [...markup.matchAll(/class="wf-stat__word">([^<]+)</g)].map((one) => one[1]!)
 }
 
 describe('the design rules that reach the app', () => {
@@ -111,22 +101,45 @@ describe('the design rules that reach the app', () => {
     )
   })
 
-  it('does not offer the camera', () => {
+  it('does not offer the camera that catalogues a book', () => {
     expect(words(home())).not.toMatch(/camera|photograph/i)
   })
 
-  it('has one door on it, and it is the book in your hand (#355)', () => {
+  it('says the five counts ungrouped, in the order he named them (#361)', () => {
+    const html = home({ queue: queue({ ready: 6, failed: 3 }), carrying: [misfile()] })
+
+    expect(html, 'the first screen has a heading on it again').not.toMatch(/wf-heading/)
+    expect(said(html)).toEqual([
+      'catalogued', 'checked out', 'ready to shelve', 'to carry', 'stuck',
+    ])
+  })
+
+  it('keeps the cat', () => {
+    // "We still should have the cat icon on this screen though, because it's
+    // cute." He sits at the end of the counts, which is where the sentence he
+    // used to sit beside used to be.
+    expect(home(), 'the cat has gone off the first screen').toMatch(/wf-stats__cat/)
+  })
+
+  it('has one door to the camera that reads a book in your hand, and one only', () => {
     const html = home()
-    const doors = html.match(/class="wf-inhand"/g) ?? []
+    const doors = html.match(/class="wf-door wf-door--inhand"/g) ?? []
 
     expect(doors.length, `the first screen draws ${doors.length} of these`).toBe(1)
     expect(words(html)).toContain(IN_HAND)
   })
 
-  it('puts the collection above the things asking for attention (#283)', () => {
-    const html = home()
-    expect(html.indexOf('The collection')).toBeGreaterThan(-1)
-    expect(html.indexOf('The collection')).toBeLessThan(html.indexOf('Needs you'))
+  it('offers few things to do, and nothing a tab already reaches', () => {
+    // The ceiling rather than the count, for the reason the gallery's copy of
+    // this rule gives: the fault is a screen of buttons, which is the thing
+    // this round was called to fix said another way.
+    const html = home({ carrying: [misfile()] })
+    const doors = html.match(/class="wf-door[ "]/g) ?? []
+
+    expect(doors.length, `the first screen offers ${doors.length} things to do`)
+      .toBeLessThanOrEqual(3)
+    expect(words(html), 'a door offers what the tab bar already opens')
+      .not.toMatch(/photograph a book|the queue|your library/i)
   })
 
   it('draws the four places in the tab bar and no fifth', () => {
@@ -140,14 +153,10 @@ describe('the design rules that reach the app', () => {
   })
 
   it('says no word out of the model', () => {
-    const said = words(home({
-      queue: queue({ ready: 2 }),
-      queued: [capture({ title_guess: 'Underland' })],
-      carrying: [misfile()],
-    }))
+    const text = words(home({ queue: queue({ ready: 2 }), carrying: [misfile()] }))
 
     for (const word of ['run', 'range', 'shelf', 'plank', 'separator', 'capture', 'placement']) {
-      expect(said, `the first screen says "${word}"`).not.toMatch(
+      expect(text, `the first screen says "${word}"`).not.toMatch(
         new RegExp(`\\b${word}\\b`, 'i'),
       )
     }
@@ -155,15 +164,6 @@ describe('the design rules that reach the app', () => {
 })
 
 describe('what the counts say', () => {
-  it('counts the whole queue on the table, not one part of it', () => {
-    const html = home({ queue: queue({ pending: 9, ready: 6, failed: 3 }) })
-    expect(html).toContain('18 books are waiting on the table.')
-  })
-
-  it('says one book rather than 1 books', () => {
-    expect(home({ queue: queue({ ready: 1 }) })).toContain('One book is waiting on the table.')
-  })
-
   it('groups a collection that has reached four digits', () => {
     const html = home({ counts: { ...counts, total: 1204 } })
     expect(html).toContain('1,204')
@@ -182,22 +182,42 @@ describe('what the counts say', () => {
     expect(html).not.toContain('need an ISBN')
     expect(html).not.toContain('need details by hand')
   })
+
+  it('no longer says anything about what is waiting on the table', () => {
+    // #361, and the one thing that genuinely left with that sentence: a book
+    // still being looked up is neither ready nor stuck, so no count here holds
+    // it. It is on the queue, one press away, and it stops being pending on its
+    // own. What is checked is that the sentence has not been rewritten shorter
+    // somewhere else on the screen.
+    const html = home({ queue: queue({ pending: 9, ready: 6, failed: 3 }) })
+
+    expect(words(html)).not.toMatch(/on the table/i)
+    expect(said(html)).not.toContain('waiting')
+  })
 })
 
 describe('the numbers the drawing did not have to survive', () => {
-  it('says nothing is catalogued rather than drawing a screen of zeros', () => {
+  it('draws five zeros and a sleeping cat when there is nothing at all', () => {
+    // Not "nothing is catalogued yet" over a tile that reads nought
+    // catalogued: that is the same fact twice, which is what this round took
+    // off the screen everywhere else. The cat says it and costs no line.
     const html = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 } })
-    expect(html).toContain('Nothing is catalogued yet.')
-    expect(html).not.toContain('waiting on the table')
+
+    expect(said(html).length, 'the counts are not all drawn on an empty day').toBe(5)
+    expect(html).toMatch(/wf-stats__cat/)
+    expect(html, 'the cat is awake on a screen with nothing on it').toMatch(/wf-cat__shut/)
+    expect(html, 'a door was offered to a room with nothing in it').not.toContain('wf-door')
   })
 
-  it('still says what is on the table when the collection is empty', () => {
-    const html = home({
+  it('wakes him up as soon as there is a book anywhere', () => {
+    const table = home({
       counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 },
       queue: queue({ pending: 2 }),
     })
-    expect(html).toContain('2 books are waiting on the table.')
-    expect(html).not.toContain('Nothing is catalogued yet.')
+
+    expect(table, 'the cat slept through a book arriving on the table')
+      .not.toMatch(/wf-cat__shut/)
+    expect(table).toMatch(/wf-stats__cat/)
   })
 
   it('offers no way to find a book when there is nothing to find one against', () => {
@@ -206,8 +226,8 @@ describe('the numbers the drawing did not have to survive', () => {
     // 1,204 and never sees this (#355).
     const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
 
-    expect(home({ counts: empty })).not.toContain('wf-inhand')
-    expect(home({ counts: { ...empty, total: 1 } })).toContain('wf-inhand')
+    expect(home({ counts: empty })).not.toContain('wf-door--inhand')
+    expect(home({ counts: { ...empty, total: 1 } })).toContain('wf-door--inhand')
   })
 
   it('offers it for a book on the table, with nothing catalogued at all', () => {
@@ -217,14 +237,14 @@ describe('the numbers the drawing did not have to survive', () => {
     // most likely to photograph one book twice.
     const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
 
-    expect(home({ counts: empty, queue: queue({ pending: 2 }) })).toContain('wf-inhand')
+    expect(home({ counts: empty, queue: queue({ pending: 2 }) })).toContain('wf-door--inhand')
   })
 
   it('offers it only once the catalogue has answered', () => {
     // The same reason the counts wait: a door drawn against a number that has
     // not arrived is a guess about somebody's collection.
-    expect(home({ counts: null })).not.toContain('wf-inhand')
-    expect(home({ queue: null })).not.toContain('wf-inhand')
+    expect(home({ counts: null })).not.toContain('wf-door')
+    expect(home({ queue: null })).not.toContain('wf-door')
   })
 
   it('draws nothing but the frame until the first answer comes back', () => {
@@ -236,36 +256,28 @@ describe('the numbers the drawing did not have to survive', () => {
 
   it('leaves the carry count out until the review has answered', () => {
     const unanswered = home({ carrying: null })
-    expect(unanswered).not.toContain('to carry')
-    expect(unanswered).toContain('ready to shelve')
-    expect(unanswered).toContain('stuck')
+    expect(said(unanswered)).toEqual(['catalogued', 'checked out', 'ready to shelve', 'stuck'])
 
-    expect(home({ carrying: [] })).toContain('to carry')
+    expect(said(home({ carrying: [] }))).toContain('to carry')
   })
 
-  it('shows the first three of a long carry list and a way to the rest', () => {
+  it('offers carrying only when there is something to carry', () => {
+    // The count is how many and the door is the invitation, so the count is
+    // drawn at nought and the door is not: a walk to a bookcase for nothing is
+    // the door-to-an-empty-room fault wearing the other camera's clothes.
+    expect(home({ carrying: [] })).not.toContain(CARRY_BOOKS)
+    expect(words(home({ carrying: [misfile()] }))).toContain(CARRY_BOOKS)
+  })
+
+  it('counts a long carry list rather than naming three of it', () => {
+    // The card that named three of them went in #361, for saying a third time
+    // what the count says. What is left is the count and the door.
     const many = Array.from({ length: 53 }, (_, at) =>
       misfile({ id: at + 1, title: `Book ${at + 1}` }))
     const html = home({ carrying: many })
 
-    expect((html.match(/class="wf-row"/g) ?? []).length).toBe(3)
-    expect(html).toContain('All 53')
-    expect(html).toContain('Book 3')
-    expect(html).not.toContain('Book 4<')
-  })
-
-  it('draws no card for a list with nothing in it', () => {
-    const html = home()
-    expect(html).not.toContain('Ready to shelve')
-    expect(html).not.toContain('Books to carry')
-  })
-
-  it('names a queued book that no catalogue has answered for', () => {
-    const html = home({
-      queue: queue({ ready: 1 }),
-      queued: [capture({ id: 4, status: 'ready' })],
-    })
-    expect(html).toContain('Book #4')
+    expect(html).toContain('53')
+    expect(html, 'the first screen names books again').not.toContain('wf-row')
   })
 
   it('says nothing about backups on an ordinary day, in either silence', () => {
@@ -303,17 +315,17 @@ describe('when the collection has stopped being backed up', () => {
     // Never "everything is fine", and never "there are no backups" either: the
     // dumps are on a second physical disk on purpose, and a disk with its cable
     // out is a thing nobody knows the answer about.
-    const said = words(home({ backup: watched({ state: 'unreachable', why: 'there is no such folder' }) }))
+    const text = words(home({ backup: watched({ state: 'unreachable', why: 'there is no such folder' }) }))
 
-    expect(said).toContain('The backups cannot be read')
-    expect(said).toContain('unplugged')
+    expect(text).toContain('The backups cannot be read')
+    expect(text).toContain('unplugged')
   })
 
   it('says a backup nobody restored is not one', () => {
-    const said = words(home({ backup: watched({ state: 'unverified' }) }))
+    const text = words(home({ backup: watched({ state: 'unverified' }) }))
 
-    expect(said).toContain('No backup has been proved')
-    expect(said).toContain('restored')
+    expect(text).toContain('No backup has been proved')
+    expect(text).toContain('restored')
   })
 
   it('says an empty directory plainly', () => {
@@ -322,13 +334,15 @@ describe('when the collection has stopped being backed up', () => {
   })
 
   it('draws it above everything else on the screen', () => {
+    // Above the counts rather than among them, which is the arrangement #311
+    // chose and the headings going does not change: this is news, and the
+    // counts are work somebody can walk over and do.
     const html = home({
       queue: queue({ ready: 6 }),
       backup: watched({ state: 'none' }),
     })
 
-    expect(html.indexOf('Nothing has been backed up'))
-      .toBeLessThan(html.indexOf('The collection'))
+    expect(html.indexOf('Nothing has been backed up')).toBeLessThan(html.indexOf('wf-stats'))
   })
 
   it('says it even before the catalogue has answered', () => {
@@ -349,26 +363,12 @@ describe('when the collection has stopped being backed up', () => {
 
   it('says no word out of the model, in any of its four states', () => {
     for (const state of ['unreachable', 'none', 'unverified', 'stale'] as const) {
-      const said = words(home({ backup: watched({ state, ageHours: 64 }) }))
+      const text = words(home({ backup: watched({ state, ageHours: 64 }) }))
       for (const word of ['run', 'range', 'shelf', 'plank', 'separator', 'capture', 'placement', 'cut']) {
-        expect(said, `the backup card says "${word}" when ${state}`).not.toMatch(
+        expect(text, `the backup card says "${word}" when ${state}`).not.toMatch(
           new RegExp(`\\b${word}\\b`, 'i'),
         )
       }
     }
-  })
-})
-
-describe('the queue on the first screen', () => {
-  it('lists only the ones that are ready, not the whole queue', () => {
-    const html = home({
-      queue: queue({ pending: 1, ready: 1 }),
-      queued: [
-        capture({ id: 1, status: 'pending', title_guess: 'Still reading' }),
-        capture({ id: 2, status: 'ready', title_guess: 'Piranesi' }),
-      ],
-    })
-    expect(html).toContain('Piranesi')
-    expect(html).not.toContain('Still reading')
   })
 })
