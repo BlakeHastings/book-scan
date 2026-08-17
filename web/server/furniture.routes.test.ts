@@ -485,6 +485,75 @@ describe('describing a piece of furniture that has never existed', () => {
     })
 })
 
+/**
+ * The write behind the dead button in #367.
+ *
+ * A new area is a boundary and a boundary is a book, so the screen asks which
+ * book the new area starts at. A run with nothing standing in it has no such
+ * book, and the screen now adds the area anchored where that run is anchored.
+ * Two anchors equal is allowed on purpose: it is what a boundary move that
+ * empties an area already leaves behind, and it is the only anchor that both
+ * ascends and takes no book off anybody.
+ */
+describe('cutting an area into a run with nothing standing in it', () => {
+  it('adds it to a piece nothing has ever been filed onto', async () => {
+    await buildWorld()
+    const made = await post('/api/fixtures', { kind: 'crate', name: 'Hall crate' })
+    const id = made.body.fixture.id
+    await post(`/api/fixtures/${id}/areas`, {})
+
+    const added = await post(`/api/fixtures/${id}/areas`, { position: 1 })
+    expect(added.status).toBe(201)
+
+    const { body } = await get(`/api/fixtures/${id}`)
+    expect(body.fixture.areas.map((one: { label: string }) => one.label))
+      .toEqual(['Hall crate · A', 'Hall crate · B'])
+  })
+
+  /**
+   * The harder half, and the one the empty case is really about: a piece with
+   * books on it whose last area is empty. The new area opens on the same anchor
+   * as the one it follows, which is a face the server has to accept rather than
+   * refuse for running backwards, and no book moves.
+   */
+  it('adds it after an empty area on a bookcase that is full, and moves no book', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const before = await everyPlacement()
+
+    // A plank past the end of the run: anchored after every book on the piece,
+    // so it stands there holding nothing, exactly as one emptied by a carry.
+    const beyond = await post(`/api/fixtures/${bookcase.id}/areas`, { startsAt: '~~~' })
+    expect(beyond.status).toBe(201)
+    expect(beyond.body.area.books).toBe(0)
+
+    const added = await post(`/api/fixtures/${bookcase.id}/areas`, {
+      position: beyond.body.area.position + 1,
+      startsAt: beyond.body.area.startsAt,
+    })
+    expect(added.status).toBe(201)
+    expect(added.body.area.books).toBe(0)
+
+    const after = await get(`/api/fixtures/${bookcase.id}`)
+    expect(after.body.fixture.areas.map((one: { books: number }) => one.books))
+      .toEqual([2, 2, 2, 0, 0])
+    expect(await everyPlacement()).toEqual(before)
+  })
+
+  /**
+   * And the refusal that is still a refusal. An area cannot open before the one
+   * in front of it, which is why the empty case takes its neighbour's anchor
+   * rather than the beginning.
+   */
+  it('still refuses an area that opens before the one in front of it', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+
+    const added = await post(`/api/fixtures/${bookcase.id}/areas`, { startsAt: '' })
+    expect(added.status).toBe(409)
+  })
+})
+
 describe('reordering the areas on a piece', () => {
   /** A piece with five unanchored planks, which is somebody typing furniture in. */
   async function fivePlanks(): Promise<{ id: number; areas: number[] }> {

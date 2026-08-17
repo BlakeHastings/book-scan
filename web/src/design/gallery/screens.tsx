@@ -2257,12 +2257,19 @@ const AREAS_5: Place[] = [
   { reads: 'Desk · Right side', books: 4, holds: 'Put here by hand' },
 ]
 
+/*
+ * The room as a column you drag within, with no number down the side of it.
+ *
+ * A piece nobody has named is drawn as what it is and where it stands, which is
+ * what `pieceSaid` answers in the app: with the number column gone, a row
+ * reading "Not named" would be a row with nothing on it.
+ */
 const ROOM = [
-  { label: '1', name: 'By the window' },
-  { label: '2', name: 'Not named' },
-  { label: '3', name: 'The landing' },
-  { label: '4', name: 'Hall crate' },
-  { label: '5', name: 'Desk' },
+  { name: 'By the window' },
+  { name: 'Bookcase 2' },
+  { name: 'The landing' },
+  { name: 'Hall crate' },
+  { name: 'Desk' },
 ]
 
 /**
@@ -2405,8 +2412,15 @@ function Bookcase(go: Go) {
       go={go}
       top={<TopBar title="Bookcase 2" sub="3 areas, 63 books" onBack={() => go('furniture')} />}
     >
-      <Bookcase2 go={go} />
-
+      {/*
+        The piece itself was drawn here, areas and all, with the way to cut
+        another one into it. The owner took it off (#367): "on the edit view we
+        shouldn't have that there. It should just have what you call it, what it
+        is, where it stands." The same note he gave about the area screen, where
+        the bookcase over everything that screen was for "is taking up so much
+        of the screen". The areas are on the room, against the piece they are
+        on, which is the screen this one is opened from.
+      */}
       <Field label="What you call it" placeholder="Not named" />
 
       <Field label="What it is" value="Bookcase" />
@@ -2422,7 +2436,7 @@ function Bookcase(go: Go) {
       <div>
         <span className="wf-field__label">Where it stands</span>
         <div style={{ height: 6 }} />
-        <Order slots={ROOM.map((slot) => ({ ...slot, on: slot.label === '2' }))} />
+        <Order slots={ROOM.map((slot) => ({ ...slot, on: slot.name === 'Bookcase 2' }))} />
       </div>
 
       <Card weight="sunk" kind="What it will be called" title="2A, 2B, 2C" />

@@ -19,8 +19,8 @@ import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
 import { api, type BookClaim, type RuleDto } from '../lib/api'
 
 export function ClaimedScreen() {
-  const { claiming, closeClaim, setRoute } = useNavigation()
-  const { setFixtureId, setAreaId } = useArranging()
+  const { claiming, closeClaim } = useNavigation()
+  const { setFixtureId, setAreaId, onward } = useArranging()
   const { room, error, setError } = useRoom()
   const [claim, setClaim] = useState<BookClaim | null>(null)
   const tabs = useRoomTabs()
@@ -51,7 +51,12 @@ export function ClaimedScreen() {
 
     setFixtureId(piece.id)
     setAreaId(area.id)
-    setRoute('belongs')
+    /*
+     * Through the trail rather than straight to the route, so that back off
+     * that screen is this one. It used to land on the area screen, which is a
+     * screen somebody arriving from a book has never seen (#367).
+     */
+    onward('belongs')
   }
 
   return (

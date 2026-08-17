@@ -160,13 +160,57 @@ describe('putting the room in order', () => {
   })
 
   /**
-   * The numbers are this room's own, gap and all. Renumbering 1, 2, 4 to 1, 2,
-   * 3 because somebody dragged something would rewrite the recorded location of
-   * every book on the piece called 4.
+   * The number beside each piece was `fixture.position`, and beside four
+   * bookshelves it read one, four, five, six (#367). It is correct in the model
+   * and it is not a fact about the room a person is putting in order, so it is
+   * gone and the order is left to say what order is. The names stay: a piece
+   * nobody has named still reads as what it is and where it stands.
    */
-  it('promises the room its own numbers back and no others', () => {
+  it('draws no number beside a piece', () => {
+    const markup = drawn(three, [2, 0, 1])
+    expect(markup).toMatch(/wf-order__name/)
+    expect(markup).not.toMatch(/wf-order__n"/)
+  })
+
+  /**
+   * What saving does, in what a person reads. The numbers are this room's own,
+   * gap and all, and they stay where they are: renumbering 1, 2, 4 to 1, 2, 3
+   * would rewrite the recorded location of every book on the piece called 4.
+   * What actually changes is what an unnamed piece and its areas are called.
+   */
+  it('promises what the pieces will be called, and not what they will be numbered', () => {
     const said = words(drawn(three, [2, 0, 1]))
-    expect(said).toMatch(/Bookcase 4 1, Bookcase 1 2, Bookcase 2 4/)
+    expect(said).toMatch(/What they will be called/)
+    expect(said).toMatch(/Bookcase 4 becomes Bookcase 1/)
+    // The areas as a count and an example rather than as eleven clauses of the
+    // same fact, which is what reading it on a phone settled.
+    expect(said).toMatch(/That changes 3 area labels as well, 4A to 1A/)
+  })
+
+  /**
+   * The owner's four bookshelves are named, which is why the number beside them
+   * meant nothing: nothing about them is worked out from where they stand. The
+   * card says that rather than showing numbers to prove it.
+   */
+  it('says a named room is renamed by nothing', () => {
+    const named = furniture([
+      fixture({ id: 1, position: 1, name: 'Bookshelf 1' }),
+      fixture({ id: 2, position: 4, name: 'Bookshelf 2' }),
+      fixture({ id: 3, position: 5, name: 'Bookshelf 3' }),
+    ])
+    expect(words(drawn(named, [2, 0, 1]))).toMatch(/Nothing is renamed/)
+  })
+
+  /**
+   * Found by opening it on a room of four unnamed bookcases. Nothing dragged
+   * means nothing renamed, and saying so because the pieces are named would be
+   * a true answer with a false reason on it: every piece there is called after
+   * where it stands, and every one would read differently the moment it moved.
+   */
+  it('does not credit a name for a room nobody has dragged yet', () => {
+    const said = words(drawn(three, [0, 1, 2]))
+    expect(said).toMatch(/Nothing has moved yet/)
+    expect(said).not.toMatch(/Nothing is renamed/)
   })
 
   it('writes nothing until it is saved, and offers to leave it alone', () => {

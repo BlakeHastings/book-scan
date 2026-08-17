@@ -40,13 +40,19 @@ const books: SplitBook[] = [
 const nothing = () => {}
 
 function drawn(
-  over: { area?: AreaDto | null; at?: number | null; books?: SplitBook[] } = {},
+  over: {
+    area?: AreaDto | null
+    at?: number | null
+    books?: SplitBook[]
+    coming?: boolean
+  } = {},
 ): string {
   return renderToStaticMarkup(
     <AddAreaPane
       piece={piece}
       area={over.area === undefined ? piece.areas[1]! : over.area}
       books={over.books ?? books}
+      coming={over.coming ?? false}
       at={over.at ?? null}
       busy={false}
       error=""
@@ -107,6 +113,7 @@ describe('cutting an area in two', () => {
         piece={bare}
         area={null}
         books={[]}
+        coming={false}
         at={null}
         busy={false}
         error=""
@@ -127,5 +134,77 @@ describe('cutting an area in two', () => {
    */
   it('says what will actually reach the new area', () => {
     expect(words(drawn({ at: 1 }))).toMatch(/Put here by hand/)
+  })
+})
+
+/**
+ * The defect, and the one that mattered most of the four in #367: the button
+ * was not wrong, it was dead. This screen holds "add the area" back until a
+ * book has been picked, and on a run with no books in it there is no book to
+ * pick and there never will be, so nothing happened however many times it was
+ * pressed. There is no decision here, so there is nothing to hold it back for.
+ */
+describe('adding an area where there is nothing to divide', () => {
+  const empty = piece.areas[2]!
+
+  it('offers the button rather than waiting for a book that cannot be picked', () => {
+    const markup = drawn({ area: empty, books: [] })
+    expect(markup).toMatch(/Add the area/)
+    expect(markup).not.toMatch(/disabled/)
+    expect(markup).not.toMatch(/Nothing is cut until you say/)
+  })
+
+  /**
+   * The other half of the same complaint. A button that cannot be pressed yet
+   * used to be drawn exactly like one that can, so "it doesn't work" was the
+   * only reading available from the outside.
+   */
+  it('draws a button that cannot be pressed yet as one that cannot', () => {
+    expect(drawn()).toMatch(/disabled/)
+    expect(drawn({ at: 2 })).not.toMatch(/disabled/)
+  })
+
+  it('says an area is added and no book moves', () => {
+    const said = words(drawn({ area: empty, books: [] }))
+    expect(said).toMatch(/Nothing stands on 4C yet, so there is nothing to divide/)
+    expect(said).toMatch(/Bookcase 4 gets another area, and no book moves/)
+  })
+
+  /**
+   * Found by opening it: the top bar said "Splitting 4C" over a sentence saying
+   * 4C has nothing on it to divide, which is the screen disagreeing with
+   * itself in the space of two lines.
+   */
+  it('does not call it splitting, because nothing is being split', () => {
+    const said = words(drawn({ area: empty, books: [] }))
+    expect(said).not.toMatch(/Splitting/)
+    expect(said).toMatch(/To Bookcase 4/)
+    expect(words(drawn({ at: 2 }))).toMatch(/Splitting 4B/)
+  })
+
+  it('draws no list to pick from, because there is nothing standing there', () => {
+    expect(words(drawn({ area: empty, books: [] }))).not.toMatch(/Books on/)
+  })
+
+  /**
+   * An empty list and a list that has not arrived are the same list. Offering
+   * the decisionless screen while the books are still coming would let somebody
+   * cut an unanchored area into a full bookcase by pressing quickly, so the
+   * question is not answered until the books have.
+   */
+  it('does not call a run empty while its books are still coming', () => {
+    const said = words(drawn({ area: empty, books: [], coming: true }))
+    expect(said).toMatch(/Where does the new area start\?/)
+    expect(said).toMatch(/Nothing is cut until you say which book the new area starts at/)
+  })
+
+  /**
+   * The other half of #367's warning: an area added to a piece that does have
+   * books still has a decision in it, and only the empty case is simplified.
+   */
+  it('still asks where the cut falls when there are books to divide', () => {
+    const said = words(drawn())
+    expect(said).toMatch(/Where does the new area start\?/)
+    expect(said).toMatch(/Nothing is cut until you say which book the new area starts at/)
   })
 })

@@ -11,9 +11,18 @@
  * that begins nowhere and takes no books, and the areas of a piece are read in
  * the order the books run along it, so the server refuses that outright.
  *
- * The exception is a piece nobody has cut yet, which has no books on it to cut:
- * there the first area opens at the beginning, and this screen has no list to
- * draw.
+ * The exception is a run with nothing standing in it, and there are two of
+ * those. A piece nobody has cut yet has no areas, so the first one opens at the
+ * beginning. A piece whose last area holds no books has nothing to divide, so
+ * the new area opens where that one opens. **Neither has a decision in it**, so
+ * neither draws a list or waits for a book to be picked: the button adds the
+ * area (#367). What separates them from the ordinary case is one question, which
+ * is whether any book stands in the run being cut.
+ *
+ * A run that has not answered yet is not an empty one. `coming` is the
+ * difference, and without it this screen would offer the decisionless version
+ * of itself for as long as the request takes and cut an unanchored area into a
+ * full bookcase for anybody who pressed inside that window.
  *
  * ## Which book, not how many
  *
@@ -46,6 +55,13 @@ interface Props {
   /** The area being cut, or null on a piece that has none yet. */
   area: AreaDto | null
   books: SplitBook[]
+  /**
+   * Whether the books of the area being cut are still coming.
+   *
+   * An empty list and a list that has not arrived are the same list, and they
+   * are opposite answers to the only question this screen asks.
+   */
+  coming: boolean
   /** Which book the new area starts at, as a place in `books`. */
   at: number | null
   busy: boolean
@@ -60,12 +76,24 @@ const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
 const clothFor = (id: number): Cloth => CLOTHS[Math.abs(id) % CLOTHS.length]!
 
 export function AddAreaPane({
-  piece, area, books, at, busy, error, tabs, onBack, onPick, onAdd,
+  piece, area, books, coming, at, busy, error, tabs, onBack, onPick, onAdd,
 }: Props) {
+  /*
+   * Whether there is anything to decide. A run with books in it has to say
+   * where it is cut; a run with none is added and that is the whole of it. The
+   * question is asked of the books rather than of the piece, because it is the
+   * run being cut that either divides or does not: a bookcase can be full and
+   * the area at the end of it still empty.
+   */
+  const deciding = area !== null && (coming || books.length > 0)
+
   const top = (
     <TopBar
       title="Add an area"
-      sub={area ? `Splitting ${area.label}` : piece ? `To ${pieceSaid(piece)}` : undefined}
+      /* Nothing with nothing in it is being split, and a line saying "splitting
+         5A" over a sentence saying 5A has nothing on it to divide is the screen
+         disagreeing with itself. */
+      sub={deciding && area ? `Splitting ${area.label}` : piece ? `To ${pieceSaid(piece)}` : undefined}
       onBack={onBack}
     />
   )
@@ -97,7 +125,10 @@ export function AddAreaPane({
       name: one.name,
       books: one.id === area?.id ? keeping : one.books,
       holds: one.holds,
-      on: one.id === area?.id,
+      // Marked as the one being worked on only while it is: an area with
+      // nothing in it is not divided by this, it is merely the one the new
+      // area lands after.
+      on: one.id === area?.id && deciding,
       fresh: false,
     })),
   ]
@@ -133,9 +164,12 @@ export function AddAreaPane({
       <Trouble said={error} />
 
       <Instruction>
-        {area
+        {deciding
           ? 'Where does the new area start?'
-          : `Nothing has been cut into ${pieceSaid(piece)} yet, so the first area takes all of it.`}
+          : area
+            ? `Nothing stands on ${area.label} yet, so there is nothing to divide `
+              + 'and the new area goes after it.'
+            : `Nothing has been cut into ${pieceSaid(piece)} yet, so the first area takes all of it.`}
       </Instruction>
 
       <Nest name={pieceSaid(piece)} note={pieceNote(piece)} holds={piece.holds}>
@@ -174,10 +208,15 @@ export function AddAreaPane({
         kind="What it does"
         title={!area
           ? `${pieceSaid(piece)} gets its first area`
-          : at === null
-            ? 'Nothing is cut until you say which book the new area starts at'
-            : `${area.label} keeps ${plural(keeping, 'book')}, `
-              + `the new one takes ${plural(taking, 'book')}`}
+          : !deciding
+            /* Said as what happens rather than as what does not: an area is
+               added, and the reason there is nothing to choose is that there
+               are no books here to put on either side of the choice. */
+            ? `${pieceSaid(piece)} gets another area, and no book moves`
+            : at === null
+              ? 'Nothing is cut until you say which book the new area starts at'
+              : `${area.label} keeps ${plural(keeping, 'book')}, `
+                + `the new one takes ${plural(taking, 'book')}`}
       >
         {/*
           The counts above are where the books belong once the boundary is
@@ -196,15 +235,28 @@ export function AddAreaPane({
         )}
       </Card>
 
+      {/*
+        Held back only while there is a decision outstanding, and **drawn as
+        held back**.
+
+        It used to be held back whenever there was an area being cut, which on a
+        run with no books in it was a button that could never be pressed. It was
+        also held back by handing it no action while it went on looking exactly
+        like a button, which is what "clicking the add the area button doesn't
+        work" describes from the outside: a live-looking button that answers a
+        press with nothing (#367). `off` is the honest drawing of it, and the
+        card above says in words why, which is the condition that prop carries.
+      */}
       <Button
         tone="primary"
         block
-        onPress={busy || (area !== null && at === null) ? undefined : onAdd}
+        off={busy || (deciding && at === null)}
+        onPress={busy || (deciding && at === null) ? undefined : onAdd}
       >
         {busy ? 'Adding' : 'Add the area'}
       </Button>
       <Button tone="quiet" block onPress={onBack}>
-        {area ? 'Leave it as one area' : 'Leave it as it is'}
+        {deciding ? 'Leave it as one area' : 'Leave it as it is'}
       </Button>
     </RoomFrame>
   )

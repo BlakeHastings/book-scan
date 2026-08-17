@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { moveWithin } from '../design/Furniture'
 import {
   addAreaSaid, counted, kindSaid, labelsIfNamed, orderedSaid, orderingSaid,
-  pieceNote, pieceSaid, places, plural, renumbering, roomSaid, skippedSaid,
+  pieceNote, pieceSaid, places, plural, renamings, renumbering, roomSaid, skippedSaid,
   type Standing,
 } from './furniture'
 import type { AreaDto, FixtureDto } from './api'
@@ -167,6 +167,77 @@ describe('what the areas of a piece will be called', () => {
       areas,
       { name: 'Hall shelf', position: 2 },
     )).toEqual(['Hall shelf · A', 'Hall shelf · Cookery'])
+  })
+})
+
+/**
+ * What a person sees change when the room is put in order, which is what the
+ * card promising "what they will be numbered" was trying and failing to say.
+ * The numbers do not change: they are the room's and the pieces move through
+ * them. What changes is what an unnamed piece and its areas are called.
+ */
+describe('what a reordering renames', () => {
+  const piece = (id: number, position: number, name = ''): FixtureDto => ({
+    id,
+    position,
+    label: String(position),
+    kind: 'bookshelf',
+    name,
+    sortStrategy: 'inherit',
+    note: '',
+    books: 8,
+    areas: [
+      { position: 0, name: '' },
+      { position: 1, name: 'Cookery' },
+    ] as FixtureDto['areas'],
+    sharing: [],
+    holds: '',
+    rule: null,
+  })
+
+  /** The owner's own room, with the gap in it: pieces at 1, 2 and 4. */
+  const room = [piece(1, 1), piece(3, 2), piece(2, 4)]
+
+  it('renames an unnamed piece and every area on it, because both are its number', () => {
+    expect(renamings(moveWithin(room, 2, 0))).toEqual({
+      pieces: [
+        { from: 'Bookcase 4', to: 'Bookcase 1' },
+        { from: 'Bookcase 1', to: 'Bookcase 2' },
+        { from: 'Bookcase 2', to: 'Bookcase 4' },
+      ],
+      areas: [
+        { from: '4A', to: '1A' },
+        { from: '4 · Cookery', to: '1 · Cookery' },
+        { from: '1A', to: '2A' },
+        { from: '1 · Cookery', to: '2 · Cookery' },
+        { from: '2A', to: '4A' },
+        { from: '2 · Cookery', to: '4 · Cookery' },
+      ],
+    })
+  })
+
+  /**
+   * The owner's four bookshelves, which he has named. This is the answer to
+   * the number that made no sense beside them: dragging them about renames
+   * nothing at all, and the screen can say so.
+   */
+  it('renames nothing at all in a room where every piece has a name', () => {
+    const named = [piece(1, 1, 'Bookshelf 1'), piece(2, 4, 'Bookshelf 2'), piece(3, 5, 'Bookshelf 3')]
+    expect(renamings(moveWithin(named, 2, 0))).toEqual({ pieces: [], areas: [] })
+  })
+
+  it('renames nothing when nothing moved', () => {
+    expect(renamings(room)).toEqual({ pieces: [], areas: [] })
+  })
+
+  /**
+   * Two pieces both standing at 4 is this catalogue today. Swapping them lands
+   * each on the number the other held, which is the same number, so neither is
+   * renamed and neither is renumbered.
+   */
+  it('survives two pieces sharing a number, and renames neither of them', () => {
+    const shared = [piece(1, 1), piece(2, 4), piece(3, 4)]
+    expect(renamings(moveWithin(shared, 2, 1))).toEqual({ pieces: [], areas: [] })
   })
 })
 

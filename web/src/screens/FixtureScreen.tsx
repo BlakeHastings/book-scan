@@ -1,6 +1,17 @@
 /**
  * One piece of furniture, as a form with a preview of what it will be called.
  *
+ * ## It no longer draws the piece
+ *
+ * There was a drawing of the piece at the top of this, with its areas under it
+ * and a way to cut another one into it. The owner took it off (#367): "on the
+ * edit view we shouldn't have that there. It should just have what you call it,
+ * what it is, where it stands." It is the same note he gave about the area
+ * screen, where the bookcase over everything that screen was for "is taking up
+ * so much of the screen", and nothing is lost by it: the room draws every piece
+ * with its areas and the way to add one, which is where somebody was looking
+ * before they opened this.
+ *
  * ## The draft is seeded from the answer and thrown away with the screen
  *
  * The three things that can be changed are held here while somebody types, and
@@ -21,14 +32,12 @@
 import { useEffect, useState } from 'react'
 import { FixturePane, type FixtureDraft } from '../components/FixturePane'
 import { useArranging } from '../app/arranging'
-import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
 import { api, type FixtureRemoval } from '../lib/api'
 import { renumbering } from '../lib/furniture'
 
 export function FixtureScreen() {
-  const { setRoute } = useNavigation()
-  const { fixtureId, openArea, setAreaId } = useArranging()
+  const { fixtureId, instead, back } = useArranging()
   const { room, error, setError, busy, write } = useRoom()
   const [draft, setDraft] = useState<FixtureDraft | null>(null)
   const [removal, setRemoval] = useState<FixtureRemoval | null>(null)
@@ -72,13 +81,18 @@ export function FixtureScreen() {
       })
       return true
     })
-    if (done) setRoute('furniture')
+    /*
+     * The room, and not back: saving is finished with this piece, and the piece
+     * it puts in order is the room's. `instead` rather than `onward` so the
+     * trail is not grown by a screen that is leaving.
+     */
+    if (done) instead('furniture')
   }
 
   const remove = async () => {
     if (!piece) return
     const done = await write(() => api.dropFixture(piece.id))
-    if (done) setRoute('furniture')
+    if (done) instead('furniture')
   }
 
   return (
@@ -90,10 +104,8 @@ export function FixtureScreen() {
       busy={busy}
       error={error}
       tabs={tabs}
-      onBack={() => setRoute('furniture')}
+      onBack={() => back('furniture')}
       onDraft={(next) => { setError(''); setDraft(next) }}
-      onArea={(areaId) => piece && openArea(piece.id, areaId)}
-      onAddArea={() => { setAreaId(null); setRoute('addarea') }}
       onSave={save}
       onDelete={remove}
     />

@@ -1,0 +1,80 @@
+/**
+ * Back is where somebody came from, on every one of these screens.
+ *
+ * #367 was reported against one of them: "the back button does not seem to work
+ * correctly. When I go back from an area that I'm attempting to add, it takes me
+ * out to the edit page for the fixture I was attempting to add the area to. It
+ * should just take us back to where we came from, which was the overall fixtures
+ * view." The screen was not broken. It was doing exactly what it said, which was
+ * `setRoute('fixture')`, and a screen that names its own way out is guessing on
+ * behalf of every door into it.
+ *
+ * Adding an area is reached from the room and from an area; an area is reached
+ * from the room; what belongs in an area is reached from an area and from the
+ * screen that says why a book is where it is. **Every one of those was the same
+ * guess**, which is why this is checked as a rule over the screens rather than
+ * as one fixed destination in one file.
+ *
+ * ## Why it is read as source
+ *
+ * The rule is "no screen in this group names its own way back", and that is a
+ * property of the files rather than of any one render. There is no DOM in this
+ * project's test setup, so a walk of four screens and two presses cannot be
+ * driven here at all; `design.test.tsx` pins its rules the same way, by reading
+ * what the source does rather than by watching it do it.
+ */
+
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+
+/** The six screens `app/arranging.tsx` is about, and the trail is theirs. */
+const SCREENS = ['Furniture', 'Fixture', 'Area', 'AddArea', 'Belongs', 'Sorting']
+
+const source = (name: string): string =>
+  readFileSync(fileURLToPath(new URL(`../screens/${name}Screen.tsx`, import.meta.url)), 'utf8')
+
+describe('the way back off an arranging screen', () => {
+  /**
+   * `setRoute` is the guess. Anything these screens do to the route goes
+   * through the trail, so that a second door into a screen is a call rather
+   * than another branch in whichever screen draws the back arrow.
+   */
+  it.each(SCREENS)('is not a destination %s names for itself', (name) => {
+    expect(source(name)).not.toMatch(/setRoute\(/)
+  })
+
+  it.each(SCREENS)('is drawn by %s as the screen that opened it', (name) => {
+    // The room is the floor of the group and leaves it entirely, which is its
+    // own remembered door (#350) and not a step on this trail.
+    expect(source(name)).toMatch(/onBack=\{(\(\) => back\(|leaveRoom\})/)
+  })
+
+  /**
+   * The room, the piece, the area and the two screens under an area are all
+   * reached from more than one place, so every step between them has to be
+   * recorded. A step that is not is a step `back` cannot undo: it pops whatever
+   * the screen before had put there and lands somebody two screens out.
+   */
+  it('is recorded by every screen that opens another one', () => {
+    expect(source('Furniture')).toMatch(/onward\('addarea'\)/)
+    expect(source('Area')).toMatch(/onward\('belongs'\)/)
+    expect(source('Area')).toMatch(/onward\('sorting'\)/)
+    expect(source('Area')).toMatch(/onward\('addarea'\)/)
+  })
+
+  /**
+   * And the door from outside this group: the screen that says why a book is
+   * where it is opens the rule on the area it points at, and back off that is
+   * the book somebody was reading about, not an area screen they have never
+   * seen.
+   */
+  it('is recorded by the screen that opens a rule from a book', () => {
+    const claimed = readFileSync(
+      fileURLToPath(new URL('../screens/ClaimedScreen.tsx', import.meta.url)),
+      'utf8',
+    )
+    expect(claimed).toMatch(/onward\('belongs'\)/)
+    expect(claimed).not.toMatch(/setRoute\(/)
+  })
+})
