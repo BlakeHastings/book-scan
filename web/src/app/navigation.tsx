@@ -42,13 +42,17 @@ import type { QueueReturnAnchor } from '../components/QueuePane'
 export type Route =
   | 'home' | 'capture' | 'review' | 'shelve' | 'library' | 'queue' | 'arrange' | 'scan'
   /*
-   * Describing the furniture (#313). Six screens rather than one, because they
-   * are six places somebody can be: the room, a piece, an area, cutting an
-   * area in two, what belongs in one, and how one is ordered. Which piece and
-   * which area they are about is `app/arranging.tsx`, and it holds ids and
-   * never a label.
+   * Describing the furniture (#313). **Three screens, where there were six**
+   * (#381): the room, a piece, and an area. The three that went were not places
+   * somebody wanted to be. Cutting an area in two asked a question the owner
+   * did not want asked, so adding an area is a press on the room; what belongs
+   * in a place and how it is ordered explained themselves on screens of their
+   * own, and are now the two widgets on the page of the place they are about.
+   *
+   * Which piece and which area they are about is `app/arranging.tsx`, and it
+   * holds ids and never a label.
    */
-  | 'furniture' | 'fixture' | 'area' | 'addarea' | 'belongs' | 'sorting'
+  | 'furniture' | 'fixture' | 'area'
   /*
    * What the corner opens onto (#350). Not one of the furniture six: it is
    * about the collection rather than about a piece of it, and it is reached

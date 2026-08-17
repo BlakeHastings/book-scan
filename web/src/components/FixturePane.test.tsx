@@ -14,7 +14,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { FixturePane } from './FixturePane'
-import type { AreaDto, FixtureDto, FurnitureDto } from '../lib/api'
+import type { Sorting } from './AreaPane'
+import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto } from '../lib/api'
 
 const area = (over: Partial<AreaDto> = {}): AreaDto => ({
   id: 1, position: 0, label: '4A', name: '', startsAt: '', sortStrategy: 'inherit',
@@ -38,12 +39,31 @@ const room: FurnitureDto = {
 
 const nothing = () => {}
 
-function drawn(piece = room.fixtures[0]!): string {
+const shelved = (over: Partial<AreaBook> = {}): AreaBook => ({
+  id: 1,
+  title: 'On Food and Cooking',
+  authorFiling: 'McGee, Harold',
+  titleFiling: 'On Food and Cooking',
+  published: '1984',
+  sortKey: 'MCGEE',
+  tagSlugs: [],
+  tags: [],
+  claimedBy: 'Non-fiction',
+  ...over,
+})
+
+function drawn(
+  piece = room.fixtures[0]!,
+  books: AreaBook[] = [],
+  sorting: Sorting = { open: false, chosen: 'inherit', effect: '', busy: false },
+): string {
   return renderToStaticMarkup(
     <FixturePane
       room={room}
       piece={piece}
       draft={{ name: piece.name, kind: '', order: room.fixtures.map((_, at) => at) }}
+      books={books}
+      sorting={sorting}
       removal={{ books: 8, areas: 2, rules: 0, retires: false }}
       busy={false}
       error=""
@@ -51,6 +71,11 @@ function drawn(piece = room.fixtures[0]!): string {
       onBack={nothing}
       onDraft={nothing}
       onSave={nothing}
+      onChange={nothing}
+      onOpenSort={nothing}
+      onChooseSort={nothing}
+      onSaveSort={nothing}
+      onCloseSort={nothing}
       onDelete={nothing}
     />,
   )
@@ -93,5 +118,65 @@ describe('the edit view for a piece', () => {
   it('draws no number beside a piece in the column', () => {
     expect(drawn()).toMatch(/wf-order__name/)
     expect(drawn()).not.toMatch(/wf-order__n"/)
+  })
+})
+
+/**
+ * The two rules a piece answers, which it did not answer at all until #381.
+ *
+ * > Whenever we're in the detailed view of a fixture or an area, we need to be
+ * > able to very easily see and change the current sort rule and the current
+ * > filter rule.
+ *
+ * They are the widgets an area's page draws, called from here, and the point of
+ * the checks below is the two places where a piece is **not** an area. What it
+ * inherits from is the whole library, because nothing stands between a piece and
+ * the collection; and nothing overflows between pieces, so the sentence an area
+ * carries about taking what came before it must not turn up on one.
+ */
+describe('the two rules on a piece', () => {
+  const holding = fixture({ rule: {
+    id: 2,
+    name: 'Non-fiction',
+    about: 'fixture',
+    place: '4',
+    placeId: 1,
+    enabled: true,
+    conditions: [{ operator: 'is', tag: 'Non-fiction' }],
+    said: 'Anything tagged Non-fiction',
+    range: 'nonfiction',
+  } as RuleDto })
+
+  it('shows what belongs on it and the one way to change that', () => {
+    const said = words(drawn(holding))
+
+    expect(said).toMatch(/Anything tagged Non-fiction/)
+    expect(said).toMatch(/Tagged\s*Non-fiction/)
+    expect(said).toMatch(/Point Non-fiction somewhere else/)
+  })
+
+  it('says its ordering comes from the whole library and not from a piece', () => {
+    const said = words(drawn(holding))
+
+    expect(said).toMatch(/Sort rule/)
+    expect(said).toMatch(/The way the whole library does/)
+  })
+
+  /*
+   * The overflow sentence belongs to an area and to nothing else. Books flow
+   * along a piece, never between two of them, so a piece saying it takes what
+   * came before it would be inventing a fact about somebody's room.
+   */
+  it('never says it takes what overflows from anything', () => {
+    expect(words(drawn(holding))).not.toMatch(/overflows/)
+  })
+
+  it('shows what the ordering does to the books standing on it', () => {
+    const said = words(drawn(holding, [
+      shelved({ id: 1, authorFiling: 'McGee, Harold', sortKey: 'MCGEE' }),
+      shelved({ id: 2, authorFiling: 'David, Elizabeth', sortKey: 'DAVID', title: 'Italian Food' }),
+    ]))
+
+    expect(said.indexOf('David, Elizabeth')).toBeLessThan(said.indexOf('McGee, Harold'))
   })
 })

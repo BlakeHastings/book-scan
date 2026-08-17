@@ -655,15 +655,37 @@ export interface RuleDto {
   range: ShelfRange | null
 }
 
-/** One book standing in an area, in the order it stands there. */
+/**
+ * One book standing somewhere, in the order it stands there.
+ *
+ * It carries every component any ordering reads, because the screens about a
+ * place now show what its sort rule does to these books rather than only naming
+ * the rule. Picking another ordering reorders the books in front of somebody,
+ * which is the answer to "why do they sort like that" and is also the warning
+ * before the change is written.
+ */
 export interface AreaBook {
   id: number
   title: string
   authorFiling: string
+  /** How it files by title, which is what the title ordering reads. */
+  titleFiling: string
+  /** As printed, usually a bare year, which is what the year ordering reads. */
+  published: string
   /** Where it sits in the order, which is what a boundary is anchored to. */
   sortKey: string
+  /** Every slug it carries, in slug order, which is what a rule matches on. */
+  tagSlugs: string[]
+  /** The same tags as a person reads them, in the same order. Never a slug. */
+  tags: string[]
   /** The rule that claims it, by name, or null when nothing claims it. */
   claimedBy: string | null
+}
+
+/** What is standing on one piece of furniture, across all of its areas. */
+export interface FixtureBooks {
+  fixture: { id: number; label: string; books: number }
+  books: AreaBook[]
 }
 
 /**
@@ -1586,9 +1608,17 @@ export const api = {
   dropFixture: (id: number) =>
     request<{ removed: FixtureRemoval }>(`/api/fixtures/${id}`, { method: 'DELETE' }),
 
+  /**
+   * Add an area to a piece.
+   *
+   * **Given nothing, the server decides where it opens** (#381), which is what
+   * lets the fixtures screen add one on a press. `startsAt` is still how a
+   * boundary is placed deliberately, and the empty string still means "from the
+   * beginning" rather than "you choose".
+   */
   addArea: (
     fixtureId: number,
-    area: { name?: string; startsAt?: string; position?: number },
+    area: { name?: string; startsAt?: string; position?: number } = {},
   ) =>
     request<{ area: AreaDto; becomes: LabelChange[] }>(`/api/fixtures/${fixtureId}/areas`, {
       method: 'POST',
@@ -1628,6 +1658,14 @@ export const api = {
    * wrong books without saying anything.
    */
   areaBooks: (id: number) => request<AreaBooks>(`/api/areas/${id}/books`),
+
+  /**
+   * The same, about a whole piece: every book standing on its face, in order.
+   *
+   * A piece's page shows what its sort rule does to its books, and that is a
+   * question about the piece rather than about any one plank of it.
+   */
+  fixtureBooks: (id: number) => request<FixtureBooks>(`/api/fixtures/${id}/books`),
 
   /**
    * Why a book is where it is: which rule claimed it, and which ones lost.

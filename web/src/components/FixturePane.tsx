@@ -48,8 +48,15 @@ import { Card } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
 import { Order } from '../design/Furniture'
-import type { FixtureDto, FixtureRemoval, FurnitureDto } from '../lib/api'
-import { labelsIfNamed, pieceSaid, places, plural } from '../lib/furniture'
+import { FilterRule, SortRule } from '../design/Rules'
+import type { Sorting } from './AreaPane'
+import type {
+  AreaBook, FixtureDto, FixtureRemoval, FurnitureDto, SortStrategyCode,
+} from '../lib/api'
+import {
+  collectionOrdering, labelsIfNamed, orderingSaid, pieceSaid, places, plural, reaching,
+  sampleOrdered, sortOptions,
+} from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 
 /** The three things this screen can change, before anybody presses Save. */
@@ -64,6 +71,9 @@ interface Props {
   room: FurnitureDto | null
   piece: FixtureDto | null
   draft: FixtureDraft
+  /** What is standing on it, in the order it stands. Empty while it loads. */
+  books: AreaBook[]
+  sorting: Sorting
   /** What the piece still holds, which decides whether it can be taken away. */
   removal: FixtureRemoval | null
   busy: boolean
@@ -72,12 +82,18 @@ interface Props {
   onBack: () => void
   onDraft: (draft: FixtureDraft) => void
   onSave: () => void
+  /** Point the rule at other furniture: the one journey, reached from here. */
+  onChange: () => void
+  onOpenSort: () => void
+  onChooseSort: (code: SortStrategyCode) => void
+  onSaveSort: () => void
+  onCloseSort: () => void
   onDelete: () => void
 }
 
 export function FixturePane({
-  room, piece, draft, removal, busy, error, tabs,
-  onBack, onDraft, onSave, onDelete,
+  room, piece, draft, books, sorting, removal, busy, error, tabs,
+  onBack, onDraft, onSave, onChange, onOpenSort, onChooseSort, onSaveSort, onCloseSort, onDelete,
 }: Props) {
   const top = (
     <TopBar
@@ -107,6 +123,21 @@ export function FixturePane({
   const at = standing.findIndex((one) => one.id === piece.id)
   const wanted = places(standing)[at] ?? piece.position
   const labels = labelsIfNamed(piece, piece.areas, { name: draft.name, position: wanted })
+
+  const rule = piece.rule
+  /* What the piece falls back on with no ordering of its own, which is the
+     library's and never another piece's: nothing stands above a piece but the
+     collection. */
+  const falls = collectionOrdering(room)
+  /*
+   * The ordering the sample is drawn in: the one in force, or the one under a
+   * thumb while the answers are open, so the books reorder as somebody picks
+   * rather than after they have committed to it.
+   */
+  const looking = sorting.open
+    ? (sorting.chosen === 'inherit' ? falls : sorting.chosen)
+    : (piece.sortStrategy === 'inherit' ? falls : piece.sortStrategy)
+  const { sample, more } = sampleOrdered(looking, books)
 
   return (
     <RoomFrame top={top} tabs={tabs}>
@@ -149,6 +180,45 @@ export function FixturePane({
       <Button tone="primary" block onPress={busy ? undefined : onSave}>
         {busy ? 'Saving' : 'Save'}
       </Button>
+
+      {/*
+        The two questions a place answers, drawn by the same two widgets an
+        area's page draws them with (#381). A piece and an area are not the same
+        thing and neither is flattened into the other: what a piece inherits its
+        ordering from is the whole library rather than the thing it stands on,
+        and nothing overflows between pieces, so the sentence an area carries
+        about taking what comes before it has no counterpart here.
+      */}
+      <FilterRule
+        holds={piece.holds}
+        rule={rule && { name: rule.name, lines: rule.conditions, enabled: rule.enabled }}
+        beaten={reaching(room, piece, null)}
+        change={rule && rule.range
+          ? { word: `Point ${rule.name} somewhere else`, onPress: onChange }
+          : undefined}
+        refused={rule && !rule.range
+          ? `${rule.name} cannot be pointed somewhere else yet.`
+          : undefined}
+      />
+
+      <SortRule
+        said={orderingSaid(piece.sortStrategy, 'the whole library')}
+        note={piece.sortStrategy === 'inherit'
+          ? `Every area on it that orders nothing of its own is ${
+            orderingSaid(falls, 'the whole library').toLowerCase()}.`
+          : 'Every area on it that orders nothing of its own is ordered this way.'}
+        sample={sample}
+        more={more}
+        open={sorting.open}
+        options={sortOptions(room, 'the whole library', falls)}
+        chosen={sorting.chosen}
+        effect={sorting.effect}
+        busy={sorting.busy}
+        onOpen={onOpenSort}
+        onChoose={(value) => onChooseSort(value as SortStrategyCode)}
+        onSave={onSaveSort}
+        onClose={onCloseSort}
+      />
 
       {/*
         The reassurance went and the guarantee did not. What replaces "the books

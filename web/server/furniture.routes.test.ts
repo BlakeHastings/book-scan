@@ -499,6 +499,125 @@ describe('cutting an area into a run with nothing standing in it', () => {
   })
 })
 
+/**
+ * Adding an area with nothing said about where it opens, which is #381 and is
+ * now the only way the app does it.
+ *
+ * > Whenever we're on the fixture screen and we can click "add an area to this
+ * > fixture", it should just add the area, and we should just continue the
+ * > lettering.
+ *
+ * The whole reason that is safe without a screen is what these check. **It
+ * relabels nothing**, on a piece whose areas are lettered and on one whose areas
+ * are named, because a label comes from an ordinal nothing else has. **It moves
+ * no book**, which is the anchor's job: the empty string would be refused, and
+ * the anchor of the area it follows would quietly claim every book that area
+ * holds, so it opens past them.
+ */
+describe('adding an area with no question asked', () => {
+  it('lands at the end, holding nothing, and moves no book', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const before = await everyPlacement()
+
+    const added = await post(`/api/fixtures/${bookcase.id}/areas`, {})
+    expect(added.status).toBe(201)
+    expect(added.body.area.books).toBe(0)
+    expect(added.body.area.position).toBe(3)
+
+    const after = await get(`/api/fixtures/${bookcase.id}`)
+    expect(after.body.fixture.areas.map((one: { books: number }) => one.books))
+      .toEqual([2, 2, 2, 0])
+    expect(await everyPlacement()).toEqual(before)
+  })
+
+  /**
+   * The reason there is no screen in front of it. A label is worked out from a
+   * piece's number and name and an area's ordinal and name, so an area taking an
+   * ordinal nothing else has changes nothing anybody reads, and the answer says
+   * so by having nothing in `becomes`.
+   */
+  it('changes no label at all, and says so', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const was = (await get(`/api/fixtures/${bookcase.id}`)).body.fixture.areas
+      .map((one: { label: string }) => one.label)
+
+    const added = await post(`/api/fixtures/${bookcase.id}/areas`, {})
+    expect(added.body.becomes).toEqual([])
+
+    const now = (await get(`/api/fixtures/${bookcase.id}`)).body.fixture.areas
+      .map((one: { label: string }) => one.label)
+    expect(now.slice(0, was.length)).toEqual(was)
+    expect(now).toHaveLength(was.length + 1)
+  })
+
+  /** And the same on a piece somebody has named, where every label is a phrase. */
+  it('changes no label on a piece whose areas are named either', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    await patch(`/api/fixtures/${bookcase.id}`, { name: 'Hall shelf' })
+    await patch(`/api/areas/${bookcase.areas[1].id}`, { name: 'Cookery' })
+
+    const was = (await get(`/api/fixtures/${bookcase.id}`)).body.fixture.areas
+      .map((one: { label: string }) => one.label)
+    expect(was).toContain('Hall shelf · Cookery')
+
+    const added = await post(`/api/fixtures/${bookcase.id}/areas`, {})
+    expect(added.status).toBe(201)
+    expect(added.body.becomes).toEqual([])
+
+    const now = (await get(`/api/fixtures/${bookcase.id}`)).body.fixture.areas
+      .map((one: { label: string }) => one.label)
+    expect(now.slice(0, was.length)).toEqual(was)
+  })
+
+  /**
+   * Twice in a row, which is the case the anchor arithmetic gets wrong if it
+   * only ever looks at books: the second one follows an area that is already
+   * past every book, so it has to take that anchor rather than one below it.
+   */
+  it('can be pressed twice, and the second one is refused by nothing', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+
+    expect((await post(`/api/fixtures/${bookcase.id}/areas`, {})).status).toBe(201)
+    const second = await post(`/api/fixtures/${bookcase.id}/areas`, {})
+    expect(second.status).toBe(201)
+    expect(second.body.area.books).toBe(0)
+
+    const after = await get(`/api/fixtures/${bookcase.id}`)
+    expect(after.body.fixture.areas.map((one: { books: number }) => one.books))
+      .toEqual([2, 2, 2, 0, 0])
+  })
+
+  /**
+   * A piece nothing has ever been filed onto, twice, and the case the anchor
+   * exists for.
+   *
+   * A new piece stands at the end of the room, which puts it at the end of
+   * whatever stretch of books reaches it: nothing enters a run there, so the
+   * books already on the piece before it flow on. Opening the new area at the
+   * beginning would therefore hand it every one of them, which is why the
+   * server works the anchor out rather than defaulting to it.
+   */
+  it('takes no book off the piece before it on a brand new piece', async () => {
+    await buildWorld()
+    const before = await everyPlacement()
+    const made = await post('/api/fixtures', { kind: 'crate', name: 'Hall crate' })
+    const id = made.body.fixture.id
+
+    expect((await post(`/api/fixtures/${id}/areas`, {})).status).toBe(201)
+    expect((await post(`/api/fixtures/${id}/areas`, {})).status).toBe(201)
+
+    const { body } = await get(`/api/fixtures/${id}`)
+    expect(body.fixture.areas.map((one: { label: string }) => one.label))
+      .toEqual(['Hall crate · A', 'Hall crate · B'])
+    expect(body.fixture.areas.map((one: { books: number }) => one.books)).toEqual([0, 0])
+    expect(await everyPlacement()).toEqual(before)
+  })
+})
+
 describe('reordering the areas on a piece', () => {
   /** A piece with five unanchored planks, which is somebody typing furniture in. */
   async function fivePlanks(): Promise<{ id: number; areas: number[] }> {
@@ -753,6 +872,15 @@ describe('giving an area an order of its own', () => {
     expect(refused.body.effect.selfContained).toBe(true)
     expect(refused.body.effect.affected).toEqual(['4B', '4C'])
 
+    /*
+     * And it says it in words a person uses. This sentence is not a log line:
+     * it is shown, and since #381 it is shown on the area's own page rather
+     * than on a screen somebody went to on purpose. It used to end "leave the
+     * run they are in", and "run" is the word the owner named the whole
+     * no-jargon rule about.
+     */
+    expect(refused.body.error).not.toMatch(/\bruns?\b/i)
+
     // Nothing was written on the refusal.
     expect((await nonFiction()).areas[1].sortStrategy).toBe('inherit')
 
@@ -800,6 +928,31 @@ describe('what is standing in an area', () => {
       .toEqual(['Title 002', 'Title 003'])
     // The anchor a boundary is cut at, which is the whole reason this is asked.
     expect(body.books[0].sortKey.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * And every component an ordering reads, which is #381: the area's page shows
+   * what its sort rule does to these books rather than only naming the rule,
+   * and it orders them with the function the collection is ordered by. Each of
+   * these is one of that function's four keys, so a read that dropped one would
+   * silently order by an empty string.
+   *
+   * **The tags travel twice, as slugs and as labels.** A slug is an identity and
+   * never reaches a screen, so a page saying what the tag ordering files a book
+   * under has to be handed the label with it.
+   */
+  it('carries what every ordering reads, with tags said both ways', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+
+    const { body } = await get(`/api/areas/${bookcase.areas[1].id}/books`)
+    const first = body.books[0]
+
+    expect(first.titleFiling.length).toBeGreaterThan(0)
+    expect(typeof first.published).toBe('string')
+    expect(first.tagSlugs.length).toBeGreaterThan(0)
+    expect(first.tags).toHaveLength(first.tagSlugs.length)
+    expect(first.tags.some((one: string) => one.includes('/'))).toBe(false)
   })
 
   /**
@@ -855,6 +1008,44 @@ describe('what is standing in an area', () => {
     const { status, body } = await get('/api/areas/999999/books')
     expect(status).toBe(404)
     expect(body.error).toBe('No such area.')
+  })
+})
+
+/**
+ * The same read one place up, which a piece's own page needs (#381).
+ *
+ * How a piece is ordered is a fact about the whole face, so the books it is
+ * shown against are the whole face's. Asked area by area it would be one request
+ * per plank and a screen stitching them back into an order it does not own.
+ */
+describe('what is standing on a piece of furniture', () => {
+  it('lists every book on its face, in the order they stand', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+
+    const { status, body } = await get(`/api/fixtures/${bookcase.id}/books`)
+    expect(status).toBe(200)
+    expect(body.fixture.label).toBe('4')
+    expect(body.books.map((one: { title: string }) => one.title))
+      .toEqual(['Title 000', 'Title 001', 'Title 002', 'Title 003', 'Title 004', 'Title 005'])
+  })
+
+  /** A piece nothing has been filed onto holds nothing, which is not an error. */
+  it('answers an empty list for a piece with nothing on it', async () => {
+    await buildWorld()
+    const made = await post('/api/fixtures', { kind: 'crate', name: 'Hall crate' })
+
+    const { status, body } = await get(`/api/fixtures/${made.body.fixture.id}/books`)
+    expect(status).toBe(200)
+    expect(body.books).toEqual([])
+    expect(body.fixture.books).toBe(0)
+  })
+
+  it('refuses a piece that is not on the floor', async () => {
+    await buildWorld()
+    const { status, body } = await get('/api/fixtures/999999/books')
+    expect(status).toBe(404)
+    expect(body.error).toBe('No such piece of furniture.')
   })
 })
 

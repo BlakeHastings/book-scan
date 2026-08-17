@@ -1,26 +1,29 @@
 /**
- * What the two rule screens say, held to a claim rather than only looked at.
+ * What the screen that says why a book is here says, held to a claim rather
+ * than only looked at.
  *
  * Rendered as markup the way `CarryPane.test.tsx` does it: this project has no
- * DOM in its test setup and neither screen holds state.
+ * DOM in its test setup and the screen holds no state.
  *
- * Three things here are the ones that come back wrong. **A book no rule claims**
- * is a real state since #304 and is the first thing either screen has to
- * survive; it is invisible from every count, so a screen that quietly drew
- * nothing would look like it was working. **A losing rule** is the whole reason
- * the claim screen exists, so a version that showed only the winner would be
- * answering half the question. And **the way to change a rule** is offered only
- * where this app can honestly change one, because a button that would refuse is
- * worse than no button.
+ * Two things here are the ones that come back wrong. **A book no rule claims**
+ * is a real state since #304 and is the first thing this screen has to survive;
+ * it is invisible from every count, so a screen that quietly drew nothing would
+ * look like it was working. **A losing rule** is the whole reason this screen
+ * exists, so a version that showed only the winner would be answering half the
+ * question.
+ *
+ * **What belongs here used to be checked from this file** and is now checked in
+ * `AreaPane.test.tsx`, because the screen that answered it is gone (#381): the
+ * area's own page says what belongs on it, which is where the door to changing
+ * a rule now lives too.
  */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
-import { BelongsPane } from './BelongsPane'
 import { ClaimedPane } from './ClaimedPane'
 import type {
-  AreaBook, AreaDto, BookClaim, FixtureDto, FurnitureDto, RuleClaim, RuleDto,
+  AreaDto, BookClaim, FixtureDto, FurnitureDto, RuleClaim, RuleDto,
 } from '../lib/api'
 
 const tabs = { home: () => {}, library: () => {}, scan: () => {}, queue: () => {} }
@@ -112,23 +115,6 @@ const room = (): FurnitureDto => ({
   defaultSortStrategy: 'author',
   strategies: [],
 })
-
-const shelved = (id: number, title: string, claimedBy: string | null): AreaBook =>
-  ({ id, title, authorFiling: `Author ${id}`, sortKey: `k${id}`, claimedBy })
-
-const belongs = (over: Partial<Parameters<typeof BelongsPane>[0]> = {}): string =>
-  renderToStaticMarkup(BelongsPane({
-    room: room(),
-    piece: piece(),
-    area: area(),
-    books: [shelved(1, 'On Food and Cooking', 'Non-fiction')],
-    error: '',
-    tabs,
-    onBack: () => {},
-    onChange: () => {},
-    onClaimed: () => {},
-    ...over,
-  }) as ReactElement)
 
 describe('why a book is here', () => {
   it('names the rule that claimed it and where the book stands', () => {
@@ -245,41 +231,5 @@ describe('why a book is here', () => {
     expect(said).toContain('The one about Bookcase 4 won')
     expect(said).toContain('About the whole of Bookcase 4')
     expect(said).not.toContain('the whole of 4 ')
-  })
-})
-
-describe('what belongs here', () => {
-  it('offers to point the rule somewhere else when the app can', () => {
-    expect(words(belongs())).toContain('Point Non-fiction somewhere else')
-  })
-
-  it('offers nothing of the sort for a rule it cannot point anywhere', () => {
-    const only = rule({ about: 'area', place: '4B', placeId: 41, range: null })
-    const html = belongs({
-      piece: piece({ rule: only, areas: [area({ rule: only })] }),
-      area: area({ rule: only }),
-    })
-
-    // No target at all, rather than one that would be refused. The sentence
-    // saying so is what a person gets instead.
-    expect(html).not.toContain('wf-btn--primary')
-    expect(words(html)).toContain('cannot be pointed somewhere else yet')
-  })
-
-  it('lists what stands here so each book can say why it is here', () => {
-    expect(words(belongs())).toContain('On Food and Cooking')
-  })
-
-  it('counts the books here that no rule claims, which no count shows', () => {
-    const said = words(belongs({
-      books: [
-        shelved(1, 'On Food and Cooking', 'Non-fiction'),
-        shelved(2, 'A Book With No Tags', null),
-      ],
-    }))
-
-    expect(said).toContain('No rule claims it')
-    // A card title is a sentence, so the number written out starts it in caps.
-    expect(said).toContain('One book here matches no rule at all')
   })
 })

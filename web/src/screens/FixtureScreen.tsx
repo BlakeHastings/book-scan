@@ -32,15 +32,21 @@
 import { useEffect, useState } from 'react'
 import { FixturePane, type FixtureDraft } from '../components/FixturePane'
 import { useArranging } from '../app/arranging'
+import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
-import { api, type FixtureRemoval } from '../lib/api'
+import { api, type AreaBook, type FixtureRemoval, type SortStrategyCode } from '../lib/api'
 import { renumbering } from '../lib/furniture'
 
 export function FixtureScreen() {
+  const { openArranging } = useNavigation()
   const { fixtureId, instead, back } = useArranging()
-  const { room, error, setError, busy, write } = useRoom()
+  const { room, error, setError, busy, write, read } = useRoom()
   const [draft, setDraft] = useState<FixtureDraft | null>(null)
   const [removal, setRemoval] = useState<FixtureRemoval | null>(null)
+  const [books, setBooks] = useState<AreaBook[]>([])
+  const [open, setOpen] = useState(false)
+  const [chosen, setChosen] = useState<SortStrategyCode | null>(null)
+  const [saving, setSaving] = useState(false)
   const tabs = useRoomTabs()
   useDesignPage()
 
@@ -70,6 +76,21 @@ export function FixtureScreen() {
       .catch(() => setRemoval(null))
   }, [fixtureId, room])
 
+  /*
+   * What is standing on it, which is what the sort rule shows the ordering of.
+   * Asked of the piece rather than area by area: the ordering is a fact about
+   * the whole face, and stitching one request per plank back into an order
+   * would be this screen doing the ordering twice.
+   */
+  useEffect(() => {
+    if (fixtureId === null) return
+    let stale = false
+    api.fixtureBooks(fixtureId)
+      .then((got) => { if (!stale) setBooks(got.books) })
+      .catch(() => { if (!stale) setBooks([]) })
+    return () => { stale = true }
+  }, [fixtureId])
+
   const save = async () => {
     if (!room || !piece || !draft) return
     const wanted = renumbering(draft.order.map((at) => room.fixtures[at]!))
@@ -95,11 +116,44 @@ export function FixtureScreen() {
     if (done) instead('furniture')
   }
 
+  /*
+   * Changing what the piece is ordered by is written straight away, and that is
+   * a difference from an area rather than an oversight. An area with an order of
+   * its own takes no overflow, so setting one cuts the stretch it was in and the
+   * server refuses until somebody has been shown that; a piece cuts nothing.
+   *
+   * What it does do is reorder every area on it that orders nothing itself,
+   * which is why the widget draws the books in the chosen order before this is
+   * ever pressed: the warning is the books themselves.
+   */
+  const saveSort = async () => {
+    if (!piece || !chosen) return
+    if (chosen === piece.sortStrategy) { setOpen(false); return }
+    setSaving(true)
+    setError('')
+    try {
+      await api.editFixture(piece.id, { sortStrategy: chosen })
+      await read()
+      setOpen(false)
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <FixturePane
       room={room}
       piece={piece}
       draft={draft ?? { name: '', kind: '', order: [] }}
+      books={books}
+      sorting={{
+        open,
+        chosen: chosen ?? piece?.sortStrategy ?? 'inherit',
+        effect: '',
+        busy: saving,
+      }}
       removal={removal}
       busy={busy}
       error={error}
@@ -107,6 +161,11 @@ export function FixtureScreen() {
       onBack={() => back('furniture')}
       onDraft={(next) => { setError(''); setDraft(next) }}
       onSave={save}
+      onChange={() => { if (piece?.rule?.range) openArranging(piece.rule.range) }}
+      onOpenSort={() => { setChosen(piece?.sortStrategy ?? 'inherit'); setOpen(true) }}
+      onChooseSort={setChosen}
+      onSaveSort={saveSort}
+      onCloseSort={() => setOpen(false)}
       onDelete={remove}
     />
   )

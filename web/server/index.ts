@@ -72,7 +72,8 @@ import { applyRunMove, planRunMove } from './relocate-run'
 import { outstandingWork, tripAtArea } from './carry'
 import { watchBackups } from './backup-watch'
 import {
-  addAreaTo, addFixture, booksInArea, describeFixture, describeFurniture, dropArea, dropFixture,
+  addAreaTo, addFixture, booksInArea, booksOnFixture,
+  describeFixture, describeFurniture, dropArea, dropFixture,
   editArea, editCollection, editFixture, planAreaRemoval, planFixtureRemoval,
 } from './furniture'
 // How this API says no, and how it reads an id out of a request (#332). One
@@ -2330,7 +2331,33 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({ removed: removed.removed })
   }))
 
-  /** Cut another area into a piece, at the end or between two that exist. */
+  /**
+   * The books standing on one piece of furniture, in the order they stand.
+   *
+   * A piece's own page says how it is ordered and shows what that ordering does
+   * to these books, which is the half the owner said was missing: naming a sort
+   * rule does not answer why the books read in the order they do. Asking area by
+   * area would be one request per plank and a screen putting them back in order.
+   */
+  app.get('/api/fixtures/:id/books', asyncRoute(async (req, res) => {
+    const id = idIn(req.params.id, res, 'No such piece of furniture.')
+    if (id === null) return
+
+    const read = await booksOnFixture(db, id)
+    if (!read.ok) {
+      refused(res, read)
+      return
+    }
+    res.json({ fixture: read.fixture, books: read.books })
+  }))
+
+  /**
+   * Cut another area into a piece, at the end or between two that exist.
+   *
+   * **With no `startsAt` the server works out where it opens** (#381), which is
+   * what makes the fixtures screen's button add an area rather than open a
+   * screen asking which book the new one starts at. See `anchorForNewArea`.
+   */
   app.post('/api/fixtures/:id/areas', asyncRoute(async (req, res) => {
     const id = idIn(req.params.id, res, 'No such piece of furniture.')
     if (id === null) return

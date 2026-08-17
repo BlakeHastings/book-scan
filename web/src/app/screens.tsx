@@ -28,10 +28,8 @@
 
 import type { ComponentType } from 'react'
 import type { Route } from './navigation'
-import { AddAreaScreen } from '../screens/AddAreaScreen'
 import { AreaScreen } from '../screens/AreaScreen'
 import { ArrangeScreen } from '../screens/ArrangeScreen'
-import { BelongsScreen } from '../screens/BelongsScreen'
 import { BookScreen } from '../screens/BookScreen'
 import { CaptureScreen } from '../screens/CaptureScreen'
 import { ClaimedScreen } from '../screens/ClaimedScreen'
@@ -50,7 +48,6 @@ import { ScanScreen } from '../screens/ScanScreen'
 import { SettingsScreen } from '../screens/SettingsScreen'
 import { ShelveScreen } from '../screens/ShelveScreen'
 import { ShelvesScreen } from '../screens/ShelvesScreen'
-import { SortingScreen } from '../screens/SortingScreen'
 import { TagsScreen } from '../screens/TagsScreen'
 import { TripScreen } from '../screens/TripScreen'
 import { UnclaimedScreen } from '../screens/UnclaimedScreen'
@@ -93,16 +90,18 @@ export const SCREENS: Record<Route, ScreenEntry> = {
    * The furniture, drawn with the design system and therefore without the
    * app's frame around it: each of these brings its own top bar and its own
    * four-place tab bar, and the header would be a second bar above them.
+   *
+   * **Three, where there were six** (#381). Adding an area stopped being a
+   * screen and became a press; what belongs in a place and how it is ordered
+   * stopped being two screens that explained them and became two widgets on the
+   * page of the place itself.
    */
   furniture: { view: FurnitureScreen, chrome: false },
   fixture: { view: FixtureScreen, chrome: false },
   area: { view: AreaScreen, chrome: false },
-  addarea: { view: AddAreaScreen, chrome: false },
-  belongs: { view: BelongsScreen, chrome: false },
-  sorting: { view: SortingScreen, chrome: false },
 
   /*
-   * What the corner opens onto (#350). Not one of the furniture six: it is
+   * What the corner opens onto (#350). Not one of the furniture three: it is
    * about the collection rather than about a piece of it. It wears the same
    * frame for the same reason they do, which is that it brings its own top bar
    * and its own four-place tab bar.
@@ -110,7 +109,7 @@ export const SCREENS: Record<Route, ScreenEntry> = {
   settings: { view: SettingsScreen, chrome: false },
 
   /*
-   * Why one book is here (#323). Not one of the furniture six: the book page
+   * Why one book is here (#323). Not one of the furniture three: the book page
    * reaches it too, and it goes back to whichever screen opened it.
    */
   claimed: { view: ClaimedScreen, chrome: false },

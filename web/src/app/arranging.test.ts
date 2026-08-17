@@ -28,8 +28,17 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-/** The six screens `app/arranging.tsx` is about, and the trail is theirs. */
-const SCREENS = ['Furniture', 'Fixture', 'Area', 'AddArea', 'Belongs', 'Sorting']
+/**
+ * The screens `app/arranging.tsx` is about, and the trail is theirs.
+ *
+ * **Three, where there were six** (#381). Adding an area stopped being a screen
+ * and became a press; what belongs in a place and how it is ordered stopped
+ * being screens that explained them and became two widgets on the page of the
+ * place itself. The rule this file pins did not change with them: it was never
+ * about six particular screens, it is that no screen in this group names its own
+ * way out, and it applies to whatever is in the group.
+ */
+const SCREENS = ['Furniture', 'Fixture', 'Area']
 
 const source = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../screens/${name}Screen.tsx`, import.meta.url)), 'utf8')
@@ -51,30 +60,46 @@ describe('the way back off an arranging screen', () => {
   })
 
   /**
-   * The room, the piece, the area and the two screens under an area are all
-   * reached from more than one place, so every step between them has to be
-   * recorded. A step that is not is a step `back` cannot undo: it pops whatever
-   * the screen before had put there and lands somebody two screens out.
+   * The room, the piece and the area are each reached from more than one place,
+   * so every step between them has to be recorded. A step that is not is a step
+   * `back` cannot undo: it pops whatever the screen before had put there and
+   * lands somebody two screens out.
+   *
+   * The room's own two doors go through `openFixture` and `openArea`, which is
+   * the same trail with the ids set on the way through, so what is checked here
+   * is that it opens them at all rather than reaching for the route.
    */
   it('is recorded by every screen that opens another one', () => {
-    expect(source('Furniture')).toMatch(/onward\('addarea'\)/)
-    expect(source('Area')).toMatch(/onward\('belongs'\)/)
-    expect(source('Area')).toMatch(/onward\('sorting'\)/)
-    expect(source('Area')).toMatch(/onward\('addarea'\)/)
+    expect(source('Furniture')).toMatch(/onFixture=\{openFixture\}/)
+    expect(source('Furniture')).toMatch(/onArea=\{openArea\}/)
+    expect(source('Area')).toMatch(/onward\('fixture'\)/)
   })
 
   /**
    * And the door from outside this group: the screen that says why a book is
    * where it is opens the rule on the area it points at, and back off that is
-   * the book somebody was reading about, not an area screen they have never
-   * seen.
+   * the book somebody was reading about.
+   *
+   * **It lands on the area itself since #381.** What it used to open was the
+   * screen that explained what belongs in an area, and there is no such screen:
+   * the area's own page says it.
    */
   it('is recorded by the screen that opens a rule from a book', () => {
     const claimed = readFileSync(
       fileURLToPath(new URL('../screens/ClaimedScreen.tsx', import.meta.url)),
       'utf8',
     )
-    expect(claimed).toMatch(/onward\('belongs'\)/)
+    expect(claimed).toMatch(/onward\('area'\)/)
     expect(claimed).not.toMatch(/setRoute\(/)
+  })
+
+  /**
+   * Adding an area is a write and not a step (#381), so nothing is pushed onto
+   * the trail by it and there is nothing to walk back out of. The check is that
+   * the room did not gain a route for it again: "it should just add the area."
+   */
+  it('is not grown by adding an area, which goes nowhere at all', () => {
+    expect(source('Furniture')).toMatch(/api\.addArea\(/)
+    expect(source('Furniture')).not.toMatch(/onward\(/)
   })
 })

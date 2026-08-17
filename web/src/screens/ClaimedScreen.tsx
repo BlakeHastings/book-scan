@@ -5,10 +5,16 @@
  * standing on an area, and the book's own page. That is why the book it is about
  * lives in `navigation` rather than in `arranging`, which is about furniture.
  *
- * Opening a rule from here lands on the screen that rule is drawn on, which is
- * `belongs`, on the area the rule points at. A rule about a whole piece of
- * furniture is drawn on the first area of that piece, because that is the area
- * its books begin in and the one whose screen already says so.
+ * Opening a rule from here lands on the page the rule is drawn on, which is the
+ * area the rule points at. A rule about a whole piece of furniture is drawn on
+ * the first area of that piece, because that is the area its books begin in and
+ * the one whose page already says so.
+ *
+ * **That page used to be `belongs` and there is no such screen now** (#381). It
+ * existed to explain what belongs in an area, and the owner asked for the area's
+ * own page to say it instead: "instead of 'see what belongs here' we should just
+ * show what belongs there." So the rule, the lines it asks for, what beats what
+ * and the books standing there are all on the area, which is where this lands.
  *
  * **And since #341 it can say what the book is**, which is the one state this
  * screen used to explain and offer nothing about. It is the same screen the
@@ -106,10 +112,10 @@ export function ClaimedScreen() {
     setAreaId(area.id)
     /*
      * Through the trail rather than straight to the route, so that back off
-     * that screen is this one. It used to land on the area screen, which is a
-     * screen somebody arriving from a book has never seen (#367).
+     * that screen is this one. #367 is what that fixed: a screen that names its
+     * own way out is guessing on behalf of every door into it.
      */
-    onward('belongs')
+    onward('area')
   }
 
   /*
