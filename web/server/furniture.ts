@@ -55,7 +55,7 @@
  */
 
 import {
-  fixtureLabel, labelFor, type Area, type Fixture, type Slot,
+  fixtureLabel, labelFor, slotsInOrder, type Area, type Fixture, type Slot,
 } from '../domain/placement/geography'
 import {
   addArea as landingFor, anchorsAscend, moveArea, removeArea, strategyChange,
@@ -425,13 +425,35 @@ export async function describeFixture(
 // What is standing in an area
 // ---------------------------------------------------------------------------
 
-/** One book of an area, as the screen that cuts the area in two needs it. */
+/**
+ * One book standing somewhere, as the screens about that place need it.
+ *
+ * The four ordering components travel with it on purpose. A screen that names a
+ * sort rule and stops has not said why the books read in the order they do, and
+ * the owner said that is the part that is hard to see; the answer is the books
+ * themselves, in that order, which needs whatever `orderBy` orders by.
+ */
 export interface AreaBook {
   id: number
   title: string
   authorFiling: string
+  /** How it files by title, which is what the title ordering reads. */
+  titleFiling: string
+  /** As printed, usually a bare year, which is what the year ordering reads. */
+  published: string
   /** Where it sits in the order, which is what a boundary is anchored to. */
   sortKey: string
+  /** Every slug it carries, in slug order, which is what a rule matches on. */
+  tagSlugs: string[]
+  /**
+   * The same tags as a person reads them, in the same order.
+   *
+   * A slug is an identity and never reaches a screen, so a screen showing what
+   * the tag ordering files a book under has to be given the label. Ordering and
+   * drawing then agree by construction rather than by two reads happening to
+   * come back the same way.
+   */
+  tags: string[]
   /** The rule that claims it, by name, or null when nothing claims it. */
   claimedBy: string | null
 }
@@ -443,13 +465,54 @@ export interface AreaBooks {
 
 export type ReadArea = { ok: true; area: AreaBooks['area']; books: AreaBook[] } | Refused
 
+/** The same read, about a whole piece: every book standing on its face. */
+export type ReadFixtureBooks =
+  | { ok: true; fixture: { id: number; label: string; books: number }; books: AreaBook[] }
+  | Refused
+
 interface StandingRow {
   id: number
   title: string
   author_filing: string
+  title_filing: string
+  published: string
   sort_key: string
   slugs: string[] | null
+  labels: string[] | null
 }
+
+/**
+ * The columns every "what is standing here" read takes, and the one place they
+ * are written.
+ *
+ * They are not only the columns a list needs. **Every one of them is a
+ * component of some ordering** (`domain/placement/strategies.ts`), because the
+ * screens now show what an ordering does to these books rather than only naming
+ * it: a person picking "by the title" watches the books in front of them
+ * reorder, which is the whole of the answer to "why do they sort like that".
+ * Ordering them on the client from four columns keeps that one function, the
+ * one the shelf itself is built by, rather than growing a second one that
+ * agrees until somebody adds a strategy.
+ */
+const STANDING_COLUMNS =
+  `b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key,
+          array_remove(array_agg(t.slug ORDER BY t.slug), NULL) AS slugs,
+          array_remove(array_agg(t.label ORDER BY t.slug), NULL) AS labels`
+
+const STANDING_GROUP =
+  'b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key'
+
+const asStandingBook = (row: StandingRow, rules: PlacementRule[]): AreaBook => ({
+  id: Number(row.id),
+  title: row.title,
+  authorFiling: row.author_filing ?? '',
+  titleFiling: row.title_filing ?? '',
+  published: row.published ?? '',
+  sortKey: row.sort_key,
+  tagSlugs: row.slugs ?? [],
+  tags: row.labels ?? [],
+  claimedBy: claim(rules, { tagSlugs: row.slugs ?? [] })?.name ?? null,
+})
 
 /**
  * The books standing in one area, in the order they stand, **by identity**.
@@ -479,18 +542,7 @@ export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
   const fixture = await fixtureOnTheFloor(db, area.fixtureId)
   if (!fixture) return refuse(404, 'No such piece of furniture.')
 
-  const rows = await db.all<StandingRow>(
-    `SELECT b.id, b.title, b.author_filing, b.sort_key,
-            array_remove(array_agg(t.slug), NULL) AS slugs
-       FROM catalogued_books b
-       LEFT JOIN book_tag bt ON bt.book_id = b.id
-       LEFT JOIN tag t ON t.id = bt.tag_id
-      WHERE b.current_area_id = ?
-      GROUP BY b.id, b.title, b.author_filing, b.sort_key
-      ORDER BY b.sort_key`,
-    [id],
-  )
-
+  const rows = await standingIn(db, [id])
   const { rules } = await furnitureIn(db)
 
   return {
@@ -500,14 +552,54 @@ export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
       label: labelFor({ fixture: asFixture(fixture), area: asArea(area) }),
       books: area.books,
     },
-    books: rows.map((row) => ({
-      id: Number(row.id),
-      title: row.title,
-      authorFiling: row.author_filing ?? '',
-      sortKey: row.sort_key,
-      claimedBy: claim(rules, { tagSlugs: row.slugs ?? [] })?.name ?? null,
-    })),
+    books: rows.map((row) => asStandingBook(row, rules)),
   }
+}
+
+/**
+ * The books standing on one piece of furniture, in the order they stand.
+ *
+ * The same read one area up, and it exists for the same reason that one does:
+ * a piece's own page now shows how it is ordered and what that ordering does to
+ * these books, and asking area by area would be one request per plank and a
+ * screen stitching them back into an order.
+ *
+ * A piece nothing has been filed onto answers an empty list, which is correct
+ * and is not a 404: the piece is there and holds nothing.
+ */
+export async function booksOnFixture(db: Db, id: number): Promise<ReadFixtureBooks> {
+  const fixture = await fixtureOnTheFloor(db, id)
+  if (!fixture) return refuse(404, 'No such piece of furniture.')
+
+  const face = await faceOf(db, fixture)
+  const rows = face.length ? await standingIn(db, face.map((slot) => slot.area.id)) : []
+  const { rules } = await furnitureIn(db)
+
+  return {
+    ok: true,
+    fixture: {
+      id,
+      label: fixtureLabel(asFixture(fixture)),
+      books: rows.length,
+    },
+    books: rows.map((row) => asStandingBook(row, rules)),
+  }
+}
+
+/** Every book recorded in any of these areas, in the order they stand. */
+async function standingIn(db: Db, areaIds: readonly number[]): Promise<StandingRow[]> {
+  if (areaIds.length === 0) return []
+  const holes = areaIds.map(() => '?').join(', ')
+  return db.all<StandingRow>(
+    `SELECT ${STANDING_COLUMNS}
+       FROM catalogued_books b
+       LEFT JOIN book_tag bt ON bt.book_id = b.id
+       LEFT JOIN tag t ON t.id = bt.tag_id
+      WHERE b.current_area_id IN (${holes})
+      GROUP BY ${STANDING_GROUP}
+      ORDER BY b.sort_key`,
+    [...areaIds],
+  )
 }
 
 /** The areas of one fixture as slots, in the order they sit on its face. */
@@ -833,12 +925,118 @@ const ANCHORS_OUT_OF_ORDER =
   + 'cannot start before the one in front of it. Move the boundary instead of the area.'
 
 /**
+ * The character that sorts above anything a sort key can hold.
+ *
+ * Used to make an anchor that is past a known book and past nothing else. It is
+ * only ever appended to the greatest key in a run, where nothing follows it, so
+ * the only thing the choice decides is which of two areas a book added *later*
+ * falls into: too low and the new area would quietly claim one, too high and it
+ * stays empty until a boundary moves, which is the model this app already has
+ * and what "an empty area at the end" means.
+ */
+const PAST_EVERYTHING = '￿'
+
+/**
+ * Where an area opens when nobody said, which is now every time one is added.
+ *
+ * **Adding an area stopped being a screen** (#381): the owner asked for the
+ * button on the fixtures screen to just add one, at the end, continuing the
+ * lettering, with no question in between. The question it used to ask was which
+ * book the new area starts at, and that is this function: without an answer the
+ * area used to open at the empty string, which the anchor check refuses on any
+ * piece that already holds books.
+ *
+ * There are two answers and the difference between them is whether anything
+ * follows the new area **in its own run**:
+ *
+ * - **Something does.** The new area takes the stretch just before that
+ *   boundary, so it opens exactly where the next area opens. Equal anchors are
+ *   allowed and are already real in this catalogue. No book moves: a key below
+ *   that anchor still lands before the new area and a key at or above it still
+ *   lands in the area that already claimed it.
+ * - **Nothing does**, because the next area starts a run of its own or there is
+ *   no next area. Then the new area is the end of the run and opens past every
+ *   book in it, which is the plank the boundary moves onto when the one before
+ *   fills up. A run with nothing standing in it has no such book, so the area
+ *   opens where the one it follows opens, which is #367's empty case.
+ *
+ * **It is never lower than the area it follows**, because the areas of a piece
+ * are read in the order the books run along it and the write is refused when
+ * they do not ascend. An empty area anchored past the end followed by another
+ * empty one is exactly where the two answers meet.
+ */
+async function anchorForNewArea(
+  tx: Db,
+  piece: Fixture,
+  landing: number,
+): Promise<string> {
+  const { order, rules } = await furnitureIn(tx)
+  const entries = entryAreas(rules, order)
+
+  /*
+   * The whole collection with the new area standing in it, worked out the way
+   * the collection is always worked out. Everything at or after the landing on
+   * this face shuffles down, which is what the write itself then does.
+   *
+   * The piece is put into the list itself rather than read off the areas,
+   * because a piece with no areas yet appears in none of them and its first
+   * area would otherwise be dropped on the floor and answered about somebody
+   * else's.
+   */
+  const fixtureId = piece.id
+  const fixtures = [
+    piece,
+    ...[...new Map(order.map((slot) => [slot.fixture.id, slot.fixture])).values()]
+      .filter((one) => one.id !== fixtureId),
+  ]
+  const wanted: Area = {
+    id: 0, fixtureId, position: landing, name: '', startsAt: '', sortStrategy: INHERIT,
+  }
+  const shifted = order.map((slot) => (slot.fixture.id === fixtureId
+    && slot.area.position >= landing
+    ? { ...slot.area, position: slot.area.position + 1 }
+    : slot.area))
+  const grown = slotsInOrder(fixtures, [...shifted, wanted])
+
+  const at = grown.findIndex((slot) => slot.area.id === 0)
+  const before = at > 0 ? grown[at - 1] ?? null : null
+  const after = grown[at + 1] ?? null
+
+  // Still inside a run: open where the next area opens, and claim nothing.
+  const opensARun = (slot: Slot): boolean =>
+    entries.has(slot.area.id) || slot.area.sortStrategy !== INHERIT
+  if (after && !opensARun(after)) return after.area.startsAt
+
+  // The end of the run: past every book standing in it.
+  const run: number[] = []
+  for (let back = at - 1; back >= 0; back -= 1) {
+    const slot = grown[back]!
+    run.push(slot.area.id)
+    if (opensARun(slot)) break
+  }
+
+  const top = run.length
+    ? (await tx.all<{ top: string | null }>(
+        `SELECT max(sort_key) AS top FROM catalogued_books
+          WHERE current_area_id IN (${run.map(() => '?').join(', ')})`,
+        run,
+      ))[0]?.top ?? null
+    : null
+
+  const past = top === null ? '' : `${top}${PAST_EVERYTHING}`
+  const follows = before?.area.startsAt ?? ''
+  return past > follows ? past : follows
+}
+
+/**
  * Cut another area into a piece of furniture.
  *
  * `startsAt` is the sort key the run of books in it begins at, which is what a
- * boundary is: everything from there to the next boundary is one area. Left out,
- * the area opens at the empty string, which is how "from the beginning" is said
- * without a null and is right for the first area of a run.
+ * boundary is: everything from there to the next boundary is one area. **Left
+ * out, the server works out where it opens**, which is `anchorForNewArea` and
+ * is what makes adding an area a button rather than a screen (#381). Passing an
+ * empty string is still saying "from the beginning" out loud, and is still
+ * refused on a piece whose areas are already anchored.
  *
  * `position` puts it between two areas that already exist; left out it goes on
  * the end. Everything after it shuffles down, which relabels those areas and
@@ -864,6 +1062,7 @@ export async function addAreaTo(
     const face = await faceOf(tx, fixture)
     const landing = landingFor(face, at ?? face.length)
 
+    const said = asText(input.startsAt)
     const wanted: Area = {
       // A stand-in, checked against the anchors before anything is written. Zero
       // cannot collide with a row: the identity column starts at 1.
@@ -871,7 +1070,7 @@ export async function addAreaTo(
       fixtureId,
       position: landing,
       name: asText(input.name) ?? '',
-      startsAt: asText(input.startsAt) ?? '',
+      startsAt: said ?? await anchorForNewArea(tx, asFixture(fixture), landing),
       sortStrategy: strategy ?? INHERIT,
     }
     const grown: Slot[] = [...face, { fixture: asFixture(fixture), area: wanted }]
@@ -956,13 +1155,23 @@ export async function editArea(db: Db, id: number, input: AreaInput): Promise<Ed
       if (effect?.cuts && input.acknowledge !== true) {
         return refuse(
           409,
+          /*
+           * This sentence is shown to somebody, so it says none of the words
+           * the code says to itself. It used to end "leave the run they are
+           * in", and "run" is on the list `src/design/design.test.tsx` pins:
+           * the owner named the rule himself, about this exact word, and it
+           * reached a screen the moment the ordering became something changed
+           * on the area's own page rather than on a screen of its own (#381).
+           */
           effect.selfContained
             ? `${effect.affected[0]} would order itself, so nothing overflows into it from `
-              + `the area before and ${effect.affected.length} area`
-              + `${effect.affected.length === 1 ? '' : 's'} leave the run they are in.`
-            : `${effect.affected[0]} would go back to ordering the way the run does, and `
-              + `${effect.affected.length} area${effect.affected.length === 1 ? '' : 's'} `
-              + 'rejoin the run before it.',
+              + `the area before, and ${effect.affected.length} area`
+              + `${effect.affected.length === 1 ? '' : 's'} stop being fed by the one `
+              + 'in front of them.'
+            : `${effect.affected[0]} would go back to taking what overflows from the area `
+              + `before it, and ${effect.affected.length} area`
+              + `${effect.affected.length === 1 ? '' : 's'} are fed by the one in front of `
+              + 'them again.',
           effect,
         )
       }

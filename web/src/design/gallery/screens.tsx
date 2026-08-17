@@ -47,7 +47,8 @@ import {
   TagPick,
   type Look,
 } from '../Finding'
-import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
+import { AddBox, AreaBox, Claim, Nest, Order } from '../Furniture'
+import { FilterRule, SortRule } from '../Rules'
 import { IconCamera, IconEdit, IconInHand } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Make, Naming } from '../Naming'
@@ -2549,6 +2550,41 @@ const ROOM = [
 ]
 
 /**
+ * The books standing on 2 · Cookery, and the four things any ordering files
+ * them under.
+ *
+ * They are drawn under the sort rule on both pages, and they are the whole
+ * answer to the owner's "it's hard to see why they sort". So the same eight
+ * books are held once, and each state below picks the column that state's
+ * ordering reads: a surname, a title, a year. Picked so the three orders are
+ * visibly different from each other, which is the point of showing them at all.
+ */
+const COOKERY = [
+  { id: 1, who: 'Acton, Eliza', title: 'Modern Cookery', year: '1845' },
+  { id: 2, who: 'David, Elizabeth', title: 'A Book of Mediterranean Food', year: '1950' },
+  { id: 3, who: 'Fisher, M. F. K.', title: 'How to Cook a Wolf', year: '1942' },
+  { id: 4, who: 'Grigson, Jane', title: 'Good Things', year: '1971' },
+  { id: 5, who: 'McGee, Harold', title: 'On Food and Cooking', year: '1984' },
+  { id: 6, who: 'Nosrat, Samin', title: 'Salt Fat Acid Heat', year: '2017' },
+]
+
+/**
+ * The same books as the sort rule widget wants them, in one ordering.
+ *
+ * The second column is the author where the first one is the title, so that
+ * ordering by the title does not print the same string twice. Found by looking
+ * at it.
+ */
+const sampleBy = (by: 'who' | 'title' | 'year') =>
+  [...COOKERY]
+    .sort((a, b) => (a[by] < b[by] ? -1 : a[by] > b[by] ? 1 : 0))
+    .map((book) => ({
+      id: book.id,
+      by: book[by],
+      said: by === 'title' ? book.who : book.title,
+    }))
+
+/**
  * Bookcase 2, drawn wherever a screen needs it.
  *
  * It used to be drawn on the area screen too, above everything that screen is
@@ -2562,7 +2598,7 @@ function Bookcase2({ go, head }: { go: Go; head?: () => void }) {
       name="Bookcase 2"
       note="63 books"
       holds="Anything tagged Non-fiction"
-      onPress={head ?? (() => go('belongs'))}
+      onPress={head ?? (() => go('area'))}
     >
       {AREAS_2.map((area) => (
         <AreaBox
@@ -2573,7 +2609,7 @@ function Bookcase2({ go, head }: { go: Go; head?: () => void }) {
           onPress={() => go('area')}
         />
       ))}
-      <AddBox onPress={() => go('addarea')}>Add an area to bookcase 2</AddBox>
+      <AddBox onPress={() => go('furniture')}>Add an area to bookcase 2</AddBox>
     </Nest>
   )
 }
@@ -2600,7 +2636,7 @@ function Furniture(go: Go) {
             onPress={() => go('area')}
           />
         ))}
-        <AddBox onPress={() => go('addarea')}>Add an area to this bookcase</AddBox>
+        <AddBox onPress={() => go('furniture')}>Add an area to this bookcase</AddBox>
       </Nest>
 
       <Bookcase2 go={go} head={() => go('bookcase')} />
@@ -2620,7 +2656,7 @@ function Furniture(go: Go) {
             onPress={() => go('area')}
           />
         ))}
-        <AddBox onPress={() => go('addarea')}>Add an area to this bookcase</AddBox>
+        <AddBox onPress={() => go('furniture')}>Add an area to this bookcase</AddBox>
       </Nest>
 
       <Nest
@@ -2638,7 +2674,7 @@ function Furniture(go: Go) {
             onPress={() => go('area')}
           />
         ))}
-        <AddBox onPress={() => go('addarea')}>Add an area to this crate</AddBox>
+        <AddBox onPress={() => go('furniture')}>Add an area to this crate</AddBox>
       </Nest>
 
       <Nest
@@ -2656,7 +2692,7 @@ function Furniture(go: Go) {
             onPress={() => go('area')}
           />
         ))}
-        <AddBox onPress={() => go('addarea')}>Add an area to this desk</AddBox>
+        <AddBox onPress={() => go('furniture')}>Add an area to this desk</AddBox>
       </Nest>
 
       {/*
@@ -2681,7 +2717,14 @@ function Furniture(go: Go) {
   )
 }
 
-function Bookcase(go: Go) {
+/**
+ * One piece of furniture, and the two states of its sort rule.
+ *
+ * Two screens draw this and the difference between them is one widget being
+ * open, which is exactly why they are one function: the whole point of changing
+ * the ordering in place is that the page around it does not change.
+ */
+function BookcaseScreen({ go, sorting = false }: { go: Go; sorting?: boolean }) {
   return (
     <Phone
       tab="library"
@@ -2722,6 +2765,51 @@ function Bookcase(go: Go) {
       </Button>
 
       {/*
+        The two rules, drawn by the same two widgets the area's page draws them
+        with. The owner asked for both places to answer both questions: "whenever
+        we're in the detailed view of a fixture or an area, we need to be able to
+        very easily see and change the current sort rule and the current filter
+        rule."
+
+        A piece is not an area wearing a different heading, and the two
+        differences are visible here rather than smoothed over. What it inherits
+        from is the whole library, because nothing stands between a piece and the
+        collection; and there is no sentence about taking what overflows from
+        before it, because books flow along a piece rather than between pieces.
+      */}
+      <FilterRule
+        holds="Anything tagged Non-fiction"
+        rule={{
+          name: 'Non-fiction',
+          lines: [{ operator: 'is', tag: 'Non-fiction' }],
+          enabled: true,
+        }}
+        change={{ word: 'Point Non-fiction somewhere else', onPress: () => go('move') }}
+      />
+
+      {/*
+        Open, the answers stand under the current one and the books under them
+        redraw in whichever is picked. The year is drawn as the chosen one
+        because it is the ordering whose difference is impossible to miss: the
+        same six books, the same page, a completely different order, before
+        anything has been written.
+      */}
+      <SortRule
+        said="The way the whole library does"
+        note={sorting
+          ? 'Every area on it that orders nothing of its own is ordered this way.'
+          : 'Every area on it that orders nothing of its own is by the author.'}
+        sample={sorting ? sampleBy('year') : sampleBy('who')}
+        more={57}
+        open={sorting}
+        chosen={sorting ? 'published' : undefined}
+        options={sorting ? ORDERINGS('the whole library') : []}
+        onOpen={() => go('fixturesort')}
+        onSave={() => go('bookcase')}
+        onClose={() => go('bookcase')}
+      />
+
+      {/*
         "Take it out of the room" over "the books do not vanish with it" is
         gone: "let's just say maybe delete fixture, and then that obviously
         initiates the transition of the books to another fixture, or takes
@@ -2743,6 +2831,26 @@ function Bookcase(go: Go) {
   )
 }
 
+const Bookcase = (go: Go) => <BookcaseScreen go={go} />
+const BookcaseSorting = (go: Go) => <BookcaseScreen go={go} sorting />
+
+/**
+ * The answers to how a place is ordered, in that place's own words.
+ *
+ * Five, which is why they stack rather than sitting in a row: a segmented
+ * control stops working at four. What inheriting is called is the argument the
+ * whole widget rests on, so it is a parameter here too: an area takes the piece
+ * it stands on and a piece takes the whole library, and neither sentence is
+ * true of the other.
+ */
+const ORDERINGS = (from: string) => [
+  { value: 'inherit', word: `The way ${from} does`, sub: 'By the author today' },
+  { value: 'author', word: 'By the author' },
+  { value: 'title', word: 'By the title' },
+  { value: 'published', word: 'By the year it came out' },
+  { value: 'tag', word: 'By tag', sub: 'Not ready to be offered yet', off: true },
+]
+
 /**
  * One area, and what you can change about it.
  *
@@ -2755,13 +2863,31 @@ function Bookcase(go: Go) {
  * and stuff like that on it."
  *
  * Which piece it is on has not been lost, and it did not need a drawing: the
- * top bar says it in four words, and the arrow beside them goes there. What is
- * left is the three things this screen can change and the two things it can do.
+ * top bar says it in four words, and the arrow beside them goes there.
  *
- * **Four screens draw this**, which is why it takes arguments: the area itself,
- * and the three states of being asked to remove one. The dialog is drawn over
- * the same screen it was opened from rather than over a stand-in, because that
- * is the only way to see whether it can be read against what is behind it.
+ * ## What belongs here and how it is ordered are answered here (#381)
+ *
+ * > On the area detail view, it's not very obvious at all how to change the
+ * > rules [...] So instead of "see what belongs here" we should just show what
+ * > belongs there, and then have the ability to edit it if the user clicks it.
+ * > And then how it's ordered is another one. I like to see what belongs here
+ * > and how it's ordered, but I don't like the way that this is represented
+ * > inside the screen. Instead it should be like "sort rule" or something.
+ *
+ * Two screens went with that note, and both are widgets now, drawn here and on
+ * the piece's own page from one definition. The sort rule shows the books in the
+ * order it puts them, which is the half a name cannot answer: "it's hard to see
+ * how things sort, or why they sort."
+ *
+ * The primary button that split the area in two went with the screen it opened.
+ * A boundary is still moved by moving one, from the book that starts it, which
+ * is the screen somebody is on when they notice.
+ *
+ * **Six screens draw this**, which is why it takes arguments: the area itself,
+ * the sort rule open, the books standing here, and the three states of being
+ * asked to remove one. The dialog is drawn over the same screen it was opened
+ * from rather than over a stand-in, because that is the only way to see whether
+ * it can be read against what is behind it.
  */
 function AreaScreen({
   go,
@@ -2769,8 +2895,14 @@ function AreaScreen({
   sub,
   name,
   belongs,
+  rule,
+  beaten,
   ordered,
   order,
+  sample,
+  sorting = false,
+  chosen,
+  books,
   over,
 }: {
   go: Go
@@ -2781,10 +2913,20 @@ function AreaScreen({
   name?: string
   /** What the rule sends here, said the way a person would say it. */
   belongs: string
+  /** The rule itself, where one reaches here. */
+  rule?: { name: string; lines: { operator: 'is' | 'under'; tag: string }[]; enabled: boolean }
+  /** Every rule that reaches here, where more than one does. */
+  beaten?: { id: number; name: string; place: string; wide: boolean }[]
   /** How it is ordered, in the same voice. */
   ordered: string
   /** The line under that, where there is more to say. */
   order?: string
+  /** The books, in the order the ordering being looked at puts them. */
+  sample?: { id: number; by: string; said: string }[]
+  sorting?: boolean
+  chosen?: string
+  /** What is standing here, where the state being drawn is about that. */
+  books?: { id: number; title: string; who: string; cloth: Cloth; meta?: string }[]
   over?: ReactElement
 }) {
   return (
@@ -2796,63 +2938,97 @@ function AreaScreen({
     >
       <Field label="What you call this area" value={name} placeholder="Not named" />
 
-      <Card
-        kind="What belongs here"
-        title={belongs}
-        foot={
-          <Button tone="secondary" block onPress={() => go('belongs')}>
-            Change what belongs here
-          </Button>
-        }
+      <FilterRule
+        holds={belongs}
+        rule={rule ?? null}
+        beaten={beaten}
+        change={rule ? { word: `Point ${rule.name} somewhere else`, onPress: () => go('move') } : undefined}
       />
 
-      <Card
-        kind="How it is ordered"
-        title={ordered}
-        foot={
-          <Button tone="secondary" block onPress={() => go('sorting')}>
-            Change the order
-          </Button>
-        }
-      >
-        {order && <p>{order}</p>}
-      </Card>
+      <SortRule
+        said={ordered}
+        note={order}
+        sample={sample ?? []}
+        more={sample ? 12 : 0}
+        open={sorting}
+        chosen={chosen}
+        options={sorting ? ORDERINGS('bookcase 2') : []}
+        onOpen={() => go('sortrule')}
+        onSave={() => go('area')}
+        onClose={() => go('area')}
+      />
 
-      {/* "Remove this thing at the bottom, what it held becomes part of the
-          one before. Get rid of that." It was a paragraph with no action
-          under it, so nothing went with it. */}
-      <Button tone="primary" block onPress={() => go('addarea')}>
-        Split this area in two
-      </Button>
+      {books && books.length > 0 && (
+        <>
+          <p className="wf-heading wf-heading--flush">Standing on {label}</p>
+          <List label={`Books on ${label}`}>
+            {books.map((book) => (
+              <Row
+                key={book.id}
+                title={book.title}
+                sub={book.who}
+                cloth={book.cloth}
+                meta={book.meta}
+                onPress={() => go('claimed')}
+              />
+            ))}
+          </List>
+        </>
+      )}
 
       {/*
         The way to remove an area, which the interface did not have anywhere at
-        all until #281.
+        all until #281, and which no longer wears a dashed box: "I also don't
+        like how 'remove this area' is surrounded in a dotted box."
 
-        It wears the fixture screen's dashed fence and not its sentence, and
-        both halves of that are deliberate. The fence, because a screen should
-        not let the irreversible thing sit shoulder to shoulder with the thing
-        the screen is for: on a phone they are two full-width buttons 12px
-        apart, and the fixture screen already solved that. No sentence, because
-        the fixture's "Its 63 books move to other furniture first" is there for
-        a reason that does not apply here: pressing that one goes straight to
-        the plan and starts arranging, so the screen is the only place left to
-        say it. This one has a dialog, and a dialog is a better place to say it
-        than a caption nobody read on the way past. A standing explanation of a
-        button nobody has pressed is the ambient prose #262 took thirty-one
-        instances of off these screens.
+        What the fence was for still holds and is now done by the arrangement
+        rather than by an outline: it is last, under everything, and the dialog
+        in front of it is where what it does to somebody's books is said. A
+        standing explanation of a button nobody has pressed is the ambient prose
+        #262 took thirty-one instances of off these screens.
       */}
-      <Card
-        weight="quiet"
-        foot={
-          <Button tone="danger" block onPress={() => go('removearea')}>
-            Remove this area
-          </Button>
-        }
-      />
+      <Button tone="danger" block onPress={() => go('removearea')}>
+        Remove this area
+      </Button>
     </Phone>
   )
 }
+
+/** The rule that files onto 2 · Cookery, as both of its states need it. */
+const COOKERY_RULE = {
+  name: 'Cookery',
+  lines: [
+    { operator: 'is' as const, tag: 'Non-fiction' },
+    { operator: 'under' as const, tag: 'Cookery' },
+  ],
+  enabled: true,
+}
+
+/*
+ * Both rules reach this area, and the order between them is the whole of what
+ * settles a tie: the one about the smaller place wins. A page that drew only the
+ * winner would answer half the question somebody opened it to ask.
+ */
+const COOKERY_REACHING = [
+  { id: 1, name: 'Cookery', place: '2 · Cookery', wide: false },
+  { id: 2, name: 'Non-fiction', place: 'bookcase 2', wide: true },
+]
+
+/** The books standing on it, as the list of them wants them. */
+const COOKERY_ROWS: { id: number; title: string; who: string; cloth: Cloth; meta?: string }[] = [
+  { id: 1, title: 'Modern Cookery', who: 'Acton, Eliza', cloth: 'wood2' },
+  { id: 2, title: 'A Book of Mediterranean Food', who: 'David, Elizabeth', cloth: 'moss' },
+  { id: 3, title: 'How to Cook a Wolf', who: 'Fisher, M. F. K.', cloth: 'wood' },
+  { id: 4, title: 'Good Things', who: 'Grigson, Jane', cloth: 'plum' },
+  { id: 5, title: 'On Food and Cooking', who: 'McGee, Harold', cloth: 'sky' },
+  {
+    id: 6,
+    title: 'Salt Fat Acid Heat',
+    who: 'Nosrat, Samin',
+    cloth: 'sun',
+    meta: 'No rule claims it',
+  },
+]
 
 function Area(go: Go) {
   return (
@@ -2862,8 +3038,45 @@ function Area(go: Go) {
       sub="18 books, on bookcase 2"
       name="Cookery"
       belongs="Anything tagged Cookery"
+      rule={COOKERY_RULE}
+      beaten={COOKERY_REACHING}
       ordered="The way bookcase 2 does"
-      order="By the author’s surname, which is what the whole library uses."
+      order="It takes what overflows from the area before it."
+      sample={sampleBy('who')}
+      books={COOKERY_ROWS}
+    />
+  )
+}
+
+/**
+ * The same area with its sort rule open, which is the state that has to be
+ * looked at rather than described.
+ *
+ * The answers stand where the widget was and the books under them are drawn in
+ * the one being picked, so what a person sees before pressing Save is the thing
+ * the change would do. Drawn on "by the title", because that is an order visibly
+ * unlike the one above it: the same six books, no longer under a surname.
+ *
+ * The sentence over the answer is the server's own, and it is the reason this
+ * is safe to offer one tap from a page somebody is only reading: an area with an
+ * order of its own takes no overflow, so choosing one cuts the stretch it was in.
+ */
+function AreaSorting(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Cookery"
+      rule={COOKERY_RULE}
+      beaten={COOKERY_REACHING}
+      ordered="The way bookcase 2 does"
+      order="It takes what overflows from the area before it."
+      sample={sampleBy('title')}
+      sorting
+      chosen="title"
+      books={COOKERY_ROWS}
     />
   )
 }
@@ -3062,128 +3275,6 @@ function RemovingOnly(go: Go) {
   )
 }
 
-function AddArea(go: Go) {
-  return (
-    <Phone
-      tab="library"
-      go={go}
-      top={<TopBar title="Add an area" sub="Splitting 2 · Cookery" onBack={() => go('area')} />}
-    >
-      <Instruction>Where does the new area start?</Instruction>
-
-      <Nest name="Bookcase 2" note="63 books" holds="Anything tagged Non-fiction">
-        <AreaBox reads="2A" books={21} holds="Non-fiction starts here" />
-        <AreaBox reads="2B" books={24} holds="Non-fiction, carrying on" />
-        <AreaBox reads="2 · Cookery" books={11} holds="Acton to Fisher" on />
-        <AreaBox reads="2D, new" books={7} holds="Grigson to Wolfert" on />
-      </Nest>
-
-      <p className="wf-heading wf-heading--flush">Books on 2 &middot; Cookery</p>
-      <List label="Books on 2C">
-        <Row title="A Book of Mediterranean Food" sub="David, Elizabeth" cloth="moss" onPress={() => {}} />
-        <Row title="How to Cook a Wolf" sub="Fisher, M. F. K." cloth="wood" onPress={() => {}} />
-        <Row
-          title="Good Things"
-          sub="Grigson, Jane"
-          cloth="plum"
-          meta="Starts here"
-          onPress={() => {}}
-        />
-        <Row title="On Food and Cooking" sub="McGee, Harold" cloth="sky" onPress={() => {}} />
-        <Row title="Salt Fat Acid Heat" sub="Nosrat, Samin" cloth="sun" onPress={() => {}} />
-      </List>
-
-      <Card weight="sunk" kind="What it does" title="Cookery keeps 11 books, the new one takes 7" />
-
-      <Button tone="primary" block onPress={() => go('area')}>
-        Add the area
-      </Button>
-      <Button tone="quiet" block onPress={() => go('area')}>
-        Leave it as one area
-      </Button>
-    </Phone>
-  )
-}
-
-function Belongs(go: Go) {
-  return (
-    <Phone
-      tab="library"
-      go={go}
-      top={<TopBar title="What belongs here" sub="2 · Cookery" onBack={() => go('area')} />}
-    >
-      <Instruction>Books tagged Cookery go on 2C.</Instruction>
-
-      <Card kind="The rule" title="Cookery">
-        <Musts>
-          <Must lead="Tagged" tag="Non-fiction" onPress={() => {}} />
-          <Must join="and" lead="Tagged anything under" tag="Cookery" onPress={() => {}} />
-        </Musts>
-        <Button tone="quiet" onPress={() => {}}>
-          Add another thing that must be true
-        </Button>
-      </Card>
-
-      <Card kind="When two rules want the same book" title="The one about the smaller place wins">
-        <div className="wf-steps">
-          <div className="wf-step">
-            <span className="wf-step__n">1</span>
-            <span>
-              Cookery, about <Place quiet>2C</Place>
-            </span>
-          </div>
-          <div className="wf-step">
-            <span className="wf-step__n">2</span>
-            <span>Anything tagged Non-fiction, about the whole of bookcase 2</span>
-          </div>
-        </div>
-        <Button tone="quiet" onPress={() => go('claimed')}>
-          Show me what claimed a book
-        </Button>
-      </Card>
-
-      <Card weight="quiet" kind="Claimed by nothing" title="Three books match no rule at all" />
-
-      <Button tone="primary" block onPress={() => go('plan')}>
-        Show me what would move
-      </Button>
-    </Phone>
-  )
-}
-
-function Sorting(go: Go) {
-  return (
-    <Phone
-      tab="library"
-      go={go}
-      top={<TopBar title="How 2C is ordered" sub="Cookery" onBack={() => go('area')} />}
-    >
-      <Card weight="sunk" kind="Right now" title="By the author’s surname" />
-
-      <Choice
-        label="How 2C should be ordered"
-        on="same"
-        options={[
-          { value: 'same', word: 'The way bookcase 2 does', sub: 'By the author’s surname today' },
-          { value: 'author', word: 'By the author' },
-          { value: 'title', word: 'By the title' },
-          { value: 'year', word: 'By the year it came out' },
-          { value: 'tag', word: 'By tag', sub: 'Not ready to be offered yet', off: true },
-        ]}
-      />
-
-      <Card kind="If you choose one here" title="2C becomes a place of its own" />
-
-      <Button tone="primary" block onPress={() => go('area')}>
-        Save
-      </Button>
-      <Button tone="quiet" block onPress={() => go('area')}>
-        Leave it as it is
-      </Button>
-    </Phone>
-  )
-}
-
 function Claimed(go: Go) {
   return (
     <Phone
@@ -3200,13 +3291,13 @@ function Claimed(go: Go) {
             about="About 2C"
             won
             why="It asks for a tag this book has, and it is about one area."
-            onPress={() => go('belongs')}
+            onPress={() => go('area')}
           />
           <Claim
             name="Anything tagged Non-fiction"
             about="About the whole of bookcase 2"
             why="It fits too, but a rule about one area beats a rule about a whole fixture."
-            onPress={() => go('belongs')}
+            onPress={() => go('area')}
           />
         </div>
       </Card>
@@ -3225,7 +3316,7 @@ function Claimed(go: Go) {
           where it is. A pinned book is left alone by every rule, for good.
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button tone="secondary" onPress={() => go('belongs')}>
+          <Button tone="secondary" onPress={() => go('area')}>
             Open the rule
           </Button>
           <Button tone="quiet" onPress={() => go('book')}>
@@ -3316,7 +3407,7 @@ function ClaimedNone(go: Go) {
           <Button tone="primary" onPress={() => go('saying')}>
             Say what it is
           </Button>
-          <Button tone="secondary" onPress={() => go('belongs')}>
+          <Button tone="secondary" onPress={() => go('area')}>
             Write a rule for Crime
           </Button>
         </div>
@@ -3858,7 +3949,7 @@ function CarryStale(go: Go) {
       <Button tone="primary" block onPress={() => go('carry')}>
         Show me what is left
       </Button>
-      <Button tone="quiet" block onPress={() => go('belongs')}>
+      <Button tone="quiet" block onPress={() => go('area')}>
         Open the rule again
       </Button>
     </Phone>
@@ -4283,8 +4374,17 @@ export const SCREENS: Screen[] = [
      the neutral word: not every piece in the room is a bookcase. */
   { id: 'furniture', name: 'All five pieces', group: 'Your fixtures', render: Furniture },
   { id: 'bookcase', name: 'One fixture', group: 'Your fixtures', render: Bookcase },
+  /* The same page with its sort rule open. Beside the page it is a state of,
+     because the whole argument for changing it in place is that nothing else
+     about the page moves while you do. */
+  {
+    id: 'fixturesort',
+    name: 'A fixture’s sort rule',
+    group: 'Your fixtures',
+    render: BookcaseSorting,
+  },
   { id: 'area', name: 'One area', group: 'Your fixtures', render: Area },
-  { id: 'addarea', name: 'Adding an area', group: 'Your fixtures', render: AddArea },
+  { id: 'sortrule', name: 'An area’s sort rule', group: 'Your fixtures', render: AreaSorting },
   /* Three states of one dialog, and the second and third are the ones that get
      skipped: the area at the top of a piece has nothing to fall into, and the
      last area on a piece has nowhere at all. */
@@ -4301,8 +4401,6 @@ export const SCREENS: Screen[] = [
     group: 'Your fixtures',
     render: RemovingOnly,
   },
-  { id: 'belongs', name: 'What belongs here', group: 'Your fixtures', render: Belongs },
-  { id: 'sorting', name: 'How an area is ordered', group: 'Your fixtures', render: Sorting },
   { id: 'claimed', name: 'Why a book is here', group: 'Your fixtures', render: Claimed },
   /* Beside the screen it is the other state of, because that is the pair: one
      book with rules queueing up for it, and one book nothing wanted. */

@@ -19,7 +19,9 @@
  */
 
 import { labelFor } from '../../domain/placement/geography'
-import type { AreaDto, FixtureDto, FurnitureDto, RuleDto, SortStrategyCode } from './api'
+import { orderBy } from '../../domain/placement/strategies'
+import type { SampleBook } from '../design/Rules'
+import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto, SortStrategyCode } from './api'
 
 /** A piece as the ordering column holds it while somebody drags it about. */
 export interface Standing {
@@ -284,3 +286,119 @@ export const SKIP_SAID: Record<string, string> = {
 
 export const skippedSaid = (reason: string, books: number): string =>
   `${plural(books, 'book')} ${SKIP_SAID[reason] ?? 'left alone'}`
+
+/**
+ * What one ordering files a book under, which is the thing that changes when
+ * the ordering does.
+ *
+ * The left column of the sample the sort rule widget draws, and the whole
+ * reason the sample answers "why do they read in this order": beside a surname
+ * it reads as a surname, beside a year it reads as a year, and picking another
+ * ordering visibly changes both the order and what is being read.
+ *
+ * **A tag is drawn by its label**, which is why the read carries labels beside
+ * the slugs it orders by. A slug is an identity and putting one on a screen is
+ * the same mistake as showing somebody a row id.
+ */
+export function filedUnder(code: Exclude<SortStrategyCode, 'inherit'>, book: AreaBook): string {
+  if (code === 'title') return book.titleFiling || book.title
+  if (code === 'published') return book.published || 'no year'
+  if (code === 'tag') return book.tags[0] ?? 'no tag'
+  return book.authorFiling || 'unknown author'
+}
+
+/**
+ * The book beside what it is filed under, said by whatever that is not.
+ *
+ * Ordering by the title and printing the title beside it is the same string
+ * twice, which is what the first drawing of the sample did and is what looking
+ * at it showed. So the second column is the author there and the title
+ * everywhere else, and neither column is ever the other one repeated.
+ */
+export const saidBeside = (code: Exclude<SortStrategyCode, 'inherit'>, book: AreaBook): string =>
+  (code === 'title' ? book.authorFiling || 'unknown author' : book.title)
+
+/** How many books a place shows as its own evidence before saying "and more". */
+export const SAMPLE = 6
+
+/**
+ * The books of a place, in the order an ordering would put them.
+ *
+ * The same function the shelf itself is built by, handed the same four
+ * components, so what a screen previews and what the collection does are one
+ * answer rather than two that agree today. Capped, because this is evidence
+ * rather than a listing and the listing already exists.
+ */
+export function sampleOrdered(
+  code: Exclude<SortStrategyCode, 'inherit'>,
+  books: readonly AreaBook[],
+  limit = SAMPLE,
+): { sample: SampleBook[]; more: number } {
+  const ordered = orderBy(code, [...books])
+  return {
+    sample: ordered.slice(0, limit).map((book) => ({
+      id: book.id,
+      by: filedUnder(code, book),
+      said: saidBeside(code, book),
+    })),
+    more: Math.max(0, ordered.length - limit),
+  }
+}
+
+/**
+ * The answers a place can give to how it is ordered, in its own words.
+ *
+ * **What inheriting means is not the same in the two places that ask**, which is
+ * why the fallback is a parameter rather than a sentence written here. An area
+ * with no ordering of its own takes the piece it stands on; a piece with none
+ * takes the whole library. Both are real: every piece starts out inheriting, so
+ * a page that did not offer it could not show a piece its own answer.
+ */
+export function sortOptions(
+  room: FurnitureDto,
+  from: string,
+  falls: Exclude<SortStrategyCode, 'inherit'>,
+): { value: SortStrategyCode; word: string; sub?: string }[] {
+  return room.strategies.map((strategy) => ({
+    value: strategy.code,
+    word: strategy.isInherit ? `The way ${from} does` : orderingSaid(strategy.code, from, strategy.label),
+    sub: strategy.isInherit ? `${orderingSaid(falls, from)} today` : undefined,
+  }))
+}
+
+/** What a piece falls back on when it orders nothing itself: the library's. */
+export const collectionOrdering = (room: FurnitureDto): Exclude<SortStrategyCode, 'inherit'> =>
+  (room.defaultSortStrategy === 'inherit' ? 'author' : room.defaultSortStrategy)
+
+/** What an area falls back on: the piece's answer, or the library's behind it. */
+export function fixtureOrdering(
+  room: FurnitureDto,
+  piece: FixtureDto,
+): Exclude<SortStrategyCode, 'inherit'> {
+  if (piece.sortStrategy !== 'inherit') return piece.sortStrategy
+  return collectionOrdering(room)
+}
+
+/**
+ * Every rule that reaches a place, in the order that settles a tie.
+ *
+ * The one about the smaller place first, which is the rule the model applies
+ * and the order somebody reads it in. A screen showing only the winner answers
+ * half the question the screen was opened to ask.
+ */
+export function reaching(
+  room: FurnitureDto | null,
+  place: { rule: RuleDto | null },
+  wider: { rule: RuleDto | null } | null,
+): { id: number; name: string; place: string; wide: boolean }[] {
+  return [place.rule, wider?.rule ?? null]
+    .filter((rule): rule is RuleDto => rule !== null)
+    .filter((rule, at, all) => all.findIndex((one) => one.id === rule.id) === at)
+    .sort((a, b) => Number(b.about === 'area') - Number(a.about === 'area'))
+    .map((rule) => ({
+      id: rule.id,
+      name: rule.name,
+      place: rulePlace(room, rule),
+      wide: rule.about === 'fixture',
+    }))
+}

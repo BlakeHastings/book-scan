@@ -1510,6 +1510,56 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
+/* --- The two rules a place answers to ------------------------------------- */
+
+/*
+ * The books, in the order the sort rule puts them.
+ *
+ * This is the whole answer to "why do they read in that order", so it is drawn
+ * as the books themselves rather than described. Two columns: what the ordering
+ * files each one under, which is the thing that changes when the ordering does,
+ * and the title, which is how somebody recognises the book. The left column is
+ * fixed and tabular so the answers line up into something readable as an order
+ * rather than as a list.
+ */
+.wf-sample {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--size-small);
+}
+/*
+ * The left column takes whatever the longest answer needs and the title gives
+ * way, which is the other way round from the first drawing of this. Found by
+ * looking at it: at a fixed 11ch every surname on the page read "Grigson, Ja…",
+ * and the column that is being ordered by is the one thing here that must not
+ * be cut off, because reading down it is the whole of what the sample says.
+ */
+.wf-sample__book {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: baseline;
+}
+.wf-sample__by {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.wf-sample__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.wf-sample__more { color: var(--ink-2); }
+
+.wf-rule__tie,
+.wf-rule__effect { font-size: var(--size-small); color: var(--ink-2); }
+
 /* --- The furniture, as boxes inside boxes ---------------------------------- */
 
 /*

@@ -2,6 +2,25 @@
  * The room, and the two things you can do to it as a whole: add a piece, and
  * put the pieces in order.
  *
+ * ## Adding an area is a press, not a screen (#381)
+ *
+ * > Whenever we're on the fixture screen and we can click "add an area to this
+ * > fixture", it should just add the area, and we should just continue the
+ * > lettering. If the user wants to, they can then click the area to get to the
+ * > area detail view, and they can change the rules there.
+ *
+ * So it writes, and nothing else happens: no screen in between, no question
+ * about where a stretch of books splits, and no navigation afterwards. The new
+ * area appears at the end of the piece it was pressed on, one letter further
+ * along, and the room is where somebody already was.
+ *
+ * **It is safe without a screen because it relabels nothing.** A label comes
+ * from a piece's number and name and an area's ordinal and name, and an area
+ * added at the end takes an ordinal nothing else has: every existing label, on a
+ * named piece and on an unnamed one, reads exactly as it did. Where it opens is
+ * the server's answer rather than a question put to somebody, and it is chosen
+ * so that no book changes the area it belongs to; see `anchorForNewArea`.
+ *
  * ## A new piece arrives with no areas, and this screen opens it
  *
  * An area is a decision about where one run of books stops and the next
@@ -27,7 +46,7 @@ import { renumbering } from '../lib/furniture'
 
 export function FurnitureScreen() {
   const { leaveRoom } = useNavigation()
-  const { openFixture, openArea, setFixtureId, setAreaId, onward } = useArranging()
+  const { openFixture, openArea } = useArranging()
   const { room, error, busy, write } = useRoom()
   const [ordering, setOrdering] = useState<number[] | null>(null)
   const tabs = useRoomTabs()
@@ -37,6 +56,13 @@ export function FurnitureScreen() {
     const added = await write(() => api.addFixture({ kind: 'bookshelf' }))
     if (added) openFixture(added.fixture.id)
   }
+
+  /*
+   * On the end, continuing the lettering, and nowhere to go afterwards. Given
+   * no anchor the server puts the new area where it takes no book off anybody,
+   * which is the decision this used to stop and ask about.
+   */
+  const addArea = (fixtureId: number) => write(() => api.addArea(fixtureId))
 
   const saveOrder = async () => {
     if (!room || !ordering) return
@@ -65,16 +91,7 @@ export function FurnitureScreen() {
       onBack={leaveRoom}
       onFixture={openFixture}
       onArea={openArea}
-      onAddArea={(fixtureId) => {
-        /*
-         * Adding an area to a piece is cutting the last one it has, because
-         * that is what an area is. `AddAreaScreen` picks the area to cut when
-         * it is not told one, so nothing is chosen here.
-         */
-        setFixtureId(fixtureId)
-        setAreaId(null)
-        onward('addarea')
-      }}
+      onAddArea={(fixtureId) => { void addArea(fixtureId) }}
       onAddFixture={addFixture}
       onOrder={() => setOrdering(room ? room.fixtures.map((_, at) => at) : null)}
       onReorder={setOrdering}

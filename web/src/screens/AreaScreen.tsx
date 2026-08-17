@@ -1,6 +1,30 @@
 /**
  * One area: what it is called, what belongs in it, how it is ordered, and the
- * two ways to stop it existing as it is.
+ * way to stop it existing.
+ *
+ * ## Four screens became one (#381)
+ *
+ * Cutting an area in two, what belongs here and how it is ordered were three
+ * screens hanging off this one, and the owner walked them and said what was
+ * wrong with all three. Adding an area is now a press on the fixtures screen
+ * with no screen behind it; the other two are the widgets in `design/Rules.tsx`,
+ * drawn here and on the piece's own page.
+ *
+ * ## Only one of the two rules is written from here
+ *
+ * **How it is ordered is.** There is nowhere else that writes it, and the write
+ * itself is safe to offer one tap from a reading screen because the server
+ * refuses it until somebody has been shown what it does: an area given an order
+ * of its own takes no overflow, so the stretch it was in is cut and the areas
+ * after it stop being fed by the one before. The first press collects that
+ * sentence, the widget shows it, and the second press carries the
+ * acknowledgement. A change that cuts nothing is written on the first press,
+ * which is most of them.
+ *
+ * **What belongs here is not.** #323 settled that deliberately: a rule change is
+ * what makes books need carrying, so it goes through the one journey that says
+ * where every book would go before it writes anything. This page is a door to
+ * that journey and not a second way to do it.
  *
  * ## The dialog is drawn from the server's own plan
  *
@@ -16,17 +40,24 @@
  * is the piece going, and that has a plan of its own in front of it.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AreaPane, type Asking } from '../components/AreaPane'
 import { useArranging } from '../app/arranging'
+import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
-import { api } from '../lib/api'
+import { api, Refusal, type AreaBook, type SortStrategyCode } from '../lib/api'
 
 export function AreaScreen() {
+  const { openArranging, openClaim } = useNavigation()
   const { fixtureId, areaId, onward, instead, back } = useArranging()
-  const { room, error, setError, busy, write } = useRoom()
+  const { room, error, setError, busy, write, read } = useRoom()
   const [name, setName] = useState<string | null>(null)
+  const [books, setBooks] = useState<AreaBook[]>([])
   const [asking, setAsking] = useState<Asking | null>(null)
+  const [open, setOpen] = useState(false)
+  const [chosen, setChosen] = useState<SortStrategyCode | null>(null)
+  const [effect, setEffect] = useState('')
+  const [saving, setSaving] = useState(false)
   const tabs = useRoomTabs()
   useDesignPage()
 
@@ -36,6 +67,23 @@ export function AreaScreen() {
   useEffect(() => {
     if (area && name === null) setName(area.name)
   }, [area, name])
+
+  /*
+   * The books standing here, by identity rather than by matching a label
+   * (#318). They are what the list of books is, and they are also what the sort
+   * rule shows: the same books in the order an ordering would put them, which
+   * is the only honest answer to why they read the way they do.
+   */
+  const load = useCallback(() => {
+    if (areaId === null) return () => {}
+    let stale = false
+    api.areaBooks(areaId)
+      .then((got) => { if (!stale) setBooks(got.books) })
+      .catch((caught) => { if (!stale) setError((caught as Error).message) })
+    return () => { stale = true }
+  }, [areaId, setError])
+
+  useEffect(() => load(), [load])
 
   const ask = async () => {
     if (!area) return
@@ -62,11 +110,42 @@ export function AreaScreen() {
     if (done) instead('fixture')
   }
 
+  const saveSort = async () => {
+    if (!area || !chosen) return
+    if (chosen === area.sortStrategy) { setOpen(false); return }
+    setSaving(true)
+    setError('')
+    try {
+      await api.editArea(area.id, { sortStrategy: chosen, acknowledge: effect !== '' })
+      await read()
+      setOpen(false)
+      setEffect('')
+    } catch (caught) {
+      if (caught instanceof Refusal && caught.effect) {
+        // Not a failure: the server is asking for this sentence to be read
+        // before it writes. The next press is the answer to it.
+        setEffect(caught.message)
+      } else {
+        setError((caught as Error).message)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <AreaPane
+      room={room}
       piece={piece}
       area={area}
       name={name ?? ''}
+      books={books}
+      sorting={{
+        open,
+        chosen: chosen ?? area?.sortStrategy ?? 'inherit',
+        effect,
+        busy: saving,
+      }}
       asking={asking}
       busy={busy}
       error={error}
@@ -74,9 +153,12 @@ export function AreaScreen() {
       onBack={() => back('fixture')}
       onName={setName}
       onSaveName={() => area && write(() => api.editArea(area.id, { name: (name ?? '').trim() }))}
-      onBelongs={() => onward('belongs')}
-      onSorting={() => onward('sorting')}
-      onSplit={() => onward('addarea')}
+      onChange={() => { if (area?.rule?.range) openArranging(area.rule.range) }}
+      onOpenSort={() => { setChosen(area?.sortStrategy ?? 'inherit'); setEffect(''); setOpen(true) }}
+      onChooseSort={(code) => { setEffect(''); setChosen(code) }}
+      onSaveSort={saveSort}
+      onCloseSort={() => { setOpen(false); setEffect('') }}
+      onClaimed={openClaim}
       onAsk={ask}
       onKeep={() => setAsking(null)}
       onRemove={remove}
