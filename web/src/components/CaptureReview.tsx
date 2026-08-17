@@ -19,6 +19,25 @@
  * So `Shots` is first, at the size somebody can judge a blurred photograph
  * from, and pressing one goes back to the camera pointed at that slot.
  *
+ * ## Three slots, and the spine leads them (#373)
+ *
+ * > At the top of this screen we need to show the catalogue image if it's
+ * > available. If it's not available, we don't show it. The spine should be on
+ * > the far left, not on the far right.
+ *
+ * It was on the far right, because `SLOTS` is the order the camera fills them
+ * in and the spine is the last thing photographed. The order a book is
+ * photographed in is not the order a book is looked at in, so this screen names
+ * its own and the camera keeps `SLOTS`.
+ *
+ * The arrangement itself is `threeSlots` in `design/Shots.tsx`, so the drawing
+ * and this screen cannot disagree about it. What it decides is where the
+ * downloaded cover goes and what happens to the room it takes: with one, the
+ * two photographs somebody took share the last slot and a swipe moves between
+ * them; without one, they take a slot each and there is nothing to swipe.
+ * Either way there are three, the spine is the first, and no empty frame is
+ * ever drawn for a cover nobody has downloaded.
+ *
  * ## The ISBN leads the fields, and its second answer is not a keyboard
  *
  * It is the one field that decides what every other field says, and thirteen
@@ -44,12 +63,12 @@ import { Button, Field } from '../design/Controls'
 import { IconCamera } from '../design/Icons'
 import { Tag, Tags } from '../design/List'
 import { Phone } from '../design/Phone'
-import { Shots, type Shot } from '../design/Shots'
+import { Shots, threeSlots, type Shot } from '../design/Shots'
 import { CaptureEvidence } from './BookDetail'
 import { IsbnPrompt } from './IsbnPrompt'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import type { Draft, LookupResponse } from '../lib/api'
-import { SLOTS, SLOT_SHORT, type Slot } from '../lib/scanner'
+import { SLOT_SHORT, type Slot } from '../lib/scanner'
 
 interface Props {
   draft: Draft
@@ -59,6 +78,15 @@ interface Props {
   saving: boolean
   relookupBusy: boolean
   relookupError: string
+  /**
+   * The publisher's picture for whatever ISBN this matched, where there is one.
+   *
+   * Drawn beside the photograph somebody took so the two can be compared, which
+   * is the one part of a lookup a person can confirm at a glance: an ISBN is
+   * thirteen digits nobody can verify by reading. Empty means no catalogue held
+   * a picture, and then it is not drawn at all rather than drawn as a gap.
+   */
+  catalogueCover: string
   /** What the photographs produced, quoted rather than filled in (#147). */
   coverText: string
   captureNote: string
@@ -95,8 +123,9 @@ const READ_FROM: Record<string, string> = {
 
 export function CaptureReview({
   draft, lookup, photos, derivedFiling, saving, relookupBusy, relookupError,
-  coverText, captureNote, notice, onDismissNotice, error, onDismissError,
-  onChange, onRelookup, onClearRelookupError, onRetake, onShelve, onLeave, tabs,
+  catalogueCover, coverText, captureNote, notice, onDismissNotice, error,
+  onDismissError, onChange, onRelookup, onClearRelookupError, onRetake,
+  onShelve, onLeave, tabs,
 }: Props) {
   const [asking, setAsking] = useState(false)
 
@@ -114,12 +143,29 @@ export function CaptureReview({
         + 'from the photographs; what the cover reads is quoted below.'
       : ''
 
-  const shots: Shot[] = SLOTS.map((slot) => ({
+  /*
+   * The three slots, named in the order they are read rather than the order
+   * they are filled.
+   *
+   * `SLOTS` is the camera's order, back then front then spine, and it put the
+   * spine on the far right of this screen. That is the camera's business and
+   * not this screen's, so the two are no longer the same list.
+   */
+  const one = (slot: Slot): Shot => ({
     word: SLOT_SHORT[slot],
     sliver: slot === 'edge',
     photo: photos[slot],
     onPress: () => onRetake(slot),
-  }))
+  })
+
+  const slots = threeSlots(
+    one('edge'),
+    /* No press on it: it is not a photograph of this copy and there is no
+       shutter that could take it again. Changing it is changing the ISBN,
+       which is the field below. */
+    { word: 'Downloaded', catalogue: true, photo: catalogueCover },
+    [one('front'), one('back')],
+  )
 
   const found = [draft.publisher, draft.published, draft.pages ? `${draft.pages} pages` : '']
     .filter(Boolean)
@@ -147,7 +193,7 @@ export function CaptureReview({
 
         {/* The photographs first, because the first thing somebody wants to
             know is whether they came out. */}
-        <Shots shots={shots} act size="big" />
+        <Shots {...slots} act size="big" />
 
         {lookup?.duplicateOf && (
           <div className="warn">

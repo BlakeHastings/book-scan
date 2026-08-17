@@ -2644,7 +2644,17 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   position: relative;
   z-index: 1;
   display: flex;
-  width: var(--face);
+  /*
+   * One picture wide, and which width that is depends on where the strip is.
+   *
+   * A book's page cuts both the picture and the strip from `--face`, so the
+   * distance a swipe travels and the width of a picture are the same number.
+   * A slot in a rail has no such number: it is a flex item sharing the row
+   * with the spine and the downloaded cover, so the strip is the whole of
+   * whatever the slot turned out to be. The fallback is what says that, in one
+   * place, rather than a second width rule per caller.
+   */
+  width: var(--face, 100%);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   overscroll-behavior-x: contain;
@@ -2663,6 +2673,31 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--paper-sunk);
 }
+
+/*
+ * The last slot of the details screen, where two photographs share one.
+ *
+ * > When the catalogue image is available, you should be able to swipe on our
+ * > front picture to be able to see the back picture.
+ *
+ * A slot rather than a fourth photograph squeezed in beside three others: with
+ * a downloaded cover there are four pictures and the row has room for three, so
+ * the spine, the cover and this take a third of the width each and the two
+ * photographs somebody took take turns inside the third one. It is the same
+ * strip a book's page swipes, at whatever width the row gives it, which is the
+ * fallback on `.wf-deck__track` above.
+ *
+ * The word under each picture is inside the strip and travels with it, so what
+ * is on screen names itself. That is why there is no caption on this slot: it
+ * would be the same word written a second time and a second thing to keep true.
+ */
+.wf-shot-deck { display: grid; gap: var(--s1); min-width: 0; }
+.wf-shots--big .wf-shot-deck { flex: 1 1 0; }
+/* There is deliberately no rule here for a card behind the front, and no card
+   drawn either. This slot has a gap on both sides of it rather than the open
+   right edge a book's page has, so an edge sticking out would be a picture
+   pointing into the space beside the row. The dots directly underneath are what
+   says there is another one. */
 /*
  * The same book, in a list of books (#363).
  *
@@ -2736,6 +2771,148 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-dot--taken::after { background: var(--ink-2); border-color: var(--ink-2); }
 .wf-dot--showing::after { width: 18px; }
 .wf-dot--showing.wf-dot--taken::after { background: var(--ink); border-color: var(--ink); }
+
+/*
+ * A picture that opens whole is a target, and it has to look like the drawing
+ * it already was.
+ *
+ * `.wf-shot` already resets padding, border and background, because the rail's
+ * photographs have been buttons since the camera had a retake. All that is left
+ * is the pointer, which is what says a mouse can press it; a thumb finds out by
+ * pressing.
+ */
+.wf-shots--book button.wf-shot { cursor: pointer; }
+
+/* --- One picture, whole ---------------------------------------------------- */
+
+/*
+ * The full screen view a picture opens into.
+ *
+ * `position: fixed`, which is the one place in this stylesheet that is right
+ * rather than the absolute-inside-the-phone that `.wf-sure` and `.wf-corner`
+ * use. Their argument is that a wireframe of a dialog swallowing the gallery's
+ * own bar is a screen nobody can leave; this has a named way out on it, a key
+ * that closes it and a press anywhere that does the same, so it cannot strand
+ * anybody. And a picture viewer that stopped at the bottom of a page four
+ * screens tall would open somewhere nobody is looking, because a book's page
+ * really is that long.
+ *
+ * Under the gallery's own frame at 20 and over everything the phone draws,
+ * which is the same slot `.wf-sure` sits in.
+ *
+ * The ground is `--picture`, which is the camera's, because this is the one
+ * other place in the app that is a photograph filling a screen. Nothing here
+ * is paper, so nothing here reads paper's ink.
+ */
+.wf-whole {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-rows: 1fr auto auto auto;
+  justify-items: center;
+  gap: var(--s2);
+  padding: var(--s3);
+  background: var(--picture);
+  color: var(--picture-ink);
+}
+
+/* Under the gallery's bar rather than behind it, the same way the top bar of
+   every drawn screen is. The bar is how a theme is switched and how the index
+   is got back to, and it is 38 pixels. */
+.wf-frame ~ .wf-screen .wf-whole { top: 38px; }
+
+/*
+ * The strip, and it is the same strip: a scroll container with snap points,
+ * because a swipe that turns into a tap would close the thing it was swiping.
+ * `.wf-deck__track` says the whole argument.
+ */
+.wf-whole__track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-snap-stop: always;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.wf-whole__track::-webkit-scrollbar { display: none; }
+
+.wf-whole__frame {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+
+/*
+ * `contain` rather than `cover`, which is the whole difference between this and
+ * every other picture of a book in this app. Everywhere else a photograph is
+ * cropped to the book, because a wall of uncropped photographs is a wall of
+ * carpet. Here somebody has asked to see the photograph, so none of it is cut
+ * off and none of it is filled in.
+ */
+.wf-whole__img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* What the gallery has instead of a photograph. Kept to the proportion of a
+   book so the room it takes is the room a real one takes. */
+.wf-whole__cloth {
+  display: block;
+  width: min(72vw, 320px);
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-sm);
+  box-shadow: var(--lift-3);
+}
+
+.wf-whole__word { font-size: var(--size-small); font-weight: 600; }
+
+.wf-whole__dots { display: flex; align-items: center; justify-content: center; gap: 0; }
+/*
+ * On the picture rather than on paper, so the marks are read out of the
+ * picture's own two colours.
+ *
+ * Every one of them is filled, which is the difference between these dots and
+ * the ones on a book's page. There an empty dot is a kind nobody has
+ * photographed; here there are no such kinds, because a picture that does not
+ * exist is not a frame this can reach. Leaving them outlined would say
+ * "nothing here has been photographed" about four photographs. Found by
+ * looking at it.
+ */
+.wf-whole__dots .wf-dot::after {
+  background: var(--picture-line);
+  border-color: var(--picture-line);
+}
+.wf-whole__dots .wf-dot--showing::after {
+  background: var(--picture-ink);
+  border-color: var(--picture-ink);
+}
+
+/*
+ * The named way out, and it is a word rather than a cross.
+ *
+ * A cross in a corner is the second target in this app drawn as a glyph with
+ * nothing said, and the rule the top bar's corner already carries is that it is
+ * named or it says nothing at all. This has the room for the word.
+ */
+.wf-whole__away {
+  min-height: var(--tap);
+  padding: 0 var(--s4);
+  border: 1px solid var(--picture-line);
+  border-radius: var(--r-pill);
+  background: var(--picture-scrim);
+  color: var(--picture-ink);
+  font-size: var(--size-small);
+  font-weight: 600;
+  cursor: pointer;
+}
 
 /*
  * A tag, drawn as firmly as whoever said it.

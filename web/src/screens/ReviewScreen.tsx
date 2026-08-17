@@ -82,6 +82,11 @@ export function ReviewScreen() {
         saving={saving}
         relookupBusy={relookupBusy}
         relookupError={relookupError}
+        /* The publisher's picture for the ISBN this matched, drawn beside the
+           photograph somebody took so the match can be confirmed by looking.
+           The same expression `BookDetail` is handed below, because it is the
+           same question asked on the other screen. */
+        catalogueCover={coverImage || lookup?.coverUrl || ''}
         /* What the photographs read, shown beside the form as evidence
            and never poured into it (#147). */
         coverText={evidence.coverText}

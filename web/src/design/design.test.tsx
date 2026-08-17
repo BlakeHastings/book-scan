@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { Doors, InHand, IN_HAND } from './Controls'
 import { SCREENS, TAB_SCREENS, type Go, type Screen } from './gallery/screens'
 import { MEDIAN_PAGES, spineWidth, spines } from './Shelf'
-import { deckOrder } from './Shots'
+import { Shots, deckOrder, threeSlots, type Shot } from './Shots'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
@@ -1082,6 +1082,233 @@ describe('a book opens on the picture a catalogue holds, where there is one', ()
     ).toBe(rows)
     expect(markup, 'a queue row grew dots it cannot deliver a swipe for').not.toMatch(
       /class="wf-dot/,
+    )
+  })
+})
+
+/**
+ * The details screen is three slots, and the spine leads them.
+ *
+ * > At the top of this screen we need to show the catalogue image if it's
+ * > available. If it's not available, we don't show it. The spine should be on
+ * > the far left, not on the far right. [...] When the catalogue image is
+ * > available, you should be able to swipe on our front picture to be able to
+ * > see the back picture.
+ *
+ * Three things would each undo it on their own and each is checked. The spine
+ * came last because `SLOTS` is the order the camera fills them in, and that
+ * list is still there and still right for the camera, so the ordering is the
+ * thing a tidy-up would reunify. A downloaded cover drawn as an empty dashed
+ * box is the obvious way to add a fourth kind and is what the book's own page
+ * correctly does with the same kind, so the two screens differ on purpose. And
+ * the swipe is only there in one of the two states, which is the sort of thing
+ * that gets drawn for both because it is fewer branches.
+ */
+describe('the details screen is three slots, and the spine is the first', () => {
+  const drawn = (id: string) =>
+    renderToStaticMarkup(SCREENS.find((one) => one.id === id)!.render(() => {}))
+
+  /** The words under the photographs, in the order they are drawn. */
+  const words = (markup: string) =>
+    [...markup.matchAll(/<span class="wf-shot__word">([^<]+)<\/span>/g)].map((one) => one[1]!)
+
+  it('leads with the spine on both, which is not the order they are taken in', () => {
+    for (const id of ['review', 'reviewnone']) {
+      expect(words(drawn(id))[0], `${id} does not lead with the spine`).toBe('Spine')
+    }
+  })
+
+  it('draws the downloaded cover between the spine and ours, where there is one', () => {
+    expect(words(drawn('review'))).toEqual(['Spine', 'Downloaded', 'Front', 'Back'])
+    // Three slots for four pictures: the two somebody took share the last one.
+    expect(drawn('review'), 'the photographs somebody took have no strip').toMatch(
+      /wf-shot-deck/,
+    )
+    expect(
+      (drawn('review').match(/<button[^>]*class="wf-dot[^"]*"/g) ?? []).length,
+      'the front and the back are not both reachable',
+    ).toBe(2)
+  })
+
+  it('draws no frame at all for a cover nobody downloaded', () => {
+    const markup = drawn('reviewnone')
+
+    expect(words(markup)).toEqual(['Spine', 'Front', 'Back'])
+    expect(markup, 'an empty downloaded frame is drawn').not.toMatch(/Downloaded/)
+    // And nothing to swipe: the room the cover would have taken is theirs, so
+    // the two photographs have a slot each.
+    expect(markup, 'a strip was drawn for a slot with one picture in it').not.toMatch(
+      /wf-shot-deck/,
+    )
+    expect(markup, 'dots were drawn for a rail with nothing to move').not.toMatch(
+      /class="wf-dot/,
+    )
+  })
+
+  /*
+   * The arithmetic itself, for the cases no screen happens to draw. A cloth
+   * and a photograph both count as a picture, the way they do everywhere else
+   * in this component, and neither counts when there is neither.
+   */
+  it('decides on the picture rather than on the caller remembering', () => {
+    const spine: Shot = { word: 'Spine', sliver: true, cloth: 'moss' }
+    const front: Shot = { word: 'Front', cloth: 'wood' }
+    const back: Shot = { word: 'Back' }
+    const ours = [front, back]
+
+    const held: Shot = { word: 'Downloaded', catalogue: true, cloth: 'sky' }
+    expect(threeSlots(spine, held, ours)).toEqual({ shots: [spine, held], deck: ours })
+
+    const none: Shot = { word: 'Downloaded', catalogue: true }
+    expect(threeSlots(spine, none, ours)).toEqual({ shots: [spine, front, back] })
+
+    // A real photograph counts as much as the gallery's cloth does.
+    const real: Shot = { word: 'Downloaded', catalogue: true, photo: '/api/covers/x.jpg' }
+    expect(threeSlots(spine, real, ours)).toEqual({ shots: [spine, real], deck: ours })
+  })
+})
+
+/**
+ * A picture opens whole, and whole means the whole photograph.
+ *
+ * > It should be possible that if we just tap the image of the spine or of the
+ * > book, that we get a full screen view of it that can be exited out of, or
+ * > you can swipe on to go see any of the other images.
+ *
+ * The view itself cannot be opened from here: this suite renders markup and has
+ * no DOM to tap. What it holds is the four things it rests on, each of which is
+ * a way it has already been lost once somewhere in this app or would be lost by
+ * somebody tidying.
+ *
+ * **A picture is a target and an empty box is not.** Blowing a dashed box with
+ * "No photograph" in it up to fill a phone is the same sentence in a bigger
+ * room, and a swipe that lands on one reads as nothing having happened.
+ *
+ * **The strip is a scroll container**, which is the only reason a swipe between
+ * pictures and a tap that closes the view are two different gestures. Take the
+ * snapping off and both stop working, in opposite directions.
+ *
+ * **The picture is not cropped.** This is the one that would go quietly: every
+ * other picture of a book here is `object-fit: cover` on a crop, because a wall
+ * of uncropped photographs is a wall of carpet, and the app's lightbox has
+ * carried the exception since it existed.
+ *
+ * **There is a named way out.** A handler on a box is not something a keyboard
+ * or a screen reader can find.
+ */
+describe('a picture opens whole, and whole is the whole photograph', () => {
+  const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+
+  const drawn = (id: string) =>
+    renderToStaticMarkup(SCREENS.find((one) => one.id === id)!.render(() => {}))
+
+  /** The pictures of the book that can be pressed, off the drawn page. */
+  const targets = (markup: string) =>
+    markup.match(/<button[^>]*class="wf-shot[^"]*"[^>]*>/g) ?? []
+
+  it('makes every picture there is a target, and no empty box one', () => {
+    // The spine, the front, the back and the downloaded cover on the full
+    // record; one photograph and three empty boxes on the thin one; three of
+    // four on the third, which has no back.
+    const each: Record<string, number> = { book: 4, thin: 1, lone: 3 }
+
+    for (const [id, wanted] of Object.entries(each)) {
+      const found = targets(drawn(id))
+      expect(found.length, `${id} opens ${found.length} of its pictures`).toBe(wanted)
+      for (const one of found) {
+        expect(one, `${id} has an unnamed picture`).toMatch(/aria-label="[^"]+"/)
+      }
+    }
+  })
+
+  it('leaves a queue row with nothing to press, because a row is one button', () => {
+    const markup = drawn('queue')
+
+    expect(markup, 'the queue draws no books at all').toMatch(/wf-shots--book-small/)
+    expect(targets(markup), 'a queue row grew a button inside its button').toEqual([])
+  })
+
+  it('swipes it the way everything else here swipes', () => {
+    const rule = css.match(/\.wf-whole__track\s*\{[^}]*\}/)?.[0] ?? ''
+
+    expect(rule, 'the strip is not a scroll container').toMatch(/overflow-x:\s*auto/)
+    expect(rule, 'a swipe would not land on a picture').toMatch(/scroll-snap-type:\s*x/)
+    expect(rule, 'a swipe past the end would reach the browser').toMatch(
+      /overscroll-behavior-x:\s*contain/,
+    )
+  })
+
+  it('shows the whole picture rather than the crop of it', () => {
+    const rule = css.match(/\.wf-whole__img\s*\{[^}]*\}/)?.[0] ?? ''
+
+    expect(rule, 'the full screen view crops the photograph').toMatch(
+      /object-fit:\s*contain/,
+    )
+    expect(rule, 'the photograph is cut off by the screen').toMatch(/max-height:\s*100%/)
+  })
+
+  it('has a way out that is a word rather than a handler on a box', () => {
+    const markup = renderToStaticMarkup(
+      <Shots
+        mode="book"
+        full
+        shots={[
+          { word: 'Spine', sliver: true, cloth: 'moss' },
+          { word: 'Front', cloth: 'wood' },
+        ]}
+      />,
+    )
+
+    // The view is not open, so what is checked here is the door: both pictures
+    // are pressable and each says what pressing does.
+    expect(targets(markup).length, 'neither picture opens anything').toBe(2)
+    for (const one of targets(markup)) {
+      expect(one, 'a picture says nothing about what it opens').toMatch(
+        /aria-label="See the whole [a-z]+ picture"/,
+      )
+    }
+    expect(css, 'the way out is not drawn at all').toMatch(/\.wf-whole__away\s*\{/)
+  })
+})
+
+/**
+ * The queue row's drawing is unchanged, said as the exact string it draws.
+ *
+ * #363 gave the row the book page's own component and #374 had to prove the
+ * ordering could not reach it. This round adds two more things that could:
+ * a strip that a rail can now hold, and a picture that can now be pressed.
+ * Neither is reachable from a row, and neither is kept out by anything the row
+ * says: they are kept out by nobody asking for them.
+ *
+ * That is a good argument and it is the same argument that was made about the
+ * ordering, so it gets the same proof, one round stronger. The row's markup is
+ * pinned here in full. Anything at all that leaks into it fails, including the
+ * things nobody has thought of yet, which is the whole point of a string rather
+ * than a list of absences.
+ *
+ * **If this fails, look at what changed before changing the string.** The
+ * string is the record of a decision, not a snapshot to be refreshed.
+ */
+describe('a queue row draws exactly what it drew', () => {
+  it('is byte for byte the markup it was', () => {
+    const row: Shot[] = [
+      { word: 'Spine', cloth: 'wood', sliver: true },
+      { word: 'Front', cloth: 'moss' },
+    ]
+
+    expect(renderToStaticMarkup(<Shots shots={row} mode="book" size="small" />)).toBe(
+      '<span class="wf-shots wf-shots--book wf-shots--book-small">'
+        + '<span class="wf-shot wf-shot--sliver wf-shot--taken" aria-hidden="true">'
+        + '<span class="wf-shot__box wf-spine--wood"></span>'
+        + '</span>'
+        + '<span class="wf-deck">'
+        + '<span class="wf-deck__track">'
+        + '<span class="wf-shot wf-shot--face wf-shot--taken" aria-hidden="true">'
+        + '<span class="wf-shot__box wf-spine--moss"></span>'
+        + '</span>'
+        + '</span>'
+        + '</span>'
+        + '</span>',
     )
   })
 })
