@@ -31,10 +31,12 @@
 import type { ReactElement, ReactNode } from 'react'
 import { Actions, Been, Head, Part, Tagged, Tagging } from '../Book'
 import { Viewfinder } from '../Camera'
-import { Beside, Card, Confirmation, Instruction, Nothing, Said } from '../Card'
+import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
 import { Cat } from '../Cat'
-import { Button, Choice, Field, InHand, IN_HAND, Segmented } from '../Controls'
+import {
+  Button, CarryBooks, Choice, Doors, Field, InHand, IN_HAND, Segmented,
+} from '../Controls'
 import { Covers, covers } from '../Covers'
 import {
   Filter,
@@ -46,7 +48,7 @@ import {
   type Look,
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
-import { IconCamera, IconEdit } from '../Icons'
+import { IconCamera, IconEdit, IconInHand } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Phone as Frame } from '../Phone'
 import { Queued } from '../Queue'
@@ -91,8 +93,14 @@ function you(go: Go, open = false) {
   }
 }
 
-/** Which screen each of the four tabs opens, in the gallery. */
-const TAB_SCREENS: Record<TabName, string> = {
+/**
+ * Which screen each of the four tabs opens, in the gallery.
+ *
+ * Exported so `design.test.tsx` can ask whether a door on the first screen goes
+ * somewhere a tab already goes, against this table rather than against a copy
+ * of it that would stop being true the day a tab changed.
+ */
+export const TAB_SCREENS: Record<TabName, string> = {
   home: 'home',
   library: 'library',
   scan: 'camera',
@@ -138,52 +146,67 @@ function Phone({
 /* --- Every day ---------------------------------------------------------- */
 
 /**
- * The first screen: what is worth knowing, and nothing else.
+ * The first screen: the numbers, then the things you can do about them.
  *
- * ## The camera is not on it
+ * ## What round eight took off it (#361)
  *
- * A "Photograph a book" card sat in the middle of this screen with the primary
- * button on the page in it, and the owner took it off by name:
+ * Two headings, a sentence and three cards. The owner walked it and said what
+ * was wrong with it in one breath:
  *
- * > Let's not even have the book scanning part here. Let's just have metrics,
- * > useful information. Like, for example, "six are ready to shelve" or "three
- * > books to carry". Let's have meaningful information here.
+ * > At the top we have "forty books are waiting on the table", and then we show
+ * > them again, like the "needs you". So I don't know if we need that. And then
+ * > we have "ready to shelve" again. I think we need to decide what's the most
+ * > meaningful things to show on this screen and then choose to show those.
  *
- * Photographing a book is one tap away in the tab bar, from here and from
- * everywhere else. A card opening the camera the tab already opens was a second
- * door to one room, and it was taking the middle of the screen somebody opens
- * most often.
+ * and then said what he wanted instead:
  *
- * ## Every number goes somewhere
+ * > So we get rid of the collection, and we get rid of "needs you", and instead
+ * > we just have those numbers there: catalogued, checked out, ready to shelve,
+ * > to carry, stuck. And we get rid of "forty books are waiting on the table".
+ * > We still should have the cat icon on this screen though, because it's cute.
+ * > And then underneath those, we have the button for "find the book in your
+ * > hand", and that should have an icon. And any of the other most meaningful
+ * > actions in the application.
  *
- * Six counts, and each one is a target: ready to shelve and stuck open the
- * queue, to carry opens the carry list, catalogued opens the library, added
- * this week and checked out open the list of books. A number nobody can act on
- * is decoration, and it is the thing that would quietly fill this screen back
- * up.
+ * **One fact was being told three times.** How many books are ready to shelve
+ * was a sentence at the top, a count in the middle and a card at the bottom
+ * with two of them named in it, and the cards are the third telling. So the
+ * sentence is gone, the count is what stays, and the queue is what says which
+ * books: it is one press away in the tab bar and it is the screen whose whole
+ * job is that list. The same argument takes the carry card, and it is the same
+ * argument that took the camera card off this screen two rounds ago.
+ *
+ * ## Five counts, ungrouped, and every one of them still goes somewhere
+ *
+ * Catalogued and checked out open the library, ready to shelve and stuck open
+ * the queue, to carry opens the carry list. That is the pinned rule and it
+ * survives losing the headings: a number nobody can act on is decoration, and
+ * decoration is what a screen made of counts fills up with.
  *
  * Two the catalogue can answer are deliberately not here. How many books have
  * no photograph, and how many carry a genre nobody confirmed, are both true and
  * neither leads anywhere a person can do anything about today.
  *
- * ## One sentence
+ * ## Two actions, and the argument is about what is not on it
  *
- * The cat says what is on the table and that is the whole of the prose. What
- * went with the camera card: "spine first, then the front", "saying 2C was full
- * moved these along", and "nothing has gone missing since Tuesday". The two
- * lists underneath say the same things by showing the books.
+ * **Find the book in your hand**, which is the camera no tab opens and which
+ * this screen owes a press to (#355), and **carry books where they belong**,
+ * which is the one job in this app that has a flow of its own and no door in
+ * the tab bar.
  *
- * ## The collection leads now (#283)
+ * Photographing a book, the queue and the library are all tabs, one press from
+ * here and from everywhere else, and a button for a room the tab bar already
+ * opens earns nothing: that is what the camera card was. Finding a book by its
+ * name is one press from the row above the books on every library screen and is
+ * pinned there; a second door to it here would also be a row saying "find" next
+ * to another row saying "find", on the one screen where two ways of finding
+ * must not be confused. Your furniture and settings are what the corner is for.
  *
- * "The collection" sat last, under everything asking for attention. Round six
- * moved it above "Needs you":
+ * ## The cat sits at the end of the counts
  *
- * > In the today view, I want the collection that we have all the way down at
- * > the bottom. That should be moved up. It should be above the "needs you".
- *
- * The order within each block did not change, only which block comes first.
- * This inverts what the screen leads with: it opened with what is asking for
- * attention and closed with what is owned; it now opens with what is owned.
+ * He was beside the sentence, the sentence has gone, and the sixth cell of a
+ * five-count grid is somewhere he already belongs: closing a run is one of the
+ * three jobs he has. See `Stats`.
  *
  * ## The corner, and the menu drawn over this screen (#329)
  *
@@ -196,7 +219,7 @@ function Phone({
  *
  * It is one function drawing both, the way `AreaScreen` draws an area and the
  * three states of being asked to remove one. A second copy of this screen with
- * a sheet on it would be six counts and two lists to keep in step.
+ * a sheet on it would be five counts to keep in step.
  *
  * ## And the same function draws the two days it goes wrong (#311)
  *
@@ -205,11 +228,10 @@ function Phone({
  * both times the only thing that knew was a file on a disk, so the app is what
  * says it, here, where the owner already looks for what needs him.
  *
- * **Above the sentence about the table rather than under "Needs you"**, which
- * is the one arrangement decision in it. The counts under that heading are work
- * somebody can walk over and do; this is not, and putting it in among them
- * would make it the fourth thing to read on a screen whose other three are all
- * a tap away from being done.
+ * **Above the counts rather than among them**, which is the one arrangement
+ * decision in it, and it survives the headings going: the counts are work
+ * somebody can walk over and do, and this is news nobody can do anything about
+ * from a phone.
  */
 function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
   return (
@@ -220,31 +242,7 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
       top={<TopBar title="Book scan" action={you(go, over !== undefined)} />}
     >
       {trouble}
-      <Beside>Eighteen books are waiting on the table.</Beside>
 
-      <p className="wf-heading wf-heading--flush">The collection</p>
-      <Stats
-        items={[
-          { n: '1,204', word: 'catalogued', onPress: () => go('library') },
-          { n: '9', word: 'added this week', onPress: () => go('listing') },
-          { n: '2', word: 'checked out', onPress: () => go('listing') },
-        ]}
-      />
-
-      {/* The one thing on this screen that is not a count, and it closes the
-          collection rather than opening the screen: everything above it is the
-          screen as it was approved, and this is the question you ask a
-          collection while standing in front of it with a book in your hand.
-
-          It is here because that camera lost this screen's corner to the
-          portrait and went from one press to three (#355), and because it is
-          the only door in the app that nothing else offers: the tab bar opens
-          the other camera, the one that catalogues a book nobody has. A door
-          to a room the tabs already open is what the old camera card was and
-          it is still not allowed. */}
-      <InHand onPress={() => go('inhand')} />
-
-      <p className="wf-heading wf-heading--flush">Needs you</p>
       {/* Fifty-three to carry, which is what the number looks like the week
           after a rule changed. It was three, and three is the number this
           screen shows on an ordinary day; the carry screens are drawn at the
@@ -252,98 +250,57 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
           only ever reads "3" would have let the whole flow be designed for a
           list that fits on one screen. */}
       <Stats
+        cat="sitting"
         items={[
+          { n: '1,204', word: 'catalogued', onPress: () => go('library') },
+          { n: '2', word: 'checked out', onPress: () => go('listing') },
           { n: '6', word: 'ready to shelve', onPress: () => go('queue') },
           { n: '53', word: 'to carry', onPress: () => go('carry') },
           { n: '3', word: 'stuck', onPress: () => go('queue') },
         ]}
       />
 
-      <Card title="Ready to shelve">
-        <List label="Ready to shelve">
-          <Row
-            title="Never Let Me Go"
-            sub="Ishiguro, Kazuo"
-            cloth="moss"
-            place="2C"
-            onPress={() => go('where')}
-          />
-          <Row
-            title="The City &amp; the City"
-            sub="Mi&eacute;ville, China"
-            cloth="plum"
-            place="1C"
-            onPress={() => go('where')}
-          />
-        </List>
-        <Button tone="quiet" onPress={() => go('queue')}>
-          All eighteen
-        </Button>
-      </Card>
+      <Doors>
+        <InHand onPress={() => go('inhand')} />
+        <CarryBooks onPress={() => go('carry')} />
+      </Doors>
+    </Phone>
+  )
+}
 
-      {/* The first three of fifty-three, and a way to the rest, which is the
-          shape the queue card above already has. Three books off a list that
-          long is a taste rather than a summary, and the honest summary is the
-          count above it. */}
-      <Card title="Books to carry">
-        <List label="Books to carry">
-          <Row
-            title="The Songlines"
-            sub="Chatwin, Bruce"
-            cloth="sun"
-            meta="4A to 3A"
-            onPress={() => go('carry')}
-          />
-          <Row
-            title="Silent Spring"
-            sub="Carson, Rachel"
-            cloth="moss"
-            meta="4A to 3A"
-            onPress={() => go('carry')}
-          />
-          <Row
-            title="Underland"
-            sub="Macfarlane, Robert"
-            cloth="wood"
-            meta="4B to 3B"
-            onPress={() => go('carry')}
-          />
-        </List>
-        <Button tone="quiet" onPress={() => go('carry')}>
-          All fifty-three
-        </Button>
-      </Card>
-
-      {/* #341. These books were mentioned nowhere: absent from both listings,
-          from both misfile reviews, from this screen, and from every area's
-          claimed-by-nothing card, because that card reads where a book stands
-          and a book nothing files never gets moved anywhere to be read.
-
-          A card rather than a fourth count, and the count is in its second
-          line instead. `Stats` is three across at 414 wide and says why; a
-          fourth tile puts "nothing files them" into 93px. What the rule asks
-          is that a count on this screen goes somewhere, and this one does. */}
-      <Card title="Nothing files these" kind="Twelve books">
-        <List label="Books nothing files">
-          <Row
-            title="The Peregrine"
-            sub="Baker, J. A."
-            cloth="moss"
-            place="4A"
-            onPress={() => go('unclaimed')}
-          />
-          <Row
-            title="The Living Mountain"
-            sub="Shepherd, Nan"
-            cloth="wood"
-            place="1B"
-            onPress={() => go('unclaimed')}
-          />
-        </List>
-        <Button tone="quiet" onPress={() => go('unclaimed')}>
-          All twelve
-        </Button>
-      </Card>
+/**
+ * The first evening, when there is nothing to count and nothing to do.
+ *
+ * Drawn because a design that only draws the middle case is a design that will
+ * be rebuilt, and because this is the state the change of round eight most
+ * obviously reaches: a screen that was a sentence and two lists is now five
+ * numbers, and five zeros is what a new collection makes of it.
+ *
+ * **The cat is asleep and there is no sentence.** "Nothing is catalogued yet"
+ * over a tile reading nought catalogued is the same fact told twice, which is
+ * the thing this round took off the screen; a sleeping cat says the collection
+ * is new rather than broken and costs no line. Neither door is drawn: the
+ * camera has nothing to compare a book against, and there is nothing to carry.
+ * The way to start is the tab in the bar with the camera on it, which is one
+ * press from here and is the reason no card offers it.
+ */
+function FirstDay(go: Go) {
+  return (
+    <Phone
+      tab="home"
+      go={go}
+      top={<TopBar title="Book scan" action={you(go)} />}
+    >
+      <Stats
+        cat="sleeping"
+        items={[
+          { n: '0', word: 'catalogued', onPress: () => go('library') },
+          { n: '0', word: 'checked out', onPress: () => go('listing') },
+          { n: '0', word: 'ready to shelve', onPress: () => go('queue') },
+          { n: '0', word: 'to carry', onPress: () => go('carry') },
+          { n: '0', word: 'stuck', onPress: () => go('queue') },
+        ]}
+      />
     </Phone>
   )
 }
@@ -1074,6 +1031,11 @@ function Thin(go: Go) {
  *
  * It is a glyph because it is a corner, which is the one place `Icons.tsx`
  * allows one without a word beside it, and it carries the word as its name.
+ *
+ * **The glyph is `IconInHand` and no longer the camera** (#361). The first
+ * screen's door to this same camera was given one, and a door drawn two ways is
+ * the drift that put the two cameras a press apart in the first place: one
+ * camera, one sentence, one picture, wherever it is offered.
  */
 function FindTop(go: Go, sub?: string) {
   return (
@@ -1081,7 +1043,7 @@ function FindTop(go: Go, sub?: string) {
       title="Find a book"
       sub={sub}
       onBack={() => go('library')}
-      action={{ word: IN_HAND, icon: <IconCamera />, onPress: () => go('inhand') }}
+      action={{ word: IN_HAND, icon: <IconInHand />, onPress: () => go('inhand') }}
     />
   )
 }
@@ -3813,6 +3775,9 @@ export const SCREENS: Screen[] = [
      for. */
   { id: 'unbacked', name: 'Nothing backed up', group: 'Every day', render: Unbacked },
   { id: 'nodisk', name: 'Backups unreadable', group: 'Every day', render: NoDisk },
+  /* And the day before there is anything at all, which is what five counts
+     make of a collection nobody has photographed a book into yet. */
+  { id: 'firstday', name: 'The first evening', group: 'Every day', render: FirstDay },
   { id: 'library', name: 'Library', group: 'Every day', render: Library },
   { id: 'covers', name: 'Covers, and two tags', group: 'Every day', render: CoverView },
   { id: 'listing', name: 'A list of books', group: 'Every day', render: ListView },

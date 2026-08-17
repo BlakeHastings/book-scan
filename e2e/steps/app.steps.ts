@@ -20,13 +20,18 @@ const QUEUE_TIMEOUT = 90 * 1000
 /**
  * The first screen has arrived and has its numbers in it.
  *
- * Three tiles until #303, and the design system since. The heading is a better
- * wait than the frame around it: the top bar and the tab bar are drawn before
+ * Three tiles until #303, and the design system since. A count is a better wait
+ * than the frame around it: the top bar and the tab bar are drawn before
  * anything has been asked of the server, and the counts are what every
  * scenario that starts here is about to act on.
+ *
+ * It waited on the heading "The collection" until #361 took the headings off
+ * this screen. The count under it is the thing that survived that round, and it
+ * is the more honest wait of the two anyway: a heading is drawn whether or not
+ * the catalogue has answered.
  */
 export function homeScreen(page: Page) {
-  return page.locator('.wf-heading', { hasText: 'The collection' })
+  return page.locator('.wf-stat', { hasText: 'catalogued' })
 }
 
 When('I open the app', async ({ page, webUrl }) => {

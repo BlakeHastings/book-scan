@@ -52,7 +52,7 @@ import { Button, IN_HAND } from '../design/Controls'
 import { Covers, type CoverItem } from '../design/Covers'
 import { Nothing } from '../design/Card'
 import { SearchField, Suggestion, Suggestions } from '../design/Finding'
-import { IconCamera } from '../design/Icons'
+import { IconInHand } from '../design/Icons'
 import { TopBar } from '../design/Chrome'
 import { clothFor, coverArt, filedAs } from '../lib/bookLook'
 import { grouped } from '../lib/say'
@@ -169,8 +169,14 @@ export function FindPane() {
              because the first screen has a door to this same camera again and
              the wording is the only part of either that says which of the two
              cameras it opens. Two of them typed out separately are two that
-             agree until one is edited. */
-          action={{ word: IN_HAND, icon: <IconCamera />, onPress: openScanner }}
+             agree until one is edited.
+
+             **The glyph is `IconInHand` and not the camera** (#361). The first
+             screen's door to this camera was given a picture, and the same
+             argument applies to the picture as to the words: one camera, one
+             sentence, one glyph, wherever it is offered. The camera glyph is
+             the *other* camera's, under "Scan" in the tab bar below. */
+          action={{ word: IN_HAND, icon: <IconInHand />, onPress: openScanner }}
         />
       }
     >

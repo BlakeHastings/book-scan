@@ -58,24 +58,18 @@ export function Card({
   )
 }
 
-/**
- * One sentence with the cat sitting beside it, in a well on the page.
+/*
+ * `Beside` was here: the cat, and one sentence about what was on the table.
  *
- * The whole of the prose on the first screen, and the reason it is a component
- * rather than a flex box written where it is used: the gallery draws it with a
- * sentence somebody wrote, the app draws it with a sentence off the queue, and
- * two hand-built versions would be the same block at two sizes within a month.
+ * It is gone with the sentence (#361). "Eighteen books are waiting on the
+ * table" said what the counts under it already said, and the owner took it off
+ * by name: "we get rid of 'forty books are waiting on the table'". Nothing else
+ * ever drew it, and a component with no caller is a second way to say something
+ * waiting for somebody to reach for it.
+ *
+ * **The cat did not go with it.** He sits at the end of the counts instead; see
+ * `Stats` in `List.tsx`.
  */
-export function Beside({ children }: { children: ReactNode }) {
-  return (
-    <Card weight="sunk">
-      <div className="wf-beside">
-        <Cat pose="sitting" size={52} />
-        <p className="wf-beside__said">{children}</p>
-      </div>
-    </Card>
-  )
-}
 
 /**
  * The one line a screen exists to say, set in the book face because it names

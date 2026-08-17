@@ -10,14 +10,12 @@
 import { HomePane } from '../components/HomePane'
 import { useRoomMenu } from '../components/RoomMenu'
 import { useNavigation } from '../app/navigation'
-import { useOpenBook } from '../app/openBook'
 import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 
 export function HomeScreen() {
   const { setRoute, openScanner } = useNavigation()
-  const { counts, queueCounts, queued, carrying, backup } = useSummary()
-  const { openCapture } = useOpenBook()
+  const { counts, queueCounts, carrying, backup } = useSummary()
   /*
    * The corner, and the sheet it opens (#350). `HomePane` holds no state, so
    * the menu is opened out here and handed down as two props.
@@ -32,7 +30,6 @@ export function HomeScreen() {
     <HomePane
       counts={counts}
       queue={queueCounts}
-      queued={queued}
       carrying={carrying}
       backup={backup}
       onAdd={() => setRoute('capture')}
@@ -48,14 +45,6 @@ export function HomeScreen() {
       onLibrary={() => setRoute('library')}
       onQueue={() => setRoute('queue')}
       onCarry={() => setRoute('carry')}
-      /*
-       * Straight into the book, the way the queue opens one. The anchor is
-       * where to land in the queue listing on the way back, and coming from
-       * here there is no position to keep: the top of the queue is the
-       * honest answer, which is the same one every other screen gives where
-       * it has to invent one.
-       */
-      onOpenReady={(capture) => openCapture(capture, { id: capture.id, index: 0 })}
     />
   )
 }

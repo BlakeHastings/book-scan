@@ -84,10 +84,20 @@ function Silhouette({ children }: { children: ReactNode }) {
   )
 }
 
-/** Upright at the end of a run, tail curled round his feet. */
+/**
+ * Upright at the end of a run, tail curled round his feet.
+ *
+ * The tail is drawn twice for the reason the silhouette is: it is the one part
+ * of him that is entirely on the page rather than on himself, and a black
+ * stroke on a dark room is nothing at all. The wider pass underneath is the
+ * rim, so at night he keeps his tail and in daylight nothing changes. Found by
+ * looking at him at 58px on the first screen, where he is now the only thing on
+ * that row that is not a tile (#361).
+ */
 function Sitting() {
   return (
     <>
+      <path className="wf-cat__tail wf-cat__tail--rim" d="M32 57c9 1 12-7 8-13" />
       <path className="wf-cat__tail" d="M32 57c9 1 12-7 8-13" />
       <Silhouette>
         <path d="M22 30c8 0 13 9 13 21 0 5-2 8-5 8H14c-3 0-5-3-5-8 0-12 5-21 13-21Z" />
