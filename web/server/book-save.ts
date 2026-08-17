@@ -13,6 +13,7 @@
  * rather than each writing their own version of what a save is.
  */
 
+import { GENRE } from '../domain/tagging/catalogue-claims'
 import { genreStatedBy, rangeOfGenre } from '../domain/tagging/genre'
 import type { RestateTagsHandler } from '../application/tagging/restate-tags'
 import type { TagRepository } from '../application/tagging/ports'
@@ -72,10 +73,23 @@ export async function settleGenre(
   // said before, which is not what a silent lookup means.
   if (!tag) return rangeOfGenre(await tags.of(bookId))
 
+  /*
+   * A save states the genre and says nothing about anything else, and `within`
+   * is what makes that true of the write as well as of the sentence.
+   *
+   * Restating a source takes back everything that source no longer claims, and
+   * the source here is usually `person`: somebody tapped Fiction. Without the
+   * namespace this claim would be the whole of what that person had ever said
+   * about the book, so a tag they had just applied by hand went away on the
+   * save, silently, and the only thing that would have reported it is the tag
+   * not being there afterwards. Since #372 a person can apply one from the
+   * check-the-details screen, so this stopped being theoretical.
+   */
   await restateTags.handle({
     bookId,
     source: tag.source,
     claims: [{ slug: tag.slug, confidence: tag.confidence }],
+    within: GENRE,
     now,
   })
 
@@ -90,7 +104,7 @@ export async function settleGenre(
   // that takes one off is the book turning out to be a different book, which
   // `PUT /api/books/:id` settles before this runs (#194).
   if (tag.source === 'person') {
-    await restateTags.handle({ bookId, source: 'guess', claims: [], now })
+    await restateTags.handle({ bookId, source: 'guess', claims: [], within: GENRE, now })
   }
 
   const settled = rangeOfGenre(await tags.of(bookId))

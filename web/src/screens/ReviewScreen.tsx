@@ -17,12 +17,13 @@
  * (#59); this file only wires the book in hand to whichever draws it.
  */
 
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Chrome } from '../app/Chrome'
 import { BookDetail } from '../components/BookDetail'
 import { CaptureReview } from '../components/CaptureReview'
 import { PlacementView } from '../components/ShelfStrip'
 import { filingName } from '../../shared/shelving'
+import { api, type AppliedTag, type TagRow } from '../lib/api'
 import type { TabName } from '../design/Chrome'
 import { useBookActions } from '../app/bookActions'
 import { useBookInHand } from '../app/bookInHand'
@@ -30,6 +31,90 @@ import { useErrorBanner } from '../app/errorBanner'
 import { useLeaving } from '../app/leaving'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
+
+/**
+ * What a person has said this book is, and the vocabulary they said it in.
+ *
+ * State only this screen uses, so it lives in this screen's file, which is the
+ * rule `src/screens` is arranged by. It is deliberately not in `bookInHand`:
+ * these are rows in the database rather than fields of a draft, and the reason
+ * they can be is #183. A capture is a row in `books` from its first photograph,
+ * so there is somewhere to hang a tag on long before anybody shelves the book.
+ *
+ * **Written the moment it is said, rather than carried in the draft.** That is
+ * the same decision the capture autosave already made, and for the same reason
+ * (#65): one person photographs, another works out what the book is, a third
+ * shelves it, and the middle person's work has to survive them putting the phone
+ * down. A tag held in React until the shelving step is a tag lost by the browser
+ * being closed, and a person's tag is the one kind of tag nothing else in this
+ * system is allowed to reproduce.
+ *
+ * Only a person's are shown. A book out of Open Library carries up to twelve
+ * subject headings, and a wall of them on the screen somebody is trying to get a
+ * book off is not what a fast path looks like.
+ */
+function useTagging(bookId: number | null) {
+  const [tags, setTags] = useState<AppliedTag[]>([])
+  const [vocabulary, setVocabulary] = useState<TagRow[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  /* Both at once when the book changes, and both dropped when it does. The
+     `live` flag is what stops an answer for the last book landing on this one,
+     which on a queue somebody is working through is a second apart. */
+  useEffect(() => {
+    setError('')
+    if (bookId === null) {
+      setTags([])
+      return
+    }
+
+    let live = true
+    setTags([])
+    void api.bookTags(bookId)
+      .then((answer) => {
+        if (live) setTags(answer.tags.filter((tag) => tag.source === 'person'))
+      })
+      .catch(() => { /* The tags are an addition to this screen, not the screen. */ })
+    return () => { live = false }
+  }, [bookId])
+
+  /* The vocabulary is the collection's rather than the book's, so it is read
+     once and not again per book. */
+  useEffect(() => {
+    let live = true
+    void api.tags()
+      .then((answer) => { if (live) setVocabulary(answer.tags) })
+      .catch(() => { /* An empty vocabulary offers nothing and refuses nothing. */ })
+    return () => { live = false }
+  }, [])
+
+  const said = (answer: { tags: AppliedTag[] }) => {
+    setTags(answer.tags.filter((tag) => tag.source === 'person'))
+  }
+
+  const add = useCallback((tag: { slug: string; label: string }) => {
+    if (bookId === null) return
+    setBusy(true)
+    setError('')
+    api.applyTag(bookId, tag)
+      .then(said)
+      .catch((caught) => setError((caught as Error).message))
+      .finally(() => setBusy(false))
+  }, [bookId])
+
+  const remove = useCallback((slug: string) => {
+    if (bookId === null) return
+    setBusy(true)
+    setError('')
+    api.removeTag(bookId, slug)
+      .then(said)
+      .catch((caught) => setError((caught as Error).message))
+      .finally(() => setBusy(false))
+  }, [bookId])
+
+  return { tags, vocabulary, busy, error, add, remove }
+}
 
 export function ReviewScreen() {
   const { setRoute } = useNavigation()
@@ -44,13 +129,15 @@ export function ReviewScreen() {
 
   const {
     draft, lookup, thumbs, crops, examined, saving, relookupBusy, relookupError,
-    evidence, bookId, origin, notice, placement, placementStale, coverImage,
+    evidence, bookId, captureId, origin, notice, placement, placementStale, coverImage,
     checkedOutAt, misfile, misfileTakeable, misfileMoving,
     confirmMisfileMoved, takeMisfileBack, setDraft, setNotice, setRelookupError,
     setActiveSlot,
   } = book
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
+
+  const tagging = useTagging(bookId === null ? captureId : null)
 
   /*
    * The converted screen takes the design system's paper, the same way the
@@ -109,6 +196,13 @@ export function ReviewScreen() {
         onShelve={() => setRoute('shelve')}
         onLeave={returnToOrigin}
         tabs={tabs}
+        tags={tagging.tags}
+        vocabulary={tagging.vocabulary}
+        taggingBusy={tagging.busy}
+        taggingError={tagging.error}
+        onAddTag={tagging.add}
+        onRemoveTag={tagging.remove}
+        canTag={captureId !== null}
       />
     )
   }

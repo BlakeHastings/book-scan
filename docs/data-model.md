@@ -216,6 +216,36 @@ rule silently matches a fraction of what it should.
 rewrites rows where `source = 'catalogue'`, so a tag the catalogue stopped
 claiming goes away. It must never touch `source = 'person'`.
 
+**A source can restate one part of the vocabulary rather than all of it**, which
+is `within` on `BookTags.restatedBy` and on the `RestateTags` command, added by
+#372. A catalogue lookup restates everything it says, because it has just re-read
+the whole record. A save states the genre, which is one question, and passes
+`genre`: without that it was restating the whole of what that *person* had ever
+said about the book, so a tag they had applied by hand disappeared on the next
+save with nothing anywhere reporting it. The rule is the one this table already
+turns on, read a level in: a statement about the genre is not a statement about
+anything else.
+
+**A person can name a tag that does not exist yet** (#372), from the
+check-the-details screen, and two things about that are settled rather than
+incidental. `domain/tagging/naming.ts` holds both.
+
+- **It never writes under `genre`.** #304 is that this app states a genre only
+  when a source did; a person answering the two options on that screen is that
+  person answering, and typing the word "fiction" into a box is not. A name that
+  means fiction or non-fiction is refused and the two options are named instead.
+- **It goes under `subject`, and one spelling means one tag.** The slug already
+  folds case, accents and punctuation; what it does not fold is the plural, so
+  "Comic Book" and "comic books" would be two byte-ordered rows meaning one
+  thing. `sameThing` folds the hyphen and the plural as well, and where the
+  collection already means what was typed the existing tag is offered and no new
+  one is. **That fold is a question, not an identity**: the slug is still the
+  identity, nothing stores the fold, and it can be made stricter later without a
+  stored row moving. `subject` because that is where a catalogue's own words go,
+  and a person's word for a book and a catalogue's word for the same book must
+  land on one tag rather than be separated by provenance; provenance is
+  `book_tag.source`.
+
 **Re-identifying a book is not a lookup, and it takes off more.** Correcting a
 book's ISBN is the same person saying this row is a different book, so every tag
 about the *work* goes, whoever said it: what a person answered was about the book

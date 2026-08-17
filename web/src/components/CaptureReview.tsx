@@ -61,13 +61,14 @@ import { Card, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
 import { IconCamera } from '../design/Icons'
-import { Tag, Tags } from '../design/List'
+import { AddTag, Tag, Tags } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Shots, threeSlots, type Shot } from '../design/Shots'
 import { CaptureEvidence } from './BookDetail'
 import { IsbnPrompt } from './IsbnPrompt'
+import { TagNaming } from './TagNaming'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
-import type { Draft, LookupResponse } from '../lib/api'
+import type { AppliedTag, Draft, LookupResponse, TagRow } from '../lib/api'
 import { SLOT_SHORT, type Slot } from '../lib/scanner'
 
 interface Props {
@@ -105,6 +106,34 @@ interface Props {
   /** Put it down and go back where it came from. */
   onLeave: () => void
   tabs: Record<TabName, () => void>
+
+  /**
+   * What somebody has said this book is, beyond the two answers above.
+   *
+   * Only a person's tags, and that is a choice rather than an omission. A book
+   * out of Open Library arrives carrying up to twelve subject headings, and
+   * twelve chips on the screen somebody is trying to get a book off would be a
+   * wall where the point was a fast path. These are the ones a person put on,
+   * on this screen, and taking one off is tapping it again.
+   */
+  tags: AppliedTag[]
+  /** Every tag the collection keeps, which is what is offered before anything new. */
+  vocabulary: TagRow[]
+  /** A tag being written or taken off right now. */
+  taggingBusy: boolean
+  taggingError: string
+  onAddTag: (tag: { slug: string; label: string }) => void
+  onRemoveTag: (slug: string) => void
+  /**
+   * Whether a tag can be written at all, which is whether there is a row to
+   * hang one on.
+   *
+   * A capture is a row in `books` from its first photograph (#183), so there
+   * almost always is. The one moment there is not is a book being drawn before
+   * its capture has come back, and offering to tag it then would be a target
+   * that answers 404.
+   */
+  canTag: boolean
 }
 
 /**
@@ -126,8 +155,10 @@ export function CaptureReview({
   catalogueCover, coverText, captureNote, notice, onDismissNotice, error,
   onDismissError, onChange, onRelookup, onClearRelookupError, onRetake,
   onShelve, onLeave, tabs,
+  tags, vocabulary, taggingBusy, taggingError, onAddTag, onRemoveTag, canTag,
 }: Props) {
   const [asking, setAsking] = useState(false)
+  const [naming, setNaming] = useState(false)
 
   /*
    * Whether a save can run at all. The same expression `BookDetail` reads and
@@ -183,6 +214,20 @@ export function CaptureReview({
             onBack={onLeave}
           />
         }
+        /* Over the screen rather than beside it, because the book being named
+           is the one on the screen underneath and the panel is measured in
+           seconds. See `design/Naming.tsx` for why it is a panel from the top
+           and not a card from the bottom: there is a keyboard under this one. */
+        over={naming ? (
+          <TagNaming
+            vocabulary={vocabulary}
+            carried={tags.map((tag) => tag.slug)}
+            busy={taggingBusy}
+            error={taggingError}
+            onPick={(tag) => { onAddTag(tag); setNaming(false) }}
+            onClose={() => setNaming(false)}
+          />
+        ) : undefined}
       >
         {error && (
           <div className="warn" onClick={onDismissError}>{error}</div>
@@ -281,12 +326,20 @@ export function CaptureReview({
         />
 
         {/*
-          Two tags and not a switch, which is as far as the drawing can be
-          followed today: a book carries as many tags as it carries, and a
-          capture has nowhere to keep the others until the queue speaks the
-          same tags a book does. What decides which bookcase this book crosses
-          the room to is here, which is the part that has to be right before it
-          is shelved.
+          The two answers that decide which bookcase this book crosses the room
+          to, and then whatever else somebody has said it is (#372).
+
+          The two are one question with two answers and at most one holds, and
+          they are the draft's rather than the book's: they are written by the
+          save, through `settleGenre`, which is how #304 keeps a genre out of
+          anything that did not actually answer that question. Everything after
+          them is a set somebody adds to, written the moment it is said, because
+          a capture is a row from its first photograph and there is somewhere to
+          put it.
+
+          Drawn as one wrapping row all the same, because a person reading this
+          sees tags. Where they came from is a distinction the model needs and
+          the screen does not.
         */}
         <div>
           <span className="wf-field__label">Tags</span>
@@ -304,7 +357,25 @@ export function CaptureReview({
             >
               Non-fiction
             </Tag>
+            {/* Lit, because every one of these is on the book right now, and
+                pressing one takes it off again. The same "tap it again to unsay
+                it" the tags screen already has. */}
+            {tags.map((tag) => (
+              <Tag
+                key={tag.slug}
+                tone="on"
+                onPress={taggingBusy ? undefined : () => onRemoveTag(tag.slug)}
+              >
+                {tag.label}
+              </Tag>
+            ))}
+            {canTag && (
+              <AddTag onPress={() => setNaming(true)}>Add a tag</AddTag>
+            )}
           </Tags>
+          {taggingError && !naming && (
+            <Said>{taggingError}</Said>
+          )}
         </div>
 
         <Card title="The rest of it" weight="sunk">

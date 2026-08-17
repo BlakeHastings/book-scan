@@ -164,3 +164,46 @@ describe('a source restating what it claims', () => {
     expect(retracted.map((one) => one.slug.value)).toEqual(['mine/lent-out'])
   })
 })
+
+/**
+ * A source speaking about one part of the vocabulary.
+ *
+ * This is the same rule the block above is about, read one level in: a
+ * statement about the genre is not a statement about anything else, so it may
+ * not take anything else back. Without it, a save that states a genre restates
+ * the whole of what that person ever said, and a tag they applied by hand a
+ * moment earlier goes away on the save with nothing reporting it.
+ */
+describe('a source restating one part of what it said', () => {
+  const book = BookTags.of([
+    applied('genre/fiction', 'person'),
+    applied('subject/comic-book', 'person'),
+    applied('subject/dune', 'catalogue', 'medium'),
+  ])
+
+  it('takes back only what it said inside that part', () => {
+    const { retracted } = book.restatedBy(
+      'person', [claim('genre/non-fiction')], TagSlug.of('genre'),
+    )
+    expect(retracted.map((one) => one.slug.value)).toEqual(['genre/fiction'])
+  })
+
+  it('leaves the same person their other tags, and says so out loud', () => {
+    const { retracted, untouched } = book.restatedBy(
+      'person', [claim('genre/non-fiction')], TagSlug.of('genre'),
+    )
+    expect(retracted.map((one) => one.slug.value)).not.toContain('subject/comic-book')
+    expect(untouched).toContainEqual(applied('subject/comic-book', 'person'))
+  })
+
+  it('claiming nothing inside it withdraws that part and no more', () => {
+    const { retracted } = book.restatedBy('person', [], TagSlug.of('genre'))
+    expect(retracted.map((one) => one.slug.value)).toEqual(['genre/fiction'])
+  })
+
+  it('is the whole vocabulary when nobody narrows it', () => {
+    const { retracted } = book.restatedBy('person', [])
+    expect(retracted.map((one) => one.slug.value))
+      .toEqual(['genre/fiction', 'subject/comic-book'])
+  })
+})

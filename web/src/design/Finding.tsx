@@ -461,7 +461,11 @@ export function Suggestion({
         <span className="wf-suggest__name">{name}</span>
         {where && <span className="wf-suggest__where">under {where}</span>}
       </span>
-      <span className="wf-suggest__count">{books} books</span>
+      {/* One book is one book. The wireframe only ever drew tags with dozens
+          under them, so "1 books" was never on screen until #372 put this row
+          in front of a real collection where a tag somebody has just made has
+          exactly one. Found by looking at it. */}
+      <span className="wf-suggest__count">{books} book{books === 1 ? '' : 's'}</span>
     </button>
   )
 }
