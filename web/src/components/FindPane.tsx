@@ -237,7 +237,7 @@ export function FindPane() {
       )}
 
       {!complete && total > 0 && (
-        <More shown={books.length} total={total} loading={loading} onMore={listing.more} />
+        <More total={total} loading={loading} onMore={listing.more} />
       )}
     </Frame>
   )
