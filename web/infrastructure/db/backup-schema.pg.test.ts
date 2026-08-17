@@ -17,7 +17,8 @@
  *
  * Nothing here reads, writes or connects to anything under
  * book-scan-production-data or 127.0.0.1:5433. Every database is a scratch
- * one this file makes and `dropScratchDatabases` drops.
+ * one this file makes, on the container the run started, swept after the last
+ * test in the run by `server/pgcontainer.ts`.
  */
 
 import pg from 'pg'
@@ -25,7 +26,7 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { readDigest, type Queryable } from '../../server/backup'
 import { SCHEMA } from '../../server/db.pg'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 const openHere: pg.Pool[] = []
 
@@ -33,7 +34,7 @@ afterEach(async () => {
   await Promise.all(openHere.splice(0).map((pool) => pool.end().catch(() => undefined)))
 })
 
-afterAll(dropScratchDatabases)
+afterAll(closeScratchDatabases)
 
 function asQueryable(pool: pg.Pool): Queryable {
   return { query: (sql: string) => pool.query(sql) }

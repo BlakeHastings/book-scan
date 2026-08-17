@@ -61,10 +61,10 @@ import {
   countProjectionDisagreements, projectionDisagreements, rebuildProjection,
 } from '../placement/projection'
 import { MigrationFailed, migrateToLatest } from './migrate'
-import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 // ---------------------------------------------------------------------------

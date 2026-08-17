@@ -59,13 +59,13 @@ import { areaDisagreements, describeAreaDisagreement } from '../shelving/area-dr
 import { DrizzleSeparatorRepository } from '../shelving/separator-repository'
 import type { SeparatorKind } from '../../shared/layout'
 import { MigrationFailed, migrateToLatest } from './migrate'
-import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /** The migration this file is about, named once. */
 const FURNITURE = '0013_the_shelves_become_fixtures_and_rules'
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 // ---------------------------------------------------------------------------

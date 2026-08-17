@@ -43,7 +43,7 @@ import { buildSortKey, type ShelfRange } from '../../shared/shelving'
 import { layoutRange, type Separator, type SeparatorKind } from '../../shared/layout'
 import { areaDisagreements, describeAreaDisagreement } from '../shelving/area-drift'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, scratchDatabase } from './testdb'
+import { closeScratchDatabases, scratchDatabase } from './testdb'
 
 /**
  * The catalogues open right now, given back as each test finishes with one.
@@ -60,7 +60,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 // ---------------------------------------------------------------------------

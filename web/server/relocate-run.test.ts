@@ -15,8 +15,8 @@
  * the counts and the app would be lying about where somebody's books are.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { closeTestDatabase, openTestDatabase } from './testdb'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
@@ -91,14 +91,29 @@ async function buildTheWorld(): Promise<number[]> {
   return ids
 }
 
-beforeEach(async () => {
+/** The ids `buildTheWorld` handed back, which every test reads and none rebuilds. */
+let world: number[] = []
+
+/**
+ * One database for the file, and one world built in it, put back between tests.
+ *
+ * See the long version of this in `carry.test.ts`, the other file #343 names.
+ * The short version: this file used to drop and rebuild its database and rebuild
+ * its fifty-three book world in every one of its eight tests, a `DROP DATABASE`
+ * forces an immediate checkpoint across the whole server, and the two heaviest
+ * files in the suite were losing to the contention they were generating.
+ */
+beforeAll(async () => {
   db = await openTestDatabase()
   store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
+
+  world = await buildTheWorld()
+  await keepThisCatalogue('the_owners_room')
 })
 
-afterEach(async () => {
-  await closeTestDatabase()
+beforeEach(async () => {
+  await openTestDatabase('the_owners_room')
 })
 
 afterAll(async () => {
@@ -107,7 +122,6 @@ afterAll(async () => {
 
 describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
   it('plans every book to carry, grouped plank by plank, and writes nothing', async () => {
-    await buildTheWorld()
 
     const before = await new DrizzlePlacementLedger(db).forBooks(
       (await shelves.layout('nonfiction')).map((placed) => placed.book.id),
@@ -137,7 +151,7 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
   })
 
   it('says how many books it skipped and why, rather than counting them as moves', async () => {
-    const ids = await buildTheWorld()
+    const ids = world
     const pinned = ids[0]!
     await new DrizzlePlacementLedger(db).record({
       bookId: pinned,
@@ -164,7 +178,6 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
 
   it('applies as assignments, and the needs-attention list holds exactly those books',
     async () => {
-      await buildTheWorld()
       const wanted = (await shelves.layout('nonfiction')).map((placed) => placed.book.id)
 
       const applied = await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
@@ -192,7 +205,6 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
     })
 
   it('lets a book leave the list the moment somebody says they carried it', async () => {
-    await buildTheWorld()
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
     const first = (await shelves.review('nonfiction')).misfiles[0]!
@@ -212,7 +224,6 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
   })
 
   it('is safe to apply twice, and the second one writes nothing', async () => {
-    await buildTheWorld()
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
     const again = await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
@@ -237,7 +248,6 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
   })
 
   it('leaves fiction exactly where it was', async () => {
-    await buildTheWorld()
     const before = await shelves.layout('fiction')
 
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
@@ -249,7 +259,6 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
 
   it('takes the run back to bookcase 4 and puts every book back on the plank it names',
     async () => {
-      await buildTheWorld()
       await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
       const back = await applyRunMove(db, 'nonfiction', 4, new Date().toISOString())
@@ -263,7 +272,6 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
     })
 
   it('refuses a bookcase another run is standing on, and writes nothing', async () => {
-    await buildTheWorld()
 
     const refused = await applyRunMove(db, 'nonfiction', 1, new Date().toISOString())
     expect(refused.ok).toBe(false)

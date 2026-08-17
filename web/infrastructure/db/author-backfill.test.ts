@@ -24,10 +24,10 @@ import { SCHEMA } from '../../server/db.pg'
 import { SHELF_ORDER_SQL } from '../../server/backup'
 import { SEP, buildSortKey, filingName, titleFiling } from '../../shared/shelving'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, scratchDatabase } from './testdb'
+import { closeScratchDatabases, scratchDatabase } from './testdb'
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 interface Seed {

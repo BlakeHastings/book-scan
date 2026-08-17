@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
+import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
 import { Store, PAGE_LIMIT } from './store'
@@ -85,7 +85,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
   removeScratchRoot(scratch)
 })
 

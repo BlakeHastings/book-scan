@@ -32,20 +32,19 @@ import { TagSlug, type AppliedTag, type TagConfidence, type TagSource } from '..
 import { SCHEMA } from '../../server/db.pg'
 import type { ShelfRange } from '../../shared/shelving'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /**
  * The catalogues open right now, given back as each test finishes with one.
  *
- * `dropScratchDatabases` closes every pool a file made and drops the databases,
- * and for a file that makes half a dozen that is the whole story. This one makes
- * a dozen, and a dozen pools alive at once beside the dozen
- * `placement-backfill.test.ts` keeps open ran the container out of connections
- * under a full parallel run: `sorry, too many clients already`, raised by
- * `CREATE DATABASE` in a third file that had done nothing wrong. Handing the
- * connections back per test holds one catalogue open instead of twelve. The
- * `afterAll` still drops them, and a second `end()` on a closed pool is caught
- * there.
+ * `closeScratchDatabases` closes every pool a file made, and for a file that
+ * makes half a dozen that is the whole story. This one makes a dozen, and a
+ * dozen pools alive at once beside the dozen `placement-backfill.test.ts` keeps
+ * open ran the container out of connections under a full parallel run: `sorry,
+ * too many clients already`, raised by `CREATE DATABASE` in a third file that
+ * had done nothing wrong. Handing the connections back per test holds one
+ * catalogue open instead of twelve. The `afterAll` still closes them, and a
+ * second `end()` on a closed pool is caught there.
  */
 const openHere: pg.Pool[] = []
 
@@ -54,7 +53,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 // ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ import { join } from 'node:path'
 import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { dropScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
+import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp } from './index'
 import { lookupIsbn } from './lookup'
@@ -86,7 +86,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
   // Only what this file made. There is nothing above it that anything else
   // shares, which is the point of taking a root rather than a directory in one.
   removeScratchRoot(scratch)

@@ -63,7 +63,7 @@ export default defineConfig({
      * actually stopped still reports as one.
      *
      * **Raised again to 120 seconds (#226), and the queue it buys for is a
-     * different one from the sentence above.** `dropScratchDatabases` in
+     * different one from the sentence above.** The drop helper in
      * `infrastructure/db/testdb.ts` used to run every drop for a file
      * concurrently against a bare `pg.Pool`, which is what pushed the suite over
      * Postgres's hundred connections: measured with `pg_stat_activity`, up to
@@ -81,11 +81,30 @@ export default defineConfig({
      * `infrastructure/db/*-backfill.test.ts` files timing out in their
      * `afterAll` with every test in them passing. Sixty seconds bought that
      * margin at nine files; it does not at the file count and the per-file
-     * connection cap this repository has now, so this buys it again the same
+     * connection cap this repository had then, so this buys it again the same
      * way: measured longer than anything the capped pool produced, not raised
-     * until the failure stopped showing up. `testTimeout` is deliberately left
-     * at twenty: hooks are what wait on the checkpoint queue, individual tests
-     * are not.
+     * until the failure stopped showing up. `testTimeout` was deliberately left
+     * at twenty: hooks were what waited on the checkpoint queue, individual
+     * tests were not.
+     *
+     * **That last sentence is the one #343 was filed against.** It stopped being
+     * true, and the failure was a *test body* timing out: a `DROP DATABASE` in
+     * one file's `afterAll` forces an immediate checkpoint, a checkpoint flushes
+     * every dirty buffer in the server rather than the dropped database's, and
+     * so it stalls the fifteen worker processes that are mid-test as much as the
+     * one that asked for it. Measured across three full runs on this machine:
+     * 160 databases dropped per run, 660 to 760 seconds of waiting on those
+     * drops spread through a run whose test files spanned about 110 seconds.
+     * **No test file drops a database now.** They are swept once, after the last
+     * test, by `server/pgcontainer.ts`, or not at all when the container this
+     * run started is about to be removed with them inside it.
+     *
+     * **Both numbers are left exactly where they were, on purpose.** #343 ruled
+     * out raising a timeout, and lowering one on the strength of a change a day
+     * old is the same mistake pointed the other way: the case for a smaller hook
+     * budget is runs, not reasoning. What the measurements say is that nothing
+     * needs the 120 any more, and that is a change to make once this shape has
+     * some weeks behind it rather than in the pull request that created it.
      *
      * Six files under `infrastructure/db/` used to pin their own `afterAll` to
      * a literal `60_000` that matched this constant by agreement rather than by

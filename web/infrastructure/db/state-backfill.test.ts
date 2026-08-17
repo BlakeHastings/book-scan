@@ -37,7 +37,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { BOOK_STATES } from '../../domain/books/state'
 import { SCHEMA } from '../../server/db.pg'
 import { migrateToLatest } from './migrate'
-import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
+import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /**
  * As far down the folder as a test about one of these columns can be taken.
@@ -59,7 +59,7 @@ import { dropScratchDatabases, migrationsThrough, scratchDatabase } from './test
 const BEFORE_THE_DROPS = '0022_the_alias_is_where_a_book_files'
 
 afterAll(async () => {
-  await dropScratchDatabases()
+  await closeScratchDatabases()
 })
 
 interface Seed {
