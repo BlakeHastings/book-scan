@@ -85,7 +85,7 @@ export function QueuedAlready({
         // evidence is the hash distance or the ISBN, both said below, and
         // neither of them came from the cover text.
         const { text: title } = captureName(capture)
-        const thumb = queueThumb(capture, 'front')
+        const thumb = queueThumb(capture)
         // Two kinds of evidence, said as the two different things they are.
         // An ISBN is exact and carries its own check digit; a hash distance is
         // a likeness with a measured error rate, and it is the one that gets a

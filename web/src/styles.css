@@ -736,12 +736,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
    because this is used one-handed with a book in the other. */
 .queue__open {
   width: 100%;
-  display: grid;
-  grid-template-columns: 46px 1fr;
-  gap: 10px;
-  align-items: center;
-  padding: 10px;
-  min-height: 76px;
+  display: block;
+  padding: var(--s2);
   background: none;
   border: 0;
   border-radius: 10px;
@@ -790,48 +786,17 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .queue__slide { transition: none; }
 }
 
-.queue__photo {
-  width: 46px; height: 62px;
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  background: var(--paper-sunk);
-  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
-  display: block;
-}
-.queue__photo img { width: 100%; height: 100%; object-fit: cover; }
-
-.queue__body { display: grid; gap: 2px; min-width: 0; }
-.queue__title {
-  font-family: var(--face-book);
-  font-weight: 500;
-  min-width: 0;
-  display: flex; align-items: baseline; gap: 6px;
-}
-.queue__title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A row named by OCR looks different from one named by a person or a
-   catalogue. The queue needs a machine guess to name a capture, and nothing
-   downstream may mistake that name for a title anybody confirmed (#156). */
-.queue__title--guess .queue__title-text { font-weight: 400; font-style: italic; }
-.queue__guessmark {
-  flex: none;
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--ink-2);
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  padding: 0 4px;
-}
-.queue__meta { color: var(--ink-2); font-size: 13px; }
-.queue__status {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-2);
-}
-/* The one status worth a colour, and it is the one that needs a person. The
-   other two are said in words and left in ink: a row per state, each its own
-   shade, is the rail this row just lost, drawn as text instead. */
-.queue__status--failed { color: var(--plum); }
-.queue__note { font-size: 12px; color: var(--ink-2); }
+/*
+ * What is inside a row is `.wf-queued`, in `library.css`, which is the
+ * wireframe's own row and is called rather than copied (#363).
+ *
+ * Nine rules stood here: a 46 by 62 thumbnail, a title, a name marked as a
+ * guess, a line of author or ISBN, a status in small capitals, a colour for the
+ * one status that needs a person, and a note under it. Every one of them now
+ * has exactly one home, in the design system, because there are two rows drawn
+ * from it and a second copy of any of them is two rows that agree until one is
+ * edited.
+ */
 
 /* --- Book detail: photos ---------------------------------------------- */
 
@@ -1070,9 +1035,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   cursor: pointer;
 }
 .shelf__body--tap:active { opacity: 0.6; }
-
-/* What OCR could read off the cover, shown rather than assumed to be a title. */
-.queue__cover { font-size: 12px; color: var(--link); }
 
 /* A solid guide means the frame is the crop (the spine). A dashed one is
    alignment only: the whole frame is kept, so nothing can clip the ISBN. */

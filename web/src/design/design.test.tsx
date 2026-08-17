@@ -1154,6 +1154,40 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
   })
 })
 
+/**
+ * A pill with no word in it is a colour, and this system does not tell anybody
+ * anything with a colour.
+ *
+ * The rule is older than the pills: it is what the corner action, the view
+ * switcher and every dot in a strip of photographs are each checked for
+ * separately, and #363 is the round that made it worth stating generally. A
+ * queue row is now three pills and no prose, so three facts a person acts on
+ * are carried by small boxes, and the cheapest way to lose one is a helpful
+ * edit that keeps a tint and drops the word inside it.
+ *
+ * Two of the three pills on that row are tinted for exactly one reason each,
+ * and both reasons are about the screen rather than the thing: a tag narrowing
+ * what you are looking at, and a book saying it needs a person. Neither is
+ * allowed to be the only thing said. Checked on every screen rather than on the
+ * queue, because the next pill is the one this is really for.
+ */
+describe('a pill says what it is, and is never only a colour', () => {
+  it('is true of every pill on every screen', () => {
+    let found = 0
+
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      for (const pill of markup.match(/<(span|button) class="wf-tag[^"]*".*?<\/\1>/gs) ?? []) {
+        found += 1
+        expect(words(pill).trim(), `${screen.id} draws a pill with no word in it`)
+          .not.toBe('')
+      }
+    }
+
+    expect(found, 'no screen draws a pill at all').toBeGreaterThan(4)
+  })
+})
+
 describe('the gallery', () => {
   it('renders every screen to markup', () => {
     for (const screen of SCREENS) {

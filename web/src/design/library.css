@@ -736,6 +736,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    one for fiction and a blue one for non-fiction, and that was the top-level
    split painting two tags out of twenty. */
 .wf-tag--on { background: var(--sun-wash); color: var(--ink); }
+/* The second tone: a book saying it needs a person, which on the queue is the
+   one thing anybody acts on. The word is what says which of the four kinds of
+   stuck it is; this only makes it findable while scanning down a list, and
+   nothing here is ever told by the tint alone. */
+.wf-tag--wants { background: var(--plum-wash); color: var(--plum); }
 
 /*
  * A tag you can press, on the screens where the tags are what is being
@@ -760,6 +765,92 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 .wf-tags { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+/*
+ * One book waiting to be filed: the book, its name, and its pills.
+ *
+ * The book takes the room it needs and the words take the rest, which is what
+ * keeps a long title from squeezing the photograph. Everything in the right
+ * column is one column deep and every part of it truncates, because a row that
+ * grows a second line for one book makes a list of forty jump about as it
+ * loads.
+ */
+.wf-queued {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s3);
+  /* Centred against the book rather than hung from its top edge. Every row is
+     the height of a book and most carry a name, an author and two pills, so
+     top-aligning leaves a band of empty paper under the words on almost every
+     row. Found by looking at forty of them. */
+  align-items: center;
+  min-width: 0;
+  text-align: left;
+}
+.wf-queued__text {
+  display: grid;
+  gap: var(--s1);
+  align-content: start;
+  min-width: 0;
+}
+.wf-queued__name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+  font-family: var(--face-book);
+  font-weight: 500;
+  color: var(--ink);
+}
+.wf-queued__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A row named by OCR looks different from one named by a person or a
+   catalogue, and says so in a word as well (#156). */
+.wf-queued__name--guess .wf-queued__title { font-weight: 400; font-style: italic; }
+.wf-queued__guess {
+  flex: none;
+  font-size: var(--size-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 var(--s1);
+}
+.wf-queued__sub {
+  color: var(--ink-2);
+  font-size: var(--size-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The pills sit under the name with a little more air than the name and the
+   author have between them, so they read as a row of marks rather than as a
+   third line of the title block. */
+.wf-queued .wf-tags { margin-top: 2px; gap: var(--s1); }
+
+/*
+ * The card one of those sits in, in the wireframe.
+ *
+ * The app's is `.queue__row`, which is this plus everything the swipe needs:
+ * the word revealed behind it, the sliding layer, and the undo that replaces
+ * the whole row. Two wrappers, deliberately, because one of them has a gesture
+ * in it and the other is a drawing. What is inside them is one component.
+ */
+.wf-qlist { display: grid; gap: var(--s2); }
+.wf-qrow {
+  display: block;
+  width: 100%;
+  padding: var(--s2);
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--lift-1);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-qrow:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /* A plank label, the thing you read off the shelf edge. Set like a spine
    label on a bound volume. */
@@ -2527,6 +2618,23 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--paper-sunk);
 }
+/*
+ * The same book, in a list of books (#363).
+ *
+ * One width and one height, overriding the two the book's own page sets, and
+ * nothing else: the sliver, the curve, the hairline and the empty box are the
+ * rules above. 64 by 96 is a shade over twice the area of the 46 by 62
+ * thumbnail this replaced, which is what "show the books larger" asked for, and
+ * it leaves five books on a 414 by 896 screen with the control and the search
+ * box above them.
+ */
+.wf-shots--book-small {
+  --face: 64px;
+  row-gap: 0;
+}
+.wf-shots--book-small .wf-shot__box { height: 96px; }
+.wf-shots--book-small .wf-shot--sliver .wf-shot__box { width: 9px; }
+
 /* The shape of the missing thing, in the box where it would be, with the kind
    it is missing named above it: three of these are reachable by swiping and
    they are otherwise the same box. */

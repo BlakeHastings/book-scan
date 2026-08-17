@@ -147,7 +147,7 @@ export interface Shot {
 export function Shots({
   shots,
   act = false,
-  size = 'small',
+  size,
   on = 'paper',
   mode = 'rail',
 }: {
@@ -157,6 +157,15 @@ export function Shots({
    * is a record; on, each photograph is a target that takes it again.
    */
   act?: boolean
+  /**
+   * How much room the photographs get.
+   *
+   * Deliberately unset by default rather than `small`, because the two modes
+   * have opposite ordinary sizes and one default cannot be right for both. A
+   * rail is small unless a screen asks for big; a book is big unless a screen
+   * asks for small. Both defaults are the size their callers were already
+   * drawing at, so naming the prop changed nothing that was on screen.
+   */
   size?: 'small' | 'big'
   /** Whether this is drawn on paper or on top of the picture. */
   on?: 'paper' | 'picture'
@@ -166,7 +175,7 @@ export function Shots({
    */
   mode?: 'rail' | 'book'
 }) {
-  if (mode === 'book') return <TheBook shots={shots} />
+  if (mode === 'book') return <TheBook shots={shots} size={size} />
 
   const className = [
     'wf-shots',
@@ -283,8 +292,27 @@ export function Shots({
  * the drawing has. It used to say a carousel in a wireframe would be a second
  * implementation of the app, which was right about copying one in and wrong
  * about the way out of it.
+ *
+ * ## The same book, smaller, in a list (#363)
+ *
+ * The queue draws one of these per waiting book, and the owner asked for it by
+ * name: "the same component that we're using to show the book and the spine of
+ * the book whenever you select a book, like the book detail view, is what we
+ * should use here." So `size="small"` is a width and a height and nothing else.
+ * The arrangement, the sliver, the marker class and the empty box are all the
+ * ones above, because a second small book would be the drift this file exists
+ * to end.
+ *
+ * **A row hands it one photograph, and that is a decision rather than an
+ * oversight.** Two things stop a deck being swiped inside a queue row: the row
+ * is itself a target that is dragged sideways to discard, and `.queue__slide`
+ * gives the browser `touch-action: pan-y`, which takes the sideways axis away
+ * from everything inside it. A strip that cannot be scrolled and dots that
+ * cannot be pressed would be a swipe drawn and not delivered, and the dots are
+ * `<button>`s, which cannot legally sit inside the button the whole row is. The
+ * book's own page is where the other photographs are, one tap away.
  */
-function TheBook({ shots }: { shots: Shot[] }) {
+function TheBook({ shots, size }: { shots: Shot[]; size?: 'small' | 'big' }) {
   const spine = shots.find((one) => one.sliver)
   const deck = shots.filter((one) => !one.sliver)
 
@@ -370,7 +398,15 @@ function TheBook({ shots }: { shots: Shot[] }) {
   }
 
   return (
-    <div className="wf-shots wf-shots--book">
+    /*
+     * A span rather than a div, because a queue row is one whole button and a
+     * `<div>` inside a `<button>` is not phrasing content. Nothing else
+     * changes: every rule about this block sets its own `display`, so the box
+     * it makes is the box it made.
+     */
+    <span
+      className={`wf-shots wf-shots--book${size === 'small' ? ' wf-shots--book-small' : ''}`}
+    >
       {shot(spine, 'sliver')}
       <span className="wf-deck">
         {/*
@@ -418,6 +454,6 @@ function TheBook({ shots }: { shots: Shot[] }) {
           ))}
         </span>
       )}
-    </div>
+    </span>
   )
 }

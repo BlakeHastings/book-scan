@@ -76,6 +76,17 @@ export function Row({
  *
  * Given an `onPress` it becomes a target rather than a label, which is what a
  * tag is on any screen where the tags are the thing being edited.
+ *
+ * ## The second tone, and why it is not the split coming back
+ *
+ * `wants` is a book saying it needs a person: the queue's diagnosis, which is
+ * #148 and is the one thing on that screen somebody acts on. That is the same
+ * kind of fact `on` is, about what is true on the screen right now, and not the
+ * kind the tint was taken off for: fiction and non-fiction were painted because
+ * of which tag they were, so a person keeping twenty tags had two of them lit
+ * for no reason anybody could act on. Nothing here is ever tinted for being a
+ * particular tag, and nothing is ever told by the tint alone: every one of
+ * these carries its word, which `design.test.tsx` checks on every screen.
  */
 export function Tag({
   children,
@@ -83,7 +94,7 @@ export function Tag({
   onPress,
 }: {
   children: ReactNode
-  tone?: 'on'
+  tone?: 'on' | 'wants'
   onPress?: () => void
 }) {
   const className = [
@@ -119,8 +130,16 @@ export function AddTag({ children, onPress }: { children: ReactNode; onPress?: (
   )
 }
 
+/**
+ * A row of them, wrapping.
+ *
+ * A span rather than a div, for the reason the book's own arrangement is one: a
+ * queue row is a single button and a `<div>` inside a `<button>` is not
+ * phrasing content. The rule sets `display: flex` itself, so the row is the row
+ * it always was.
+ */
 export function Tags({ children }: { children: ReactNode }) {
-  return <div className="wf-tags">{children}</div>
+  return <span className="wf-tags">{children}</span>
 }
 
 /** A plank label, set the way it reads off the shelf edge. */

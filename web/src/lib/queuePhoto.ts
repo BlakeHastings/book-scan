@@ -1,75 +1,19 @@
 /**
- * Which photograph of a queued book the queue draws, and remembering that
- * somebody chose it.
+ * The photographs of a queued book, cropped to the book where there is a crop.
  *
- * The same shape as `libraryView.ts`, deliberately: a closed set of answers to
- * one question, kept in localStorage rather than in App state because
- * `QueuePane` is unmounted the moment a capture is opened from it, and a
- * preference that resets every time you come back from a book is not a
- * preference. It also has to survive a reload, since the phone this runs on
- * drops the page whenever the camera app is used.
+ * ## There is no longer a choice to remember
  *
- * Two answers rather than three because a capture only has two photographs
- * worth recognising a book by. The back cover is a barcode, not a face.
+ * There was, and it was two answers to "which photograph do you want to see":
+ * the front or the spine, kept in localStorage because `QueuePane` is unmounted
+ * the moment a capture is opened from it. #363 drew the row as the book itself,
+ * which is the spine standing against the front, so both photographs are on
+ * every row and the question has no second answer left. The preference, the
+ * words for its two answers and the switcher that set it all went with it; what
+ * stayed is the part every caller was really asking for, which is where a
+ * capture's pictures are.
  */
 
 import type { Capture } from './api'
-
-export type QueuePhoto = 'front' | 'spine'
-
-/**
- * In the order they are offered. Front first because that is what somebody
- * working through a stack is looking at: the books are face up in their hands,
- * not shelved end on (#120).
- */
-export const QUEUE_PHOTOS: readonly QueuePhoto[] = ['front', 'spine']
-
-/** A word each, because the switcher sits beside a search box. */
-export const PHOTO_LABEL: Record<QueuePhoto, string> = {
-  front: 'Front',
-  spine: 'Spine',
-}
-
-/** Read out to somebody who cannot see which one is lit. */
-export const PHOTO_DESCRIPTION: Record<QueuePhoto, string> = {
-  front: 'Front: the cover, as the book is held',
-  spine: 'Spine: the edge, as the book is shelved',
-}
-
-export const DEFAULT_PHOTO: QueuePhoto = 'front'
-
-const KEY = 'bookscan.queuePhoto'
-
-/**
- * Turn whatever was stored into a choice.
- *
- * Anything unrecognised falls back rather than throwing, for the same reason
- * `parseView` does: the stored value outlives the code that wrote it.
- */
-export function parsePhoto(stored: string | null | undefined): QueuePhoto {
-  return QUEUE_PHOTOS.includes(stored as QueuePhoto)
-    ? (stored as QueuePhoto)
-    : DEFAULT_PHOTO
-}
-
-/** The choice to open on. `DEFAULT_PHOTO` for somebody who has never chosen. */
-export function rememberedPhoto(): QueuePhoto {
-  try {
-    return parsePhoto(localStorage.getItem(KEY))
-  } catch {
-    // Private browsing can refuse storage outright. A queue that will not
-    // remember your choice is still a queue.
-    return DEFAULT_PHOTO
-  }
-}
-
-export function rememberPhoto(photo: QueuePhoto): void {
-  try {
-    localStorage.setItem(KEY, photo)
-  } catch {
-    // As above: worth doing, never worth failing over.
-  }
-}
 
 /**
  * A slot's picture: the crop where the detector found the book, the whole
@@ -115,23 +59,46 @@ function backOf(capture: Capture): string {
 }
 
 /**
- * The photograph to draw for a capture, given what was asked for.
+ * One picture of a capture, for a caller with room for one.
  *
  * Falls through the other two rather than drawing an empty box: a capture is
  * photographed in whatever order somebody managed, and half of them are still
- * being read, so the asked-for shot is often simply not there yet. Showing the
- * wrong photograph of the right book beats showing nothing.
+ * being read, so the front is often simply not there yet. Showing the wrong
+ * photograph of the right book beats showing nothing.
  *
  * Which slot wins is settled before any crop is considered, the way `bookCover`
  * settles it: a front photograph still beats a spine whether or not either
  * cropped. Only then does the crop of that slot stand in for the whole frame,
  * so a row showing the surrounding room is never showing it because a different
  * photograph happened to crop better.
+ *
+ * It took the wanted slot as an argument while the queue let somebody choose
+ * one. Nothing chooses now (#363): the queue draws the book, and the one caller
+ * left is the thumbnail beside a book somebody has already photographed once.
  */
-export function queueThumb(capture: Capture, photo: QueuePhoto): string {
-  const front = frontOf(capture)
-  const spine = spineOf(capture)
-  const back = backOf(capture)
-  const order = photo === 'front' ? [front, spine, back] : [spine, front, back]
-  return order.find(Boolean) ?? ''
+export function queueThumb(capture: Capture): string {
+  return [frontOf(capture), spineOf(capture), backOf(capture)].find(Boolean) ?? ''
+}
+
+/**
+ * The three photographs of a capture, each cropped where there is a crop and
+ * empty where there is no photograph.
+ *
+ * No falling through from one to another, deliberately, which is the whole
+ * difference between this and `queueThumb`. That one answers "draw me a picture
+ * of this book" and a substitute is better than a gap. This one answers "which
+ * photographs does it have", and a caller drawing the book needs the honest
+ * answer: a spine nobody has photographed is drawn as the empty shape of a
+ * spine, which is a thing worth knowing and is `Shots`'s own rule.
+ */
+export function queuePictures(capture: Capture): {
+  front: string
+  spine: string
+  back: string
+} {
+  return {
+    front: frontOf(capture),
+    spine: spineOf(capture),
+    back: backOf(capture),
+  }
 }

@@ -135,8 +135,14 @@ When('I come back as somebody else', async ({ page, webUrl }) => {
   await expect(homeScreen(page)).toBeVisible()
 })
 
+/*
+ * The name is `.wf-queued__title` rather than `.queue__title` because the row's
+ * inside is the design system's own, called by the wireframe and by the app
+ * (#363). The row itself is still this screen's: the swipe and the undo live
+ * there and the drawing does not have them.
+ */
 Then('the queued book should be listed as {string}', async ({ page }, title: string) => {
-  await expect(page.locator('.queue__row').first().locator('.queue__title'))
+  await expect(page.locator('.queue__row').first().locator('.wf-queued__title'))
     .toHaveText(title)
 })
 
