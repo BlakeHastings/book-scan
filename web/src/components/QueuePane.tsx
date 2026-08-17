@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import {
-  api, captureName, deviceName, draftFromCapture, editsOn,
+  api, captureName, deviceName, draftFromCapture,
   type Capture, type CaptureStatus, type QueueCounts,
 } from '../lib/api'
 import { newestFirst } from '../lib/queueOrder'
 import { filterQueue } from '../lib/queueSearch'
-import {
-  queueThumb, rememberedPhoto, rememberPhoto, type QueuePhoto,
-} from '../lib/queuePhoto'
+import { queuePictures } from '../lib/queuePhoto'
 import {
   beginSwipe, moveSwipe, swipeArmed, type Swipe,
 } from '../lib/swipe'
@@ -20,21 +18,33 @@ import { coverUrl } from './PlacementCard'
 import { Nothing } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Segmented } from '../design/Controls'
-import { Filter, type Look } from '../design/Finding'
+import { Filter } from '../design/Finding'
 import { Phone } from '../design/Phone'
+import { Queued } from '../design/Queue'
+import type { Shot } from '../design/Shots'
 
 /**
- * The three statuses that say all there is to say on their own. `failed` is
- * deliberately absent: it needs the row's own facts to mean anything.
+ * The state a waiting book is in, as one word on one pill.
+ *
+ * The same four words the control above the list filters by, so a book found
+ * under "Stuck" says "Stuck" on itself. `failed` is `Stuck` here and nothing
+ * more: what is actually wrong with it is a different fact and gets its own
+ * pill, which is `whatItNeeds` below and is the whole of #148.
  */
-const STATUS_LABEL: Record<Exclude<CaptureStatus, 'failed'>, string> = {
-  pending: 'reading photos',
-  ready: 'identified',
-  done: 'shelved',
+const STATE_LABEL: Record<CaptureStatus, string> = {
+  pending: 'Reading photos',
+  ready: 'Identified',
+  done: 'Shelved',
+  failed: 'Stuck',
+}
+
+/** Which of those, for one book. */
+export function stateWord(capture: Capture): string {
+  return STATE_LABEL[capture.status]
 }
 
 /**
- * What this row says is wrong with the book.
+ * What this row says the book needs, and nothing where nothing is wrong.
  *
  * `failed` used to read "needs you", which was true and useless: the same
  * three words whether the photographs yielded no ISBN, yielded a good one no
@@ -42,11 +52,58 @@ const STATUS_LABEL: Record<Exclude<CaptureStatus, 'failed'>, string> = {
  * the person holding the book, so the row names which one, out of the same
  * helper Home counts with (#148). One rule, so the row and the first screen
  * cannot say different things about the same capture again.
+ *
+ * **It is a pill now rather than a line, and that changes nothing about which
+ * words it says.** The owner asked for the diagnosis to be a tag rather than a
+ * sentence; the four words behind it are `FAILURE_LABEL` and are untouched,
+ * because the incident this exists to prevent is somebody being sent to retype
+ * an ISBN that read perfectly well.
  */
-export function statusLine(capture: Capture): string {
-  return capture.status === 'failed'
-    ? FAILURE_LABEL[failureOf(capture)]
-    : STATUS_LABEL[capture.status]
+export function whatItNeeds(capture: Capture): string {
+  return capture.status === 'failed' ? FAILURE_LABEL[failureOf(capture)] : ''
+}
+
+/**
+ * The device that has this book, with no words wrapped around it.
+ *
+ * > Instead of "checked by" and then the device, just have the device there as
+ * > a pill.
+ *
+ * The claim first, because a claim is somebody working on this book right now
+ * and an edit is somebody who was. The row used to say both, in two clauses
+ * either side of a middle dot, and tell them apart with "worked on" against
+ * "checked": three sentences of prose for one name.
+ */
+export function deviceOn(capture: Capture): string {
+  return capture.claimed_by || capture.edited_by || ''
+}
+
+/**
+ * A waiting book's photographs, arranged as the book they are photographs of.
+ *
+ * Two, and the spine is the sliver, which is what makes `Shots` draw them as
+ * one object rather than as two pictures. The face falls back to the back cover
+ * because a book photographed back-first is a real thing somebody has in a
+ * pile, and drawing the wrong photograph of the right book beats drawing an
+ * empty box; it says which kind it is when it does. A kind nobody has
+ * photographed is drawn as the empty shape of itself, which is `Shots`'s own
+ * rule and is a thing worth knowing.
+ */
+export function shotsOf(capture: Capture): Shot[] {
+  const pictures = queuePictures(capture)
+  const face = pictures.front || pictures.back
+
+  return [
+    {
+      word: 'Spine',
+      sliver: true,
+      photo: pictures.spine ? coverUrl(pictures.spine) : undefined,
+    },
+    {
+      word: pictures.front ? 'Front' : 'Back',
+      photo: face ? coverUrl(face) : undefined,
+    },
+  ]
 }
 
 /**
@@ -95,32 +152,6 @@ export const SHOWING: Record<Which, (capture: Capture) => boolean> = {
 }
 
 /**
- * The two photographs a queued book can be drawn by, said in the design
- * system's own words for how books are drawn (#349).
- *
- * The library's switcher steps through covers, a list and the books standing
- * up. This screen has two of those three, because a row draws one picture of
- * one book and there is no list view of a photograph. Naming them as `Look`s
- * rather than keeping a second vocabulary beside it is what makes the two
- * screens one control: same component, same icons, same sentences, and no
- * second name in the library for the thing the library already names.
- *
- * #148 is not touched by any of this. What a stuck book needs is said on the
- * book, by `statusLine`, which is where it belongs and where it stays.
- */
-const QUEUE_LOOKS: readonly Look[] = ['covers', 'spines']
-
-/** Which of those two a remembered choice of photograph is. */
-export function lookOf(photo: QueuePhoto): Look {
-  return photo === 'spine' ? 'spines' : 'covers'
-}
-
-/** And back, for the answer the switcher hands over. */
-export function photoOf(look: Look): QueuePhoto {
-  return look === 'spines' ? 'spine' : 'front'
-}
-
-/**
  * The stuck books whose photographs are worth putting through the reader again
  * (#299).
  *
@@ -162,8 +193,6 @@ export interface RowGesture {
 
 interface RowProps {
   capture: Capture
-  photo: QueuePhoto
-  me: string
   /** True while this capture's discard is being held open, undoable. */
   held: boolean
   onOpen: (capture: Capture) => void
@@ -190,24 +219,21 @@ export function photoCount(capture: Capture): number {
  * The whole row is the control now (#120). It used to carry a "Shelve" button
  * and a "Discard" button in a column on the right, which is two taps of aim
  * for somebody holding a book in their other hand.
+ *
+ * **What it draws is `Queued`, which is the wireframe's own row** (#363). The
+ * book, the name, and three pills; and nothing on it is a sentence about the
+ * book any more. What is left here is the wrapper: the swipe, the word revealed
+ * behind it, and the undo that takes the row's place. Those are this screen's
+ * and the drawing has none of them.
  */
 export function QueueRow({
-  capture, photo, me, held, onOpen, onUndo, gesture, registerRow,
+  capture, held, onOpen, onUndo, gesture, registerRow,
 }: RowProps) {
   // What anybody has worked out about this book, over what the worker
   // read off its photographs. The row has to show the corrected title,
   // not the one the wrong ISBN produced, or the person coming to shelve
   // it is looking for the wrong book.
   const draft = draftFromCapture(capture)
-  const heldByOther = capture.claimed_by && capture.claimed_by !== me
-  // Two different facts, and the queue's value is telling them apart:
-  // nobody has been near this book, or somebody has and this is where
-  // they got to.
-  const stated = Object.keys(editsOn(capture)).length > 0
-  const looked = capture.edited_at
-    ? `${stated ? 'worked on' : 'checked'} by ${capture.edited_by || 'someone'}`
-    : ''
-  const thumb = queueThumb(capture, photo)
   // A capture is not a book: it has no catalogue id and often no title at all,
   // so what OCR read off the cover names the row, and the number names the
   // ones it could not read either. Marked as a guess where it is one: the row
@@ -266,41 +292,28 @@ export function QueueRow({
               aria-disabled={!shelvable}
               onClick={() => { if (shelvable) onOpen(capture) }}
             >
-              <span className="queue__photo">
-                {thumb && <img src={coverUrl(thumb)} alt="" loading="lazy" />}
-              </span>
+              {/*
+                The wireframe's row, called rather than rebuilt. The pills are
+                its, the book is `Shots` in the mode a book's own page draws
+                itself in, and the words are the ones in `Queue.tsx`.
 
-              <span className="queue__body">
-                <span
-                  className={`queue__title${name.guessed ? ' queue__title--guess' : ''}`}
-                >
-                  <span className="queue__title-text">{name.text}</span>
-                  {/* Said in the row rather than only in the styling, because
-                      the difference between a title and a machine's reading of
-                      a cover is not something a shade of grey can carry. */}
-                  {name.guessed && <span className="queue__guessmark">OCR guess</span>}
-                </span>
-                <span className="queue__meta">
-                  {draft.authors || draft.isbn13 || 'no ISBN yet'}
-                </span>
-                {!capture.isbn13 && capture.cover_text && (
-                  <span className="queue__cover">
-                    Cover reads: {capture.cover_text.split('\n').join(' / ')}
-                  </span>
-                )}
-                <span className={`queue__status queue__status--${capture.status}`}>
-                  {/* The row used to carry a "Shelve" button that said "..."
-                      while a capture was being read. With the button gone this
-                      line is the only thing left to say why tapping does
-                      nothing, so it says it in words rather than in dots. */}
-                  {statusLine(capture)}{shelvable ? '' : '...'}
-                  {heldByOther ? ` · with ${capture.claimed_by}` : ''}
-                  {looked ? ` · ${looked}` : ''}
-                </span>
-                {capture.note && capture.status === 'failed' && (
-                  <span className="queue__note">{capture.note}</span>
-                )}
-              </span>
+                Three things the row used to print are deliberately not passed.
+                What OCR read off the cover is gone, which the owner asked for
+                outright. The worker's note under a stuck book is gone with it:
+                it says which photograph and which digits, which is a paragraph
+                on a row and is already the first thing the screen behind this
+                one says when the book is opened. And "worked on by" against
+                "checked by" is one device name now.
+              */}
+              <Queued
+                name={name.text}
+                guessed={name.guessed}
+                sub={draft.authors || draft.isbn13}
+                shots={shotsOf(capture)}
+                state={stateWord(capture)}
+                wants={whatItNeeds(capture)}
+                device={deviceOn(capture)}
+              />
             </button>
           </div>
         </>
@@ -329,12 +342,6 @@ export function QueuePane({
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const me = deviceName()
-  /*
-   * Read from storage rather than from a prop, because this pane is unmounted
-   * the moment a capture is opened and so cannot remember anything itself, and
-   * because the answer has to survive a reload as well as a navigation.
-   */
-  const [photo, setPhoto] = useState<QueuePhoto>(rememberedPhoto)
   const [query, setQuery] = useState('')
   /** Ids whose discard is being held open, mirrored out of the window below. */
   const [held, setHeld] = useState<number[]>([])
@@ -487,12 +494,6 @@ export function QueuePane({
       setError((caught as Error).message)
       load()
     }
-  }
-
-  /** Change which photograph is drawn, and write the choice down. */
-  const choosePhoto = (next: QueuePhoto) => {
-    setPhoto(next)
-    rememberPhoto(next)
   }
 
   /*
@@ -699,16 +700,16 @@ export function QueuePane({
 
       {/*
         The row above the books, which is the library's row with this screen's
-        search box in front of it (#349). The switcher at the end of it is the
-        same component, drawing the same icons and announcing the same
-        sentences as the one on the library.
+        search box in front of it (#349).
+
+        **Without the switcher that used to end it** (#363). It chose between
+        the front and the spine because a row drew one small photograph of a
+        book; a row draws the book now, spine standing against the front, so
+        both of its answers produce the same picture. The row itself is the same
+        component the library wears and is otherwise untouched.
       */}
       <div className="queue__tools">
-        <Filter
-          look={lookOf(photo)}
-          looks={QUEUE_LOOKS}
-          onLook={(next) => choosePhoto(photoOf(next))}
-        >
+        <Filter>
           <div className="queue__search">
             <input
               type="search"
@@ -776,8 +777,6 @@ export function QueuePane({
           <QueueRow
             key={capture.id}
             capture={capture}
-            photo={photo}
-            me={me}
             held={held.includes(capture.id)}
             onOpen={openRow}
             onUndo={undoDiscard}

@@ -49,7 +49,8 @@ import { AddBox, AreaBox, Claim, Must, Musts, Nest, Order } from '../Furniture'
 import { IconCamera, IconEdit } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Phone as Frame } from '../Phone'
-import { Shelf, spines, type ShelfItem } from '../Shelf'
+import { Queued } from '../Queue'
+import { Shelf, spines, type Cloth, type ShelfItem } from '../Shelf'
 import { Shots, type Shot } from '../Shots'
 import { Sure } from '../Sure'
 import { Trouble } from '../Trouble'
@@ -1655,6 +1656,65 @@ function Done(go: Go) {
   )
 }
 
+/**
+ * --- The queue: a book and three pills --------------------------------------
+ *
+ * Round eight (#363), and the owner's complaint was about density rather than
+ * about any one line:
+ *
+ * > The books that we have in the queue, we're putting way too much information
+ * > here. "Needs an ISBN" should be like a tag, it should be like a pill there.
+ * > "Identified" should be a pill. Instead of "checked by" and then the device,
+ * > just have the device there as a pill. And instead of "cover reads" and then
+ * > listing it there, we don't need that.
+ *
+ * The argument for each pill is in `Queue.tsx`, which is the component both
+ * this drawing and the app call. What is decided here is the screen around
+ * them, and there are three answers on it worth naming.
+ *
+ * **The book is `Shots` in `mode="book"`, called and not copied.** The row drew
+ * a 46 by 62 thumbnail of one photograph; it now draws the book, spine standing
+ * against the front, at the size a list can afford.
+ *
+ * **The front-against-spine switcher is gone.** It was #349's, one round old,
+ * and it asked which of the two photographs a row should draw. A row draws both
+ * now, so its two answers produce one picture. `Finding.tsx` carries the
+ * reasoning; the row above the books is otherwise untouched and is still the
+ * library's.
+ *
+ * **The control across the top is what forty books are worked through with**,
+ * which is the question a bigger book makes urgent: five books fill a phone
+ * now where eight used to. Nothing on this screen summarises the pile, because
+ * that summary is what #349 took off and the count is on the first screen; what
+ * a person does instead is narrow to the six they can act on, or type three
+ * letters of a title.
+ */
+
+/** The photographs of a queued book, as this wireframe has them: two cloths. */
+function queued(cloth: Cloth, spine: Cloth = 'wood'): Shot[] {
+  return [
+    { word: 'Spine', cloth: spine, sliver: true },
+    { word: 'Front', cloth },
+  ]
+}
+
+/** One waiting book, as a target. The app's row is this plus its swipe. */
+function QueueRow({
+  go,
+  ...book
+}: { go: Go } & Parameters<typeof Queued>[0]) {
+  return (
+    <button type="button" className="wf-qrow" role="listitem" onClick={() => go('review')}>
+      <Queued {...book} />
+    </button>
+  )
+}
+
+/** The row above the books: this screen's search box, and no switcher. */
+function QueueTools() {
+  return <Filter><SearchField placeholder="Search by title or author" /></Filter>
+}
+
 function Queue(go: Go) {
   return (
     <Phone
@@ -1678,19 +1738,195 @@ function Queue(go: Go) {
         ]}
       />
 
-      <List label="Ready to shelve">
-        <Row title="Never Let Me Go" sub="Ishiguro, Kazuo" cloth="moss" place="2C" onPress={() => go('review')} />
-        <Row title="Cloud Atlas" sub="Mitchell, David" cloth="sky" place="2C" onPress={() => go('review')} />
-        <Row title="Underland" sub="Macfarlane, Robert" cloth="wood" place="4A" onPress={() => go('review')} />
-        <Row title="Piranesi" sub="Clarke, Susanna" cloth="plum" place="1B" onPress={() => go('review')} />
-      </List>
+      <QueueTools />
 
-      <Card kind="Stuck" title="Three need a hand">
-        <List label="Stuck">
-          <Row title="No barcode read" sub="Photographed 11:40" cloth="wood2" meta="Type the ISBN" onPress={() => go('review')} />
-          <Row title="9781857231380" sub="No catalogue has it" cloth="sun" meta="Fill it in" onPress={() => go('review')} />
-        </List>
-      </Card>
+      <div className="wf-qlist" role="list" aria-label="Books on the table">
+        <QueueRow
+          go={go}
+          name="Never Let Me Go"
+          sub="Ishiguro, Kazuo"
+          shots={queued('moss')}
+          state="Identified"
+        />
+        <QueueRow
+          go={go}
+          name="Cloud Atlas"
+          sub="Mitchell, David"
+          shots={queued('sky', 'wood2')}
+          state="Identified"
+          device="Kitchen phone"
+        />
+        {/* A book nothing has named yet. The number stands in and the machine's
+            reading of the cover is marked as the guess it is (#156). */}
+        <QueueRow
+          go={go}
+          name="S0NG 0F SOLOMQN"
+          guessed
+          sub="9780099768401"
+          shots={queued('sun')}
+          state="Reading photos"
+        />
+        <QueueRow
+          go={go}
+          name="Book #219"
+          shots={queued('plum', 'plum')}
+          state="Stuck"
+          wants="needs an ISBN"
+          device="Kitchen phone"
+        />
+      </div>
+    </Phone>
+  )
+}
+
+/**
+ * The four kinds of stuck, on one screen.
+ *
+ * This is #148 drawn rather than described. `failed` is one status covering
+ * four situations that need four different things from the person holding the
+ * book, and the incident behind the issue was a screen that said one thing
+ * about all of them: "9 need an ISBN by hand", of which five had a perfectly
+ * good ISBN nothing had catalogued. Sending somebody to retype a number that is
+ * already correct is worse than saying nothing.
+ *
+ * So the pill is the diagnosis and it names which kind. Four books, four
+ * different words, and the second one is the exact case the issue was reported
+ * for: its ISBN read off the barcode and is correct.
+ *
+ * The way back from a reader that stopped is above them (#299), secondary
+ * because this screen is for picking a book up rather than for repairing the
+ * reader (#352), and it counts only the two it can actually help: nothing read
+ * the photographs of those, where the other two want a person and a book in
+ * their hands and would come back saying the very same thing.
+ */
+function QueueStuck(go: Go) {
+  return (
+    <Phone
+      tab="queue"
+      go={go}
+      top={<TopBar title="Queue" sub="4 books on the table" action={you(go)} />}
+    >
+      <Segmented
+        label="Which ones"
+        on="stuck"
+        options={[
+          { value: 'ready', word: 'Ready' },
+          { value: 'processing', word: 'Processing' },
+          { value: 'stuck', word: 'Stuck 4' },
+        ]}
+      />
+
+      <Button tone="secondary" block onPress={() => go('queue')}>
+        Read those 2 books&apos; photos again
+      </Button>
+
+      <QueueTools />
+
+      <div className="wf-qlist" role="list" aria-label="Books on the table">
+        <QueueRow
+          go={go}
+          name="Book #221"
+          shots={queued('wood')}
+          state="Stuck"
+          wants="needs an ISBN"
+        />
+        {/* The book #148 was reported for. Nothing anywhere may tell anybody to
+            type this ISBN in: it is there, it is right, and what it wants is
+            somebody to fill the details in by hand or accept that no catalogue
+            has ever heard of it. */}
+        <QueueRow
+          go={go}
+          name="9781857231380"
+          shots={queued('sun')}
+          state="Stuck"
+          wants="no catalogue has its ISBN"
+        />
+        <QueueRow
+          go={go}
+          name="Book #223"
+          shots={queued('plum', 'plum')}
+          state="Stuck"
+          wants="could not be read"
+          device="Kitchen phone"
+        />
+        <QueueRow
+          go={go}
+          name="Book #224"
+          shots={queued('moss')}
+          state="Stuck"
+          wants="reading it took too long"
+        />
+      </div>
+    </Phone>
+  )
+}
+
+/**
+ * Forty books, which is the state a bigger book makes worth drawing.
+ *
+ * A phone held forty rows of eight before and holds forty rows of five now, so
+ * the same pile is eight screens of scrolling rather than five. That is the
+ * cost of the owner's instruction and it is worth saying out loud rather than
+ * discovering: this screen is what it looks like.
+ *
+ * What it is not is a reason to shrink the book back. Forty is not a list
+ * anybody reads to the bottom of; it is a list somebody narrows. Both tools for
+ * that are above the books already and neither cost anything to add, because
+ * both were there: the control says how many are ready, being read and stuck,
+ * and the box finds one book by three letters of its title. Every book on this
+ * screen is `Ready`, which is what tapping the second word of that control
+ * leaves, and it is the ordinary way this pile gets worked through.
+ */
+const FORTY: [string, string][] = [
+  ['Never Let Me Go', 'Ishiguro, Kazuo'],
+  ['Cloud Atlas', 'Mitchell, David'],
+  ['Piranesi', 'Clarke, Susanna'],
+  ['Underland', 'Macfarlane, Robert'],
+  ['The Bone Clocks', 'Mitchell, David'],
+  ['Wolf Hall', 'Mantel, Hilary'],
+  ['Beloved', 'Morrison, Toni'],
+  ['The Overstory', 'Powers, Richard'],
+  ['Small Things Like These', 'Keegan, Claire'],
+  ['Station Eleven', 'Mandel, Emily St. John'],
+]
+
+function QueueMany(go: Go) {
+  const cloths: Cloth[] = ['moss', 'sky', 'sun', 'plum', 'wood', 'wood2']
+
+  return (
+    <Phone
+      tab="queue"
+      go={go}
+      top={<TopBar title="Queue" sub="40 books on the table" action={you(go)} />}
+    >
+      <Segmented
+        label="Which ones"
+        on="ready"
+        options={[
+          { value: 'ready', word: 'Ready 40' },
+          { value: 'processing', word: 'Processing' },
+          { value: 'stuck', word: 'Stuck' },
+        ]}
+      />
+
+      <QueueTools />
+
+      <div className="wf-qlist" role="list" aria-label="Books on the table">
+        {Array.from({ length: 40 }, (_, at) => {
+          const [title, who] = FORTY[at % FORTY.length]!
+          return (
+            <QueueRow
+              key={at}
+              go={go}
+              name={title}
+              sub={who}
+              shots={queued(cloths[at % cloths.length]!, cloths[(at + 3) % cloths.length]!)}
+              state="Identified"
+              device={at % 7 === 3 ? 'Kitchen phone' : undefined}
+            />
+          )
+        })}
+      </div>
     </Phone>
   )
 }
@@ -3608,6 +3844,11 @@ export const SCREENS: Screen[] = [
   { id: 'where', name: 'Where it goes', group: 'Cataloguing', render: Where },
   { id: 'done', name: 'Shelved', group: 'Cataloguing', render: Done },
   { id: 'queue', name: 'The queue', group: 'Cataloguing', render: Queue },
+  /* The three states of it that are not the middle one. Forty is what a bigger
+     book costs, four kinds of stuck is #148 drawn, and an empty one is the day
+     there is nothing to do. */
+  { id: 'queuemany', name: 'A queue of forty', group: 'Cataloguing', render: QueueMany },
+  { id: 'queuestuck', name: 'Four kinds of stuck', group: 'Cataloguing', render: QueueStuck },
   { id: 'empty', name: 'An empty queue', group: 'Cataloguing', render: Empty },
   /* The corner and what it opens, in front of the furniture rather than beside
      it: this pair is the way in, and the four screens under the next heading

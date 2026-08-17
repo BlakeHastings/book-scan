@@ -294,13 +294,28 @@ const NAME: Record<Look, string> = {
  * The switcher itself is the same component with the same icons and the same
  * sentences on both, which is the whole point of it being here rather than
  * written twice.
+ *
+ * ## And a screen with one way of looking draws no switcher (#363)
+ *
+ * The queue's two answers were the front and the spine, because a row drew one
+ * small photograph and somebody had to say which. It now draws the book, which
+ * is the spine standing against the front, so both are on every row and the
+ * question the switcher asked is answered by the drawing. Two answers that
+ * produce one picture is a control that lies, and the rule the switcher
+ * arrived under says so in the other direction: two controls meaning the same
+ * thing is the fault it was built to avoid.
+ *
+ * The row itself did not go anywhere, which is the part worth being careful
+ * about: this is still the library's row, still led by the queue's search box,
+ * still one component. What it is missing is a circle whose two presses drew
+ * the same books.
  */
 export function Filter({
   tags,
   note = '',
   onTags,
   onFind,
-  look,
+  look = 'covers',
   looks = LOOKS,
   onLook,
   children,
@@ -312,13 +327,20 @@ export function Filter({
   onTags?: () => void
   /** Finding, which used to be the one action in the corner. */
   onFind?: () => void
-  look: Look
+  /** Which way of looking this screen is drawing. */
+  look?: Look
   /**
    * The ways of looking this screen has, in the order the button steps round.
    * All three unless a screen says otherwise.
    */
   looks?: readonly Look[]
-  /** Given the view being moved to, which is the one the button draws. */
+  /**
+   * Given the view being moved to, which is the one the button draws.
+   *
+   * Without it there is no switcher at all, for the screen that has one way of
+   * looking at what it lists. A circle that redraws the same thing is worse
+   * than no circle.
+   */
   onLook?: (next: Look) => void
   /**
    * What the row leads with, where a screen narrows by typing rather than by
@@ -339,7 +361,7 @@ export function Filter({
           <Round name="Find a book" icon={<IconFind size={20} />} onPress={onFind} />
         </>
       )}
-      <Cycle name={NAME[next]} icon={ICON[next]} onPress={() => onLook?.(next)} />
+      {onLook && <Cycle name={NAME[next]} icon={ICON[next]} onPress={() => onLook(next)} />}
     </div>
   )
 }
