@@ -449,6 +449,37 @@ export class Catalogue {
    * the same character for the same reason. Every book stays on the plank it was
    * on; all that changes is that the plank exists to be recorded on.
    */
+  /**
+   * The plank an address like `1A` names, which is what the shelving routes take.
+   *
+   * They took the address itself until #359, and an address is a rendering: it
+   * is built out of two ordinals, and the moment a piece has a name every other
+   * screen calls the same plank something else. So a step that wants to say "1A
+   * filled up" resolves the plank here, exactly as a screen resolves it from the
+   * answer it is acting on, and sends the area.
+   *
+   * The first fixture at a position, matching `runAreasOf`: a run is the
+   * furniture that was there first, and a scenario that stands a second piece up
+   * at the same position is saying something about that, not about this.
+   */
+  async plankId(label: string): Promise<number> {
+    const match = /^(\d+)([A-Z]+)$/.exec(label)
+    if (!match) throw new Error(`${label} is not a plank address`)
+
+    let areaPosition = 0
+    for (const letter of match[2]!) areaPosition = areaPosition * 26 + (letter.charCodeAt(0) - 64)
+    areaPosition -= 1
+
+    const [found] = await this.all<{ id: number }>(
+      `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
+        WHERE f.position = $1 AND a.position = $2
+        ORDER BY f.id LIMIT 1`,
+      [Number(match[1]), areaPosition],
+    )
+    if (!found) throw new Error(`the shelves have no plank ${label}`)
+    return found.id
+  }
+
   async standUpPlank(fixturePosition: number, areaPosition = 0): Promise<void> {
     const [collection] = await this.all<{ id: number }>(
       'SELECT id FROM collection ORDER BY id LIMIT 1',

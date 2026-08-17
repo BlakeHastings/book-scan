@@ -24,9 +24,16 @@ import {
 } from '../lib/cascade'
 
 const frame = (title: string, from: string, to: string, id = 1): Frame => ({
+  // Invented and only distinct: this file is about what the list says, and the
+  // plank a frame carries is what the write is addressed to. See #359.
+  fromAreaId: 100 + from.charCodeAt(from.length - 1),
   from,
   kind: 'area',
-  proposal: { id, title, authorFiling: `${title} author`, to, strip: null },
+  proposal: {
+    id, title, authorFiling: `${title} author`, to,
+    toAreaId: 100 + to.charCodeAt(to.length - 1),
+    strip: null,
+  },
 })
 
 const settle = (cascade: Cascade): Cascade => {

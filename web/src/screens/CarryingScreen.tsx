@@ -102,10 +102,11 @@ export function CarryingScreen() {
 
   const left = books.length - done
 
-  const shelved = async (shelvedAt: string) => {
+  const shelved = async (shelvedAt: number) => {
     setSaving(true)
     try {
-      await api.setLocation(book.id, shelvedAt)
+      // The plank, not its name. See `onShelved` on `ShelveView` (#359).
+      await api.setLocationIn(book.id, shelvedAt)
       placed()
       if (left === 1) setRoute('carried')
     } catch (caught) {

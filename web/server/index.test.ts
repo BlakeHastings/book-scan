@@ -38,10 +38,12 @@ import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
 import { lookupIsbn } from './lookup'
+import { Shelves } from './shelves'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
-import type { SeparatorKind } from '../shared/layout'
+import { plankAt, type SeparatorKind } from '../shared/layout'
+import type { ShelfRange } from '../shared/shelving'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
@@ -199,6 +201,22 @@ const dataUrl = (buffer: Buffer) => `data:image/png;base64,${buffer.toString('ba
  * the next bookcase. The anchors sort above every key these fixtures write, so
  * what this adds is furniture rather than a rearrangement of the books.
  */
+/**
+ * The plank a positional label names, which is what a screen sends these routes.
+ *
+ * The overflow routes take the area and not its name (#359): a name is derived
+ * from where the piece stands and what its owner called it, and on a named
+ * bookcase it is not even the string the layout numbers the plank with. These
+ * fixtures go on saying `1A` and this is the resolution a screen has already
+ * done, having been handed the plank in the answer it is acting on.
+ */
+async function plankId(label: string, range: ShelfRange = 'fiction'): Promise<number> {
+  const planks = await new Shelves(running.db).planks(range)
+  const found = planks.at(plankAt(label)!)
+  if (found.areaId === null) throw new Error(`this run has no plank ${label}`)
+  return found.areaId
+}
+
 async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
   const separators = new DrizzleSeparatorRepository(running.db)
   for (const [at, kind] of kinds.entries()) {
@@ -866,7 +884,7 @@ describe('shelving a book onto a bookcase', () => {
     const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
 
     const { status, body } = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area',
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
 
     expect(status).toBe(200)
@@ -898,7 +916,7 @@ describe('shelving a book onto a bookcase', () => {
 
     // 1A holds Clarke and Gibson; Le Guin has been pushed on to 1B.
     const split = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area',
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
     await patch(`/api/books/${split.body.step.id}/location`, { location: split.body.step.to })
     expect((await misfiles()).misfiles).toEqual([])
@@ -906,11 +924,14 @@ describe('shelving a book onto a bookcase', () => {
     // Dune files after Gibson and before Le Guin, so nothing on 1A follows it.
     const sortKey = await previewKey('Dune', 'Frank Herbert')
     const { status, body } = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area', sortKey,
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area', sortKey,
     })
 
     expect(status).toBe(200)
-    expect(body.carry).toEqual({ from: '1A', to: '1B' })
+    expect(body.carry).toEqual({
+      from: '1A', to: '1B',
+      fromAreaId: await plankId('1A'), toAreaId: await plankId('1B'),
+    })
     expect(body.step).toBeNull()
     expect(body.moves).toEqual([])
 
@@ -934,7 +955,7 @@ describe('shelving a book onto a bookcase', () => {
     const gibson = await seed('Neuromancer', 'William Gibson')
     await seed('The Dispossessed', 'Ursula K. Le Guin')
     const split = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area',
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
     await patch(`/api/books/${split.body.step.id}/location`, { location: split.body.step.to })
 
@@ -942,7 +963,7 @@ describe('shelving a book onto a bookcase', () => {
     // right of the gap and a book has to come off the end to open it.
     const sortKey = await previewKey("Ender's Game", 'Orson Scott Card')
     const { body } = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area', sortKey,
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area', sortKey,
     })
 
     expect(body.carry).toBeNull()
@@ -957,10 +978,13 @@ describe('shelving a book onto a bookcase', () => {
 
     const sortKey = await previewKey('The Dispossessed', 'Ursula K. Le Guin')
     const { body } = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area', sortKey,
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area', sortKey,
     })
 
-    expect(body.carry).toEqual({ from: '1A', to: '1B' })
+    expect(body.carry).toEqual({
+      from: '1A', to: '1B',
+      fromAreaId: await plankId('1A'), toAreaId: await plankId('1B'),
+    })
     expect(body.moves).toEqual([])
 
     const saved = await post('/api/books', {
@@ -975,7 +999,7 @@ describe('shelving a book onto a bookcase', () => {
     const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
 
     const { body } = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area',
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
 
     // The boundary has moved and the book has not, which is the false misfile
@@ -1005,7 +1029,7 @@ describe('shelving a book onto a bookcase', () => {
     await seed('Rendezvous with Rama', 'Arthur C. Clarke')
     await seed('Dune', 'Frank Herbert')
     const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
-    await post('/api/shelves/overflow', { range: 'fiction', label: '1A', kind: 'area' })
+    await post('/api/shelves/overflow', { range: 'fiction', areaId: await plankId('1A'), kind: 'area' })
     await patch(`/api/books/${dispossessed}/location`, { location: '1B' })
     expect((await misfiles()).misfiles).toEqual([])
 
@@ -1094,7 +1118,7 @@ describe('shelving a book onto a bookcase', () => {
     // Zola alone gets pushed on to 1B, and the move is recorded, the way the
     // shelving step has somebody do it.
     const split = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area',
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
     expect(split.body.step.id).toBe(zola)
     await patch(`/api/books/${zola}/location`, { location: split.body.step.to })
@@ -1260,12 +1284,92 @@ describe('moving a book across an area boundary', () => {
       dispossessed: await seed('The Dispossessed', 'Ursula K. Le Guin'),
     }
     const { body } = await post('/api/shelves/overflow', {
-      range: 'fiction', label: '1A', kind: 'area',
+      range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
-    await patch(`/api/books/${body.step.id}/location`, { location: body.step.to })
+    // The plank, which is what the screen sends: the answer it is acting on
+    // carries one, and a name would have to be read back into it (#359).
+    await patch(`/api/books/${body.step.id}/location`, { areaId: body.step.toAreaId })
     expect((await misfiles()).misfiles).toEqual([])
     return ids
   }
+
+  /**
+   * #359 at the routes, on the arrangement it was reported on.
+   *
+   * The button said `Move it on to 1B` while the book's own page said
+   * `Hall shelf · B`, and the string on the button was also the key the app sent
+   * when the person said they had carried the book. So the same plank is asked
+   * for both here: what it is called, which has to match what the catalogue
+   * calls it, and which plank it is, which is what the write is addressed to.
+   */
+  it('says one thing and means one plank once the bookcase has a name', async () => {
+    const { dune, dispossessed } = await threeOverTwoAreas()
+
+    const fixture = await running.db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    expect((await patch(`/api/fixtures/${fixture!.id}`, { name: 'Hall shelf' })).status).toBe(200)
+
+    // What the catalogue calls the plank The Dispossessed is on.
+    const recorded = await running.store.getBook(dispossessed)
+    expect(recorded?.location).toBe('Hall shelf · B')
+
+    // What the button on Dune's own page offers, which is that same plank.
+    const preview = await post('/api/placement/preview', {
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, excludeId: dune,
+    })
+    expect(preview.body.strip.boundary.next).toEqual({
+      areaId: recorded?.area_id, label: 'Hall shelf · B',
+    })
+
+    // And what the move itself says, in the same two words and the same id.
+    const { status, body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dune, direction: 'next',
+    })
+    expect(status).toBe(200)
+    expect(body.move.to).toBe('Hall shelf · B')
+    expect(body.move.toAreaId).toBe(recorded?.area_id)
+    expect(body.move.from).toBe('Hall shelf · A')
+
+    // The person carries it and says so with the plank they were handed.
+    await patch(`/api/books/${dune}/location`, { areaId: body.move.toAreaId })
+    expect((await running.store.getBook(dune))?.location).toBe('Hall shelf · B')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  /**
+   * **The refusal path, which is the one that matters here.** This route writes:
+   * it moves a boundary and tells somebody to carry a real book. An area id is
+   * a claim about the furniture like any other, and the ways it can be wrong all
+   * end the same way, with the shelves exactly as they were.
+   *
+   * The other run's plank is the one worth naming. It is a real area, on real
+   * furniture, and the id is perfectly valid; it is simply not in this run, and
+   * a cascade that acted on it would move a fiction boundary against a
+   * non-fiction plank.
+   */
+  it('refuses a plank that is not in this run, and moves nothing', async () => {
+    await threeOverTwoAreas()
+    const before = (await call('/api/shelves?range=fiction')).body
+
+    const nonfiction = await plankId('4A', 'nonfiction')
+    for (const areaId of [nonfiction, 9999, 0, -1, 'notaplank', null, undefined]) {
+      const { status, body } = await post('/api/shelves/overflow', {
+        range: 'fiction', areaId, kind: 'area',
+      })
+      expect(status, `overflow accepted ${String(areaId)}`).toBe(400)
+      expect(body.error).toContain('not a plank of this run')
+
+      const planned = await post('/api/shelves/overflow/plan', {
+        range: 'fiction', areaId, kind: 'area',
+      })
+      expect(planned.status, `plan accepted ${String(areaId)}`).toBe(400)
+    }
+
+    // Not one boundary moved and not one book was told to go anywhere.
+    expect((await call('/api/shelves?range=fiction')).body).toEqual(before)
+    expect((await misfiles()).misfiles).toEqual([])
+  })
 
   it('names the book and where it went, so the move can be recorded', async () => {
     const { dune } = await threeOverTwoAreas()
@@ -1275,7 +1379,10 @@ describe('moving a book across an area boundary', () => {
     })
 
     expect(status).toBe(200)
-    expect(body.move).toEqual({ id: dune, title: 'Dune', from: '1A', to: '1B' })
+    expect(body.move).toEqual({
+      id: dune, title: 'Dune', from: '1A', to: '1B',
+      fromAreaId: await plankId('1A'), toAreaId: await plankId('1B'),
+    })
     // Nothing else was disturbed, which is the whole point of the restriction.
     expect(body.moves).toEqual([])
   })
@@ -1329,12 +1436,24 @@ describe('moving a book across an area boundary', () => {
   it('previews which way a book can be carried, agreeing with the move route', async () => {
     const { rama, dune, dispossessed } = await threeOverTwoAreas()
 
+    /*
+     * The two labels, which is what the buttons say. A plank travels beside each
+     * one (#359) and the test below this one is the claim about those: here what
+     * matters is which directions are open at all.
+     */
     const boundaryFor = async (title: string, author: string, excludeId: number) => {
       const { status, body } = await post('/api/placement/preview', {
         title, authors: [author], genre: FICTION_SLUG, excludeId,
       })
       expect(status, `previewing ${title}`).toBe(200)
-      return body.strip.boundary as { next: string | null; previous: string | null }
+      const offered = body.strip.boundary as {
+        next: { areaId: number; label: string } | null
+        previous: { areaId: number; label: string } | null
+      }
+      return {
+        next: offered.next?.label ?? null,
+        previous: offered.previous?.label ?? null,
+      }
     }
 
     // Rama is in the middle of 1A: the same book the route above just
@@ -1393,7 +1512,7 @@ describe('moving a book across an area boundary', () => {
     }
     for (let i = 0; i < 2; i += 1) {
       const { body } = await post('/api/shelves/overflow', {
-        range: 'fiction', label: '1A', kind: 'shelf',
+        range: 'fiction', areaId: await plankId('1A'), kind: 'shelf',
       })
       await patch(`/api/books/${body.step.id}/location`, { location: body.step.to })
     }
@@ -1410,7 +1529,10 @@ describe('moving a book across an area boundary', () => {
     })
 
     expect(status).toBe(200)
-    expect(body.move).toEqual({ id: dune, title: 'Dune', from: '2A', to: '1A' })
+    expect(body.move).toEqual({
+      id: dune, title: 'Dune', from: '2A', to: '1A',
+      fromAreaId: await plankId('2A'), toAreaId: await plankId('1A'),
+    })
     // The bookcase break moved, so the book past it stayed on bookcase 2.
     expect(body.moves).toEqual([])
     expect((await running.store.getBook(rama))?.location).toBe('1A')
@@ -1450,7 +1572,10 @@ describe('moving a book across an area boundary', () => {
     const { body } = await post('/api/shelves/move', {
       range: 'fiction', id: gibson, direction: 'next',
     })
-    expect(body.move).toEqual({ id: gibson, title: 'Neuromancer', from: '1A', to: '2A' })
+    expect(body.move).toEqual({
+      id: gibson, title: 'Neuromancer', from: '1A', to: '2A',
+      fromAreaId: await plankId('1A'), toAreaId: await plankId('2A'),
+    })
     expect(body.moves).toEqual([])
 
     await patch(`/api/books/${gibson}/location`, { location: body.move.to })
@@ -1498,7 +1623,10 @@ describe('moving a book across an area boundary', () => {
     })
 
     expect(status).toBe(200)
-    expect(body.move).toEqual({ from: '1B', to: '1A' })
+    expect(body.move).toEqual({
+      from: '1B', to: '1A',
+      fromAreaId: await plankId('1B'), toAreaId: await plankId('1A'),
+    })
     expect(body.moves).toEqual([])
     // No location was written, because nobody carried anything.
     expect((await running.store.getBook(dune))?.location).toBe('1A')

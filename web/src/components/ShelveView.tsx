@@ -28,8 +28,14 @@ interface Props {
   range: ShelfRange | null
   title: string
   saving: boolean
-  /** Called with the shelf the person has just said the book fits on. */
-  onShelved: (shelvedAt: string) => void
+  /**
+   * Called with the plank the person has just said the book fits on.
+   *
+   * The plank itself, not what it is called (#359). What gets recorded is where
+   * the book is, and only the id says which place that is: a label is derived
+   * from where the piece stands and what its owner named it.
+   */
+  onShelved: (shelvedAt: number) => void
   onBack: () => void
   /**
    * What the way back says, because there are two ways in since #314: a book
@@ -93,6 +99,17 @@ export function ShelveView({
   // The derived shelf, not suggestedLocation: that belongs to the old
   // per-book scheme and names shelves the layout has never heard of.
   const shelfLabel = placement?.derivedLocation ?? ''
+  /*
+   * The same plank, said as the plank (#359).
+   *
+   * Every answer on this screen writes: "It fits" records the book here, and
+   * "no room" asks a route to move furniture. Both used to be addressed with the
+   * label above, which is a rendering the server then had to work back into a
+   * row. On a bookcase somebody has named, the label the layout draws and the
+   * label the book's own page shows are two different strings for one plank,
+   * and neither of them is the plank.
+   */
+  const shelfAreaId = placement?.derivedAreaId ?? null
 
   /**
    * Whether the app yet knows which plank it is talking about.
@@ -122,7 +139,7 @@ export function ShelveView({
    * to apply a move against a plank that no longer ends with the book the
    * person was told to carry.
    */
-  const known = Boolean(shelfLabel) && !stale
+  const known = shelfAreaId !== null && Boolean(shelfLabel) && !stale
 
   /**
    * Nothing on this shelf sorts after the book in your hand.
@@ -149,12 +166,23 @@ export function ShelveView({
    * picture of it, and the plank keeps every book it has until somebody says
    * they moved one (#111).
    */
-  const overflowFrom = async (label: string, kind: 'shelf' | 'area') => {
-    if (!label || busy || range === null) return
+  const overflowFrom = async (areaId: number | null, kind: 'shelf' | 'area') => {
+    if (busy || range === null) return
+    /*
+     * A plank a proposal would make and has not made yet. Nothing is on it, so
+     * "it is full too" is not a thing that can be true of it, and there is no
+     * plank for the route to act on either. Said rather than ignored: the server
+     * refused this in the same words when the label was what got sent, and a
+     * button that does nothing at all reads as a tap that missed.
+     */
+    if (areaId === null) {
+      setError('That plank does not exist yet, so there is nothing on it to move along.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
-      const plan = await api.planOverflow(range, label, kind, placement?.sortKey)
+      const plan = await api.planOverflow(range, areaId, kind, placement?.sortKey)
 
       /*
        * The book in your hand goes on instead, and nothing already shelved
@@ -164,7 +192,7 @@ export function ShelveView({
        * plank it now goes on, once the refresh below has landed.
        */
       if (plan.carry) {
-        const applied = await api.overflowShelf(range, label, kind, placement?.sortKey)
+        const applied = await api.overflowShelf(range, areaId, kind, placement?.sortKey)
         const carry = applied.carry ?? plan.carry
         setCascade((now) => pushCarry(now, {
           id: 0, title, from: carry.from, to: carry.to,
@@ -174,18 +202,20 @@ export function ShelveView({
       }
 
       if (!plan.step) {
-        setError(`Nothing on ${label} can move along, so there is no gap to open.`)
+        setError('Nothing on this plank can move along, so there is no gap to open.')
         return
       }
 
       setCascade((now) => pushFrame(now, {
-        from: label,
+        fromAreaId: areaId,
+        from: plan.step!.from,
         kind,
         proposal: {
           id: plan.step!.id,
           title: plan.step!.title || 'the last book',
           authorFiling: plan.step!.authorFiling,
           to: plan.step!.to,
+          toAreaId: plan.step!.toAreaId,
           strip: plan.strip,
         },
       }))
@@ -225,7 +255,7 @@ export function ShelveView({
     setError('')
     try {
       const applied = await api.overflowShelf(
-        range, frame.from, frame.kind, placement?.sortKey, frame.proposal.id,
+        range, frame.fromAreaId, frame.kind, placement?.sortKey, frame.proposal.id,
       )
 
       /*
@@ -233,16 +263,25 @@ export function ShelveView({
        * ago. They agree unless the shelves changed underneath, and when they
        * do it is the write that is right: recording against the older of the
        * two is exactly the stale answer #106 fixed.
+       *
+       * The id is what gets written down and the label is what the list says
+       * (#359). A plank the step has just made has an id by now, because the
+       * write is what made it: only a proposal names a plank nothing can.
        */
       const to = applied.step?.to || frame.proposal.to
-      if (frame.proposal.id && to) await api.setLocation(frame.proposal.id, to)
+      const toAreaId = applied.step?.toAreaId ?? frame.proposal.toAreaId
+      if (frame.proposal.id && toAreaId !== null) {
+        await api.setLocationIn(frame.proposal.id, toAreaId)
+      }
 
       const settled = confirm(cascade, {
         id: frame.proposal.id, title: frame.proposal.title, from: frame.from, to,
       })
 
       const under = asking(settled)
-      setCascade(under ? repropose(settled, await redraw(under.from, under.kind)) : settled)
+      setCascade(
+        under ? repropose(settled, await redraw(under.fromAreaId, under.kind)) : settled,
+      )
 
       // Books have moved, so the drawn shelf is a lie until placement is
       // asked again. Awaited, or the next tap acts on the old shelf label.
@@ -255,15 +294,16 @@ export function ShelveView({
   }
 
   /** The frame under the one just confirmed, as the shelves now stand. */
-  const redraw = async (from: string, kind: 'shelf' | 'area'): Promise<Proposal> => {
+  const redraw = async (fromAreaId: number, kind: 'shelf' | 'area'): Promise<Proposal> => {
     if (range === null) throw new Error('Nothing files this book, so there is no shelf to redraw.')
-    const plan = await api.planOverflow(range, from, kind, placement?.sortKey)
-    if (!plan.step) throw new Error(`There is nothing left on ${from} to move along.`)
+    const plan = await api.planOverflow(range, fromAreaId, kind, placement?.sortKey)
+    if (!plan.step) throw new Error('There is nothing left on that plank to move along.')
     return {
       id: plan.step.id,
       title: plan.step.title || 'the last book',
       authorFiling: plan.step.authorFiling,
       to: plan.step.to,
+      toAreaId: plan.step.toAreaId,
       strip: plan.strip,
     }
   }
@@ -328,7 +368,7 @@ export function ShelveView({
               <Button
                 block
                 off={busy}
-                onPress={() => overflowFrom(pending.proposal.to, 'area')}
+                onPress={() => overflowFrom(pending.proposal.toAreaId, 'area')}
               >
                 {busy ? '...' : `No, ${pending.proposal.to} is full too`}
               </Button>
@@ -370,15 +410,17 @@ export function ShelveView({
             </p>
 
             <div className="wf-answers">
-              {/* The label the sentence above just named, handed on so the
+              {/* The plank the sentence above just named, handed on so the
                   answer to "does it fit here" is what gets recorded. Every
                   answer here is about a named plank, so none of them can be
-                  given before there is one. */}
+                  given before there is one; and it is handed on as the plank
+                  rather than as its name, because the name is a rendering and
+                  what gets written down is a place (#359). */}
               <Button
                 tone="primary"
                 block
                 off={saving || busy || !known}
-                onPress={() => onShelved(shelfLabel)}
+                onPress={() => shelfAreaId !== null && onShelved(shelfAreaId)}
               >
                 {saving ? 'Saving...' : 'It fits, save'}
               </Button>
@@ -393,7 +435,7 @@ export function ShelveView({
               <Button
                 block
                 off={busy || saving || !known}
-                onPress={() => overflowFrom(shelfLabel, 'area')}
+                onPress={() => overflowFrom(shelfAreaId, 'area')}
               >
                 {busy
                   ? '...'
@@ -404,7 +446,7 @@ export function ShelveView({
               <Button
                 block
                 off={busy || saving || !known}
-                onPress={() => overflowFrom(shelfLabel, 'shelf')}
+                onPress={() => overflowFrom(shelfAreaId, 'shelf')}
               >
                 No room, start a new bookcase
               </Button>

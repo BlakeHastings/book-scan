@@ -33,7 +33,9 @@ import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
-import { rangeLock, Shelves, type ShelvedBook } from './shelves'
+import { rangeLock, Shelves, type Planks, type ShelvedBook } from './shelves'
+import type { RunPlanks } from '../infrastructure/shelving/areas'
+import type { Move, PlankAt } from '../shared/layout'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DbTransactions } from '../infrastructure/shelving/transactions'
@@ -541,10 +543,69 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   /**
    * Moves are a to-do list a person works through, so they name books rather
    * than row ids, and each group reports whether it is over its capacity.
+   *
+   * The two planks are named off the furniture rather than off the layout's own
+   * ordinals (#359). Somebody reading this list is being asked to walk to a
+   * plank and put a book on it, and every other screen names that plank the way
+   * its owner named the bookcase.
    */
-  async function describeMoves(range: 'fiction' | 'nonfiction', moves: { id: number; from: string; to: string }[]) {
+  async function describeMoves(range: 'fiction' | 'nonfiction', moves: Move[]) {
     const titles = new Map((await shelves.layout(range)).map((p) => [p.book.id, p.book.title]))
-    return moves.map((move) => ({ ...move, title: titles.get(move.id) ?? '' }))
+    const planks = await shelves.planks(range)
+    return moves.map((move) => ({
+      id: move.id,
+      title: titles.get(move.id) ?? '',
+      ...named({ from: planks.at(move.fromAt), to: planks.at(move.toAt) }),
+    }))
+  }
+
+  /**
+   * A pair of planks flattened for the wire: what a person reads, and what the
+   * app writes down.
+   *
+   * The shape `Misfile` has carried since #356, `toAreaId` beside `to`, applied
+   * to everything that decides where a book goes (#359). A label is a rendering
+   * and changes the moment somebody names a bookcase; the id does not, and it is
+   * the id a screen sends back when the person says they have carried the book.
+   */
+  function named(planks: Planks) {
+    return {
+      from: planks.from.label,
+      to: planks.to.label,
+      fromAreaId: planks.from.areaId,
+      toAreaId: planks.to.areaId,
+    }
+  }
+
+  /**
+   * The plank a request names, or null once the refusal has been answered.
+   *
+   * **This route writes, so a wrong answer moves a real book.** An id that names
+   * no plank of this run is refused before anything is read or planned: it can
+   * be an id from the other run, an id for a plank somebody has since taken out,
+   * or a stale id off a screen drawn before the shelves changed, and not one of
+   * those is a place this cascade can act on. The alternative is guessing, and
+   * the thing guessed at is which plank a person is standing in front of.
+   */
+  async function plankIn(
+    range: 'fiction' | 'nonfiction',
+    raw: unknown,
+    res: express.Response,
+  ): Promise<PlankAt | null> {
+    const areaId = Number(raw)
+    const at = Number.isInteger(areaId) && areaId > 0
+      ? await shelves.addressOf(range, areaId)
+      : null
+    if (!at) {
+      const said = (await shelves.planks(range)).labels()
+      res.status(400).json({
+        error: said.length
+          ? `That is not a plank of this run. The planks here are ${said.join(', ')}.`
+          : 'That is not a plank of this run, and this run has none.',
+      })
+      return null
+    }
+    return at
   }
 
   /**
@@ -555,6 +616,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * shelves no longer exist. Everything the user reads has to come from the
    * layout, or the card tells them to put a book on a shelf the app cannot
    * find, which is what "1A" was.
+   *
+   * **Every plank named here is named by `labelFor` and identified by its area**
+   * (#359). This is the screen somebody stands at a bookcase with, and the
+   * answer they give on it is written into the ledger: it said `1B` while the
+   * same book's own page said `Hall shelf · B`, and it handed that string back
+   * as the key for the write.
    */
   async function inDerivedScheme<T extends Awaited<ReturnType<typeof store.placementFor>>>(
     range: 'fiction' | 'nonfiction',
@@ -563,8 +630,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     excludeId?: number,
   ) {
     const layout = await shelves.layout(range)
-    const labelOf = (id: number | undefined) =>
-      id === undefined ? '' : layout.find((p) => p.book.id === id)?.label ?? ''
+    const planks = await shelves.planks(range)
+    const labelOf = (id: number | undefined) => {
+      const at = id === undefined ? undefined : layout.find((p) => p.book.id === id)
+      return at ? planks.at({ shelf: at.shelf, area: at.area }).label : ''
+    }
 
     const predecessor = placement.predecessor
       ? { ...placement.predecessor, location: labelOf(placement.predecessor.id) }
@@ -573,7 +643,19 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       ? { ...placement.successor, location: labelOf(placement.successor.id) }
       : null
 
-    const derivedLocation = await shelves.shelfForSortKey(range, placement.sortKey)
+    /*
+     * The plank, and then its name. The other way round is what #356 was: a
+     * label is a rendering, and working back from one to the row it renders is
+     * a question with two answers the moment somebody names a bookcase.
+     *
+     * Null when the run has no plank for this book, which is a rule pointing at
+     * furniture that has been taken out. The step then has nothing to record a
+     * book on and says so rather than offering a plank nobody owns.
+     */
+    const derivedAreaId = await shelves.areaForSortKey(range, placement.sortKey)
+    const derivedLocation = derivedAreaId === null
+      ? await shelves.shelfForSortKey(range, placement.sortKey)
+      : planks.labelOf(derivedAreaId)
 
     // Rebuilt rather than patched: the instruction has the old labels baked
     // into its wording.
@@ -584,7 +666,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       ...restated,
       suggestedLocation: derivedLocation,
       derivedLocation,
-      strip: await stripFor(range, placement.sortKey, excludeId),
+      derivedAreaId,
+      strip: await stripFor(range, placement.sortKey, excludeId, planks),
     }
   }
 
@@ -606,19 +689,24 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     range: 'fiction' | 'nonfiction',
     sortKey: string,
     excludeId?: number,
+    /** The run's planks, read once by the caller and passed down. */
+    known?: RunPlanks,
   ) {
+    const planks = known ?? await shelves.planks(range)
     // A book that is already on the shelf where it belongs is drawn in the
     // row, not as a hole in it. Only when its filing has actually changed
     // does it become something that has to move, and then it wants a gap
     // again.
-    const settled = excludeId ? await settledRow(range, sortKey, excludeId) : null
+    const settled = excludeId ? await settledRow(range, sortKey, excludeId, planks) : null
     if (settled) return settled
 
     const strip = await shelves.strip(range, sortKey, excludeId)
     if (!strip) return null
 
     return {
-      label: strip.label,
+      // Named off the furniture, because the sentence above this drawing names
+      // the same plank and the two are read together (#359).
+      label: planks.at(strip.at).label,
       gapIndex: strip.gapIndex,
       placedIndex: null,
       books: strip.books.map((placed) => stripBook(placed.book, true)),
@@ -660,7 +748,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * exactly what #90 says must not happen, so there is one comparison and this
    * is it.
    */
-  async function settledRow(range: 'fiction' | 'nonfiction', sortKey: string, id: number) {
+  async function settledRow(
+    range: 'fiction' | 'nonfiction',
+    sortKey: string,
+    id: number,
+    planks: RunPlanks,
+  ) {
     const row = await store.getBook(id)
     if (!row || row.shelf_range !== range || row.sort_key !== sortKey) return null
 
@@ -673,7 +766,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     return {
-      label: strip.label,
+      // The plank named off the furniture, which is what the boundary buttons
+      // below now say too, and what this book's own recorded location says.
+      label: planks.at(strip.at).label,
       gapIndex: -1,
       placedIndex: strip.index,
       books: strip.books.map((placed) => stripBook(placed.book, true)),
@@ -684,7 +779,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
        * (#96): the detail view reads this to decide whether to show the
        * button at all, and the write route re-checks it regardless.
        */
-      boundary: await shelves.boundaryOptions(range, id),
+      boundary: await shelves.boundaryOptions(range, id, planks),
     }
   }
 
@@ -1417,15 +1512,21 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      *
      * A location sent by the client wins, since that came from a person too.
      *
-     * **A book nothing files has no derived label to fall back on** (#304), so
+     * **A book nothing files has no derived plank to fall back on** (#304), so
      * nothing is recorded and the ledger keeps saying nobody has put it
      * anywhere. A location the client did send is written as it always was:
      * somebody can stand a book somewhere without the app knowing what it is
      * about, and that observation is theirs rather than the shelving's.
+     *
+     * **The plank, not what the plank is called** (#359). This used to hand the
+     * ledger the label the layout drew, which is a string of ordinals, and
+     * `areaForLabel` then read it back into the area it had come from. That is a
+     * round trip through a rendering to reach a row the layout already knew, and
+     * #356 is what a rendering does when somebody names a bookcase.
      */
-    if (!draft.location?.trim()) {
-      const landed = placement && await shelves.labelFor(placement.range, id)
-      if (landed) await store.setLocation(id, landed)
+    if (!draft.location?.trim() && placement) {
+      const landed = await shelves.areaOf(placement.range, id)
+      if (landed !== null) await store.setLocationIn(id, landed)
     }
 
     // Deliberately not awaited. The person is waiting to be told where the
@@ -1597,10 +1698,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const body = (req.body ?? {}) as Record<string, unknown>
     const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const kind = body.kind === 'area' ? 'area' : 'shelf'
-    const label = String(body.label ?? '')
     const placing = String(body.sortKey ?? '')
 
-    const result = await shelves.proposeOverflow(range, label, kind, placing)
+    const plank = await plankIn(range, body.areaId, res)
+    if (!plank) return
+
+    const result = await shelves.proposeOverflow(range, plank, kind, placing)
     if (!result.ok) {
       res.status(400).json({ error: result.error })
       return
@@ -1611,14 +1714,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       : undefined
 
     res.json({
-      carry: result.carry
-        ? { from: result.carry.from, to: result.carry.to }
-        : null,
+      carry: result.carry ? named(result.planks!) : null,
       step: result.step
         ? {
             id: result.step.moved.id,
-            from: result.step.from,
-            to: result.step.to,
+            ...named(result.planks!),
             title: moved?.title ?? '',
             /* Written down the spine hanging under the gap, the same as the
                book being catalogued. */
@@ -1627,7 +1727,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
         : null,
       strip: result.strip
         ? {
-            label: result.strip.label,
+            label: (await shelves.planks(range)).at(result.strip.at).label,
             gapIndex: result.strip.gapIndex,
             placedIndex: null,
             books: result.strip.books.map((placed) => stripBook(placed.book, true)),
@@ -1640,7 +1740,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const body = (req.body ?? {}) as Record<string, unknown>
     const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const kind = body.kind === 'area' ? 'area' : 'shelf'
-    const label = String(body.label ?? '')
     const placing = String(body.sortKey ?? '')
     /*
      * The book the person was told to move, when there was one. A cascade
@@ -1650,7 +1749,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      */
     const expectId = Number(body.expectId ?? 0) || 0
 
-    const result = await shelves.overflow(range, label, kind, placing, expectId)
+    const plank = await plankIn(range, body.areaId, res)
+    if (!plank) return
+
+    const result = await shelves.overflow(range, plank, kind, placing, expectId)
     if (!result.ok) {
       res.status(400).json({ error: result.error })
       return
@@ -1660,12 +1762,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       /*
        * The book being placed, moved on rather than put down here.
        *
-       * No id, because it has none yet. Where it lands is recorded when it is
-       * saved, from the shelf the layout now puts it on, which is this label.
+       * No id of its own, because it has none yet. Where it lands is recorded
+       * when it is saved, on the plank `toAreaId` names.
        */
-      carry: result.carry
-        ? { from: result.carry.from, to: result.carry.to }
-        : null,
+      carry: result.carry ? named(result.planks!) : null,
       /*
        * The one book to move, named by id as well as by title.
        *
@@ -1674,12 +1774,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
        * and left every displaced book recorded on the shelf it came off, so
        * misfile detection reported a move the person had just been walked
        * through making.
+       *
+       * `toAreaId` beside `to` is the second half of the same idea (#359), and
+       * the same shape `Misfile` has carried since #356: the label is what the
+       * person reads on the way to the shelf, and the id is what gets written
+       * down when they say the book is there. On a bookcase somebody has named,
+       * those two strings are not even the same string.
        */
       step: result.step
         ? {
             id: result.step.moved.id,
-            from: result.step.from,
-            to: result.step.to,
+            ...named(result.planks!),
             title: (await shelves.layout(range))
               .find((p) => p.book.id === result.step!.moved.id)?.book.title ?? '',
           }
@@ -1720,9 +1825,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({
       // Named the same way the overflow step is, so the client records where
       // the book landed through exactly the same call.
-      move: result.move
-        ? { id, title, from: result.move.from, to: result.move.to }
-        : null,
+      move: result.move ? { id, title, ...named(result.planks!) } : null,
       moves: await describeMoves(range, result.moves ?? []),
       groups: await shelfGroups(range),
     })
@@ -1754,7 +1857,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     res.json({
-      move: result.move ?? null,
+      move: result.planks ? named(result.planks) : null,
       moves: await describeMoves(range, result.moves ?? []),
       groups: await shelfGroups(range),
     })

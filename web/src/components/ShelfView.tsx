@@ -3,7 +3,7 @@ import {
   api, type CheckedOutAt, type Counts, type FiledBookRow, type Misfile, type Move,
   type ShelfGroupDto, type ShelvingReviewResponse,
 } from '../lib/api'
-import { canTakeBack, notChecked, takeMoveBack } from '../lib/misfile'
+import { canTakeBack, notChecked, recordMoved, takeMoveBack } from '../lib/misfile'
 import { missingFrom, rowOf } from '../lib/shelfRow'
 import {
   LIBRARY_VIEWS, rememberedView, rememberView, VIEW_DESCRIPTION, VIEW_LABEL,
@@ -186,12 +186,18 @@ export function ShelfView({
    * book stays on it until somebody has actually been to the shelf, because
    * writing the answer we would like to be true would destroy the only record
    * of where the book really is.
+   *
+   * Through `recordMoved`, which sends the plank rather than the row's label:
+   * this list is drawn once and acted on minutes later, and a label is a
+   * rendering that reads differently the moment somebody names the piece it is
+   * on. The book's own page has gone through that function since #356 and this
+   * one had been left sending the string beside it.
    */
   const confirmMoved = async (misfile: Misfile) => {
     setMoving(misfile.book.id)
     setError('')
     try {
-      await api.setLocation(misfile.book.id, misfile.to)
+      await recordMoved(misfile)
       load()
     } catch (caught) {
       setError((caught as Error).message)

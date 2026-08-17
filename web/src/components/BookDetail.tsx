@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Draft, LookupResponse, Misfile } from '../lib/api'
+import type { Draft, LookupResponse, Misfile, Plank } from '../lib/api'
 import type { Frame } from '../lib/gallery'
 import { type Slot } from '../lib/scanner'
 import { BookFields } from './BookFields'
@@ -45,8 +45,13 @@ interface Props {
    * or genuinely in the middle of its area, where the server would refuse the
    * move anyway (#96). Read from the same placement preview the shelf drawing
    * below already uses, so nothing extra is fetched to offer it.
+   *
+   * A plank each way rather than a label each way (#359). The button sits on the
+   * same screen as this book's recorded location, so what it says has to be what
+   * that says: it read `Move it on to 1B` beside `Hall shelf · B`, which is two
+   * names for one plank on one screen.
    */
-  boundaryMoves?: { next: string | null; previous: string | null } | null
+  boundaryMoves?: { next: Plank | null; previous: Plank | null } | null
   /** Carry the first or last book of an area to the plank beside it. */
   onBoundaryMove?: (direction: 'next' | 'previous') => void
   boundaryMoving?: boolean
@@ -312,7 +317,7 @@ export function BookDetail({
                 onClick={() => onBoundaryMove('next')}
                 disabled={boundaryMoving}
               >
-                {boundaryMoving ? 'Moving...' : `Move it on to ${boundaryMoves.next}`}
+                {boundaryMoving ? 'Moving...' : `Move it on to ${boundaryMoves.next.label}`}
               </button>
             )}
             {!checkedOutAt && onBoundaryMove && boundaryMoves?.previous && (
@@ -321,7 +326,7 @@ export function BookDetail({
                 onClick={() => onBoundaryMove('previous')}
                 disabled={boundaryMoving}
               >
-                {boundaryMoving ? 'Moving...' : `Move it back to ${boundaryMoves.previous}`}
+                {boundaryMoving ? 'Moving...' : `Move it back to ${boundaryMoves.previous.label}`}
               </button>
             )}
 

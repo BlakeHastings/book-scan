@@ -40,19 +40,22 @@ Feature: A bookcase somebody has named is still checked
     And the catalogue should hold "The Dispossessed" recorded as:
       | location | Hall shelf · B |
 
+    # #359. This button used to say "Move it on to 1B" on the same screen that
+    # said the book's own plank was "Hall shelf · B": two names for one plank,
+    # and the one on the button was also the key the app sent to move the book.
     When I open "Dune" from the library
     Then the book should offer to move it:
-      | Move it on to 1B |
+      | Move it on to Hall shelf · B |
 
     # The boundary moves and nobody carries anything, which is the disagreement
     # the list exists for. Said in the words the piece has been given.
-    When I choose to move it on to "1B"
+    When I choose to move it on to "Hall shelf · B"
     And I go back to the book details
     Then the book should say it was last seen on "Hall shelf · A" and now belongs on "Hall shelf · B"
 
     # And the walk goes down against the plank rather than against its name.
     When I say I have moved it
-    Then the shelf drawing should draw "Dune" in place on "1B"
+    Then the shelf drawing should draw "Dune" in place on "Hall shelf · B"
 
     When I go to the library
     Then nothing should need attention

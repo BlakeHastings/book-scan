@@ -9,7 +9,10 @@ import type { FiledBookRow } from './db.pg'
 import type { Db } from './driver'
 import { withPhotographs, type FiledPhotographedBook } from './photographs'
 import { withPlacements, type PlacementFields } from './placement-ledger'
-import { areaFaces, areaOfKey, bandOf, runAreasOf } from '../infrastructure/shelving/areas'
+import {
+  areaFaces, areaOfKey, bandOf, planksOf, runAreasOf,
+  type Plank, type RunPlanks,
+} from '../infrastructure/shelving/areas'
 import type { AreaFace } from '../domain/placement/carry'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
@@ -21,9 +24,9 @@ import { DrizzleOutstandingMoveRepository } from '../infrastructure/shelving/out
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DbTransactions } from '../infrastructure/shelving/transactions'
 import {
-  boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange,
+  boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange, locationLabel,
   NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt, stripWithGap,
-  type RangeStart,
+  type PlankAt, type RangeStart,
   type BoundaryDirection, type BoundaryMove, type BoundaryRefusal, type CarryOn,
   type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
   type ShelfGroup, type Strip,
@@ -94,12 +97,33 @@ const toFiled = (
 })
 
 /**
+ * Where a plan takes a book, said both ways at both ends.
+ *
+ * **The label is what somebody reads and the id is what decides.** A plan comes
+ * out of shared/layout.ts naming its two planks in ordinals, because ordinals
+ * are all the arithmetic there can know; this is that plan joined back to the
+ * furniture, so a screen can put "Hall shelf · B" in front of a person and send
+ * the plank itself back when they say they have carried the book. #359: the
+ * button used to say `1B` on a piece whose every other screen said `Hall
+ * shelf · B`, and the string it said was also the key it sent.
+ */
+export interface Planks {
+  from: Plank
+  to: Plank
+}
+
+/**
  * Why a boundary move was refused, said to the person holding the book.
  *
  * Each reason gets its own sentence. Sharing one message between "that book is
  * in the middle of the plank" and "there is no plank that way" sends somebody
  * looking at the wrong thing, which is the mistake `overflow` above already
  * had to be taught once.
+ *
+ * `at` is the plank named the way the book's own page names it, not the way the
+ * layout numbers it. A refusal is read by the person who just tapped the button,
+ * and a sentence about `1A` on a bookcase they have called the hall shelf is the
+ * app disagreeing with itself in front of them.
  */
 function refusal(
   reason: BoundaryRefusal,
@@ -410,13 +434,55 @@ export class Shelves {
   async stripOf(
     range: ShelfRange,
     bookId: number,
-  ): Promise<{ label: string; books: Placed<ShelvedBook>[]; index: number } | null> {
+  ): Promise<
+    { label: string; at: PlankAt; books: Placed<ShelvedBook>[]; index: number } | null
+  > {
     return stripAt(await this.layout(range), bookId)
   }
 
   /** Where one book sits now, or '' if it is not shelved in this range. */
   async labelFor(range: ShelfRange, bookId: number): Promise<string> {
     return (await this.layout(range)).find((p) => p.book.id === bookId)?.label ?? ''
+  }
+
+  /**
+   * The same question answered as the plank, which is what a write needs.
+   *
+   * `labelFor` above says what to call the place; this says which place it is.
+   * The save route asks this one, because what it does with the answer is record
+   * a book on it (#359).
+   */
+  async areaOf(range: ShelfRange, bookId: number): Promise<number | null> {
+    const on = (await this.layout(range)).find((p) => p.book.id === bookId)
+    if (!on) return null
+    return (await this.planks(range)).at({ shelf: on.shelf, area: on.area }).areaId
+  }
+
+  /** This run's planks, each ready to be identified or named. See `RunPlanks`. */
+  async planks(range: ShelfRange): Promise<RunPlanks> {
+    return planksOf(this.db, range)
+  }
+
+  /**
+   * The address the layout gives the plank an id names, or null when this run
+   * has no such plank.
+   *
+   * **The one door between what a screen sends and what the cascade
+   * understands** (#359). Everything in shared/layout.ts addresses a plank by
+   * two ordinals and renders them as `1B`, because ordinals are all pure
+   * arithmetic over a run can know. A screen sends the area, because an area is
+   * the only thing that stays the same place when somebody names the bookcase it
+   * is on. This is where one becomes the other, and it is deliberately the only
+   * such place: a second one would be a second opinion about which plank a
+   * button meant, and this one writes.
+   *
+   * Null is a refusal and not a fallback. An id from another run, an id for a
+   * plank that has been taken out, an id for nothing at all: all of them mean
+   * the caller is not talking about a plank of this run, and moving a real book
+   * on a guess is the whole hazard here.
+   */
+  async addressOf(range: ShelfRange, areaId: number): Promise<PlankAt | null> {
+    return (await this.planks(range)).addressOf(areaId)
   }
 
   /**
@@ -438,7 +504,7 @@ export class Shelves {
    */
   private async planOverflow(
     range: ShelfRange,
-    label: string,
+    at: PlankAt,
     kindIfNew: SeparatorKind,
     placing: string,
   ): Promise<
@@ -446,6 +512,10 @@ export class Shelves {
     | { ok: true; carry?: CarryOn; step?: Overflow; before: Placed<ShelvedBook>[];
         separators: Separator[] }
   > {
+    // The address rendered, which is the key the cascade in shared/layout.ts
+    // groups by. It goes no further than this file: what leaves here is the
+    // plank, said the way `Planks` says it.
+    const label = locationLabel(at.shelf, at.area)
     const before = await this.layout(range)
     const separators = await this.list(range)
 
@@ -462,16 +532,22 @@ export class Shelves {
       if (carry) return { ok: true, carry, before, separators }
     }
 
-    const known = groupByShelf(before, separators).map((g) => g.label)
+    const groups = groupByShelf(before, separators)
+    const planks = await this.planks(range)
+    // Named for a person, because these two sentences are read rather than
+    // acted on, and a bookcase somebody has named reads by that name
+    // everywhere else on the same screen.
+    const here = planks.at(at).label || label
 
     // Two different failures used to share one message, which sent you looking
     // at the shelf when the real problem was that the label never existed.
-    if (!known.includes(label)) {
+    if (!groups.some((g) => g.label === label)) {
+      const said = groups.map((g) => planks.at({ shelf: g.shelf, area: g.area }).label)
       return {
         ok: false,
-        error: known.length
-          ? `There is no shelf ${label}. Shelves here are ${known.join(', ')}.`
-          : `There is no shelf ${label} yet; nothing has been shelved in this range.`,
+        error: said.length
+          ? `There is no shelf ${here}. Shelves here are ${said.join(', ')}.`
+          : `There is no shelf ${here} yet; nothing has been shelved in this range.`,
       }
     }
 
@@ -479,7 +555,7 @@ export class Shelves {
     if (!step) {
       return {
         ok: false,
-        error: `${label} holds only one book, so moving it along would just ` +
+        error: `${here} holds only one book, so moving it along would just ` +
           'empty the shelf. Put the new book on the next shelf instead.',
       }
     }
@@ -505,7 +581,7 @@ export class Shelves {
    */
   async proposeOverflow(
     range: ShelfRange,
-    label: string,
+    at: PlankAt,
     kindIfNew: SeparatorKind = 'shelf',
     placing = '',
   ): Promise<{
@@ -514,10 +590,14 @@ export class Shelves {
     carry?: CarryOn
     step?: Overflow
     strip?: Strip<ShelvedBook> | null
+    /** The two planks the answer is about, identified and named. */
+    planks?: Planks
   }> {
-    const plan = await this.planOverflow(range, label, kindIfNew, placing)
+    const plan = await this.planOverflow(range, at, kindIfNew, placing)
     if (!plan.ok) return { ok: false, error: plan.error }
-    if (plan.carry) return { ok: true, carry: plan.carry }
+    if (plan.carry) {
+      return { ok: true, carry: plan.carry, planks: await this.naming(range, plan.carry) }
+    }
 
     const step = plan.step!
     const books = (await this.booksIn(range))
@@ -526,7 +606,28 @@ export class Shelves {
       books, this.separatorsAfter(plan.separators, step), await this.startOf(range),
     )
 
-    return { ok: true, step, strip: stripWithGap(after, step.moved.id) }
+    return {
+      ok: true,
+      step,
+      strip: stripWithGap(after, step.moved.id),
+      planks: await this.naming(range, step),
+    }
+  }
+
+  /**
+   * A plan's two planks, joined back to the furniture.
+   *
+   * Read after the plan rather than before, so that a plank the plan has just
+   * made comes back with the id it was given: `overflow` below applies the
+   * boundary and then asks, which is what lets a screen record the book on the
+   * plank it went on rather than on a name for it.
+   */
+  private async naming(
+    range: ShelfRange,
+    plan: { fromAt: PlankAt; toAt: PlankAt },
+  ): Promise<Planks> {
+    const planks = await this.planks(range)
+    return { from: planks.at(plan.fromAt), to: planks.at(plan.toAt) }
   }
 
   /**
@@ -573,11 +674,19 @@ export class Shelves {
    */
   async overflow(
     range: ShelfRange,
-    label: string,
+    at: PlankAt,
     kindIfNew: SeparatorKind = 'shelf',
     placing = '',
     expectId = 0,
-  ): Promise<{ ok: boolean; error?: string; step?: Overflow; carry?: CarryOn; moves?: Move[] }> {
+  ): Promise<{
+    ok: boolean
+    error?: string
+    step?: Overflow
+    carry?: CarryOn
+    moves?: Move[]
+    /** The two planks the move was about, identified and named. */
+    planks?: Planks
+  }> {
     /*
      * Plan, check and apply are one unit, which they had stopped being.
      *
@@ -594,19 +703,25 @@ export class Shelves {
      * Reading and writing the same range now takes turns. See `rangeLock`.
      */
     return this.db.tx(async () => {
-      const plan = await this.planOverflow(range, label, kindIfNew, placing)
+      const plan = await this.planOverflow(range, at, kindIfNew, placing)
       if (!plan.ok) return { ok: false, error: plan.error }
 
       if (plan.carry) {
         await this.applyBoundary(range, plan.carry)
-        return { ok: true, carry: plan.carry, moves: await this.movesSince(range, plan.before) }
+        return {
+          ok: true,
+          carry: plan.carry,
+          moves: await this.movesSince(range, plan.before),
+          planks: await this.naming(range, plan.carry),
+        }
       }
 
       const step = plan.step!
       if (expectId && step.moved.id !== expectId) {
         return {
           ok: false,
-          error: `The shelves have changed since that was asked: ${label} now ends ` +
+          error: 'The shelves have changed since that was asked: ' +
+            `${(await this.planks(range)).at(at).label} now ends ` +
             'with a different book. Say there is no room again to see the move as ' +
             'it stands.',
         }
@@ -614,7 +729,14 @@ export class Shelves {
 
       await this.applyBoundary(range, step)
 
-      return { ok: true, step, moves: await this.movesSince(range, plan.before) }
+      return {
+        ok: true,
+        step,
+        moves: await this.movesSince(range, plan.before),
+        // After the write, so a plank this step has just made comes back with
+        // the id it was given rather than as a plank nothing can name.
+        planks: await this.naming(range, step),
+      }
     }, { serialiseOn: rangeLock(range) })
   }
 
@@ -662,7 +784,14 @@ export class Shelves {
     range: ShelfRange,
     bookId: number,
     direction: BoundaryDirection,
-  ): Promise<{ ok: boolean; error?: string; move?: BoundaryMove; moves?: Move[] }> {
+  ): Promise<{
+    ok: boolean
+    error?: string
+    move?: BoundaryMove
+    moves?: Move[]
+    /** The two planks the book crossed between, identified and named. */
+    planks?: Planks
+  }> {
     /*
      * The read that decides the move is inside the transaction with the writes
      * it decides, which it was not until stage G. The transaction used to open
@@ -682,7 +811,13 @@ export class Shelves {
       const outcome = boundaryMove(before, boundaries, bookId, direction)
 
       if (!outcome.ok) {
-        return { ok: false, error: refusal(outcome.reason, outcome.at, direction) }
+        // The plank the sentence is about, named the way the book's own page
+        // names it. A refusal that says `1A` on a bookcase somebody has called
+        // the hall shelf is the app disagreeing with itself in front of them.
+        const said = outcome.atAt
+          ? (await this.planks(range)).at(outcome.atAt).label || outcome.at
+          : outcome.at
+        return { ok: false, error: refusal(outcome.reason, said, direction) }
       }
 
       /*
@@ -713,6 +848,14 @@ export class Shelves {
          * handed back as a job still to do.
          */
         moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
+        /*
+         * Read after the boundaries moved, which is what the person is about to
+         * act on: they carry the book, then say it is there, and what they send
+         * is `planks.to.areaId`. Both planks exist either side of a boundary
+         * move, since it refuses at the ends of the run rather than making
+         * furniture, so neither id here is ever null.
+         */
+        planks: await this.naming(range, outcome.move),
       }
     }, { serialiseOn: rangeLock(range) })
   }
@@ -726,18 +869,27 @@ export class Shelves {
    * (#96). That is a courtesy, not the rule itself: the write path checks
    * again regardless of what this said a moment ago, because a shelf can
    * change between the two calls.
+   *
+   * **A plank each way, not a label each way** (#359). The button that reads
+   * this says "Move it on to ..." on the same screen as the book's recorded
+   * location, so what it says has to come from the same `labelFor`; and #358
+   * left `areasForSortKeys` answering where a run puts a key as a row rather
+   * than as a string, which is the shape reused here.
    */
   async boundaryOptions(
     range: ShelfRange,
     bookId: number,
-  ): Promise<{ next: string | null; previous: string | null }> {
+    /** The run's planks, when the caller has already read them. */
+    known?: RunPlanks,
+  ): Promise<{ next: Plank | null; previous: Plank | null }> {
     const placed = await this.layout(range)
     const separators = await this.list(range)
+    const planks = known ?? await this.planks(range)
     const next = boundaryMove(placed, separators, bookId, 'next')
     const previous = boundaryMove(placed, separators, bookId, 'previous')
     return {
-      next: next.ok ? next.move.to : null,
-      previous: previous.ok ? previous.move.to : null,
+      next: next.ok ? planks.at(next.move.toAt) : null,
+      previous: previous.ok ? planks.at(previous.move.toAt) : null,
     }
   }
 
@@ -773,6 +925,8 @@ export class Shelves {
     /** Which way the book went back, named the way a move names it. */
     move?: { from: string; to: string }
     moves?: Move[]
+    /** The two planks the book came back between, identified and named. */
+    planks?: Planks
   }> {
     try {
       return await this.db.tx(async () => {
@@ -810,9 +964,26 @@ export class Shelves {
 
         await this.outstanding.clear(bookId)
 
+        /*
+         * Both planks read off the layout rather than out of the receipt: the
+         * receipt holds two ordinals written when the move was made, and the
+         * piece may have been named since. Where the book was is the layout as
+         * it stood before this undo, and where it is now is where it landed,
+         * which are the same two planks the receipt names and are named here the
+         * way every other screen names them.
+         */
+        const was = before.find((placed) => placed.book.id === bookId)
+        const planks = await this.planks(range)
+
         return {
           ok: true,
           move: { from: receipt.to, to: receipt.from },
+          planks: {
+            from: was
+              ? planks.at({ shelf: was.shelf, area: was.area })
+              : { areaId: null, label: receipt.to },
+            to: planks.at({ shelf: landed.shelf, area: landed.area }),
+          },
           /*
            * The book itself is left out for the opposite reason it is left out
            * of a move: there, it is in somebody's hand; here, it never left the

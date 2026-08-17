@@ -220,14 +220,16 @@ describe('updateAndShelve', () => {
 
     // The draft still carries the location the book was loaded with, which is
     // the stale one: it is where the book WAS, not where it has just been put.
-    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune', location: '1A' }, '1B')
+    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune', location: '1A' }, 42)
 
     expect(sent.map((call) => `${call.method} ${call.url}`)).toEqual([
       'PUT /api/books/7',
       'PATCH /api/books/7/location',
       'POST /api/books/7/checkout',
     ])
-    expect((sent[1]?.body as { location: string }).location).toBe('1B')
+    // The plank, not what it is called: a label is derived from where the piece
+    // stands and what its owner named it, and only the id is the place (#359).
+    expect((sent[1]?.body as { areaId: number }).areaId).toBe(42)
   })
 
   /**
@@ -239,7 +241,7 @@ describe('updateAndShelve', () => {
   it('says the book is on the bookcase, because somebody just put it there', async () => {
     const sent = captureFetch()
 
-    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune' }, '1B')
+    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune' }, 42)
 
     expect(sent[2]?.body).toEqual({ out: false })
   })
@@ -247,7 +249,7 @@ describe('updateAndShelve', () => {
   it('says nothing about the location when no one has been to a shelf', async () => {
     const sent = captureFetch()
 
-    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune', location: '1A' }, '')
+    await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune', location: '1A' }, null)
 
     expect(sent).toHaveLength(1)
     expect(sent[0]?.method).toBe('PUT')
@@ -266,7 +268,7 @@ describe('updateAndShelve', () => {
     const sent = captureFetch()
 
     await api.updateAndShelve(
-      7, { ...emptyDraft, title: 'Dune', notes: 'signed by the author' }, '',
+      7, { ...emptyDraft, title: 'Dune', notes: 'signed by the author' }, null,
     )
 
     expect(
