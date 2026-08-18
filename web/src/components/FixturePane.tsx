@@ -48,8 +48,11 @@ import { Card } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
 import { Order } from '../design/Furniture'
-import { FilterRule, SortRule } from '../design/Rules'
-import type { Sorting } from './AreaPane'
+import { FilterRule, RETARGET_WORD, SortRule } from '../design/Rules'
+import { holdsHere, levelsFor, type Sorting } from './AreaPane'
+import { saidRules } from '../lib/ruleWriting'
+import { Changing, Refusing } from './Changing'
+import type { Writing } from '../app/writing'
 import type {
   AreaBook, FixtureDto, FixtureRemoval, FurnitureDto, SortStrategyCode,
 } from '../lib/api'
@@ -74,6 +77,8 @@ interface Props {
   /** What is standing on it, in the order it stands. Empty while it loads. */
   books: AreaBook[]
   sorting: Sorting
+  /** The rule under a thumb, the plan it made, and what the write did. */
+  writing: Writing
   /** What the piece still holds, which decides whether it can be taken away. */
   removal: FixtureRemoval | null
   busy: boolean
@@ -82,8 +87,10 @@ interface Props {
   onBack: () => void
   onDraft: (draft: FixtureDraft) => void
   onSave: () => void
-  /** Point the rule at other furniture: the one journey, reached from here. */
+  /** Move the whole stretch to other furniture: the other journey, demoted. */
   onChange: () => void
+  /** Where the books a change made go: the carry list this app already keeps. */
+  onCarry: () => void
   onOpenSort: () => void
   onChooseSort: (code: SortStrategyCode) => void
   onSaveSort: () => void
@@ -92,8 +99,9 @@ interface Props {
 }
 
 export function FixturePane({
-  room, piece, draft, books, sorting, removal, busy, error, tabs,
-  onBack, onDraft, onSave, onChange, onOpenSort, onChooseSort, onSaveSort, onCloseSort, onDelete,
+  room, piece, draft, books, sorting, writing, removal, busy, error, tabs,
+  onBack, onDraft, onSave, onChange, onCarry,
+  onOpenSort, onChooseSort, onSaveSort, onCloseSort, onDelete,
 }: Props) {
   const top = (
     <TopBar
@@ -189,17 +197,32 @@ export function FixturePane({
         and nothing overflows between pieces, so the sentence an area carries
         about taking what comes before it has no counterpart here.
       */}
+      {/*
+        What the piece allows, and the way to change it (#384). One widget and
+        one behaviour, shared with the area's page: "same thing with the
+        fixtures: we need to show the user the filter rules, like we only allow
+        these tags or whatever, and then the order rules and how they're
+        ordered." A piece rule is where a stretch of books begins and carries on
+        through every area after it, so the plan a change here produces is a
+        bigger one, and the plan is what says so.
+      */}
       <FilterRule
-        holds={piece.holds}
-        rule={rule && { name: rule.name, lines: rule.conditions, enabled: rule.enabled }}
+        holds={holdsHere(writing, piece.holds)}
+        rules={saidRules(piece.own)}
         beaten={reaching(room, piece, null)}
-        change={rule && rule.range
-          ? { word: `Point ${rule.name} somewhere else`, onPress: onChange }
+        editing={writing.editing}
+        onEdit={writing.start}
+        change={rule && rule.range && !writing.on
+          ? { word: RETARGET_WORD, onPress: onChange }
           : undefined}
-        refused={rule && !rule.range
-          ? `${rule.name} cannot be pointed somewhere else yet.`
+        refused={rule && !rule.range && !writing.on
+          ? `${rule.name} cannot be moved to another bookcase yet. What it allows is `
+            + 'still yours to change.'
           : undefined}
       />
+
+      <Refusing said={writing.error} />
+      <Changing writing={writing} onCarry={onCarry} />
 
       <SortRule
         said={orderingSaid(piece.sortStrategy, 'the whole library')}
@@ -207,6 +230,7 @@ export function FixturePane({
           ? `Every area on it that orders nothing of its own is ${
             orderingSaid(falls, 'the whole library').toLowerCase()}.`
           : 'Every area on it that orders nothing of its own is ordered this way.'}
+        levels={levelsFor(room, piece, null)}
         sample={sample}
         more={more}
         open={sorting.open}

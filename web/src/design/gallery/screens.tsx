@@ -48,7 +48,10 @@ import {
   type Look,
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Nest, Order } from '../Furniture'
-import { FilterRule, SortRule } from '../Rules'
+import {
+  FilterRule, RETARGET_WORD, SortRule, WouldHappen,
+  type OrderLevel, type RuleEditing, type WouldMove,
+} from '../Rules'
 import { IconCamera, IconEdit, IconInHand } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
 import { Make, Naming } from '../Naming'
@@ -2575,6 +2578,9 @@ const COOKERY = [
  * ordering by the title does not print the same string twice. Found by looking
  * at it.
  */
+/** The demoted door to the other journey, said the same way on both pages. */
+const RETARGET = (onPress: () => void) => ({ word: RETARGET_WORD, onPress })
+
 const sampleBy = (by: 'who' | 'title' | 'year') =>
   [...COOKERY]
     .sort((a, b) => (a[by] < b[by] ? -1 : a[by] > b[by] ? 1 : 0))
@@ -2724,7 +2730,16 @@ function Furniture(go: Go) {
  * open, which is exactly why they are one function: the whole point of changing
  * the ordering in place is that the page around it does not change.
  */
-function BookcaseScreen({ go, sorting = false }: { go: Go; sorting?: boolean }) {
+function BookcaseScreen({
+  go,
+  sorting = false,
+  writing,
+}: {
+  go: Go
+  sorting?: boolean
+  /** The rule under a thumb, where somebody is changing what the piece allows. */
+  writing?: RuleEditing
+}) {
   return (
     <Phone
       tab="library"
@@ -2778,13 +2793,19 @@ function BookcaseScreen({ go, sorting = false }: { go: Go; sorting?: boolean }) 
         before it, because books flow along a piece rather than between pieces.
       */}
       <FilterRule
-        holds="Anything tagged Non-fiction"
-        rule={{
+        holds={writing
+          ? 'Anything tagged under Fiction'
+          : 'Anything tagged Non-fiction'}
+        rules={[{
           name: 'Non-fiction',
           lines: [{ operator: 'is', tag: 'Non-fiction' }],
           enabled: true,
-        }}
-        change={{ word: 'Point Non-fiction somewhere else', onPress: () => go('move') }}
+        }]}
+        editing={writing}
+        onEdit={() => go('fixturerule')}
+        change={writing
+          ? undefined
+          : RETARGET(() => go('move'))}
       />
 
       {/*
@@ -2799,6 +2820,7 @@ function BookcaseScreen({ go, sorting = false }: { go: Go; sorting?: boolean }) 
         note={sorting
           ? 'Every area on it that orders nothing of its own is ordered this way.'
           : 'Every area on it that orders nothing of its own is by the author.'}
+        levels={PIECE_LEVELS}
         sample={sorting ? sampleBy('year') : sampleBy('who')}
         more={57}
         open={sorting}
@@ -2833,6 +2855,37 @@ function BookcaseScreen({ go, sorting = false }: { go: Go; sorting?: boolean }) 
 
 const Bookcase = (go: Go) => <BookcaseScreen go={go} />
 const BookcaseSorting = (go: Go) => <BookcaseScreen go={go} sorting />
+
+/**
+ * The same rule editor, on a piece of furniture rather than on an area.
+ *
+ * > Same thing with the fixtures: we need to show the user the filter rules,
+ * > like we only allow these tags or whatever, and then the order rules and how
+ * > they're ordered.
+ *
+ * One widget, two callers, and the difference between them is not smoothed
+ * over. A piece rule is where a stretch of books **begins** and it carries on
+ * through every area after it, so changing what a piece allows is a bigger
+ * statement than changing what one area allows, and the line under the editor
+ * says so. Drawn on one line rather than two, and on "and everything under it",
+ * because that is the answer a piece usually wants: a whole branch of the
+ * vocabulary, filed together, in one run of shelving.
+ */
+const BookcaseRule = (go: Go) => (
+  <BookcaseScreen
+    go={go}
+    writing={{
+      groups: [[{ operator: 'under', tag: 'Fiction' }]],
+      choosing: null,
+      onAdd: () => go('ruletag'),
+      onTakeOff: () => go('bookcase'),
+      onAlso: () => go('ruleor'),
+      onDrop: () => go('bookcase'),
+      onPlan: () => go('rulemoves'),
+      onClose: () => go('bookcase'),
+    }}
+  />
+)
 
 /**
  * The answers to how a place is ordered, in that place's own words.
@@ -2895,10 +2948,14 @@ function AreaScreen({
   sub,
   name,
   belongs,
-  rule,
+  rules,
   beaten,
+  writing,
+  would,
+  done,
   ordered,
   order,
+  levels,
   sample,
   sorting = false,
   chosen,
@@ -2913,14 +2970,22 @@ function AreaScreen({
   name?: string
   /** What the rule sends here, said the way a person would say it. */
   belongs: string
-  /** The rule itself, where one reaches here. */
-  rule?: { name: string; lines: { operator: 'is' | 'under'; tag: string }[]; enabled: boolean }
+  /** The rules that file here, joined by "or" where there is more than one. */
+  rules?: { name: string; lines: { operator: 'is' | 'under'; tag: string }[]; enabled: boolean }[]
   /** Every rule that reaches here, where more than one does. */
   beaten?: { id: number; name: string; place: string; wide: boolean }[]
+  /** The rule under a thumb, where somebody is changing what belongs here. */
+  writing?: RuleEditing
+  /** What the change would do, once they have asked. */
+  would?: { moving: WouldMove[]; carrying: number; staying: number; unclaimed: number; note?: string }
+  /** What was written, where they said yes to it. */
+  done?: { wrote: number; carrying: number }
   /** How it is ordered, in the same voice. */
   ordered: string
   /** The line under that, where there is more to say. */
   order?: string
+  /** The three places an ordering can be settled, and which one does. */
+  levels?: OrderLevel[]
   /** The books, in the order the ordering being looked at puts them. */
   sample?: { id: number; by: string; said: string }[]
   sorting?: boolean
@@ -2940,14 +3005,54 @@ function AreaScreen({
 
       <FilterRule
         holds={belongs}
-        rule={rule ?? null}
+        rules={rules ?? []}
         beaten={beaten}
-        change={rule ? { word: `Point ${rule.name} somewhere else`, onPress: () => go('move') } : undefined}
+        editing={writing}
+        onEdit={() => go('rulewriting')}
+        change={rules?.length && !writing
+          ? RETARGET(() => go('move'))
+          : undefined}
       />
+
+      {/*
+        Written down, and the way on is the work rather than another screen. The
+        card above it now reads as the rule that was just made, because that is
+        what belongs here from this moment; what this adds is the count of what
+        was written and the door to the books it made somebody responsible for.
+      */}
+      {done && (
+        <Confirmation said={`${done.wrote} books now belong somewhere else.`}>
+          <p className="wf-said">
+            The {done.carrying} books to carry are on your list, grouped into the trips
+            you would walk. Say so on each one once it is actually there.
+          </p>
+        </Confirmation>
+      )}
+
+      {would && (
+        <WouldHappen
+          holds={belongs}
+          moving={would.moving}
+          carrying={would.carrying}
+          staying={would.staying}
+          leaving={[{ said: 'pinned where they are, which beats every rule', books: 3 }]}
+          unclaimed={would.unclaimed}
+          note={would.note}
+          onApply={() => go('ruledone')}
+          onNotYet={() => go('rulewriting')}
+        />
+      )}
+
+      {done && (
+        <Button tone="primary" block onPress={() => go('carry')}>
+          Go and carry them
+        </Button>
+      )}
 
       <SortRule
         said={ordered}
         note={order}
+        levels={levels}
         sample={sample ?? []}
         more={sample ? 12 : 0}
         open={sorting}
@@ -3030,6 +3135,31 @@ const COOKERY_ROWS: { id: number; title: string; who: string; cloth: Cloth; meta
   },
 ]
 
+/**
+ * The three places an ordering can be settled, read from the top down.
+ *
+ * > Those are two distinct things that users should be able to customise fully
+ * > on the area, the fixture, and then globally they should be able to do the
+ * > global order, which I think you already have in settings right now.
+ *
+ * There is no fourth level and this does not add one. What it adds is the thing
+ * that was missing: the three that exist, read together, with the one the answer
+ * really comes from marked. Before this the settings screen said one of them,
+ * the widget said another, and somebody standing in front of a bookcase did the
+ * third in their head.
+ */
+const AREA_LEVELS: OrderLevel[] = [
+  { place: 'The whole library', said: 'By the author', decides: true },
+  { place: 'Bookcase 2', said: 'The way the whole library does', decides: false },
+  { place: '2 · Cookery', said: 'The way bookcase 2 does', decides: false },
+]
+
+/** The same, on a piece: nothing stands between one and the whole library. */
+const PIECE_LEVELS: OrderLevel[] = [
+  { place: 'The whole library', said: 'By the author', decides: true },
+  { place: 'Bookcase 2', said: 'The way the whole library does', decides: false },
+]
+
 function Area(go: Go) {
   return (
     <AreaScreen
@@ -3038,10 +3168,11 @@ function Area(go: Go) {
       sub="18 books, on bookcase 2"
       name="Cookery"
       belongs="Anything tagged Cookery"
-      rule={COOKERY_RULE}
+      rules={[COOKERY_RULE]}
       beaten={COOKERY_REACHING}
       ordered="The way bookcase 2 does"
       order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
       sample={sampleBy('who')}
       books={COOKERY_ROWS}
     />
@@ -3069,14 +3200,271 @@ function AreaSorting(go: Go) {
       sub="18 books, on bookcase 2"
       name="Cookery"
       belongs="Anything tagged Cookery"
-      rule={COOKERY_RULE}
+      rules={[COOKERY_RULE]}
       beaten={COOKERY_REACHING}
       ordered="The way bookcase 2 does"
       order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
       sample={sampleBy('title')}
       sorting
       chosen="title"
       books={COOKERY_ROWS}
+    />
+  )
+}
+
+/*
+ * --- Writing the rule itself, on the place it is about ---------------------
+ *
+ * > It still does not do what I'm looking for in regards to changing the rules
+ * > on an area. It's not that the rule is "point Fiction somewhere else" -
+ * > that's not the rule we're looking for changing. We want to be able to
+ * > assign any rules that are available. [...] If they change the rule to say,
+ * > in an area, I want only comic books, only books with the tag comic books
+ * > and fiction, then that's what is now only allowed in that area, and we
+ * > should issue moves to adjust the books to where they need to go based off
+ * > these new rules.
+ *
+ * Four states and they are one journey: the rule under a thumb, choosing a tag
+ * to add to it, the rule with everything taken off, and what the change would
+ * do. Only the last of them can write anything.
+ *
+ * **The one journey survives and this joins it.** Every issue before this said
+ * not to build a second way to change a rule; what that was protecting was not
+ * the retargeting screen but the sentence underneath it, which is that books
+ * move after somebody has read a plan and applied it and then carried them. So
+ * this ends on a plan with counts in it and a door to the carry list, and the
+ * retargeting screen keeps its own door, quietly, on the card above.
+ */
+
+/** The rule his own words describe: comic books **and** fiction, not either. */
+const COMICS_LINES: { operator: 'is' | 'under'; tag: string }[] = [
+  { operator: 'is', tag: 'Comic books' },
+  { operator: 'is', tag: 'Fiction' },
+]
+
+const writing = (go: Go, over: Partial<RuleEditing> = {}): RuleEditing => ({
+  groups: [COMICS_LINES],
+  choosing: null,
+  onAdd: () => go('ruletag'),
+  onTakeOff: () => go('rulenothing'),
+  onAlso: () => go('ruleor'),
+  onDrop: () => go('rulenothing'),
+  onPlan: () => go('rulemoves'),
+  onClose: () => go('area'),
+  ...over,
+})
+
+/**
+ * The rule under a thumb: two lines, each with the tag it is about and the two
+ * things that tag can mean.
+ *
+ * The joining word is "and" and there is no control offering another one,
+ * because there is no other one. Comic books **or** fiction is two rules, each
+ * naming its own place, and the sentence under the lines says so where somebody
+ * is about to look for the missing option.
+ */
+function RuleWriting(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Comic books and Fiction"
+      rules={[COOKERY_RULE]}
+      beaten={COOKERY_REACHING}
+      writing={writing(go)}
+      ordered="The way bookcase 2 does"
+      order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
+      sample={sampleBy('who')}
+    />
+  )
+}
+
+/**
+ * Choosing a tag, which is a search and not a list.
+ *
+ * The count beside each answer is the reason the box earns its room: adding a
+ * tag forty books carry and adding one that nothing carries are different
+ * decisions, and the word on its own does not say which is which. A vocabulary
+ * this app has never heard of is not offered at all, because a rule that asks
+ * for a tag no book has is a rule that claims nothing and says nothing about it.
+ */
+function RuleTag(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Comic books and Fiction"
+      rules={[COOKERY_RULE]}
+      beaten={COOKERY_REACHING}
+      writing={writing(go, {
+        choosing: {
+          group: 0,
+          /*
+           * The letters match anywhere in the word rather than at the front,
+           * which is drawn rather than described: "Second World War" is in this
+           * list on the strength of its middle. Somebody who has to remember
+           * how a tag starts is somebody scrolling a vocabulary instead.
+           */
+          query: 'co',
+          offering: [
+            { tag: 'Comic books', books: 46 },
+            { tag: 'Cookery', books: 18 },
+            { tag: 'Economics', books: 22 },
+            { tag: 'Second World War', books: 31 },
+          ],
+          onPick: () => go('rulewriting'),
+          onClose: () => go('rulewriting'),
+        },
+      })}
+      ordered="The way bookcase 2 does"
+      order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
+      sample={sampleBy('who')}
+    />
+  )
+}
+
+/**
+ * A rule with everything taken off it, which is a real state and not an error.
+ *
+ * "All of no conditions hold" is true, so a rule with an empty list would take
+ * the whole catalogue if the model let it. It does not: `domain/placement/rules`
+ * says a rule with no conditions claims nothing, precisely so that a rule
+ * somebody is halfway through building is safe. Somebody is standing in that
+ * state every time they take the last line off before adding the right one, and
+ * the interface says which of the two it is rather than leaving them to guess.
+ */
+function RuleNothing(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Nothing files here yet"
+      rules={[COOKERY_RULE]}
+      beaten={COOKERY_REACHING}
+      writing={writing(go, { groups: [] })}
+      ordered="The way bookcase 2 does"
+      order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
+      sample={sampleBy('who')}
+    />
+  )
+}
+
+/**
+ * "This tag **or** that tag", which is a second rule on the same place.
+ *
+ * > It should be possible for the user to say "this tag or that tag", as well as
+ * > "this and that". Very basic rule system is what we need to have.
+ *
+ * The two words land in two different places and neither is named after its
+ * mechanism, because somebody adding a second tag should not have to know which
+ * of the two they just used. **Add a tag** puts another line on a rule and every
+ * line has to hold. **Allow something else as well** puts another rule on the
+ * place and either of them files a book here.
+ *
+ * `domain/placement/rules.ts` said where alternation goes in the same sentence
+ * that refuses the boolean tree: "two ways of saying a thing are two rules,
+ * which a screen can build". This is that screen. There is no group inside a
+ * group here and nowhere to put one, and both halves come apart again one at a
+ * time: every rule has its own way off, which is what stops an "or" being
+ * something somebody can build and cannot undo half of.
+ */
+function RuleOr(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Comic books and Fiction, or anything tagged Poetry"
+      rules={[COOKERY_RULE]}
+      beaten={COOKERY_REACHING}
+      writing={writing(go, {
+        groups: [COMICS_LINES, [{ operator: 'is', tag: 'Poetry' }]],
+      })}
+      ordered="The way bookcase 2 does"
+      order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
+      sample={sampleBy('who')}
+    />
+  )
+}
+
+/**
+ * What the change would do, said before it is done.
+ *
+ * **Nothing has been written at this point.** The rule is still a draft on the
+ * screen; what has happened is that the whole catalogue has been run against it
+ * and the answer drawn. The moves are pairs of places with counts, because a
+ * hundred and one lines is not something anybody reads standing in a room, and
+ * every book the rules will not touch is counted with the reason beside it. The
+ * pinned ones are always there and are never a silent subtraction: a pin is a
+ * person overruling the rules and it beats them forever.
+ */
+function RuleMoves(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Comic books and Fiction"
+      rules={[COOKERY_RULE]}
+      beaten={COOKERY_REACHING}
+      writing={writing(go)}
+      would={{
+        moving: [
+          { from: '2 · Cookery', to: '2B', books: 16 },
+          { from: 'By the window · C', to: '2 · Cookery', books: 9 },
+          { from: 'By the window · D', to: '2 · Cookery', books: 4 },
+        ],
+        carrying: 29,
+        staying: 1147,
+        unclaimed: 12,
+        note: 'Bookcase 2 still files non-fiction onto this area, and it is the wider '
+          + 'of the two rules, so this one wins here and that one keeps everything after it.',
+      }}
+      ordered="The way bookcase 2 does"
+      order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
+      sample={sampleBy('who')}
+    />
+  )
+}
+
+/**
+ * Written down, and the books are somebody's to carry.
+ *
+ * The card at the top now reads as the rule that was just made, because that is
+ * what belongs here from this moment. What is added under it is the count of
+ * what was written and the one door out of here, which goes to the list this app
+ * already keeps: **applying moved nothing.** A book moves when a person picks it
+ * up and says so.
+ */
+function RuleDone(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Comic books and Fiction"
+      rules={[{ name: 'Comic books and Fiction', lines: COMICS_LINES, enabled: true }]}
+      beaten={COOKERY_REACHING}
+      done={{ wrote: 29, carrying: 29 }}
+      ordered="The way bookcase 2 does"
+      order="It takes what overflows from the area before it."
+      levels={AREA_LEVELS}
+      sample={sampleBy('who')}
     />
   )
 }
@@ -4383,8 +4771,44 @@ export const SCREENS: Screen[] = [
     group: 'Your fixtures',
     render: BookcaseSorting,
   },
+  /* What the piece allows, under a thumb. Beside the piece for the same reason
+     its sort rule is: the argument for changing it here is that nothing else
+     about the page moves while you do. */
+  {
+    id: 'fixturerule',
+    name: 'What a fixture allows',
+    group: 'Your fixtures',
+    render: BookcaseRule,
+  },
   { id: 'area', name: 'One area', group: 'Your fixtures', render: Area },
   { id: 'sortrule', name: 'An area’s sort rule', group: 'Your fixtures', render: AreaSorting },
+  /*
+   * Writing a rule, in the order somebody walks it: the lines under a thumb,
+   * choosing a tag to add, everything taken off, what the change would do, and
+   * what it wrote. Only the fourth of those can write anything, and only the
+   * fifth has.
+   */
+  {
+    id: 'rulewriting',
+    name: 'Changing what belongs',
+    group: 'Your fixtures',
+    render: RuleWriting,
+  },
+  { id: 'ruletag', name: 'Choosing a tag', group: 'Your fixtures', render: RuleTag },
+  { id: 'ruleor', name: 'This tag or that one', group: 'Your fixtures', render: RuleOr },
+  {
+    id: 'rulenothing',
+    name: 'It claims nothing',
+    group: 'Your fixtures',
+    render: RuleNothing,
+  },
+  {
+    id: 'rulemoves',
+    name: 'What it would do',
+    group: 'Your fixtures',
+    render: RuleMoves,
+  },
+  { id: 'ruledone', name: 'The rule is written', group: 'Your fixtures', render: RuleDone },
   /* Three states of one dialog, and the second and third are the ones that get
      skipped: the area at the top of a piece has nothing to fall into, and the
      last area on a piece has nowhere at all. */

@@ -45,9 +45,9 @@
 
 import type { ReactNode } from 'react'
 import { Card } from './Card'
-import { Button, Choice } from './Controls'
+import { Button, Choice, Field, Segmented } from './Controls'
 import { Must, Musts } from './Furniture'
-import { Place } from './List'
+import { AddTag, Place, Tag, Tags } from './List'
 
 /** One line of a rule: a thing that has to be true of a book. */
 export interface RuleLine {
@@ -80,94 +80,580 @@ const LEAD: Record<RuleLine['operator'], string> = {
 }
 
 /**
- * What belongs here, and the way to change it.
+ * The other journey, named for what it does rather than for the rule it does it
+ * to.
  *
- * `change` is deliberately a door rather than an editor. **Changing a rule is
- * what makes books need carrying**, and this app has one journey for that: say
- * where the books should live, see every book that would move, apply it. A
- * second way to change a rule from a page somebody is only reading would be two
- * answers to where the books go, so this widget is the door to the one that
- * exists and not a rival to it.
+ * It read "Point Fiction somewhere else", and two things were wrong with that.
+ * The owner said the first: "that's not the rule we're looking for changing."
+ * The second showed up the moment a rule was named from its own lines, because
+ * "Point Comic books and Fiction somewhere else" is two lines of quiet button
+ * saying one thing. A word that does not carry the name cannot grow with it.
+ */
+export const RETARGET_WORD = 'Move these books to another bookcase'
+
+/** The two things a line can ask, as the words somebody picks between. */
+const ASKS: { value: RuleLine['operator']; word: string }[] = [
+  { value: 'is', word: 'That tag' },
+  { value: 'under', word: 'That and under it' },
+]
+
+/** One tag somebody could add to a rule, with what choosing it would reach. */
+export interface RuleOffer {
+  tag: string
+  /** How many books carry it, counting the ones under it. */
+  books: number
+}
+
+/**
+ * Choosing a tag to add, which is a search rather than a list.
  *
- * A rule this app cannot point anywhere yet gets `refused` instead: a sentence
- * saying so, where somebody is looking, rather than a button that says no.
+ * A vocabulary is as long as somebody's reading, so the answers are narrowed by
+ * what has been typed rather than scrolled past. The count beside each one is
+ * the reason the box is worth having: adding a tag forty books carry and adding
+ * one nothing carries are different decisions and the word alone does not say
+ * which is which.
+ */
+export interface RuleChoosing {
+  /** What has been typed, which is what narrows the answers. */
+  query: string
+  /** The answers, already narrowed, and already without what is on the rule. */
+  offering: RuleOffer[]
+  onQuery?: (query: string) => void
+  onPick?: (tag: string) => void
+  onClose?: () => void
+}
+
+/**
+ * A rule being written, which is a draft and not a row.
+ *
+ * **Nothing here is written down.** Every line added, taken off or changed
+ * lives on the screen until somebody has read what it would do and said yes,
+ * which is why the way out of this is a plan and not a save. See `WouldHappen`.
+ */
+export interface RuleEditing {
+  /**
+   * The rules on this place, each one a list of lines. Empty is a real state.
+   *
+   * **The two words land in two different places** (#384). Adding a tag to a
+   * rule is "and": all of a rule's lines have to hold. Adding a rule to the
+   * place is "or": either of them files a book here. There is no third level and
+   * there is not going to be one, because a group inside a group is the boolean
+   * tree `domain/placement/rules.ts` refuses, and it refuses it for the reason
+   * this widget exists: it is unreadable at exactly the moment somebody needs to
+   * read it.
+   */
+  groups: RuleLine[][]
+  /** Which rule the tag being chosen is for, or null when none is. */
+  choosing: (RuleChoosing & { group: number }) | null
+  busy?: boolean
+  onAsk?: (group: number, at: number, operator: RuleLine['operator']) => void
+  onTakeOff?: (group: number, at: number) => void
+  onAdd?: (group: number) => void
+  /** Another rule on the same place, which is the whole of "or". */
+  onAlso?: () => void
+  /** One of them off, which must be possible or "or" is a trap. */
+  onDrop?: (group: number) => void
+  /** The one way out that leads anywhere: see what it would do. */
+  onPlan?: () => void
+  onClose?: () => void
+}
+
+/**
+ * What belongs here, read on the place it is about and changed there.
+ *
+ * > We want to be able to assign any rules that are available. Same thing with
+ * > the fixtures: we need to show the user the filter rules, like we only allow
+ * > these tags or whatever [...] If they change the rule to say, in an area, I
+ * > want only comic books, only books with the tag comic books and fiction,
+ * > then that's what is now only allowed in that area, and we should issue
+ * > moves to adjust the books to where they need to go based off these new
+ * > rules.
+ *
+ * ## Why this widget edits when it used to be a door
+ *
+ * Every issue before this one said not to build a second way to change a rule,
+ * and #382 was built so nothing anywhere edited a rule's conditions. That was
+ * right about **retargeting**, which is pointing a stretch of books at other
+ * furniture, and it is wrong about this: the thing the owner wants to change is
+ * what a place *allows*, and the place is where he is standing when he wants to
+ * change it.
+ *
+ * What survives from that instruction is the part that was really load-bearing:
+ * **there is one way books actually move.** Editing here writes nothing. It
+ * produces a plan, the plan is applied, and the books are carried on the screens
+ * that already exist. `change` is still here and still goes to the one journey
+ * that retargets, demoted to the quiet button it should always have been: the
+ * owner said so in as many words, "they have the option to point Fiction
+ * somewhere else. That's not what the goal is here."
+ *
+ * ## "And" and "or" are two different things and they are drawn as two
+ *
+ * > It should be possible for the user to say "this tag or that tag", as well as
+ * > "this and that". Very basic rule system is what we need to have.
+ *
+ * **And** is another line on one rule: all of a rule's lines have to hold.
+ * **Or** is another rule on the same place: either of them files a book here.
+ * That is where `domain/placement/rules.ts` said alternation goes, in the same
+ * sentence that refuses the boolean tree, and the refusal is untouched. There is
+ * no group inside a group here and there is nowhere to put one.
+ *
+ * A person adding a second tag should not have to know which of the two they
+ * just used, so neither is named after its mechanism. One says "add a tag" and
+ * the other says "allow something else as well", and both can be taken apart
+ * again one piece at a time.
+ *
+ * ## A rule that claims nothing is a real state
+ *
+ * Somebody halfway through building one has taken every line off, and that is
+ * not an error: "all of no conditions hold" is true, so a rule with no lines
+ * would take the whole catalogue if the model let it, and the model does not.
+ * The widget says so plainly rather than refusing to draw it.
  */
 export function FilterRule({
   holds,
-  rule,
+  rules = [],
   beaten = [],
+  editing,
+  onEdit,
   change,
   refused,
   children,
 }: {
   /** What files here, as a phrase: "Anything tagged Cookery". Never empty. */
   holds: string
-  /** The rule that won, or null where nothing files here at all. */
-  rule: RuleSaid | null
+  /** Every rule that files books here, joined by "or". May be empty. */
+  rules?: RuleSaid[]
   /** Every rule that also reaches here, nearest place first. */
   beaten?: RuleBeaten[]
-  /** The one way to change it, or null when there is not one. */
+  /** The rule being written, or null when nobody is writing one. */
+  editing?: RuleEditing | null
+  /** Open the editor. The word depends on whether there is a rule yet. */
+  onEdit?: () => void
+  /** Point the whole stretch of books elsewhere: the other journey, demoted. */
   change?: { word: string; onPress?: () => void }
-  /** Why it cannot be changed, said in words where there is no way to. */
+  /** Why it cannot be pointed elsewhere, said in words where there is no way. */
   refused?: string
   /** Anything the page wants under it, such as the books standing here. */
   children?: ReactNode
 }) {
+  if (editing) return <Writing holds={holds} beaten={beaten} editing={editing} />
+
   return (
     <Card
       kind="What belongs here"
       title={holds}
-      foot={change && (
-        <Button tone="secondary" block onPress={change.onPress}>
-          {change.word}
-        </Button>
-      )}
-    >
-      {rule && rule.lines.length > 0 && (
-        <Musts>
-          {rule.lines.map((line, at) => (
-            <Must
-              key={line.tag + line.operator}
-              join={at === 0 ? undefined : 'and'}
-              lead={LEAD[line.operator]}
-              tag={line.tag}
-            />
-          ))}
-        </Musts>
-      )}
-      {rule && rule.lines.length === 0 && (
-        <p>It asks for nothing, so it claims nothing. Every line has to be true.</p>
-      )}
-      {rule && !rule.enabled && (
-        <p>It is turned off, so it claims no book at the moment.</p>
-      )}
-
-      {/*
-        Every rule that reaches here, in the order that settles a tie: the one
-        about the smaller place first. Drawn only when there is a tie to settle,
-        because on most areas there is one rule and a list of one explains
-        nothing.
-      */}
-      {beaten.length > 1 && (
+      foot={
         <>
-          <p className="wf-rule__tie">When two rules want the same book, the one about
-            the smaller place wins.</p>
-          <div className="wf-steps">
-            {beaten.map((one, at) => (
-              <div className="wf-step" key={one.id}>
-                <span className="wf-step__n">{at + 1}</span>
-                <span>
-                  {one.name}, <Place quiet>{one.place}</Place>
-                  {one.wide ? ' and everything after it' : ''}
-                </span>
-              </div>
-            ))}
-          </div>
+          {onEdit && (
+            <Button tone="secondary" block onPress={onEdit}>
+              {rules.length ? 'Change what belongs here' : 'Say what belongs here'}
+            </Button>
+          )}
+          {change && (
+            <Button tone="quiet" block onPress={change.onPress}>
+              {change.word}
+            </Button>
+          )}
         </>
-      )}
+      }
+    >
+      {rules.map((rule, group) => (
+        <div key={`${rule.name}${group}`}>
+          {group > 0 && <Or />}
+          {rule.lines.length > 0 && (
+            <Musts>
+              {rule.lines.map((line, at) => (
+                <Must
+                  key={line.tag + line.operator}
+                  join={at === 0 ? undefined : 'and'}
+                  lead={LEAD[line.operator]}
+                  tag={line.tag}
+                />
+              ))}
+            </Musts>
+          )}
+          {rule.lines.length === 0 && (
+            <p>It asks for nothing, so it claims nothing. Every line has to be true.</p>
+          )}
+          {!rule.enabled && <p>It is turned off, so it claims no book at the moment.</p>}
+        </div>
+      ))}
+
+      <Reaching beaten={beaten} />
 
       {refused && <p>{refused}</p>}
       {children}
+    </Card>
+  )
+}
+
+/**
+ * Every rule that reaches here, in the order that settles a tie: the one about
+ * the smaller place first.
+ *
+ * Drawn only when there is a tie to settle, because on most areas there is one
+ * rule and a list of one explains nothing. It is drawn while somebody is
+ * writing a rule as well as while they are reading one, which is the point:
+ * narrowing what an area allows does not stop the piece's own rule reaching it,
+ * and somebody who did not know that would be surprised by the plan.
+ */
+function Reaching({ beaten }: { beaten: RuleBeaten[] }) {
+  if (beaten.length < 2) return null
+
+  return (
+    <>
+      <p className="wf-rule__tie">When two rules want the same book, the one about
+        the smaller place wins.</p>
+      <div className="wf-steps">
+        {beaten.map((one, at) => (
+          <div className="wf-step" key={one.id}>
+            <span className="wf-step__n">{at + 1}</span>
+            <span>
+              {one.name}, <Place quiet>{one.place}</Place>
+              {one.wide ? ' and everything after it' : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/**
+ * The rule under a thumb: the lines it has, the way to change each one, and the
+ * way to add another.
+ *
+ * ## Each line is a tag and a question about it, and both are changeable
+ *
+ * `tag is genre/fantasy` and `tag under genre` are different questions, so the
+ * two are offered side by side on the line they are about rather than as a
+ * setting somewhere else. Taking a line off is on the same line for the same
+ * reason: the thing being changed and the way to change it are one target.
+ *
+ * ## Nothing here saves
+ *
+ * The only way forward is to see what it would do. That is not caution about
+ * the write, it is what the write **is**: a rule change is where every book in
+ * the collection belongs, worked out again, and a person who pressed Save
+ * without reading it would have agreed to a number nobody showed them.
+ */
+function Writing({
+  holds,
+  beaten,
+  editing,
+}: {
+  holds: string
+  beaten: RuleBeaten[]
+  editing: RuleEditing
+}) {
+  const { groups, choosing, busy = false } = editing
+
+  return (
+    <Card
+      kind="What belongs here"
+      title={holds}
+      foot={
+        <>
+          <Button tone="primary" block off={busy} onPress={editing.onPlan}>
+            {busy ? 'Working it out...' : 'Show me what would move'}
+          </Button>
+          <Button tone="quiet" block onPress={editing.onClose}>
+            Leave it as it is
+          </Button>
+        </>
+      }
+    >
+      {groups.map((lines, group) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <div key={group}>
+          {group > 0 && <Or />}
+          <div
+            className="wf-writes"
+            role="group"
+            aria-label={groups.length > 1
+              ? `The ${group + 1} of ${groups.length} ways a book can belong here`
+              : 'What a book has to be to belong here'}
+          >
+            {lines.map((line, at) => (
+              <div className="wf-write" key={`${line.tag}${at}`}>
+                <span className="wf-write__head">
+                  {at > 0 && <span className="wf-must__join">and</span>}
+                  <span className="wf-tag">{line.tag}</span>
+                  <button
+                    type="button"
+                    className="wf-write__off"
+                    onClick={() => editing.onTakeOff?.(group, at)}
+                  >
+                    Take it off
+                  </button>
+                </span>
+                <Segmented
+                  label={`What ${line.tag} has to mean`}
+                  on={line.operator}
+                  options={ASKS}
+                  onPick={(operator) => editing.onAsk?.(group, at, operator)}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/*
+            Empty is a real state and it is where somebody halfway through
+            building a rule is standing. "All of no conditions hold" is true, so
+            a rule with nothing in it would claim the whole catalogue if the
+            model allowed it; it claims nothing instead, and this says which of
+            the two it is rather than leaving them to guess.
+          */}
+          {lines.length === 0 && (
+            <p>
+              It asks for nothing, so it claims nothing, and no book files here until
+              it does. Every tag you add has to be on a book, all of them at once.
+            </p>
+          )}
+
+          {choosing && choosing.group === group ? (
+            <Choosing choosing={choosing} />
+          ) : (
+            <div className="wf-writes__acts">
+              <Tags>
+                <AddTag onPress={() => editing.onAdd?.(group)}>Add a tag</AddTag>
+              </Tags>
+              {/*
+                Taking one of two off has to be possible, or an "or" is a thing
+                somebody can build and cannot undo half of. It is here, on the
+                rule it is about, rather than in a list of rules somewhere else,
+                and it is not drawn as another dashed pill: a way of removing
+                something that looks exactly like the way of adding something is
+                a press nobody reads before making. Found by looking at it.
+              */}
+              <button
+                type="button"
+                className="wf-write__off"
+                onClick={() => editing.onDrop?.(group)}
+              >
+                {groups.length > 1 ? 'Take this one off' : 'Have no rule here'}
+              </button>
+            </div>
+          )}
+
+          {lines.length > 1 && (
+            <p className="wf-rule__tie">
+              A book has to be all of these at once.
+            </p>
+          )}
+        </div>
+      ))}
+
+      {groups.length === 0 && (
+        <p>
+          Nothing files here by rule, so this is filled by hand. Anything you allow
+          below will be what belongs here from then on.
+        </p>
+      )}
+
+      {/*
+        "Or", said as the thing it is rather than as the word. A second rule on
+        the same place is what alternation is here, and somebody pressing this
+        should not have to know that: they are saying that something else is
+        allowed here too, and where the app puts it is the app's business.
+      */}
+      <Button tone="secondary" block onPress={editing.onAlso}>
+        {groups.length ? 'Allow something else as well' : 'Allow something here'}
+      </Button>
+
+      <Reaching beaten={beaten} />
+    </Card>
+  )
+}
+
+/**
+ * The word between two ways of belonging in one place.
+ *
+ * Drawn as a divider rather than as a control, because there is nothing to
+ * choose: the joining word between two rules on a place is always "or", the same
+ * way the joining word between two lines of a rule is always "and". A dropdown
+ * offering both would be offering the boolean tree this model refuses.
+ */
+function Or() {
+  return (
+    <div className="wf-or">
+      <span className="wf-or__word">or</span>
+    </div>
+  )
+}
+
+/** The tags on offer, narrowed by what has been typed into the box. */
+function Choosing({ choosing }: { choosing: RuleChoosing }) {
+  return (
+    <div className="wf-choosing">
+      <Field
+        label="Which tag has to be on a book"
+        placeholder="Type a word"
+        value={choosing.query}
+        onChange={choosing.onQuery}
+      />
+      {choosing.offering.length > 0 ? (
+        <Tags>
+          {choosing.offering.map((one) => (
+            <Tag key={one.tag} onPress={() => choosing.onPick?.(one.tag)}>
+              {one.tag} · {one.books}
+            </Tag>
+          ))}
+        </Tags>
+      ) : (
+        <p>
+          Nothing you have goes by that. A rule can only ask for a tag some book
+          already carries, so tag a book with it first.
+        </p>
+      )}
+      <Button tone="quiet" block onPress={choosing.onClose}>
+        Not another one
+      </Button>
+    </div>
+  )
+}
+
+/** One move a change would cause: books off one place and onto another. */
+export interface WouldMove {
+  from: string
+  to: string
+  books: number
+}
+
+/** Books a change leaves exactly where they are, and the reason it does. */
+export interface WouldLeave {
+  /** The reason in words: "pinned where they are, which beats every rule". */
+  said: string
+  books: number
+}
+
+/**
+ * What a rule change would do, before it is done.
+ *
+ * **This is the only door between editing a rule and a book moving**, and it is
+ * here rather than on a screen of its own because the thing it is about is two
+ * inches above it. Applying writes down where the rules now want each book and
+ * carries nothing: a book moves when a person picks it up and says so, on the
+ * screens that already exist for that.
+ *
+ * ## It never quietly drops a book
+ *
+ * A change that says "84 books move" having left three pinned ones out of the
+ * eighty-four would be believed, and the person would come back from the
+ * furniture three books short with nothing anywhere saying why. So everything
+ * the rules will not touch is counted with the reason beside it, and `pinned` is
+ * the one that is always there: a pin is a person overruling the rules, and it
+ * beats them forever.
+ */
+export function WouldHappen({
+  holds,
+  moving,
+  more = 0,
+  carrying,
+  staying,
+  leaving = [],
+  unclaimed,
+  note,
+  busy = false,
+  onApply,
+  onNotYet,
+}: {
+  /** What the place would allow, in the same phrase the rule reads as. */
+  holds: string
+  /** The moves, biggest place first. May be empty, which is a real answer. */
+  moving: WouldMove[]
+  /** How many moves are behind the ones drawn. */
+  more?: number
+  /** How many books would have to be carried in total. */
+  carrying: number
+  staying: number
+  leaving?: WouldLeave[]
+  /** How many books no rule would claim afterwards. */
+  unclaimed: number
+  /** Anything else true of the change, such as an area that stops taking overflow. */
+  note?: string
+  busy?: boolean
+  onApply?: () => void
+  onNotYet?: () => void
+}) {
+  return (
+    <Card
+      kind="What would happen"
+      title={carrying === 0
+        ? 'No book would have to be carried'
+        : `${carrying} ${carrying === 1 ? 'book' : 'books'} to carry`}
+      foot={
+        <>
+          <Button tone="primary" block off={busy} onPress={onApply}>
+            {busy ? 'Writing it down...' : 'Write it down'}
+          </Button>
+          <Button tone="quiet" block onPress={onNotYet}>
+            Not yet
+          </Button>
+        </>
+      }
+    >
+      <p>{holds} would be what files here.</p>
+      {note && <p>{note}</p>}
+
+      {moving.length > 0 && (
+        <div className="wf-steps">
+          {moving.map((one, at) => (
+            <div className="wf-step" key={`${one.from}${one.to}`}>
+              <span className="wf-step__n">{at + 1}</span>
+              <span>
+                <Place>{one.from}</Place> to <Place>{one.to}</Place> &middot;{' '}
+                {one.books} {one.books === 1 ? 'book' : 'books'}
+              </span>
+            </div>
+          ))}
+          {more > 0 && <p className="wf-sample__more">and {more} more, like those</p>}
+        </div>
+      )}
+
+      <ul className="wf-would" aria-label="What the change comes to">
+        <li>
+          <span className="wf-would__n">{staying}</span>
+          <span>stay exactly where they are</span>
+        </li>
+        {leaving.map((one) => (
+          <li key={one.said}>
+            <span className="wf-would__n">{one.books}</span>
+            <span>{one.said}</span>
+          </li>
+        ))}
+        {/*
+          Drawn only when there are some. A zero on this line reads as an
+          absence somebody has to work out is good news, and the answer to "how
+          many books would no rule claim" being none is the ordinary case. The
+          other two lines are counts of something that happens; this one is a
+          count of a thing going wrong. Found by looking at a real catalogue,
+          where it read "0 match no rule at all afterwards".
+        */}
+        {unclaimed > 0 && (
+          <li>
+            <span className="wf-would__n">{unclaimed}</span>
+            <span>
+              {unclaimed === 1 ? 'matches' : 'match'} no rule at all afterwards, so nothing
+              would ever move {unclaimed === 1 ? 'it' : 'them'}
+            </span>
+          </li>
+        )}
+      </ul>
+
+      {/*
+        The one thing this app promises and keeps: writing it down records where
+        the rules want each book and picks nothing up. A screen that said
+        "applied" and left somebody believing their books had moved would be the
+        one lie the whole ledger exists to make impossible.
+      */}
+      <p>
+        {carrying > 0
+          ? 'Writing it down says where each book belongs. Nothing moves until you '
+            + 'carry the books yourself and say so.'
+          : 'Writing it down says where each book belongs, and none of them ends up '
+            + 'anywhere other than where it already is.'}
+      </p>
     </Card>
   )
 }
@@ -187,6 +673,24 @@ export interface SampleBook {
   by: string
   /** The book, said by whatever `by` is not. */
   said: string
+}
+
+/**
+ * One of the three places an ordering can be settled.
+ *
+ * The whole library, the piece of furniture, and the area on it. There is no
+ * fourth and this widget is not the place to grow one: what was missing was not
+ * another setting but the ability to read the three that exist as one answer.
+ * Whichever level `decides` is the one in force here, and every level above it
+ * is what would come back if this one stopped saying anything.
+ */
+export interface OrderLevel {
+  /** The place, as a person reads it: "The whole library", "Bookcase 2". */
+  place: string
+  /** What it says, in words, or what it defers to. */
+  said: string
+  /** Whether this is the level the answer actually comes from. */
+  decides: boolean
 }
 
 /** One way of ordering, as the widget offers it. */
@@ -211,6 +715,7 @@ export interface SortOption {
 export function SortRule({
   said,
   note,
+  levels = [],
   sample,
   more = 0,
   open = false,
@@ -227,6 +732,8 @@ export function SortRule({
   said: string
   /** What that means here, where there is something to say. */
   note?: string
+  /** The library, the piece and the area, and which of them decides. */
+  levels?: OrderLevel[]
   /** The books, in the order this ordering puts them. May be empty. */
   sample: SampleBook[]
   /** How many more there are behind the sample. */
@@ -267,6 +774,29 @@ export function SortRule({
         )}
     >
       {note && <p>{note}</p>}
+
+      {/*
+        Where the answer comes from, which is a different question from what the
+        answer is. An area that says nothing takes the piece, and a piece that
+        says nothing takes the whole library, and nowhere until now did anybody
+        get to read those three facts together: the settings screen said one of
+        them, this widget said another, and the third was arithmetic somebody had
+        to do in their head standing in front of a bookcase.
+      */}
+      {levels.length > 0 && (
+        <ol className="wf-levels" aria-label="Where the order is settled">
+          {levels.map((level) => (
+            <li
+              className={`wf-level${level.decides ? ' wf-level--on' : ''}`}
+              key={level.place}
+            >
+              <span className="wf-level__place">{level.place}</span>
+              <span className="wf-level__said">{level.said}</span>
+              {level.decides && <span className="wf-level__mark">This one decides</span>}
+            </li>
+          ))}
+        </ol>
+      )}
 
       {open && (
         <Choice

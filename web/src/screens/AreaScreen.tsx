@@ -10,21 +10,28 @@
  * with no screen behind it; the other two are the widgets in `design/Rules.tsx`,
  * drawn here and on the piece's own page.
  *
- * ## Only one of the two rules is written from here
+ * ## Both rules are written from here now (#384)
  *
- * **How it is ordered is.** There is nowhere else that writes it, and the write
- * itself is safe to offer one tap from a reading screen because the server
- * refuses it until somebody has been shown what it does: an area given an order
- * of its own takes no overflow, so the stretch it was in is cut and the areas
- * after it stop being fed by the one before. The first press collects that
- * sentence, the widget shows it, and the second press carries the
- * acknowledgement. A change that cuts nothing is written on the first press,
- * which is most of them.
+ * **How it is ordered** has been since #381. The write is safe to offer one tap
+ * from a reading screen because the server refuses it until somebody has been
+ * shown what it does: an area given an order of its own takes no overflow, so
+ * the stretch it was in is cut and the areas after it stop being fed by the one
+ * before. The first press collects that sentence, the widget shows it, and the
+ * second press carries the acknowledgement.
  *
- * **What belongs here is not.** #323 settled that deliberately: a rule change is
- * what makes books need carrying, so it goes through the one journey that says
- * where every book would go before it writes anything. This page is a door to
- * that journey and not a second way to do it.
+ * **What belongs here is written from here as well**, and that reverses what
+ * #323 settled. The owner asked for it in as many words: "we want to be able to
+ * assign any rules that are available [...] then that's what is now only allowed
+ * in that area, and we should issue moves to adjust the books to where they need
+ * to go based off these new rules."
+ *
+ * What #323 was really protecting survives untouched, and it is not "one screen
+ * changes rules": it is **one way books move**. Editing here writes nothing. It
+ * produces a plan over every book in the collection, with counts and with the
+ * pinned ones said out loud; applying writes where the rules want each book and
+ * carries none of them; and the way on is the carry list this app already keeps.
+ * The state behind it is `app/writing.ts`, shared with the piece's own page so
+ * the two cannot drift.
  *
  * ## The dialog is drawn from the server's own plan
  *
@@ -40,15 +47,18 @@
  * is the piece going, and that has a plan of its own in front of it.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AreaPane, type Asking } from '../components/AreaPane'
 import { useArranging } from '../app/arranging'
 import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
+import { useLeaving } from '../app/leaving'
+import { useWriting } from '../app/writing'
 import { api, Refusal, type AreaBook, type SortStrategyCode } from '../lib/api'
 
 export function AreaScreen() {
   const { openArranging, openClaim } = useNavigation()
+  const { leaveFor } = useLeaving()
   const { fixtureId, areaId, onward, instead, back } = useArranging()
   const { room, error, setError, busy, write, read } = useRoom()
   const [name, setName] = useState<string | null>(null)
@@ -63,6 +73,18 @@ export function AreaScreen() {
 
   const piece = room?.fixtures.find((one) => one.id === fixtureId) ?? null
   const area = piece?.areas.find((one) => one.id === areaId) ?? null
+
+  /*
+   * The rule under a thumb. The same hook the piece's page uses, because the
+   * behaviour is the same fact one level down from the widget the two pages
+   * already share: a second copy of it here is two behaviours that agree until
+   * one of them is edited.
+   */
+  const place = useMemo(
+    () => (areaId === null ? null : { about: 'area' as const, id: areaId }),
+    [areaId],
+  )
+  const writing = useWriting(place, () => { void read() })
 
   useEffect(() => {
     if (area && name === null) setName(area.name)
@@ -146,6 +168,7 @@ export function AreaScreen() {
         effect,
         busy: saving,
       }}
+      writing={writing}
       asking={asking}
       busy={busy}
       error={error}
@@ -154,6 +177,13 @@ export function AreaScreen() {
       onName={setName}
       onSaveName={() => area && write(() => api.editArea(area.id, { name: (name ?? '').trim() }))}
       onChange={() => { if (area?.rule?.range) openArranging(area.rule.range) }}
+      /*
+       * Applying wrote where the books belong and carried nothing, so the honest
+       * next screen is the one that lists what somebody would walk. The room was
+       * read again as the write landed, so what this page says about itself on
+       * the way past is the room as it now is.
+       */
+      onCarry={() => leaveFor('carry')}
       onOpenSort={() => { setChosen(area?.sortStrategy ?? 'inherit'); setEffect(''); setOpen(true) }}
       onChooseSort={(code) => { setEffect(''); setChosen(code) }}
       onSaveSort={saveSort}

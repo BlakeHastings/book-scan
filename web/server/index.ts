@@ -68,6 +68,7 @@ import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } fr
 // See the location route, and `recordPlaced`.
 import { areaOfRecordedLocation, historyOf, UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
+import { applyRuleChange, draftFrom, planRuleChange, rulesOnPlace } from './place-rule'
 // The work list the ledger already holds, grouped into trips (#314).
 import { outstandingWork, tripAtArea } from './carry'
 import { watchBackups } from './backup-watch'
@@ -1384,6 +1385,67 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     )
     if (!applied.ok) {
       res.status(400).json({ error: applied.error })
+      return
+    }
+    res.json({ plan: applied.plan, wrote: applied.wrote })
+  }))
+
+  /**
+   * Changing what a place allows: the plan, and then the write.
+   *
+   * Two routes rather than one with a flag, the way the run move already does
+   * it, and for the reason the whole feature turns on: **the first writes
+   * nothing.** A person is shown what their change does to every book in the
+   * collection before any of it exists as a row, and the same function answers
+   * both, so what they approved is what gets recorded.
+   *
+   * Under `/api/placement` beside the run move, because both are the same kind
+   * of question: what the rules want, and the ledger rows that follow from it.
+   * Neither of them moves a book.
+   */
+  /**
+   * The rules on one place, as the screen that changes them needs them.
+   *
+   * **The one read that speaks slugs.** Everything else answers a rule in the
+   * labels a person reads, and `furniture.routes.test.ts` holds the whole of
+   * `/api/fixtures` and `/api/books/:id/claim` to containing no slug at all.
+   * Writing needs the identity, because a label matched back against the
+   * vocabulary would start asking for a different tag the day two of them read
+   * alike, so the identity travels here and only here.
+   */
+  app.get('/api/placement/rule', asyncRoute(async (req, res) => {
+    const about = req.query.about === 'fixture' ? 'fixture' : 'area'
+    const id = idIn(req.query.placeId, res, 'No such place.')
+    if (id === null) return
+
+    res.json({ rules: await rulesOnPlace(db, about, id) })
+  }))
+
+  app.post('/api/placement/rule/plan', asyncRoute(async (req, res) => {
+    const read = await draftFrom(db, (req.body ?? {}) as Record<string, unknown>)
+    if (!read.ok) {
+      refused(res, read)
+      return
+    }
+
+    const planned = await planRuleChange(db, read.draft)
+    if (!planned.ok) {
+      refused(res, planned)
+      return
+    }
+    res.json({ plan: planned.plan })
+  }))
+
+  app.post('/api/placement/rule', asyncRoute(async (req, res) => {
+    const read = await draftFrom(db, (req.body ?? {}) as Record<string, unknown>)
+    if (!read.ok) {
+      refused(res, read)
+      return
+    }
+
+    const applied = await applyRuleChange(db, read.draft, new Date().toISOString())
+    if (!applied.ok) {
+      refused(res, applied)
       return
     }
     res.json({ plan: applied.plan, wrote: applied.wrote })

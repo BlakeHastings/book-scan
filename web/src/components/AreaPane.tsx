@@ -23,13 +23,20 @@
  * the piece's own page draws the same two widgets, so the two places that answer
  * these questions answer them identically by being one drawing.
  *
- * **Only one of the two is edited here.** How it is ordered is written from this
- * page, because there is nowhere else that does it and the server refuses the
- * change until somebody has been shown what it does. What belongs here is a
- * *door*: changing a rule is what makes books need carrying, and this app has
- * one journey for that, which says where every book would go before it writes
- * anything. Growing a second one beside it would be two answers to where the
- * books go. See `screens/ArrangeScreen.tsx`.
+ * **Both are edited here since #384**, and the second of them reverses what an
+ * earlier issue settled. Four issues in a row said not to build a way to change
+ * a rule's conditions; the owner then asked for exactly that, on the place the
+ * rule applies to, and said why the alternative was not what he meant: "they
+ * have the option to point Fiction somewhere else. That's not what the goal is
+ * here."
+ *
+ * What those issues were protecting is intact and is a narrower thing: **there
+ * is one way books actually move.** Editing here writes nothing at all. It ends
+ * on a plan over every book in the collection, then a write that records where
+ * the rules want each of them, then the carry list. Pointing a whole stretch of
+ * books at other furniture is still #244's journey and still the only thing that
+ * does that; it is the quiet button under the loud one now, which is where the
+ * owner put it. See `screens/ArrangeScreen.tsx` and `app/writing.ts`.
  *
  * ## Removing an area is a merge, and the dialog must not say otherwise
  *
@@ -67,17 +74,20 @@ import { Card } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
 import { List, Row } from '../design/List'
-import { FilterRule, SortRule } from '../design/Rules'
+import { FilterRule, RETARGET_WORD, SortRule, type OrderLevel } from '../design/Rules'
 import type { Cloth } from '../design/Shelf'
 import { Sure } from '../design/Sure'
 import type {
   AreaBook, AreaDto, AreaRemovalPlan, FixtureDto, FurnitureDto, SortStrategyCode,
 } from '../lib/api'
 import {
-  counted, fixtureOrdering, orderedSaid, pieceSaid, plural, reaching,
-  sampleOrdered, skippedSaid, sortOptions,
+  collectionOrdering, counted, fixtureOrdering, orderedSaid, orderingSaid, pieceSaid, plural,
+  reaching, sampleOrdered, skippedSaid, sortOptions,
 } from '../lib/furniture'
+import { draftHolds, saidRules } from '../lib/ruleWriting'
+import { Changing, Refusing } from './Changing'
 import { RoomFrame, Trouble } from './RoomFrame'
+import type { Writing } from '../app/writing'
 
 /** What being asked to remove this area looks like, once the server has answered. */
 export type Asking =
@@ -103,6 +113,8 @@ interface Props {
   /** What is standing here, in the order it stands. Empty while it loads. */
   books: AreaBook[]
   sorting: Sorting
+  /** The rule under a thumb, the plan it made, and what the write did. */
+  writing: Writing
   asking: Asking | null
   busy: boolean
   error: string
@@ -110,8 +122,10 @@ interface Props {
   onBack: () => void
   onName: (name: string) => void
   onSaveName: () => void
-  /** Point the rule at other furniture: #244's journey, and there is one of it. */
+  /** Point the whole stretch at other furniture: #244's journey, demoted. */
   onChange: () => void
+  /** Where the books a change made go: the carry list this app already keeps. */
+  onCarry: () => void
   onOpenSort: () => void
   onChooseSort: (code: SortStrategyCode) => void
   onSaveSort: () => void
@@ -125,12 +139,73 @@ interface Props {
   onPiece: () => void
 }
 
+/**
+ * The phrase at the top of what belongs here, whichever of the three it is.
+ *
+ * The place as it stands, or the draft under a thumb, or the answer the server
+ * gave when it was asked what the draft would do. All three are the same
+ * sentence built by the same function in `domain/placement/phrasing.ts`, so the
+ * heading never says one thing on the way in and another on the way out.
+ */
+export const holdsHere = (writing: Writing, standing: string): string => {
+  if (writing.plan) return writing.plan.holds
+  if (writing.on) return draftHolds(writing.vocabulary, writing.rules)
+  return standing
+}
+
 const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
 const clothFor = (id: number): Cloth => CLOTHS[Math.abs(id) % CLOTHS.length]!
 
+/**
+ * The three places an ordering can be settled, and which of them settles it.
+ *
+ * > Those are two distinct things that users should be able to customise fully
+ * > on the area, the fixture, and then globally.
+ *
+ * All three already existed and nothing here adds a fourth. What was missing was
+ * the ability to read them together: the settings screen said one, this widget
+ * said another, and somebody standing in front of a bookcase worked the third
+ * out in their head. The one that decides is the **highest** level that states an
+ * ordering of its own, because a level saying "the way the thing above me does"
+ * is deferring rather than deciding, and the library always states one.
+ */
+export function levelsFor(
+  room: FurnitureDto,
+  piece: FixtureDto,
+  area: AreaDto | null,
+): OrderLevel[] {
+  const library = collectionOrdering(room)
+  const pieceOwn = piece.sortStrategy !== 'inherit'
+  const areaOwn = area !== null && area.sortStrategy !== 'inherit'
+
+  const levels: OrderLevel[] = [
+    {
+      place: 'The whole library',
+      said: orderingSaid(library, 'the whole library'),
+      decides: !pieceOwn && !areaOwn,
+    },
+    {
+      place: pieceSaid(piece),
+      said: orderingSaid(piece.sortStrategy, 'the whole library'),
+      decides: pieceOwn && !areaOwn,
+    },
+  ]
+
+  if (area) {
+    levels.push({
+      place: area.label,
+      said: orderingSaid(area.sortStrategy, pieceSaid(piece)),
+      decides: areaOwn,
+    })
+  }
+
+  return levels
+}
+
 export function AreaPane({
-  room, piece, area, name, books, sorting, asking, busy, error, tabs,
-  onBack, onName, onSaveName, onChange, onOpenSort, onChooseSort, onSaveSort, onCloseSort,
+  room, piece, area, name, books, sorting, writing, asking, busy, error, tabs,
+  onBack, onName, onSaveName, onChange, onCarry,
+  onOpenSort, onChooseSort, onSaveSort, onCloseSort,
   onClaimed, onAsk, onKeep, onRemove, onPiece,
 }: Props) {
   const top = (
@@ -192,19 +267,34 @@ export function AreaPane({
         </Button>
       )}
 
+      {/*
+        What belongs here, and now the way to change it (#384). The owner asked
+        for exactly the thing four issues told an agent not to build: "we want to
+        be able to assign any rules that are available [...] if they change the
+        rule to say, in an area, I want only comic books, only books with the tag
+        comic books and fiction, then that's what is now only allowed in that
+        area". What survives from that instruction is the part that was really
+        load-bearing, which is that there is one way books move: this ends on a
+        plan with counts in it, then a write, then the carry list.
+      */}
       <FilterRule
-        holds={area.holds}
-        rule={won && { name: won.name, lines: won.conditions, enabled: won.enabled }}
+        holds={holdsHere(writing, area.holds)}
+        rules={saidRules(area.own.length ? area.own : won ? [won] : [])}
         beaten={reaching(room, area, piece)}
-        change={won && won.range
-          ? { word: `Point ${won.name} somewhere else`, onPress: onChange }
+        editing={writing.editing}
+        onEdit={writing.start}
+        change={won && won.range && !writing.on
+          ? { word: RETARGET_WORD, onPress: onChange }
           : undefined}
-        refused={won && !won.range
-          ? `${won.name} is about this one area, and what can be moved is a whole `
-            + 'stretch of books that begins on a piece of furniture. There is nothing '
-            + 'here that would move it honestly.'
+        refused={won && !won.range && !writing.on
+          ? `${won.name} is about this one area, and what can be moved elsewhere is a `
+            + 'whole stretch of books that begins on a piece of furniture. What this '
+            + 'area allows is still yours to change.'
           : undefined}
       />
+
+      <Refusing said={writing.error} />
+      <Changing writing={writing} onCarry={onCarry} />
 
       <SortRule
         said={orderedSaid(area, from)}
@@ -220,6 +310,7 @@ export function AreaPane({
           : area.entry
             ? 'The books start here, so nothing overflows into it from the area before.'
             : 'It takes what overflows from the area before it.'}
+        levels={levelsFor(room, piece, area)}
         sample={sample}
         more={more}
         open={sorting.open}

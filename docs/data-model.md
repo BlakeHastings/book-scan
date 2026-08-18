@@ -192,6 +192,34 @@ default; `priority` settles ties within a level.
 two rules, which a UI can build and a person can read when a book lands
 somewhere surprising.
 
+**That UI exists since #384, and it is where "or" lives.** The owner asked for
+it: "it should be possible for the user to say 'this tag or that tag', as well
+as 'this and that'." Nothing in the schema changed to allow it, because nothing
+had to:
+
+- **and** is another `rule_condition` on one rule;
+- **or** is another `placement_rule` on the same place.
+
+Two rules on one place is safe rather than clever, and the reason is worth
+writing down: `claim` picks one winner among the rules that match a book, and
+when the candidates all name the same place it does not matter which it picks.
+`entryAreaOf` answers the same area for either, `entryAreas` gains nothing from
+the second, and the book lands in the same slot; all that differs is which
+rule's name is recorded as the reason. `domain/placement/rules.test.ts` holds
+that rather than assuming it.
+
+**There is no third level and there must not be one.** A group inside a group is
+the boolean tree this model refuses, and it refuses it for the reason the whole
+thing exists: it is unreadable at exactly the moment somebody needs to read it.
+
+**A rule taken off a place is deleted rather than disabled** (#384), because an
+alternation somebody can build and cannot take half of is worse than no
+alternation. `book_placement.rule_id` is `ON DELETE RESTRICT`, so the reference
+is nulled first. That loses a join and not an answer: `reason` on the same row
+carries the rule's name as it stood, and the live answer to "why is this book
+here" is recomputed from the rules as they are now. The restriction that is
+really load-bearing is on `area_id`, and it is untouched.
+
 Operators include `is` and `under`, because `tag is genre/fantasy` and
 `tag under genre` are different questions.
 

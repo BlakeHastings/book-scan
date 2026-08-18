@@ -542,6 +542,66 @@ export interface RunMovePlan {
   unclaimed: PlannedBook[]
 }
 
+/**
+ * One line of a rule as a screen sends it back, which is a slug and a question.
+ *
+ * **The slug and not the label.** The label is what somebody read on the way to
+ * choosing the tag; the slug is what the rule is about. A rule stored against a
+ * label would stop matching the day the tag was renamed, and every book it
+ * claimed would move with nothing anywhere saying why.
+ */
+export interface RuleDraftLine {
+  operator: 'is' | 'under'
+  /** A tag slug, taken off the vocabulary this app already reads. */
+  tag: string
+}
+
+/** One rule being written: the row it already is, and what it now asks. */
+export interface DraftRule {
+  id: number | null
+  conditions: RuleDraftLine[]
+}
+
+/**
+ * Every rule written on one place, which is what is planned and written.
+ *
+ * A list, because a list is how this app says "or" (#384): **and** is another
+ * line on one rule, **or** is another rule on the same place. Both point at the
+ * same area, so which one `claim` picks makes no difference to where a book
+ * lands, and there is no group inside a group anywhere in it.
+ */
+export interface RuleDraft {
+  about: 'area' | 'fixture'
+  placeId: number
+  rules: DraftRule[]
+}
+
+/**
+ * What changing what a place allows would do, over the whole catalogue.
+ *
+ * The same shape a run move answers with, plus the facts a count cannot carry.
+ * Nothing has been written when this arrives: it is the sentence in front of the
+ * write, and the write answers with the same thing again.
+ */
+export interface RuleChangePlan {
+  groups: PlanGroup[]
+  /** Books to carry. The headline number. */
+  moving: number
+  staying: number
+  skipped: SkippedBooks[]
+  unclaimed: PlannedBook[]
+  /** What the place would hold, every rule on it joined by "or". */
+  holds: string
+  /** What each rule would be called, worked out from its own lines. */
+  names: string[]
+  /** How many books anywhere in the collection any of these rules claim. */
+  claiming: number
+  /** Whether the place gains its first rule, and so stops taking overflow. */
+  opens: boolean
+  /** Stretches of books that would be left with no rule anchoring them. */
+  losing: string[]
+}
+
 /*
  * --- The furniture -------------------------------------------------------
  *
@@ -640,6 +700,13 @@ export interface RuleDto {
   /** Which area or piece that is, so a screen can name a piece its own way. */
   placeId: number | null
   enabled: boolean
+  /**
+   * What it asks, in the words a person reads. **Labels, and no slugs.**
+   *
+   * The identity is what a rule is really about, and it never travels on a
+   * reading route. Writing has a read of its own, `api.placeRules`, which
+   * answers the same rules in the shape they go back in.
+   */
   conditions: { operator: 'is' | 'under'; tag: string }[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
@@ -781,7 +848,16 @@ export interface AreaDto {
   books: number
   holds: string
   entry: boolean
+  /** The rule whose stretch of books reaches here, which may be the piece's. */
   rule: RuleDto | null
+  /**
+   * Every rule written **on this area**, which is a different question.
+   *
+   * `rule` is about the stretch and may belong to the piece, carrying on through
+   * here. This is what the area itself allows, and there can be more than one,
+   * because two rules on a place is how this app says "or" (#384).
+   */
+  own: RuleDto[]
 }
 
 export interface FixtureDto {
@@ -798,6 +874,8 @@ export interface FixtureDto {
   sharing: number[]
   holds: string
   rule: RuleDto | null
+  /** Every rule written on the piece itself. Two of them is "or" (#384). */
+  own: RuleDto[]
 }
 
 export interface FurnitureDto {
@@ -1523,6 +1601,42 @@ export const api = {
     request<{ plan: RunMovePlan; wrote: AssignmentReport }>('/api/placement/run', {
       method: 'POST',
       body: JSON.stringify({ range, bookcase }),
+    }),
+
+  /**
+   * The rules on one place, in the shape they go back in.
+   *
+   * The one read in this app that answers a tag by its identity rather than by
+   * its label, because that is what writing needs and a label matched back
+   * against the vocabulary would start asking for a different tag the day two
+   * of them read alike.
+   */
+  placeRules: (about: 'area' | 'fixture', placeId: number) =>
+    request<{ rules: DraftRule[] }>(
+      `/api/placement/rule?about=${about}&placeId=${placeId}`,
+    ),
+
+  /**
+   * What changing what a place allows would do. **Writes nothing**, which is
+   * what lets the rule stay a draft on the screen until somebody has read this.
+   */
+  planRuleChange: (draft: RuleDraft) =>
+    request<{ plan: RuleChangePlan }>('/api/placement/rule/plan', {
+      method: 'POST',
+      body: JSON.stringify(draft),
+    }),
+
+  /**
+   * Write the rule, and record where the rules now want every book.
+   *
+   * Still moves no books. What comes back is the plan that was applied and the
+   * count of assignments written, and the books themselves are on the carry
+   * list, which is the one this app already keeps.
+   */
+  applyRuleChange: (draft: RuleDraft) =>
+    request<{ plan: RuleChangePlan; wrote: AssignmentReport }>('/api/placement/rule', {
+      method: 'POST',
+      body: JSON.stringify(draft),
     }),
 
   /**

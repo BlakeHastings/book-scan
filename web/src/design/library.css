@@ -1560,6 +1560,163 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-rule__tie,
 .wf-rule__effect { font-size: var(--size-small); color: var(--ink-2); }
 
+/*
+ * Where the three levels of ordering settle it.
+ *
+ * A numbered stack from the whole library down to the area, with the level the
+ * answer really comes from carried louder than the two around it. Not a table:
+ * the fact being read is which line is lit, and everything else is context for
+ * it, so the ones that do not decide stay quiet.
+ */
+.wf-levels {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--size-small);
+}
+.wf-level {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s2);
+  align-items: baseline;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+}
+.wf-level--on {
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+.wf-level__place { font-weight: 600; }
+.wf-level__said {
+  grid-column: 1 / -1;
+  color: var(--ink-2);
+}
+.wf-level__mark {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/*
+ * A rule under a thumb.
+ *
+ * One block per line, and the block holds both things that can be changed about
+ * it: which tag it is about and what the tag has to mean. They were two separate
+ * columns in the first drawing and the two-word question wrapped to three lines
+ * at 414 wide beside a long tag. Found by looking at it.
+ */
+.wf-writes { display: grid; gap: var(--s2); }
+.wf-write {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3);
+  background: var(--paper-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.wf-write__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.wf-write__head .wf-tag {
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
+.wf-write__head .wf-must__join { padding-left: 0; }
+/*
+ * Named rather than an icon. Taking a line off a rule is the thing on this card
+ * that cannot be undone by pressing it again, and a cross beside a tag is the
+ * one target on the row nobody can read.
+ */
+.wf-write__off {
+  margin-left: auto;
+  min-height: var(--tap);
+  padding: 0 var(--s2);
+  font-size: var(--size-small);
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+}
+/* Adding and removing sit on one line and do not look alike. The pill is the
+   dashed shape everything not-there-yet in this library wears; taking the rule
+   off is a named word, which is what the line inside it already uses. */
+.wf-writes__acts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+.wf-writes__acts .wf-write__off { margin-left: auto; }
+
+.wf-choosing { display: grid; gap: var(--s2); }
+
+/*
+ * The word between two ways of belonging in one place.
+ *
+ * A rule between two blocks rather than a heading over the second, because what
+ * it says is about the join and not about what follows it. The word sits in the
+ * line so the two blocks read as alternatives at a glance, which is the whole
+ * difference between this and the "and" that stacks lines inside one of them.
+ */
+.wf-or {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s3) 0;
+}
+.wf-or::before,
+.wf-or::after {
+  content: '';
+  border-top: 1px solid var(--line);
+}
+.wf-or__word {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* What a change comes to, as the numbers themselves. Tabular, so a column of
+   counts reads as a column of counts rather than as a paragraph. */
+.wf-would {
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--size-small);
+}
+/*
+ * The number column takes whatever the longest count needs rather than a fixed
+ * three characters. At `3ch` a catalogue of eleven hundred printed
+ * "1147stay exactly where they are", with no gap and no column. Found by
+ * looking at it against a plausible library rather than a drawn one.
+ */
+.wf-would > li {
+  display: grid;
+  grid-template-columns: minmax(3ch, auto) minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: baseline;
+}
+.wf-would__n {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+}
+
 /* --- The furniture, as boxes inside boxes ---------------------------------- */
 
 /*

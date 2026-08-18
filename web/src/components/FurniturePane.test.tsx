@@ -18,14 +18,14 @@ import type { AreaDto, FixtureDto, FurnitureDto } from '../lib/api'
 const area = (over: Partial<AreaDto> = {}): AreaDto => ({
   id: 1, position: 0, label: '4A', name: '', startsAt: '', sortStrategy: 'inherit',
   ordering: 'author', selfContained: false, note: '', books: 8,
-  holds: 'Non-fiction starts here', entry: true, rule: null,
+  holds: 'Non-fiction starts here', entry: true, rule: null, own: [],
   ...over,
 })
 
 const fixture = (over: Partial<FixtureDto> = {}): FixtureDto => ({
   id: 1, position: 4, label: '4', kind: 'bookshelf', name: '', sortStrategy: 'inherit',
   note: '', books: 8, areas: [area()], sharing: [],
-  holds: 'Anything tagged Non-fiction', rule: null,
+  holds: 'Anything tagged Non-fiction', rule: null, own: [],
   ...over,
 })
 
