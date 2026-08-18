@@ -256,6 +256,49 @@ describe('updateAndShelve', () => {
   })
 
   /**
+   * The hole the test above left open, and it was a live defect (#409).
+   *
+   * "Says nothing about the location" was checked as "sends no location write",
+   * and the edit itself was carrying one the whole time: the draft a catalogued
+   * book is loaded into holds the label the app rendered for wherever the ledger
+   * has the book, no field on the form changes it, and it went out in the body
+   * of every save. The server reads a location in that body as somebody saying
+   * where the book is now, and resolves the label back to a plank.
+   *
+   * **On a bookcase somebody has named, nothing resolves it.** The label is a
+   * phrase like "Hall shelf · A", the save is refused with `UnknownPlank`, and
+   * what reaches the person is "Something went wrong." So no book on a named
+   * piece of furniture could be edited and saved at all. Found by pressing the
+   * notice on a misfiled book, which now opens the shelving step and ends in
+   * this save; the browser suite walks that on a named bookcase.
+   *
+   * Checked on the body rather than on the call list, because the call list is
+   * what looked right while this was broken.
+   */
+  it('carries no location in the edit itself, whatever the draft holds', async () => {
+    const sent = captureFetch()
+
+    await api.updateAndShelve(
+      7, { ...emptyDraft, title: 'Dune', location: 'Hall shelf · A' }, null,
+    )
+
+    expect((sent[0]?.body as { location: string }).location).toBe('')
+  })
+
+  /* And with a plank confirmed, the same: where the book is comes from the one
+     call that says so, addressed by id. */
+  it('leaves the location to the location route even when one was confirmed', async () => {
+    const sent = captureFetch()
+
+    await api.updateAndShelve(
+      7, { ...emptyDraft, title: 'Dune', location: 'Hall shelf · A' }, 42,
+    )
+
+    expect((sent[0]?.body as { location: string }).location).toBe('')
+    expect((sent[1]?.body as { areaId: number }).areaId).toBe(42)
+  })
+
+  /**
    * The seam #87 lived in, and the reason it cost something irreplaceable.
    *
    * Editing a note is not a statement about where a book physically is, and

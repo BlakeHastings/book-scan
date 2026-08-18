@@ -55,10 +55,9 @@ export function ReviewScreen() {
   } = useBookActions()
 
   const {
-    draft, lookup, thumbs, crops, examined, saving, relookupBusy, relookupError,
+    draft, lookup, thumbs, crops, saving, relookupBusy, relookupError,
     evidence, bookId, captureId, origin, notice, placement, placementStale, coverImage,
-    checkedOutAt, misfile, misfileTakeable, misfileMoving,
-    confirmMisfileMoved, takeMisfileBack, setDraft, setNotice, setRelookupError,
+    checkedOutAt, misfile, setDraft, setNotice, setRelookupError,
     setActiveSlot,
   } = book
 
@@ -138,13 +137,10 @@ export function ReviewScreen() {
       lookup={lookup}
       photos={thumbs}
       crops={crops}
-      examined={examined}
       derivedFiling={derivedFiling}
       saving={saving}
       relookupBusy={relookupBusy}
       relookupError={relookupError}
-      coverText={evidence.coverText}
-      captureNote={evidence.note}
       onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
       onRelookup={relookup}
       onClearRelookupError={() => setRelookupError('')}
@@ -217,10 +213,16 @@ export function ReviewScreen() {
       boundaryMoves={placement?.strip?.boundary ?? null}
       onBoundaryMove={startBoundaryMove}
       boundaryMoving={boundaryMoving}
+      /*
+       * Whether this book is where it belongs, and nothing else about it (#409).
+       *
+       * The notice it draws is a door to the shelving step rather than a pair of
+       * answers, and the way to that step is `onShelve` above, which is the same
+       * route a new book and a checked-in book take. So nothing about a misfile
+       * is written from here any more: the write happens when somebody says the
+       * book fits, standing at the bookcase, on the screen that places books.
+       */
       misfile={misfile}
-      onMisfileMoved={confirmMisfileMoved}
-      onMisfileTakenBack={misfileTakeable ? takeMisfileBack : undefined}
-      misfileMoving={misfileMoving}
     />
   )
 }

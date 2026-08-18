@@ -1,20 +1,41 @@
 /**
- * What the book's own page says about a book that is not where it belongs.
+ * What the screen for a book the catalogue already holds says about a book
+ * that is not where it belongs, and what it stopped saying about deleting one.
  *
  * Rendered to static markup rather than into a DOM: this project has no
  * browser environment in its test setup, and everything asserted here is what
  * the page says on arrival, which server rendering produces exactly. The one
- * thing that needs a tap, "Moved it", is reached through MisfileNotice
- * directly, which holds no state and so is callable as the plain function it
- * is.
+ * thing that needs a tap is the notice, and that is `Amiss` out of the design
+ * system, which holds no state and so is callable as the plain function it is.
+ *
+ * ## What round ten changed about these claims, said out loud
+ *
+ * Three of the claims this file used to make are gone on purpose and are not
+ * weakened versions of themselves:
+ *
+ * - **that the notice names both places.** It named where the book was last
+ *   seen and where the order now wants it, and it does not any more (#409).
+ *   The reverse is asserted below, because a location report growing back is
+ *   exactly how this comes undone.
+ * - **that a location can be written from here.** "Moved it" wrote one from
+ *   whatever screen a person happened to be looking at. The write now happens
+ *   on the screen that places a book, when somebody standing at the bookcase
+ *   says it fits.
+ * - **that a move can be taken back from here.** Both of those answers are
+ *   still offered on the library's list of books needing attention, and
+ *   `ShelfView.test.tsx` pins every one of them there, including the two kinds
+ *   of entry #196 is about.
+ *
+ * The tests about what the photographs read moved with the block that drew
+ * them, to `CaptureReview.test.tsx`, which is the screen that still shows it.
  */
 
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
-import { BookDetail, MisfileNotice } from './BookDetail'
+import { BookDetail } from './BookDetail'
+import { Amiss } from '../design/Book'
 import { emptyDraft, type Misfile } from '../lib/api'
-import { recordMoved, takeMoveBack } from '../lib/misfile'
 
 const misfile: Misfile = {
   book: {
@@ -59,28 +80,53 @@ function detail(overrides: Partial<Parameters<typeof BookDetail>[0]> = {}) {
   )
 }
 
-describe('BookDetail, for a book the shelving review has flagged', () => {
-  it('says so, and names both places', () => {
-    const html = detail({ misfile, onMisfileMoved: () => {} })
-    expect(html).toContain('Needs attention')
-    // Where the catalogue last saw it, and where the order now puts it. One
-    // without the other is not something you can act on at the bookcase.
-    expect(html).toContain('A1')
-    expect(html).toContain('B2')
-  })
+/** The words on the screen, with the markup and therefore the classes gone. */
+const words = (markup: string) => markup.replace(/<[^>]*>/g, ' ')
 
-  it('offers the library\'s confirmation, in the library\'s words', () => {
-    expect(detail({ misfile, onMisfileMoved: () => {} })).toContain('Moved it')
+describe('BookDetail, for a book the shelving review has flagged', () => {
+  it('says it is supposed to be moved, in one sentence', () => {
+    const html = detail({ misfile })
+
+    expect(html).toContain('wf-amiss')
+    expect(words(html)).toContain('This book is supposed to be moved.')
   })
 
   /*
-   * The button means a person carried the book. Anything that reads as
-   * "make this warning go away" invites writing a location nobody has been to,
-   * which destroys the only record of where the book actually is, so no such
-   * wording is offered next to it.
+   * The pinned rule is that a book screen is about the book rather than about
+   * where it sits, and this notice survives it by being a call to action
+   * rather than a location report. Both places are still on the screen: the
+   * board draws the row with the gap in it, and the step this opens names the
+   * plank. Reciting them here is how the paragraph comes back.
+   */
+  it('names neither the place it was nor the place it is going', () => {
+    const said = words(detail({ misfile }))
+
+    expect(said).not.toContain('A1')
+    expect(said).not.toContain('B2')
+    expect(said).not.toMatch(/last seen/i)
+    expect(said).not.toMatch(/needs attention/i)
+  })
+
+  /*
+   * The whole of the notice is one target and there is nothing inside it to
+   * aim at. "Moved it" was a claim about the room typed from an armchair; what
+   * this offers instead is the walk.
+   */
+  it('offers no answer of its own, because pressing it is the answer', () => {
+    const said = words(detail({ misfile })).toLowerCase()
+
+    expect(said).not.toContain('moved it')
+    expect(said).not.toContain('undo the move')
+  })
+
+  /*
+   * Anything that reads as "make this warning go away" invites writing a
+   * location nobody has been to, which destroys the only record of where the
+   * book actually is, so no such wording is offered next to it.
    */
   it('offers no way to dismiss the flag without moving the book', () => {
-    const html = detail({ misfile, onMisfileMoved: () => {} }).toLowerCase()
+    const html = detail({ misfile }).toLowerCase()
+
     expect(html).not.toContain('dismiss')
     expect(html).not.toContain('ignore')
     expect(html).not.toContain('clear flag')
@@ -90,231 +136,93 @@ describe('BookDetail, for a book the shelving review has flagged', () => {
 describe('BookDetail, for a book that is where it belongs', () => {
   it('adds nothing at all, not even an all-clear', () => {
     const html = detail()
-    expect(html).not.toContain('Needs attention')
-    expect(html).not.toContain('Moved it')
+
+    expect(html).not.toContain('wf-amiss')
+    expect(words(html)).not.toContain('supposed to be moved')
   })
 
   it('stays quiet while the review is still being fetched', () => {
-    expect(detail({ misfile: null, onMisfileMoved: () => {} }))
-      .not.toContain('Needs attention')
+    expect(detail({ misfile: null })).not.toContain('wf-amiss')
   })
 })
 
 /**
- * A queued capture, opened to correct rather than to look at. `saved` false
- * is the difference: it is what puts the editable fields on screen, and the
- * fields are what the OCR text must be shown beside without getting into.
- */
-function capture(overrides: Partial<Parameters<typeof BookDetail>[0]> = {}) {
-  return renderToStaticMarkup(
-    <BookDetail
-      draft={emptyDraft}
-      lookup={null}
-      photos={{}}
-      derivedFiling=""
-      saving={false}
-      relookupBusy={false}
-      relookupError=""
-      saved={false}
-      onChange={() => {}}
-      onRelookup={() => {}}
-      onClearRelookupError={() => {}}
-      onShelve={() => {}}
-      onSaveEdits={async () => true}
-      onDiscard={() => {}}
-      {...overrides}
-    />,
-  )
-}
-
-/*
- * The case the whole issue is about: the photographs read something, no
- * catalogue matched it, and so there is no title. That capture is precisely
- * the one somebody has to work out by hand, and the reading was on the
- * previous screen.
- */
-describe('a queued capture with cover text and no title', () => {
-  it('shows what the cover photo read', () => {
-    const html = capture({ coverText: 'Song of Solomon\nToni Morrison' })
-    expect(html).toContain('Song of Solomon')
-    expect(html).toContain('Toni Morrison')
-  })
-
-  it('says it was read off the photograph by a machine', () => {
-    const html = capture({ coverText: 'Song of Solomon' })
-    expect(html).toContain('The cover photo reads')
-    expect(html).toContain('often wrong')
-  })
-
-  /*
-   * The point of showing it at all is undone by pre-filling it. OCR is a
-   * lossy reading of a photograph, and a guess sitting in the Title box is
-   * one save away from entering the catalogue as a confirmed value.
-   */
-  it('leaves the Title box empty rather than filling it with the reading', () => {
-    const html = capture({ coverText: 'Song of Solomon' })
-    expect(html).not.toContain('value="Song of Solomon"')
-    expect(html).toContain('Nothing here has been filled in for you')
-  })
-
-  it('offers nothing that copies the reading into a field', () => {
-    const html = capture({ coverText: 'Song of Solomon' }).toLowerCase()
-    expect(html).not.toContain('use this')
-    expect(html).not.toContain('use as title')
-  })
-
-  /*
-   * Three people work one pile and a note is how one hands the book to the
-   * next, so it belongs on the screen where the next one picks it up.
-   */
-  it('shows the note that came with it', () => {
-    const html = capture({ captureNote: 'No ISBN confirmed. Barcode is torn.' })
-    expect(html).toContain('No ISBN confirmed. Barcode is torn.')
-  })
-
-  it('quotes nothing when the photographs produced nothing', () => {
-    const html = capture()
-    expect(html).not.toContain('The cover photo reads')
-    expect(html).not.toContain('evidence')
-  })
-
-  /*
-   * #156. With the guess out of the Title box this button is dead until
-   * somebody names the book, and it was live before, so the page has to say
-   * why rather than leave a person prodding at it. In the page and not only in
-   * the button's tooltip: this runs on a phone, where nothing hovers.
-   */
-  it('says what would let it be shelved, rather than only refusing', () => {
-    const html = capture({ coverText: 'Song of Solomon' })
-    expect(html).toContain('Type the title off the book to shelve it')
-  })
-
-  it('stops saying it the moment there is a title', () => {
-    const html = capture({ draft: { ...emptyDraft, title: 'Song of Solomon' } })
-    expect(html).not.toContain('Type the title off the book to shelve it')
-  })
-})
-
-/**
- * Find an answer by the word on it, in an unrendered element tree.
+ * Find the one press in an unrendered element tree.
  *
- * It used to look for `element.type === 'button'`, which was true while the
- * notice drew its own. It draws the design system's `Button` now (#387), and
- * that is one function element with its word as its child rather than markup,
- * so this matches on the word and reads the two props a `Button` carries:
- * `onPress`, and `off` for one that cannot be pressed yet. Nothing is rendered
- * either way, which is the point: the claim is that the tap reaches the one
- * call that writes a location, not that a particular element drew it.
+ * `Amiss` holds no state, so it is callable as the plain function it is, and
+ * what comes back is one button with the whole notice inside it. The claim is
+ * that the tap reaches the caller's handler rather than that a particular
+ * element drew it, so this looks for the element carrying an `onClick` and
+ * says how many it found: two would mean something inside the notice had
+ * become a target of its own, which is the thing #409 took off it.
  */
-function buttonIn(node: unknown, label: string): { press?: () => void; off?: boolean } | null {
+function pressesIn(node: unknown, found: Array<() => void> = []): Array<() => void> {
   if (Array.isArray(node)) {
-    for (const one of node) {
-      const found = buttonIn(one, label)
-      if (found) return found
-    }
-    return null
+    for (const one of node) pressesIn(one, found)
+    return found
   }
-  if (!node || typeof node !== 'object') return null
+  if (!node || typeof node !== 'object') return found
 
   const element = node as ReactElement & { props: Record<string, unknown> }
   const props = element.props ?? {}
-  const children: unknown[] = Array.isArray(props.children)
-    ? props.children
-    : [props.children]
-
-  if (children.some((child) => child === label)) {
-    const answer = props as { onPress?: () => void; off?: boolean }
-    if (answer.onPress || answer.off !== undefined) {
-      return { press: answer.onPress, off: answer.off }
-    }
-  }
-
-  // Every prop, not only `children`: a card takes its answers as `foot`, and a
-  // screen takes its dialog as `over`.
-  for (const value of Object.values(props)) {
-    const found = buttonIn(value, label)
-    if (found) return found
-  }
-  return null
+  if (typeof props.onClick === 'function') found.push(props.onClick as () => void)
+  for (const value of Object.values(props)) pressesIn(value, found)
+  return found
 }
 
-describe('confirming from the detail view', () => {
-  afterEach(() => { vi.unstubAllGlobals() })
+describe('the notice is the door', () => {
+  it('takes one press, and it is the whole notice', () => {
+    let opened = 0
+    const presses = pressesIn(Amiss({ onPress: () => { opened += 1 } }))
 
-  /*
-   * The whole point of the issue: the tap has to reach the one call that
-   * changes a recorded location, from this page, without going back to the
-   * library to do it.
-   */
-  it('calls through to the location write', async () => {
-    const calls: Array<{ path: string; init?: RequestInit }> = []
-    vi.stubGlobal('fetch', (path: string, init?: RequestInit) => {
-      calls.push({ path, init })
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ book: {} }) })
-    })
-
-    const tree = MisfileNotice({
-      misfile,
-      moving: false,
-      onMoved: () => { void recordMoved(misfile) },
-    })
-    buttonIn(tree, 'Moved it')?.press?.()
-    await Promise.resolve()
-
-    const [call] = calls
-    expect(calls).toHaveLength(1)
-    expect(call?.path).toBe('/api/books/7/location')
-    // The plank as an id, not as the label the notice showed. See #356.
-    expect(JSON.parse(String(call?.init?.body))).toEqual({ areaId: 22 })
+    expect(presses).toHaveLength(1)
+    presses[0]!()
+    expect(opened).toBe(1)
   })
 
-  it('cannot be tapped twice while the write is in flight', () => {
-    const tree = MisfileNotice({ misfile, moving: true, onMoved: () => {} })
-    expect(buttonIn(tree, '...')?.off).toBe(true)
+  /*
+   * One notice on the page and one sentence in it, and the sentence is the
+   * design system's rather than one this screen writes. Where the drawing and
+   * the app say the same thing in two places they are two things that agree
+   * until one of them is edited; that is why `Amiss` takes no words.
+   *
+   * What it opens is checked where it can be: the browser suite presses it and
+   * lands on the step that places a book, which is the claim #409 is about.
+   */
+  it('is drawn once, in the words the design system settles', () => {
+    const html = detail({ misfile })
+
+    expect(html.match(/class="wf-amiss"/g) ?? []).toHaveLength(1)
+    expect(words(html)).toContain(
+      words(renderToStaticMarkup(<Amiss />)).trim(),
+    )
   })
 })
 
-/**
- * The other way out, for a move nobody acted on (#196).
- *
- * The page has to keep the two apart. "Moved it" is a statement about the room
- * and writes a location; taking the move back withdraws something this app did
- * and writes none, so it must not reach that endpoint at all.
- */
-describe('taking a move back from the detail view', () => {
-  afterEach(() => { vi.unstubAllGlobals() })
+describe('deleting a book', () => {
+  /*
+   * > At the bottom of the detail view as well: we don't want to explain to
+   * > them that deleting takes the record and its photographs off disk and
+   * > nothing here could put them back. We don't need to put that text there.
+   *
+   * The button stays and the sentence over it goes. What that sentence said is
+   * word for word in the dialog the button opens, which is where a warning
+   * belongs: at the moment of the act rather than permanently on the page. The
+   * dialog itself is driven in the browser suite, because opening it is a tap.
+   */
+  it('offers the button with nothing written over it', () => {
+    const said = words(detail({ onDelete: () => {} }))
 
-  it('is absent unless the server says a move is outstanding', () => {
-    const html = detail({ misfile, onMisfileMoved: () => {} })
-    expect(html).toContain('Moved it')
-    expect(html).not.toContain('Undo the move')
+    expect(said).toContain('Delete this book and its photos')
+    expect(said).not.toMatch(/off disk/i)
+    expect(said).not.toMatch(/put them back/i)
+    expect(said).not.toMatch(/nothing here can/i)
   })
 
-  it('is offered beside "Moved it" when there is one', () => {
-    const html = detail({
-      misfile, onMisfileMoved: () => {}, onMisfileTakenBack: () => {},
-    })
-    expect(html).toContain('Moved it')
-    expect(html).toContain('Undo the move')
-  })
-
-  it('reaches the retraction and never the location write', async () => {
-    const calls: Array<{ path: string; init?: RequestInit }> = []
-    vi.stubGlobal('fetch', (path: string, init?: RequestInit) => {
-      calls.push({ path, init })
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ move: null }) })
-    })
-
-    const tree = MisfileNotice({
-      misfile,
-      moving: false,
-      onMoved: () => {},
-      onTakeBack: () => { void takeMoveBack('fiction', misfile.book.id) },
-    })
-    buttonIn(tree, 'Undo the move')?.press?.()
-    await Promise.resolve()
-
-    expect(calls.map((call) => call.path)).toEqual(['/api/shelves/retract'])
-    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ range: 'fiction', id: 7 })
+  /* The button is drawn from the way out being there rather than from the
+     screen deciding a book may be deleted, which is the shape it has always
+     had: `onDelete` is present only for a book already on the shelves. */
+  it('draws nothing about deleting where there is no way to', () => {
+    expect(words(detail())).not.toContain('Delete this book and its photos')
   })
 })

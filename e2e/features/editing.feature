@@ -70,6 +70,28 @@ Feature: Editing a book, catalogued or fresh off the camera
       | notes | in the pile by the door |
     And the book should say it is off the bookcase
 
+  Scenario: The page stops explaining the delete, and the dialog does the explaining
+    Round ten took the sentence over the delete button off the page: "we don't
+    want to explain to them that deleting takes the record and its photographs
+    off disk and nothing here could put them back" (#409). Removing an inline
+    lecture is not the same as removing a warning, and #281 settled where such
+    a warning belongs: at the moment of the irreversible act, not permanently
+    on the screen. So this walks the safety rather than trusting it, and ends
+    by backing out, because a scenario that proves the dialog by deleting the
+    book proves nothing about the dialog.
+
+    When I open the app
+    And I go to the library
+    And I open "Rendezvous with Rama" from the library
+    Then the page should say nothing about what deleting does
+
+    When I ask to delete the book
+    Then the dialog should say what is lost and that nothing can put it back
+
+    When I keep the book
+    Then the catalogue should hold "Rendezvous with Rama" recorded as:
+      | title | Rendezvous with Rama |
+
   Scenario: Shelving a fresh capture waits for the same slow relookup
     Somebody changing an ISBN is most often resolving a book straight off the
     camera, and that is the branch the guard was missing (#88). Shelving before

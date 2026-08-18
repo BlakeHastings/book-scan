@@ -716,71 +716,42 @@ When('I undo the move for {string}', async ({ page }, title: string) => {
 })
 
 /**
- * The same disagreement as an attention row, said on the book's own page.
+ * The disagreement, said on the book's own page in one sentence (#409).
  *
- * Both shelves are named, because the sentence has to be actionable by
- * somebody holding the book: which plank to take it off, and which to put it
- * on.
+ * **It names neither place, and that is what is being asserted.** It used to
+ * read "Last seen on 1A. The order now puts it on 1B." with two answers under
+ * it, and the owner replaced the whole thing with a message closer to "book is
+ * supposed to be moved". Both places are still on the screen: the board below
+ * draws the row with the gap in it, and the step this notice opens names the
+ * plank on arrival, which the step after this one checks.
  */
-Then(
-  'the book should say it was last seen on {string} and now belongs on {string}',
-  async ({ page }, from: string, to: string) => {
-    await expect(page.locator('.misfile__where')).toHaveText(
-      `Last seen on ${from}. The order now puts it on ${to}.`,
-    )
-  },
-)
+Then('the book should say it is supposed to be moved', async ({ page }) => {
+  const notice = page.locator('.wf-amiss')
 
-/**
- * "Moved it", tapped on the book's own page rather than in the library list.
- *
- * **The wait before the tap is the whole scenario.** Arriving on this page
- * schedules a placement read 250ms later, and a browser driven at machine
- * speed taps inside that window, so the arrival read lands after the write and
- * redraws the shelf that the write itself failed to redraw. Written without
- * this wait, the scenario passed against the defect it was written for: the
- * drawing settled about 120ms after the tap, from a request that had nothing
- * to do with the tap. Somebody who reads the banner before answering it waits
- * longer than 250ms, and then nothing is left to hide the missing read.
- *
- * `.placement--stale` is the app saying so itself: it marks the drawing while
- * a placement read is outstanding, so its absence is the page having caught up
- * with where it is.
- *
- * The banner going is all this waits for afterwards, on purpose: that much
- * worked before #197 and would make this step pass either way. What the fix is
- * about is asserted separately, by the step below, on the drawing the banner
- * sat above.
- */
-When('I say I have moved it', async ({ page }) => {
-  await expect(page.locator('.placement--stale')).toHaveCount(0)
-  await page.locator('.misfile').getByRole('button', { name: 'Moved it' }).click()
-  await expect(page.locator('.misfile')).toHaveCount(0)
+  await expect(notice).toHaveText('This book is supposed to be moved.')
+  // Nothing inside it to aim at: the notice is the target.
+  await expect(notice.getByRole('button')).toHaveCount(0)
 })
 
 /**
- * The book drawn as a spine in its row, rather than as the gap it goes in.
+ * Pressing the notice, which is the only thing there is to do with it.
  *
- * Three things at once, because any one of them alone passes on the stale
- * drawing #197 left up: the row is the right area, there is no hole in it, and
- * exactly one book in it is marked as the one being looked at.
+ * **The wait before the press is inherited from the step this replaces and is
+ * still worth having.** Arriving on this page schedules a placement read 250ms
+ * later, and a browser driven at machine speed presses inside that window;
+ * `.placement--stale` is the app saying a read is outstanding, so waiting for
+ * it to clear is the page having caught up with where the book is before
+ * anything is asked of it.
  *
- * **The marked book is no longer named by the title given here** (#387). The
- * page draws `Shelf` out of the design system now, the same component the
- * book's own page draws its run with, and a spine there reads what it files
- * under rather than what it is called: the cat on top of it is what says which
- * book, and he says "This is the book" rather than its title. Which book gets
- * the cat is decided by the book's id, so one perch in the right row is the
- * whole of the claim this step can make and the whole of the claim #197 needs.
+ * What it lands on is the step that places any book, which is asserted by the
+ * question being on screen: `.shelve__ask` is the same element the boundary
+ * moves wait for, because it is the same screen.
  */
-Then(
-  'the shelf drawing should draw {string} in place on {string}',
-  async ({ page }, _title: string, label: string) => {
-    await expect(page.locator('.wf-shelf__label')).toHaveText(label)
-    await expect(page.locator('.wf-gap')).toHaveCount(0)
-    await expect(page.locator('.wf-shelf .wf-perch')).toHaveCount(1)
-  },
-)
+When('I press the notice about moving it', async ({ page }) => {
+  await expect(page.locator('.placement--stale')).toHaveCount(0)
+  await page.locator('.wf-amiss').click()
+  await expect(page.locator('.shelve__ask')).toBeVisible()
+})
 
 /**
  * A catalogued book opened by tapping its spine in the shelf drawing, rather
@@ -803,6 +774,46 @@ When('I start editing the details', async ({ page }) => {
  */
 When('I set {string} to {string}', async ({ page }, label: string, value: string) => {
   await page.getByLabel(label, { exact: true }).fill(value)
+})
+
+/*
+ * Deleting a book, which is the one act on this screen that cannot be undone
+ * and the one whose explanation moved (#409).
+ *
+ * The page carried a sentence over the button saying the record and its
+ * photographs come off disk and nothing here can put them back. The owner took
+ * that text off the page; the warning it carried is in the dialog, which is
+ * where an explanation belongs, at the moment of the act (#281). These three
+ * steps drive that rather than describe it, because "the safety survived" is
+ * exactly the claim nobody should have to take on trust.
+ */
+Then('the page should say nothing about what deleting does', async ({ page }) => {
+  await expect(
+    page.getByRole('button', { name: 'Delete this book and its photos' }),
+  ).toBeVisible()
+  await expect(page.locator('.wf-screen__body')).not.toContainText('off disk')
+  await expect(page.locator('.wf-screen__body')).not.toContainText('put them back')
+})
+
+When('I ask to delete the book', async ({ page }) => {
+  await page.getByRole('button', { name: 'Delete this book and its photos' }).click()
+  await expect(page.locator('.wf-sure')).toBeVisible()
+})
+
+Then('the dialog should say what is lost and that nothing can put it back', async ({ page }) => {
+  const dialog = page.locator('.wf-sure')
+
+  await expect(dialog).toContainText('It goes out of the catalogue')
+  await expect(dialog).toContainText('photographs are deleted from disk')
+  await expect(dialog).toContainText('Nothing here can put either back')
+  // The destructive answer and the safe one, both named, neither of them "OK".
+  await expect(dialog.getByRole('button', { name: 'Delete book' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Keep it' })).toBeVisible()
+})
+
+When('I keep the book', async ({ page }) => {
+  await page.locator('.wf-sure').getByRole('button', { name: 'Keep it' }).click()
+  await expect(page.locator('.wf-sure')).toHaveCount(0)
 })
 
 /**

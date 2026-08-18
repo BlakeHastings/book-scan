@@ -51,11 +51,16 @@ Feature: A bookcase somebody has named is still checked
     # the list exists for. Said in the words the piece has been given.
     When I choose to move it on to "Hall shelf · B"
     And I go back to the book details
-    Then the book should say it was last seen on "Hall shelf · A" and now belongs on "Hall shelf · B"
+    Then the book should say it is supposed to be moved
+
+    # The notice names no plank since #409, so the phrase this feature is about
+    # is checked where it is now said: on the step the notice opens, which is
+    # the screen somebody reads standing at the piece they named.
+    When I press the notice about moving it
+    Then the shelf drawing should be labelled "Hall shelf · B"
 
     # And the walk goes down against the plank rather than against its name.
-    When I say I have moved it
-    Then the shelf drawing should draw "Dune" in place on "Hall shelf · B"
+    When I say it fits and finish the move
 
     When I go to the library
     Then nothing should need attention

@@ -1215,10 +1215,37 @@ function draftBody(draft: Draft) {
   }
 }
 
+/**
+ * Write the edits to a book the catalogue already holds.
+ *
+ * **It says nothing about where the book is, and that is a fix rather than an
+ * omission** (found while building #409). The draft a catalogued book is loaded
+ * into carries `location`, which is the label the app rendered for wherever the
+ * ledger has the book; no field on the edit form changes it and nobody typed
+ * it. Sending it back made every save a statement about the room, and the
+ * server reads such a statement by turning the label into a plank.
+ *
+ * On a bookcase nobody has named that round trip happens to come back to the
+ * plank it started on. **On a bookcase somebody has named it does not**: the
+ * label is a phrase like "Hall shelf · A", nothing parses it back to a plank,
+ * and the save is refused with `UnknownPlank` and reaches the person as
+ * "Something went wrong." So editing any book on a named piece of furniture
+ * could not be saved at all, and neither could finishing a placement for one,
+ * which is how this was found: the notice on a misfiled book opens the shelving
+ * step, and saying it fits saves the book.
+ *
+ * The rule this restores is the one `setLocation` below already states: it is
+ * the only call that changes a recorded location, and it exists so that a person
+ * who has actually walked to the shelf can say so. An edit is not a walk. The
+ * server's own comment agrees, and it is what makes the empty string right
+ * rather than a special case: "an edit that carries no location moved no book,
+ * so it records no placement and the book stays where the ledger already has
+ * it."
+ */
 const updateBook = (id: number, draft: Draft) =>
   request<{ id: number; placement: PlacementResponse; counts: Counts }>(
     `/api/books/${id}`,
-    { method: 'PUT', body: JSON.stringify(draftBody(draft)) },
+    { method: 'PUT', body: JSON.stringify({ ...draftBody(draft), location: '' }) },
   )
 
 /**

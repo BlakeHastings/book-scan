@@ -130,15 +130,17 @@ Feature: Adjusting where one area ends
     And the catalogue should hold "Rendezvous with Rama" recorded as:
       | location | 1A |
 
-  Scenario: Saying the book has been carried settles the page it was said on
-    # The book's own page is where somebody standing at the bookcase checks
-    # they did it right, and it draws the shelf twice: the banner says the
-    # catalogue and the order disagree, and the strip under it draws the row.
-    # Two reads of one set of shelves, so an action that moves a book has to
-    # re-read both. #197 was re-reading only the banner: it went away, and the
-    # drawing under it went on showing the book as a hole in the shelf and
-    # went on withholding the boundary move, until the page was left and
-    # opened again.
+  Scenario: The notice on a book is the door to the step that places it
+    # The book's own page used to answer for the walk. A card at the top named
+    # both planks and offered "Moved it", which wrote a location from wherever
+    # the person happened to be standing, and the page then had to re-read both
+    # the card and the drawing under it or leave the picture contradicting the
+    # tap (#197).
+    #
+    # Round ten made the notice a door (#409). It says one sentence, it names
+    # no plank, and pressing it opens the step a newly scanned book and a
+    # carried book are both placed on. So the location is written by somebody
+    # saying the book fits, and this walks that from the shelves to the row.
     When I open the app
     And I go to the library
     And I open "Dune" from the library
@@ -147,18 +149,15 @@ Feature: Adjusting where one area ends
 
     When I choose to move it on to "1B"
     And I go back to the book details
-    Then the book should say it was last seen on "1A" and now belongs on "1B"
+    Then the book should say it is supposed to be moved
     And the book should not offer to move it
 
-    # Nothing is navigated in between, deliberately. Leaving and coming back
-    # was the workaround, so a scenario that did it would pass either way.
-    When I say I have moved it
-    Then the shelf drawing should draw "Dune" in place on "1B"
-    And the book should offer to move it:
-      | Move it back to 1A |
+    # What the notice stopped saying, said by the screen it opens: the plank is
+    # named where somebody is about to stand in front of it.
+    When I press the notice about moving it
+    Then the shelf drawing should be labelled "1B"
 
-    # And what the drawing settled into is what actually got written.
-    When I go to the library
+    When I say it fits and finish the move
     Then nothing should need attention
     And the library should show "Dune" on shelf "1B"
     And the catalogue should hold "Dune" recorded as:

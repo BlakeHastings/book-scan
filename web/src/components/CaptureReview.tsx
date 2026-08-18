@@ -50,10 +50,19 @@
  *
  * ## What the photographs read is beside the form and never in it
  *
- * `CaptureEvidence` again, unchanged and imported rather than redrawn: OCR is
- * a lossy reading of a photograph, and a guess promoted into a box somebody
- * then saves enters the catalogue wearing the clothes of a confirmed value
- * (#147).
+ * `CaptureEvidence`, which is at the foot of this file since #409 because this
+ * screen is the only place it is drawn. It was shared with the screen for a book
+ * the catalogue already holds, and the owner took it off that one: "we have text
+ * underneath the images coming from the OCR system. We shouldn't show those,
+ * they're very intrusive."
+ *
+ * **It stays here, and the difference is what the screen is for.** This is the
+ * page for exactly the captures the app could not settle by itself, so what the
+ * photographs read is the one piece of evidence somebody has while they type;
+ * on a book already in the catalogue it is a machine's old guess at a record a
+ * person has since confirmed. OCR is a lossy reading of a photograph, and a
+ * guess promoted into a box somebody then saves enters the catalogue wearing the
+ * clothes of a confirmed value (#147).
  */
 
 import { useState } from 'react'
@@ -64,7 +73,6 @@ import { IconCamera } from '../design/Icons'
 import { AddTag, Tag, Tags } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Shots, threeSlots, type Shot } from '../design/Shots'
-import { CaptureEvidence } from './BookDetail'
 import { IsbnPrompt } from './IsbnPrompt'
 import { TagNaming } from './TagNaming'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
@@ -430,5 +438,64 @@ export function CaptureReview({
         </Button>
       </Phone>
     </div>
+  )
+}
+
+/**
+ * What the photographs said, on the screen where somebody has to work out
+ * what the book is.
+ *
+ * This is the page for exactly the captures the app could not settle by
+ * itself, and its one piece of evidence used to be on the previous screen:
+ * the queue row said "Cover reads: Song of Solomon", and opening the row
+ * showed neither that nor the note. Somebody correcting a stack of these was
+ * backing out to re-read a line they had just been shown and holding it in
+ * their head while typing (#147).
+ *
+ * Shown as evidence and never as a value. Nothing here is pre-filled into a
+ * field and there is deliberately no control that copies it across: OCR is a
+ * lossy, engine-version-dependent reading of a photograph, and a guess
+ * promoted into a box somebody then saves enters the catalogue wearing the
+ * clothes of a confirmed value. So it is quoted beside the form rather than
+ * poured into it, and it says both where it came from and how much to trust
+ * it.
+ *
+ * The note gets the same room. Three people work one pile, and a note is how
+ * one of them hands the work to the next.
+ *
+ * **It lives here rather than in `BookDetail` since #409**, which is where it
+ * was written and where it is no longer drawn. One caller, one file.
+ */
+export function CaptureEvidence({ coverText = '', note = '' }: {
+  coverText?: string
+  note?: string
+}) {
+  const lines = coverText.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (!lines.length && !note) return null
+
+  return (
+    <section className="evidence">
+      {note && (
+        <p className="evidence__note">
+          <span className="evidence__label">Note</span>
+          {note}
+        </p>
+      )}
+
+      {lines.length > 0 && (
+        <div className="evidence__cover">
+          <span className="evidence__label">The cover photo reads</span>
+          <ul className="evidence__lines">
+            {lines.map((line, index) => (
+              <li key={`${index}-${line}`}>{line}</li>
+            ))}
+          </ul>
+          <p className="evidence__caveat">
+            Read off the photograph by a machine, and often wrong. Nothing here
+            has been filled in for you: type what the book itself says.
+          </p>
+        </div>
+      )}
+    </section>
   )
 }
