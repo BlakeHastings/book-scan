@@ -9,9 +9,12 @@
  * about the book, not about where it sits" and "the photographs lead" two
  * rules pulling on the same markup.
  *
- * So a capture is drawn by `CaptureReview`, converted here, and a catalogued
- * book is still drawn by `BookDetail`, untouched: it is the `book` screen and
- * #315 is converting it.
+ * So a capture is drawn by `CaptureReview` and a catalogued book by
+ * `BookDetail`, and **both of them are the design system's now** (#387). This
+ * file no longer decides whether the app's own header goes round one of them,
+ * because neither wants one: each brings its own top bar and its own
+ * four-place tab bar, and the route table says `chrome: false` for the whole
+ * screen rather than for one path of it.
  *
  * Everything either of them offers to do still comes from the book itself
  * (#59); this file only wires the book in hand to whichever draws it.
@@ -24,12 +27,14 @@
  */
 
 import { useEffect } from 'react'
-import { Chrome } from '../app/Chrome'
 import { BookDetail } from '../components/BookDetail'
 import { CaptureReview } from '../components/CaptureReview'
-import { PlacementView } from '../components/ShelfStrip'
+import { Where } from '../design/Book'
+import { Place } from '../design/List'
+import { Shelf } from '../design/Shelf'
 import { filingName } from '../../shared/shelving'
 import type { TabName } from '../design/Chrome'
+import { standing } from '../lib/bookLook'
 import { useBookActions } from '../app/bookActions'
 import { useBookInHand } from '../app/bookInHand'
 import { useErrorBanner } from '../app/errorBanner'
@@ -62,26 +67,24 @@ export function ReviewScreen() {
   const tagging = useTagging(bookId === null ? captureId : null)
 
   /*
-   * The converted screen takes the design system's paper, the same way the
-   * first one does. Only for the capture: a catalogued book is still drawn by
-   * `BookDetail` on the app's own dark page, and painting the body warm under
-   * it would be half a conversion showing through.
+   * Both screens take the design system's paper, the same way the first one
+   * does. It was only the capture until #387, because a catalogued book was
+   * still drawn on the app's own dark page and painting the body warm under it
+   * would have been half a conversion showing through.
    */
-  const converted = bookId === null
   useEffect(() => {
-    if (!converted) return
     document.body.classList.add('wf-page')
     return () => document.body.classList.remove('wf-page')
-  }, [converted])
+  }, [])
 
-  if (converted) {
-    const tabs: Record<TabName, () => void> = {
-      home: () => leaveFor('home'),
-      library: () => leaveFor('library'),
-      scan: () => leaveFor('capture'),
-      queue: () => leaveFor('queue'),
-    }
+  const tabs: Record<TabName, () => void> = {
+    home: () => leaveFor('home'),
+    library: () => leaveFor('library'),
+    scan: () => leaveFor('capture'),
+    queue: () => leaveFor('queue'),
+  }
 
+  if (bookId === null) {
     return (
       <CaptureReview
         draft={draft}
@@ -129,69 +132,95 @@ export function ReviewScreen() {
     )
   }
 
-  /*
-   * The frame, asked for here rather than in the route table.
-   *
-   * A catalogued book is the `book` screen and is not converted yet, so it
-   * still wants the app's header. Its route says `chrome: false` because the
-   * other path brings its own, and the screen that knows which path it is on
-   * is this one.
-   */
   return (
-    <Chrome>
-      <main className="main">
-        {notice && (
-          <div className="warn warn--soft" onClick={() => setNotice('')}>{notice}</div>
-        )}
-
-        <BookDetail
-          draft={draft}
-          lookup={lookup}
-          photos={thumbs}
-          crops={crops}
-          examined={examined}
-          derivedFiling={derivedFiling}
-          saving={saving}
-          relookupBusy={relookupBusy}
-          relookupError={relookupError}
-          coverText={evidence.coverText}
-          captureNote={evidence.note}
-          onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
-          onRelookup={relookup}
-          onClearRelookupError={() => setRelookupError('')}
-          saved
-          /*
-           * Only for a book that is actually on a shelf, where the drawing
-           * says where it is.
-           */
-          placement={(
-            <PlacementView
-              placement={placement}
-              pending={placementStale}
-              instruction={false}
-              onOpen={openNeighbour}
-            />
-          )}
-          doneLabel={origin === 'scan' ? 'Scan another' : 'Back to library'}
-          onShelve={() => setRoute('shelve')}
-          onSaveEdits={saveEdits}
-          onDiscard={returnToOrigin}
-          shelfLabel={placement?.derivedLocation ?? ''}
-          onDelete={deleteBook}
-          deleting={deletingBook}
-          catalogueCover={coverImage || lookup?.coverUrl || ''}
-          checkedOutAt={checkedOutAt}
-          onCheckOut={checkOut}
-          checkingOut={checkingOut}
-          boundaryMoves={placement?.strip?.boundary ?? null}
-          onBoundaryMove={startBoundaryMove}
-          boundaryMoving={boundaryMoving}
-          misfile={misfile}
-          onMisfileMoved={confirmMisfileMoved}
-          onMisfileTakenBack={misfileTakeable ? takeMisfileBack : undefined}
-          misfileMoving={misfileMoving}
-        />
-      </main>
-    </Chrome>
+    <BookDetail
+      draft={draft}
+      lookup={lookup}
+      photos={thumbs}
+      crops={crops}
+      examined={examined}
+      derivedFiling={derivedFiling}
+      saving={saving}
+      relookupBusy={relookupBusy}
+      relookupError={relookupError}
+      coverText={evidence.coverText}
+      captureNote={evidence.note}
+      onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+      onRelookup={relookup}
+      onClearRelookupError={() => setRelookupError('')}
+      saved
+      tabs={tabs}
+      notice={notice}
+      onDismissNotice={() => setNotice('')}
+      error={error}
+      onDismissError={() => setError('')}
+      /*
+       * Where the book stands, drawn rather than said.
+       *
+       * The run comes off the same placement preview the boundary moves above
+       * are read from, and it is drawn by `Shelf` with `standing`, which is the
+       * function the book's own page draws its run with. That is the whole
+       * reason it is built here rather than inside `BookDetail`: this screen
+       * has the placement and the book's id, and the drawing has to be the one
+       * the page behind it uses or the same shelf is drawn two ways one press
+       * apart.
+       *
+       * `.placement--stale` is the app saying a placement read is outstanding,
+       * and it stays: the drawing dims while the answer it is made of is being
+       * fetched again, which is what somebody who has just said "Moved it"
+       * needs to see.
+       */
+      placement={(
+        <Where>
+          <div className={placementStale ? 'placement--stale' : ''}>
+            {checkedOutAt ? (
+              /*
+               * A book in a pile stands in no run, and the run it used to
+               * stand in has closed up behind it. Drawing that run under a
+               * card which has just said the book is off the bookcase is a
+               * drawing contradicting the sentence above it, so the label is
+               * the answer here, exactly as it is on the book's own page.
+               * Found by checking a book out and looking at it.
+               */
+              <div>
+                <Place quiet>Out of the house</Place>
+              </div>
+            ) : placement?.strip ? (
+              <div className="wf-bleed">
+                <Shelf
+                  label={placement.strip.label}
+                  items={standing(placement.strip, bookId, openNeighbour)}
+                />
+              </div>
+            ) : (
+              <div>
+                <Place quiet={!placement?.derivedLocation}>
+                  {placement?.derivedLocation
+                    ? `On ${placement.derivedLocation}`
+                    : 'Not on a bookcase'}
+                </Place>
+              </div>
+            )}
+          </div>
+        </Where>
+      )}
+      doneLabel={origin === 'scan' ? 'Scan another' : 'Back to library'}
+      onShelve={() => setRoute('shelve')}
+      onSaveEdits={saveEdits}
+      onDiscard={returnToOrigin}
+      onDelete={deleteBook}
+      deleting={deletingBook}
+      catalogueCover={coverImage || lookup?.coverUrl || ''}
+      checkedOutAt={checkedOutAt}
+      onCheckOut={checkOut}
+      checkingOut={checkingOut}
+      boundaryMoves={placement?.strip?.boundary ?? null}
+      onBoundaryMove={startBoundaryMove}
+      boundaryMoving={boundaryMoving}
+      misfile={misfile}
+      onMisfileMoved={confirmMisfileMoved}
+      onMisfileTakenBack={misfileTakeable ? takeMisfileBack : undefined}
+      misfileMoving={misfileMoving}
+    />
   )
 }

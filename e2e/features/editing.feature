@@ -37,12 +37,12 @@ Feature: Editing a book, catalogued or fresh off the camera
     Then "Save changes" should be unavailable while the lookup runs
     And "Save changes" should be available again once the lookup answers
     # A book already in the catalogue, so this is the book page rather than the
-    # review screen, and it still wears the labels it always had. The scenario
-    # below is the same guard on the converted screen, where the field is
-    # called what the drawing calls it.
+    # review screen. Both are converted now (#387) and both call the field what
+    # the drawing calls it, so the two scenarios in this file check the one
+    # guard on the one form.
     And the review screen should show:
-      | Title                     | The Dispossessed  |
-      | Authors (comma separated) | Ursula K. Le Guin |
+      | Title  | The Dispossessed  |
+      | Author | Ursula K. Le Guin |
 
     When I save the changes
     Then the catalogue should hold "The Dispossessed" recorded as:
