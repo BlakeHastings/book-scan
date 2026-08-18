@@ -59,10 +59,20 @@ body.wf-page { background: var(--paper); }
 /* One step tighter than it was, between the cards and inside them. The owner
    asked for the first screen to take less room and this is most of where the
    room was going: 16px of air between every pair of cards, on a screen that
-   has five of them. */
+   has five of them.
+
+   The bottom is the tab bar's room, kept for it (#414). The bar is fixed to
+   the glass and therefore out of flow, so nothing below reserves the space it
+   covers any more and the last card on every screen would end up underneath
+   it. `Phone` is the only thing that draws this element and it always draws
+   the bar with it, so the reservation and the thing reserved for arrive
+   together and there is no screen that gets one without the other. The safe
+   area is added here as well as inside the bar because that strip is under the
+   bar too. */
 .wf-screen__body {
   flex: 1;
-  padding: var(--s4) var(--s4) var(--s6);
+  padding: var(--s4) var(--s4)
+    calc(var(--s6) + var(--tabs) + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: var(--s3);
@@ -147,10 +157,57 @@ body.wf-page { background: var(--paper); }
 /*
  * Words under the icons, always. An icon alone is a guess the reader has to
  * make every time, and this app's language is words.
+ *
+ * ## Fixed to the glass, not sticky in the document (#414)
+ *
+ * > Whenever I scroll down, the bar at the bottom with Today, Library, Scan
+ * > and Queue ends up scrolling up a bit for some reason, so it ends up in the
+ * > middle of the screen, which is not ideal.
+ *
+ * It was `position: sticky; bottom: 0`, and **a sticky box stops sticking the
+ * moment its containing block ends.** The containing block here is
+ * `.wf-screen`, so the bar is only pinned for as long as that element is the
+ * last thing in the page. Anything drawn after it inside the same scroller
+ * takes the bar off the bottom of the glass by exactly that thing's height,
+ * and it comes to rest partway up the screen: not gone, not pinned, floating.
+ *
+ * That is what the gallery does, which is where the redesign is walked on a
+ * phone: `.wf-frame` above, the screen, and `.wf-next` below it. The Next
+ * button is 47px, so on every screen in there the bar sat 47px off the bottom
+ * from the first scroll onwards. Measured at 414x896 in both themes, on the
+ * library, the first screen, a queue of forty and all six pieces of furniture:
+ * 47px on every one of them.
+ *
+ * The working app draws nothing after `.wf-screen` today, so there the bar
+ * stayed put. **That is the part worth fixing rather than the 47px**: the only
+ * permanent navigation in the app was correct by an accident of what its
+ * sibling list happens to contain, and one element appended after a screen,
+ * anywhere, would have taken it away again.
+ *
+ * So the bar is `position: fixed`, which is the fourth time that has been the
+ * answer here and for the fourth time for the same reason: see `.wf-corner`
+ * for the round that found it (#393), and `.wf-sure` for the one that
+ * generalised it (#408). `design.test.tsx` pins all four.
+ *
+ * Two things a fixed bar has to say that a sticky one did not.
+ *
+ * **How wide it is.** Out of flow, it no longer inherits the phone's column
+ * from `.wf`, and left to itself it would run the width of a desktop window
+ * with the screen it belongs to sitting in the middle of it. `inset-inline: 0`
+ * with `margin-inline: auto` and the same 480px cap centres it on exactly the
+ * column `.wf` is.
+ *
+ * **How tall it is.** Out of flow, it reserves nothing, so `--tabs` is the
+ * height the bar keeps and the height `.wf-screen__body` keeps clear for it.
+ * One number, written once, used at both ends.
  */
 .wf-tabs {
-  position: sticky;
+  position: fixed;
   bottom: 0;
+  inset-inline: 0;
+  margin-inline: auto;
+  max-width: 480px;
+  min-height: calc(var(--tabs) + env(safe-area-inset-bottom));
   z-index: 5;
   display: grid;
   grid-auto-flow: column;
@@ -3866,6 +3923,19 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border-top: 1px solid var(--line);
   color: var(--ink-2);
   font-size: var(--size-small);
+}
+
+/* Room to scroll it out from under the tab bar (#414).
+ *
+ * This button is the one thing in either the app or the gallery that is drawn
+ * after a screen inside the same scroller, which is what made the tab bar come
+ * unstuck and is why the bar is fixed now. Fixed means the bar covers the
+ * bottom of the glass at every scroll position, including the bottom of the
+ * page, so without this the way on to the next screen would sit underneath it
+ * for good. Only where a tab bar is drawn: the cameras have none, and there is
+ * nothing there to scroll clear of. */
+.wf-screen:has(.wf-tabs) ~ .wf-next {
+  margin-bottom: calc(var(--tabs) + env(safe-area-inset-bottom));
 }
 
 /* The index. */
