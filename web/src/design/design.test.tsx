@@ -261,6 +261,41 @@ describe('the one action in a corner is an icon with a name', () => {
 })
 
 /**
+ * The corner opens onto the viewport, not onto the document (#393).
+ *
+ * `.wf-corner` was `position: absolute; inset: 0` inside `.wf-screen`, which
+ * is right sized to whatever it is drawing rather than to the phone: the
+ * library is taller than the screen the moment there is more than a shelf or
+ * two of books. `inset: 0` on an absolute sheet reaches the top of *that*, so
+ * opening the corner from a page somebody had scrolled down put the sheet
+ * above where they were looking, off the top of the glass. The one door to
+ * fixtures and settings looked like it did nothing, which is the worst
+ * failure mode a button has.
+ *
+ * A render check does not catch this: `renderToStaticMarkup` has no layout
+ * and no scroll position, so a markup assertion sees the same `<div
+ * className="wf-corner">` whether the sheet lands on the icon or a screen
+ * above it. What is checked here is the one line that decides which of those
+ * happens: `position: fixed` pins the sheet to the glass the way `.wf-name`
+ * already does for the same reason, and no amount of scrolling the page
+ * underneath moves it.
+ */
+describe('the corner opens onto the glass, not onto wherever the document happens to be scrolled', () => {
+  it('is true because the sheet is fixed to the viewport rather than absolute inside the screen', () => {
+    const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+    const rule = css.match(/\.wf-corner\s*\{[^}]*\}/)?.[0] ?? ''
+
+    expect(rule, 'no rule was found for .wf-corner at all').not.toBe('')
+    expect(rule, 'the corner sheet is not pinned to the viewport').toMatch(
+      /position:\s*fixed/,
+    )
+    expect(rule, 'a document-relative sheet would still open off-screen').not.toMatch(
+      /position:\s*absolute/,
+    )
+  })
+})
+
+/**
  * The three ways of looking at the library cost a button, not a row.
  *
  * > Instead of showing covers, list and spines as this very big thing that we

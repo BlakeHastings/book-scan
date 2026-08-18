@@ -2995,14 +2995,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * The full screen view a picture opens into.
  *
- * `position: fixed`, which is the one place in this stylesheet that is right
- * rather than the absolute-inside-the-phone that `.wf-sure` and `.wf-corner`
- * use. Their argument is that a wireframe of a dialog swallowing the gallery's
- * own bar is a screen nobody can leave; this has a named way out on it, a key
+ * `position: fixed`, unlike `.wf-sure`, which stays absolute-inside-the-phone
+ * on the argument that a wireframe of a dialog swallowing the gallery's own
+ * bar is a screen nobody can leave. This has a named way out on it, a key
  * that closes it and a press anywhere that does the same, so it cannot strand
  * anybody. And a picture viewer that stopped at the bottom of a page four
  * screens tall would open somewhere nobody is looking, because a book's page
- * really is that long.
+ * really is that long. `.wf-corner` and `.wf-name` made the same trade since,
+ * for the same reason: see `.wf-corner` for the round that found it (#393).
  *
  * Under the gallery's own frame at 20 and over everything the phone draws,
  * which is the same slot `.wf-sure` sits in.
@@ -3441,10 +3441,18 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * The sheet the corner opens, over the screen it was opened from.
  *
- * Absolute inside the phone rather than fixed, for the reason `.wf-sure` is:
- * the gallery's own bar is how a theme is switched and how the index is got
- * back to, and a wireframe of a menu that swallowed both would be a screen
- * nobody could leave.
+ * Fixed to the viewport, not absolute inside the phone. It was absolute once,
+ * on `.wf-sure`'s reasoning: the gallery's own bar is how a theme is switched
+ * and how the index is got back to, and a wireframe of a menu that swallowed
+ * both would be a screen nobody could leave. That argument holds for `.wf-sure`
+ * because every screen it sits on is about as tall as the phone. It does not
+ * hold here: the corner is drawn on the first screen and on the library (#393),
+ * and a library with enough books to fill four bookcases is taller than the
+ * phone by several screens. Absolute-inside-the-document put the sheet at the
+ * top of all of it, which is off the top of whatever a person had scrolled to,
+ * and a menu that opens off-screen is a button that looks dead: the one door
+ * to fixtures and settings, doing nothing. `.wf-name` made the same trade for
+ * the same reason first; see it for the longer argument.
  *
  * It hangs from the top right under the corner it came out of, rather than
  * rising from the bottom of the screen the way the confirmation does. A sheet
@@ -3453,7 +3461,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * what you just opened.
  */
 .wf-corner {
-  position: absolute;
+  position: fixed;
   inset: 0;
   /* Over the top bar and the tab bar, both at 5, under the gallery's own frame
      at 20. The same two neighbours `.wf-sure` sits between. */
@@ -3464,6 +3472,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   padding: var(--s3);
   background: var(--scrim);
 }
+
+/* In the gallery, under the frame that switches the theme and gets back to
+   the index, the same trade `.wf-name` and `.wf-screen--camera` already make
+   for the same reason. The working app has no such bar, so this never fires
+   there. */
+.wf-frame ~ .wf-screen .wf-corner { top: 38px; }
 
 /* The way out is everywhere else, which is how every menu like this closes.
    A real target rather than a handler on the scrim, so it can be walked out
