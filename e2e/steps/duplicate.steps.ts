@@ -30,7 +30,7 @@
 import { expect } from '@playwright/test'
 
 import { Given, Then, When } from './fixtures.js'
-import { homeScreen, leaveTheCamera, reviewScreen } from './app.steps.js'
+import { homeScreen, inHandShutter, leaveTheCamera, reviewScreen } from './app.steps.js'
 import { BOOK_IN_HAND } from '../support/books.js'
 
 /**
@@ -127,6 +127,6 @@ Then('it should stop saying the book is already in the queue', async ({ page }) 
 })
 
 Then('the camera should still be ready to scan', async ({ page }) => {
-  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toBeEnabled()
-  await expect(page.locator('video.isbncam__video')).toBeVisible()
+  await expect(inHandShutter(page)).toBeEnabled()
+  await expect(page.locator('video.wf-view__video')).toBeVisible()
 })

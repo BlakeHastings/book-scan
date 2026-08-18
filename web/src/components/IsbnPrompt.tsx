@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { resolveIsbnPair } from '../../shared/isbn'
+import { Said } from '../design/Card'
+import { Button, Field } from '../design/Controls'
+import { IconCamera } from '../design/Icons'
+import { Asked } from '../design/Sure'
 import { IsbnCamera } from './IsbnCamera'
 
 interface Props {
@@ -13,24 +17,45 @@ interface Props {
  *
  * The photos stay visible behind it: the whole point is to read the digits off
  * the cover on screen and type them in, so a full-screen dialog would hide the
- * thing being copied.
+ * thing being copied. That is why this is the card `Sure` is asked on and not
+ * the panel `Naming` is: a panel from the top is right for a question whose
+ * answers are a list, and wrong for one whose answer is on the screen behind
+ * it.
  *
  * The lookup itself happens after this closes, not while it is open: submit
  * hands the ISBN off and this unmounts immediately, so the search plays out on
  * the detail view underneath rather than inside a busy modal. That is also
  * why there is no busy or error state here; both belong to the screen the
  * answer actually lands on.
+ *
+ * ## What #408 changed here, and what it did not
+ *
+ * The chrome. It was the last `.modal` in the app: a card in the old app's
+ * colours drawn over two screens that had been converted around it, opened by
+ * a `Field` the design system draws and answered by buttons it does not. It is
+ * `Asked`, `Field`, `Said` and `Button` now, so the card, the box, the quiet
+ * line under it and both answers are the ones every other screen uses.
+ *
+ * **What it asks and what it does with the answer are untouched.** The same
+ * `resolveIsbnPair`, the same rule about not complaining until ten digits have
+ * been typed, the same refusal to submit anything that is not a valid ISBN,
+ * and the same sentence naming a text read as a guess worth checking.
+ *
+ * Two small things went with the old card and are worth saying out loud. The
+ * red on the invalid line is now the system's quiet line beside a button that
+ * cannot be pressed, which is the pattern every other screen answers "why can
+ * I not press this" with. And Escape no longer cancels: this is a phone, the
+ * ways out are the button and the page around the card, and both are drawn.
+ *
+ * **The gallery has no drawing of this card.** What it draws is the ISBN field
+ * with a camera at the end of it going straight to a camera, which is a
+ * different flow: it has no way to type. Which of the two is right is a
+ * question for the owner and not one to settle by building.
  */
 export function IsbnPrompt({ initial, onCancel, onSubmit }: Props) {
   const [value, setValue] = useState(initial)
   const [scanning, setScanning] = useState(false)
   const [readFrom, setReadFrom] = useState<'barcode' | 'ocr' | ''>('')
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-    inputRef.current?.select()
-  }, [])
 
   const pair = resolveIsbnPair(value)
   const digits = value.replace(/[^0-9Xx]/g, '')
@@ -52,81 +77,53 @@ export function IsbnPrompt({ initial, onCancel, onSubmit }: Props) {
   }
 
   return (
-    <div className="modal" role="dialog" aria-modal="true" aria-label="Change ISBN">
-      <div className="modal__card">
-        <h3 className="modal__title">Change ISBN</h3>
-        <p className="hint">
-          Type the ISBN, or tap the camera to read it off the book. Hyphens and
-          spaces are fine.
-        </p>
+    <Asked
+      title="Change ISBN"
+      said="Type the ISBN, or photograph it off the book. Hyphens and spaces are fine."
+      onOut={onCancel}
+    >
+      {/* The camera at the end of the box, which is the way this system says a
+          field has another way to answer it, and the way the drawing puts it on
+          the ISBN field that opens this. Thirteen digits typed off a book by
+          somebody holding the book is the slowest and least reliable answer. */}
+      <Field
+        label="ISBN"
+        value={value}
+        placeholder="978-0-441-01359-3"
+        focus
+        onChange={(typed) => { setValue(typed); setReadFrom('') }}
+        onEnter={() => { if (valid) onSubmit(value) }}
+        action={{
+          name: 'Photograph the ISBN',
+          icon: <IconCamera size={20} />,
+          onPress: () => setScanning(true),
+        }}
+      />
 
-        <div className="isbn-input">
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={(event) => { setValue(event.target.value); setReadFrom('') }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && valid) onSubmit(value)
-              if (event.key === 'Escape') onCancel()
-            }}
-            placeholder="978-0-441-01359-3"
-            inputMode="text"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="search"
-          />
-          <button
-            type="button"
-            className="isbn-input__cam"
-            onClick={() => setScanning(true)}
-            aria-label="Photograph the ISBN"
-            title="Photograph the ISBN"
-          >
-            <CameraIcon />
-          </button>
-        </div>
+      <Said>
+        {showInvalid
+          ? 'That is not a valid ISBN-10 or ISBN-13. Check the digits.'
+          : valid
+            ? `Reads as ${pair.isbn13}${pair.isbn10 ? ` (${pair.isbn10})` : ''}`
+            : 'Enter 10 or 13 digits.'}
+      </Said>
 
-        <p className={showInvalid ? 'modal__check modal__check--bad' : 'modal__check'}>
-          {showInvalid
-            ? 'That is not a valid ISBN-10 or ISBN-13. Check the digits.'
-            : valid
-              ? `Reads as ${pair.isbn13}${pair.isbn10 ? ` (${pair.isbn10})` : ''}`
-              : 'Enter 10 or 13 digits.'}
-        </p>
+      {/* Named rather than implied. A barcode read is as good as typing it;
+          a text read is a guess at digits and deserves a second look. */}
+      {readFrom && valid && (
+        <Said>
+          {readFrom === 'barcode'
+            ? 'Scanned from the barcode.'
+            : 'Read from the printed text. Check the digits before looking it up.'}
+        </Said>
+      )}
 
-        {/* Named rather than implied. A barcode read is as good as typing it;
-            a text read is a guess at digits and deserves a second look. */}
-        {readFrom && valid && (
-          <p className={readFrom === 'ocr' ? 'modal__read modal__read--soft' : 'modal__read'}>
-            {readFrom === 'barcode'
-              ? 'Scanned from the barcode.'
-              : 'Read from the printed text. Check the digits before looking it up.'}
-          </p>
-        )}
-
-        <div className="actions">
-          <button
-            className="btn btn--primary"
-            onClick={() => onSubmit(value)}
-            disabled={!valid}
-          >
-            Look up and replace
-          </button>
-          <button className="btn" onClick={onCancel}>Cancel</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** Outline camera, sized to sit inside the input. */
-function CameraIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1-2h6.6l1 2h2.2A1.5 1.5 0 0 1 19 8.5v9A1.5 1.5 0 0 1 17.5 19h-13A1.5 1.5 0 0 1 3 17.5z" />
-      <circle cx="11" cy="13" r="3.2" />
-    </svg>
+      <Button tone="primary" block off={!valid} onPress={() => onSubmit(value)}>
+        Look up and replace
+      </Button>
+      <Button tone="quiet" block onPress={onCancel}>
+        Cancel
+      </Button>
+    </Asked>
   )
 }

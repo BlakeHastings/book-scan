@@ -218,7 +218,17 @@ export function CaptureReview({
            is the one on the screen underneath and the panel is measured in
            seconds. See `design/Naming.tsx` for why it is a panel from the top
            and not a card from the bottom: there is a keyboard under this one. */
-        over={naming ? (
+        over={asking ? (
+          /* Correcting the ISBN, which is a card from the bottom rather than a
+             panel from the top: its answer is the number on the photographs at
+             the top of the screen underneath. Through this slot since #408,
+             which is what took it out of a fixed overlay of its own. */
+          <IsbnPrompt
+            initial={draft.isbn13 || draft.isbn10}
+            onCancel={() => setAsking(false)}
+            onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
+          />
+        ) : naming ? (
           <TagNaming
             vocabulary={vocabulary}
             carried={tags.map((tag) => tag.slug)}
@@ -419,14 +429,6 @@ export function CaptureReview({
           Leave it in the queue
         </Button>
       </Phone>
-
-      {asking && (
-        <IsbnPrompt
-          initial={draft.isbn13 || draft.isbn10}
-          onCancel={() => setAsking(false)}
-          onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
-        />
-      )}
     </div>
   )
 }

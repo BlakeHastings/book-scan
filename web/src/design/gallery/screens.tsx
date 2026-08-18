@@ -1519,10 +1519,12 @@ function SpineShot(go: Go) {
  * Sharing a frame is not the same as merging the cameras, any more than the
  * spine shot above is a third one.
  *
- * The app draws this screen with something older than the design system and
- * this drawing is ahead of it, which is the ordinary state of a wireframe
- * here. Bringing that screen up to this is its own issue and not this one:
- * #355 is about how far away the door is, not about what is behind it.
+ * **The app draws this screen with this since #408.** It was the ordinary
+ * state of a wireframe here for a while, drawn ahead of the screen it stands
+ * for, which is what #355 said when it added the drawing: that issue was about
+ * how far away the door is rather than about what is behind it. The screen
+ * behind it is `ScanCamera` and it is this frame now, with a live picture in
+ * it, the shortlist a real answer produces, and nothing else moved.
  */
 function InHandCamera(go: Go) {
   return (
@@ -1540,6 +1542,11 @@ function InHandCamera(go: Go) {
            of it and hands you the book's own page. Nothing here writes
            anything, which is why it is behind no confirmation. */
         onShutter={() => go('book')}
+        /* The same circle as the other camera's, and not the same job. A
+           circle carries no word, so the word it carries for anybody who
+           cannot see it is the one place these two can be told apart without
+           looking at where you are. */
+        shutterName="Find this book"
         /* Two ways out, both to where it was opened from, and the app really
            does have both: the far corner is where a back arrow belongs and the
            near one is the only thing a thumb can reach while the other hand is

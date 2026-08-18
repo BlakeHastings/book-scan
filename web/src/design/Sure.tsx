@@ -53,6 +53,59 @@ import type { ReactNode } from 'react'
 import { Button } from './Controls'
 import { Place } from './List'
 
+/**
+ * The card a screen is asked over, without the question on it.
+ *
+ * `Sure` is one question asked on this card and it was the only one for a
+ * while, so the card was part of it. It is not any more: correcting an ISBN is
+ * asked here too since #408, and that is a question with a keyboard and two
+ * answers rather than a stop before something irreversible.
+ *
+ * Split rather than copied, because the card is a decision and not a
+ * container. Where it sits is `ConfirmDialog`'s answer and its breakpoint:
+ * against the bottom edge where a thumb is, centred once there is 620px of
+ * height for it to be centred in. Written out twice, the second screen would
+ * put its own card somewhere slightly else and nobody would notice for months.
+ *
+ * The screen under it stays drawn, and pressing it is the same as taking the
+ * quiet way out: what somebody is being asked about is the thing they were
+ * just looking at.
+ */
+export function Asked({
+  title,
+  said,
+  onOut,
+  children,
+}: {
+  /** What is being asked, in the words of the thing it is about. */
+  title: string
+  /** The rest of what they need before they answer. Two sentences at most. */
+  said?: ReactNode
+  /** Pressing the page around the card. Always the answer that changes least. */
+  onOut?: () => void
+  children?: ReactNode
+}) {
+  return (
+    /*
+     * Only the page itself: a press that started on the card is somebody
+     * reading it.
+     */
+    <div
+      className="wf-sure"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={(event) => { if (event.target === event.currentTarget) onOut?.() }}
+    >
+      <div className="wf-sure__card">
+        <h2 className="wf-sure__title">{title}</h2>
+        {said && <p className="wf-sure__said">{said}</p>}
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export function Sure({
   title,
   said,
@@ -86,20 +139,10 @@ export function Sure({
   return (
     /*
      * Pressing the page around the card is the same answer as "Keep it", which
-     * is what `ConfirmDialog` did before this became the one dialog. Only the
-     * page itself: a press that started on the card is somebody reading it.
+     * is what `ConfirmDialog` did before this became the one dialog.
      */
-    <div
-      className="wf-sure"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onClick={(event) => { if (event.target === event.currentTarget) onKeep?.() }}
-    >
-      <div className="wf-sure__card">
-        <h2 className="wf-sure__title">{title}</h2>
-        {said && <p className="wf-sure__said">{said}</p>}
-
+    <Asked title={title} said={said} onOut={onKeep}>
+      <>
         {becomes && becomes.length > 0 && (
           <div className="wf-sure__becomes">
             <span className="wf-sure__lead">What reads differently afterwards</span>
@@ -125,7 +168,7 @@ export function Sure({
             Keep it
           </Button>
         </div>
-      </div>
-    </div>
+      </>
+    </Asked>
   )
 }

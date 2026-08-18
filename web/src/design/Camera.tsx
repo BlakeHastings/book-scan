@@ -122,6 +122,7 @@ export function Viewfinder({
   done = 'Done with this book',
   doneOff = false,
   also,
+  shutterName = 'Take the photograph',
   shutterOff = false,
   hand: fixed,
 }: {
@@ -149,6 +150,17 @@ export function Viewfinder({
   doneOff?: boolean
   /** A second, quieter answer above it, where a screen has one. */
   also?: { word: ReactNode; onPress?: () => void; off?: boolean }
+  /**
+   * What the shutter does, for anybody who cannot see the picture it is over.
+   *
+   * The button is a circle and always will be, so the only word it carries is
+   * this one, and this app has three cameras' worth of shutter with three
+   * different jobs behind it: one keeps a photograph, one works out which book
+   * you are holding, one reads thirteen digits off a barcode. Named rather than
+   * shared, because "Take the photograph" is true of exactly the first and the
+   * two cameras are not allowed to be confusable (#355).
+   */
+  shutterName?: string
   shutterOff?: boolean
   /** Which edge the near cluster is on, where the caller owns that answer. */
   hand?: Hand
@@ -228,7 +240,7 @@ export function Viewfinder({
           <button
             type="button"
             className="wf-shutter"
-            aria-label="Take the photograph"
+            aria-label={shutterName}
             onClick={onShutter}
             disabled={shutterOff}
           >

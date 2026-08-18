@@ -1135,6 +1135,24 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    itself has no such bar, so 100dvh is the whole screen there. */
 .wf-frame ~ .wf-screen--camera { min-height: calc(100dvh - 38px); }
 
+/*
+ * A camera opened from a screen rather than routed to.
+ *
+ * Two of the three are the whole page already: the route table draws one
+ * screen and they are it. The one that reads an ISBN into a field is opened by
+ * the field, through the same `over` slot a dialog arrives in, so it has to
+ * leave that screen the way a dialog does. The same fixed inset and the same
+ * z-index as `.wf-sure` and `.wf-name`, and for the same reason: over the top
+ * bar and the tab bar at 5, under the gallery's own frame at 20.
+ *
+ * The gallery never draws this. A wireframe camera is a screen you go to.
+ */
+.wf-screen--over {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
 .wf-view {
   position: relative;
   flex: 1;
@@ -1294,6 +1312,22 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   text-wrap: balance;
 }
 .wf-view__found--empty { opacity: 0.75; }
+
+/*
+ * The same line where the near cluster is two controls tall and the sentence
+ * is a whole one.
+ *
+ * The offset above clears a shutter and nothing else, which is all the
+ * cataloguing camera needs: what it says there is a title and an author,
+ * short and centred, and the cluster is against the near edge. The two
+ * cameras that keep nothing say sentences there instead, "9780441013593 is not
+ * in the library yet. Add it first." being the long one, and at 414 wide that
+ * runs under the button beside the shutter. Found by looking at it at 414 by
+ * 896, which is the only way this was ever going to be found.
+ */
+.wf-view__found--wide {
+  bottom: calc(var(--s7) + var(--tap) * 2 + var(--s3) + env(safe-area-inset-bottom));
+}
 
 /*
  * Before the camera has been allowed to start.
@@ -3189,8 +3223,25 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  */
 .wf-screen--asked { position: relative; }
 
+/*
+ * Fixed to the glass, which is the third time this has been the answer.
+ *
+ * It was `position: absolute; inset: 0` inside `.wf-screen`, and the comment
+ * above says why that was thought to be enough: the gallery's own bar stays
+ * reachable, and it works because the screens it sat on are about as tall as
+ * the phone. That premise died when the book's own page started asking here
+ * (#387) and again when correcting an ISBN did (#408). That page is a long
+ * scroll, `inset: 0` reaches the whole of it, and the card is then centred in
+ * a document rather than in what somebody is looking at: pressing the camera
+ * on the ISBN field, which is near the top, put the card most of a screen
+ * below the fold. Found by looking at it at 414 by 896.
+ *
+ * `.wf-name` made this trade first and `.wf-corner` made it after #393, which
+ * is the same defect on the corner sheet and has a rule in `design.test.tsx`
+ * pinning it. That rule now covers all three.
+ */
 .wf-sure {
-  position: absolute;
+  position: fixed;
   inset: 0;
   /* Over the top bar and the tab bar, both at 5, and under the gallery's own
      frame at 20. */
@@ -3204,6 +3255,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 @media (min-height: 620px) {
   .wf-sure { align-items: center; }
 }
+
+/* And in the gallery it starts under the frame, which is how the theme is
+   switched and how the index is got back to. The same line `.wf-name` and
+   `.wf-corner` carry, for the same reason. */
+.wf-frame ~ .wf-screen .wf-sure { top: 38px; }
 
 .wf-sure__card {
   width: 100%;

@@ -349,8 +349,19 @@ export function BookDetail({
         }
         /* Over the screen rather than beside it, and the screen underneath is
            drawn in full: what somebody is being asked about is the book they
-           were just looking at. */
-        over={confirmingDelete && onDelete ? (
+           were just looking at.
+
+           Two questions can be asked here and only one at a time. Correcting
+           the ISBN came through this slot with #408, which is what took it out
+           of a fixed overlay of its own: the card it is asked on is positioned
+           inside the screen, the same way the delete question's is. */
+        over={asking ? (
+          <IsbnPrompt
+            initial={draft.isbn13 || draft.isbn10}
+            onCancel={() => setAsking(false)}
+            onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
+          />
+        ) : confirmingDelete && onDelete ? (
           <Sure
             title={`Delete ${draft.title || 'this book'}?`}
             said={
@@ -604,14 +615,6 @@ export function BookDetail({
           </>
         )}
       </Phone>
-
-      {asking && (
-        <IsbnPrompt
-          initial={draft.isbn13 || draft.isbn10}
-          onCancel={() => setAsking(false)}
-          onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
-        />
-      )}
     </div>
   )
 }
