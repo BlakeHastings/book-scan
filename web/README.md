@@ -720,9 +720,26 @@ printed before anything is touched, five seconds before a write, resumable
 because a slot it finished is recorded and a hash it wrote is kept. `--force`
 re-examines slots already looked at and re-hashes fronts already hashed.
 
-Set `GOOGLE_BOOKS_API_KEY` to raise the Google Books quota. It is optional;
-Open Library does the real work and Google anonymous requests start returning
-429 partway through a shelf.
+Set `GOOGLE_BOOKS_API_KEY` to raise the Google Books quota. It is optional, and
+Open Library does the real work, but "optional" turned out to mean the second
+catalogue had never once contributed: without a key every request goes out
+anonymously into a shared quota that is permanently exhausted and comes back
+429, which `docs/catalogue-sources.md` measured as `lookup_source` reading
+`Open Library + Google Books` for zero of 238 books.
+
+It is a secret, so it is stored the way this machine stores its catalogue
+connection and not in a file here or on a command line. The one script that
+writes it prompts for it:
+
+```
+pwsh -File ../scripts/write-connection-file.ps1 -SetGoogleBooksApiKey
+```
+
+The server reads it through `server/secrets.ts` and says on every start whether
+there is one. Either way, `GET /api/health` now carries `lookups`, which counts
+what each catalogue was asked and what it answered, so a source that has gone
+quiet is a thing somebody can find out rather than a thing that is absorbed.
+See `server/source-watch.ts`.
 
 ## Tests
 

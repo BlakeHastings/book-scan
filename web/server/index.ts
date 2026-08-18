@@ -26,6 +26,8 @@ import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 
 import { lookupIsbn, searchTitle } from './lookup'
+import { sourceStandings } from './source-watch'
+import { googleBooksApiKey, googleBooksKeyConfigured } from './secrets'
 import { ReadingTimedOut } from './deadline'
 import { identify, warmOcr } from './identify'
 import { warmPaddle } from './paddle'
@@ -3506,8 +3508,38 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({ books: back.books, work: await outstandingWork(db) })
   }))
 
+  /**
+   * The one command AGENTS.md tells anybody to run against a running server.
+   *
+   * It settled which database was opened. Since #348 it also settles **which
+   * catalogues have answered**, which is the other question about this process
+   * whose wrong answer is invisible from the outside. `lookup_source` read
+   * `Open Library + Google Books` for zero of 238 books because Google Books
+   * answered 429 to every request ever made to it, and nothing anywhere said
+   * so. Now something does.
+   *
+   * `ok` stays `true` when a catalogue is quiet, on purpose. A source being
+   * down is not this server being unhealthy: somebody can still catalogue a
+   * book, which is the whole reason a failed source does not fail a lookup.
+   *
+   * `googleBooksKeyConfigured` is a boolean and will stay one. It answers "is
+   * that why it is quiet" without going anywhere near the key. Nothing here may
+   * grow a length, a prefix or a masked form of it.
+   *
+   * `web/src/lib/api.ts` types this response as `{ ok, counts, db }` and reads
+   * only `counts`. That is left alone deliberately: this is a fact for whoever
+   * curls the server, and the interface has no screen it belongs on.
+   */
   app.get('/api/health', asyncRoute(async (_req, res) => {
-    res.json({ ok: true, counts: await store.counts(), db: options.dbLabel ?? '' })
+    res.json({
+      ok: true,
+      counts: await store.counts(),
+      db: options.dbLabel ?? '',
+      lookups: {
+        googleBooksKeyConfigured: googleApiKey.length > 0,
+        sources: sourceStandings(),
+      },
+    })
   }))
 
   /**
@@ -3685,7 +3717,16 @@ if (isMainModule) {
   const PORT = Number(process.env.PORT ?? 3001)
   const DATA_DIR = resolve(process.env.BOOKSCAN_DATA ?? 'data')
   const COVER_DIR = join(DATA_DIR, 'covers')
-  const GOOGLE_API_KEY = process.env.GOOGLE_BOOKS_API_KEY ?? ''
+  /*
+   * The second catalogue's key, through the one accessor that reads it (#348).
+   *
+   * `server/secrets.ts` says where it comes from and why it comes from there:
+   * the same DPAPI-encrypted file that holds this machine's catalogue
+   * connection, written by `scripts/write-connection-file.ps1`, decrypted by
+   * the launcher into its own process environment and nowhere else. Empty is a
+   * supported state, said out loud below rather than passed over.
+   */
+  const GOOGLE_API_KEY = googleBooksApiKey()
 
   /*
    * Where this server looks for evidence that the catalogue has been backed up
@@ -3738,6 +3779,23 @@ if (isMainModule) {
         BACKUP_DIR
           ? `[api] watching ${BACKUP_DIR} for backups of this catalogue`
           : '[api] no backup directory watched; set BOOKSCAN_BACKUP_DIR to watch one',
+      )
+      /*
+       * Said on every start, both ways round, for exactly the reason the line
+       * above it is (#348). The state it reports was invisible for the whole
+       * life of the catalogue: every Google Books request went out anonymously
+       * into a shared quota that is permanently exhausted, came back 429, and
+       * the second of two catalogues contributed to none of 238 books while
+       * `lookup_source` said nothing was wrong.
+       *
+       * Whether there is a key, never the key. See server/secrets.ts.
+       */
+      console.log(
+        googleBooksKeyConfigured()
+          ? '[api] Google Books: a key is configured'
+          : '[api] Google Books: no key configured. Requests go out anonymously, the shared ' +
+            'anonymous quota is exhausted, and the second catalogue will answer nothing. ' +
+            'See scripts/write-connection-file.ps1 and AGENTS.md.',
       )
     })
   }

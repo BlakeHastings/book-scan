@@ -292,6 +292,16 @@ answered zero times in the life of this catalogue. That is a smaller change than
 this issue by two orders of magnitude, and until it is done nobody knows what
 the two-source baseline actually looks like.
 
+#348 gave the key somewhere to live and gave the silence a voice. The key goes
+in the DPAPI-encrypted file this machine already keeps its catalogue connection
+in, put there by `pwsh -File scripts/write-connection-file.ps1
+-SetGoogleBooksApiKey` and read by the server as `GOOGLE_BOOKS_API_KEY`; a
+source that does not answer is now counted under `lookups` on `/api/health` and
+said once in the log rather than absorbed. Supplying the key is the owner's, and
+the re-measurement that follows it is this document's third act. **Until then
+every number above is one source**, which is now a thing a running server will
+tell you rather than a thing somebody had to go and find.
+
 ## Re-running it
 
 Nothing here is checked in: the harness was four throwaway scripts, deliberately
