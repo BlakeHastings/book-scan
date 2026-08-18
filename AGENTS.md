@@ -509,6 +509,33 @@ stub resolves every barcode, so OCR never ran.
 That is the general lesson and it applies to every suite here: **a passing test
 proves only what it exercises.**
 
+### Measuring how hard the app is to work out
+
+`e2e/ux/` is the other half of a hunting pass, and the difference is that it
+produces numbers. Three tasks stated as somebody's goal, driven one press at a
+time through a harness that counts every press, times the gaps, screenshots each
+step at 414x896 and decides from rows whether the task was actually done.
+
+```
+aspire start --non-interactive     # from the repo root
+cd e2e && npm run ux:prepare       # seed the baseline world
+npm run ux -- open --run <name> --theme light
+npm run ux -- task 1
+```
+
+The tasks and the metric definitions are committed (`e2e/ux/tasks.mjs`,
+`e2e/ux/metrics.md`) rather than typed at an agent, because the point is running
+it again after a change and comparing. **A task never names a screen, a button
+or a route**, and whoever drives it must not read `web/src/` first: both would
+hand over the knowledge the measurement exists to find the absence of.
+
+**Fewer presses is not the goal**, and a fix argued for on press count alone is
+the failure mode this is most likely to cause. A screen collapsing six presses
+into one unlabelled gesture scores better on every count in that file and is
+worse.
+
+The baseline pass is `e2e/ux/runs/baseline-light/report.md` (#388).
+
 ### The end to end suite
 
 `e2e/` holds a browser suite described in Gherkin. It starts the app through

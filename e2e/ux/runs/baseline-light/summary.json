@@ -1,0 +1,168 @@
+{
+  "run": "baseline-light",
+  "theme": "dark",
+  "tasks": [
+    {
+      "task": 1,
+      "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 9,
+        "typedFields": 1,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 6,
+        "screens": 4,
+        "visits": 5,
+        "steps": 18,
+        "wallSeconds": 168.3,
+        "pressingSeconds": 21.2,
+        "notPressingSeconds": 147.1,
+        "lostMoments": [
+          {
+            "step": 5,
+            "screenshot": "task1-step05-lost.png",
+            "words": "I am looking at a screen that draws all three of my bookcases and there is nothing on it, top or bottom, that offers to add a fourth. The only thing left untried is a round icon in the corner drawn as a person's head and shoulders, which reads as an account or profile button, not as furniture.",
+            "screen": "/|Library"
+          },
+          {
+            "step": 13,
+            "screenshot": "task1-step13-lost.png",
+            "words": "I have typed the name and there is one Save on the screen, but it sits inside a different card, the one headed 'Nothing yet: it has no areas on it' with a line reading 'What it will be called'. I cannot tell whether pressing it saves the name I typed or creates a shelf, and the two fields above it have no button of their own.",
+            "screen": "/|Bookcase 5"
+          }
+        ]
+      },
+      "verdict": {
+        "id": 1,
+        "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "a bookcase the world did not have",
+            "ok": true,
+            "saw": "fixture 5"
+          },
+          {
+            "what": "it is recognisable as the hall one",
+            "ok": true,
+            "saw": "name \"Hall\""
+          },
+          {
+            "what": "it has four shelves",
+            "ok": true,
+            "saw": "4 shelf/shelves"
+          }
+        ]
+      }
+    },
+    {
+      "task": 2,
+      "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+      "outcome": "failed",
+      "numbers": {
+        "presses": 20,
+        "typedFields": 2,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 1,
+        "backtrackDetail": [
+          {
+            "screen": "/|Check the details",
+            "steps": 2,
+            "cameFrom": "/|Queue",
+            "firstStep": 19
+          }
+        ],
+        "pressesThatChangedTheWorld": 1,
+        "screens": 8,
+        "visits": 12,
+        "steps": 31,
+        "wallSeconds": 283.7,
+        "pressingSeconds": 46.9,
+        "notPressingSeconds": 236.8,
+        "lostMoments": [
+          {
+            "step": 6,
+            "screenshot": "task2-step06-lost.png",
+            "words": "The app will not let me say comics belong on this shelf: 'A rule can only ask for a tag some book already carries, so tag a book with it first.' My comics are in a box in the hall, not in the app yet, and setting the shelf up before I carry them over is the whole reason I am here. Nothing on screen tells me how to make the tag exist.",
+            "screen": "/|Hall · D"
+          },
+          {
+            "step": 31,
+            "screenshot": "task2-step31-lost.png",
+            "words": "The confirmation said this shelf would stop taking non-fiction overflow and begin a stretch of its own. I pressed Write it down, it answered 'Nothing changed about where the books belong', and the card above it still reads 'Non-fiction, carrying on. Tagged Non-fiction'. Nothing at all was written: I checked the shelf afterwards and it is unchanged.",
+            "screen": "/|Hall · Comics"
+          }
+        ]
+      },
+      "verdict": {
+        "id": 2,
+        "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+        "completed": false,
+        "parts": [
+          {
+            "what": "there is a bottom shelf on the hall bookcase",
+            "ok": true,
+            "saw": "area 16 at position 3"
+          },
+          {
+            "what": "the app records that comics belong there",
+            "ok": false,
+            "saw": "0 rule(s) point at it"
+          },
+          {
+            "what": "nothing that is not a comic stands there",
+            "ok": true,
+            "saw": "0 book(s) there"
+          }
+        ]
+      }
+    },
+    {
+      "task": 3,
+      "goal": "Move every non-fiction book off bookcase 4 and onto bookcase 3, and record that you have carried them.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 21,
+        "typedFields": 0,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 8,
+        "screens": 11,
+        "visits": 16,
+        "steps": 25,
+        "wallSeconds": 171.4,
+        "pressingSeconds": 51.7,
+        "notPressingSeconds": 119.7,
+        "lostMoments": []
+      },
+      "verdict": {
+        "id": 3,
+        "goal": "Move every non-fiction book off bookcase 4 and onto bookcase 3, and record that you have carried them.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "no non-fiction left on bookcase 4",
+            "ok": true,
+            "saw": "0 of 7 still there"
+          },
+          {
+            "what": "every non-fiction book is on bookcase 3",
+            "ok": true,
+            "saw": "7 of 7 on bookcase 3"
+          },
+          {
+            "what": "nothing is still waiting to be carried",
+            "ok": true,
+            "saw": "0 outstanding move(s)"
+          }
+        ]
+      }
+    }
+  ]
+}

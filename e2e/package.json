@@ -9,7 +9,9 @@
     "test:headed": "bddgen && playwright test --headed",
     "test:ui": "bddgen && playwright test --ui",
     "report": "playwright show-report",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "ux:prepare": "node ux/prepare.mjs",
+    "ux": "node ux/drive.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
