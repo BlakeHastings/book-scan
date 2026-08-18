@@ -284,12 +284,12 @@ When('I confirm the details and go to shelve it', async ({ page }) => {
  */
 Then('the placement should read {string}', async ({ page }, text: string) => {
   await expect(
-    page.locator('.placement-view__instruction, .placement__instruction'),
+    page.locator('.wf-instruction'),
   ).toHaveText(text)
 })
 
 Then('the shelf drawing should be labelled {string}', async ({ page }, label: string) => {
-  await expect(page.locator('.strip__label')).toHaveText(label)
+  await expect(page.locator('.wf-shelf__label')).toHaveText(label)
 })
 
 Then(
@@ -333,7 +333,7 @@ Then(
  * that moves, and it is still in your hand, so there is nothing to confirm.
  */
 Then('it should tell me the book itself goes on to {string}', async ({ page }, label: string) => {
-  await expect(page.locator('.moves li').last())
+  await expect(page.locator('.wf-step').last())
     .toContainText(`goes on to ${label}`, { timeout: 30 * 1000 })
 })
 
@@ -348,7 +348,7 @@ Then('it should not ask me to move any other book', async ({ page }) => {
   await expect(page.locator('.shelve__ask')).not.toContainText('Did it fit there?')
   await expect(page.getByRole('button', { name: 'Yes, it fit' })).toHaveCount(0)
   // And one step happened, the one that named the book in hand.
-  await expect(page.locator('.moves li')).toHaveCount(1)
+  await expect(page.locator('.wf-step')).toHaveCount(1)
 })
 
 /**
@@ -360,11 +360,17 @@ Then('it should not ask me to move any other book', async ({ page }) => {
  * for the list to grow is waiting on the condition rather than on a duration.
  * Without it a step asserting against the database races the writes it is
  * asserting about.
+ *
+ * A move that has been made is counted by what it says rather than by a class
+ * (#387): the list is the design system's numbered steps now, and the three
+ * states of a shuffle were only ever legible because each one carries its own
+ * words. "Moved and written down" is the one that means the write landed.
  */
 When('I say the moved book fitted', async ({ page }) => {
-  const made = await page.locator('.moves__placed').count()
+  const done = page.locator('.wf-step', { hasText: 'moved and written down' })
+  const made = await done.count()
   await page.getByRole('button', { name: 'Yes, it fit' }).click()
-  await expect(page.locator('.moves__placed')).toHaveCount(made + 1)
+  await expect(done).toHaveCount(made + 1)
 })
 
 /**
@@ -390,7 +396,7 @@ When('I say there is no room on that one either', async ({ page }) => {
 Then(
   'it should say I am placing {string}, {int} books deep',
   async ({ page }, title: string, deep: number) => {
-    await expect(page.locator('.shelve__where'))
+    await expect(page.locator('.shelve__ask'))
       .toContainText(`Placing ${title}, ${deep} books deep`)
   },
 )
@@ -399,15 +405,24 @@ Then(
  * The step drawn rather than described (#112).
  *
  * The same strip the placing preview uses, on the plank the book is going on,
- * with the gap where it goes and the filing name written down the spine
- * hanging under it. Somebody four levels deep is looking at a shelf, and a
- * picture of the gap is easier to act on than a sentence naming two planks.
+ * with the gap where it goes and the book in your hand named under the board.
+ * Somebody four levels deep is looking at a shelf, and a picture of the gap is
+ * easier to act on than a sentence naming two planks.
+ *
+ * **It is the title under the board now, not the filing name** (#387). The
+ * strip is `Shelf` out of the design system, which has said "In your hand:" and
+ * a book's name under the plank since the gallery first drew a placing screen,
+ * and the name it says is the one somebody is holding rather than the one it
+ * files under. What was there before was a spine hanging out of the row with
+ * the filing name down it, which drew the book in a place the book is not: the
+ * whole point of the hole is that it is still in a hand.
  */
 Then(
   'it should draw the gap for {string} on {string}',
-  async ({ page }, authorFiling: string, label: string) => {
-    await expect(page.locator('.strip__label')).toHaveText(label)
-    await expect(page.locator('.strip__new-author')).toHaveText(authorFiling)
+  async ({ page }, title: string, label: string) => {
+    await expect(page.locator('.wf-shelf__label')).toHaveText(label)
+    await expect(page.locator('.wf-shelf__inhand')).toHaveText(`In your hand: ${title}`)
+    await expect(page.locator('.wf-gap')).toBeVisible()
   },
 )
 
@@ -420,15 +435,15 @@ Then(
  * its own say about where the row is allowed to stop.
  */
 async function whereTheGapIs(page: Page) {
-  await expect(page.locator('.strip__gap')).toBeVisible()
-  return page.locator('.strip__gap').evaluate((gap) => new Promise<{
+  await expect(page.locator('.wf-gap')).toBeVisible()
+  return page.locator('.wf-gap').evaluate((gap) => new Promise<{
     gapLeft: number; gapRight: number
     visibleLeft: number; visibleRight: number
     rowWidth: number; screenWidth: number
     scrollLeft: number
   }>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      const scroller = gap.closest('.strip__scroll') as HTMLElement
+      const scroller = gap.closest('.wf-shelf__scroll') as HTMLElement
       const seen = scroller.getBoundingClientRect()
       const it = gap.getBoundingClientRect()
       resolve({

@@ -55,88 +55,26 @@ html, body {
 }
 .tab--on { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
 
-/* --- Placement card, the main event ----------------------------------- */
+/*
+ * The placement card and its three neighbour rows were here (#387).
+ *
+ * What answers a placement is the drawing: the run of books with the hole in
+ * it, which is `Shelf` out of the design system and is what every screen on the
+ * path to a shelf now shows. The card was what the app said when the server
+ * sent no run to draw, and it says the same three things out of `Instruction`,
+ * `List` and `Row`: the sentence, the two books either side, and the one going
+ * between them.
+ */
 
-.placement {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 16px;
-}
-.placement--saved { border-left-color: var(--good); }
+/*
+ * A placement on screen that is known to be out of date.
+ *
+ * The one thing here that is about state rather than about drawing, and the
+ * reason it stays: a placement that has been superseded names a real plank and
+ * cannot be told from a current one by reading it, so it dims while the answer
+ * it is made of is fetched again. See `ReviewScreen.tsx`, which says the same.
+ */
 .placement--stale { opacity: 0.55; transition: opacity 120ms; }
-.placement--empty { border-left-color: var(--line); color: var(--muted); }
-.placement--empty p { margin: 0; font-size: 14px; }
-
-.placement__range {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 11px;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.placement__instruction {
-  font-size: 21px;
-  line-height: 1.3;
-  font-weight: 600;
-}
-
-.placement__neighbours {
-  margin-top: 14px;
-  display: grid;
-  gap: 8px;
-}
-.neighbour {
-  display: grid;
-  grid-template-columns: 54px 44px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--panel-2);
-  border-radius: 8px;
-  font-size: 14px;
-}
-.neighbour--target {
-  grid-template-columns: 54px 1fr;
-  border: 1px dashed var(--accent);
-  background: transparent;
-}
-.neighbour__label { color: var(--muted); font-size: 12px; }
-
-.neighbour__photo {
-  width: 44px;
-  height: 58px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  display: grid;
-  place-items: center;
-}
-.neighbour__photo img { width: 100%; height: 100%; object-fit: cover; }
-.neighbour__nophoto {
-  font-size: 9px;
-  color: var(--muted);
-  text-align: center;
-  line-height: 1.1;
-}
-
-.neighbour__text { display: grid; gap: 1px; min-width: 0; }
-.neighbour__title {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.neighbour__author { color: var(--muted); font-size: 13px; }
-.neighbour__loc {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  color: var(--accent);
-}
-.neighbour__none { color: var(--muted); font-style: italic; grid-column: 2 / -1; }
 
 /* --- Full-screen camera ----------------------------------------------- */
 
@@ -822,23 +760,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
     16px 2px, 2px 32px;
 }
 
-/* Thumbnails frame a spine and a cover differently, because the useful part
-   of each is in a different place. A spine carries its title at the top; a
-   cover reads best from the middle. */
-.thumb { width: 100%; height: 100%; object-fit: cover; }
-.thumb--edge { object-position: center top; }
-.thumb--front, .thumb--back { object-position: center center; }
-
-/* The physical to-do list that a boundary change creates. */
-.moves {
-  background: rgba(224, 175, 104, 0.12);
-  border: 1px solid var(--warn);
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 14px;
-  font-size: 14px;
-}
-
 /* Destructive actions read as destructive, and never as the primary button. */
 .btn--danger {
   background: var(--bad);
@@ -847,15 +768,15 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   font-weight: 600;
 }
 
-
-.shelve__ask {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 14px;
-  margin-bottom: 14px;
-}
-.shelve__ask p { margin: 0 0 10px; }
+/*
+ * The neighbour thumbnails, the shuffle's tinted box and the box the shelving
+ * step asks its question in were here (#387).
+ *
+ * All three are the design system's now. The box the question is asked in is a
+ * `Card`, which is what it already looked like under `.wf`; the shuffle is a
+ * `Card` with the news in its title, because the tint was the only thing saying
+ * it was a job and a colour is never the only thing that says anything here.
+ */
 
 /* Derived, so shown rather than offered for editing. */
 .readonly {
@@ -947,209 +868,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   overflow-wrap: anywhere;
 }
 
-/* --- The shelf, drawn end on ------------------------------------------- */
-
-.strip { margin-bottom: 16px; }
-
-.strip__head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.strip__label {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--accent);
-}
-.strip__counts { font-size: 13px; color: var(--muted); }
-
-/* A full shelf is wider than a phone. Scroll it rather than shrinking the
-   spines to the point where nothing on them can be read, and never wrap it:
-   a break in a run means "new area" everywhere else here, so a wrapped row
-   would draw furniture that is not in the room.
-
-   Native overflow, no drag handler. The browser decides from the first few
-   pixels of a gesture which axis it belongs to and hands the other one to
-   the page, which is what stops a row fighting the page scroll. Snapping is
-   proximity rather than mandatory: it settles a flick on a whole book
-   instead of a sliver, without refusing to stop where a slow drag stopped.
-   overscroll-behavior-x keeps a swipe that runs off the end of a row from
-   turning into the browser's back gesture. */
-.strip__scroll {
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 4px;
-  -webkit-overflow-scrolling: touch;
-  scroll-snap-type: x proximity;
-  overscroll-behavior-x: contain;
-  /* Cancels the grid's own 2px inset, so the first book's snap position is
-     scrollLeft 0 and a row at rest is genuinely at its start. */
-  scroll-padding-left: 2px;
-  /* A faded edge says the run carries on that way, which is the only signal
-     there is: iOS shows no scrollbar. So it is only drawn on an edge that
-     really does have books beyond it, measured by the component. Both widths
-     are zero by default, which collapses the gradient to a hard opaque
-     rectangle rather than dimming the first book of every row for nothing. */
-  --fade-left: 0px;
-  --fade-right: 0px;
-  mask-image: linear-gradient(
-    90deg,
-    transparent 0, #000 var(--fade-left),
-    #000 calc(100% - var(--fade-right)), transparent 100%
-  );
-}
-.strip__scroll--more-left { --fade-left: 14px; }
-.strip__scroll--more-right { --fade-right: 14px; }
-
-/* Row 1 the shelf, row 2 the plank it stands on, row 3 the book in hand.
-   One grid, so the gap and the book below it cannot drift apart. */
-.strip__grid {
-  display: grid;
-  /* The third row is auto so it collapses to nothing for a book that is
-     already shelved, where there is no book hanging below the plank. */
-  grid-template-rows: 132px 0 auto;
-  grid-auto-columns: 34px;
-  align-items: end;
-  gap: 0 3px;
-  width: max-content;
-  min-width: 100%;
-  padding: 0 2px;
-}
-
-.spine {
-  grid-row: 1;
-  position: relative;
-  height: 100%;
-  border-radius: 3px 3px 2px 2px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Aligned to the start rather than the centre, so scrollLeft 0 is itself a
-     snap point and a row at rest is not nudged 3px off its first book. */
-  scroll-snap-align: start;
-  /* A spine is a button in the library and a drawing in the shelving step.
-     These reset the button so the two look identical. */
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  color: inherit;
-  -webkit-appearance: none;
-  appearance: none;
-}
-/* A book whose photo is on file, so it can be found by eye. */
-.spine--known { border-color: rgba(255, 255, 255, 0.45); }
-
-/* Tappable, and it has to read that way at 34px wide with no room for a
-   label. Pressing it lifts the book off the shelf a little. */
-.spine--tap { cursor: pointer; transition: transform 90ms ease-out; }
-.spine--tap:active { transform: translateY(-3px); opacity: 0.85; }
-.spine--tap:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-/* No spine photo on file, so this is a cover standing in for one. Marked
-   rather than passed off as a spine: books catalogued before the spine slot
-   existed have none, and a cover seen end on is not what is on the shelf. */
-.spine--cover { border-style: dashed; border-color: rgba(255, 255, 255, 0.3); }
-
-.spine__photo { width: 100%; height: 100%; object-fit: cover; }
-.spine__photo--edge { object-position: center top; }
-.spine__photo--front, .spine__photo--back { object-position: center center; }
-
-/* Down the spine, the way it is printed. */
-.spine__author {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  font-size: 11px;
-  color: var(--muted);
-  max-height: 96px;
-  overflow: hidden;
-  white-space: nowrap;
-  padding-top: 6px;
-}
-
-.spine__no {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  text-align: center;
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.75);
-  background: rgba(0, 0, 0, 0.55);
-  line-height: 13px;
-}
-
-/* The space to open up. Red, because it is the one thing to act on. */
-.strip__gap {
-  grid-row: 1;
-  height: 100%;
-  border: 2px dashed var(--bad);
-  border-radius: 3px;
-  background: rgba(247, 118, 142, 0.1);
-  /* A snap point of its own, or the row cannot come to rest showing it.
-     Snapping is what settles a flick on a whole book, and the browser applies
-     it to a programmatic scroll too: the component scrolls the gap into view,
-     the snap engine then pulls the row to the nearest snap position, and every
-     one of those belonged to a spine. For a gap in the middle that costs
-     nothing, because a spine snap point is never more than one book away. For
-     a gap at the very start it was the bug in #119: the gap takes column 1,
-     every book shifts along, so scrollLeft 0 stopped being a snap position and
-     the row settled one book in with the gap scrolled off the left edge
-     entirely. Aligned to the start, matching the spines, which puts the first
-     gap's snap position at scrollLeft 0. */
-  scroll-snap-align: start;
-}
-
-.strip__shelf {
-  grid-row: 2;
-  grid-column: 1 / -1;
-  border-top: 3px solid var(--line);
-  margin: 0 -2px;
-}
-
-/* Hanging below the plank, directly under its gap. */
-.strip__new {
-  grid-row: 3;
-  align-self: start;
-  margin-top: 8px;
-  height: 84px;
-  border-radius: 2px 2px 3px 3px;
-  border: 2px solid var(--bad);
-  background: rgba(247, 118, 142, 0.14);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.strip__new-author {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  max-height: 76px;
-}
-
-.placement-view__instruction {
-  font-size: 19px;
-  line-height: 1.3;
-  font-weight: 600;
-  margin: 0 0 14px;
-}
-
-/* Already on the shelf, and in the right place. Green because there is
-   nothing to do, unlike the red gap which is an instruction. */
-.spine--here {
-  border: 2px solid var(--good);
-  box-shadow: 0 0 0 2px rgba(134, 209, 154, 0.25);
-}
-.spine--here .spine__no { background: var(--good); color: #0b1a10; font-weight: 700; }
-
 /*
  * The read-only book, its facts table and the `<details>` the rest of it hid
  * behind were here (#387). The record is `Head` and `Actions` out of the design
@@ -1169,29 +887,72 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
  * answer it is about.
  *
  * What did not go is `.isbncam__choices` and the `.choice` rows under it,
- * further down. The shortlist a cover match produces and the "already in the
- * queue" panel are drawn by nothing in the wireframe, so they are still drawn
- * by this, and the cataloguing camera draws the second of them too.
+ * further down. The shortlist a cover match produces is drawn by nothing in
+ * the wireframe, so it is still drawn by this.
+ *
+ * The "already in the queue" panel used to be under there with it (#387). What
+ * is inside it is `Card` and `Queued` now, which is the same component the
+ * queue screen draws the same waiting book with; only where it floats over the
+ * picture is still the app's, below.
  */
 
-.moves ol { margin: 8px 0 0; padding-left: 22px; }
-.moves li { margin-bottom: 5px; }
-/* Three states, because a deep shuffle has all three at once: books already
-   put down, the one being asked about, and the ones still in the air waiting
-   to be asked about again on the way back up. Only the last two are jobs
-   still to do, so only the confirmed ones recede. */
-.moves__placed, .moves__carried { color: var(--muted); }
-.moves__asking { color: var(--text); }
-.moves__asking::marker { color: var(--accent); font-weight: 700; }
-.moves__waiting { color: var(--text); }
-.moves__state { color: var(--muted); font-size: 13px; }
+/*
+ * "This is already in the queue", floating over a live camera.
+ *
+ * Position and nothing else. No wireframe screen has an answer over a picture,
+ * so where it sits is the app's business the way the camera's own error line
+ * and toast are, and `Viewfinder`'s `over` slot exists to be handed exactly
+ * this. Everything inside is the design system's.
+ *
+ * The offset clears the bottom band on both cameras: a shutter with a button
+ * stacked above it on one, and the same again with a rail of photographs beside
+ * it on the other.
+ */
+.queued {
+  position: absolute;
+  left: 10px; right: 10px;
+  bottom: 200px;
+  max-height: 44%;
+  overflow-y: auto;
+}
 
-/* How far in you are, above the question, because four books deep with a
-   re-descent in it is not something anybody is holding in their head. */
-.shelve__where {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: var(--accent);
+/* The cataloguing camera has a rail of photographs under this, and they float
+   too, so this one has to say which is on top. */
+.queued--incam { z-index: 3; }
+
+/* Every answer below is held against the same picture, so it goes above them
+   and stays there while they scroll. */
+.queued__shot {
+  display: block;
+  width: 46px;
+  height: 62px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-sunk);
+}
+
+/* A frame still being shrunk, which is a placeholder rather than an absence. */
+.queued__shot--waiting {
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--ink-2);
+}
+
+/* The whole row is the target, and the button around it adds nothing of its
+   own: what a waiting book looks like is `Queued`'s, on this screen and on the
+   queue, and a second box around it here would be the difference. */
+.queued__pick {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
 }
 
 /* --- What is quoted beside a form -------------------------------------- */
@@ -1471,76 +1232,16 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .choice__state { font-size: 11px; color: var(--warn); }
 .choice__note { font-size: 11px; color: var(--muted); font-style: italic; }
 
-/* --- The shelving step, on the paper it is drawn on -------------------- */
+/* --- What is left of two stylesheets meeting --------------------------- */
 
 /*
- * The one place two stylesheets deliberately meet.
+ * Twenty-one rules stood here and one does (#387).
  *
- * `ShelfStrip` draws the same shelf on two screens: the shelving step, which
- * wears the design system since #316, and the library, which does not yet.
- * The drawing itself is right on both, so what differs is only the paper it is
- * on, and repainting it for everybody would leave warm spines on the app's
- * cold page until the library is converted too.
- *
- * So this block is scoped to `.wf` and is the whole of the overlap: the same
- * shapes, in the design system's ink. It goes when the library screen lands,
- * and then these rules move up into the ones above them.
+ * They were the app's own shapes repainted in the design system's ink for
+ * wherever a converted screen still contained one: the placing strip and its
+ * spines, the box the shelving step asked its question in, the shuffle and its
+ * three states. Every one of those is drawn by `src/design` now and arrives in
+ * the right ink already, so the overlap is one quiet line, which the queue
+ * still draws with.
  */
-.wf .shelve__ask {
-  background: var(--paper-raised);
-  border-color: var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--lift-1);
-  padding: var(--s4);
-}
-
-.wf .placement-view__instruction {
-  font-family: var(--face-book);
-  font-size: var(--size-title);
-  font-weight: 600;
-  text-wrap: balance;
-}
-
-.wf .strip__label { color: var(--ink); }
-.wf .strip__counts { color: var(--ink-2); }
-
-.wf .spine {
-  background: var(--paper-sunk);
-  border-color: var(--line-strong);
-  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
-}
-.wf .spine--known { border-color: var(--line-strong); }
-.wf .spine--cover { border-style: dashed; border-color: var(--line-strong); }
-.wf .spine__author { color: var(--ink-2); }
-.wf .spine__no { color: var(--ink-on-fill); background: rgba(51, 42, 34, 0.6); }
-.wf .spine--tap:focus-visible { outline: none; box-shadow: var(--focus); }
-
-/* The space to open up, and the book waiting to go into it. Plum rather than
-   red: this is where the book goes, not a warning about it. */
-.wf .strip__gap {
-  border-color: var(--plum);
-  background: var(--plum-wash);
-}
-.wf .strip__new {
-  border-color: var(--plum);
-  background: var(--plum-wash);
-}
-.wf .strip__new-author { color: var(--ink); }
-.wf .strip__shelf { border-top-color: var(--board-edge); }
-
-/* Already on the shelf and in the right place, which is the end of the
-   journey rather than an instruction. */
-.wf .spine--here {
-  border: 2px solid var(--moss);
-  box-shadow: 0 0 0 2px var(--moss-wash);
-}
-.wf .spine--here .spine__no { background: var(--moss); color: var(--ink-on-fill); }
-
-.wf .moves__placed,
-.wf .moves__carried,
-.wf .moves__state { color: var(--ink-2); }
-.wf .moves__asking,
-.wf .moves__waiting { color: var(--ink); }
-.wf .moves__asking::marker { color: var(--wood-2); }
-
 .wf .hint { color: var(--ink-2); }

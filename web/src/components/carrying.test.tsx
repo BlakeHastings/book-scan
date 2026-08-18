@@ -78,9 +78,15 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
    * neighbours, the area with the gap in it, the book in the hand under the
    * board, and the answer a person standing at the shelf gives. Anything that
    * reorders or drops one is a second implementation whatever it is spelled as.
+   *
+   * **They are the gallery's own marks now** (#387). This checked the app's
+   * four class names against the gallery's four, which is two lists that have
+   * to be kept in step by somebody remembering to; the placing strip is drawn
+   * by `Shelf` now, so `design.test.tsx` and this file look for the same
+   * strings and a change to one is caught in both.
    */
   it('draws the same four things in the same order, once', () => {
-    const marks = ['placement-view__instruction', 'strip__gap', 'strip__new', 'btn--primary']
+    const marks = ['wf-instruction', 'wf-gap', 'wf-shelf__inhand', 'wf-btn--primary']
 
     const markup = renderToStaticMarkup(
       <ShelveView
@@ -104,7 +110,7 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
     const drawing = sources(HERE)
       .concat(sources(join(HERE, '..', 'screens')))
       .filter((path) => !/\.test\./.test(path))
-      .filter((path) => /<ShelfStrip|strip__gap/.test(readFileSync(path, 'utf8')))
+      .filter((path) => /<ShelfStrip|placing\(/.test(readFileSync(path, 'utf8')))
       .map((path) => path.split(/[\\/]/).pop())
 
     expect(new Set(drawing), 'somebody has drawn a second placing strip')

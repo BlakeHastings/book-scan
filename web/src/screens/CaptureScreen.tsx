@@ -389,7 +389,7 @@ export function CaptureScreen() {
                 not something a camera can know. */}
             <QueuedAlready
               matches={queueDuplicates}
-              className="isbncam__choices--incam"
+              className="queued--incam"
               note={
                 'Open it to go and finish it, which drops what was just photographed. '
                 + 'Carry on if this is a second copy.'

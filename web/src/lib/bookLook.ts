@@ -97,9 +97,43 @@ export function standing(
   id: number,
   onOpen?: (id: number) => void,
 ): ShelfItem[] {
-  const row: ShelfItem[] = strip.books.map((one) => asSpine(one, {
-    here: one.id === id,
-    onOpen: one.id === id ? undefined : onOpen,
+  return run(strip, (book) => book.id === id, onOpen)
+}
+
+/**
+ * The run a book is being put into, with the hole it is going in.
+ *
+ * The other end of the same drawing, and deliberately the same function. The
+ * book's own page marks the book it is about; the placing step marks the space
+ * a book in somebody's hand is about to stand in. One says which book by its
+ * id, because that is what it holds; the other says which by where it sits in
+ * the row, because until somebody writes it down the book has no id in that row
+ * at all. Everything after that is identical, and a second copy of it is how
+ * one drawing of a shelf becomes two.
+ */
+export function placing(
+  strip: PlacementStrip,
+  onOpen?: (id: number) => void,
+): ShelfItem[] {
+  return run(strip, (_book, index) => strip.placedIndex === index, onOpen)
+}
+
+/**
+ * A run of spines with one of them marked, and a hole where the marked one is
+ * not standing yet.
+ *
+ * The marked book is never a way back to itself: it is already the book on
+ * screen, so it is drawn rather than offered. Every other spine is a step along
+ * the shelf, wherever the caller has somewhere for it to go.
+ */
+function run(
+  strip: PlacementStrip,
+  here: (book: StripBook, index: number) => boolean,
+  onOpen?: (id: number) => void,
+): ShelfItem[] {
+  const row: ShelfItem[] = strip.books.map((book, index) => asSpine(book, {
+    here: here(book, index),
+    onOpen: here(book, index) ? undefined : onOpen,
   }))
 
   if (strip.placedIndex !== null) return row
