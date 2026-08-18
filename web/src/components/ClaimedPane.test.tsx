@@ -92,6 +92,7 @@ const area = (over: Partial<AreaDto> = {}): AreaDto => ({
   entry: false,
   rule: rule(),
   own: [],
+  gone: false,
   ...over,
 })
 
@@ -105,7 +106,7 @@ const piece = (over: Partial<FixtureDto> = {}): FixtureDto => ({
   note: '',
   books: 3,
   areas: [area()],
-  sharing: [],
+  sharing: [], gone: [],
   holds: 'Anything tagged Non-fiction',
   rule: rule(),
   own: [rule()],

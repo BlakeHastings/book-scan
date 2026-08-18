@@ -22,7 +22,11 @@ import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
 import { applyRunMove, planRunMove } from './relocate-run'
-import { addAreaTo, addFixture } from './furniture'
+import {
+  addAreaTo, addFixture, booksInArea, booksOnFixture, describeFurniture, planAreaRemoval,
+  type DescribedFixture,
+} from './furniture'
+import { outstandingWork } from './carry'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
@@ -350,5 +354,134 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
     expect(planned.plan.emptied).toEqual([
       expect.objectContaining({ name: 'Hall', planks: 4 }),
     ])
+  })
+})
+
+/**
+ * #401: the bookcase that read as empty while fifty books were standing on it.
+ *
+ * On the owner's own catalogue, in the same second:
+ *
+ *     GET /api/fixtures  ->  Bookshelf 4 (0 areas, 0 books)
+ *     GET /api/carry     ->  46 books, "Bookshelf 4 · A" to "Bookshelf 2 · E"
+ *
+ * The state is legitimate and it is the one this file already builds: moving a
+ * stretch of books off a bookcase retires every one of its areas, because the
+ * ledger names them, and nobody has carried a book yet, so every book is still
+ * recorded on the areas that were retired. **The carry list was right.** Its
+ * read is `areaFaces`, which walks every area there has ever been. The fixture
+ * read walked the face, `position >= 0`, and hung the per-area book count off
+ * it, so fifty books were counted by nothing that draws furniture.
+ *
+ * What this holds to is that the two are now one answer rather than two that
+ * agree today. Every count below comes from `areasStanding`, which is the only
+ * statement left in the app that counts the books standing on an area, and it
+ * does not know what a retired area is.
+ *
+ * **Retiring is untouched and must stay** (#307, #391). The areas are still off
+ * the face, still not in `fixture.areas`, still not boundaries, and nothing here
+ * deletes one. What changed is that a piece of furniture accounts for the books
+ * standing on it whatever became of the area holding them.
+ */
+describe('the bookcase a stretch of books was moved off, before anybody carries one', () => {
+  /** Bookcase 4 as `/api/fixtures` answers it, after the move and no carrying. */
+  async function bookcaseFour(): Promise<DescribedFixture> {
+    const room = await describeFurniture(db)
+    const four = room.fixtures.find((one) => one.position === 4)
+    if (!four) throw new Error('bookcase 4 is not in the room')
+    return four
+  }
+
+  beforeEach(async () => {
+    await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+  })
+
+  it('is the two answers the owner saw, and they are now the same number', async () => {
+    const four = await bookcaseFour()
+    const work = await outstandingWork(db)
+    const carrying = work.trips.reduce((total, trip) => total + trip.books.length, 0)
+
+    // The list that was right, unchanged: fifty books, off bookcase 4's areas.
+    expect(carrying).toBe(50)
+    expect(work.trips.map((trip) => trip.from)).toEqual(['4A', '4B', '4C'])
+    expect(work.trips.map((trip) => trip.to)).toEqual(['3A', '3B', '3C'])
+
+    // The answer that was wrong. Nought areas is still true: they were taken
+    // off the face and the face is what `areas` is. Nought books was not.
+    expect(four.areas).toEqual([])
+    expect(four.books).toBe(carrying)
+  })
+
+  it('names the areas that were taken out, with the books standing on each', async () => {
+    const four = await bookcaseFour()
+
+    expect(four.gone.map((area) => [area.label, area.books]))
+      .toEqual([['4A', 8], ['4B', 20], ['4C', 22]])
+    expect(four.gone.every((area) => area.gone)).toBe(true)
+    // Off the face and staying off it: nothing here puts one back on the piece.
+    expect(four.areas).toEqual([])
+  })
+
+  it('lists every one of those books on the piece itself', async () => {
+    const four = await bookcaseFour()
+    const on = await booksOnFixture(db, four.id)
+    if (!on.ok) throw new Error(on.error)
+
+    expect(on.fixture.books).toBe(50)
+    expect(on.books).toHaveLength(50)
+  })
+
+  it('opens the area they are standing on rather than answering that there is none',
+    async () => {
+      const four = await bookcaseFour()
+      const first = four.gone[0]!
+
+      const read = await booksInArea(db, first.id)
+      if (!read.ok) throw new Error(read.error)
+
+      expect(read.area.label).toBe('4A')
+      expect(read.area.books).toBe(8)
+      expect(read.area.gone).toBe(true)
+      expect(read.books).toHaveLength(8)
+    })
+
+  /*
+   * The area is off the face, so there is nothing on the piece to take it off.
+   * Removing it is refused exactly as it was, which is the half of #307 that
+   * this issue must not weaken: the row is pinned by the placements naming it.
+   */
+  it('still refuses to remove an area that is already off the piece', async () => {
+    const four = await bookcaseFour()
+
+    const planned = await planAreaRemoval(db, four.gone[0]!.id)
+    expect(planned.ok).toBe(false)
+  })
+
+  it('empties the piece as the books are carried, one answer at a time', async () => {
+    const work = await outstandingWork(db)
+    const trip = work.trips[0]!
+
+    for (const book of trip.books) await store.setLocation(book.id, trip.to)
+
+    const four = await bookcaseFour()
+    expect(four.books).toBe(42)
+    expect(four.gone.map((area) => [area.label, area.books]))
+      .toEqual([['4B', 20], ['4C', 22]])
+
+    // An area nothing is standing on any more is not drawn at all. The row is
+    // still there, pinned by the ledger; it is not furniture and not a leftover
+    // somebody has to dismiss.
+    expect(four.gone.map((area) => area.label)).not.toContain('4A')
+  })
+
+  it('leaves the bookcase the books are going to reading as it should', async () => {
+    const room = await describeFurniture(db)
+    const three = room.fixtures.find((one) => one.position === 3)!
+
+    expect(three.areas.map((area) => area.label)).toEqual(['3A', '3B', '3C'])
+    expect(three.gone).toEqual([])
+    // Nobody has carried anything, so nothing is standing on it yet, and that
+    // is the honest nought: these two zeros are different facts.
+    expect(three.books).toBe(0)
   })
 })

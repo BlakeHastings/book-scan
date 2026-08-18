@@ -55,16 +55,24 @@ const NAMED: Record<ShelfRange, string> = {
  * stretch's own: a bookcase holds one stretch of books, and the server refuses a
  * destination with areas already on it rather than merging two.
  *
+ * **A piece with books still standing on it is taken too**, even with nothing on
+ * its face (#401). That is exactly the bookcase a stretch of books was moved off
+ * and nobody has carried yet: its areas are gone and forty-six books are on it,
+ * and offering it as "Nothing on it yet" would send a second stretch of books to
+ * a bookcase that is full.
+ *
  * The one it is on now is offered, and is where the picker starts. Choosing it
  * is a real answer, and the plan says so in words rather than the screen hiding
  * the option and leaving somebody to wonder where it went.
  */
 export function destinationsFor(
-  pieces: readonly { position: number; areas: readonly unknown[] }[],
+  pieces: readonly { position: number; areas: readonly unknown[]; books: number }[],
   livesOn: number,
 ): Destination[] {
   const taken = new Set(
-    pieces.filter((piece) => piece.areas.length > 0).map((piece) => piece.position),
+    pieces
+      .filter((piece) => piece.areas.length > 0 || piece.books > 0)
+      .map((piece) => piece.position),
   )
   const standing = new Set(pieces.map((piece) => piece.position))
   const highest = pieces.reduce((most, piece) => Math.max(most, piece.position), 0)

@@ -617,6 +617,30 @@ plank moves that were already there, and drawn on the plan screen. That is
 [#307](https://github.com/BlakeHastings/book-scan/issues/307)'s shape applied to
 furniture rather than to books.
 
+### A bare piece is not an empty one, and it says how many books are on it
+
+The bookcase a move leaves bare still has every one of its books standing on it,
+because a move records where books belong and a person carries them. So the room,
+the piece's own page and the plan all have to account for those books while none
+of the planks holding them is on a face any more.
+
+They did not, and
+[#401](https://github.com/BlakeHastings/book-scan/issues/401) is what that read
+like: `GET /api/fixtures` answered "Bookshelf 4, 0 areas, 0 books" in the second
+`GET /api/carry` was answering "46 books, Bookshelf 4 · A to Bookshelf 2 · E".
+The carrying list was right.
+
+Three rules follow, and none of them weakens retiring:
+
+- **A piece of furniture accounts for every book standing on it**, whatever
+  became of the plank holding it. Its count is over every area it has ever had.
+- **A retired plank with books on it is named as one that was taken out**,
+  separately from the face, so a person can reach those books. One with nothing
+  standing on it is not drawn: the row exists because the ledger names it, not
+  because it is furniture.
+- **A piece with books standing on it is not a free destination**, even with
+  nothing on its face. It is the fullest bookcase in the room.
+
 ### Planning it writes nothing, and applying it moves no books
 
 Two steps and they are one idea, so neither is useful alone.

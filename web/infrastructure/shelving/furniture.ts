@@ -40,6 +40,7 @@
 
 import type { SortStrategy } from '../../domain/placement/strategies'
 import type { Db } from '../../server/driver'
+import { areasStanding } from './areas'
 
 /** A fixture as the rows hold it. */
 export interface FixtureRow {
@@ -62,6 +63,11 @@ export interface AreaRow {
   sortStrategy: SortStrategy
   note: string
   books: number
+  /**
+   * True when it has been taken off the face and the row kept, which is what
+   * `retiredPosition` records. `position` is the plank it still is.
+   */
+  gone: boolean
 }
 
 interface RawFixture {
@@ -72,17 +78,6 @@ interface RawFixture {
   name: string
   sort_strategy: SortStrategy
   note: string
-}
-
-interface RawArea {
-  id: number
-  fixture_id: number
-  position: number
-  name: string
-  starts_at: string
-  sort_strategy: SortStrategy
-  note: string
-  books: number
 }
 
 /**
@@ -110,28 +105,42 @@ export async function fixturesOnTheFloor(db: Db): Promise<FixtureRow[]> {
 }
 
 /**
- * Every area on a face, in the order it sits, with its book count.
+ * Every area there has ever been, in the order it sits, with its book count.
  *
  * The count is `books.current_area_id`, which is the projection of the ledger
  * and therefore what a person would find if they walked to the plank: an
  * assignment nobody has acted on does not move a book and does not count here.
+ *
+ * **It comes from `areasStanding` rather than from a statement of its own**, and
+ * that is #401. This file used to hang the count off a read that filtered
+ * `position >= 0`, so a book standing on a retired plank was counted by nothing
+ * the room, a piece or an area draws, while the carry list counted it correctly
+ * out of the other read. One statement now answers both.
+ */
+export async function everyArea(db: Db): Promise<AreaRow[]> {
+  return (await areasStanding(db)).map((area) => ({
+    id: area.id,
+    fixtureId: area.fixtureId,
+    position: area.position,
+    name: area.name,
+    startsAt: area.startsAt,
+    sortStrategy: area.sortStrategy,
+    note: area.note,
+    books: area.books,
+    gone: area.gone,
+  }))
+}
+
+/**
+ * The same, narrowed to the areas that are on a face.
+ *
+ * Which is what everything that **draws** a piece of furniture wants: a retired
+ * plank is not on the piece, and putting one back into this list would put a
+ * boundary back into every run derived from it. What a retired plank still has
+ * is books standing on it, and that is `everyArea`'s to answer.
  */
 export async function areasOnFaces(db: Db): Promise<AreaRow[]> {
-  const rows = await db.all<RawArea>(
-    `SELECT a.id, a.fixture_id, a.position, a.name, a.starts_at, a.sort_strategy, a.note,
-            (SELECT count(*) FROM books b WHERE b.current_area_id = a.id) AS books
-       FROM area a WHERE a.position >= 0 ORDER BY a.fixture_id, a.position`,
-  )
-  return rows.map((row) => ({
-    id: Number(row.id),
-    fixtureId: Number(row.fixture_id),
-    position: Number(row.position),
-    name: row.name,
-    startsAt: row.starts_at,
-    sortStrategy: row.sort_strategy,
-    note: row.note,
-    books: Number(row.books),
-  }))
+  return (await everyArea(db)).filter((area) => !area.gone)
 }
 
 /** One fixture, or nothing when the id names a retired one or none at all. */
@@ -142,6 +151,17 @@ export async function fixtureOnTheFloor(db: Db, id: number): Promise<FixtureRow 
 /** One area on a face, or nothing when it has been retired or never existed. */
 export async function areaOnAFace(db: Db, id: number): Promise<AreaRow | null> {
   return (await areasOnFaces(db)).find((one) => one.id === id) ?? null
+}
+
+/**
+ * One area whatever has become of it, or nothing when no such row exists.
+ *
+ * For the reads that are about the books rather than about the furniture. An
+ * area's own page is one: forty-six books standing on a plank somebody took out
+ * is a page that has to open, and `areaOnAFace` answers 404 for it.
+ */
+export async function anyArea(db: Db, id: number): Promise<AreaRow | null> {
+  return (await everyArea(db)).find((one) => one.id === id) ?? null
 }
 
 /** The one row everything hangs off, or nothing on a database with no schema. */

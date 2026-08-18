@@ -313,12 +313,52 @@ interface PlankRow {
   fixture_id: number
   fixture_position: number
   fixture_name: string
+  fixture_kind: string
   position: number
   name: string
+  starts_at: string
+  sort_strategy: SortStrategy
+  note: string
+  books: number
 }
 
 /**
- * Every area there has ever been, with what it reads as and where it stands.
+ * One area, whatever has become of it: what it reads as, where it stands,
+ * whether it is still on a face, and what is standing on it.
+ */
+export interface StandingArea extends AreaFace {
+  id: number
+  fixtureName: string
+  fixtureKind: string
+  /** The plank it is, decoded, so a retired `4A` is still an `A`. */
+  position: number
+  name: string
+  startsAt: string
+  sortStrategy: SortStrategy
+  note: string
+  /** True when it has been taken off the face and the row kept. */
+  gone: boolean
+  /** Books standing on it, which is where somebody last said they were. */
+  books: number
+}
+
+/**
+ * Every area there has ever been, with what it reads as, where it stands, and
+ * how many books are standing on it.
+ *
+ * **This is the one answer to "where are the books".** It was two, and #401 is
+ * what that cost. The face reads filter `position >= 0`, which is right for
+ * drawing a piece of furniture and is wrong for counting what is on it, and the
+ * per-area count used to be a subquery hanging off one of them: so a bookcase
+ * whose planks had all been retired by a run move reported nought areas and
+ * nought books while the carry list, which reads this function, named `4A` as
+ * the place forty-six books were leaving. Both answers came out of the same
+ * database in the same second and only one of them could be acted on.
+ *
+ * There is now exactly one statement in this app that counts the books standing
+ * on an area, it is below, and it does not know what a retired area is.
+ * `areasOnFaces` narrows it to the face for everything that draws furniture, and
+ * `everyArea` hands it over whole to the reads that have to account for books.
  *
  * `furnitureIn` answers the collection as it stands and so cannot answer this: a
  * book can be recorded on a plank somebody has since taken out, and what a
@@ -332,38 +372,72 @@ interface PlankRow {
  * showing a person where to walk reads the label. #356 is what happens when
  * those two jobs are given to the same string.
  */
-export async function areaFaces(db: Db): Promise<Map<number, AreaFace>> {
+export async function areasStanding(db: Db): Promise<StandingArea[]> {
   const rows = await db.all<PlankRow>(
-    `SELECT a.id, a.position, a.name, f.id AS fixture_id,
-            f.position AS fixture_position, f.name AS fixture_name
+    `SELECT a.id, a.position, a.name, a.starts_at, a.sort_strategy, a.note,
+            f.id AS fixture_id, f.position AS fixture_position,
+            f.name AS fixture_name, f.kind AS fixture_kind,
+            (SELECT count(*) FROM books b WHERE b.current_area_id = a.id) AS books
        FROM area a JOIN fixture f ON f.id = a.fixture_id`,
   )
 
-  return new Map(rows.map((row) => {
-    const position = faceOf(row.position)
-    return [Number(row.id), {
-      label: labelFor({
-        fixture: {
-          id: Number(row.fixture_id),
-          position: row.fixture_position,
-          kind: '',
-          name: row.fixture_name,
-          sortStrategy: 'inherit',
-        },
-        area: {
-          id: Number(row.id),
-          fixtureId: Number(row.fixture_id),
-          position,
-          name: row.name,
-          startsAt: '',
-          sortStrategy: 'inherit',
-        },
-      }),
+  return rows.map((row) => {
+    const position = faceOf(Number(row.position))
+    const fixture: Fixture = {
+      id: Number(row.fixture_id),
+      position: Number(row.fixture_position),
+      kind: row.fixture_kind,
+      name: row.fixture_name,
+      sortStrategy: 'inherit',
+    }
+    const area: Area = {
+      id: Number(row.id),
       fixtureId: Number(row.fixture_id),
-      fixturePosition: row.fixture_position,
+      position,
+      name: row.name,
+      startsAt: row.starts_at,
+      sortStrategy: row.sort_strategy,
+    }
+
+    return {
+      id: area.id,
+      label: labelFor({ fixture, area }),
+      fixtureId: fixture.id,
+      fixturePosition: fixture.position,
+      fixtureName: fixture.name,
+      fixtureKind: fixture.kind,
       areaPosition: position,
-    }]
-  }))
+      position,
+      name: area.name,
+      startsAt: area.startsAt,
+      sortStrategy: area.sortStrategy,
+      note: row.note,
+      gone: Number(row.position) < 0,
+      books: Number(row.books),
+    }
+  }).sort((a, b) =>
+    (a.fixtureId - b.fixtureId)
+    /*
+     * The face first and then the areas taken out, each in the order they read
+     * along the piece. Sorted here rather than in the statement because the
+     * stored ordinal of a retired area is `-(plank + 1)`, so ordering rows by it
+     * hands back `C`, `B`, `A`: the decoded plank is the one anybody reads in.
+     */
+    || (Number(a.gone) - Number(b.gone))
+    || (a.position - b.position))
+}
+
+/**
+ * The same read, keyed on the id, for the callers that only want to know what a
+ * place is called and where it stands.
+ */
+export async function areaFaces(db: Db): Promise<Map<number, AreaFace>> {
+  return new Map((await areasStanding(db)).map((area) => [area.id, {
+    label: area.label,
+    fixtureId: area.fixtureId,
+    fixturePosition: area.fixturePosition,
+    areaPosition: area.areaPosition,
+  }]))
 }
 
 /** What every area is called, for a caller that needs nothing else about it. */

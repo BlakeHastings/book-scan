@@ -176,6 +176,22 @@ export function FurniturePane({
               onPress={() => onArea(piece.id, area.id)}
             />
           ))}
+          {/*
+            The planks that have been taken out and still have books on them,
+            after the ones that are there and before the way to add another
+            (#401). A bookcase a stretch of books was moved off has none of the
+            first and all of the second, and drew as nothing at all while
+            forty-six books stood on it and the carry list said so.
+          */}
+          {piece.gone.map((area) => (
+            <AreaBox
+              key={area.id}
+              reads={area.label}
+              books={area.books}
+              gone
+              onPress={() => onArea(piece.id, area.id)}
+            />
+          ))}
           <AddBox onPress={() => onAddArea(piece.id)}>{addAreaSaid(piece.kind)}</AddBox>
         </Nest>
       ))}

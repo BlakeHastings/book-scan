@@ -148,6 +148,20 @@ Then('the plan should say:', async ({ page }, table: DataTable) => {
   }
 })
 
+/**
+ * The same reading, of whatever screen is up.
+ *
+ * `the plan should say:` is about one screen and this is about any of them, and
+ * they are kept apart on purpose: a step that named the plan while checking the
+ * room would read as the plan being open when it is not.
+ */
+Then('the screen should say:', async ({ page }, table: DataTable) => {
+  for (const row of table.raw()) {
+    await expect(page.locator('body'), `the screen does not say "${row[0]}"`)
+      .toContainText(row[0] ?? '', { timeout: REDRAW })
+  }
+})
+
 When('I apply the plan', async ({ page }) => {
   await page.getByRole('button', { name: 'Apply it' }).click()
   await expect(page.getByRole('button', { name: /Go and carry them|Open the list/ }))

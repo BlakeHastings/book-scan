@@ -224,6 +224,68 @@ export function AreaPane({
     )
   }
 
+  /*
+   * One somebody took out that books are still standing on (#401).
+   *
+   * A shorter page, and every part it leaves off is a part that would be a lie
+   * here: no rule sends books to a place that is not there, nothing overflows
+   * into it, renaming it names nothing, and it cannot be taken out again
+   * because it is already out. What is true of it is the books, so that is the
+   * page: what happened, and every one of them, each a way into why it is here.
+   *
+   * It exists because this used to answer 404 and the room drew nothing, so a
+   * bookcase forty-six books were standing on read as empty on every screen
+   * that draws furniture while the carry list named its areas.
+   */
+  if (area.gone) {
+    // A card title is a sentence and starts like one, and `counted` writes the
+    // number out in words, so its first character is the one to lift. The same
+    // lift the unclaimed card below makes, for the same reason.
+    const said = counted(area.books, 'book')
+    const standing = `${said.charAt(0).toUpperCase()}${said.slice(1)} `
+      + `${area.books === 1 ? 'is' : 'are'} still recorded there, on ${pieceSaid(piece)}.`
+
+    return (
+      <RoomFrame top={top} tabs={tabs}>
+        <Trouble said={error} />
+
+        <Card
+          weight="quiet"
+          kind={`${area.label} was taken out`}
+          title={standing}
+        >
+          <p>
+            Nothing has moved. {area.books === 1 ? 'It stays' : 'They stay'} recorded
+            here until you carry {area.books === 1 ? 'it' : 'them'} and say where{' '}
+            {area.books === 1 ? 'it' : 'they'} went, which is what the carrying list is
+            for.
+          </p>
+        </Card>
+
+        {books.length > 0 && (
+          <>
+            <p className="wf-heading wf-heading--flush">Standing on {area.label}</p>
+            <List label={`Books on ${area.label}`}>
+              {books.map((book) => (
+                <Row
+                  key={book.id}
+                  title={book.title}
+                  sub={book.authorFiling}
+                  cloth={clothFor(book.id)}
+                  onPress={() => onClaimed(book.id)}
+                />
+              ))}
+            </List>
+          </>
+        )}
+
+        <Button tone="quiet" block onPress={onPiece}>
+          Go to {pieceSaid(piece)}
+        </Button>
+      </RoomFrame>
+    )
+  }
+
   const from = pieceSaid(piece)
   const won = area.rule
   const orphans = books.filter((book) => book.claimedBy === null)

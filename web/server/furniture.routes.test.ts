@@ -924,7 +924,8 @@ describe('what is standing in an area', () => {
 
     const { status, body } = await get(`/api/areas/${bookcase.areas[1].id}/books`)
     expect(status).toBe(200)
-    expect(body.area).toEqual({ id: bookcase.areas[1].id, label: '4B', books: 2 })
+    expect(body.area)
+      .toEqual({ id: bookcase.areas[1].id, label: '4B', books: 2, gone: false })
     expect(body.books.map((one: { title: string }) => one.title))
       .toEqual(['Title 002', 'Title 003'])
     // The anchor a boundary is cut at, which is the whole reason this is asked.

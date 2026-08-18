@@ -190,6 +190,7 @@ describe('what a reordering renames', () => {
       { position: 0, name: '' },
       { position: 1, name: 'Cookery' },
     ] as FixtureDto['areas'],
+    gone: [],
     sharing: [],
     holds: '',
     rule: null,

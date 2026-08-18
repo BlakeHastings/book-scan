@@ -817,7 +817,14 @@ export interface FixtureBooks {
  * which can change. This asks for the area by its row instead.
  */
 export interface AreaBooks {
-  area: { id: number; label: string; books: number }
+  /**
+   * `gone` is a plank that has been taken out with books still standing on it.
+   *
+   * The page opens rather than 404ing, because those books are recorded there
+   * until somebody carries them and this is the one screen that can show them.
+   * What it must not do is offer to take the area out again.
+   */
+  area: { id: number; label: string; books: number; gone: boolean }
   books: AreaBook[]
 }
 
@@ -899,6 +906,8 @@ export interface AreaDto {
   note: string
   /** Books standing in it, which is where somebody last said they were. */
   books: number
+  /** True for a plank taken out that books are still standing on. See #401. */
+  gone: boolean
   holds: string
   entry: boolean
   /** The rule whose stretch of books reaches here, which may be the piece's. */
@@ -921,8 +930,19 @@ export interface FixtureDto {
   name: string
   sortStrategy: SortStrategyCode
   note: string
+  /** Every book standing on the piece, planks taken out included (#401). */
   books: number
+  /** The areas the piece has, in the order they sit on its face. */
   areas: AreaDto[]
+  /**
+   * The planks taken out that still have books standing on them.
+   *
+   * Apart from `areas` because they are not on the piece: they cannot be
+   * reordered, renumbered or counted as part of the face. What they have is
+   * books nobody has carried yet, and a screen that leaves them out is the
+   * screen that said a bookcase was empty over forty-six books.
+   */
+  gone: AreaDto[]
   /** Other pieces standing on this piece's number. Reported, never refused. */
   sharing: number[]
   holds: string

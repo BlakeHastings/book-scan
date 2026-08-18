@@ -543,7 +543,7 @@ function Library(go: Go) {
           somebody who has never found it; this is the way on for somebody who
           is already looking at the furniture drawn as books. */}
       <div className="wf-under">
-        {/* Not "see the bookcases": what it opens is five pieces and two of
+        {/* Not "see the bookcases": what it opens is six pieces and two of
             them are a crate and a desk. The category word goes neutral even
             though the pieces above it are named for what they are. */}
         <Button tone="quiet" onPress={() => go('furniture')}>
@@ -2625,7 +2625,7 @@ function Furniture(go: Go) {
     <Phone
       tab="library"
       go={go}
-      top={<TopBar title={FIXTURES_WORD} sub="Five pieces, sixteen areas" onBack={() => go('library')} />}
+      top={<TopBar title={FIXTURES_WORD} sub="Six pieces, sixteen areas" onBack={() => go('library')} />}
     >
       <Nest
         name="By the window"
@@ -2699,6 +2699,30 @@ function Furniture(go: Go) {
           />
         ))}
         <AddBox onPress={() => go('furniture')}>Add an area to this desk</AddBox>
+      </Nest>
+
+      {/*
+        The state that is not the happy path, and the one #401 was about: a
+        piece somebody has moved a whole stretch of books off. Its areas are
+        gone and every book is still standing on it, because the app records
+        where the books belong and a person carries them.
+
+        It drew as nothing at all, which is what the owner found: a bookcase
+        reading "0 areas, 0 books" on the same second the carrying list named
+        its areas as the place forty-six books were leaving. So the areas that
+        were taken out are drawn, outlined rather than filled, and the count on
+        the piece is what is on the piece.
+      */}
+      <Nest
+        name="By the door"
+        note="46 books"
+        holds="No rule sends books here"
+        onPress={() => go('bookcase')}
+      >
+        <AreaBox reads="6A" books={8} gone onPress={() => go('area')} />
+        <AreaBox reads="6B" books={20} gone onPress={() => go('area')} />
+        <AreaBox reads="6C" books={18} gone onPress={() => go('area')} />
+        <AddBox onPress={() => go('furniture')}>Add an area to this bookcase</AddBox>
       </Nest>
 
       {/*
@@ -4876,7 +4900,7 @@ export const SCREENS: Screen[] = [
   { id: 'settings', name: 'Settings', group: 'The corner', render: SettingsScreen },
   /* The ids are the URLs and they stay put. The names are read, so they take
      the neutral word: not every piece in the room is a bookcase. */
-  { id: 'furniture', name: 'All five pieces', group: 'Your fixtures', render: Furniture },
+  { id: 'furniture', name: 'All six pieces', group: 'Your fixtures', render: Furniture },
   { id: 'bookcase', name: 'One fixture', group: 'Your fixtures', render: Bookcase },
   /* The same page with its sort rule open. Beside the page it is a state of,
      because the whole argument for changing it in place is that nothing else

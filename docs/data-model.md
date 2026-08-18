@@ -123,6 +123,25 @@ onto the face rather than making a second one beside it. That is what returns a
 book to the plank it was recorded on rather than to a plank with the same name and
 a different id.
 
+**`position >= 0` reads the furniture and it must never read the books** (#401).
+The two questions are one letter apart and they are not the same question: what
+is on this piece of furniture is the face, and what books are standing on this
+piece of furniture is every area of it. Hanging the per-area count off the face
+read cost a bookcase that answered "0 areas, 0 books" while forty-six books were
+recorded on its retired planks and the carrying list was naming those planks as
+the place they were leaving. Both answers came out of the same database in the
+same second and only one of them could be acted on.
+
+So there is one statement that counts the books standing on an area,
+`areasStanding` in `web/infrastructure/shelving/areas.ts`, and it does not filter
+on position at all. `areasOnFaces` narrows it for everything that draws
+furniture, and `everyArea` hands it over whole to `describeFurniture`,
+`booksOnFixture` and `booksInArea`, which are about books. A retired area that
+books are still standing on is reported as `DescribedFixture.gone`, kept out of
+`areas` so it can be neither reordered, renumbered nor derived into a boundary,
+and one with nothing standing on it is not reported at all: the row exists
+because the ledger names it, not because it is furniture.
+
 Setting `sort_strategy` on an area to anything but `inherit` makes it
 self-contained: nothing overflows into it from the area before, because a
 continuous run only works if every area in it orders the same way.
