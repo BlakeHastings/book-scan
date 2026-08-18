@@ -20,7 +20,7 @@
 
 import { labelFor } from '../../domain/placement/geography'
 import { orderBy } from '../../domain/placement/strategies'
-import type { SampleBook } from '../design/Rules'
+import type { OrderEnds, SampleBook } from '../design/Rules'
 import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto, SortStrategyCode } from './api'
 
 /** A piece as the ordering column holds it while somebody drags it about. */
@@ -266,9 +266,17 @@ export function orderingSaid(code: SortStrategyCode, from: string, fallback = ''
   return ORDER_WORD[code] ?? fallback
 }
 
-/** What an area is ordered by today, whoever settled it. */
-export const orderedSaid = (area: AreaDto, from: string): string =>
-  (area.selfContained ? orderingSaid(area.sortStrategy, from) : `The way ${from} does`)
+/*
+ * `orderedSaid` was here, and it answered "The way Bookcase 2 does" for an area
+ * that inherits.
+ *
+ * It is gone (#405). That string was the loudest line on the sort rule card and
+ * it is a pointer rather than an answer: an area following a piece is still
+ * ordered some way, and the way is what somebody standing in front of the books
+ * wants. `AreaDto.ordering` is that answer, folded through the piece and the
+ * collection by the server, and `orderingSaid` says it. Nothing else called
+ * this.
+ */
 
 /**
  * Why a book is being left exactly where it is.
@@ -343,6 +351,111 @@ export function sampleOrdered(
     })),
     more: Math.max(0, ordered.length - limit),
   }
+}
+
+/**
+ * Every one of these books, in the order an ordering puts them.
+ *
+ * The board on an area's page (#405), which is a picture of a physical row and
+ * therefore has to be in the order that row reads. The read answers by filing
+ * key, which is the author's, so an area ordered by the year would have drawn a
+ * board contradicting the card directly above it.
+ *
+ * The same `orderBy` the sample and the collection itself use, for the reason
+ * `sampleOrdered` gives: two orderings that agree today.
+ */
+export const inOrder = (
+  code: Exclude<SortStrategyCode, 'inherit'>,
+  books: readonly AreaBook[],
+): AreaBook[] => orderBy(code, [...books])
+
+/**
+ * The two ends of these books, as one ordering files them.
+ *
+ * The shortest true answer to "what order are these books in", and since #405
+ * it is the answer the widget leads with once the name of the ordering has been
+ * said. It is `filedUnder` at both ends rather than the title, because the
+ * point of it is to read as the ordering reads: two surnames under the author,
+ * two years under the year.
+ *
+ * **Nothing under two books**, because one book has no ends and no book has
+ * nothing to say. A place with one book in it is not in any order.
+ *
+ * **Nothing where the two ends read the same either**, which is a real area:
+ * eleven Frank Herberts filed by the author are "Herbert, Frank to Herbert,
+ * Frank", which is a sentence that says nothing twice. Found by looking at what
+ * a two-book area rendered.
+ */
+export function orderEnds(
+  code: Exclude<SortStrategyCode, 'inherit'>,
+  books: readonly AreaBook[],
+): OrderEnds | undefined {
+  if (books.length < 2) return undefined
+
+  const ordered = orderBy(code, [...books])
+  const first = filedUnder(code, ordered[0]!)
+  const last = filedUnder(code, ordered[ordered.length - 1]!)
+  return first === last ? undefined : { first, last }
+}
+
+/**
+ * Where an area's ordering is actually settled, in one sentence.
+ *
+ * **This is what replaced the numbered stack of three levels** (#405). The
+ * three levels are a fact about the model and the owner read them twice and
+ * could make nothing of them the second time either. What a person does with
+ * the answer is go to the place that decides and change it there, so the
+ * sentence names that place and stops. The middle of a chain is not somewhere
+ * anybody goes: an area that follows a piece that follows the library is told
+ * about the library, because changing the piece would be changing a level that
+ * is currently deciding nothing.
+ */
+export function areaSettled(piece: FixtureDto, area: AreaDto): string {
+  if (area.sortStrategy !== 'inherit') {
+    return 'Set on this area, so nothing above it decides how these books read.'
+  }
+  if (piece.sortStrategy !== 'inherit') {
+    return `Set on ${pieceSaid(piece)}, which this area follows.`
+  }
+  return `Set for the whole library, which ${pieceSaid(piece)} and this area both follow.`
+}
+
+/** The same sentence one level up. Nothing stands between a piece and the library. */
+export function fixtureSettled(piece: FixtureDto): string {
+  if (piece.sortStrategy !== 'inherit') {
+    return 'Set here, and every area on it that orders nothing of its own follows it.'
+  }
+  return `Set for the whole library, which ${pieceSaid(piece)} follows, and so does `
+    + 'every area on it that orders nothing of its own.'
+}
+
+/**
+ * What picking this ordering would do to the books flowing into an area, said
+ * before anything is pressed.
+ *
+ * The one consequence of this setting that a person cannot see coming, and the
+ * one the model insists on: an area with an ordering of its own is a place of
+ * its own and takes no overflow from the area before it. It was only ever said
+ * *after* the server refused a save, which is a strange moment to learn it.
+ *
+ * **Silent on an area the books already start in.** Nothing overflows into the
+ * first area of a stretch whatever it is ordered by, so warning about it there
+ * would be the screen inventing a consequence. Same branch the note under the
+ * card already takes, for the same reason.
+ */
+export function orderingWarning(area: AreaDto, chosen: SortStrategyCode, from: string): string {
+  if (area.entry) return ''
+  if (chosen === area.sortStrategy) return ''
+
+  if (chosen !== 'inherit' && area.sortStrategy === 'inherit') {
+    return 'Ordering this area its own way also means it stops taking what overflows '
+      + 'from the area before it.'
+  }
+  if (chosen === 'inherit' && area.sortStrategy !== 'inherit') {
+    return `Following ${from} again also means it starts taking what overflows from `
+      + 'the area before it.'
+  }
+  return ''
 }
 
 /**

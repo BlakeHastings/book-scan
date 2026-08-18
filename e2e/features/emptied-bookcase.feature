@@ -61,7 +61,12 @@ Feature: A bookcase the books have not left yet says how many are standing on it
     When I open my fixtures
     And I open the shelf called "4A"
     Then the screen should say:
-      | 4A was taken out     |
+      | 4A was taken out |
+
+    # They stand on a board here rather than in a list (#405), and a spine is
+    # printed with the filing name and called by the book. Both are the drawing
+    # every other row of books in this app gets.
+    And the row of books should name:
       | Rendezvous with Rama |
       | Neuromancer          |
       | Dune                 |

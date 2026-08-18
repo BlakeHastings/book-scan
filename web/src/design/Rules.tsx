@@ -34,17 +34,24 @@
  * change is made, and a piece of furniture is given nothing to say because
  * nothing of the sort happens to one.
  *
- * ## Why the books are drawn under the ordering
+ * ## Why the books are drawn while an ordering is being picked
  *
  * "It's hard to see *why* they sort" is a question a name cannot answer. The
  * books can: the first few of them, in the order the ordering puts them, with
  * the thing being ordered by shown against each one. Choosing a different
  * ordering reorders that list in front of somebody before anything is written,
  * so the widget is the explanation and the warning in the same drawing.
+ *
+ * ## Three widgets, and the third is a button
+ *
+ * `MoveBooks` was the quiet second button on `FilterRule` and is its own thing
+ * now, because the owner moved it out of the rules and under the books it acts
+ * on. It is still one definition with two callers, and it is still the only way
+ * into #244's journey from either page.
  */
 
 import type { ReactNode } from 'react'
-import { Card } from './Card'
+import { Card, Said } from './Card'
 import { Button, Choice, Field, Segmented } from './Controls'
 import { Must, Musts } from './Furniture'
 import { Make } from './Naming'
@@ -240,10 +247,17 @@ export interface RuleEditing {
  * What survives from that instruction is the part that was really load-bearing:
  * **there is one way books actually move.** Editing here writes nothing. It
  * produces a plan, the plan is applied, and the books are carried on the screens
- * that already exist. `change` is still here and still goes to the one journey
- * that retargets, demoted to the quiet button it should always have been: the
- * owner said so in as many words, "they have the option to point Fiction
- * somewhere else. That's not what the goal is here."
+ * that already exist.
+ *
+ * ## Pointing the books elsewhere is not on this card any more
+ *
+ * It was, quietly, at the bottom of it, and the owner moved it out by name:
+ * "let's also change 'move these books to another bookcase', let's move that
+ * out of where we define the rules." He is right about the seam. This card says
+ * what a place **allows**, which is a definition; moving a stretch of books to
+ * other furniture is an act on the books, and it now stands under the books.
+ * See `MoveBooks`. That also leaves this card, which he has complained about
+ * twice, one button shorter.
  *
  * ## "And" and "or" are two different things and they are drawn as two
  *
@@ -275,8 +289,6 @@ export function FilterRule({
   beaten = [],
   editing,
   onEdit,
-  change,
-  refused,
   children,
 }: {
   /** What files here, as a phrase: "Anything tagged Cookery". Never empty. */
@@ -308,10 +320,6 @@ export function FilterRule({
   editing?: RuleEditing | null
   /** Open the editor. The word is "Change" only where there is a rule to change. */
   onEdit?: () => void
-  /** Point the whole stretch of books elsewhere: the other journey, demoted. */
-  change?: { word: string; onPress?: () => void }
-  /** Why it cannot be pointed elsewhere, said in words where there is no way. */
-  refused?: string
   /** Anything the page wants under it, such as the books standing here. */
   children?: ReactNode
 }) {
@@ -321,22 +329,13 @@ export function FilterRule({
     <Card
       kind="What belongs here"
       title={holds}
-      foot={
-        <>
-          {onEdit && (
-            <Button tone="secondary" block onPress={onEdit}>
-              {(own ?? rules.length > 0)
-                ? 'Change what belongs here'
-                : 'Say what belongs here'}
-            </Button>
-          )}
-          {change && (
-            <Button tone="quiet" block onPress={change.onPress}>
-              {change.word}
-            </Button>
-          )}
-        </>
-      }
+      foot={onEdit && (
+        <Button tone="secondary" block onPress={onEdit}>
+          {(own ?? rules.length > 0)
+            ? 'Change what belongs here'
+            : 'Say what belongs here'}
+        </Button>
+      )}
     >
       {rules.map((rule, group) => (
         <div key={`${rule.name}${group}`}>
@@ -365,7 +364,6 @@ export function FilterRule({
 
       <Reaching beaten={beaten} />
 
-      {refused && <p>{refused}</p>}
       {children}
     </Card>
   )
@@ -812,24 +810,6 @@ export interface SampleBook {
   said: string
 }
 
-/**
- * One of the three places an ordering can be settled.
- *
- * The whole library, the piece of furniture, and the area on it. There is no
- * fourth and this widget is not the place to grow one: what was missing was not
- * another setting but the ability to read the three that exist as one answer.
- * Whichever level `decides` is the one in force here, and every level above it
- * is what would come back if this one stopped saying anything.
- */
-export interface OrderLevel {
-  /** The place, as a person reads it: "The whole library", "Bookcase 2". */
-  place: string
-  /** What it says, in words, or what it defers to. */
-  said: string
-  /** Whether this is the level the answer actually comes from. */
-  decides: boolean
-}
-
 /** One way of ordering, as the widget offers it. */
 export interface SortOption {
   value: string
@@ -841,23 +821,83 @@ export interface SortOption {
 }
 
 /**
+ * The two ends of an ordering, which is the shortest true answer to "what
+ * order are these in".
+ *
+ * Said in whatever the ordering reads, so it is two surnames under the author,
+ * two years under the year and two titles under the title. The word between
+ * them is "to" and it is a word: every arrow in this app is in the block the
+ * design system refuses outright, and `wf-move__to` already made this exact
+ * decision about the two ends of a carry.
+ */
+export interface OrderEnds {
+  first: string
+  last: string
+}
+
+/**
  * How this place is ordered, why it reads that way, and the way to change it.
  *
- * **The change happens here rather than on a screen of its own.** It is the
- * same note the owner gave about what belongs here: a page that names a setting
- * and sends you somewhere to change it is two screens saying one thing. Pressing
- * opens the answers underneath, in place, with the books reordering as they are
- * picked; nothing is written until the change is saved.
+ * ## Round ten: the answer first, and the inheritance only where it bites
+ *
+ * Two drawings of this have now been rejected, and the second one was rejected
+ * hard: "the way that we are representing the sort rule in the widget is not
+ * very understandable at all, to the reader or to the user looking at it."
+ *
+ * What both had in common is that they drew the **model** rather than the
+ * answer. The card's loudest line said "The way bookcase 2 does", which is
+ * where the answer comes from and not what the answer is, and under it stood
+ * three numbered levels, two of which said "the way the thing above me does".
+ * Somebody who opened this page wanting to know what order their books are in
+ * had to chase a pointer through three rows to find out, and the badge marking
+ * which row won was the app admitting how hard it had made that.
+ *
+ * So the three questions a person actually arrives with are answered in the
+ * order they arrive:
+ *
+ * - **What order are these books in?** The title, and it is always a real
+ *   ordering: "By the author". Never a level, never a deferral.
+ * - **Why that order?** `ends`, which is the first and last book as this
+ *   ordering files them, and `where`, which is one sentence naming the place
+ *   the ordering is actually set. One clause, not a chain: an area following a
+ *   piece that follows the library is told "Set for the whole library", because
+ *   the middle of a chain is not a fact anybody acts on.
+ * - **What happens if I change it?** The answers, in place, with the ends and
+ *   the books redrawing in whichever is under a thumb. That is the half of
+ *   round nine nobody complained about and it is untouched.
+ *
+ * ## The books are only drawn while somebody is choosing
+ *
+ * They used to stand here always, and on an area they now stand right under
+ * this widget as the board itself, in this order, drawn as books. The same six
+ * books listed twice on one page in the same order is one fact spelled two
+ * ways, which is how two drawings of one thing get to disagree. `ends` is what
+ * survives that on both screens, because it is the fact the board cannot say at
+ * a glance: what you would read walking to either end of it.
+ *
+ * ## What a piece of furniture and an area still do not answer the same way
+ *
+ * **What each follows is different**, so the caller writes `where` rather than
+ * this having a sentence of its own that is true of only one of them: an area
+ * follows the piece it stands on, a piece follows the whole library.
+ *
+ * **Only an area stops taking overflow**, and that is a consequence of the
+ * change rather than a note about it, so `warn` says it while the answers are
+ * open and before anything is pressed. The server says it again, in `effect`,
+ * because the server is the one that knows how many places it reaches; a piece
+ * of furniture is given neither, because nothing of the sort happens to one.
  */
 export function SortRule({
   said,
+  ends,
+  where,
   note,
-  levels = [],
   sample,
   more = 0,
   open = false,
   options = [],
   chosen,
+  warn,
   effect,
   busy = false,
   onOpen,
@@ -865,13 +905,19 @@ export function SortRule({
   onSave,
   onClose,
 }: {
-  /** How it is ordered today, in words: "By the author". Never empty. */
+  /**
+   * The ordering in force, in words: "By the author". Never empty and never a
+   * deferral: a place that follows another place is still ordered some way, and
+   * that way is what this says.
+   */
   said: string
-  /** What that means here, where there is something to say. */
+  /** The two ends of the books, as this ordering files them. */
+  ends?: OrderEnds
+  /** Where the ordering is actually set, in one sentence. */
+  where?: string
+  /** What that means for the books flowing into this place, where it does. */
   note?: string
-  /** The library, the piece and the area, and which of them decides. */
-  levels?: OrderLevel[]
-  /** The books, in the order this ordering puts them. May be empty. */
+  /** The books, in the order the ordering under a thumb puts them. */
   sample: SampleBook[]
   /** How many more there are behind the sample. */
   more?: number
@@ -879,8 +925,16 @@ export function SortRule({
   options?: SortOption[]
   chosen?: string
   /**
-   * What the change does, once something has said. Drawn above the answer so
-   * that agreeing to it is a second press rather than the same one.
+   * What picking this would do here, said before anything is pressed.
+   *
+   * The one consequence a person cannot see coming: an area ordered its own way
+   * takes no overflow from the area before it. It was only ever said after the
+   * server refused a save, which is a strange moment to learn it.
+   */
+  warn?: string
+  /**
+   * What the change does, as the server said it, once it has refused once.
+   * Drawn above the answer so that agreeing to it is a second press.
    */
   effect?: string
   busy?: boolean
@@ -910,61 +964,109 @@ export function SortRule({
           </Button>
         )}
     >
-      {note && <p>{note}</p>}
-
-      {/*
-        Where the answer comes from, which is a different question from what the
-        answer is. An area that says nothing takes the piece, and a piece that
-        says nothing takes the whole library, and nowhere until now did anybody
-        get to read those three facts together: the settings screen said one of
-        them, this widget said another, and the third was arithmetic somebody had
-        to do in their head standing in front of a bookcase.
-      */}
-      {levels.length > 0 && (
-        <ol className="wf-levels" aria-label="Where the order is settled">
-          {levels.map((level) => (
-            <li
-              className={`wf-level${level.decides ? ' wf-level--on' : ''}`}
-              key={level.place}
-            >
-              <span className="wf-level__place">{level.place}</span>
-              <span className="wf-level__said">{level.said}</span>
-              {level.decides && <span className="wf-level__mark">This one decides</span>}
-            </li>
-          ))}
-        </ol>
-      )}
+      {!open && ends && <Ends ends={ends} />}
+      {!open && where && <p>{where}</p>}
+      {!open && note && <p>{note}</p>}
 
       {open && (
-        <Choice
-          label="How the books here should be ordered"
-          on={chosen ?? ''}
-          onPick={onChoose}
-          options={options}
-        />
-      )}
+        <>
+          <Choice
+            label="How the books here should be ordered"
+            on={chosen ?? ''}
+            onPick={onChoose}
+            options={options}
+          />
 
-      {/*
-        The answer to "why do they read in that order", which is the books
-        themselves. While the answers are open this list is what choosing one
-        does, drawn before anything is written: the same books, in the order
-        that choice would put them.
-      */}
-      {sample.length > 0 && (
-        <ol className="wf-sample" aria-label={open ? 'The books in the order you have picked' : 'The books in the order they are in'}>
-          {sample.map((book) => (
-            <li className="wf-sample__book" key={book.id}>
-              <span className="wf-sample__by">{book.by}</span>
-              <span className="wf-sample__title">{book.said}</span>
-            </li>
-          ))}
-          {more > 0 && (
-            <li className="wf-sample__more">and {more} more, in that order</li>
+          {/*
+            What choosing it does, drawn rather than described, and drawn
+            before anything is written. This is the part of round nine the
+            owner did not complain about: the same books, in front of him, in
+            the order the answer under his thumb would put them.
+          */}
+          {(ends || sample.length > 0) && (
+            <p className="wf-order__head">How they would stand</p>
           )}
-        </ol>
-      )}
+          {ends && <Ends ends={ends} />}
+          {sample.length > 0 && (
+            <ol className="wf-sample" aria-label="The books in the order you have picked">
+              {sample.map((book) => (
+                <li className="wf-sample__book" key={book.id}>
+                  <span className="wf-sample__by">{book.by}</span>
+                  <span className="wf-sample__title">{book.said}</span>
+                </li>
+              ))}
+              {more > 0 && (
+                <li className="wf-sample__more">and {more} more, in that order</li>
+              )}
+            </ol>
+          )}
 
-      {effect && <p className="wf-rule__effect">{effect}</p>}
+          {warn && <p className="wf-rule__effect">{warn}</p>}
+          {effect && <p className="wf-rule__effect">{effect}</p>}
+        </>
+      )}
     </Card>
+  )
+}
+
+/**
+ * The first book and the last, with the word "to" between them.
+ *
+ * The shortest honest answer to "what order are these books in", and the one
+ * the board underneath cannot give at a glance: a row of spines is a picture of
+ * a room, and you cannot read the far end of it without walking there.
+ */
+function Ends({ ends }: { ends: OrderEnds }) {
+  return (
+    <p className="wf-ends">
+      <span className="wf-ends__end">{ends.first}</span>
+      <span className="wf-ends__to">to</span>
+      <span className="wf-ends__end">{ends.last}</span>
+    </p>
+  )
+}
+
+/**
+ * The other journey, put where the books it acts on are.
+ *
+ * > Let's also change "move these books to another bookcase". Let's move that
+ * > out of where we define the rules. Maybe we move it underneath the shelf
+ * > view that we're going to replace that list with.
+ *
+ * It sat inside what belongs here, which is where a place is **defined**, and
+ * it does not define anything: it picks up a stretch of books and points them
+ * at other furniture. So it stands under the books themselves, which is what it
+ * is about, and the control the owner has now complained about twice is one
+ * button shorter for it.
+ *
+ * **Where it cannot be offered it says why, in the same place.** A rule about
+ * one area alone has no stretch of books to point anywhere, and the sentence
+ * saying so travelled here with the button rather than staying behind on a card
+ * that no longer mentions moving anything.
+ *
+ * The refusal wears no heading and no box, deliberately. Titling it with the
+ * words of the thing that cannot be done would put "Move these books to another
+ * bookcase" on a page where there is no way to do it, which is the offer this
+ * state exists to withhold; and a dashed outline around it would put the fence
+ * the owner took off "remove this area" immediately above "remove this area".
+ * Found by looking at an area holding no books, where both stand together.
+ */
+export function MoveBooks({
+  onPress,
+  refused,
+}: {
+  /** Open #244's journey. Absent where there is no stretch to point. */
+  onPress?: () => void
+  /** Why there is nothing to point elsewhere, where there is not. */
+  refused?: string
+}) {
+  if (refused) return <Said>{refused}</Said>
+
+  if (!onPress) return null
+
+  return (
+    <Button tone="quiet" block onPress={onPress}>
+      {RETARGET_WORD}
+    </Button>
   )
 }

@@ -48,8 +48,8 @@ import { Card } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
 import { Order } from '../design/Furniture'
-import { FilterRule, RETARGET_WORD, SortRule } from '../design/Rules'
-import { holdsHere, levelsFor, type Sorting } from './AreaPane'
+import { FilterRule, MoveBooks, SortRule } from '../design/Rules'
+import { holdsHere, type Sorting } from './AreaPane'
 import { saidRules } from '../lib/ruleWriting'
 import { Changing, Refusing } from './Changing'
 import type { Writing } from '../app/writing'
@@ -57,8 +57,8 @@ import type {
   AreaBook, FixtureDto, FixtureRemoval, FurnitureDto, SortStrategyCode,
 } from '../lib/api'
 import {
-  collectionOrdering, labelsIfNamed, orderingSaid, pieceSaid, places, plural, reaching,
-  sampleOrdered, sortOptions,
+  collectionOrdering, fixtureSettled, labelsIfNamed, orderEnds, orderingSaid, pieceSaid,
+  places, plural, reaching, sampleOrdered, sortOptions,
 } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 
@@ -137,6 +137,10 @@ export function FixturePane({
      library's and never another piece's: nothing stands above a piece but the
      collection. */
   const falls = collectionOrdering(room)
+  /* What this piece is ordered by today, folded through the library where it
+     states nothing itself. There is no `ordering` on the wire for a piece the
+     way there is for an area, so it is folded here. */
+  const inForce = piece.sortStrategy === 'inherit' ? falls : piece.sortStrategy
   /*
    * The ordering the sample is drawn in: the one in force, or the one under a
    * thumb while the answers are open, so the books reorder as somebody picks
@@ -144,7 +148,7 @@ export function FixturePane({
    */
   const looking = sorting.open
     ? (sorting.chosen === 'inherit' ? falls : sorting.chosen)
-    : (piece.sortStrategy === 'inherit' ? falls : piece.sortStrategy)
+    : inForce
   const { sample, more } = sampleOrdered(looking, books)
 
   return (
@@ -234,25 +238,25 @@ export function FixturePane({
         beaten={reaching(room, piece, null)}
         editing={writing.editing}
         onEdit={writing.start}
-        change={rule && rule.range && !writing.on
-          ? { word: RETARGET_WORD, onPress: onChange }
-          : undefined}
-        refused={rule && !rule.range && !writing.on
-          ? `${rule.name} cannot be moved to another bookcase yet. What it allows is `
-            + 'still yours to change.'
-          : undefined}
       />
 
       <Refusing said={writing.error} />
       <Changing writing={writing} onCarry={onCarry} />
 
+      {/*
+        The same widget the area's page draws, and it leads with the same thing:
+        the ordering itself. A piece that follows the library used to head this
+        card "The way the whole library does", which is where the answer comes
+        from rather than what it is; it says "By the author" now, and where it
+        is set is the sentence under it.
+      */}
       <SortRule
-        said={orderingSaid(piece.sortStrategy, 'the whole library')}
-        note={piece.sortStrategy === 'inherit'
-          ? `Every area on it that orders nothing of its own is ${
-            orderingSaid(falls, 'the whole library').toLowerCase()}.`
-          : 'Every area on it that orders nothing of its own is ordered this way.'}
-        levels={levelsFor(room, piece, null)}
+        /* The ordering in force, open or shut. What is being picked is drawn
+           under "How they would stand", and this stays the thing "Leave it as
+           it is" goes back to. */
+        said={orderingSaid(inForce, 'the whole library')}
+        ends={orderEnds(looking, books)}
+        where={sorting.open ? undefined : fixtureSettled(piece)}
         sample={sample}
         more={more}
         open={sorting.open}
@@ -265,6 +269,24 @@ export function FixturePane({
         onSave={onSaveSort}
         onClose={onCloseSort}
       />
+
+      {/*
+        The way to point this piece's books at other furniture, out of the card
+        that says what it allows and standing on its own (#405). There is no
+        board of books on this page to stand under, because a piece is more than
+        one row and "one row of books is one area" is a pinned rule, so it takes
+        the same place in the order: after everything about the piece, before
+        the one thing that takes the piece away.
+      */}
+      {!writing.on && (
+        <MoveBooks
+          onPress={rule && rule.range ? onChange : undefined}
+          refused={rule && !rule.range
+            ? `${rule.name} cannot be moved to another bookcase yet. What it allows is `
+              + 'still yours to change.'
+            : undefined}
+        />
+      )}
 
       {/*
         The reassurance went and the guarantee did not. What replaces "the books

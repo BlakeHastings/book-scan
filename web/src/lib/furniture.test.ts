@@ -10,11 +10,12 @@
 import { describe, expect, it } from 'vitest'
 import { moveWithin } from '../design/Furniture'
 import {
-  addAreaSaid, counted, kindSaid, labelsIfNamed, orderedSaid, orderingSaid,
-  pieceNote, pieceSaid, places, plural, renamings, renumbering, roomSaid, skippedSaid,
+  addAreaSaid, areaSettled, counted, fixtureSettled, inOrder, kindSaid, labelsIfNamed,
+  orderEnds, orderingSaid, orderingWarning, pieceNote, pieceSaid, places, plural,
+  renamings, renumbering, roomSaid, skippedSaid,
   type Standing,
 } from './furniture'
-import type { AreaDto, FixtureDto } from './api'
+import type { AreaBook, AreaDto, FixtureDto } from './api'
 
 const standing = (id: number, position: number, name = ''): Standing =>
   ({ id, name, position })
@@ -255,11 +256,134 @@ describe('how an area is ordered', () => {
     expect(orderingSaid('published', 'Bookcase 2')).toBe('By the year it came out')
   })
 
-  it('says an area that orders itself by what it orders itself by', () => {
-    const own = { sortStrategy: 'title', selfContained: true } as AreaDto
-    const takes = { sortStrategy: 'inherit', selfContained: false } as AreaDto
-    expect(orderedSaid(own, 'Bookcase 2')).toBe('By the title')
-    expect(orderedSaid(takes, 'Bookcase 2')).toBe('The way Bookcase 2 does')
+  /*
+   * `orderedSaid` was tested here and it is gone with the widget that drew it
+   * (#405). It answered "The way Bookcase 2 does" for an area that inherits,
+   * which is the string the owner read at the top of the card and could make
+   * nothing of. What replaced it is below: the ordering itself, the two ends of
+   * the books, and one sentence naming where it is set.
+   */
+})
+
+/**
+ * The sort rule, said the way #405 says it.
+ *
+ * > The way that we are representing the sort rule in the widget is not very
+ * > understandable at all, to the reader or to the user looking at it.
+ *
+ * Three answers to three questions, and none of them is the three-level chain
+ * that failed twice.
+ */
+describe('what order the books in a place are in', () => {
+  const shelved = (over: Partial<AreaBook> = {}): AreaBook => ({
+    id: 1,
+    title: 'On Food and Cooking',
+    authorFiling: 'McGee, Harold',
+    spine: '',
+    spineSlot: '',
+    pages: '',
+    titleFiling: 'On Food and Cooking',
+    published: '1984',
+    sortKey: 'MCGEE',
+    tagSlugs: [],
+    tags: [],
+    claimedBy: null,
+    ...over,
+  })
+
+  const area = (over: Partial<AreaDto> = {}): AreaDto =>
+    ({ sortStrategy: 'inherit', entry: false, ...over } as AreaDto)
+
+  const piece = (over: Partial<FixtureDto> = {}): FixtureDto =>
+    ({ sortStrategy: 'inherit', name: '', kind: 'bookshelf', position: 2, ...over } as FixtureDto)
+
+  /** The shortest true answer, said in whatever the ordering reads. */
+  it('gives the two ends of the books, in the ordering being looked at', () => {
+    const books = [
+      shelved({ id: 1, authorFiling: 'McGee, Harold', published: '1984' }),
+      shelved({ id: 2, authorFiling: 'David, Elizabeth', sortKey: 'DAVID', published: '1950' }),
+    ]
+
+    expect(orderEnds('author', books)).toEqual({ first: 'David, Elizabeth', last: 'McGee, Harold' })
+    expect(orderEnds('published', books)).toEqual({ first: '1950', last: '1984' })
+  })
+
+  it('gives none for one book, which has no ends', () => {
+    expect(orderEnds('author', [shelved()])).toBeUndefined()
+  })
+
+  /* Eleven Frank Herberts filed by the author is "Herbert, Frank to Herbert,
+     Frank", which is a sentence saying nothing twice. */
+  it('gives none where both ends read the same', () => {
+    expect(orderEnds('author', [shelved({ id: 1 }), shelved({ id: 2 })])).toBeUndefined()
+  })
+
+  /**
+   * One sentence naming the place the ordering is really set, which is the
+   * place somebody would go to change it. The middle of a chain is not
+   * somewhere anybody goes, so an area following a piece that follows the
+   * library is told about the library and not about the piece.
+   */
+  it('names the library where nothing below it states an ordering', () => {
+    expect(areaSettled(piece({ name: 'Bookcase 2' }), area()))
+      .toBe('Set for the whole library, which Bookcase 2 and this area both follow.')
+  })
+
+  it('names the piece where the piece is the one that states one', () => {
+    expect(areaSettled(piece({ name: 'Bookcase 2', sortStrategy: 'title' }), area()))
+      .toBe('Set on Bookcase 2, which this area follows.')
+  })
+
+  it('names the area itself where the area states one', () => {
+    expect(areaSettled(piece({ name: 'Bookcase 2' }), area({ sortStrategy: 'title' })))
+      .toMatch(/^Set on this area/)
+  })
+
+  /** A piece falls back on the library and on nothing else, and says so. */
+  it('says what a piece decides for the areas standing on it', () => {
+    expect(fixtureSettled(piece({ sortStrategy: 'title' }))).toMatch(/^Set here/)
+    expect(fixtureSettled(piece({ name: 'Bookcase 2' })))
+      .toMatch(/Set for the whole library, which Bookcase 2 follows/)
+  })
+
+  /**
+   * The one consequence a person cannot see coming, said before the press
+   * rather than after the server has refused the save.
+   */
+  it('warns that an area ordering itself stops taking what overflows', () => {
+    expect(orderingWarning(area(), 'title', 'Bookcase 2'))
+      .toMatch(/stops taking what overflows from the area before it/)
+  })
+
+  it('warns the other way for an area going back to following the piece', () => {
+    expect(orderingWarning(area({ sortStrategy: 'title' }), 'inherit', 'Bookcase 2'))
+      .toMatch(/starts taking what overflows from the area before it/)
+  })
+
+  /* Nothing overflows into the first area of a stretch whatever it is ordered
+     by, so a warning there would be inventing a consequence. */
+  it('says nothing about an area the books already start in', () => {
+    expect(orderingWarning(area({ entry: true }), 'title', 'Bookcase 2')).toBe('')
+  })
+
+  it('says nothing where the answer picked is the one already in force', () => {
+    expect(orderingWarning(area(), 'inherit', 'Bookcase 2')).toBe('')
+  })
+
+  /**
+   * The board an area draws is a picture of a row of books, so it is in the
+   * order that row reads. The read answers by filing key, which is the
+   * author's, and an area ordered by the year would otherwise draw a board
+   * contradicting the card directly above it.
+   */
+  it('puts every book in the order the place is ordered, not the order read', () => {
+    const books = [
+      shelved({ id: 1, authorFiling: 'Acton, Eliza', sortKey: 'ACTON', published: '1990' }),
+      shelved({ id: 2, authorFiling: 'Zed, Zoe', sortKey: 'ZED', published: '1845' }),
+    ]
+
+    expect(inOrder('published', books).map((book) => book.id)).toEqual([2, 1])
+    expect(inOrder('author', books).map((book) => book.id)).toEqual([1, 2])
   })
 })
 

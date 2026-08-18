@@ -1561,46 +1561,40 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-rule__effect { font-size: var(--size-small); color: var(--ink-2); }
 
 /*
- * Where the three levels of ordering settle it.
+ * The two ends of an ordering.
  *
- * A numbered stack from the whole library down to the area, with the level the
- * answer really comes from carried louder than the two around it. Not a table:
- * the fact being read is which line is lit, and everything else is context for
- * it, so the ones that do not decide stay quiet.
+ * A numbered stack of the three levels an ordering can be settled at stood
+ * here, and it is gone: it drew the model rather than the answer, and it was
+ * rejected the once the owner was asked to read it. What replaces it is the
+ * fact he was looking for, which is what the books actually read like.
+ *
+ * Both ends carry the same weight, because neither is more the answer than the
+ * other, and the word between them is quiet and is a word. There is no arrow
+ * here for the reason there is none on a carry: an arrow does not read aloud.
  */
-.wf-levels {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--size-small);
-}
-.wf-level {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--s2);
+.wf-ends {
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  padding: var(--s2) var(--s3);
-  border-radius: var(--r-sm);
-  color: var(--ink-2);
+  gap: var(--s2);
+  margin: 0;
+  min-width: 0;
 }
-.wf-level--on {
-  background: var(--paper-sunk);
+.wf-ends__end {
+  font-weight: 600;
   color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.wf-level__place { font-weight: 600; }
-.wf-level__said {
-  grid-column: 1 / -1;
+.wf-ends__to { font-size: var(--size-small); color: var(--ink-2); }
+
+/* The line over the books while an ordering is under a thumb: what is drawn
+   below it has not happened and this is where it says so. */
+.wf-order__head {
+  margin: 0;
+  font-size: var(--size-small);
+  font-weight: 600;
   color: var(--ink-2);
-}
-.wf-level__mark {
-  font-size: var(--size-label);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--ink-2);
-  white-space: nowrap;
 }
 
 /*

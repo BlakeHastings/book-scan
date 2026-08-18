@@ -16,7 +16,7 @@
 import { coverOf, spineLabel, spineOf } from './shelfRow'
 import { coverThumbUrl } from '../components/PlacementCard'
 import type { Cloth, ShelfItem } from '../design/Shelf'
-import type { FiledBookRow, PlacementStrip } from './api'
+import type { FiledBookRow, PlacementStrip, StripBook } from './api'
 
 /**
  * The binding a book with no photograph is drawn in.
@@ -97,24 +97,67 @@ export function standing(
   id: number,
   onOpen?: (id: number) => void,
 ): ShelfItem[] {
-  const row: ShelfItem[] = strip.books.map((one) => ({
-    kind: 'spine' as const,
-    // What is written down a spine with no photograph, which is the filing
-    // name: that is what you read walking along a shelf.
-    text: one.authorFiling || one.title || spineLabel(one),
-    // And what it is called for anybody not looking at pixels, which is not
-    // the same string. A run announced as its filing names says which shelf
-    // you are on and never which book.
-    name: spineLabel(one),
-    cloth: clothFor(one.id),
-    pages: pagesOf(one),
-    photo: coverThumbUrl(one.spine, 160),
+  const row: ShelfItem[] = strip.books.map((one) => asSpine(one, {
     here: one.id === id,
-    onPress: one.id === id || !onOpen ? undefined : () => onOpen(one.id),
+    onOpen: one.id === id ? undefined : onOpen,
   }))
 
   if (strip.placedIndex !== null) return row
 
   const at = Math.max(0, Math.min(strip.gapIndex, row.length))
   return [...row.slice(0, at), { kind: 'gap' }, ...row.slice(at)]
+}
+
+/**
+ * One catalogued book, standing up.
+ *
+ * The one place a book becomes a spine, and it takes a `StripBook` because
+ * every read that answers books to stand on a board answers that shape: the
+ * placing strip, the carry list, and since #405 the books in an area. A second
+ * spelling of these six fields is how one board ends up drawing a book that
+ * another board draws differently.
+ */
+function asSpine(
+  book: StripBook,
+  { here, onOpen }: { here?: boolean; onOpen?: (id: number) => void } = {},
+): ShelfItem {
+  return {
+    kind: 'spine',
+    // What is written down a spine with no photograph, which is the filing
+    // name: that is what you read walking along a shelf.
+    text: book.authorFiling || book.title || spineLabel(book),
+    // And what it is called for anybody not looking at pixels, which is not
+    // the same string. A run announced as its filing names says which shelf
+    // you are on and never which book.
+    name: spineLabel(book),
+    cloth: clothFor(book.id),
+    pages: pagesOf(book),
+    photo: coverThumbUrl(book.spine, 160),
+    here,
+    onPress: onOpen ? () => onOpen(book.id) : undefined,
+  }
+}
+
+/**
+ * A place's books, standing on its board, in the order they stand (#405).
+ *
+ * > At the bottom where we say "standing on Bookshelf X" and we show all the
+ * > books that are in the area: let's switch that to a shelf view instead of a
+ * > list.
+ *
+ * They were rows of text on the one page in the app that is about a physical
+ * row of books. The board is what the app draws everywhere else, so this is the
+ * same mapping the library and the carry list already go through rather than a
+ * second one: the photograph over the cloth, the width off the page count, the
+ * filing name printed down it and the title said out loud.
+ *
+ * **The caller has already put them in order.** A board is a picture of a row,
+ * and the order a row reads in is the place's own ordering, which is a fact the
+ * caller holds and this does not.
+ */
+export function board(
+  books: readonly StripBook[],
+  onOpen?: (id: number) => void,
+): ShelfItem[] {
+  return books.map((book) => asSpine(book, { onOpen }))
 }

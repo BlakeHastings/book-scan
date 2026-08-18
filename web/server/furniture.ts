@@ -66,7 +66,7 @@ import {
   claim, entryAreaOf, entryAreas, type PlacementRule, type RuleOperator,
 } from '../domain/placement/rules'
 import { GENRE_RANGES } from '../domain/tagging/genre'
-import type { ShelfRange } from '../shared/shelving'
+import { shelfImage, type ShelfRange, type ShelfSlot } from '../shared/shelving'
 import {
   COLLECTION_STRATEGIES, INHERIT, SORT_STRATEGIES, strategyFor,
   type OrderingStrategy, type SortStrategy,
@@ -82,6 +82,7 @@ import {
   whatHoldsFixture, type AreaRow, type FixtureRow,
 } from '../infrastructure/shelving/furniture'
 import type { Db } from './driver'
+import { withPhotographs, type PhotographFields } from './photographs'
 import { tagCounts } from './store'
 
 /*
@@ -635,11 +636,45 @@ export async function describeFixture(
  * sort rule and stops has not said why the books read in the order they do, and
  * the owner said that is the part that is hard to see; the answer is the books
  * themselves, in that order, which needs whatever `orderBy` orders by.
+ *
+ * ## It carries a photograph and a thickness now (#405)
+ *
+ * > At the bottom where we say "standing on Bookshelf X" and we show all the
+ * > books that are in the area: let's switch that to a shelf view instead of a
+ * > list.
+ *
+ * A board with the books standing on it is drawn from two things a list never
+ * needed: which photograph stands in for the spine, and how thick the book is.
+ * Without them every book on somebody's own bookcase would come out as a
+ * uniform block of dyed cloth, which is what the app draws a book **nobody has
+ * photographed** as, so the one page about an area would be the one page
+ * claiming the whole collection is unphotographed.
+ *
+ * This is the same defect `server/carry.ts` was fixed for and the comment there
+ * says so: that read was once the only read of a book that never asked for its
+ * photographs. Which photograph stands in for a spine is `shelfImage`'s answer
+ * and not this file's, so the board here and the board in the library cannot
+ * disagree about a book.
  */
 export interface AreaBook {
   id: number
   title: string
   authorFiling: string
+  /**
+   * The photograph standing in for this book's spine, or '' where there is
+   * none and the cloth underneath is the whole drawing.
+   */
+  spine: string
+  /** Which face `spine` really is, so a cover cannot pass for a spine. */
+  spineSlot: ShelfSlot
+  /**
+   * How thick it is, as the catalogue holds it, which is text.
+   *
+   * The one measurement a drawing of a book may take from the book: pages are
+   * thickness and thickness is width seen end on. Empty for about one book in
+   * four, which `spineWidth` draws at the median rather than as a gap.
+   */
+  pages: string
   /** How it files by title, which is what the title ordering reads. */
   titleFiling: string
   /** As printed, usually a bare year, which is what the year ordering reads. */
@@ -681,9 +716,20 @@ interface StandingRow {
   title_filing: string
   published: string
   sort_key: string
+  pages: string | null
   slugs: string[] | null
   labels: string[] | null
 }
+
+/**
+ * The same row with its photographs joined on, which is what a board needs.
+ *
+ * They come off `capture` rather than off a column, because `books.front_image`
+ * and the nine beside it were dropped in #228 and `withPhotographs` is the one
+ * place a row gets them back. In one read for the whole area rather than one
+ * per book, for the reason the carry read gives.
+ */
+type StandingPhotographedRow = StandingRow & PhotographFields
 
 /**
  * The columns every "what is standing here" read takes, and the one place they
@@ -697,26 +743,51 @@ interface StandingRow {
  * Ordering them on the client from four columns keeps that one function, the
  * one the shelf itself is built by, rather than growing a second one that
  * agrees until somebody adds a strategy.
+ *
+ * **`pages` is here for the picture** (#405). An area's books are drawn standing
+ * on a board now rather than listed, and how thick a book is decides how wide
+ * its spine is drawn. The photographs come from `capture` rather than from a
+ * column, which is `withPhotographs`' job since #228.
  */
 const STANDING_COLUMNS =
-  `b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key,
+  `b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key, b.pages,
           array_remove(array_agg(t.slug ORDER BY t.slug), NULL) AS slugs,
           array_remove(array_agg(t.label ORDER BY t.slug), NULL) AS labels`
 
 const STANDING_GROUP =
-  'b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key'
+  'b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key, b.pages'
 
-const asStandingBook = (row: StandingRow, rules: PlacementRule[]): AreaBook => ({
-  id: Number(row.id),
-  title: row.title,
-  authorFiling: row.author_filing ?? '',
-  titleFiling: row.title_filing ?? '',
-  published: row.published ?? '',
-  sortKey: row.sort_key,
-  tagSlugs: row.slugs ?? [],
-  tags: row.labels ?? [],
-  claimedBy: claim(rules, { tagSlugs: row.slugs ?? [] })?.name ?? null,
-})
+const asStandingBook = (row: StandingPhotographedRow, rules: PlacementRule[]): AreaBook => {
+  const photo = shelfImage({
+    front: row.front_image ?? '',
+    back: row.back_image ?? '',
+    edge: row.edge_image ?? '',
+    /* The crop of whichever face was picked, so a spine two centimetres wide
+       is not drawn with the room it was photographed in around it. The same
+       decision the carry read and the library make, taken in the one place the
+       precedence is written down. */
+    crops: {
+      front: row.front_crop ?? '',
+      back: row.back_crop ?? '',
+      edge: row.edge_crop ?? '',
+    },
+  })
+
+  return {
+    id: Number(row.id),
+    title: row.title,
+    authorFiling: row.author_filing ?? '',
+    spine: photo.name,
+    spineSlot: photo.slot,
+    pages: row.pages ?? '',
+    titleFiling: row.title_filing ?? '',
+    published: row.published ?? '',
+    sortKey: row.sort_key,
+    tagSlugs: row.slugs ?? [],
+    tags: row.labels ?? [],
+    claimedBy: claim(rules, { tagSlugs: row.slugs ?? [] })?.name ?? null,
+  }
+}
 
 /**
  * The books standing in one area, in the order they stand, **by identity**.
@@ -803,10 +874,13 @@ export async function booksOnFixture(db: Db, id: number): Promise<ReadFixtureBoo
 }
 
 /** Every book recorded in any of these areas, in the order they stand. */
-async function standingIn(db: Db, areaIds: readonly number[]): Promise<StandingRow[]> {
+async function standingIn(
+  db: Db,
+  areaIds: readonly number[],
+): Promise<StandingPhotographedRow[]> {
   if (areaIds.length === 0) return []
   const holes = areaIds.map(() => '?').join(', ')
-  return db.all<StandingRow>(
+  const rows = await db.all<StandingRow>(
     `SELECT ${STANDING_COLUMNS}
        FROM catalogued_books b
        LEFT JOIN book_tag bt ON bt.book_id = b.id
@@ -816,6 +890,10 @@ async function standingIn(db: Db, areaIds: readonly number[]): Promise<StandingR
       ORDER BY b.sort_key`,
     [...areaIds],
   )
+
+  // One read for the whole area rather than one per book, which is why
+  // `withPhotographs` takes the rows: an area is a plank and a piece is three.
+  return withPhotographs(db, rows)
 }
 
 /** The areas of one fixture as slots, in the order they sit on its face. */

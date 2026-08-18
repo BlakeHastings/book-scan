@@ -44,6 +44,9 @@ const shelved = (over: Partial<AreaBook> = {}): AreaBook => ({
   id: 1,
   title: 'On Food and Cooking',
   authorFiling: 'McGee, Harold',
+  spine: '',
+  spineSlot: '',
+  pages: '',
   titleFiling: 'On Food and Cooking',
   published: '1984',
   sortKey: 'MCGEE',
@@ -166,11 +169,68 @@ describe('the two rules on a piece', () => {
     expect(said).toMatch(/Move these books to another bookcase/)
   })
 
-  it('says its ordering comes from the whole library and not from a piece', () => {
+  /**
+   * The same widget the area's page draws, leading with the same thing: the
+   * ordering itself (#405). It headed this card "The way the whole library
+   * does" for a round, which is where the answer comes from rather than what
+   * it is, over three numbered levels two of which pointed at each other.
+   */
+  it('leads with the ordering itself, and says where it is set underneath', () => {
     const said = words(drawn(holding))
 
     expect(said).toMatch(/Sort rule/)
-    expect(said).toMatch(/The way the whole library does/)
+    expect(said).toMatch(/By the author/)
+    expect(said).not.toMatch(/The way the whole library does/)
+    expect(said).toMatch(/Set for the whole library, which Bookcase 4 follows/)
+    // And what a piece decides for the areas standing on it, which is the half
+    // of that sentence an area's own page has no reason to say.
+    expect(said).toMatch(/every area on it that orders nothing of its own/)
+  })
+
+  /** A piece that states an ordering of its own is the one that decides. */
+  it('says it is set here where the piece is the one that decides', () => {
+    const said = words(drawn({ ...holding, sortStrategy: 'title' }))
+
+    expect(said).toMatch(/By the title/)
+    expect(said).toMatch(/Set here/)
+  })
+
+  /**
+   * The two ends of the books, said the way the ordering reads. This is the
+   * only evidence a piece's page carries once the answers are shut, because a
+   * piece is more than one row of books and one row of books is one area, so
+   * there is no board here to be the picture of them.
+   */
+  it('says the two ends of the books standing on it', () => {
+    const said = words(drawn(holding, [
+      shelved({ id: 1, authorFiling: 'McGee, Harold', sortKey: 'MCGEE' }),
+      shelved({ id: 2, authorFiling: 'David, Elizabeth', sortKey: 'DAVID' }),
+    ]))
+
+    expect(said).toMatch(/David, Elizabeth\s+to\s+McGee, Harold/)
+  })
+
+  /** The same on this page, and this is the page it was got wrong on. */
+  it('keeps the ordering in force at the top while the answers are open', () => {
+    const said = words(drawn(holding, [shelved()], {
+      open: true, chosen: 'published', effect: '', busy: false,
+    }))
+
+    expect(said).toMatch(/By the author\s+Sort rule/)
+    expect(said).toMatch(/How they would stand/)
+  })
+
+  /**
+   * The overflow sentence and the warning that goes with it belong to an area.
+   * Books flow along a piece, never between two of them, so neither has any
+   * counterpart here and neither is drawn.
+   */
+  it('never warns a piece about overflow, which does not happen to one', () => {
+    const said = words(drawn(holding, [], {
+      open: true, chosen: 'title', effect: '', busy: false,
+    }))
+
+    expect(said).not.toMatch(/overflows/)
   })
 
   /*

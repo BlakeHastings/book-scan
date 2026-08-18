@@ -49,8 +49,8 @@ import {
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Nest, Order } from '../Furniture'
 import {
-  FilterRule, RETARGET_WORD, SortRule, WouldHappen,
-  type OrderLevel, type RuleEditing, type RuleSaid, type WouldMove,
+  FilterRule, MoveBooks, SortRule, WouldHappen,
+  type OrderEnds, type RuleEditing, type RuleSaid, type WouldMove,
 } from '../Rules'
 import { IconCamera, IconEdit, IconInHand } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
@@ -2578,9 +2578,6 @@ const COOKERY = [
  * ordering by the title does not print the same string twice. Found by looking
  * at it.
  */
-/** The demoted door to the other journey, said the same way on both pages. */
-const RETARGET = (onPress: () => void) => ({ word: RETARGET_WORD, onPress })
-
 const sampleBy = (by: 'who' | 'title' | 'year') =>
   [...COOKERY]
     .sort((a, b) => (a[by] < b[by] ? -1 : a[by] > b[by] ? 1 : 0))
@@ -2589,6 +2586,46 @@ const sampleBy = (by: 'who' | 'title' | 'year') =>
       by: book[by],
       said: by === 'title' ? book.who : book.title,
     }))
+
+/**
+ * The two ends of the eighteen books on 2 · Cookery, in each ordering.
+ *
+ * Written out rather than taken off `COOKERY`, because `COOKERY` is six books
+ * and the area holds eighteen: the sample is the first few and the ends are the
+ * two ends of the lot. A drawing that took the ends off the sample would show
+ * somebody "Acton to Nosrat" over a card saying "and twelve more".
+ *
+ * This is the line that replaced the numbered stack of three levels (#405). It
+ * is the shortest true answer to what order the books are in, and it is said in
+ * whatever the ordering reads: surnames under the author, years under the year.
+ */
+const COOKERY_ENDS: Record<'who' | 'title' | 'year', OrderEnds> = {
+  who: { first: 'Acton, Eliza', last: 'Slater, Nigel' },
+  title: { first: 'A Book of Mediterranean Food', last: 'The Vegetarian Epicure' },
+  year: { first: '1845', last: '2017' },
+}
+
+/** The same two ends on a whole piece of furniture, which is a wider set. */
+const PIECE_ENDS: Record<'who' | 'year', OrderEnds> = {
+  who: { first: 'Acton, Eliza', last: 'Woolf, Virginia' },
+  year: { first: '1845', last: '2021' },
+}
+
+/**
+ * The eighteen books standing on 2 · Cookery, as they read walking along them.
+ *
+ * The filing names, because that is what is printed down a spine and what you
+ * read walking along a shelf: `ShelfItem.text` says so, and the app draws this
+ * board from `authorFiling` for the same reason. Eighteen of them, so the board
+ * is wider than a phone and scrolls the way a real one does.
+ */
+const COOKERY_BOARD = [
+  'Acton, Eliza', 'Beeton, Isabella', 'Blumenthal, Heston', 'Child, Julia',
+  'David, Elizabeth', 'Dahl, Sophie', 'Fisher, M. F. K.', 'Grigson, Jane',
+  'Hopkinson, Simon', 'Lawson, Nigella', 'Locatelli, Giorgio', 'McGee, Harold',
+  'Nosrat, Samin', 'Ottolenghi, Yotam', 'Roden, Claudia', 'Rogers, Ruth',
+  'Slater, Nigel', 'Smith, Delia',
+]
 
 /**
  * Bookcase 2, drawn wherever a screen needs it.
@@ -2827,24 +2864,29 @@ function BookcaseScreen({
         }]}
         editing={writing}
         onEdit={() => go('fixturerule')}
-        change={writing
-          ? undefined
-          : RETARGET(() => go('move'))}
       />
 
       {/*
-        Open, the answers stand under the current one and the books under them
-        redraw in whichever is picked. The year is drawn as the chosen one
-        because it is the ordering whose difference is impossible to miss: the
-        same six books, the same page, a completely different order, before
-        anything has been written.
+        The same widget the area's page draws, and the same thing leads it: the
+        ordering itself. It said "The way the whole library does" until #405,
+        which is where the answer comes from rather than what it is, over three
+        numbered levels two of which pointed at each other.
+
+        Open, the answers stand under it and the two ends and the books redraw
+        in whichever is picked. The year is drawn as the chosen one because its
+        difference is impossible to miss: the same books, the same page, a
+        completely different order, before anything has been written.
       */}
       <SortRule
-        said="The way the whole library does"
-        note={sorting
-          ? 'Every area on it that orders nothing of its own is ordered this way.'
-          : 'Every area on it that orders nothing of its own is by the author.'}
-        levels={PIECE_LEVELS}
+        /* The ordering in force, open or shut: what is being picked is under
+           "How they would stand" and this is what "Leave it as it is" goes
+           back to. */
+        said="By the author"
+        ends={sorting ? PIECE_ENDS.year : PIECE_ENDS.who}
+        where={sorting
+          ? undefined
+          : 'Set for the whole library, which bookcase 2 follows, and so does every area '
+            + 'on it that orders nothing of its own.'}
         sample={sorting ? sampleBy('year') : sampleBy('who')}
         more={57}
         open={sorting}
@@ -2854,6 +2896,16 @@ function BookcaseScreen({
         onSave={() => go('bookcase')}
         onClose={() => go('bookcase')}
       />
+
+      {/*
+        Out of the card that says what the piece allows and standing on its own
+        (#405): "let's move that out of where we define the rules." There is no
+        board of books on this page for it to stand under, because a piece is
+        more than one row of books and one row of books is one area, so it takes
+        the same place in the order instead: after everything about the piece
+        and before the one thing that takes the piece away.
+      */}
+      {!writing && <MoveBooks onPress={() => go('move')} />}
 
       {/*
         "Take it out of the room" over "the books do not vanish with it" is
@@ -2980,12 +3032,16 @@ function AreaScreen({
   would,
   done,
   ordered,
+  ends,
+  settled,
   order,
-  levels,
+  warn,
   sample,
   sorting = false,
   chosen,
-  books,
+  board,
+  empty = false,
+  instead,
   over,
 }: {
   go: Go
@@ -3018,18 +3074,41 @@ function AreaScreen({
   would?: { moving: WouldMove[]; carrying: number; staying: number; unclaimed: number; note?: string }
   /** What was written, where they said yes to it. */
   done?: { wrote: number; carrying: number }
-  /** How it is ordered, in the same voice. */
+  /** The ordering in force, in words. Never a level and never a deferral. */
   ordered: string
+  /** The two ends of the books, as that ordering files them. */
+  ends?: OrderEnds
+  /** Where the ordering is really set, in one sentence. */
+  settled?: string
   /** The line under that, where there is more to say. */
   order?: string
-  /** The three places an ordering can be settled, and which one does. */
-  levels?: OrderLevel[]
+  /** What picking this would do here, said before anything is pressed. */
+  warn?: string
   /** The books, in the order the ordering being looked at puts them. */
   sample?: { id: number; by: string; said: string }[]
   sorting?: boolean
   chosen?: string
-  /** What is standing here, where the state being drawn is about that. */
-  books?: { id: number; title: string; who: string; cloth: Cloth; meta?: string }[]
+  /**
+   * The books standing here, drawn as the board they stand on (#405).
+   *
+   * > At the bottom where we say "standing on Bookshelf X" and we show all the
+   * > books that are in the area: let's switch that to a shelf view instead of
+   * > a list.
+   */
+  board?: ShelfItem[]
+  /** An area somebody has cleared and written a rule for, holding nothing. */
+  empty?: boolean
+  /**
+   * A different drawing of the sort rule, in the place the sort rule stands.
+   *
+   * Here so that the two answers to #405 can be compared on the same page with
+   * the same neighbours rather than side by side in isolation, which is the
+   * only way to tell whether one of them reads better on the way past. It goes
+   * when the question does, along with the screens that pass it and the group
+   * they file under: a comparison left standing after its question is settled
+   * quietly reopens it.
+   */
+  instead?: ReactNode
   over?: ReactElement
 }) {
   return (
@@ -3047,10 +3126,6 @@ function AreaScreen({
         beaten={beaten}
         editing={writing}
         onEdit={() => go('rulewriting')}
-        change={rules?.length && retarget && !writing
-          ? RETARGET(() => go('move'))
-          : undefined}
-        refused={writing ? undefined : refused}
       />
 
       {/*
@@ -3088,36 +3163,63 @@ function AreaScreen({
         </Button>
       )}
 
-      <SortRule
-        said={ordered}
-        note={order}
-        levels={levels}
-        sample={sample ?? []}
-        more={sample ? 12 : 0}
-        open={sorting}
-        chosen={chosen}
-        options={sorting ? ORDERINGS('bookcase 2') : []}
-        onOpen={() => go('sortrule')}
-        onSave={() => go('area')}
-        onClose={() => go('area')}
-      />
+      {/*
+        How these books read, and the way to change it. The loudest line is the
+        ordering itself, and under it the two ends of the books and the one
+        sentence naming where the ordering is really set. What stood here for a
+        round was three numbered levels, two of which said "the way the thing
+        above me does", and the owner read it and said it was "not very
+        understandable at all". See `SortRule`.
+      */}
+      {instead ?? (
+        <SortRule
+          said={ordered}
+          ends={ends}
+          where={sorting ? undefined : settled}
+          note={sorting ? undefined : order}
+          sample={sample ?? []}
+          more={sample ? 12 : 0}
+          open={sorting}
+          chosen={chosen}
+          warn={warn}
+          options={sorting ? ORDERINGS('bookcase 2') : []}
+          onOpen={() => go('sortrule')}
+          onSave={() => go('area')}
+          onClose={() => go('area')}
+        />
+      )}
 
-      {books && books.length > 0 && (
-        <>
-          <p className="wf-heading wf-heading--flush">Standing on {label}</p>
-          <List label={`Books on ${label}`}>
-            {books.map((book) => (
-              <Row
-                key={book.id}
-                title={book.title}
-                sub={book.who}
-                cloth={book.cloth}
-                meta={book.meta}
-                onPress={() => go('claimed')}
-              />
-            ))}
-          </List>
-        </>
+      {/*
+        The books, standing on the board they stand on. They were a list of rows
+        on the one page in this app that is about a physical row of books, and
+        the owner said what that should be: "let's switch that to a shelf view
+        instead of a list."
+
+        It is the design system's own board, which is the only board there is
+        since #399, and it is one row because one row of books is one area. An
+        area holding nothing draws it empty, which is a real state and a real
+        picture: a plank somebody has cleared and written a rule for.
+      */}
+      {(board || empty) && (
+        <div className="wf-bleed">
+          {/* No count on the board: the bar two lines above it already says
+              "18 books, on bookcase 2". "Empty" is a different fact and comes
+              off the area rather than off the list, because a list is also
+              empty while its read is in flight. */}
+          <Shelf label={label} note={empty ? 'Empty' : undefined} items={board ?? []} />
+        </div>
+      )}
+
+      {/*
+        And under the books, the way to move them: "let's also change 'move
+        these books to another bookcase', let's move that out of where we define
+        the rules. Maybe we move it underneath the shelf view."
+      */}
+      {!writing && !would && !done && (
+        <MoveBooks
+          onPress={rules?.length && retarget ? () => go('move') : undefined}
+          refused={refused}
+        />
       )}
 
       {/*
@@ -3158,61 +3260,47 @@ const COOKERY_REACHING = [
   { id: 2, name: 'Non-fiction', place: 'bookcase 2', wide: true },
 ]
 
-/** The books standing on it, as the list of them wants them. */
-const COOKERY_ROWS: { id: number; title: string; who: string; cloth: Cloth; meta?: string }[] = [
-  { id: 1, title: 'Modern Cookery', who: 'Acton, Eliza', cloth: 'wood2' },
-  { id: 2, title: 'A Book of Mediterranean Food', who: 'David, Elizabeth', cloth: 'moss' },
-  { id: 3, title: 'How to Cook a Wolf', who: 'Fisher, M. F. K.', cloth: 'wood' },
-  { id: 4, title: 'Good Things', who: 'Grigson, Jane', cloth: 'plum' },
-  { id: 5, title: 'On Food and Cooking', who: 'McGee, Harold', cloth: 'sky' },
-  {
-    id: 6,
-    title: 'Salt Fat Acid Heat',
-    who: 'Nosrat, Samin',
-    cloth: 'sun',
-    meta: 'No rule claims it',
-  },
-]
+/** The books standing on 2 · Cookery, on the board they stand on. */
+const COOKERY_BOOKS: ShelfItem[] = spines(COOKERY_BOARD)
 
 /**
- * The three places an ordering can be settled, read from the top down.
+ * The same eighteen books on an area that orders itself by the year.
  *
- * > Those are two distinct things that users should be able to customise fully
- * > on the area, the fixture, and then globally they should be able to do the
- * > global order, which I think you already have in settings right now.
- *
- * There is no fourth level and this does not add one. What it adds is the thing
- * that was missing: the three that exist, read together, with the one the answer
- * really comes from marked. Before this the settings screen said one of them,
- * the widget said another, and somebody standing in front of a bookcase did the
- * third in their head.
+ * A second order rather than the same one relabelled, because a board is a
+ * picture of a row of books: a row drawn A to Z under a card that says "by the
+ * year it came out" is the page arguing with itself, and that is exactly the
+ * disagreement this round is about.
  */
-const AREA_LEVELS: OrderLevel[] = [
-  { place: 'The whole library', said: 'By the author', decides: true },
-  { place: 'Bookcase 2', said: 'The way the whole library does', decides: false },
-  { place: '2 · Cookery', said: 'The way bookcase 2 does', decides: false },
-]
+const COOKERY_BY_YEAR: ShelfItem[] = spines([
+  'Acton, Eliza', 'Beeton, Isabella', 'Fisher, M. F. K.', 'David, Elizabeth',
+  'Child, Julia', 'Grigson, Jane', 'Roden, Claudia', 'Smith, Delia',
+  'McGee, Harold', 'Rogers, Ruth', 'Hopkinson, Simon', 'Slater, Nigel',
+  'Lawson, Nigella', 'Blumenthal, Heston', 'Locatelli, Giorgio', 'Dahl, Sophie',
+  'Ottolenghi, Yotam', 'Nosrat, Samin',
+], 3)
 
-/**
- * The three levels on the shelf somebody is preparing, which is a different
- * piece and has to say so.
+/*
+ * `AREA_LEVELS`, `HALL_LEVELS` and `PIECE_LEVELS` were here: three numbered
+ * rows apiece, from the whole library down to the area, with the row the answer
+ * really came from marked "This one decides".
  *
- * Drawn rather than reused: a screen about the bottom shelf of the hall bookcase
- * that answers "how is this ordered" with Bookcase 2 and 2 · Cookery is the
- * gallery contradicting its own top bar, and it was doing exactly that until the
- * two new screens were looked at.
+ * They are gone (#405), and so is the widget that drew them. The owner read
+ * them and said the sort rule was "not very understandable at all", and the
+ * three levels are why: two of the three rows always said "the way the thing
+ * above me does", so the answer to "what order are my books in" was at the end
+ * of a chain of pointers rather than at the top of the card. The levels are a
+ * true fact about the model and were never a fact anybody needed drawn.
+ *
+ * What replaces them is one sentence naming the place the ordering is really
+ * set, which is the only one of the three anybody would go to.
  */
-const HALL_LEVELS: OrderLevel[] = [
-  { place: 'The whole library', said: 'By the author', decides: true },
-  { place: 'The hall bookcase', said: 'The way the whole library does', decides: false },
-  { place: '4 · Bottom row', said: 'The way the hall bookcase does', decides: false },
-]
 
-/** The same, on a piece: nothing stands between one and the whole library. */
-const PIECE_LEVELS: OrderLevel[] = [
-  { place: 'The whole library', said: 'By the author', decides: true },
-  { place: 'Bookcase 2', said: 'The way the whole library does', decides: false },
-]
+/** Where each of the three areas the gallery draws really gets its ordering. */
+const SETTLED_COOKERY =
+  'Set for the whole library, which bookcase 2 and this area both follow.'
+
+const SETTLED_HALL =
+  'Set for the whole library, which the hall bookcase and this area both follow.'
 
 function Area(go: Go) {
   return (
@@ -3224,11 +3312,12 @@ function Area(go: Go) {
       belongs="Anything tagged Cookery"
       rules={[COOKERY_RULE]}
       beaten={COOKERY_REACHING}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('who')}
-      books={COOKERY_ROWS}
+      board={COOKERY_BOOKS}
     />
   )
 }
@@ -3256,16 +3345,224 @@ function AreaSorting(go: Go) {
       belongs="Anything tagged Cookery"
       rules={[COOKERY_RULE]}
       beaten={COOKERY_REACHING}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.title}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('title')}
       sorting
       chosen="title"
-      books={COOKERY_ROWS}
+      warn="Ordering this area its own way also means it stops taking what overflows from the area before it."
+      board={COOKERY_BOOKS}
     />
   )
 }
+
+/**
+ * The order this area's books are in, and the two ends of them, when the area
+ * is the place that decides.
+ *
+ * The state the sentence has to be different for, and the one it would be
+ * easiest to smooth over: an area with an ordering of its own is a place of its
+ * own, so nothing overflows into it from the area before. That is a real
+ * consequence of a real setting and losing it to make the widget shorter would
+ * be losing the only thing about this setting a person cannot work out by
+ * looking at their own bookcase.
+ *
+ * The board underneath is in that order too, and it has to be: it is a picture
+ * of a row of books, and a row drawn A to Z under a card saying "by the year it
+ * came out" is the page arguing with itself.
+ */
+function AreaOwn(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="2 · Cookery"
+      sub="18 books, on bookcase 2"
+      name="Cookery"
+      belongs="Anything tagged Cookery"
+      rules={[COOKERY_RULE]}
+      beaten={COOKERY_REACHING}
+      ordered="By the year it came out"
+      ends={COOKERY_ENDS.year}
+      settled="Set on this area, so nothing above it decides how these books read."
+      order="It orders itself, so nothing overflows into it from the area before."
+      board={COOKERY_BY_YEAR}
+    />
+  )
+}
+
+/*
+ * --- The other answer, for as long as the question is open -----------------
+ *
+ * The owner has rejected two drawings of the sort rule and the second one hard:
+ * "the way that we are representing the sort rule in the widget is not very
+ * understandable at all." Two drawings of the same material have now failed, so
+ * this round drew two answers that are not the same material and put both of
+ * them on the same page, with the same neighbours, at the size he holds.
+ *
+ * **The first answer is the one that is built** and it is on `area` and
+ * `sortrule`: the ordering itself as the loudest line, the two ends of the
+ * books under it, one sentence naming where it is set, and the whole of the
+ * inheritance kept out of sight until somebody changes something.
+ *
+ * **The second answer is these two screens.** It leads with the same line and
+ * then splits the change in two: first "does this area follow the piece it
+ * stands on", then, only if not, which ordering it uses. That is the model's
+ * inheritance turned into the one thing a person actually decides about it, and
+ * it takes the odd fifth member out of a list of four real orderings. It costs
+ * a press and a control, and the consequence of not following lands on the
+ * switch that causes it rather than in a line underneath.
+ *
+ * Why the first one is recommended is in the pull request. **These go the day
+ * the question is answered**, with the `instead` prop and this group, for the
+ * reason the register at the foot of this file already gives: a comparison left
+ * standing after its question is settled quietly reopens it.
+ */
+
+/** The four real orderings, with no "follow" among them. That is the point. */
+const FOUR = [
+  { value: 'author', word: 'By the author' },
+  { value: 'title', word: 'By the title' },
+  { value: 'published', word: 'By the year it came out' },
+  { value: 'tag', word: 'By tag', sub: 'Not ready to be offered yet', off: true },
+]
+
+/**
+ * The sort rule asked as two questions instead of one list.
+ *
+ * Closed it says the same two things the built one says, in the same order: the
+ * ordering, then where it comes from. Open, "the way bookcase 2 does" stops
+ * being an option among orderings and becomes the question it really is, and
+ * the four orderings appear only once the answer to it is no.
+ */
+function OtherOrder({
+  go,
+  open = false,
+  own = false,
+}: {
+  go: Go
+  open?: boolean
+  /** Whether the answer under a thumb is "its own way" rather than "follow". */
+  own?: boolean
+}) {
+  return (
+    <Card
+      kind="Sort rule"
+      /* The ordering in force, exactly as the built one says it. The two
+         answers differ in how the change is asked and in nothing else, so
+         anything else that differed would be noise in the comparison. */
+      title="By the author"
+      foot={open
+        ? (
+          <>
+            <Button tone="primary" block onPress={() => go('otherorder')}>
+              Order it that way
+            </Button>
+            <Button tone="quiet" block onPress={() => go('otherorder')}>
+              Leave it as it is
+            </Button>
+          </>
+        )
+        : (
+          <Button tone="secondary" block onPress={() => go('otherown')}>
+            Change the sort rule
+          </Button>
+        )}
+    >
+      {!open && (
+        <>
+          <p className="wf-ends">
+            <span className="wf-ends__end">Acton, Eliza</span>
+            <span className="wf-ends__to">to</span>
+            <span className="wf-ends__end">Slater, Nigel</span>
+          </p>
+          <p>It follows bookcase 2, which is following the whole library.</p>
+        </>
+      )}
+
+      {open && (
+        <>
+          <p className="wf-order__head">Does this area follow bookcase 2?</p>
+          <Segmented
+            label="Whether this area follows the piece it stands on"
+            on={own ? 'own' : 'follow'}
+            onPick={(pick) => go(pick === 'own' ? 'otherown' : 'otherorder')}
+            options={[
+              { value: 'follow', word: 'Follow it' },
+              { value: 'own', word: 'Its own way' },
+            ]}
+          />
+
+          {own && (
+            <>
+              <Choice
+                label="How the books here should be ordered"
+                on="title"
+                options={FOUR}
+              />
+              <p className="wf-rule__effect">
+                An area ordered its own way stops taking what overflows from the area
+                before it.
+              </p>
+            </>
+          )}
+
+          <p className="wf-order__head">How they would stand</p>
+          <p className="wf-ends">
+            <span className="wf-ends__end">
+              {own ? 'A Book of Mediterranean Food' : 'Acton, Eliza'}
+            </span>
+            <span className="wf-ends__to">to</span>
+            <span className="wf-ends__end">
+              {own ? 'The Vegetarian Epicure' : 'Slater, Nigel'}
+            </span>
+          </p>
+          <ol className="wf-sample" aria-label="The books in the order you have picked">
+            {(own ? sampleBy('title') : sampleBy('who')).map((book) => (
+              <li className="wf-sample__book" key={book.id}>
+                <span className="wf-sample__by">{book.by}</span>
+                <span className="wf-sample__title">{book.said}</span>
+              </li>
+            ))}
+            <li className="wf-sample__more">and 12 more, in that order</li>
+          </ol>
+        </>
+      )}
+    </Card>
+  )
+}
+
+/** The second answer, closed: the same two lines, and one press to change it. */
+const OtherOrderShut = (go: Go) => (
+  <AreaScreen
+    go={go}
+    label="2 · Cookery"
+    sub="18 books, on bookcase 2"
+    name="Cookery"
+    belongs="Anything tagged Cookery"
+    rules={[COOKERY_RULE]}
+    beaten={COOKERY_REACHING}
+    ordered="By the author"
+    board={COOKERY_BOOKS}
+    instead={<OtherOrder go={go} />}
+  />
+)
+
+/** The second answer, open, with "its own way" under a thumb. */
+const OtherOrderOwn = (go: Go) => (
+  <AreaScreen
+    go={go}
+    label="2 · Cookery"
+    sub="18 books, on bookcase 2"
+    name="Cookery"
+    belongs="Anything tagged Cookery"
+    rules={[COOKERY_RULE]}
+    beaten={COOKERY_REACHING}
+    ordered="By the author"
+    board={COOKERY_BOOKS}
+    instead={<OtherOrder go={go} open own />}
+  />
+)
 
 /*
  * --- Writing the rule itself, on the place it is about ---------------------
@@ -3329,9 +3626,10 @@ function RuleWriting(go: Go) {
       rules={[COOKERY_RULE]}
       beaten={COOKERY_REACHING}
       writing={writing(go)}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('who')}
     />
   )
@@ -3377,9 +3675,10 @@ function RuleTag(go: Go) {
           onClose: () => go('rulewriting'),
         },
       })}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('who')}
     />
   )
@@ -3426,9 +3725,10 @@ function RuleNewTag(go: Go) {
           onClose: () => go('rulewriting'),
         },
       })}
-      ordered="The way the hall bookcase does"
+      ordered="By the author"
+      settled={SETTLED_HALL}
       order="It takes what overflows from the area before it."
-      levels={HALL_LEVELS}
+      empty
     />
   )
 }
@@ -3463,9 +3763,10 @@ function RuleWaiting(go: Go) {
       }]}
       retarget={false}
       refused="Manga is about this one area, and what can be moved elsewhere is a whole stretch of books that begins on a piece of furniture. What this area allows is still yours to change."
-      ordered="The way the hall bookcase does"
+      ordered="By the author"
+      settled={SETTLED_HALL}
       order="It takes what overflows from the area before it."
-      levels={HALL_LEVELS}
+      empty
     />
   )
 }
@@ -3491,9 +3792,10 @@ function RuleNothing(go: Go) {
       rules={[COOKERY_RULE]}
       beaten={COOKERY_REACHING}
       writing={writing(go, { groups: [] })}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('who')}
     />
   )
@@ -3531,9 +3833,10 @@ function RuleOr(go: Go) {
       writing={writing(go, {
         groups: [COMICS_LINES, [{ operator: 'is', tag: 'Poetry' }]],
       })}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('who')}
     />
   )
@@ -3573,9 +3876,10 @@ function RuleMoves(go: Go) {
         note: 'Bookcase 2 still files non-fiction onto this area, and it is the wider '
           + 'of the two rules, so this one wins here and that one keeps everything after it.',
       }}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('who')}
     />
   )
@@ -3601,9 +3905,10 @@ function RuleDone(go: Go) {
       rules={[{ name: 'Comic books and Fiction', lines: COMICS_LINES, enabled: true }]}
       beaten={COOKERY_REACHING}
       done={{ wrote: 29, carrying: 29 }}
-      ordered="The way bookcase 2 does"
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       order="It takes what overflows from the area before it."
-      levels={AREA_LEVELS}
       sample={sampleBy('who')}
     />
   )
@@ -3687,8 +3992,9 @@ function Removing(go: Go) {
       sub="18 books, on bookcase 2"
       name="Cookery"
       belongs="Anything tagged Cookery"
-      ordered="The way bookcase 2 does"
-      order="By the author’s surname, which is what the whole library uses."
+      ordered="By the author"
+      ends={COOKERY_ENDS.who}
+      settled={SETTLED_COOKERY}
       over={
         <Sure
           title="Its 18 books join 2B"
@@ -3731,8 +4037,9 @@ function RemovingFirst(go: Go) {
       label="By the window · A"
       sub="22 books, first on By the window"
       belongs="Fiction starts here"
-      ordered="The way By the window does"
-      order="By the author’s surname, which is what the whole library uses."
+      ordered="By the author"
+      ends={{ first: 'Adichie, Chimamanda Ngozi', last: 'Zweig, Stefan' }}
+      settled="Set for the whole library, which By the window and this area both follow."
       over={
         <Sure
           title="Its 22 books join By the window · B"
@@ -3781,7 +4088,8 @@ function RemovingOnly(go: Go) {
       sub="10 books, the only area on the desk"
       name="Left side"
       belongs="Nothing sends books here"
-      ordered="The way the desk does"
+      ordered="By the author"
+      settled="Set for the whole library, which the desk and this area both follow."
       order="Put here by hand, in whatever order they were put."
       over={
         <Sure
@@ -4975,6 +5283,15 @@ export const SCREENS: Screen[] = [
   },
   { id: 'area', name: 'One area', group: 'Your fixtures', render: Area },
   { id: 'sortrule', name: 'An area’s sort rule', group: 'Your fixtures', render: AreaSorting },
+  /* The other answer this widget can give, and the one whose sentence differs:
+     an area that decides its own ordering is a place of its own and takes
+     nothing overflowing into it. Beside the two it is a state of. */
+  {
+    id: 'areaown',
+    name: 'An area ordered its own way',
+    group: 'Your fixtures',
+    render: AreaOwn,
+  },
   /*
    * Writing a rule, in the order somebody walks it: the lines under a thumb,
    * choosing a tag to add, everything taken off, what the change would do, and
@@ -5067,21 +5384,48 @@ export const SCREENS: Screen[] = [
     group: 'Putting things right',
     render: UnclaimedNone,
   },
+  /*
+   * The open question, and the group comes back for exactly as long as it is
+   * open. Two drawings of the sort rule have been rejected, so this round drew
+   * two answers rather than one and both are walkable on the same page: `area`
+   * and `sortrule` are the one that is built, and these two are the other.
+   *
+   * Walk them in this order. The first is what the page looks like on the way
+   * past, which is how it is usually met; the second is the press that follows.
+   */
+  {
+    id: 'otherorder',
+    name: 'The order, said another way',
+    group: 'Two ways to say the order',
+    render: OtherOrderShut,
+  },
+  {
+    id: 'otherown',
+    name: 'Changing it, another way',
+    group: 'Two ways to say the order',
+    render: OtherOrderOwn,
+  },
 ]
 
 /*
- * There is no group of things to choose between any more, and there should not
- * be a standing one.
+ * There is a group of things to choose between again, and it is temporary.
  *
- * Two screens lived under that heading, each drawing one question twice so the
- * owner could answer it by looking: which face the counts are set in, and how
- * tall a book is allowed to be. He answered both in #273 and both screens went
- * with the answers. A specimen nobody is choosing from is clutter, which is the
- * thing #262 took thirty-one of out of here, and a comparison left standing
- * after its question is settled quietly reopens it.
+ * Two screens lived under such a heading once, each drawing one question twice
+ * so the owner could answer it by looking: which face the counts are set in,
+ * and how tall a book is allowed to be. He answered both in #273 and both
+ * screens went with the answers. A specimen nobody is choosing from is clutter,
+ * which is the thing #262 took thirty-one of out of here, and a comparison left
+ * standing after its question is settled quietly reopens it.
  *
- * If another question needs deciding by looking, the group comes back for as
- * long as that question is open and goes again with the answer.
+ * The rule written down then was that the group comes back for as long as a
+ * question needs deciding by looking, and goes again with the answer. **Two
+ * drawings of the sort rule have now been rejected**, the second of them as
+ * "not very understandable at all", so #405 drew two answers rather than
+ * rearranging the same material a third time. The one under `Your fixtures` is
+ * built and the two under this heading are the other one.
+ *
+ * **This heading, its two screens, `OtherOrder` and the `instead` prop on
+ * `AreaScreen` all go together the day the question is answered.**
  */
 export const GROUPS = [
   'Every day',
@@ -5090,4 +5434,5 @@ export const GROUPS = [
   'The corner',
   'Your fixtures',
   'Putting things right',
+  'Two ways to say the order',
 ]
