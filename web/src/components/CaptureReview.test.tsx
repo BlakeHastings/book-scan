@@ -44,6 +44,8 @@ function drawn(over: {
   tags?: AppliedTag[]
   vocabulary?: TagRow[]
   canTag?: boolean
+  coverText?: string
+  captureNote?: string
 } = {}) {
   return renderToStaticMarkup(
     <CaptureReview
@@ -55,8 +57,8 @@ function drawn(over: {
       relookupBusy={false}
       relookupError=""
       catalogueCover=""
-      coverText=""
-      captureNote=""
+      coverText={over.coverText ?? ''}
+      captureNote={over.captureNote ?? ''}
       notice=""
       onDismissNotice={() => {}}
       error=""
@@ -132,5 +134,94 @@ describe('the tags on the check-the-details screen', () => {
      box for tags it may never need. */
   it('opens the naming panel rather than drawing one on the screen', () => {
     expect(drawn()).not.toContain('wf-name')
+  })
+})
+
+/**
+ * What the photographs read, on the one screen that still shows it.
+ *
+ * **These tests were written against the other screen and moved here** (#409).
+ * `CaptureEvidence` had two callers, and the owner named it off the screen for
+ * a book the catalogue already holds: "we have text underneath the images
+ * coming from the OCR system. We shouldn't show those, they're very intrusive."
+ * That leaves one caller, which is this screen, and it is the screen the block
+ * was written for: the case the whole of #147 is about is a capture the
+ * photographs read something off and no catalogue matched, so there is no
+ * title, and that is precisely the book somebody has to work out by hand.
+ *
+ * Nothing in the claims changed in the move. The reading is shown, it says what
+ * it is and how much to trust it, and it never reaches a field.
+ */
+describe('a queued capture with cover text and no title', () => {
+  const nameless = (over: Parameters<typeof drawn>[0] = {}) =>
+    drawn({ ...over, draft: { title: '', ...over.draft } })
+
+  it('shows what the cover photo read', () => {
+    const markup = nameless({ coverText: 'Song of Solomon\nToni Morrison' })
+
+    expect(markup).toContain('Song of Solomon')
+    expect(markup).toContain('Toni Morrison')
+  })
+
+  it('says it was read off the photograph by a machine', () => {
+    const markup = nameless({ coverText: 'Song of Solomon' })
+
+    expect(markup).toContain('The cover photo reads')
+    expect(markup).toContain('often wrong')
+  })
+
+  /*
+   * The point of showing it at all is undone by pre-filling it. OCR is a
+   * lossy reading of a photograph, and a guess sitting in the Title box is
+   * one save away from entering the catalogue as a confirmed value.
+   */
+  it('leaves the Title box empty rather than filling it with the reading', () => {
+    const markup = nameless({ coverText: 'Song of Solomon' })
+
+    expect(markup).not.toContain('value="Song of Solomon"')
+    expect(markup).toContain('Nothing here has been filled in for you')
+  })
+
+  it('offers nothing that copies the reading into a field', () => {
+    const markup = nameless({ coverText: 'Song of Solomon' }).toLowerCase()
+
+    expect(markup).not.toContain('use this')
+    expect(markup).not.toContain('use as title')
+  })
+
+  /*
+   * Three people work one pile and a note is how one hands the book to the
+   * next, so it belongs on the screen where the next one picks it up.
+   */
+  it('shows the note that came with it', () => {
+    expect(nameless({ captureNote: 'No ISBN confirmed. Barcode is torn.' }))
+      .toContain('No ISBN confirmed. Barcode is torn.')
+  })
+
+  /* The block itself is absent rather than empty, checked on the class: this
+     screen says the word "evidence" in the card that stands in for a lookup
+     nothing answered, which is prose about what is underneath rather than the
+     thing underneath. */
+  it('quotes nothing when the photographs produced nothing', () => {
+    const markup = nameless()
+
+    expect(markup).not.toContain('The cover photo reads')
+    expect(markup).not.toContain('class="evidence"')
+  })
+
+  /*
+   * #156. With the guess out of the Title box this button is dead until
+   * somebody names the book, and it was live before, so the page has to say
+   * why rather than leave a person prodding at it. In the page and not only in
+   * the button's tooltip: this runs on a phone, where nothing hovers.
+   */
+  it('says what would let it be shelved, rather than only refusing', () => {
+    expect(nameless({ coverText: 'Song of Solomon' }))
+      .toContain('Type the title off the book to shelve it')
+  })
+
+  it('stops saying it the moment there is a title', () => {
+    expect(drawn({ draft: { title: 'Song of Solomon' } }))
+      .not.toContain('Type the title off the book to shelve it')
   })
 })

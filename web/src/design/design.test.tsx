@@ -444,7 +444,12 @@ describe('finding is one press from every screen that lists books', () => {
  * round did to this section, agrees with the rule rather than straining it.
  */
 describe('a book screen is about the book, not about where it sits', () => {
-  const BOOKS = ['book', 'thin', 'lone']
+  /* The three details screens are on this list from the round they were drawn
+     (#409), and that is the point of adding them: the notice at the top of one
+     of them is the only thing on any book screen allowed to be about where the
+     book sits, and it survives that by being an instruction. Everything under
+     it answers to the same rule the book's own page does. */
+  const BOOKS = ['book', 'thin', 'lone', 'details', 'amiss', 'detailsout']
 
   it('draws the book, its facts, its tags and its actions before the place', () => {
     for (const id of BOOKS) {
@@ -526,7 +531,7 @@ describe('a book screen is about the book, not about where it sits', () => {
  * headings.
  */
 describe('a book page puts what you can do above where the book sits', () => {
-  const BOOKS = ['book', 'thin', 'lone']
+  const BOOKS = ['book', 'thin', 'lone', 'details', 'amiss', 'detailsout']
 
   const drawn = (id: string) => {
     const screen = SCREENS.find((one) => one.id === id)
@@ -621,6 +626,111 @@ describe('a book page puts what you can do above where the book sits', () => {
     }
 
     expect(readFileSync(join(HERE, 'library.css'), 'utf8')).not.toMatch(/\.wf-here/)
+  })
+})
+
+/**
+ * A book that is supposed to be moved says so in words, and is a door.
+ *
+ * > Instead of "moved it, there is an option", we should remove any button
+ * > there, but let the user click on the needs-attention pop up to take them to
+ * > the shelving step for that book [...] instead of "needs attention"
+ * > explaining that it was last seen on a bookcase and now needs to be put on a
+ * > different one, we can just have a message like "book is supposed to be
+ * > moved" or something. A little less intense, taking up so much of the screen.
+ *
+ * Four ways this comes undone, and each one is a check rather than a paragraph.
+ *
+ * **It grows a button back.** A card with an answer along the bottom is what
+ * this was, and one small button beside the sentence is how it returns. The
+ * notice is one target and there is nothing inside it to aim at.
+ *
+ * **It grows back into a location report.** Both places are still on the
+ * screen: the board draws the row with the gap in it, and the step this opens
+ * names the plank on arrival. A sentence reciting them is the paragraph coming
+ * back, and it is also the pinned rule about what a book screen is for being
+ * strained by the one thing on the page allowed to be about where a book sits.
+ *
+ * **It starts telling somebody something with its colour.** He asked for
+ * orange-ish and this system does not say anything with a hue: the words carry
+ * the meaning and the colour is emphasis. So what is checked is that the notice
+ * still reads with every class and every attribute stripped off it, which is
+ * what greyscale is, and separately that no rail was painted down its side.
+ *
+ * **The delete starts explaining itself again.** The sentence over that button
+ * went the same round, and the warning it carried is in the dialog rather than
+ * gone. What must not come back is the page saying it.
+ */
+describe('a book supposed to be moved is told in words, and pressing it goes somewhere', () => {
+  const drawn = (id: string) => {
+    const screen = SCREENS.find((one) => one.id === id)
+    expect(screen, `there is no screen called "${id}"`).toBeDefined()
+    return renderToStaticMarkup(screen!.render(() => {}))
+  }
+
+  /** The notice on a screen, markup and all, or an empty string. */
+  const noticeOn = (id: string) =>
+    drawn(id).match(/<button[^>]*class="wf-amiss"[\s\S]*?<\/button>/)?.[0] ?? ''
+
+  it('is one press, and the whole of it is the press', () => {
+    const markup = drawn('amiss')
+
+    expect(markup.match(/class="wf-amiss"/g) ?? [], 'the notice is drawn once')
+      .toHaveLength(1)
+    expect(noticeOn('amiss'), 'the notice is not a target at all').not.toBe('')
+    /* Nothing inside it: the one button is the notice itself. A card with an
+       answer along the bottom is exactly what this stopped being. */
+    expect(
+      noticeOn('amiss').match(/<button/g) ?? [],
+      'the notice holds an answer of its own',
+    ).toHaveLength(1)
+  })
+
+  it('says what is wrong in words, so it reads with the colour taken out', () => {
+    const said = words(noticeOn('amiss')).replace(/\s+/g, ' ').trim()
+
+    expect(said, 'the notice says nothing without its paint')
+      .toMatch(/supposed to be moved/i)
+    /* One sentence. Two is the paragraph starting again, and the length is not
+       what is being pinned: the full stop count is. */
+    expect(said.match(/[.!?]/g) ?? [], 'the notice says more than one sentence')
+      .toHaveLength(1)
+  })
+
+  it('recites neither the place it was nor the place it goes', () => {
+    const said = words(noticeOn('amiss'))
+
+    expect(said, 'the notice names a place again').not.toMatch(/\b\d[A-Z]\b/)
+    expect(said, 'the notice reports where the book was').not.toMatch(/last seen/i)
+    expect(said, 'the notice offers an answer instead of a walk')
+      .not.toMatch(/moved it|undo the move/i)
+  })
+
+  /* And it is on the one screen that is about a book being out of place. A
+     notice drawn on every book is an alarm nobody would design around. */
+  it('is on no book screen that has nothing wrong with it', () => {
+    for (const id of ['book', 'thin', 'lone', 'details', 'detailsout']) {
+      expect(drawn(id), `${id} says a book is out of place when it is not`)
+        .not.toContain('wf-amiss')
+    }
+  })
+
+  it('leaves the delete unexplained on the page, wherever a book can be deleted', () => {
+    for (const screen of SCREENS) {
+      const markup = renderToStaticMarkup(screen.render(() => {}))
+      if (!markup.includes('Delete this book')) continue
+
+      const said = words(markup)
+      expect(said, `${screen.id} explains the delete on the page again`)
+        .not.toMatch(/off disk|put them back/i)
+    }
+
+    // Without this the loop above passes by finding nothing at all.
+    expect(
+      SCREENS.filter((screen) =>
+        renderToStaticMarkup(screen.render(() => {})).includes('Delete this book')).length,
+      'no screen offers to delete a book',
+    ).toBeGreaterThan(0)
   })
 })
 

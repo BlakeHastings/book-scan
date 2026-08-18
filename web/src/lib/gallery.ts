@@ -32,16 +32,25 @@ export function frameAtScroll(scrollLeft: number, frameWidth: number, count: num
   return Math.max(0, Math.min(count - 1, Math.round(scrollLeft / frameWidth)))
 }
 
-/**
- * Said only where the detector was shown a photograph and declined to cut it.
+/*
+ * `NOT_PICKED_OUT` was here, and it is drawn nowhere now (#409).
  *
- * A photograph that still has the room around it says why, rather than being
- * quietly worse than the one beside it. A crop that cut a cover in half would
- * be the expensive mistake here, so the detector refuses whenever it is unsure,
- * and this is what refusing looks like on the screen where somebody is deciding
- * whether the photographs came out.
+ * It read "The book could not be picked out, so this is the whole photo", and
+ * it was written under every photograph the detector had been shown and
+ * declined to cut, on the screen for a book the catalogue already holds. That
+ * screen was its only caller, and the owner named it off:
  *
- * It is a sentence rather than a mark for the reason every other note in this
- * app is one: a legend somebody has to have been told is no use at a bookcase.
+ * > On the edit-the-details-for-a-book screen we have text underneath the images
+ * > coming from the OCR system. We shouldn't show those, they're very intrusive.
+ *
+ * **So a diagnostic has gone out of the interface, deliberately and not
+ * quietly.** What it said is still true and is still knowable: a photograph
+ * with no crop beside it is a photograph the detector would not cut, and
+ * `books.cropped` names every slot it was shown. Nothing about the detector, the
+ * crops or what is stored changed. If it is ever wanted again it belongs
+ * somewhere less intrusive than under each picture, and that is the owner's
+ * call to make rather than this issue's.
+ *
+ * `Shot.note` in `src/design/Shots.tsx` is untouched: it is the general way a
+ * photograph carries a word, and it now has no caller here.
  */
-export const NOT_PICKED_OUT = 'The book could not be picked out, so this is the whole photo'

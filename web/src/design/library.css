@@ -2694,6 +2694,49 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
+/*
+ * A book that is supposed to be moved: one line, warm, and the whole of it is
+ * a target.
+ *
+ * **The warmth is a wash and not a rail.** The owner asked for orange-ish, and
+ * the mark this system does not draw is a coloured bar down one side of a card,
+ * which he named as looking machine-made. So the hue is spread across the whole
+ * of it under one hairline that goes all the way round, at the strength a wash
+ * is allowed to be here: enough to catch an eye scrolling past a page of warm
+ * paper, not enough to out-shout a run of real spines further down.
+ *
+ * **Nothing here is said by the colour.** Rendered in greyscale the wash is a
+ * shade of the page, and what is left is the sentence, the glyph and the
+ * chevron, which is the whole message. That is the rule this system has about
+ * pills, dots and the corner action, reaching the one notice on a book screen.
+ *
+ * It is one line at the tap height and no taller. What it replaced was a card
+ * with a title, two paragraphs and two buttons in it, on the screen a person
+ * with a hundred books out of place sees more than any other.
+ */
+.wf-amiss {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: var(--tap);
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--sun-wash);
+  color: var(--ink);
+  font-family: var(--face-ui);
+  font-size: var(--size-body);
+  line-height: var(--lh-tight);
+  text-align: left;
+  cursor: pointer;
+}
+.wf-amiss:focus-visible { outline: none; box-shadow: var(--focus); }
+.wf-amiss__said { flex: 1; min-width: 0; }
+.wf-amiss__mark { flex: none; display: flex; color: var(--wood-2); }
+.wf-amiss__onward { flex: none; display: flex; color: var(--ink-2); }
+
 /* The book, and what it is. */
 .wf-book { display: flex; gap: var(--s3); align-items: flex-start; }
 

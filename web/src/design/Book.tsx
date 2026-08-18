@@ -53,6 +53,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { IconCarry, IconOnward } from './Icons'
 import { Shots, type FirstPicture, type Shot } from './Shots'
 
 /**
@@ -242,6 +243,67 @@ export function Tagging({ children }: { children: ReactNode }) {
  */
 export function Actions({ children }: { children: ReactNode }) {
   return <div className="wf-actions">{children}</div>
+}
+
+/**
+ * A book the order wants somewhere else, said in one sentence and pressed.
+ *
+ * ## It is a door, and that is the whole of it
+ *
+ * > Instead of "moved it, there is an option", we should remove any button
+ * > there, but let the user click on the needs-attention pop up to take them to
+ * > the shelving step for that book, where we have them take it off a shelf and
+ * > put it on the correct spot.
+ *
+ * So there is no button on it and no answer to give it. The notice itself is
+ * the target, and what it opens is the screen a newly scanned book is placed
+ * on: the same run drawn with the gap in it, the same "it fits", the same
+ * cascade when the plank will not take it. Saying "I moved it" without going
+ * anywhere is the one thing this used to offer and no longer does, because the
+ * screen it opens is where somebody says that, standing at the bookcase.
+ *
+ * ## One sentence, and it is a call to action rather than a location report
+ *
+ * > Instead of "needs attention" explaining that it was last seen on a bookcase
+ * > and now needs to be put on a different one, we can just have a message like
+ * > "book is supposed to be moved" or something. A little less intense, taking
+ * > up so much of the screen.
+ *
+ * A book screen is about the book rather than about where it sits, which is a
+ * pinned rule, and a notice reciting two places was that rule being strained by
+ * the one thing on the page allowed to break it. **This survives the rule by
+ * being an instruction rather than a report.** Both places are still true and
+ * both are still on the screen: the board below draws the gap the book belongs
+ * in, and the step this opens names the plank. A notice does not have to recite
+ * them to be understood.
+ *
+ * That is also why the sentence is fixed here rather than passed in. There is
+ * one thing this says, it says it about every book that is out of place, and a
+ * caller free to write its own is a caller free to write the paragraph back.
+ *
+ * ## The colour is emphasis and never the message
+ *
+ * He asked for "a little bit more colour, maybe orange-ish", and the two things
+ * that constrains are not negotiable. There is no coloured rail down the side
+ * of anything, because that mark was named as machine-made and rejected; the
+ * warmth is a wash across the whole of it, inside one hairline on all four
+ * sides. And nothing here is told by the colour: the sentence says what is
+ * wrong, the glyph is a book with the way it has to go beside it, and the
+ * chevron says pressing it leads somewhere. Take the colour out entirely and
+ * every one of those still reads, which is the test that was actually run.
+ */
+export function Amiss({ onPress }: { onPress?: () => void }) {
+  return (
+    <button type="button" className="wf-amiss" onClick={onPress}>
+      <span className="wf-amiss__mark" aria-hidden="true">
+        <IconCarry size={20} />
+      </span>
+      <span className="wf-amiss__said">This book is supposed to be moved.</span>
+      <span className="wf-amiss__onward" aria-hidden="true">
+        <IconOnward size={18} />
+      </span>
+    </button>
+  )
 }
 
 /*

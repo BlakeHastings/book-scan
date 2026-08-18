@@ -3,13 +3,12 @@ import { Card, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
 import { IconCamera } from '../design/Icons'
-import { Actions, Head } from '../design/Book'
+import { Actions, Amiss, Head } from '../design/Book'
 import { Phone } from '../design/Phone'
 import { Shots, threeSlots, type Shot } from '../design/Shots'
 import { Sure } from '../design/Sure'
 import type { Draft, LookupResponse, Misfile, Plank } from '../lib/api'
 import { rememberedFirstPicture } from '../lib/firstPicture'
-import { NOT_PICKED_OUT } from '../lib/gallery'
 import { grouped } from '../lib/say'
 import { SLOT_SHORT, type Slot } from '../lib/scanner'
 import { BookFields } from './BookFields'
@@ -22,8 +21,6 @@ interface Props {
   photos: Partial<Record<Slot, string>>
   /** The same photos cut to the book, where the detector found one. */
   crops?: Partial<Record<Slot, string>>
-  /** Slots the detector has been shown, whether or not it found a book. */
-  examined?: Slot[]
   derivedFiling: string
   saving: boolean
   relookupBusy: boolean
@@ -33,7 +30,14 @@ interface Props {
   onChange: (patch: Partial<Draft>) => void
   onRelookup: (isbn: string) => void
   onClearRelookupError: () => void
-  /** New book: on to the shelving step. */
+  /**
+   * On to the shelving step, for whichever book is in hand.
+   *
+   * Three things ask for it and all three are the same act: a new book being
+   * placed for the first time, a book being checked back in, and, since round
+   * ten, the notice saying this one is supposed to be moved. There is one
+   * screen that places a book and this is the way to it (#409).
+   */
   onShelve: () => void
   /** Existing book: write the edits and stay here. Resolves false if it failed. */
   onSaveEdits: () => Promise<boolean>
@@ -94,32 +98,14 @@ interface Props {
    * this arrives from `api.misfiles`, already carrying the two facts the
    * library row carries, rather than being worked out again here from the
    * placement below (see findMisfile in src/lib/misfile.ts).
+   *
+   * **Only its presence is read now** (#409). The notice used to recite the two
+   * places it carries and offer two answers; it is one sentence and a door, and
+   * the entry stays the thing that decides whether there is anything to say.
+   * Where the book belongs is drawn by the board below and named by the step the
+   * notice opens, so it is on the screen twice without being written once.
    */
   misfile?: Misfile | null
-  /** A person says they have carried the book to where the order puts it. */
-  onMisfileMoved?: () => void
-  /**
-   * A person says they never picked it up, so the boundary move goes back.
-   *
-   * Absent unless the server reports this misfile as an outstanding move. That
-   * is the difference between an assignment the app made and the order having
-   * genuinely moved a book, and only the first one is anybody's to withdraw.
-   */
-  onMisfileTakenBack?: () => void
-  misfileMoving?: boolean
-  /**
-   * The lines OCR read off this capture's cover photograph, newline
-   * separated, exactly as the queue row already quotes them.
-   *
-   * Empty for a catalogued book, which has no capture behind it, and for a
-   * capture whose photographs produced nothing readable.
-   */
-  coverText?: string
-  /**
-   * The queue's note on this capture: usually why it could not settle what
-   * the book is, and the line the next person needs before they start.
-   */
-  captureNote?: string
 }
 
 /**
@@ -196,15 +182,14 @@ const HUNTING_FOR_IT = [
  * rather than two that agree until one is edited.
  */
 export function BookDetail({
-  draft, lookup, photos, crops, examined, derivedFiling, saving,
+  draft, lookup, photos, crops, derivedFiling, saving,
   relookupBusy, relookupError, saved,
   onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
   onDelete, deleting = false, doneLabel = 'Done', placement,
   tabs, notice = '', onDismissNotice, error = '', onDismissError,
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
   boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
-  misfile = null, onMisfileMoved, onMisfileTakenBack, misfileMoving = false,
-  coverText = '', captureNote = '',
+  misfile = null,
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
   // because correcting it is the whole reason it is on screen.
@@ -258,17 +243,25 @@ export function BookDetail({
   const saveBlocked = saving || relookupBusy || !draft.title
   const whyBlocked = relookupBusy
     ? 'Waiting for the ISBN lookup to finish.'
-    // Reachable since #156, and it was not before: a capture the app could not
-    // identify used to arrive with the OCR guess sitting in the Title box, so
-    // this button was live and one tap shelved that guess. Now the box is
-    // empty, and a disabled button with nothing said about it is the shape
-    // that makes somebody prod at a screen wondering what is broken.
+    // A disabled button with nothing said about it is the shape that makes
+    // somebody prod at a screen wondering what is broken. This screen is a
+    // book the catalogue already holds, so an empty title is one somebody has
+    // just cleared rather than one nothing ever filled in; what the queue's
+    // screen says about the photographs would not be true here (#409).
     : !draft.title
-      ? 'Type the title off the book to shelve it. Nothing has been filled in '
-        + 'from the photographs; what the cover reads is quoted below.'
+      ? 'Type the title off the book to save it.'
       : ''
 
-  /** One of the three photographs of this copy, cropped where a crop exists. */
+  /**
+   * One of the three photographs of this copy, cropped where a crop exists.
+   *
+   * **Nothing is written under it any more** (#409). Each photograph the
+   * detector had been shown and declined to cut carried a sentence saying so,
+   * and the owner named that text off this screen: "we have text underneath the
+   * images coming from the OCR system. We shouldn't show those, they're very
+   * intrusive." A photograph that still has the room around it is now simply
+   * the photograph, and what the machine made of it is said nowhere here.
+   */
   const one = (slot: Slot): Shot => {
     const crop = crops?.[slot] ?? ''
     const whole = photos[slot] ?? ''
@@ -279,11 +272,6 @@ export function BookDetail({
       // Full screen shows the photograph, not the crop the page drew. Absent
       // where there was nothing to cut, and then the drawn one is the whole.
       full: whole || undefined,
-      // Said only where the detector was shown this photograph and declined,
-      // which is the same honesty `BookGallery` carried: a photo that still
-      // has the room around it says why rather than being quietly worse than
-      // the one beside it.
-      note: examined?.includes(slot) && !crop && whole ? NOT_PICKED_OUT : undefined,
     }
   }
 
@@ -347,14 +335,22 @@ export function BookDetail({
             onBack={back}
           />
         }
-        /* Over the screen rather than beside it, and the screen underneath is
-           drawn in full: what somebody is being asked about is the book they
-           were just looking at.
+        /*
+          Over the screen rather than beside it, and the screen underneath is
+          drawn in full: what somebody is being asked about is the book they
+          were just looking at.
 
-           Two questions can be asked here and only one at a time. Correcting
-           the ISBN came through this slot with #408, which is what took it out
-           of a fixed overlay of its own: the card it is asked on is positioned
-           inside the screen, the same way the delete question's is. */
+          Two questions can be asked here and only one at a time. Correcting
+          the ISBN came through this slot with #408, which is what took it out
+          of a fixed overlay of its own: the card it is asked on is positioned
+          inside the screen, the same way the delete question's is.
+
+          **The delete question is the only place its warning is written now**
+          (#409). The sentence that used to sit over the button on the page said
+          these same two things, and a warning nobody is about to act on is
+          prose; the answer is not to say it less firmly here but to say it only
+          here.
+        */
         over={asking ? (
           <IsbnPrompt
             initial={draft.isbn13 || draft.isbn10}
@@ -398,19 +394,24 @@ export function BookDetail({
           </div>
         )}
 
-        {/* Beside the checked-out banner, and for the same reason: it is a fact
-            about where the book physically is, and the page below reads
-            differently once you know it. The two are mutually exclusive in
-            practice, since a book off the shelf holds no position to be wrong
-            about and the server excludes it from the review entirely. */}
-        {misfile && onMisfileMoved && (
-          <MisfileNotice
-            misfile={misfile}
-            moving={misfileMoving}
-            onMoved={onMisfileMoved}
-            onTakeBack={onMisfileTakenBack}
-          />
-        )}
+        {/*
+          Beside the checked-out banner, and for the same reason: it is a fact
+          about where the book physically is, and the page below reads
+          differently once you know it. The two are mutually exclusive in
+          practice, since a book off the shelf holds no position to be wrong
+          about and the server excludes it from the review entirely.
+
+          **It is one line and it is a door** (#409). Pressing it opens the
+          step that places a book, which is the same screen a newly scanned
+          book and a carried book are placed on, so there is no second way to
+          say where a book went. What used to be here was a card with two
+          paragraphs and two answers in it: "Moved it", which wrote a location
+          from a screen nobody could be standing at a bookcase reading, and
+          "Undo the move". Both are still offered, in the library's list of
+          books needing attention, which is the screen that is a work list.
+          Here there is one thing to do and it is a walk.
+        */}
+        {misfile && <Amiss onPress={onShelve} />}
 
         {editing ? (
           <>
@@ -452,11 +453,21 @@ export function BookDetail({
               </div>
             )}
 
-            {/* Directly above the fields, because this is what somebody reads
-                while they type into them. Anywhere higher and it is off screen
-                by the time the Title box is. */}
-            <CaptureEvidence coverText={coverText} note={captureNote} />
+            {/*
+              What the photographs read used to be quoted here, above the
+              fields. It is gone (#409): "we have text underneath the images
+              coming from the OCR system. We shouldn't show those, they're very
+              intrusive."
 
+              Nothing is lost from this screen by its going, because there was
+              nothing on this screen to lose. A book the catalogue already holds
+              has no capture behind it to quote, and `openBook` sets the evidence
+              empty for exactly that reason, so this block has drawn nothing here
+              since the screens split (#316). It is still drawn where it is read,
+              which is the queue's check-the-details screen, where somebody is
+              working out what an unidentified book is; that is where #147 put it
+              and it is the screen the gallery draws it on.
+            */}
             <BookFields
               draft={draft}
               lookup={lookup}
@@ -591,26 +602,32 @@ export function BookDetail({
 
             {placement}
 
-            <CaptureEvidence coverText={coverText} note={captureNote} />
+            {/*
+              Kept well away from the row above so it cannot be hit by accident,
+              and it asks before it does anything. Outlined rather than filled,
+              which is what `danger` means here: a filled red button invites the
+              press it is warning about.
 
-            {/* Kept well away from the row above so it cannot be hit by
-                accident, and it asks before it does anything. Outlined rather
-                than filled, which is what `danger` means here: a filled red
-                button invites the press it is warning about.
+              It was a card with a heading over it for one round, and the heading
+              said the same words as the button under it. Then it was a sentence
+              over the button saying the record and its photographs come off disk
+              and nothing here can put them back, and round ten took that too:
 
-                It was a card with a heading over it for one round, and the
-                heading said the same words as the button under it. Found by
-                looking at it. */}
+              > At the bottom of the detail view as well: we don't want to explain
+              > to them that deleting takes the record and its photographs off
+              > disk and nothing here could put them back. We don't need to put
+              > that text there.
+
+              **The warning did not go with it, and that distinction is the whole
+              of #281.** Ambient prose is noise; an explanation at the moment of
+              an irreversible decision is the entire job. So the sentence is not
+              on the page and is word for word in the dialog below, which is the
+              moment somebody is actually deciding.
+            */}
             {onDelete && (
-              <>
-                <Said>
-                  Deleting takes the record and its photographs off disk, and
-                  nothing here can put them back.
-                </Said>
-                <Button tone="danger" block onPress={() => setConfirmingDelete(true)}>
-                  Delete this book and its photos
-                </Button>
-              </>
+              <Button tone="danger" block onPress={() => setConfirmingDelete(true)}>
+                Delete this book and its photos
+              </Button>
             )}
           </>
         )}
@@ -619,125 +636,42 @@ export function BookDetail({
   )
 }
 
-/**
- * What the photographs said, on the screen where somebody has to work out
- * what the book is.
+/*
+ * `CaptureEvidence` was here, and it is in `CaptureReview.tsx` now.
  *
- * This is the page for exactly the captures the app could not settle by
- * itself, and its one piece of evidence used to be on the previous screen:
- * the queue row said "Cover reads: Song of Solomon", and opening the row
- * showed neither that nor the note. Somebody correcting a stack of these was
- * backing out to re-read a line they had just been shown and holding it in
- * their head while typing (#147).
+ * It quotes what the photographs read, and this screen was one of its two
+ * callers until the owner named it off this one (#409): "we have text
+ * underneath the images coming from the OCR system. We shouldn't show those,
+ * they're very intrusive." It went to its remaining caller rather than staying
+ * here exported for one, which is the queue's check-the-details screen, where a
+ * person is working out what an unidentified book is and where #147 put it.
  *
- * Shown as evidence and never as a value. Nothing here is pre-filled into a
- * field and there is deliberately no control that copies it across: OCR is a
- * lossy, engine-version-dependent reading of a photograph, and a guess
- * promoted into a box somebody then saves enters the catalogue wearing the
- * clothes of a confirmed value. So it is quoted beside the form rather than
- * poured into it, and it says both where it came from and how much to trust
- * it.
- *
- * The note gets the same room. Three people work one pile, and a note is how
- * one of them hands the work to the next.
+ * Nothing about the quoting changed in the move, and nothing about it needed to:
+ * it is still evidence rather than a value, still nowhere near a field, and
+ * still says how much to trust itself.
  */
-export function CaptureEvidence({ coverText = '', note = '' }: {
-  coverText?: string
-  note?: string
-}) {
-  const lines = coverText.split('\n').map((line) => line.trim()).filter(Boolean)
-  if (!lines.length && !note) return null
 
-  return (
-    <section className="evidence">
-      {note && (
-        <p className="evidence__note">
-          <span className="evidence__label">Note</span>
-          {note}
-        </p>
-      )}
-
-      {lines.length > 0 && (
-        <div className="evidence__cover">
-          <span className="evidence__label">The cover photo reads</span>
-          <ul className="evidence__lines">
-            {lines.map((line, index) => (
-              <li key={`${index}-${line}`}>{line}</li>
-            ))}
-          </ul>
-          <p className="evidence__caveat">
-            Read off the photograph by a machine, and often wrong. Nothing here
-            has been filled in for you: type what the book itself says.
-          </p>
-        </div>
-      )}
-    </section>
-  )
-}
-
-/**
- * The one thing this page was missing: that the catalogue and the order
- * disagree about where this book is, and that a person can close it.
+/*
+ * `MisfileNotice` was here, and there is nothing in its place but a sentence.
  *
- * Both places are named, the same two the library's "Needs attention" row
- * carries, because "this book is misfiled" is not actionable on its own: you
- * are standing in front of the bookcase and need to know which shelf to take
- * it off and which to put it on. The placement drawing further down already
- * says where it belongs, so this does not draw that again; what it adds is the
- * disagreement itself.
+ * It was a card headed "Needs attention" with two paragraphs in it, naming
+ * where the book was last seen and where the order now wants it, and two
+ * answers along the bottom: "Moved it", which wrote a location, and "Undo the
+ * move". The owner replaced the whole of it (#409):
  *
- * "Moved it" means somebody has physically carried the book. There is
- * deliberately no dismiss, no ignore and no clear: the recorded location is the
- * sole record of where the book actually is, and writing it to tidy a screen
- * would throw that record away and leave the book lost.
+ * > Instead of "moved it, there is an option", we should remove any button
+ * > there, but let the user click on the needs-attention pop up to take them to
+ * > the shelving step for that book [...] we can just have a message like "book
+ * > is supposed to be moved" or something. A little less intense, taking up so
+ * > much of the screen.
  *
- * "Undo the move" is not one of those, and it is offered only when the server
- * says a boundary move is outstanding on this book. It withdraws something the
- * app did and writes no location at all, so the record of where the book is
- * survives it untouched. Where it is absent, the list is still a report and can
- * still only be closed by a walk to the shelf.
- *
- * **The words are unchanged and only the paint moved** (#387). It was a bare
- * outlined box coloured out of the app's own palette, which is white text on
- * warm paper once the page around it is the design system's. It is a card with
- * two answers along the bottom now, and every sentence in it is the one it had.
+ * So what is drawn is `Amiss` out of the design system, one line, and pressing
+ * it opens the step that places a book. **Neither answer was lost**: the
+ * library's list of books needing attention still offers "Moved it" and "Undo
+ * the move" on every entry, which is the screen that is a work list rather than
+ * a page about one book, and the walk itself is now a walk rather than a claim
+ * about one typed from an armchair.
  */
-export function MisfileNotice({ misfile, moving, onMoved, onTakeBack }: {
-  misfile: Misfile
-  moving: boolean
-  onMoved: () => void
-  onTakeBack?: (() => void) | undefined
-}) {
-  return (
-    <div className="misfile">
-      <Card
-        title="Needs attention"
-        foot={
-          <>
-            <Button tone="secondary" small off={moving} onPress={onMoved}>
-              {moving ? '...' : 'Moved it'}
-            </Button>
-            {onTakeBack && (
-              <Button tone="quiet" small off={moving} onPress={onTakeBack}>
-                {moving ? '...' : 'Undo the move'}
-              </Button>
-            )}
-          </>
-        }
-      >
-        <p className="misfile__where">
-          Last seen on {misfile.from}. The order now puts it on{' '}
-          <strong>{misfile.to}</strong>.
-        </p>
-        <p className="misfile__hint">
-          Nothing has been changed for you. Tap "Moved it" once the book is
-          actually there
-          {onTakeBack ? ', or undo the move if you never picked it up.' : '.'}
-        </p>
-      </Card>
-    </div>
-  )
-}
 
 function seriesText(draft: Draft): string {
   if (!draft.seriesName) return ''

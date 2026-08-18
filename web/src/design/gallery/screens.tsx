@@ -29,7 +29,7 @@
  */
 
 import type { ReactElement, ReactNode } from 'react'
-import { Actions, Head, Part, Tagged, Tagging, Where } from '../Book'
+import { Actions, Amiss, Head, Part, Tagged, Tagging, Where } from '../Book'
 import { Viewfinder } from '../Camera'
 import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
@@ -1143,6 +1143,173 @@ function Lone(go: Go) {
     </Phone>
   )
 }
+
+/**
+ * The details of one book, which is what the pencil in the corner opens.
+ *
+ * **This screen had no drawing at all until round ten**, and #394 said so when
+ * it converted the screen: what the gallery drew was the two either side of it,
+ * a book's own page and the step between a photograph and a shelf, and the
+ * screen in the middle wore the two of them rather than a third invented for
+ * it. That was the right call then and it stops being one the moment a round of
+ * feedback is about this screen, because there is nowhere to have the feedback.
+ *
+ * So it is here now, in the three states somebody actually meets: the book
+ * where it belongs, the book the order wants somewhere else, and the book that
+ * is out of the house. One function draws all three, because they are one
+ * screen: three copies of a page this long is three chances for the middle one
+ * to quietly become a different screen.
+ *
+ * ## What round ten changed on it
+ *
+ * **The notice at the top is a door.** No answer to give it, nothing to tap
+ * inside it, and pressing anywhere on it opens the step that places a book.
+ * See `Amiss`.
+ *
+ * **The delete stopped explaining itself.** There was a sentence over the
+ * button saying that the record and its photographs come off disk and nothing
+ * here can put them back, and it is gone:
+ *
+ * > At the bottom of the detail view as well: we don't want to explain to them
+ * > that deleting takes the record and its photographs off disk and nothing
+ * > here could put them back. We don't need to put that text there.
+ *
+ * The warning did not go with it. It is in the dialog the button opens, which
+ * is where a warning belongs: at the moment of the act rather than permanently
+ * on the page. That dialog is `Sure`, the same one an area is removed through,
+ * and it says what becomes of this book before anybody can answer it.
+ *
+ * ## The two facts the notice stopped reciting are still on the screen
+ *
+ * The board draws the run with a gap in it, which is exactly where the book
+ * belongs and is the fact the sentence used to spell out; and the step the
+ * notice opens names the plank on arrival. Neither is lost by the notice being
+ * one line, which is the argument for it being one line.
+ */
+function Details({ go, amiss = false, out = false }: {
+  go: Go
+  /** The order wants it somewhere else. */
+  amiss?: boolean
+  /** It is off the bookcase entirely, so it stands in no row. */
+  out?: boolean
+}) {
+  /*
+   * The row this book stands in, drawn two ways for two states.
+   *
+   * Where the book is where it belongs it stands in the row and wears the cat,
+   * the same way it does on its own page. Where the order wants it moved there
+   * is a gap instead: the book is not in this row, and the hole is where it
+   * goes. That is the same drawing the step the notice opens leads with, which
+   * is deliberate, and it is why the notice does not have to say either place.
+   */
+  const row: ShelfItem[] = [
+    ...spines(['Mantel, Hilary', 'Miéville, China']),
+    amiss
+      ? { kind: 'gap' }
+      : {
+          kind: 'spine',
+          text: 'Ishiguro, Kazuo',
+          cloth: 'moss',
+          pages: 288,
+          here: true,
+        },
+    ...spines(['Mitchell, David', 'Morrison, Toni'], 3),
+  ]
+
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={
+        <TopBar
+          title="Never Let Me Go"
+          sub="Ishiguro, Kazuo"
+          onBack={() => go('book')}
+        />
+      }
+    >
+      {/* At the top, above everything, because everything under it means
+          something different for a book that is not where it belongs. One
+          line, and the whole line is the way to put it right. */}
+      {amiss && <Amiss onPress={() => go('where')} />}
+
+      {/* Beside it and never with it: a book in a pile holds no position for
+          anything to disagree with, so these two are two answers to one
+          question rather than two notices that could both be true. */}
+      {out && (
+        <Card weight="quiet" title="Off the bookcase">
+          <p>
+            Checked out on 4 August. Nothing is filed next to it, and the
+            bookcase has closed up behind it.
+          </p>
+        </Card>
+      )}
+
+      <Head
+        title="Never Let Me Go"
+        by="Kazuo Ishiguro"
+        shots={[
+          { word: 'Front', cloth: 'moss' },
+          { word: 'Spine', cloth: 'moss', sliver: true },
+          { word: 'Back', cloth: 'moss' },
+          { word: 'Downloaded', cloth: 'sky', catalogue: true },
+        ]}
+        facts={[
+          'Faber, 2005. 288 pages.',
+          'ISBN 9780571224142',
+          'Files under Ishiguro, Kazuo',
+        ]}
+        tags={
+          <Tagging>
+            <Tagged word="Fiction" from="catalogue" who="Open Library says so" />
+            <Tagged word="Science fiction" from="person" who="You said so, on 9 July" />
+          </Tagging>
+        }
+      />
+
+      <Actions>
+        {out ? (
+          <Button tone="secondary" small onPress={() => go('where')}>
+            Check it in
+          </Button>
+        ) : (
+          <Button tone="secondary" small>
+            Check it out
+          </Button>
+        )}
+        <Button tone="quiet" small>
+          Edit the details
+        </Button>
+        <Button tone="quiet" small onPress={() => go('library')}>
+          Back to the library
+        </Button>
+      </Actions>
+
+      <Where>
+        {out ? (
+          <div>
+            <Place quiet>Out of the house</Place>
+          </div>
+        ) : (
+          <div className="wf-bleed">
+            <Shelf label="2C" items={row} />
+          </div>
+        )}
+      </Where>
+
+      {/* Kept well away from the row above so it cannot be hit by accident,
+          outlined rather than filled, and with nothing written over it. The
+          sentence that used to be here is in the dialog it opens. */}
+      <Button tone="danger" block>
+        Delete this book and its photos
+      </Button>
+    </Phone>
+  )
+}
+
+const BookDetails = (go: Go) => <Details go={go} />
+const BookAmiss = (go: Go) => <Details go={go} amiss />
+const BookOut = (go: Go) => <Details go={go} out />
 
 /* --- Finding a book ------------------------------------------------------- */
 
@@ -5229,6 +5396,16 @@ export const SCREENS: Screen[] = [
     group: 'Every day',
     render: Lone,
   },
+  /*
+   * The details of that book, which is the screen the pencil opens and the one
+   * round ten is about. It had no drawing until now. Three states, walked in
+   * this order: where it belongs, where the order wants it moved, and off the
+   * bookcase entirely. Press the notice on the middle one and you are on the
+   * step that places any book, which is the whole of what the notice does.
+   */
+  { id: 'details', name: 'The details of a book', group: 'Every day', render: BookDetails },
+  { id: 'amiss', name: 'A book to be moved', group: 'Every day', render: BookAmiss },
+  { id: 'detailsout', name: 'A book that is out', group: 'Every day', render: BookOut },
   { id: 'find', name: 'Find, before you type', group: 'Finding a book', render: Find },
   { id: 'finding', name: 'Typing a name', group: 'Finding a book', render: Finding },
   { id: 'findisbn', name: 'Typing an ISBN', group: 'Finding a book', render: FindIsbn },
