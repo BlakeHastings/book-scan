@@ -20,11 +20,27 @@ import type { Cloth } from './Shelf'
 
 export interface CoverItem {
   title: string
+  /**
+   * Whoever it is filed under, and **empty for a book nobody is credited on**.
+   *
+   * That is a real state and not a missing field. An uncredited book falls back
+   * to what the book itself carries and then to nothing, never to the words
+   * "Unknown author", so a tile for one is its cover with a blank line under
+   * it. The line is drawn either way, which is what keeps the tiles beside it
+   * the same height.
+   */
   author: string
   cloth?: Cloth
   /** A word instead of a place: "Checked out". */
   meta?: string
-  /** Where it lives, as it reads off the furniture. */
+  /**
+   * Where it lives, as it reads off the furniture.
+   *
+   * **Not on the library's wall of covers**, which since #407 is a cover and a
+   * name and nothing else. The find results still carry it, because that is a
+   * different question: somebody who has just searched for one book is usually
+   * on their way to go and fetch it.
+   */
   place?: string
   /**
    * The book itself, in the app: the cover somebody photographed or the one the
@@ -81,8 +97,13 @@ export function Covers({
            * all: the title is printed in the picture and a picture is not text.
            * The cloth version draws the title and would read fine without this,
            * and one name for both is one thing to keep true.
+           *
+           * The title alone where nobody is credited. "The Anglo-Saxon
+           * Chronicle, " read out with a comma and then silence is a screen
+           * reader announcing a field that is not there, which is the spoken
+           * version of "Unknown author" and is refused for the same reason.
            */
-          aria-label={`${item.title}, ${item.author}`}
+          aria-label={item.author ? `${item.title}, ${item.author}` : item.title}
           onClick={() => onPress?.(item)}
         >
           <span className={`wf-cover__art wf-spine--${item.cloth ?? 'wood'}`}>

@@ -184,15 +184,48 @@ export function LibraryPane() {
 /** The gallery, which is the one for "that one, the green one". */
 function CoverView({ books, onOpen }: { books: FiledBookRow[]; onOpen: (book: FiledBookRow) => void }) {
   const byId = new Map(books.map((book) => [book.id, book]))
+
+  /*
+   * A cover and a name, and nothing about where the book stands (#407).
+   *
+   * > Whenever we're in the gallery view in the library, let's not put
+   * > underneath the books where they're currently located. We can just show
+   * > the book covers and the author name underneath the book.
+   *
+   * This is the pinned rule about a book screen turned on a wall of them:
+   * somebody looking at their covers is browsing what they own, not auditing
+   * where things are. The same instinct took the location sentence off the
+   * book page in #282 and off the confirmation in #290, both times because the
+   * drawing already said it. **The wireframe this screen was built from never
+   * drew a place under a cover at all**, so this is the app catching up with
+   * the design rather than a fresh opinion: `design/gallery/screens.tsx` builds
+   * its gallery out of `covers()`, which carries a title, a name and a cloth,
+   * and has never carried anywhere.
+   *
+   * **Both lines came off, not only the place.** "Checked out" was drawn in
+   * the same slot as the place, chosen by the same expression, and answers the
+   * same question: it is where a book is when the answer is not a shelf.
+   * `CoverItem` says as much itself, calling it "a word instead of a place".
+   * Keeping it would have left a third line on a handful of tiles and not on
+   * the rest, which is the ragged grid rather than the deliberate one.
+   *
+   * **Nothing is hidden, only moved off a browsing surface.** The list beside
+   * this one still says both, one press away on the same row; the book's own
+   * page draws where it stands and says "Out of the house" for a book that is
+   * lent; and the button at the foot of this screen opens the whole screen
+   * about books that are not where they should be.
+   */
   const items: CoverItem[] = books.map((book) => ({
     id: book.id,
     title: book.title,
+    /* Empty for a book nobody is credited on, which is a real state rather
+       than a gap to fill in: the fallback is what the book itself carries, and
+       never the words "Unknown author". Such a tile is its cover and a blank
+       line, and the line is still drawn so the covers beside it keep their
+       height. */
     author: filedAs(book),
     cloth: clothFor(book.id),
     photo: coverArt(book, 320),
-    // Where it lives, or the reason it does not live anywhere.
-    place: book.location || undefined,
-    meta: book.checked_out_at ? 'Checked out' : undefined,
   }))
 
   return (

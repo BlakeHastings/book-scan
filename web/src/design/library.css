@@ -2213,8 +2213,27 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   gap: var(--s3) var(--s2);
 }
 
+/*
+ * A tile is its cover and the lines under it, packed to the top.
+ *
+ * `align-content: start` is what keeps the names in a row on one line as the
+ * eye reads across them. A tile is stretched to the height of the tallest tile
+ * beside it, and a stretched grid hands that spare height to its own rows: the
+ * cover survives it, because `aspect-ratio` holds the art to a book shape, so
+ * all of it lands on the words. Measured at 414 wide with one tile in the row
+ * carrying a line the others do not: the short tile's name grew from 15px to
+ * 24px and sat 9px below the names either side of it, which reads as one book
+ * in the row having been nudged downwards for no reason a person can see.
+ *
+ * It matters where the lines differ, which is the find results saying a place
+ * and the area boards saying what a picture is. The library's own wall of
+ * covers is a cover and a name on every tile since #407, so nothing there is
+ * left to pull anything out of line, and this is what keeps that true rather
+ * than lucky.
+ */
 .wf-cover {
   display: grid;
+  align-content: start;
   gap: 2px;
   min-width: 0;
   padding: 0;
@@ -2270,8 +2289,21 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    photograph, which fills the whole face of the book. */
 .wf-cover__art:has(.wf-cover__photo) { padding: 0; }
 
+/*
+ * The name under the cover, one line of it, and one line of it even when there
+ * is no name.
+ *
+ * An uncredited book is a real state and it is drawn as a cover with nothing
+ * written under it, which is only honest if the nothing takes up a line. An
+ * empty box is no lines tall, so that tile would come up short and the row it
+ * sits in would be ragged for a fact about the book rather than about the
+ * layout. `min-height` holds the line open. `em` rather than `lh` because it
+ * resolves against this element's own size on every browser this runs on.
+ */
 .wf-cover__by {
   font-size: var(--size-micro);
+  line-height: 1.35;
+  min-height: 1.35em;
   color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
