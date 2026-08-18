@@ -32,6 +32,7 @@ import { createApp, type BookScanApp } from './index'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
+import { photographTaken, recordCrop } from './photographs'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
@@ -1003,6 +1004,72 @@ describe('what is standing in an area', () => {
     expect(body.books
       .filter((one: { claimedBy: string | null }) => one.claimedBy !== null)
       .every((one: { claimedBy: string }) => one.claimedBy === 'Non-fiction')).toBe(true)
+  })
+
+  /**
+   * The books in an area are drawn standing on a board since #405, and a board
+   * is made of photographs and thicknesses.
+   *
+   * > At the bottom where we say "standing on Bookshelf X" and we show all the
+   * > books that are in the area: let's switch that to a shelf view instead of
+   * > a list.
+   *
+   * This read never asked for either, so every book on the one page in the app
+   * about a physical row of books would have come out as a uniform block of
+   * dyed cloth, which is what a book **nobody has photographed** is drawn as.
+   * The same defect `server/carry.ts` was fixed for, and it is worth a test on
+   * each read because the cause both times was a read nobody thought of as a
+   * drawing.
+   */
+  it('answers a spine and a thickness for each book, so a board can be drawn', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const area = bookcase.areas[0].id
+
+    const first = await db.get<{ id: number }>(
+      'SELECT id FROM books WHERE current_area_id = ? ORDER BY sort_key LIMIT 1', [area],
+    )
+    await photographTaken(db, first!.id, 'edge', 'edge-1.jpg', new Date().toISOString())
+    await recordCrop(db, first!.id, 'edge', 'edge-1-crop.jpg')
+    await db.run("UPDATE books SET pages = '320' WHERE id = ?", [first!.id])
+
+    const { body } = await get(`/api/areas/${area}/books`)
+    const found = body.books.find((one: { id: number }) => one.id === first!.id)
+
+    // The crop of the face that was picked, which is what a spine two
+    // centimetres wide has to be drawn from.
+    expect(found.spine).toBe('edge-1-crop.jpg')
+    expect(found.spineSlot).toBe('edge')
+    expect(found.pages).toBe('320')
+  })
+
+  /** A cover standing in for a spine says so rather than passing for one. */
+  it('never lets a front cover pass for a spine', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const area = bookcase.areas[0].id
+
+    const first = await db.get<{ id: number }>(
+      'SELECT id FROM books WHERE current_area_id = ? ORDER BY sort_key LIMIT 1', [area],
+    )
+    await photographTaken(db, first!.id, 'front', 'front-1.jpg', new Date().toISOString())
+
+    const { body } = await get(`/api/areas/${area}/books`)
+    const found = body.books.find((one: { id: number }) => one.id === first!.id)
+
+    expect(found.spine).toBe('front-1.jpg')
+    expect(found.spineSlot).toBe('front')
+  })
+
+  /* About one book in four carries no page count, which is a fact about the
+     catalogue rather than a fault: the drawing puts such a book at the median
+     of the ones that do, and it can only do that if it is told nothing. */
+  it('answers an empty thickness for a book the catalogue cannot measure', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+
+    const { body } = await get(`/api/areas/${bookcase.areas[0].id}/books`)
+    expect(body.books.every((one: { pages: string }) => one.pages === '')).toBe(true)
   })
 
   it('refuses an area that is not on any face', async () => {

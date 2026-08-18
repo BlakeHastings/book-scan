@@ -804,10 +804,25 @@ export interface RuleDto {
  * which is the answer to "why do they sort like that" and is also the warning
  * before the change is written.
  */
+/**
+ * One book standing in a place.
+ *
+ * **It is a `StripBook` with the ordering components added**, and that is not a
+ * coincidence: since #405 an area's books are drawn standing on a board, and a
+ * board is drawn from a photograph and a thickness. Keeping the same three
+ * fields under the same three names is what lets `spineLabel` and the shelf
+ * mapping in `lib/bookLook.ts` take either without a second spelling of them.
+ */
 export interface AreaBook {
   id: number
   title: string
   authorFiling: string
+  /** The photograph standing in for the spine, or '' when there is none. */
+  spine: string
+  /** Which face `spine` really is. A cover never passes for a spine. */
+  spineSlot: ShelfSlot
+  /** How thick it is, as the catalogue holds it, which is text. */
+  pages: string
   /** How it files by title, which is what the title ordering reads. */
   titleFiling: string
   /** As printed, usually a bare year, which is what the year ordering reads. */

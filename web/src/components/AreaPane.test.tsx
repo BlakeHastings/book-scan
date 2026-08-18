@@ -66,6 +66,9 @@ const shelved = (over: Partial<AreaBook> = {}): AreaBook => ({
   id: 1,
   title: 'On Food and Cooking',
   authorFiling: 'McGee, Harold',
+  spine: '',
+  spineSlot: '',
+  pages: '',
   titleFiling: 'On Food and Cooking',
   published: '1984',
   sortKey: 'MCGEE',
@@ -351,19 +354,179 @@ describe('the two rules on an area', () => {
     expect(said).toMatch(/Order it that way/)
   })
 
-  it('lists what stands here so each book can say why it is here', () => {
-    expect(words(drawn(null, {}, undefined, [shelved()]))).toMatch(/On Food and Cooking/)
+  /**
+   * The books stand on a board now rather than in a list (#405).
+   *
+   * > At the bottom where we say "standing on Bookshelf X" and we show all the
+   * > books that are in the area: let's switch that to a shelf view instead of
+   * > a list.
+   *
+   * A spine is a picture, so what it says out loud is a different string from
+   * what is written down it: the filing name is printed down the spine because
+   * that is what you read walking along a row, and the book's own name is what
+   * the target is called for anybody not looking at pixels.
+   */
+  it('stands the books on a board rather than listing them', () => {
+    const markup = drawn(null, {}, undefined, [shelved()])
+
+    expect(markup).toMatch(/wf-shelf__board/)
+    expect(markup).toMatch(/aria-label="On Food and Cooking, no photo"/)
+    // Printed down the spine, which is not what the spine is called.
+    expect(words(markup)).toMatch(/McGee, Harold/)
   })
 
-  it('counts the books here that no rule claims, which no count shows', () => {
+  /** Every spine is the way into why that book is here, which the rows were. */
+  it('makes every book on the board a way into why it is here', () => {
+    const markup = drawn(null, {}, undefined, [shelved(), shelved({ id: 2 })])
+
+    expect(markup.match(/<button[^>]*class="wf-spine/g) ?? []).toHaveLength(2)
+  })
+
+  /**
+   * A board is a picture of a row of books, so it is drawn in the order that
+   * row reads. The read answers by filing key, which is the author's, so an
+   * area ordered by the year would have drawn a board contradicting the card
+   * directly above it.
+   */
+  it('draws the board in the ordering in force, not in the order it was read', () => {
+    const said = words(drawn(null, { ordering: 'published' }, undefined, [
+      shelved({ id: 1, authorFiling: 'Acton, Eliza', sortKey: 'ACTON', published: '1990' }),
+      shelved({ id: 2, authorFiling: 'Zed, Zoe', sortKey: 'ZED', published: '1845' }),
+    ]))
+
+    expect(said.indexOf('Zed, Zoe')).toBeLessThan(said.indexOf('Acton, Eliza'))
+  })
+
+  /**
+   * An area holding nothing draws an empty board, where the list drew nothing
+   * at all. A bare plank with its label on it is the truthful picture of a
+   * shelf somebody has cleared and written a rule for, which is the state #392
+   * made real: a place can be waiting for its books.
+   */
+  it('draws an empty board for an area with no books, rather than nothing', () => {
+    const markup = drawn(null, { books: 0 }, undefined, [])
+
+    expect(markup).toMatch(/wf-shelf__board/)
+    expect(words(markup)).toMatch(/Empty/)
+    expect(markup).not.toMatch(/wf-spine/)
+  })
+
+  it('counts the books here that no rule claims, and names them', () => {
     const said = words(drawn(null, {}, undefined, [
       shelved(),
       shelved({ id: 2, title: 'A Book With No Tags', claimedBy: null }),
     ]))
 
-    expect(said).toMatch(/No rule claims it/)
     // A card title is a sentence, so the number written out starts it in caps.
     expect(said).toMatch(/One book here matches no rule at all/)
+    /*
+     * Which one, by name. The list said "No rule claims it" against each row
+     * and a board cannot: a spine is a picture of a book and there is nowhere
+     * on it to write a fact about a rule.
+     */
+    expect(said).toMatch(/A Book With No Tags/)
+  })
+})
+
+/**
+ * How the books here are ordered, at the third attempt (#405).
+ *
+ * > The way that we are representing the sort rule in the widget is not very
+ * > understandable at all, to the reader or to the user looking at it.
+ *
+ * Round nine drew the model: a numbered stack of the three levels an ordering
+ * can be settled at, two of which always said "the way the thing above me
+ * does", with the deciding one badged. So the loudest line on the card was a
+ * pointer and the answer was three rows down.
+ *
+ * These pin the three questions the card now answers in the order a person
+ * arrives with them.
+ */
+describe('what order the books here are in', () => {
+  /** What order they are in. Always a real ordering, never a deferral. */
+  it('leads with the ordering itself and never with where it came from', () => {
+    const said = words(drawn(null))
+
+    expect(said).toMatch(/By the author/)
+    expect(said).not.toMatch(/The way Bookcase 2 does/)
+    expect(said).not.toMatch(/This one decides/)
+  })
+
+  /** Why: the two ends of the books, said the way the ordering reads. */
+  it('says the two ends of the books, in whatever the ordering reads', () => {
+    const said = words(drawn(null, {}, undefined, [
+      shelved({ id: 1, authorFiling: 'McGee, Harold', sortKey: 'MCGEE' }),
+      shelved({ id: 2, authorFiling: 'David, Elizabeth', sortKey: 'DAVID' }),
+    ]))
+
+    expect(said).toMatch(/David, Elizabeth\s+to\s+McGee, Harold/)
+  })
+
+  /**
+   * And why, part two: one sentence naming the place the ordering is really
+   * set, which is the place somebody would go to change it. The middle of a
+   * chain is not somewhere anybody goes, so an area following a piece that
+   * follows the library is told about the library.
+   */
+  it('names the place the ordering is really set, and not the chain to it', () => {
+    const said = words(drawn(null))
+
+    expect(said).toMatch(/Set for the whole library, which Bookcase 2 and this area both follow/)
+  })
+
+  it('names the piece where the piece is the one that decides', () => {
+    const own = { ...piece, sortStrategy: 'author' as const }
+    const said = words(drawn(null, {}, undefined, [], undefined, own))
+
+    expect(said).toMatch(/Set on Bookcase 2, which this area follows/)
+  })
+
+  it('names the area itself where the area decides', () => {
+    const said = words(drawn(null, { sortStrategy: 'title', selfContained: true, ordering: 'title' }))
+
+    expect(said).toMatch(/Set on this area/)
+    expect(said).toMatch(/By the title/)
+  })
+
+  /**
+   * The consequence, said while the answers are open and before anything is
+   * pressed. The server says it again once it has refused a save, and that was
+   * the only place it was ever said: somebody learned that ordering an area its
+   * own way cuts it off from what overflows into it at the moment the save came
+   * back refused.
+   */
+  it('warns that ordering it its own way stops the overflow, before the press', () => {
+    const said = words(drawn(null, { entry: false }, undefined, [], {
+      open: true, chosen: 'title', effect: '', busy: false,
+    }))
+
+    expect(said).toMatch(/stops taking what overflows from the area before it/)
+  })
+
+  /**
+   * The card keeps saying what is true while somebody is picking.
+   *
+   * Found by opening it. What is under a thumb is drawn under "How they would
+   * stand"; if the title renamed itself to that as well there would be nothing
+   * left on the screen saying what "Leave it as it is" goes back to.
+   */
+  it('keeps the ordering in force at the top while the answers are open', () => {
+    const said = words(drawn(null, {}, undefined, [shelved()], {
+      open: true, chosen: 'title', effect: '', busy: false,
+    }))
+
+    expect(said).toMatch(/By the author\s+Sort rule/)
+    expect(said).toMatch(/How they would stand/)
+  })
+
+  /** Nothing overflows into the first area of a stretch whatever it is ordered
+      by, so warning about it there would be inventing a consequence. */
+  it('says nothing of the sort about an area the books already start in', () => {
+    const said = words(drawn(null, { entry: true }, undefined, [], {
+      open: true, chosen: 'title', effect: '', busy: false,
+    }))
+
+    expect(said).not.toMatch(/stops taking what overflows/)
   })
 })
 
@@ -772,14 +935,16 @@ describe('an area that was taken out with books still standing on it', () => {
   })
 
   it('draws the books standing on it, each a way into why it is here', () => {
-    const said = words(drawn(null, gone, undefined, [
+    const markup = drawn(null, gone, undefined, [
       shelved({ id: 1, title: 'On Food and Cooking' }),
       shelved({ id: 2, title: 'Italian Food', authorFiling: 'David, Elizabeth' }),
-    ]))
+    ])
 
-    expect(said).toMatch(/Standing on 4A/)
-    expect(said).toMatch(/On Food and Cooking/)
-    expect(said).toMatch(/Italian Food/)
+    // The board carries the plank's own label, which is what the heading over
+    // the list used to say. One drawing rather than a drawing and a caption.
+    expect(words(markup)).toMatch(/4A/)
+    expect(markup).toMatch(/aria-label="On Food and Cooking, no photo"/)
+    expect(markup).toMatch(/aria-label="Italian Food, no photo"/)
   })
 
   /* It is already off the piece, so there is nothing on the piece to take off. */

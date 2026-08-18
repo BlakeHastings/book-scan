@@ -162,6 +162,29 @@ Then('the screen should say:', async ({ page }, table: DataTable) => {
   }
 })
 
+/**
+ * The books standing on the board, by name (#405).
+ *
+ * An area's books are drawn standing up now rather than listed: "let's switch
+ * that to a shelf view instead of a list." What is **printed** down a spine is
+ * the filing name, because that is what you read walking along a row of books,
+ * and what a spine is **called** is the book, because a row announced as its
+ * filing names says which shelf you are on and never which book. So the claim
+ * that every book is on the page is a claim about the second of those, and
+ * reading the body text would only ever have found the first.
+ */
+Then('the row of books should name:', async ({ page }, table: DataTable) => {
+  const board = page.locator('.wf-shelf__board')
+  await expect(board.first()).toBeVisible({ timeout: REDRAW })
+
+  for (const row of table.raw()) {
+    await expect(
+      board.getByRole('button', { name: new RegExp(`^${row[0]}\\b`) }),
+      `no book called "${row[0]}" is standing on the board`,
+    ).toBeVisible({ timeout: REDRAW })
+  }
+})
+
 When('I apply the plan', async ({ page }) => {
   await page.getByRole('button', { name: 'Apply it' }).click()
   await expect(page.getByRole('button', { name: /Go and carry them|Open the list/ }))

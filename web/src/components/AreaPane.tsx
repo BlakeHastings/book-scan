@@ -74,15 +74,16 @@ import { Card } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Field } from '../design/Controls'
 import { List, Row } from '../design/List'
-import { FilterRule, RETARGET_WORD, SortRule, type OrderLevel } from '../design/Rules'
-import type { Cloth } from '../design/Shelf'
+import { FilterRule, MoveBooks, SortRule } from '../design/Rules'
+import { Shelf } from '../design/Shelf'
 import { Sure } from '../design/Sure'
+import { board } from '../lib/bookLook'
 import type {
   AreaBook, AreaDto, AreaRemovalPlan, FixtureDto, FurnitureDto, SortStrategyCode,
 } from '../lib/api'
 import {
-  collectionOrdering, counted, fixtureOrdering, orderedSaid, orderingSaid, pieceSaid, plural,
-  reaching, sampleOrdered, skippedSaid, sortOptions,
+  areaSettled, counted, fixtureOrdering, inOrder, orderEnds, orderingSaid, orderingWarning,
+  pieceSaid, plural, reaching, sampleOrdered, skippedSaid, sortOptions,
 } from '../lib/furniture'
 import { draftHolds, saidRules } from '../lib/ruleWriting'
 import { Changing, Refusing } from './Changing'
@@ -153,54 +154,22 @@ export const holdsHere = (writing: Writing, standing: string): string => {
   return standing
 }
 
-const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
-const clothFor = (id: number): Cloth => CLOTHS[Math.abs(id) % CLOTHS.length]!
-
-/**
- * The three places an ordering can be settled, and which of them settles it.
+/*
+ * `levelsFor` was here: the three places an ordering can be settled, drawn as a
+ * numbered stack with the one that decides marked "This one decides".
  *
- * > Those are two distinct things that users should be able to customise fully
- * > on the area, the fixture, and then globally.
+ * It is gone (#405). The owner read it and said "the way that we are
+ * representing the sort rule in the widget is not very understandable at all",
+ * and the fault was not the arrangement. Two of the three rows always said "the
+ * way the thing above me does", which is a pointer rather than an answer, so
+ * finding out what order the books were in meant chasing three rows to the one
+ * with the badge on it. The three levels are a fact about the model and were
+ * never the thing a person came to the page to read.
  *
- * All three already existed and nothing here adds a fourth. What was missing was
- * the ability to read them together: the settings screen said one, this widget
- * said another, and somebody standing in front of a bookcase worked the third
- * out in their head. The one that decides is the **highest** level that states an
- * ordering of its own, because a level saying "the way the thing above me does"
- * is deferring rather than deciding, and the library always states one.
+ * What answers the question instead is `areaSettled`: one sentence naming the
+ * place the ordering is really set, which is the place somebody would go to
+ * change it. See `lib/furniture.ts`.
  */
-export function levelsFor(
-  room: FurnitureDto,
-  piece: FixtureDto,
-  area: AreaDto | null,
-): OrderLevel[] {
-  const library = collectionOrdering(room)
-  const pieceOwn = piece.sortStrategy !== 'inherit'
-  const areaOwn = area !== null && area.sortStrategy !== 'inherit'
-
-  const levels: OrderLevel[] = [
-    {
-      place: 'The whole library',
-      said: orderingSaid(library, 'the whole library'),
-      decides: !pieceOwn && !areaOwn,
-    },
-    {
-      place: pieceSaid(piece),
-      said: orderingSaid(piece.sortStrategy, 'the whole library'),
-      decides: pieceOwn && !areaOwn,
-    },
-  ]
-
-  if (area) {
-    levels.push({
-      place: area.label,
-      said: orderingSaid(area.sortStrategy, pieceSaid(piece)),
-      decides: areaOwn,
-    })
-  }
-
-  return levels
-}
 
 export function AreaPane({
   room, piece, area, name, books, sorting, writing, asking, busy, error, tabs,
@@ -263,20 +232,9 @@ export function AreaPane({
         </Card>
 
         {books.length > 0 && (
-          <>
-            <p className="wf-heading wf-heading--flush">Standing on {area.label}</p>
-            <List label={`Books on ${area.label}`}>
-              {books.map((book) => (
-                <Row
-                  key={book.id}
-                  title={book.title}
-                  sub={book.authorFiling}
-                  cloth={clothFor(book.id)}
-                  onPress={() => onClaimed(book.id)}
-                />
-              ))}
-            </List>
-          </>
+          <div className="wf-bleed">
+            <Shelf label={area.label} items={board(inOrder(area.ordering, books), onClaimed)} />
+          </div>
         )}
 
         <Button tone="quiet" block onPress={onPiece}>
@@ -353,21 +311,29 @@ export function AreaPane({
         beaten={reaching(room, area, piece)}
         editing={writing.editing}
         onEdit={writing.start}
-        change={won && won.range && !writing.on
-          ? { word: RETARGET_WORD, onPress: onChange }
-          : undefined}
-        refused={won && !won.range && !writing.on
-          ? `${won.name} is about this one area, and what can be moved elsewhere is a `
-            + 'whole stretch of books that begins on a piece of furniture. What this '
-            + 'area allows is still yours to change.'
-          : undefined}
       />
 
       <Refusing said={writing.error} />
       <Changing writing={writing} onCarry={onCarry} />
 
+      {/*
+        How these books read, and the way to change it. The title is the
+        ordering itself rather than where it came from, which is the whole of
+        what round nine got wrong: "the way bookcase 2 does" is a pointer, and
+        somebody standing in front of their own books wants the answer.
+      */}
       <SortRule
-        said={orderedSaid(area, from)}
+        /*
+         * The ordering **in force**, open or shut, and never the one under a
+         * thumb. What is being picked is drawn under "How they would stand",
+         * and the two have to be different lines: a card that renamed itself
+         * to the answer being considered would leave nothing on the screen
+         * saying what "Leave it as it is" goes back to. Found by opening it on
+         * a piece of furniture, where it did exactly that.
+         */
+        said={orderingSaid(area.ordering, from)}
+        ends={orderEnds(looking, books)}
+        where={sorting.open ? undefined : areaSettled(piece, area)}
         /*
          * Three answers and not two. The first area a rule points at is where
          * its books begin, so nothing flows into it from anywhere, and telling
@@ -380,12 +346,19 @@ export function AreaPane({
           : area.entry
             ? 'The books start here, so nothing overflows into it from the area before.'
             : 'It takes what overflows from the area before it.'}
-        levels={levelsFor(room, piece, area)}
         sample={sample}
         more={more}
         open={sorting.open}
         options={sortOptions(room, from, fixtureOrdering(room, piece))}
         chosen={sorting.chosen}
+        /*
+         * The consequence, said while the answers are open and before anything
+         * is pressed. The server says it again once it has refused a save, and
+         * that was the only place it was ever said: a person learned that
+         * ordering an area its own way cuts it off from what overflows into it
+         * at the moment the save came back refused.
+         */
+        warn={sorting.open ? orderingWarning(area, sorting.chosen, from) : undefined}
         effect={sorting.effect}
         busy={sorting.busy}
         onOpen={onOpenSort}
@@ -395,26 +368,57 @@ export function AreaPane({
       />
 
       {/*
-        The books, each one a way into why it is here. Not folded away: this is
-        the page somebody opens when a book turned up somewhere surprising, and
-        the book they came about is in this list.
+        The books, standing on the board, in the order the ordering above puts
+        them (#405). They were a list of rows on the one page in this app that
+        is about a physical row of books: "let's switch that to a shelf view
+        instead of a list."
+
+        **Not the order the read came back in.** That is by filing key, which is
+        the author's, and an area ordered by the year would have drawn a board
+        that contradicted the card directly above it. Each spine is still the
+        way into why that book is here, which is what the rows were for.
+
+        **An empty area draws an empty board**, where the list drew nothing at
+        all. A bare plank with its label on it is the truthful picture of a
+        shelf somebody has cleared and written a rule for, and it is the state
+        #392 made real: a place can be waiting for its books.
+
+        **The word "Empty" comes off the area rather than off the list**, and
+        that is the difference between an empty plank and one whose books have
+        not arrived over the wire yet. `books` is empty while the read is in
+        flight, so a note taken from its length would have said "Empty" on the
+        way into every area in the collection. Found by looking at it.
+
+        **And there is no count on the board**, because the bar two lines above
+        it already says "18 books, on bookcase 2". That is the argument the
+        library screen already made about putting a plank's label on every row
+        under a card titled with it: the same fact twice buries whichever one
+        differs.
       */}
-      {books.length > 0 && (
-        <>
-          <p className="wf-heading wf-heading--flush">Standing on {area.label}</p>
-          <List label={`Books on ${area.label}`}>
-            {books.map((book) => (
-              <Row
-                key={book.id}
-                title={book.title}
-                sub={book.authorFiling}
-                cloth={clothFor(book.id)}
-                meta={book.claimedBy === null ? 'No rule claims it' : undefined}
-                onPress={() => onClaimed(book.id)}
-              />
-            ))}
-          </List>
-        </>
+      <div className="wf-bleed">
+        <Shelf
+          label={area.label}
+          note={area.books === 0 ? 'Empty' : undefined}
+          items={board(inOrder(area.ordering, books), onClaimed)}
+        />
+      </div>
+
+      {/*
+        Where the books are is where the way to move them belongs: "let's move
+        that out of where we define the rules. Maybe we move it underneath the
+        shelf view." It is the same journey it always was (#244), demoted the
+        same way, and it now stands under the thing it acts on rather than
+        inside the card that says what this place allows.
+      */}
+      {!writing.on && (
+        <MoveBooks
+          onPress={won && won.range ? onChange : undefined}
+          refused={won && !won.range
+            ? `${won.name} is about this one area, and what can be moved elsewhere is a `
+              + 'whole stretch of books that begins on a piece of furniture. What this '
+              + 'area allows is still yours to change.'
+            : undefined}
+        />
       )}
 
       {/*
@@ -430,6 +434,23 @@ export function AreaPane({
             {orphans.length === 1 ? 'it' : 'them'}. Tagging{' '}
             {orphans.length === 1 ? 'it' : 'them'} is what settles that.
           </p>
+          {/*
+            Which ones, by name. The list said "No rule claims it" against each
+            row, and a board cannot: a spine is a picture of a book and there is
+            nowhere on it to write a fact about a rule. So the count that was
+            already here names them, which is more use than the note was anyway,
+            because it can be read without walking the whole of a long board.
+          */}
+          <List label="Books here that no rule claims">
+            {orphans.map((book) => (
+              <Row
+                key={book.id}
+                title={book.title}
+                sub={book.authorFiling}
+                onPress={() => onClaimed(book.id)}
+              />
+            ))}
+          </List>
         </Card>
       )}
 
