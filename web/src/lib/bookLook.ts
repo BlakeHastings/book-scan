@@ -13,10 +13,10 @@
  * All this adds is the size to ask the server for and the cloth to put behind it.
  */
 
-import { coverOf, spineOf } from './shelfRow'
+import { coverOf, spineLabel, spineOf } from './shelfRow'
 import { coverThumbUrl } from '../components/PlacementCard'
-import type { Cloth } from '../design/Shelf'
-import type { FiledBookRow } from './api'
+import type { Cloth, ShelfItem } from '../design/Shelf'
+import type { FiledBookRow, PlacementStrip } from './api'
 
 /**
  * The binding a book with no photograph is drawn in.
@@ -73,4 +73,44 @@ export function pagesOf(book: { pages?: string | null }): number | undefined {
 /** What this collection files a book under, falling back to what is printed. */
 export function filedAs(book: FiledBookRow): string {
   return book.author_filing || book.authors || ''
+}
+
+/**
+ * The run a book stands in, with that book marked.
+ *
+ * One definition and two callers: the book's own page, and the screen its
+ * pencil opens. The mark is `here`, which puts the cat on top of the book
+ * rather than a ring around it: a ring is drawn outside the element, the run
+ * scrolls inside itself, and the top of it was cut off every time. Tapping any
+ * other spine walks along the shelf, which is what a row of books is for; the
+ * book the screen is about goes nowhere, because it is already here.
+ *
+ * **A book that is not in the run gets a hole where it goes**, which is the
+ * other half of what a placement says. `placedIndex` is null for a book the
+ * order wants somewhere it is not, and drawing that run with nothing in it
+ * would be a row of other people's books under a card saying this one belongs
+ * in it. The gap is `Shelf`'s own, so it is the same hole the shelving step
+ * opens.
+ */
+export function standing(
+  strip: PlacementStrip,
+  id: number,
+  onOpen?: (id: number) => void,
+): ShelfItem[] {
+  const row: ShelfItem[] = strip.books.map((one) => ({
+    kind: 'spine' as const,
+    // What is written down a spine with no photograph, and what the spine is
+    // called for anybody not looking at pixels either way.
+    text: one.authorFiling || one.title || spineLabel(one),
+    cloth: clothFor(one.id),
+    pages: pagesOf(one),
+    photo: coverThumbUrl(one.spine, 160),
+    here: one.id === id,
+    onPress: one.id === id || !onOpen ? undefined : () => onOpen(one.id),
+  }))
+
+  if (strip.placedIndex !== null) return row
+
+  const at = Math.max(0, Math.min(strip.gapIndex, row.length))
+  return [...row.slice(0, at), { kind: 'gap' }, ...row.slice(at)]
 }

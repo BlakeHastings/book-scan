@@ -84,7 +84,7 @@ When('I scan the book', async ({ page }) => {
 })
 
 Then('it should open the book {string}', async ({ page }, title: string) => {
-  await expect(page.locator('.detail__title')).toHaveText(title, { timeout: QUEUE_TIMEOUT })
+  await expect(bookTitle(page)).toHaveText(title, { timeout: QUEUE_TIMEOUT })
 })
 
 /**
@@ -96,7 +96,7 @@ Then('it should open the book {string}', async ({ page }, title: string) => {
  */
 Then('the book should offer:', async ({ page }, table: DataTable) => {
   const wanted = table.raw().map((row) => row[0] ?? '')
-  await expect(page.locator('.actions--top .btn')).toHaveText(wanted)
+  await expect(bookActions(page)).toHaveText(wanted)
 })
 
 When('I check it out', async ({ page }) => {
@@ -195,6 +195,29 @@ When('I review what it found', async ({ page }) => {
  */
 export function reviewScreen(page: Page) {
   return page.getByRole('button', { name: 'That is the book' })
+}
+
+/**
+ * The title of the book a record is about, as the design system draws it.
+ *
+ * It was `.detail__title`, the app's own heading, until the book's page and
+ * the screen its pencil opens were converted (#387). Both draw `Head` now, so
+ * one selector answers for the record wherever it is reached from.
+ */
+function bookTitle(page: Page) {
+  return page.locator('.wf-book__title')
+}
+
+/**
+ * What the record offers, in order.
+ *
+ * The row is `Actions` out of the design system rather than `.actions--top`,
+ * and it is still exactly the row: the claim these steps make is that the page
+ * leads with the action the book's state calls for, and a page offering both
+ * directions or neither would still pass a looser check.
+ */
+function bookActions(page: Page) {
+  return page.locator('.wf-actions .wf-btn')
 }
 
 /** The ISBN as the review screen draws it: the field with a camera in it. */
@@ -450,7 +473,7 @@ Then('the gap should be on screen without scrolling the shelf', async ({ page })
  */
 When('I go back to the book details', async ({ page }) => {
   await page.getByRole('button', { name: 'Back to book details' }).click()
-  await expect(reviewScreen(page).or(page.locator('.detail__head'))).toBeVisible()
+  await expect(reviewScreen(page).or(bookTitle(page))).toBeVisible()
 })
 
 When('I say it fits and save it', async ({ page }) => {
@@ -554,7 +577,7 @@ When(
     await page.locator('button.offshelf__row', { hasText: title }).click()
     // A catalogued book opens as a record, not as the editable form, so the
     // heading is what says the right book is on screen.
-    await expect(page.locator('.detail__title')).toHaveText(title)
+    await expect(bookTitle(page)).toHaveText(title)
   },
 )
 
@@ -596,16 +619,12 @@ Then(
   'the book should offer to move it:',
   async ({ page }, table: DataTable) => {
     const wanted = table.raw().map((row) => row[0] ?? '')
-    await expect(
-      page.locator('.actions--top .btn').filter({ hasText: /^Move it / }),
-    ).toHaveText(wanted)
+    await expect(bookActions(page).filter({ hasText: /^Move it / })).toHaveText(wanted)
   },
 )
 
 Then('the book should not offer to move it', async ({ page }) => {
-  await expect(
-    page.locator('.actions--top .btn').filter({ hasText: /^Move it / }),
-  ).toHaveCount(0)
+  await expect(bookActions(page).filter({ hasText: /^Move it / })).toHaveCount(0)
 })
 
 /**
@@ -726,15 +745,22 @@ When('I say I have moved it', async ({ page }) => {
  *
  * Three things at once, because any one of them alone passes on the stale
  * drawing #197 left up: the row is the right area, there is no hole in it, and
- * this book is the spine marked as the one being looked at.
+ * exactly one book in it is marked as the one being looked at.
+ *
+ * **The marked book is no longer named by the title given here** (#387). The
+ * page draws `Shelf` out of the design system now, the same component the
+ * book's own page draws its run with, and a spine there reads what it files
+ * under rather than what it is called: the cat on top of it is what says which
+ * book, and he says "This is the book" rather than its title. Which book gets
+ * the cat is decided by the book's id, so one perch in the right row is the
+ * whole of the claim this step can make and the whole of the claim #197 needs.
  */
 Then(
   'the shelf drawing should draw {string} in place on {string}',
-  async ({ page }, title: string, label: string) => {
-    await expect(page.locator('.strip__label')).toHaveText(label)
-    await expect(page.locator('.strip__gap')).toHaveCount(0)
-    await expect(page.locator('.strip .spine--here'))
-      .toHaveAttribute('title', new RegExp(`\\b${title}\\b`))
+  async ({ page }, _title: string, label: string) => {
+    await expect(page.locator('.wf-shelf__label')).toHaveText(label)
+    await expect(page.locator('.wf-gap')).toHaveCount(0)
+    await expect(page.locator('.wf-shelf .wf-perch')).toHaveCount(1)
   },
 )
 
@@ -745,7 +771,7 @@ Then(
  */
 When('I open {string} from the library', async ({ page }, title: string) => {
   await page.locator(`button.spine[title*=${JSON.stringify(title)}]`).first().click()
-  await expect(page.locator('.detail__title')).toHaveText(title)
+  await expect(bookTitle(page)).toHaveText(title)
 })
 
 When('I start editing the details', async ({ page }) => {
@@ -780,14 +806,13 @@ Then('the book should say it is off the bookcase', async ({ page }) => {
  */
 When('I change the ISBN to that of {string}', async ({ page }, title: string) => {
   const target = stubBookByTitle(title)
-  // Two screens ask for it. On a catalogued book it is a button called
-  // "Change ISBN"; on the review screen since #316 it is the camera at the end
-  // of the ISBN field, which the drawing puts there because thirteen digits
-  // typed off a book by somebody holding the book is the slowest way to answer
-  // it. Both open the same prompt, and the prompt still has a keyboard in it.
-  const byCamera = page.getByRole('button', { name: /Read the barcode/ })
-  if (await byCamera.isVisible()) await byCamera.click()
-  else await page.getByRole('button', { name: 'Change ISBN' }).click()
+  // Two screens ask for it and they ask the same way now (#387). It was a
+  // button called "Change ISBN" on a catalogued book and the camera at the end
+  // of the ISBN field on the review screen; converting the first one gave it
+  // the second one's field, which the drawing puts there because thirteen
+  // digits typed off a book by somebody holding the book is the slowest way to
+  // answer it. Both open the same prompt, and the prompt still has a keyboard.
+  await page.getByRole('button', { name: /Read the barcode/ }).click()
   await page.locator('.isbn-input input').fill(target.isbn13)
   await page.getByRole('button', { name: 'Look up and replace' }).click()
 })

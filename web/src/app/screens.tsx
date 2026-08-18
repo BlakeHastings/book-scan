@@ -20,10 +20,12 @@
  * converted now, so this one is too, and the two are still one component with
  * one frame around it rather than two that agree today.
  *
- * One screen is converted on one of its two paths: review draws a queued
- * capture with the design system and a catalogued book with what it always
- * had, which is the `book` screen and somebody else's to convert. It asks for
- * the frame itself on that path rather than this table growing a condition.
+ * **`review` is converted on both its paths since #387**, which is what took
+ * the last condition out of this table's neighbourhood: it drew a queued
+ * capture with the design system and a catalogued book with what the app
+ * always had, and asked for the frame itself on the second one. Both wear
+ * their own top bar and their own tab bar now, so the line below says what
+ * every other line says and nothing asks for a header underneath it.
  */
 
 import type { ComponentType } from 'react'

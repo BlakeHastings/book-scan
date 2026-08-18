@@ -82,7 +82,7 @@ import { Button } from '../design/Controls'
 import { Nothing } from '../design/Card'
 import { IconEdit } from '../design/Icons'
 import { List, Place, Row } from '../design/List'
-import { Shelf, type ShelfItem } from '../design/Shelf'
+import { Shelf } from '../design/Shelf'
 import { TopBar } from '../design/Chrome'
 import type { Shot } from '../design/Shots'
 import {
@@ -93,11 +93,10 @@ import {
   type Credit,
   type PlacementStrip,
 } from '../lib/api'
-import { clothFor, pagesOf } from '../lib/bookLook'
+import { clothFor, pagesOf, standing } from '../lib/bookLook'
 import { coverThumbUrl, coverUrl } from './PlacementCard'
 import { rememberedFirstPicture } from '../lib/firstPicture'
 import { grouped } from '../lib/say'
-import { spineLabel } from '../lib/shelfRow'
 import { useBrowsing } from '../app/browsing'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
@@ -506,29 +505,11 @@ function whoSaid(tag: AppliedTag): string {
  * whatever screen wants it, said the way that screen needs.
  */
 
-/**
- * The run this book stands in, with this book marked.
+/*
+ * `standing` was here, and it is in `lib/bookLook.ts` now.
  *
- * The mark is `here`, which puts the cat on top of the book rather than a ring
- * around it: a ring is drawn outside the element, the run scrolls inside itself,
- * and the top of it was cut off every time. Tapping any other spine walks along
- * the shelf, which is what a row of books is for.
+ * The screen this page's pencil opens draws the same run with the same book
+ * marked (#387), and a run of spines written twice is two answers waiting to
+ * disagree about which photograph stands in for a spine. It moved rather than
+ * being copied.
  */
-function standing(
-  strip: PlacementStrip,
-  id: number,
-  onOpen: (id: number) => void,
-): ShelfItem[] {
-  return strip.books.map((one) => ({
-    kind: 'spine' as const,
-    // What is written down a spine with no photograph, and what the spine is
-    // called for anybody not looking at pixels either way.
-    text: one.authorFiling || one.title || spineLabel(one),
-    cloth: clothFor(one.id),
-    pages: pagesOf(one),
-    photo: coverThumbUrl(one.spine, 160),
-    here: one.id === id,
-    // The book this page is about goes nowhere: it is already here.
-    onPress: one.id === id ? undefined : () => onOpen(one.id),
-  }))
-}

@@ -195,17 +195,44 @@ describe('a queued capture with cover text and no title', () => {
   })
 })
 
-/** Find a button by its label in an unrendered element tree. */
-function buttonIn(node: unknown, label: string): { onClick?: () => void } | null {
-  if (!node || typeof node !== 'object') return null
-  const element = node as ReactElement & { props: Record<string, unknown> }
-  const children = element.props?.children
-  const list = Array.isArray(children) ? children : [children]
-  if (element.type === 'button' && list.some((child) => child === label)) {
-    return element.props as { onClick?: () => void }
+/**
+ * Find an answer by the word on it, in an unrendered element tree.
+ *
+ * It used to look for `element.type === 'button'`, which was true while the
+ * notice drew its own. It draws the design system's `Button` now (#387), and
+ * that is one function element with its word as its child rather than markup,
+ * so this matches on the word and reads the two props a `Button` carries:
+ * `onPress`, and `off` for one that cannot be pressed yet. Nothing is rendered
+ * either way, which is the point: the claim is that the tap reaches the one
+ * call that writes a location, not that a particular element drew it.
+ */
+function buttonIn(node: unknown, label: string): { press?: () => void; off?: boolean } | null {
+  if (Array.isArray(node)) {
+    for (const one of node) {
+      const found = buttonIn(one, label)
+      if (found) return found
+    }
+    return null
   }
-  for (const child of list) {
-    const found = buttonIn(child, label)
+  if (!node || typeof node !== 'object') return null
+
+  const element = node as ReactElement & { props: Record<string, unknown> }
+  const props = element.props ?? {}
+  const children: unknown[] = Array.isArray(props.children)
+    ? props.children
+    : [props.children]
+
+  if (children.some((child) => child === label)) {
+    const answer = props as { onPress?: () => void; off?: boolean }
+    if (answer.onPress || answer.off !== undefined) {
+      return { press: answer.onPress, off: answer.off }
+    }
+  }
+
+  // Every prop, not only `children`: a card takes its answers as `foot`, and a
+  // screen takes its dialog as `over`.
+  for (const value of Object.values(props)) {
+    const found = buttonIn(value, label)
     if (found) return found
   }
   return null
@@ -231,7 +258,7 @@ describe('confirming from the detail view', () => {
       moving: false,
       onMoved: () => { void recordMoved(misfile) },
     })
-    buttonIn(tree, 'Moved it')?.onClick?.()
+    buttonIn(tree, 'Moved it')?.press?.()
     await Promise.resolve()
 
     const [call] = calls
@@ -243,8 +270,7 @@ describe('confirming from the detail view', () => {
 
   it('cannot be tapped twice while the write is in flight', () => {
     const tree = MisfileNotice({ misfile, moving: true, onMoved: () => {} })
-    const button = buttonIn(tree, '...') as { disabled?: boolean } | null
-    expect(button?.disabled).toBe(true)
+    expect(buttonIn(tree, '...')?.off).toBe(true)
   })
 })
 
@@ -285,7 +311,7 @@ describe('taking a move back from the detail view', () => {
       onMoved: () => {},
       onTakeBack: () => { void takeMoveBack('fiction', misfile.book.id) },
     })
-    buttonIn(tree, 'Undo the move')?.onClick?.()
+    buttonIn(tree, 'Undo the move')?.press?.()
     await Promise.resolve()
 
     expect(calls.map((call) => call.path)).toEqual(['/api/shelves/retract'])

@@ -18,15 +18,17 @@
  * the irreversible thing, it says what will happen to their own books with the
  * count in it, and it goes away again.
  *
- * ## This is `ConfirmDialog`, in the language of the redesign
+ * ## This is `ConfirmDialog`, and `ConfirmDialog` is gone
  *
- * `src/components/ConfirmDialog.tsx` is the working app's version of this
- * decision and every decision it made is kept: the destructive button first and
- * outlined rather than filled, the keep-it button beside it and the one a thumb
- * lands on, the card sitting at the bottom of a short screen and centred on a
- * tall one. What is different is only the paint, because the gallery draws the
- * redesign and loads none of the app's stylesheet. When this is built it is
- * `ConfirmDialog` carrying this content, not a second dialog.
+ * `src/components/ConfirmDialog.tsx` was the working app's version of this
+ * decision, and every decision it made is kept here: the destructive button
+ * first and outlined rather than filled, the keep-it button beside it and the
+ * one a thumb lands on, the press on the page around the card meaning "keep
+ * it", and the pair of them going quiet while the answer is carried out. The
+ * file itself went when the book's page was converted (#387), because the two
+ * were the same dialog and this paragraph promised there would only ever be
+ * one of them. The area screen already asked here; the book's delete asks here
+ * now too.
  *
  * ## The three parts, and why the middle one is here at all
  *
@@ -46,6 +48,7 @@ export function Sure({
   said,
   becomes,
   act,
+  busy = false,
   onAct,
   onKeep,
 }: {
@@ -57,11 +60,32 @@ export function Sure({
   becomes?: { from: string; to: string }[]
   /** The word on the button that does it. Never "OK". */
   act: string
+  /**
+   * The answer is being carried out right now, so neither button is pressable.
+   *
+   * No gallery screen sets it, for the reason `Button`'s own `off` says: a
+   * wireframe answers "what does this screen offer" and the app answers "and
+   * can it be done yet", which is a fact about a request in flight. It arrived
+   * with the book's delete, where the write takes photographs off a disk and a
+   * second press would send a second delete after the first.
+   */
+  busy?: boolean
   onAct?: () => void
   onKeep?: () => void
 }) {
   return (
-    <div className="wf-sure" role="dialog" aria-modal="true" aria-label={title}>
+    /*
+     * Pressing the page around the card is the same answer as "Keep it", which
+     * is what `ConfirmDialog` did before this became the one dialog. Only the
+     * page itself: a press that started on the card is somebody reading it.
+     */
+    <div
+      className="wf-sure"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={(event) => { if (event.target === event.currentTarget) onKeep?.() }}
+    >
       <div className="wf-sure__card">
         <h2 className="wf-sure__title">{title}</h2>
         {said && <p className="wf-sure__said">{said}</p>}
@@ -84,10 +108,10 @@ export function Sure({
             nothing, and the red one is outlined rather than filled: a filled
             red button invites the press it is warning about. */}
         <div className="wf-sure__acts">
-          <Button tone="danger" onPress={onAct}>
+          <Button tone="danger" off={busy} onPress={onAct}>
             {act}
           </Button>
-          <Button tone="secondary" onPress={onKeep}>
+          <Button tone="secondary" off={busy} onPress={onKeep}>
             Keep it
           </Button>
         </div>
