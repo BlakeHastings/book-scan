@@ -96,6 +96,7 @@ export function AreaBox({
   reads,
   books,
   holds,
+  gone = false,
   on = false,
   onPress,
 }: {
@@ -104,14 +105,28 @@ export function AreaBox({
   books: number
   /** What the rule sends here, said the way somebody would say it. */
   holds?: string
+  /**
+   * One somebody took out that books are still standing on.
+   *
+   * It is not part of the piece any more, so it is drawn as the outline of
+   * something that is not there, and the sentence under it is what is true of
+   * it rather than what belongs in it: a rule does not send books to a place
+   * that is gone, and the books on it are waiting to be carried.
+   */
+  gone?: boolean
   /** The one being worked on. */
   on?: boolean
   onPress?: () => void
 }) {
+  const said = gone
+    ? `Taken out. ${books === 1 ? 'This book is' : 'These books are'} still here `
+      + 'until you carry them.'
+    : holds
+
   return (
     <button
       type="button"
-      className={`wf-box${on ? ' wf-box--on' : ''}`}
+      className={`wf-box${gone ? ' wf-box--gone' : ''}${on ? ' wf-box--on' : ''}`}
       aria-pressed={on || undefined}
       onClick={onPress}
     >
@@ -121,7 +136,7 @@ export function AreaBox({
             in one was chosen. A real area holds one book often enough. */}
         <span className="wf-box__count">{books} {books === 1 ? 'book' : 'books'}</span>
       </span>
-      {holds && <span className="wf-box__holds">{holds}</span>}
+      {said && <span className="wf-box__holds">{said}</span>}
     </button>
   )
 }

@@ -75,9 +75,9 @@ import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repos
 import { furnitureIn, retireOrRemove, ruleForRange } from '../infrastructure/shelving/areas'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import {
-  areaOnAFace, areasOnFaces, booksNaming, collectionId, collectionStrategy,
-  fixtureOnTheFloor, fixturesOnTheFloor, insertArea, insertFixture, nextFixturePosition,
-  offerableStrategies, removeFixtureIfUnused, resequenceFace, updateArea,
+  anyArea, areaOnAFace, areasOnFaces, booksNaming, collectionId, collectionStrategy,
+  everyArea, fixtureOnTheFloor, fixturesOnTheFloor, insertArea, insertFixture,
+  nextFixturePosition, offerableStrategies, removeFixtureIfUnused, resequenceFace, updateArea,
   updateCollectionStrategy, updateFixture,
   whatHoldsFixture, type AreaRow, type FixtureRow,
 } from '../infrastructure/shelving/furniture'
@@ -453,6 +453,14 @@ export interface DescribedArea {
   selfContained: boolean
   note: string
   books: number
+  /**
+   * True when the plank has been taken out and its row kept.
+   *
+   * It is not on the piece any more and it is not in `DescribedFixture.areas`.
+   * What it still has is books standing on it, which is why it is described at
+   * all: see `DescribedFixture.gone`.
+   */
+  gone: boolean
   /** What files here, in words. Never empty: "Put here by hand" is an answer. */
   holds: string
   /** Whether a run begins here rather than flowing in from the area before. */
@@ -479,8 +487,33 @@ export interface DescribedFixture {
   name: string
   sortStrategy: SortStrategy
   note: string
+  /**
+   * Every book standing on this piece, wherever on it they are standing.
+   *
+   * **Including the ones on planks that have been taken out**, which is #401. It
+   * was the sum over the face, so a bookcase a run had been moved off reported
+   * nought books while forty-six were standing on it and the carry list was
+   * naming its planks. A piece of furniture accounts for what is on it whatever
+   * has become of the plank holding it up; `areas` is what the piece has, and
+   * this is what is on the piece.
+   */
   books: number
+  /** The areas the piece has, in the order they sit on its face. */
   areas: DescribedArea[]
+  /**
+   * The planks that have been taken out and still have books standing on them.
+   *
+   * Kept apart from `areas` because they are two different facts and a screen
+   * says them differently: `areas` is what is on the piece, and this is what is
+   * left over from what used to be. Merging them would put a plank that is not
+   * there into every count of the face, every reorder and every derived
+   * boundary, which is the whole of what retiring one is for.
+   *
+   * **A retired plank with nothing standing on it is not in here.** The row
+   * exists because the ledger names it, not because it is furniture, and drawing
+   * every plank anybody has ever taken out would bury the one that matters.
+   */
+  gone: DescribedArea[]
   /** The other pieces standing on this piece's number, if any. See below. */
   sharing: number[]
   /** What a rule about the whole piece sends here, in words. */
@@ -508,7 +541,7 @@ export interface DescribedFurniture {
  */
 export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
   const [fixtures, areas, fallback, strategies, arrangement, vocabulary] = await Promise.all([
-    fixturesOnTheFloor(db), areasOnFaces(db), collectionStrategy(db), offerableStrategies(db),
+    fixturesOnTheFloor(db), everyArea(db), collectionStrategy(db), offerableStrategies(db),
     furnitureIn(db), new DrizzleTagRepository(db).vocabulary(),
   ])
   const carried = await tagCarried(db)
@@ -528,9 +561,34 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
       .sort(byPrecedence)
       .filter((rule) => (about === 'area' ? rule.areaId === id : rule.fixtureId === id))
 
+  const describeArea = (fixture: FixtureRow, area: AreaRow): DescribedArea => ({
+    id: area.id,
+    position: area.position,
+    label: labelFor({ fixture: asFixture(fixture), area: asArea(area) }),
+    name: area.name,
+    startsAt: area.startsAt,
+    sortStrategy: area.sortStrategy,
+    ordering: strategyFor(collection, fixture.sortStrategy, area.sortStrategy),
+    selfContained: area.sortStrategy !== INHERIT,
+    note: area.note,
+    books: area.books,
+    gone: area.gone,
+    holds: areaHolds(owners.get(area.id), labels),
+    entry: owners.get(area.id)?.entry ?? false,
+    rule: (() => {
+      const [won] = owners.get(area.id)?.rules ?? []
+      return won ? described.get(won.id) ?? null : null
+    })(),
+    own: writtenOn('area', area.id)
+      .map((rule) => described.get(rule.id))
+      .filter((rule): rule is DescribedRule => rule !== undefined),
+  })
+
   return {
     fixtures: fixtures.map((fixture) => {
-      const own = areas.filter((one) => one.fixtureId === fixture.id)
+      const here = areas.filter((one) => one.fixtureId === fixture.id)
+      const own = here.filter((one) => !one.gone)
+      const gone = here.filter((one) => one.gone && one.books > 0)
       const about = writtenOn('fixture', fixture.id)
       return {
         id: fixture.id,
@@ -540,28 +598,9 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
         name: fixture.name,
         sortStrategy: fixture.sortStrategy,
         note: fixture.note,
-        books: own.reduce((total, one) => total + one.books, 0),
-        areas: own.map((area) => ({
-          id: area.id,
-          position: area.position,
-          label: labelFor({ fixture: asFixture(fixture), area: asArea(area) }),
-          name: area.name,
-          startsAt: area.startsAt,
-          sortStrategy: area.sortStrategy,
-          ordering: strategyFor(collection, fixture.sortStrategy, area.sortStrategy),
-          selfContained: area.sortStrategy !== INHERIT,
-          note: area.note,
-          books: area.books,
-          holds: areaHolds(owners.get(area.id), labels),
-          entry: owners.get(area.id)?.entry ?? false,
-          rule: (() => {
-            const [won] = owners.get(area.id)?.rules ?? []
-            return won ? described.get(won.id) ?? null : null
-          })(),
-          own: writtenOn('area', area.id)
-            .map((rule) => described.get(rule.id))
-            .filter((rule): rule is DescribedRule => rule !== undefined),
-        })),
+        books: here.reduce((total, one) => total + one.books, 0),
+        areas: own.map((area) => describeArea(fixture, area)),
+        gone: gone.map((area) => describeArea(fixture, area)),
         sharing: fixtures
           .filter((one) => one.id !== fixture.id && one.position === fixture.position)
           .map((one) => one.id),
@@ -623,7 +662,8 @@ export interface AreaBook {
 }
 
 export interface AreaBooks {
-  area: { id: number; label: string; books: number }
+  /** `gone` is a plank taken out with books still standing on it. See #401. */
+  area: { id: number; label: string; books: number; gone: boolean }
   books: AreaBook[]
 }
 
@@ -698,9 +738,15 @@ const asStandingBook = (row: StandingRow, rules: PlacementRule[]): AreaBook => (
  * `claimedBy` comes along because the same read answers it: it is what lets a
  * screen say how many books here no rule claims at all, which is a real state
  * since #304 and is invisible from the counts.
+ *
+ * **A plank that has been taken out still answers here** (#401), and says so.
+ * The books standing on it are recorded on it until somebody carries them, so a
+ * page that 404'd was the one place a person could have been shown them. What
+ * it must not do is offer to remove it again: `planAreaRemoval` still reads the
+ * face, because an area that is not on the piece cannot be taken off it.
  */
 export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
-  const area = await areaOnAFace(db, id)
+  const area = await anyArea(db, id)
   if (!area) return refuse(404, 'No such area.')
 
   const fixture = await fixtureOnTheFloor(db, area.fixtureId)
@@ -715,6 +761,7 @@ export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
       id,
       label: labelFor({ fixture: asFixture(fixture), area: asArea(area) }),
       books: area.books,
+      gone: area.gone,
     },
     books: rows.map((row) => asStandingBook(row, rules)),
   }
@@ -730,13 +777,18 @@ export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
  *
  * A piece nothing has been filed onto answers an empty list, which is correct
  * and is not a 404: the piece is there and holds nothing.
+ *
+ * **Every area of the piece and not only its face** (#401), for the reason
+ * `DescribedFixture.books` counts them all: a book standing on a plank somebody
+ * took out is standing on this piece, and a page about the piece that leaves it
+ * out is the page that said nought over forty-six.
  */
 export async function booksOnFixture(db: Db, id: number): Promise<ReadFixtureBooks> {
   const fixture = await fixtureOnTheFloor(db, id)
   if (!fixture) return refuse(404, 'No such piece of furniture.')
 
-  const face = await faceOf(db, fixture)
-  const rows = face.length ? await standingIn(db, face.map((slot) => slot.area.id)) : []
+  const here = (await everyArea(db)).filter((area) => area.fixtureId === id)
+  const rows = here.length ? await standingIn(db, here.map((area) => area.id)) : []
   const { rules } = await furnitureIn(db)
 
   return {

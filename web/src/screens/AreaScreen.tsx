@@ -72,7 +72,16 @@ export function AreaScreen() {
   useDesignPage()
 
   const piece = room?.fixtures.find((one) => one.id === fixtureId) ?? null
-  const area = piece?.areas.find((one) => one.id === areaId) ?? null
+  /*
+   * Its face and then the areas taken out that books are still standing on
+   * (#401). Both are areas of this piece as far as this screen is concerned;
+   * they are apart on the wire because everything that draws a piece of
+   * furniture must see only the first, and `AreaPane` draws the second one
+   * differently rather than pretending it is still there.
+   */
+  const area = piece?.areas.find((one) => one.id === areaId)
+    ?? piece?.gone.find((one) => one.id === areaId)
+    ?? null
 
   /*
    * The rule under a thumb. The same hook the piece's page uses, because the

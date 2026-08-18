@@ -21,14 +21,14 @@ import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto } from '../li
 const area = (over: Partial<AreaDto> = {}): AreaDto => ({
   id: 1, position: 0, label: '4A', name: '', startsAt: '', sortStrategy: 'inherit',
   ordering: 'author', selfContained: false, note: '', books: 8,
-  holds: 'Non-fiction starts here', entry: true, rule: null, own: [],
+  holds: 'Non-fiction starts here', entry: true, rule: null, own: [], gone: false,
   ...over,
 })
 
 const fixture = (over: Partial<FixtureDto> = {}): FixtureDto => ({
   id: 1, position: 4, label: '4', kind: 'bookshelf', name: '', sortStrategy: 'inherit',
   note: '', books: 8, areas: [area(), area({ id: 2, position: 1, label: '4B' })],
-  sharing: [], holds: 'Anything tagged Non-fiction', rule: null, own: [],
+  sharing: [], gone: [], holds: 'Anything tagged Non-fiction', rule: null, own: [],
   ...over,
 })
 
@@ -189,5 +189,43 @@ describe('the two rules on a piece', () => {
     ]))
 
     expect(said.indexOf('David, Elizabeth')).toBeLessThan(said.indexOf('McGee, Harold'))
+  })
+})
+
+/**
+ * #401: a piece whose areas were taken out with its books still standing on it.
+ *
+ * The top of this screen said "0 areas, 0 books" about the owner's bookcase 4 at
+ * the same moment the carrying list named its areas as the place forty-six books
+ * were leaving. Nought areas is true and stays, because the areas were taken off
+ * the piece. Nought books was the defect.
+ */
+describe('a piece whose areas were taken out with books still on them', () => {
+  const emptied = fixture({
+    books: 46,
+    areas: [],
+    gone: [
+      area({ id: 91, label: '4A', books: 8, gone: true }),
+      area({ id: 92, label: '4B', books: 20, gone: true }),
+      area({ id: 93, label: '4C', books: 18, gone: true }),
+    ],
+  })
+
+  it('counts the books standing on it rather than the ones on its face', () => {
+    expect(words(drawn(emptied))).toMatch(/0 areas, 46 books/)
+  })
+
+  it('names the areas that were taken out and what is standing on each', () => {
+    const said = words(drawn(emptied))
+    expect(said).toMatch(/Areas you took out/)
+    expect(said).toMatch(/4A holds 8 books, 4B holds 20 books, 4C holds 18 books/)
+  })
+
+  it('says nothing has moved, because nothing has', () => {
+    expect(words(drawn(emptied))).toMatch(/Nothing has moved/)
+  })
+
+  it('says nothing of the sort about a piece whose areas are all still there', () => {
+    expect(words(drawn())).not.toMatch(/took out/)
   })
 })

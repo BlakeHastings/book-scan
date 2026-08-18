@@ -185,6 +185,28 @@ export function FixturePane({
         title={labels.length ? labels.join(', ') : 'Nothing yet: it has no areas on it'}
       />
 
+      {/*
+        The areas taken out that books are still standing on (#401). The line
+        above says the piece has none, which is true of the furniture and was
+        the whole of what this page said while forty-six books stood on it. A
+        piece accounts for what is on it whatever became of the area holding it,
+        and the room draws these as boxes somebody can open.
+      */}
+      {piece.gone.length > 0 && (
+        <Card
+          weight="quiet"
+          kind={piece.gone.length === 1 ? 'An area you took out' : 'Areas you took out'}
+          title={piece.gone
+            .map((area) => `${area.label} holds ${plural(area.books, 'book')}`)
+            .join(', ')}
+        >
+          <p>
+            Nothing has moved. They stay recorded there until you carry them and say
+            where they went.
+          </p>
+        </Card>
+      )}
+
       <Button tone="primary" block onPress={busy ? undefined : onSave}>
         {busy ? 'Saving' : 'Save'}
       </Button>

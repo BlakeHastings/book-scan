@@ -278,8 +278,8 @@ describe('the design rules this screen could break', () => {
 })
 
 describe('the bookcases a move is offered', () => {
-  const piece = (position: number, areas: number) =>
-    ({ position, areas: Array.from({ length: areas }, () => ({})) })
+  const piece = (position: number, areas: number, books = 0) =>
+    ({ position, areas: Array.from({ length: areas }, () => ({})), books })
 
   it('offers the one it is on, the empty ones, and one that does not exist yet', () => {
     const found = destinationsFor([piece(1, 11), piece(2, 0), piece(4, 3)], 4)
@@ -298,5 +298,18 @@ describe('the bookcases a move is offered', () => {
   it('never offers a bookcase somebody else’s books are already on', () => {
     expect(destinationsFor([piece(1, 11), piece(4, 3)], 4).map((one) => one.number))
       .toEqual([2, 3, 4, 5])
+  })
+
+  /*
+   * #401. A bookcase a stretch of books was moved off has no areas on its face
+   * and every one of those books still standing on it, because nobody has
+   * carried them yet. It reads as free from the areas alone, and it is the one
+   * bookcase in the room that certainly is not.
+   */
+  it('never offers a bookcase with books still standing on it and no areas left', () => {
+    const found = destinationsFor([piece(1, 11), piece(2, 0, 46), piece(4, 3)], 4)
+
+    expect(found.map((one) => one.number)).toEqual([3, 4, 5])
+    expect(found.map((one) => one.number)).not.toContain(2)
   })
 })

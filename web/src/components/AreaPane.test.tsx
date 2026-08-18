@@ -43,12 +43,12 @@ const rule = (over: Partial<RuleDto> = {}): RuleDto => ({
 const area: AreaDto = {
   id: 5, position: 2, label: '2 · Cookery', name: 'Cookery', startsAt: '',
   sortStrategy: 'inherit', ordering: 'author', selfContained: false, note: '',
-  books: 18, holds: 'Anything tagged Cookery', entry: true, rule: null, own: [],
+  books: 18, holds: 'Anything tagged Cookery', entry: true, rule: null, own: [], gone: false,
 }
 
 const piece: FixtureDto = {
   id: 2, position: 2, label: '2', kind: 'bookshelf', name: '', sortStrategy: 'inherit',
-  note: '', books: 63, areas: [area], sharing: [],
+  note: '', books: 63, areas: [area], sharing: [], gone: [],
   holds: 'Anything tagged Non-fiction', rule: null, own: [],
 }
 
@@ -740,5 +740,72 @@ describe('a shelf prepared before its books', () => {
     }))
 
     expect(said).not.toMatch(/Nothing carries/)
+  })
+})
+
+/**
+ * #401: an area somebody took out that books are still standing on.
+ *
+ * This screen answered nothing at all for one, because the read behind it asked
+ * for an area on a face and there is no longer one. So the eight books recorded
+ * on `4A` after a stretch of books was moved off bookcase 4 had no page anywhere
+ * in the app, while the carrying list was telling somebody to go and fetch them.
+ *
+ * What it draws now is what is true of it: what happened, and the books. Every
+ * part it leaves off would be a lie here, and the one that matters is the last
+ * one: it cannot be taken out again, and offering that would be a button whose
+ * only possible answer is a refusal.
+ */
+describe('an area that was taken out with books still standing on it', () => {
+  const gone = { gone: true, label: '4A', books: 8 }
+
+  it('says it was taken out, and how many books are still recorded there', () => {
+    const said = words(drawn(null, gone))
+    expect(said).toMatch(/4A was taken out/)
+    expect(said).toMatch(/Eight books are still recorded there, on Bookcase 2/)
+  })
+
+  it('says nothing has moved and what has to happen before anything does', () => {
+    const said = words(drawn(null, gone))
+    expect(said).toMatch(/Nothing has moved/)
+    expect(said).toMatch(/until you carry them/)
+  })
+
+  it('draws the books standing on it, each a way into why it is here', () => {
+    const said = words(drawn(null, gone, undefined, [
+      shelved({ id: 1, title: 'On Food and Cooking' }),
+      shelved({ id: 2, title: 'Italian Food', authorFiling: 'David, Elizabeth' }),
+    ]))
+
+    expect(said).toMatch(/Standing on 4A/)
+    expect(said).toMatch(/On Food and Cooking/)
+    expect(said).toMatch(/Italian Food/)
+  })
+
+  /* It is already off the piece, so there is nothing on the piece to take off. */
+  it('does not offer to remove it', () => {
+    expect(words(drawn(null, gone))).not.toMatch(/Remove this area/)
+  })
+
+  /*
+   * No rule sends books to a place that is not there, nothing overflows into
+   * one, and renaming it names nothing. Drawing any of the three would be the
+   * screen saying something plainly untrue about somebody's room.
+   */
+  it('offers none of the things that would be untrue of a place that is gone', () => {
+    const said = words(drawn(null, gone))
+    expect(said).not.toMatch(/What you call this area/)
+    expect(said).not.toMatch(/overflows/)
+    expect(said).not.toMatch(/belongs here/i)
+  })
+
+  it('says the one book on it in the singular', () => {
+    const said = words(drawn(null, { ...gone, books: 1 }))
+    expect(said).not.toMatch(/1 books/)
+    expect(said).toMatch(/One book is still recorded there/)
+  })
+
+  it('leaves an area that is still on its piece exactly as it was', () => {
+    expect(words(drawn(null))).toMatch(/Remove this area/)
   })
 })

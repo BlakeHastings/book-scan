@@ -1813,6 +1813,16 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-box__holds { font-size: var(--size-small); color: var(--ink-2); }
 
+/* A plank somebody took out that books are still standing on (#401). Dashed,
+   for the reason .wf-add below is dashed: it is the shape of a thing that is
+   not there. The difference is that this one has books on it, so it is drawn
+   at all rather than being left off the piece in silence. */
+.wf-box--gone {
+  background: none;
+  border: 1px dashed var(--line-strong);
+}
+.wf-box--gone .wf-box__reads { font-weight: 500; color: var(--ink-2); }
+
 /* Adding another one, at the end of the ones there already are. Dashed,
    because it is the shape of a thing that is not there yet. */
 .wf-add {

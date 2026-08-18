@@ -18,13 +18,13 @@ import type { AreaDto, FixtureDto, FurnitureDto } from '../lib/api'
 const area = (over: Partial<AreaDto> = {}): AreaDto => ({
   id: 1, position: 0, label: '4A', name: '', startsAt: '', sortStrategy: 'inherit',
   ordering: 'author', selfContained: false, note: '', books: 8,
-  holds: 'Non-fiction starts here', entry: true, rule: null, own: [],
+  holds: 'Non-fiction starts here', entry: true, rule: null, own: [], gone: false,
   ...over,
 })
 
 const fixture = (over: Partial<FixtureDto> = {}): FixtureDto => ({
   id: 1, position: 4, label: '4', kind: 'bookshelf', name: '', sortStrategy: 'inherit',
-  note: '', books: 8, areas: [area()], sharing: [],
+  note: '', books: 8, areas: [area()], sharing: [], gone: [],
   holds: 'Anything tagged Non-fiction', rule: null, own: [],
   ...over,
 })
@@ -217,5 +217,61 @@ describe('putting the room in order', () => {
     const said = words(drawn(three, [0, 1, 2]))
     expect(said).toMatch(/Save the order/)
     expect(said).toMatch(/Leave it as it is/)
+  })
+})
+
+/**
+ * #401: the piece that read as empty while forty-six books stood on it.
+ *
+ * Moving a stretch of books to another bookcase takes every area off the one it
+ * left, and the books stay recorded there until somebody carries them. So the
+ * room's honest drawing of that piece is no areas, the areas that were taken
+ * out, and the books that are on it.
+ *
+ * The counts are the owner's own: 8, 20 and 18 across three areas of a bookcase
+ * whose stretch of books has been sent to bookcase 2.
+ */
+describe('a piece whose areas were taken out with books still on them', () => {
+  const emptied = fixture({
+    id: 9,
+    position: 4,
+    books: 46,
+    areas: [],
+    gone: [
+      area({ id: 91, label: '4A', books: 8, gone: true }),
+      area({ id: 92, label: '4B', books: 20, gone: true }),
+      area({ id: 93, label: '4C', books: 18, gone: true }),
+    ],
+    holds: 'No rule sends books here',
+  })
+
+  it('says how many books are on it rather than nought', () => {
+    expect(words(drawn(furniture([emptied])))).toMatch(/46 books/)
+  })
+
+  it('draws every area that was taken out, with what is standing on it', () => {
+    const said = words(drawn(furniture([emptied])))
+    for (const [label, books] of [['4A', 8], ['4B', 20], ['4C', 18]] as const) {
+      expect(said).toMatch(new RegExp(`${label}\\s+${books} books`))
+    }
+  })
+
+  it('says they were taken out, so they do not read as areas that are there', () => {
+    expect(words(drawn(furniture([emptied])))).toMatch(/Taken out/)
+    expect(drawn(furniture([emptied]))).toMatch(/wf-box--gone/)
+  })
+
+  it('says the one book on one of them in the singular', () => {
+    const one = fixture({
+      id: 9, position: 4, books: 1, areas: [],
+      gone: [area({ id: 91, label: '4A', books: 1, gone: true })],
+    })
+    const said = words(drawn(furniture([one])))
+    expect(said).not.toMatch(/1 books/)
+    expect(said).toMatch(/This book is still here/)
+  })
+
+  it('still offers the way to put an area back on it', () => {
+    expect(words(drawn(furniture([emptied])))).toMatch(/Add an area to this bookcase/)
   })
 })
