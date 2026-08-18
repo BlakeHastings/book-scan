@@ -18,9 +18,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import {
-  canShelve, deviceOn, photoCount, QueueRow, readableAgain, shotsOf, SHOWING,
+  canShelve, deviceOn, photoCount, QueueRow, readableAgain, SHOWING,
   stateWord, whatItNeeds, type RowGesture, type Which,
 } from './QueuePane'
+import { shotsOf } from '../lib/queuePhoto'
 import type { Capture, CaptureStatus } from '../lib/api'
 
 /** This screen's own source, for the two rules that are about what is not on it. */

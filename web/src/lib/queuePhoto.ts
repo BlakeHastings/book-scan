@@ -14,6 +14,8 @@
  */
 
 import type { Capture } from './api'
+import { coverUrl } from '../components/PlacementCard'
+import type { Shot } from '../design/Shots'
 
 /**
  * A slot's picture: the crop where the detector found the book, the whole
@@ -101,4 +103,38 @@ export function queuePictures(capture: Capture): {
     spine: spineOf(capture),
     back: backOf(capture),
   }
+}
+
+/**
+ * A waiting book's photographs, arranged as the book they are photographs of.
+ *
+ * Two, and the spine is the sliver, which is what makes `Shots` draw them as
+ * one object rather than as two pictures. The face falls back to the back cover
+ * because a book photographed back-first is a real thing somebody has in a
+ * pile, and drawing the wrong photograph of the right book beats drawing an
+ * empty box; it says which kind it is when it does. A kind nobody has
+ * photographed is drawn as the empty shape of itself, which is `Shots`'s own
+ * rule and is a thing worth knowing.
+ *
+ * It lived in `QueuePane` while the queue was the only screen drawing a waiting
+ * book. The camera draws one too, when it finds the book in somebody's hands is
+ * already on the table (#146), and two arrangements of one book is the fault
+ * `Shots.tsx`'s header is entirely about. So it lives beside the pictures it is
+ * made of, and both screens call it.
+ */
+export function shotsOf(capture: Capture): Shot[] {
+  const pictures = queuePictures(capture)
+  const face = pictures.front || pictures.back
+
+  return [
+    {
+      word: 'Spine',
+      sliver: true,
+      photo: pictures.spine ? coverUrl(pictures.spine) : undefined,
+    },
+    {
+      word: pictures.front ? 'Front' : 'Back',
+      photo: face ? coverUrl(face) : undefined,
+    },
+  ]
 }

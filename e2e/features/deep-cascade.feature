@@ -51,10 +51,10 @@ Feature: A cascade asks at every plank, shows each move, and makes none of them 
     And the first answer should read "No room, move one along"
 
     # Down one. The step is drawn, not described: 1B as it will look, with the
-    # gap at its start and Le Guin's name on the spine hanging under it.
+    # gap at its start and the book in your hand named under the board.
     When I say there is no room on the shelf
     Then it should ask me to move "The Dispossessed" from "1A" to "1B"
-    And it should draw the gap for "Le Guin, Ursula K." on "1B"
+    And it should draw the gap for "The Dispossessed" on "1B"
     # And nothing has happened. Le Guin is still on the plank she was on.
     And the bookcase should still show "The Dispossessed" on "1A"
 
@@ -62,7 +62,7 @@ Feature: A cascade asks at every plank, shows each move, and makes none of them 
     When I say there is no room on that one either
     Then it should ask me to move "The Book Thief" from "1B" to "1C"
     And it should say I am placing "The Book Thief", 2 books deep
-    And it should draw the gap for "Zusak, Markus" on "1C"
+    And it should draw the gap for "The Book Thief" on "1C"
     And the bookcase should still show "The Book Thief" on "1B"
     And the bookcase should still show "The Dispossessed" on "1A"
 

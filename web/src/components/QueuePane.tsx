@@ -6,7 +6,7 @@ import {
 } from '../lib/api'
 import { newestFirst } from '../lib/queueOrder'
 import { filterQueue } from '../lib/queueSearch'
-import { queuePictures } from '../lib/queuePhoto'
+import { shotsOf } from '../lib/queuePhoto'
 import {
   beginSwipe, moveSwipe, swipeArmed, type Swipe,
 } from '../lib/swipe'
@@ -14,14 +14,12 @@ import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
 import {
   couldBeReadAgain, FAILURE_LABEL, failureOf,
 } from '../../shared/captureFailure'
-import { coverUrl } from './PlacementCard'
 import { Nothing } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Segmented } from '../design/Controls'
 import { Filter } from '../design/Finding'
 import { Phone } from '../design/Phone'
 import { Queued } from '../design/Queue'
-import type { Shot } from '../design/Shots'
 
 /**
  * The state a waiting book is in, as one word on one pill.
@@ -76,34 +74,6 @@ export function whatItNeeds(capture: Capture): string {
  */
 export function deviceOn(capture: Capture): string {
   return capture.claimed_by || capture.edited_by || ''
-}
-
-/**
- * A waiting book's photographs, arranged as the book they are photographs of.
- *
- * Two, and the spine is the sliver, which is what makes `Shots` draw them as
- * one object rather than as two pictures. The face falls back to the back cover
- * because a book photographed back-first is a real thing somebody has in a
- * pile, and drawing the wrong photograph of the right book beats drawing an
- * empty box; it says which kind it is when it does. A kind nobody has
- * photographed is drawn as the empty shape of itself, which is `Shots`'s own
- * rule and is a thing worth knowing.
- */
-export function shotsOf(capture: Capture): Shot[] {
-  const pictures = queuePictures(capture)
-  const face = pictures.front || pictures.back
-
-  return [
-    {
-      word: 'Spine',
-      sliver: true,
-      photo: pictures.spine ? coverUrl(pictures.spine) : undefined,
-    },
-    {
-      word: pictures.front ? 'Front' : 'Back',
-      photo: face ? coverUrl(face) : undefined,
-    },
-  ]
 }
 
 /**

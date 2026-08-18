@@ -5,6 +5,7 @@ import {
   started, whereYouAre, type Cascade, type Proposal,
 } from '../lib/cascade'
 import { PlacementView, ShelfStrip } from './ShelfStrip'
+import { Card, Instruction, Said } from '../design/Card'
 import { Button } from '../design/Controls'
 import type { ShelfRange } from '../../shared/shelving'
 
@@ -317,155 +318,161 @@ export function ShelveView({
           nobody is holding yet. */}
       {pending ? (
         <div className={busy ? 'placement--stale' : ''}>
-          <p className="placement-view__instruction">
+          <Instruction>
             {pending.proposal.title}: end of {pending.from} to start of{' '}
             {pending.proposal.to}
-          </p>
+          </Instruction>
           {pending.proposal.strip ? (
             <div className="wf-bleed">
               <ShelfStrip
                 strip={pending.proposal.strip}
-                authorFiling={pending.proposal.authorFiling}
+                inHand={pending.proposal.title}
               />
             </div>
           ) : (
-            <p className="hint">
+            <Said>
               {pending.proposal.to} has nothing on it yet, so this book starts it.
-            </p>
+            </Said>
           )}
         </div>
       ) : (
         <div className="wf-bleed">
-          <PlacementView placement={placement} pending={busy || stale} />
+          <PlacementView placement={placement} pending={busy || stale} inHand={title} />
         </div>
       )}
 
       <MovesSoFar cascade={cascade} />
 
+      {/* A hook and nothing else: there is no rule behind this name, and there
+          must not be one. What the question is asked in is `Card`, which has no
+          way of being named from outside, and the browser journeys have to be
+          able to say "the question" without saying "the third card". */}
       <div className="shelve__ask">
-        {pending ? (
-          /* One plank along the chain. Answering yes carries the move out and
-             hands the question to the one under it; answering no goes one
-             plank further, from here. */
-          <>
-            <p className="shelve__where">{whereYouAre(cascade, title)}</p>
+        <Card>
+          {pending ? (
+            /* One plank along the chain. Answering yes carries the move out and
+               hands the question to the one under it; answering no goes one
+               plank further, from here. */
+            <>
+              <Said>{whereYouAre(cascade, title)}</Said>
 
-            <p>
-              Take <strong>{pending.proposal.title}</strong> off the end of {pending.from}{' '}
-              and put it at the start of <strong>{pending.proposal.to}</strong>. Did it
-              fit there?
-            </p>
+              <p>
+                Take <strong>{pending.proposal.title}</strong> off the end of {pending.from}{' '}
+                and put it at the start of <strong>{pending.proposal.to}</strong>. Did it
+                fit there?
+              </p>
 
-            <div className="wf-answers">
-              <Button
-                tone="primary"
-                block
-                off={busy}
-                onPress={() => void confirmPlaced()}
-              >
-                {busy ? 'Saving...' : 'Yes, it fit'}
-              </Button>
-              <Button
-                block
-                off={busy}
-                onPress={() => overflowFrom(pending.proposal.toAreaId, 'area')}
-              >
-                {busy ? '...' : `No, ${pending.proposal.to} is full too`}
-              </Button>
-            </div>
+              <div className="wf-answers">
+                <Button
+                  tone="primary"
+                  block
+                  off={busy}
+                  onPress={() => void confirmPlaced()}
+                >
+                  {busy ? 'Saving...' : 'Yes, it fit'}
+                </Button>
+                <Button
+                  block
+                  off={busy}
+                  onPress={() => overflowFrom(pending.proposal.toAreaId, 'area')}
+                >
+                  {busy ? '...' : `No, ${pending.proposal.to} is full too`}
+                </Button>
+              </div>
 
-            <p className="hint">
-              {depth(cascade) > 1
-                ? `Yes moves ${pending.proposal.title} to ${pending.proposal.to}, writes ` +
-                  'it down, and asks about the book under it, which is still in your ' +
-                  `hand. No takes the last book off ${pending.proposal.to} instead and ` +
-                  'goes one deeper again.'
-                : `Nothing has moved on the bookcase yet. Yes makes this move and ` +
-                  `writes it down; no takes the last book off ${pending.proposal.to} as ` +
-                  'well and asks about the plank after that. The chain can run as far ' +
-                  'as it needs to, and every book on it is asked about again on the ' +
-                  'way back.'}
-            </p>
-          </>
-        ) : (
-          <>
-            <p>
-              {range === null ? (
-                /* Not a wait, so not phrased as one. Nothing said what this
-                   book is about, so no rule claims it and no run has a gap
-                   for it. The way on is back to the field that says so. */
-                <>
-                  Nothing says whether <strong>{title}</strong> is fiction or
-                  non-fiction, so no rule claims it and there is no shelf to put
-                  it on. Go back and say which it is.
-                </>
-              ) : known ? (
-                <>
-                  Put <strong>{title}</strong> in the gap at <strong>{shelfLabel}</strong>.
-                  Does it fit{started(cascade) ? ' now' : ''}?
-                </>
-              ) : (
-                <>Working out where <strong>{title}</strong> goes...</>
-              )}
-            </p>
+              <Said>
+                {depth(cascade) > 1
+                  ? `Yes moves ${pending.proposal.title} to ${pending.proposal.to}, writes ` +
+                    'it down, and asks about the book under it, which is still in your ' +
+                    `hand. No takes the last book off ${pending.proposal.to} instead and ` +
+                    'goes one deeper again.'
+                  : `Nothing has moved on the bookcase yet. Yes makes this move and ` +
+                    `writes it down; no takes the last book off ${pending.proposal.to} as ` +
+                    'well and asks about the plank after that. The chain can run as far ' +
+                    'as it needs to, and every book on it is asked about again on the ' +
+                    'way back.'}
+              </Said>
+            </>
+          ) : (
+            <>
+              <p>
+                {range === null ? (
+                  /* Not a wait, so not phrased as one. Nothing said what this
+                     book is about, so no rule claims it and no run has a gap
+                     for it. The way on is back to the field that says so. */
+                  <>
+                    Nothing says whether <strong>{title}</strong> is fiction or
+                    non-fiction, so no rule claims it and there is no shelf to put
+                    it on. Go back and say which it is.
+                  </>
+                ) : known ? (
+                  <>
+                    Put <strong>{title}</strong> in the gap at <strong>{shelfLabel}</strong>.
+                    Does it fit{started(cascade) ? ' now' : ''}?
+                  </>
+                ) : (
+                  <>Working out where <strong>{title}</strong> goes...</>
+                )}
+              </p>
 
-            <div className="wf-answers">
-              {/* The plank the sentence above just named, handed on so the
-                  answer to "does it fit here" is what gets recorded. Every
-                  answer here is about a named plank, so none of them can be
-                  given before there is one; and it is handed on as the plank
-                  rather than as its name, because the name is a rendering and
-                  what gets written down is a place (#359). */}
-              <Button
-                tone="primary"
-                block
-                off={saving || busy || !known}
-                onPress={() => shelfAreaId !== null && onShelved(shelfAreaId)}
-              >
-                {saving ? 'Saving...' : 'It fits, save'}
-              </Button>
+              <div className="wf-answers">
+                {/* The plank the sentence above just named, handed on so the
+                    answer to "does it fit here" is what gets recorded. Every
+                    answer here is about a named plank, so none of them can be
+                    given before there is one; and it is handed on as the plank
+                    rather than as its name, because the name is a rendering and
+                    what gets written down is a place (#359). */}
+                <Button
+                  tone="primary"
+                  block
+                  off={saving || busy || !known}
+                  onPress={() => shelfAreaId !== null && onShelved(shelfAreaId)}
+                >
+                  {saving ? 'Saving...' : 'It fits, save'}
+                </Button>
 
-              {/*
-                Two answers where the drawing has one, and both are kept.
-                "{area} is full" is one physical fact with two answers to it,
-                because the next place a book can go is either the plank below
-                or a bookcase that does not exist yet, and only the person
-                standing there knows which.
-              */}
-              <Button
-                block
-                off={busy || saving || !known}
-                onPress={() => overflowFrom(shelfAreaId, 'area')}
-              >
-                {busy
-                  ? '...'
+                {/*
+                  Two answers where the drawing has one, and both are kept.
+                  "{area} is full" is one physical fact with two answers to it,
+                  because the next place a book can go is either the plank below
+                  or a bookcase that does not exist yet, and only the person
+                  standing there knows which.
+                */}
+                <Button
+                  block
+                  off={busy || saving || !known}
+                  onPress={() => overflowFrom(shelfAreaId, 'area')}
+                >
+                  {busy
+                    ? '...'
+                    : atEndOfShelf
+                      ? 'No room, put it on the next area'
+                      : started(cascade) ? 'Still no room' : 'No room, move one along'}
+                </Button>
+                <Button
+                  block
+                  off={busy || saving || !known}
+                  onPress={() => overflowFrom(shelfAreaId, 'shelf')}
+                >
+                  No room, start a new bookcase
+                </Button>
+              </div>
+
+              <Said>
+                {range === null
+                  ? 'Every rule asks about a tag, so a book carrying none matches ' +
+                    'nothing. Saying which it is settles where it goes.'
                   : atEndOfShelf
-                    ? 'No room, put it on the next area'
-                    : started(cascade) ? 'Still no room' : 'No room, move one along'}
-              </Button>
-              <Button
-                block
-                off={busy || saving || !known}
-                onPress={() => overflowFrom(shelfAreaId, 'shelf')}
-              >
-                No room, start a new bookcase
-              </Button>
-            </div>
-
-            <p className="hint">
-              {range === null
-                ? 'Every rule asks about a tag, so a book carrying none matches ' +
-                  'nothing. Saying which it is settles where it goes.'
-                : atEndOfShelf
-                ? `Nothing on ${shelfLabel || 'this area'} goes after this book, so ` +
-                  'it is the one that moves. Everything already on the bookcase ' +
-                  'stays where it is.'
-                : `Each time you say there is no room, you are shown one more book ` +
-                  `coming off the end of ${shelfLabel || 'the bookcase'}, and nothing ` +
-                  'moves until you say you have moved it.'}
-            </p>
-          </>
-        )}
+                  ? `Nothing on ${shelfLabel || 'this area'} goes after this book, so ` +
+                    'it is the one that moves. Everything already on the bookcase ' +
+                    'stays where it is.'
+                  : `Each time you say there is no room, you are shown one more book ` +
+                    `coming off the end of ${shelfLabel || 'the bookcase'}, and nothing ` +
+                    'moves until you say you have moved it.'}
+              </Said>
+            </>
+          )}
+        </Card>
       </div>
 
       <Button tone="quiet" block off={saving || busy} onPress={onBack}>
@@ -487,52 +494,60 @@ export function ShelveView({
  * Split out of `ShelveView` so what it draws can be read by a test. The pane
  * around it owns the network and the stack, and a false statement about the
  * shuffle had no way of being caught while it was welded to those.
+ *
+ * **It was a tinted box and it is a card now** (#387). The tint was the only
+ * thing saying this was a job rather than a report, and a colour is not allowed
+ * to be the only thing saying anything here: what says it is the title, which
+ * is where `Card`'s own header says the news belongs. The three states were a
+ * colour and an accented marker as well, and all three already carried their
+ * words, so nothing was lost taking the colours off them.
  */
 export function MovesSoFar({ cascade }: { cascade: Cascade }) {
   if (!started(cascade)) return null
 
   return (
-    <div className="moves">
-      {/* "Shuffle" is a lie when the only thing that moved is the book
-          still in your hand, and nothing on the bookcase was touched. */}
-      <strong>
-        {cascade.done.every((step) => step.inHand) && !cascade.stack.length
+    <Card
+      title={
+        /* "Shuffle" is a lie when the only thing that moved is the book
+           still in your hand, and nothing on the bookcase was touched. */
+        cascade.done.every((step) => step.inHand) && !cascade.stack.length
           ? 'Where it went instead'
-          : 'Shuffle, in the order it happened'}
-      </strong>
-      <ol>
+          : 'Shuffle, in the order it happened'
+      }
+    >
+      <div className="wf-steps">
         {cascade.done.map((step, i) => (
-          <li key={`done-${i}`} className={step.inHand ? 'moves__carried' : 'moves__placed'}>
-            {step.inHand ? (
-              <>
-                <strong>{step.title}</strong>: {step.from} was full, so it goes
-                on to <strong>{step.to}</strong>. Nothing else moves.
-              </>
-            ) : (
-              <>
-                <strong>{step.title}</strong>: end of {step.from} to start of{' '}
-                <strong>{step.to}</strong>
-                <span className="moves__state"> · moved and written down</span>
-              </>
-            )}
-          </li>
+          <div className="wf-step" key={`done-${i}`}>
+            <span className="wf-step__n">{i + 1}</span>
+            <span>
+              {step.inHand ? (
+                <>
+                  <strong>{step.title}</strong>: {step.from} was full, so it goes
+                  on to <strong>{step.to}</strong>. Nothing else moves.
+                </>
+              ) : (
+                <>
+                  <strong>{step.title}</strong>: end of {step.from} to start of{' '}
+                  <strong>{step.to}</strong> · moved and written down
+                </>
+              )}
+            </span>
+          </div>
         ))}
         {cascade.stack.map((frame, i) => (
-          <li
-            key={`open-${i}`}
-            className={i === cascade.stack.length - 1 ? 'moves__asking' : 'moves__waiting'}
-          >
-            <strong>{frame.proposal.title}</strong>: end of {frame.from} to start of{' '}
-            <strong>{frame.proposal.to}</strong>
-            <span className="moves__state">
+          <div className="wf-step" key={`open-${i}`}>
+            <span className="wf-step__n">{cascade.done.length + i + 1}</span>
+            <span>
+              <strong>{frame.proposal.title}</strong>: end of {frame.from} to start of{' '}
+              <strong>{frame.proposal.to}</strong>
               {i === cascade.stack.length - 1
                 ? ' · in your hand now'
                 : ' · still to check'}
             </span>
-          </li>
+          </div>
         ))}
-      </ol>
-    </div>
+      </div>
+    </Card>
   )
 }
 

@@ -98,18 +98,18 @@ When('I go back to the start', async ({ page }) => {
 })
 
 Then('it should say the book is already in the queue', async ({ page }) => {
-  const panel = page.locator('.isbncam__choices--queued')
+  const panel = page.locator('.queued')
   await expect(panel).toBeVisible({ timeout: QUEUE_TIMEOUT })
   await expect(panel).toContainText('already in the queue')
   // Said as a finding about work already done, not as a shortlist of books to
   // choose between. The wording is the answer here.
   await expect(panel).toContainText('waiting to be shelved')
   // And it is the queue answer, not the books shortlist wearing a new class.
-  await expect(page.locator('.isbncam__choices:not(.isbncam__choices--queued)')).toHaveCount(0)
+  await expect(page.locator('.isbncam__choices')).toHaveCount(0)
 })
 
 When('I open the book it found in the queue', async ({ page }) => {
-  await page.locator('.isbncam__choices--queued button.choice').first().click()
+  await page.locator('.queued .queued__pick').first().click()
 })
 
 Then('the review screen should be showing a queued book', async ({ page }) => {
@@ -123,7 +123,7 @@ When('I say it is a different book', async ({ page }) => {
 })
 
 Then('it should stop saying the book is already in the queue', async ({ page }) => {
-  await expect(page.locator('.isbncam__choices--queued')).toHaveCount(0)
+  await expect(page.locator('.queued')).toHaveCount(0)
 })
 
 Then('the camera should still be ready to scan', async ({ page }) => {

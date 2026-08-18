@@ -64,7 +64,9 @@ const revisiting = (): Cascade => {
 describe('a shuffle that uses the same planks twice', () => {
   it('draws every move, including the one a dedupe would have swallowed', () => {
     const html = drawn(revisiting())
-    expect(html.match(/<li/g)).toHaveLength(3)
+    // One numbered step per move. It was one `<li>` per move until #387 drew
+    // this as the design system's numbered steps; the count is the same claim.
+    expect(html.match(/wf-step__n/g)).toHaveLength(3)
     for (const title of ['Snow Crash', 'The Book Thief', 'The Dispossessed']) {
       expect(html).toContain(title)
     }
