@@ -214,11 +214,27 @@ function Phone({
  * to another row saying "find", on the one screen where two ways of finding
  * must not be confused. Your furniture and settings are what the corner is for.
  *
- * ## The cat sits at the end of the counts
+ * ## The cat sits at the end of the counts, and since #410 he lies down in it
  *
  * He was beside the sentence, the sentence has gone, and the sixth cell of a
  * five-count grid is somewhere he already belongs: closing a run is one of the
  * three jobs he has. See `Stats`.
+ *
+ * > I'd like the actions that we have available to be scooted down, and then
+ * > the cat laying down sleeping with its tail going behind those buttons, and
+ * > the tail slightly moving, and the cat's eyes sometimes slowly opening a
+ * > little bit and then closing.
+ *
+ * That is what this screen draws now, and the two halves of it belong to two
+ * different things. **The cat is a pose and a behaviour**: `lying`, `dozing`,
+ * and both are `Cat`'s, so the same cat can be put on any other screen without
+ * this one being consulted. **The scoot and the covering are the layout's**:
+ * the counts take a bottom margin and the doors paint over him, so the tail
+ * leaves his row, crosses the gap and disappears under the first door.
+ *
+ * Nothing about the doors changed. There are three, they say what they said,
+ * and each is still drawn only on a day it can do something. What moved is
+ * where they start.
  *
  * ## The corner, and the menu drawn over this screen (#329)
  *
@@ -262,7 +278,7 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
           only ever reads "3" would have let the whole flow be designed for a
           list that fits on one screen. */}
       <Stats
-        cat="sitting"
+        cat="lying"
         items={[
           { n: '1,204', word: 'catalogued', onPress: () => go('library') },
           { n: '2', word: 'checked out', onPress: () => go('listing') },
