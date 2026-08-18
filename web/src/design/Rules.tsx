@@ -212,6 +212,7 @@ export interface RuleEditing {
 export function FilterRule({
   holds,
   rules = [],
+  own,
   beaten = [],
   editing,
   onEdit,
@@ -223,11 +224,30 @@ export function FilterRule({
   holds: string
   /** Every rule that files books here, joined by "or". May be empty. */
   rules?: RuleSaid[]
+  /**
+   * Whether any of those rules is written **on this place**, which decides the
+   * word on the button.
+   *
+   * The two are not the same question and #391 is what treating them as one
+   * cost. A plank at the end of a run holds no rule of its own and the run's
+   * rule reaches it, so this card drew "Non-fiction, carrying on" and offered
+   * "Change what belongs here". Pressing it opened an editor holding nothing,
+   * because the editor is seeded with the rules written on the place and there
+   * were none; somebody read a preview, pressed "Write it down" and was told
+   * "Nothing changed about where the books belong", which was true and read as a
+   * failure.
+   *
+   * So the word comes from this rather than from what is drawn. An area with no
+   * rule of its own says **Say** what belongs here, which is what writing one
+   * there would be. Defaulted from `rules` for the fixture card and every caller
+   * where the two are the same question.
+   */
+  own?: boolean
   /** Every rule that also reaches here, nearest place first. */
   beaten?: RuleBeaten[]
   /** The rule being written, or null when nobody is writing one. */
   editing?: RuleEditing | null
-  /** Open the editor. The word depends on whether there is a rule yet. */
+  /** Open the editor. The word is "Change" only where there is a rule to change. */
   onEdit?: () => void
   /** Point the whole stretch of books elsewhere: the other journey, demoted. */
   change?: { word: string; onPress?: () => void }
@@ -246,7 +266,9 @@ export function FilterRule({
         <>
           {onEdit && (
             <Button tone="secondary" block onPress={onEdit}>
-              {rules.length ? 'Change what belongs here' : 'Say what belongs here'}
+              {(own ?? rules.length > 0)
+                ? 'Change what belongs here'
+                : 'Say what belongs here'}
             </Button>
           )}
           {change && (

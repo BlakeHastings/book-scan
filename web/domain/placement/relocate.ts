@@ -38,7 +38,7 @@
  */
 
 import {
-  labelFor, runFrom, slotsInOrder, type Area, type Fixture, type Slot,
+  fixtureLabel, labelFor, runFrom, slotsInOrder, type Area, type Fixture, type Slot,
 } from './geography'
 import { entryAreaOf, entryAreas, type PlacementRule } from './rules'
 
@@ -46,6 +46,31 @@ import { entryAreaOf, entryAreas, type PlacementRule } from './rules'
 export interface PlankMove {
   from: string
   to: string
+}
+
+/**
+ * A piece the move takes every plank off, left standing with nothing on it.
+ *
+ * **The half of a run move that is about furniture rather than about books**,
+ * and #391 is what it cost to leave it unsaid. A run flows on past the piece its
+ * rule points at, so a bookcase somebody put up after it and has not filled yet
+ * is the tail of that run whether or not they think of it that way. Moving the
+ * run therefore takes that bookcase's planks with it and leaves the piece bare,
+ * which is a real consequence of a real request and is nobody's surprise to
+ * find afterwards. `docs/shelving.md` and #307 say the same thing about removal:
+ * a plan that would leave something empty says so before it happens.
+ *
+ * Nothing is deleted either way. The piece keeps standing and its planks are
+ * retired rather than dropped, so moving the run back puts every one of them
+ * back on its face.
+ */
+export interface EmptiedPiece {
+  /** What the piece reads as: its name, or its number. */
+  name: string
+  /** Where it stands, which is what a screen turns into "bookcase 5". */
+  position: number
+  /** How many planks the move would take off it. */
+  planks: number
 }
 
 export interface RunRelocation {
@@ -60,6 +85,8 @@ export interface RunRelocation {
   rules: PlacementRule[]
   /** Every plank of the run, old label to new. Empty when it is already there. */
   planks: PlankMove[]
+  /** Every piece the move would leave with nothing on its face. */
+  emptied: EmptiedPiece[]
 }
 
 export type Relocation =
@@ -115,7 +142,7 @@ export function relocateRun(
 
   const from = run[0]!.fixture.position
   if (from === to) {
-    return { ok: true, move: { rule, from, to, order, rules, planks: [] } }
+    return { ok: true, move: { rule, from, to, order, rules, planks: [], emptied: [] } }
   }
 
   const shift = to - from
@@ -181,6 +208,38 @@ export function relocateRun(
         from: labelFor(slot),
         to: labelFor(rehung[at]!),
       })),
+      emptied: emptiedBy(order, run, moving, wanted),
     },
   }
+}
+
+/**
+ * The pieces the run would walk off, in the order they stand.
+ *
+ * A piece is emptied when every plank on it is moving and nothing of the run
+ * lands back on it. The second half is what keeps the ordinary case quiet: a run
+ * shuffled one bookcase along re-covers most of the furniture it was on, and
+ * only the piece at the far end is left bare.
+ */
+function emptiedBy(
+  order: Slot[],
+  run: Slot[],
+  moving: Set<number>,
+  wanted: Set<number>,
+): EmptiedPiece[] {
+  const staying = new Set(order
+    .filter((slot) => !moving.has(slot.area.id))
+    .map((slot) => slot.fixture.position))
+
+  const leaving = new Map<number, EmptiedPiece>()
+  for (const slot of run) {
+    const at = slot.fixture.position
+    if (wanted.has(at) || staying.has(at)) continue
+
+    const piece = leaving.get(at)
+    if (piece) piece.planks += 1
+    else leaving.set(at, { name: fixtureLabel(slot.fixture), position: at, planks: 1 })
+  }
+
+  return [...leaving.values()].sort((a, b) => a.position - b.position)
 }

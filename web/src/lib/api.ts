@@ -531,6 +531,16 @@ export interface RunMovePlan {
   to: number
   /** Every plank of the run, old label to new. Empty when it is already there. */
   planks: { from: string; to: string }[]
+  /**
+   * Every piece the move would leave standing with nothing on its face.
+   *
+   * A run flows on past the bookcase its rule points at, so a piece somebody put
+   * up after it and has not filled yet is the tail of that run whether or not
+   * they think of it that way, and moving the run takes its planks. Nothing is
+   * deleted and the piece keeps standing (#391); this is what says so before
+   * anybody presses anything.
+   */
+  emptied: { name: string; position: number; planks: number }[]
   groups: PlanGroup[]
   /** Books to carry. The headline number. */
   moving: number
@@ -594,6 +604,12 @@ export interface RuleChangePlan {
   holds: string
   /** What each rule would be called, worked out from its own lines. */
   names: string[]
+  /**
+   * How many rules are written on this place today, beside how many there would
+   * be. The pair is what tells taking the last rule off a place from a draft
+   * that is not a change at all (#391).
+   */
+  already: number
   /** How many books anywhere in the collection any of these rules claim. */
   claiming: number
   /** Whether the place gains its first rule, and so stops taking overflow. */

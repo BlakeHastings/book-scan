@@ -32,6 +32,7 @@ const plan = (over: Partial<RunMovePlan> = {}): RunMovePlan => ({
   from: 4,
   to: 3,
   planks: [{ from: '4A', to: '3A' }, { from: '4B', to: '3B' }, { from: '4C', to: '3C' }],
+  emptied: [],
   groups: [
     { from: '4A', to: '3A', books: books(1, 8) },
     { from: '4B', to: '3B', books: books(9, 20) },
@@ -186,6 +187,35 @@ describe('the plan for moving a stretch of books', () => {
 
     expect(html).toContain('It already starts on bookcase 3')
     expect(html).toContain('0 books to carry')
+  })
+
+  /**
+   * #391. The plan has known which planks it moves since #244 and drew none of
+   * them, so a move that took four shelves off a bookcase somebody had put up
+   * that afternoon was, on screen, entirely about books.
+   */
+  it('names every area the books take with them', () => {
+    const html = words(planned())
+
+    expect(html).toContain('Three areas move with them')
+    expect(html).toContain('4A becomes 3A')
+    expect(html).toContain('4C becomes 3C')
+  })
+
+  it('says which piece it would leave with nothing on it, and that nothing is thrown away', () => {
+    const html = words(planned({
+      planks: [{ from: '4A', to: '3A' }, { from: 'Hall · Comics', to: '4A' }],
+      emptied: [{ name: 'Hall', position: 5, planks: 4 }],
+    }))
+
+    expect(html).toContain('leaves Hall with nothing on it')
+    expect(html).toContain('Nothing is thrown away')
+    expect(html).toContain('Hall · Comics becomes 4A')
+  })
+
+  it('says nothing about the furniture when none of it moves', () => {
+    expect(words(planned({ planks: [], emptied: [], groups: [], moving: 0 })))
+      .not.toContain('move with them')
   })
 
   /*

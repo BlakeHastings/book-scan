@@ -23,6 +23,24 @@ and measuring nothing.
 They are run in that order against one world, because the second needs the
 bookcase the first put up.
 
+## A task can fail for what it destroyed
+
+Added after the first pass, because the first pass earned it. Task 3 completed
+on every part it had, and while completing it the app deleted the bookcase task
+1 had just put up, its four shelves and the name on one of them (#391). Every
+number the task had was about books, so a world with somebody's furniture
+destroyed in it scored exactly the same as one without.
+
+So `task` now records the furniture as it stands when the task begins, and task
+3's check asks whether any of it is gone. **Rows rather than faces**: a shelf a
+move takes with it comes off the piece it was on, which is a real consequence of
+a real request and is said in the plan. Deleting the row is not, and neither is
+deleting the piece.
+
+`baseline.json` cannot answer this. It is the world the seed built, and what
+tasks two and three have to be judged against is what the person had after task
+one.
+
 ## Running a pass
 
 From the repo root, then from `e2e/`:

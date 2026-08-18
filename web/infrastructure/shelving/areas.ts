@@ -710,6 +710,25 @@ export async function retireOrRemove(db: Db, id: number, position: number): Prom
 }
 
 /**
+ * Take a plank off a face without deleting it, whatever has stood on it.
+ *
+ * The difference from `retireOrRemove` is the whole of #391's first half.
+ * Somebody asking for an area to go means the row goes if nothing pins it, and
+ * that is `retireOrRemove`. **A move is not that request.** It is about a run of
+ * books, and the planks it steps over on the way belong to whoever built them:
+ * a plank nobody has filled yet is exactly the one `removeAreaIfUnused` would
+ * delete, and it is exactly the one somebody put up this afternoon and gave a
+ * name to.
+ *
+ * `docs/shelving.md` already said so: "The planks the run leaves behind are
+ * retired rather than deleted." The code disagreed and the document is the
+ * authority.
+ */
+async function takeOffTheFace(db: Db, id: number, position: number): Promise<void> {
+  await retireArea(db, id, position)
+}
+
+/**
  * Write down the areas a range's boundaries name.
  *
  * Called by every statement that changes a boundary, on that statement's
@@ -803,20 +822,21 @@ export async function writeBoundaries(
     }
   }
 
-  // Whole bookcases the range no longer reaches. Their areas go first, and the
-  // fixture only follows when every one of them went: a fixture still holding an
-  // area a book was placed in stays, so the placement keeps somewhere to point.
+  /*
+   * Whole bookcases the range no longer reaches. Their planks come off the face
+   * and **the piece keeps standing**.
+   *
+   * It used to be deleted here once nothing was left on it, and #391 is what
+   * that cost: a bookcase somebody had put up an hour earlier stood after the
+   * run, so a move about two other bookcases reached it, took its planks and
+   * then took the piece, and nothing on any screen mentioned either. A piece of
+   * furniture is a thing in a room. It goes when somebody says so, through
+   * `dropFixture`, which refuses while books or rules are on it and says what
+   * becomes of them. Nothing else in this file may delete one.
+   */
   for (const [fixturePosition, fixture] of existing) {
     if (wanted.has(fixturePosition)) continue
-
     for (const [position, id] of fixture.areas) await retireOrRemove(db, id, position)
-
-    await db.run(
-      `DELETE FROM fixture WHERE id = ?
-         AND NOT EXISTS (SELECT 1 FROM area a WHERE a.fixture_id = fixture.id)
-         AND NOT EXISTS (SELECT 1 FROM placement_rule r WHERE r.fixture_id = fixture.id)`,
-      [fixture.id],
-    )
   }
 }
 
@@ -848,6 +868,16 @@ export async function writeBoundaries(
  * exactly as `writeBoundaries` restores one, so moving a run away and back
  * returns every book to the row the ledger already names.
  *
+ * ## Nothing here deletes anything
+ *
+ * Every plank of the run is retired, including one no book has ever stood on,
+ * and no fixture is removed at all. Both were deletions once and #391 is what
+ * they cost: a bookcase somebody had just put up stood after the run with four
+ * empty planks on it, so a move about two other bookcases deleted all four and
+ * then the piece, silently. What a move does to the furniture is now said in
+ * front of somebody first, as `RunMovePlan.emptied`, and what it does is take
+ * planks off a face rather than take rows away.
+ *
  * Idempotent: relocating a run to the bookcase it is already on reads the same
  * boundaries, retires nothing that is not immediately restored, and writes the
  * rule the value it holds.
@@ -863,7 +893,7 @@ export async function relocateRunTo(
   const boundaries = await boundariesOf(db, range)
   const run = await runAreasOf(db, range)
 
-  for (const area of run) await retireOrRemove(db, area.id, area.position)
+  for (const area of run) await takeOffTheFace(db, area.id, area.position)
 
   const collection = await db.get<{ id: number }>(
     'SELECT id FROM collection ORDER BY id LIMIT 1',
@@ -913,16 +943,4 @@ export async function relocateRunTo(
   )
 
   await writeBoundaries(db, range, boundaries)
-
-  // The bookcases the run has left, once nothing is standing on one and no rule
-  // points at it. A bookcase still holding an area a book was placed in stays,
-  // which is the history pinning the furniture it names.
-  for (const position of new Set(run.map((area) => area.fixturePosition))) {
-    await db.run(
-      `DELETE FROM fixture WHERE position = ?
-         AND NOT EXISTS (SELECT 1 FROM area a WHERE a.fixture_id = fixture.id)
-         AND NOT EXISTS (SELECT 1 FROM placement_rule r WHERE r.fixture_id = fixture.id)`,
-      [position],
-    )
-  }
 }

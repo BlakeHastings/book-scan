@@ -280,6 +280,14 @@ export function AreaPane({
       <FilterRule
         holds={holdsHere(writing, area.holds)}
         rules={saidRules(area.own.length ? area.own : won ? [won] : [])}
+        /*
+         * What is drawn is every rule that reaches here; what the button offers
+         * is what pressing it opens, which is the rules written on this area.
+         * They are different on every plank that takes overflow, and #391 is
+         * what saying "Change" there cost: an editor holding nothing, a preview
+         * of nothing and a truthful "Nothing changed" read as a failure.
+         */
+        own={area.own.length > 0}
         beaten={reaching(room, area, piece)}
         editing={writing.editing}
         onEdit={writing.start}

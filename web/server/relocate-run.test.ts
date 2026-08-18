@@ -22,6 +22,7 @@ import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
 import { applyRunMove, planRunMove } from './relocate-run'
+import { addAreaTo, addFixture } from './furniture'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
@@ -277,5 +278,77 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
     expect(refused.ok).toBe(false)
     expect((await shelves.review('nonfiction')).misfiles).toEqual([])
     expect((await shelves.layout('nonfiction'))[0]!.label).toBe('4A')
+  })
+})
+
+/**
+ * #391: the move that deleted a bookcase somebody had just put up.
+ *
+ * The usability baseline (#388) built a bookcase called Hall with four shelves,
+ * named one of them Comics, and then moved non-fiction from bookcase 4 to
+ * bookcase 3. Afterwards the Hall was gone, its four areas with it, and nothing
+ * anywhere had said so.
+ *
+ * Hall stands after bookcase 4 with no rule of its own, so the non-fiction run
+ * flows onto it, and that is what put its planks inside an operation about
+ * somewhere else. What this holds to is what happens next: **applying a move
+ * deletes no furniture at all**. A piece of furniture is a thing standing in a
+ * room and it goes when somebody takes it away, through
+ * `DELETE /api/fixtures/:id`, which refuses while books or rules are on it. And
+ * a piece the move would leave with nothing on it is named in the plan, before
+ * anybody presses anything.
+ */
+describe('a bookcase somebody put up, standing after the run being moved', () => {
+  /** Hall, four shelves, the bottom one called Comics, exactly as #388 built it. */
+  async function putUpTheHall(): Promise<number> {
+    const added = await addFixture(db, { name: 'Hall' })
+    if (!added.ok) throw new Error(added.error)
+
+    for (const name of ['', '', '', 'Comics']) {
+      const area = await addAreaTo(db, added.fixture.id, { name })
+      if (!area.ok) throw new Error(area.error)
+    }
+    return added.fixture.id
+  }
+
+  const faceOf = async (id: number): Promise<string[]> =>
+    (await db.all<{ name: string }>(
+      'SELECT name FROM area WHERE fixture_id = ? AND position >= 0 ORDER BY position',
+      [id],
+    )).map((row) => row.name)
+
+  it('is still standing after the move, under the name somebody gave it', async () => {
+    const hall = await putUpTheHall()
+    expect(await faceOf(hall)).toEqual(['', '', '', 'Comics'])
+
+    const applied = await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+    if (!applied.ok) throw new Error(applied.error)
+
+    expect(await db.get<{ name: string }>('SELECT name FROM fixture WHERE id = ?', [hall]))
+      .toEqual(expect.objectContaining({ name: 'Hall' }))
+  })
+
+  it('loses no area row, so the name somebody wrote on a plank survives', async () => {
+    await putUpTheHall()
+    const before = await db.get<{ n: number }>('SELECT count(*)::int AS n FROM area')
+
+    await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+
+    const after = await db.get<{ n: number }>('SELECT count(*)::int AS n FROM area')
+    expect(after!.n).toBeGreaterThanOrEqual(before!.n)
+    expect(await db.get<{ n: number }>(
+      "SELECT count(*)::int AS n FROM area WHERE name = 'Comics'",
+    )).toEqual({ n: 1 })
+  })
+
+  it('is named in the plan as a piece the move would leave with nothing on it', async () => {
+    await putUpTheHall()
+
+    const planned = await planRunMove(db, 'nonfiction', 3)
+    if (!planned.ok) throw new Error(planned.error)
+
+    expect(planned.plan.emptied).toEqual([
+      expect.objectContaining({ name: 'Hall', planks: 4 }),
+    ])
   })
 })

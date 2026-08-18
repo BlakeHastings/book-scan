@@ -239,7 +239,7 @@ describe('the two rules on an area', () => {
    * Fiction somewhere else" was two lines of button saying one thing.
    */
   it('offers changing what belongs here, and moving it elsewhere quietly', () => {
-    const markup = drawn(null, { rule: rule() })
+    const markup = drawn(null, { rule: rule(), own: [rule()] })
 
     expect(words(markup)).toMatch(/Change what belongs here/)
     expect(words(markup)).toMatch(/Move these books to another bookcase/)
@@ -250,7 +250,9 @@ describe('the two rules on an area', () => {
   })
 
   it('still offers to change what belongs here on a rule it cannot move', () => {
-    const said = words(drawn(null, { rule: rule({ range: null }) }))
+    const said = words(drawn(null, {
+      rule: rule({ range: null }), own: [rule({ range: null })],
+    }))
 
     expect(said).not.toMatch(/Move these books to another bookcase/)
     expect(said).toMatch(/is about this one area/)
@@ -262,6 +264,31 @@ describe('the two rules on an area', () => {
      */
     expect(said).toMatch(/Change what belongs here/)
   })
+
+  /**
+   * #391, and it is the whole of the second defect in it.
+   *
+   * A plank at the end of a run holds no rule of its own: the run's rule reaches
+   * it and the card says so, "Non-fiction, carrying on". The button said "Change
+   * what belongs here" and opened an editor holding nothing, because the editor
+   * is seeded with the rules written **on the place** and there were none.
+   * Somebody read a preview of that empty draft, pressed "Write it down" and was
+   * told "Nothing changed about where the books belong", which was true and read
+   * as the app losing an afternoon's work.
+   *
+   * So the word comes from what pressing it opens. There is no rule here to
+   * change; writing one is a new thing, and that is what "Say" means.
+   */
+  it('offers to say what belongs here, not to change it, where the rule is not this area\'s',
+    () => {
+      const said = words(drawn(null, {
+        rule: rule({ id: 9, name: 'Non-fiction', about: 'fixture', placeId: 2, place: '2' }),
+        own: [],
+      }))
+
+      expect(said).toMatch(/Say what belongs here/)
+      expect(said).not.toMatch(/Change what belongs here/)
+    })
 
   it('names both rules that reach here, the smaller place first', () => {
     const wider = rule({ id: 9, name: 'Non-fiction', about: 'fixture', placeId: 2, place: '2' })
@@ -578,6 +605,7 @@ describe('writing what belongs here', () => {
           unclaimed: [{ id: 3, title: 'Three', authorFiling: 'C' }],
           holds: 'Anything tagged Comic books',
           names: ['Comic books'],
+          already: 1,
           claiming: 46,
           opens: false,
           losing: [],
