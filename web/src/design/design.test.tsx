@@ -293,24 +293,73 @@ describe('the corner opens onto the glass, not onto wherever the document happen
    *
    * So the rule is the family rather than the one member of it that has been
    * caught, because the next sheet is the one this is really for.
+   *
+   * ## And the fourth is not a sheet at all (#414)
+   *
+   * `.wf-tabs` was `position: sticky; bottom: 0`, which is the same defect
+   * wearing a different keyword. A sticky box is pinned only while its
+   * containing block is under it, and the tab bar's containing block is
+   * `.wf-screen`, so the four places were on the glass exactly as long as
+   * nothing was drawn after the screen inside the same scroller. The gallery
+   * draws its Next button there, and the bar came to rest 47px up the phone on
+   * every screen in it.
+   *
+   * `absolute` is therefore not the only way to fail this. What the rule is
+   * about is the family of things that belong to the glass, and `sticky` puts
+   * a box back in the document's hands the moment the document is taller than
+   * whatever it happens to be nested in.
    */
-  const SHEETS = ['wf-corner', 'wf-name', 'wf-sure']
+  const PINNED = ['wf-corner', 'wf-name', 'wf-sure', 'wf-tabs']
 
-  it.each(SHEETS)(
-    '.%s is fixed to the viewport rather than absolute inside the screen',
-    (sheet) => {
+  it.each(PINNED)(
+    '.%s is fixed to the viewport rather than positioned inside the screen',
+    (pinned) => {
       const css = readFileSync(join(HERE, 'library.css'), 'utf8')
-      const rule = css.match(new RegExp(`\\.${sheet}\\s*\\{[^}]*\\}`))?.[0] ?? ''
+      const rule = css.match(new RegExp(`\\.${pinned}\\s*\\{[^}]*\\}`))?.[0] ?? ''
 
-      expect(rule, `no rule was found for .${sheet} at all`).not.toBe('')
-      expect(rule, `the .${sheet} sheet is not pinned to the viewport`).toMatch(
+      expect(rule, `no rule was found for .${pinned} at all`).not.toBe('')
+      expect(rule, `.${pinned} is not pinned to the viewport`).toMatch(
         /position:\s*fixed/,
       )
       expect(rule, 'a document-relative sheet would still open off-screen').not.toMatch(
         /position:\s*absolute/,
       )
+      expect(
+        rule,
+        `.${pinned} would come unstuck wherever its containing block ends`,
+      ).not.toMatch(/position:\s*sticky/)
     },
   )
+
+  /**
+   * And the bar that is out of flow has its room kept for it.
+   *
+   * The half of the fix a `position` assertion cannot see. A fixed bar reserves
+   * nothing, so unless something keeps the bottom of every screen clear, the
+   * last card on it goes under the bar and the change trades a floating tab bar
+   * for a button nobody can reach. `--tabs` is that number, and this is the
+   * check that both ends still read the same one: the bar keeps that height,
+   * and the body of the screen keeps that much clear.
+   */
+  it('keeps the height it now covers clear at the bottom of every screen', () => {
+    const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+    const tokens = readFileSync(join(HERE, 'tokens.css'), 'utf8')
+
+    expect(tokens, 'nothing says how tall the tab bar is').toMatch(
+      /--tabs:\s*\d+px/,
+    )
+
+    const bar = css.match(/\.wf-tabs\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(bar, 'the tab bar does not keep a height of its own').toMatch(
+      /min-height:\s*calc\(var\(--tabs\)/,
+    )
+
+    const body = css.match(/\.wf-screen__body\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(
+      body,
+      'the body of a screen does not keep the tab bar its room, so the last card is under it',
+    ).toMatch(/var\(--tabs\)/)
+  })
 })
 
 /**

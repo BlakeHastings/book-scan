@@ -229,6 +229,15 @@ body.wf-page {
   /* The smallest thing a thumb is asked to hit. */
   --tap: 44px;
 
+  /* How much of the bottom of the glass the four places take.
+     A size rather than a space, and it is here rather than in `library.css`
+     because two rules a long way apart have to agree on it: the tab bar keeps
+     this height, and the body of every screen keeps this much clear so the
+     last card is not underneath a bar that no longer stands in the flow. See
+     `.wf-tabs` (#414). The safe area is added at both ends, not folded in
+     here, because it is a property of the phone rather than of the bar. */
+  --tabs: 60px;
+
   /* --- Radii: rounded, because the direction says so -------------------- */
 
   --r-sm: 6px;
