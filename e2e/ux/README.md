@@ -96,6 +96,12 @@ harness rather than promised in a prompt:
   `baseline.json`. Two runs against different worlds are two numbers that cannot
   be compared, and "I think I reset it" is not a seed.
 
+  **The vocabulary is part of the world**, and it was not reset until #392. A
+  tag outlives the books that carried it, so a word one pass invented was still
+  being offered to the next one, which then never had to invent anything and
+  scored well for it. Found exactly that way. `--reset` now puts the tags back
+  to what migration `0002` leaves, the same as it already did for the furniture.
+
 The baseline world stands three bookcases: fiction on 1 and 2, non-fiction on 4,
 twenty-seven catalogued books and eighteen in the queue. **There is no bookcase
 3**, which is why task 3 is worth asking.

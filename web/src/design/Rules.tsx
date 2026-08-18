@@ -47,6 +47,7 @@ import type { ReactNode } from 'react'
 import { Card } from './Card'
 import { Button, Choice, Field, Segmented } from './Controls'
 import { Must, Musts } from './Furniture'
+import { Make } from './Naming'
 import { AddTag, Place, Tag, Tags } from './List'
 
 /** One line of a rule: a thing that has to be true of a book. */
@@ -55,6 +56,43 @@ export interface RuleLine {
   operator: 'is' | 'under'
   /** A tag as a person reads it, never as it is stored. */
   tag: string
+  /**
+   * How many books carry it, counting the ones under it. Undefined where
+   * nobody asked.
+   *
+   * **Zero is the state a prepared shelf is in** (#392). Somebody who clears a
+   * shelf and says it is for comics before carrying a single comic to it has
+   * written a rule that is waiting rather than broken, and the difference is
+   * invisible without this number: the rule reads exactly like one that claims
+   * forty books. Undefined rather than zero where the count was never asked
+   * for, because drawing "nothing carries this" off a number nobody fetched
+   * would be the screen inventing a fact.
+   */
+  carried?: number
+}
+
+/**
+ * A rule waiting on a word nothing carries yet, said in one line or not at all.
+ *
+ * **The same clause the empty rule uses**, deliberately. "It asks for nothing,
+ * so it claims nothing" is already this widget's way of saying that a rule is a
+ * real state rather than a fault, and a rule asking for a word no book has yet
+ * is the neighbouring case: it asks for something, nothing answers, and it will
+ * the moment something does. A second vocabulary for that would be two ways of
+ * reading the same shelf.
+ *
+ * It names the tags rather than counting them, because the person reading it
+ * prepared the shelf and the useful fact is which of their words is still
+ * waiting.
+ */
+export function waitingSaid(lines: readonly RuleLine[]): string {
+  const waiting = lines.filter((line) => line.carried === 0).map((line) => line.tag)
+  if (!waiting.length) return ''
+
+  const named = waiting.length === 1
+    ? waiting[0]!
+    : `${waiting.slice(0, -1).join(', ')} or ${waiting[waiting.length - 1]!}`
+  return `Nothing carries ${named} yet, so it claims nothing until something does.`
 }
 
 /** A rule, said the way a widget needs it and not the way a row stores it. */
@@ -118,9 +156,30 @@ export interface RuleChoosing {
   query: string
   /** The answers, already narrowed, and already without what is on the rule. */
   offering: RuleOffer[]
+  /**
+   * The offer to make the word up, where the collection means nothing by it yet.
+   *
+   * **Null is the ordinary answer and it is not a refusal** (#392). It is null
+   * because something already means what was typed, or because the two genre
+   * answers do, and in both of those the tag to pick is in the list above. The
+   * decision is `domain/tagging/naming.ts` and it is the same one the panel on a
+   * book asks, so there is one rule about what a word means and not two.
+   */
+  make?: RuleMake | null
+  /** What the box made of what was typed, where that is worth a line. */
+  said?: string
   onQuery?: (query: string) => void
   onPick?: (tag: string) => void
   onClose?: () => void
+}
+
+/** A word the collection has never used, and where it would go if made. */
+export interface RuleMake {
+  /** What the tag would be called: what was typed, tidied. */
+  name: string
+  /** What it would sit under, as a label: "Subject". Never a slug. */
+  where: string
+  onPress?: () => void
 }
 
 /**
@@ -297,6 +356,9 @@ export function FilterRule({
           {rule.lines.length === 0 && (
             <p>It asks for nothing, so it claims nothing. Every line has to be true.</p>
           )}
+          {/* A shelf somebody prepared before the books arrived. It is waiting
+              rather than broken, and without this line the two read alike. */}
+          {waitingSaid(rule.lines) && <p>{waitingSaid(rule.lines)}</p>}
           {!rule.enabled && <p>It is turned off, so it claims no book at the moment.</p>}
         </div>
       ))}
@@ -429,9 +491,14 @@ function Writing({
           {lines.length === 0 && (
             <p>
               It asks for nothing, so it claims nothing, and no book files here until
-              it does. Every tag you add has to be on a book, all of them at once.
+              it does. Every tag you add has to hold, all of them at once.
             </p>
           )}
+
+          {/* Said while it is being written as well as after, so somebody
+              preparing a shelf reads it before the plan rather than wondering
+              afterwards why nothing moved. */}
+          {waitingSaid(lines) && <p>{waitingSaid(lines)}</p>}
 
           {choosing && choosing.group === group ? (
             <Choosing choosing={choosing} />
@@ -504,7 +571,30 @@ function Or() {
   )
 }
 
-/** The tags on offer, narrowed by what has been typed into the box. */
+/**
+ * The tags on offer, narrowed by what has been typed into the box, and the
+ * offer to make the word up where the collection means nothing by it.
+ *
+ * ## Why a word nobody has used yet is offered here at all
+ *
+ * > The comics should live on the bottom shelf of the hall bookcase, and only
+ * > comics.
+ *
+ * That could not be said (#392). This box only ever offered tags some book
+ * already carried, so preparing a shelf meant scanning a comic first and
+ * tagging it by hand, which is backwards from why anybody clears a shelf: you
+ * decide what goes on it **before** the books arrive.
+ *
+ * **It is not a second way to make a tag.** The word is decided by
+ * `domain/tagging/naming.ts`, which is the same rule the panel on a book asks
+ * and the one that settled the hard part: "Comic Book" and "comic books" are
+ * one tag and there is no way past that. The offer is the same drawing too, so
+ * a person who has made a tag on a book meets the thing they already know.
+ *
+ * The label under it is what the collection made of what was typed, and it is
+ * only drawn where the answers do not say it themselves. A list of tags needs
+ * no caption; a refusal does.
+ */
 function Choosing({ choosing }: { choosing: RuleChoosing }) {
   return (
     <div className="wf-choosing">
@@ -514,7 +604,8 @@ function Choosing({ choosing }: { choosing: RuleChoosing }) {
         value={choosing.query}
         onChange={choosing.onQuery}
       />
-      {choosing.offering.length > 0 ? (
+      {choosing.said && <p className="wf-rule__tie">{choosing.said}</p>}
+      {choosing.offering.length > 0 && (
         <Tags>
           {choosing.offering.map((one) => (
             <Tag key={one.tag} onPress={() => choosing.onPick?.(one.tag)}>
@@ -522,12 +613,36 @@ function Choosing({ choosing }: { choosing: RuleChoosing }) {
             </Tag>
           ))}
         </Tags>
-      ) : (
-        <p>
-          Nothing you have goes by that. A rule can only ask for a tag some book
-          already carries, so tag a book with it first.
-        </p>
       )}
+
+      {/* The word nobody has used, offered as the thing it is. It goes under
+          the collection's own heading and it says so, because a tag under
+          nothing is a tag no rule anybody already has can reach.
+
+          The sentence under it is the one the panel on a book already says,
+          with the half this screen adds: the shelf is prepared and it waits.
+          It does not also say "nothing of yours reads like that", which the
+          offer above says in three words and which was on screen twice until
+          this was looked at. */}
+      {choosing.make && (
+        <>
+          <Make
+            name={choosing.make.name}
+            where={choosing.make.where}
+            onPress={choosing.make.onPress}
+          />
+          <p>
+            A new one goes under {choosing.make.where}, where your catalogue&rsquo;s own
+            words go, so a rule can ask for it. Nothing carries it yet, so this waits
+            rather than files.
+          </p>
+        </>
+      )}
+
+      {choosing.offering.length === 0 && !choosing.make && (
+        <p>Nothing else of yours reads like that.</p>
+      )}
+
       <Button tone="quiet" block onPress={choosing.onClose}>
         Not another one
       </Button>

@@ -17,9 +17,11 @@
  */
 
 import { holdsSaid } from '../../domain/placement/phrasing'
-import type { RuleOffer, RuleSaid, WouldLeave, WouldMove } from '../design/Rules'
+import { NAMED_UNDER, nameIn, nameTag, sameThing } from '../../domain/tagging/naming'
+import type { RuleLine, RuleMake, RuleOffer, RuleSaid, WouldLeave, WouldMove } from '../design/Rules'
 import type { DraftRule, RuleDraftLine, RuleChangePlan, RuleDto, SkippedBooks, TagRow } from './api'
 import { SKIP_SAID, plural } from './furniture'
+import { labelOf } from './tagTree'
 
 /** How many tags the picker offers before somebody has to say more. */
 export const OFFERED = 8
@@ -50,33 +52,131 @@ export function offering(
 ): RuleOffer[] {
   const typed = query.trim().toLowerCase()
   const on = new Set(already)
+  const key = sameThing(query)
+
+  /*
+   * A tag the collection already means comes first and is found however it is
+   * spelled. Matching the label alone missed exactly the case that matters:
+   * "comic books" typed against a tag labelled "Comic Book" is not a substring
+   * of anything, so the one tag they meant was not offered and the offer to
+   * make a second one was. That is the two-spellings defect #377 exists to stop,
+   * arriving through a rule instead of through a book, so the same fold answers
+   * it here.
+   */
+  const means = (tag: TagRow) => key !== '' && sameThing(nameIn(tag.slug)) === key
 
   return vocabulary
     .filter((tag) => !on.has(tag.slug))
-    .filter((tag) => typed === '' || tag.label.toLowerCase().includes(typed))
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .filter((tag) => typed === '' || tag.label.toLowerCase().includes(typed) || means(tag))
+    .sort((a, b) => Number(means(b)) - Number(means(a)) || a.label.localeCompare(b.label))
     .slice(0, limit)
     .map((tag) => ({ tag: tag.label, books: tag.books }))
+}
+
+/**
+ * The offer to make the word up, and the line under the box, for what has been
+ * typed where a rule is written.
+ *
+ * **The decision is not made here.** `nameTag` decides what a collection makes
+ * of a word, it is the same call the panel on a book makes, and it is where the
+ * rule that two spellings are one tag lives with its tests. This turns its four
+ * answers into a drawing.
+ *
+ * Only `new` earns an offer. `already` and `genre` both mean the tag to pick is
+ * in the list above, because both of those words are in the vocabulary and
+ * `offering` finds them; what is said instead is why nothing may be made, in the
+ * words #377 already refuses in, because being refused without being told why
+ * reads as the box being broken.
+ *
+ * The draft's own new words are part of the vocabulary it asks against, so a
+ * word already named on this rule is not offered a second time.
+ */
+export function making(
+  vocabulary: readonly TagRow[],
+  query: string,
+  drafted: readonly { tag: string; label?: string }[],
+): { make: RuleMake | null; said: string; slug: string | null } {
+  const known = [
+    ...vocabulary.map((tag) => ({ slug: tag.slug, label: labelOf(tag) })),
+    ...drafted
+      .filter((line): line is { tag: string; label: string } => Boolean(line.label))
+      .map((line) => ({ slug: line.tag, label: line.label })),
+  ]
+  const answer = nameTag(query, known)
+  const under = labelOf(
+    vocabulary.find((one) => one.slug === NAMED_UNDER.value)
+    ?? { slug: NAMED_UNDER.value, label: '', note: '', books: 0 },
+  )
+
+  if (answer.kind === 'new') {
+    return {
+      make: { name: answer.label, where: under },
+      /*
+       * The slug travels beside the drawing rather than in it. A slug is an
+       * identity and the design system draws none, which is a pinned rule;
+       * what goes back to the server is this, and what a person reads is the
+       * label above it.
+       */
+      slug: answer.slug,
+      /*
+       * Nothing, because the offer under the box says it in three words and
+       * says where the word would go besides. Both were on screen together
+       * until it was looked at, which is the fault #377 already names about
+       * this exact sentence: a line contradicting or repeating the list under
+       * it is worse than no line.
+       */
+      said: '',
+    }
+  }
+  if (answer.kind === 'genre') {
+    return {
+      make: null,
+      slug: null,
+      said: 'Fiction and non-fiction are tags you already have. Ask for one of those.',
+    }
+  }
+  if (answer.kind === 'already' && answer.nearly) {
+    return {
+      make: null,
+      slug: null,
+      said: 'That is the same word to this app as one you already keep, so there is '
+        + 'one tag rather than two.',
+    }
+  }
+  return { make: null, slug: null, said: '' }
 }
 
 /** The slug a label belongs to, which is how a pick becomes a line. */
 export const slugFor = (vocabulary: readonly TagRow[], label: string): string | null =>
   vocabulary.find((tag) => tag.label === label)?.slug ?? null
 
-/** A rule's lines as a person reads them: the label, never the identity. */
+/**
+ * A rule's lines as a person reads them: the label, never the identity, and
+ * whether anything carries the tag yet.
+ *
+ * The draft's own word comes first, because a word being named on this rule has
+ * no row and so no label in the vocabulary until the write. Nothing carries it,
+ * which is not a gap: a shelf prepared before the books arrive is waiting, and
+ * the widget says so off this number.
+ */
 export const linesSaid = (
   vocabulary: readonly TagRow[],
   lines: readonly RuleDraftLine[],
-): { operator: 'is' | 'under'; tag: string }[] =>
-  lines.map((line) => ({
-    operator: line.operator,
-    /*
-     * The slug is the fallback and it is a bad one, so it is deliberately the
-     * only one: a vocabulary that has not arrived yet is a moment, and a rule
-     * drawn against a tag this app has never heard of is a bug worth seeing.
-     */
-    tag: vocabulary.find((tag) => tag.slug === line.tag)?.label ?? line.tag,
-  }))
+): RuleLine[] =>
+  lines.map((line) => {
+    const known = vocabulary.find((tag) => tag.slug === line.tag)
+    return {
+      operator: line.operator,
+      /*
+       * The slug is the fallback and it is a bad one, so it is deliberately the
+       * only one: a vocabulary that has not arrived yet is a moment, and a rule
+       * drawn against a tag this app has never heard of and nobody named is a
+       * bug worth seeing.
+       */
+      tag: line.label ?? known?.label ?? line.tag,
+      carried: known?.books ?? 0,
+    }
+  })
 
 /** Rules as the widget draws them: the lines named, and whether they are on. */
 export const saidRules = (rules: readonly RuleDto[]): RuleSaid[] =>

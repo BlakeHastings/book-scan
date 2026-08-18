@@ -145,7 +145,7 @@ describe('the two rules on a piece', () => {
     place: '4',
     placeId: 1,
     enabled: true,
-    conditions: [{ operator: 'is', tag: 'Non-fiction' }],
+    conditions: [{ operator: 'is', tag: 'Non-fiction', carried: 412 }],
     said: 'Anything tagged Non-fiction',
     range: 'nonfiction',
   }

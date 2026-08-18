@@ -223,6 +223,24 @@ really load-bearing is on `area_id`, and it is untouched.
 Operators include `is` and `under`, because `tag is genre/fantasy` and
 `tag under genre` are different questions.
 
+**A rule may name a word the catalogue has never used** (#392), and the word
+becomes a `tag` row at the same write that makes the rule. `rule_condition.value`
+is still a slug and there is still no path by which a rule references a word
+nothing defines: preparing a shelf writes the tag and the rule in one
+transaction, and a draft nobody applies writes neither.
+
+It is the same rule about words that every other tag goes through
+(`domain/tagging/naming.ts`, below): the label is put back through `nameTag`
+against the vocabulary as it stands and only a genuinely new word is written, so
+"Comic Book" and "comic books" are one tag whichever screen the word arrived on.
+
+The state it creates is not new either. A rule asking for a tag nothing carries
+claims nothing, which is exactly what a rule with no conditions does and for the
+same reason: it asks, and nothing answers. What the screens add is that the two
+say so in one clause rather than two vocabularies, and the difference is one
+word: a rule with no lines claims nothing, and a rule naming a word nothing
+carries claims nothing **yet**.
+
 ### Tag, BookTag
 
 `tag(id, slug, label, note)`
@@ -255,8 +273,10 @@ turns on, read a level in: a statement about the genre is not a statement about
 anything else.
 
 **A person can name a tag that does not exist yet** (#372), from the
-check-the-details screen, and two things about that are settled rather than
-incidental. `domain/tagging/naming.ts` holds both.
+check-the-details screen and, since #392, from where a rule is written. Two
+things about that are settled rather than incidental. `domain/tagging/naming.ts`
+holds both, and it is one function rather than two: a second place that decided
+what a word meant would be the second comic book tag arriving by another door.
 
 - **It never writes under `genre`.** #304 is that this app states a genre only
   when a source did; a person answering the two options on that screen is that
@@ -273,6 +293,12 @@ incidental. `domain/tagging/naming.ts` holds both.
   and a person's word for a book and a catalogue's word for the same book must
   land on one tag rather than be separated by provenance; provenance is
   `book_tag.source`.
+
+  Naming one where a rule is written adds one thing to that and changes nothing
+  else: **the word may be written before any book carries it**, because a shelf
+  gets prepared before the books arrive. The tag row exists with a count of zero,
+  which is a state `/api/tags` already answers, and the rule that names it is
+  drawn as waiting rather than as broken.
 
 **Re-identifying a book is not a lookup, and it takes off more.** Correcting a
 book's ISBN is the same person saying this row is a different book, so every tag

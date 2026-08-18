@@ -29,7 +29,7 @@ import {
   api,
   type DraftRule, type RuleChangePlan, type RuleDraftLine, type TagRow,
 } from '../lib/api'
-import { linesSaid, offering, slugFor } from '../lib/ruleWriting'
+import { linesSaid, making, offering, slugFor } from '../lib/ruleWriting'
 import type { RuleEditing } from '../design/Rules'
 
 /** Which place is being written about, which is exactly one of two things. */
@@ -209,6 +209,54 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
     }
   }, [place, rules, after])
 
+  /**
+   * Everything the picker needs for one rule: what to offer, and what to make.
+   *
+   * **The words already on the place count as vocabulary** (#392). A word named
+   * on the first rule of an "or" has no row until the write, so a picker asking
+   * only the server's vocabulary would offer to make it a second time and the
+   * two lines would then disagree about which tag they meant. Every rule on the
+   * place is asked, not just the one being written.
+   */
+  const chooseFor = (group: number) => {
+    const onThisRule = rules[group]?.conditions ?? []
+    const namedHere = rules.flatMap((rule) => rule.conditions)
+    const { make, said, slug } = making(vocabulary, query, namedHere)
+    const put = (tag: string, label?: string) => {
+      changed(group, [
+        ...(rules[group]?.conditions ?? []),
+        { operator: 'is' as const, tag, ...(label ? { label } : {}) },
+      ])
+      setChoosing(null)
+      setQuery('')
+    }
+
+    return {
+      group,
+      query,
+      /*
+       * Narrowed by the lines on **this** rule and not by the place's. Two
+       * rules on a place naming one tag between them is ordinary: "tagged
+       * Comics and Fiction, or tagged Comics and Poetry" is one word said
+       * twice on purpose, and a picker that hid it would make the second half
+       * of an "or" unwritable.
+       */
+      offering: offering(vocabulary, query, onThisRule.map((line) => line.tag)),
+      make: make && slug ? { ...make, onPress: () => put(slug, make.name) } : null,
+      said,
+      onQuery: setQuery,
+      onPick: (label: string) => {
+        const slugged = slugFor(vocabulary, label)
+        if (slugged) { put(slugged); return }
+        /* A word named on another rule of this place: it has no row yet, so the
+           vocabulary cannot answer for it and the draft is what knows. */
+        const named = namedHere.find((line) => line.label === label)
+        if (named) put(named.tag, named.label)
+      },
+      onClose: () => { setChoosing(null); setQuery('') },
+    }
+  }
+
   const editing: RuleEditing | null = on
     ? {
       /*
@@ -219,27 +267,7 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
       groups: rules.map((rule) => linesSaid(vocabulary, rule.conditions)),
       choosing: choosing === null
         ? null
-        : {
-          group: choosing,
-          query,
-          offering: offering(
-            vocabulary,
-            query,
-            (rules[choosing]?.conditions ?? []).map((line) => line.tag),
-          ),
-          onQuery: setQuery,
-          onPick: (label) => {
-            const slug = slugFor(vocabulary, label)
-            if (!slug) return
-            changed(choosing, [
-              ...(rules[choosing]?.conditions ?? []),
-              { operator: 'is', tag: slug },
-            ])
-            setChoosing(null)
-            setQuery('')
-          },
-          onClose: () => { setChoosing(null); setQuery('') },
-        },
+        : chooseFor(choosing),
       busy,
       onAsk: (group, at, operator) => changed(
         group,

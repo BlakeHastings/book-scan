@@ -515,6 +515,32 @@ const RESTORE_FURNITURE = [
   "UPDATE area SET starts_at = '' WHERE starts_at <> ''",
 ]
 
+/**
+ * The vocabulary back to what migration `0002` leaves: the two genre tags, and
+ * nothing anybody has since made up.
+ *
+ * **A word outlives the books that carried it**, and until #392 nothing noticed
+ * because nothing could make one without a book. `TRUNCATE books ... CASCADE`
+ * empties `book_tag` and leaves `tag` exactly as it was, so a `--reset` over a
+ * world somebody had already worked in starts the next one with their words
+ * still in it, carried by nothing.
+ *
+ * That is a stale row on any pass and it is a wrong **number** on a measured
+ * one: the usability harness (#388) compares two runs of the same task, and a
+ * tag the first run invented is offered to the second, which then never has to
+ * invent anything. Found exactly that way, by a pass that scored well because it
+ * picked a word the previous pass had left lying about.
+ *
+ * Deliberately narrow. It removes only a tag that no book carries and no rule
+ * names, so it can never take a word something still depends on, and the two
+ * genre slugs are named because the seeded rules are written against them.
+ */
+const RESTORE_VOCABULARY = [
+  "DELETE FROM tag WHERE slug NOT IN ('genre/fiction', 'genre/non-fiction') " +
+  'AND id NOT IN (SELECT tag_id FROM book_tag) ' +
+  "AND slug NOT IN (SELECT value FROM rule_condition WHERE field = 'tag')",
+]
+
 async function main(): Promise<void> {
   if (reset) {
     rmSync(DATA_DIR, { recursive: true, force: true })
@@ -563,6 +589,9 @@ async function main(): Promise<void> {
     // so nothing names an area by now, including a retired one, which is an
     // area at a negative position kept only because a placement named it.
     for (const statement of RESTORE_FURNITURE) await db.run(statement)
+    // After the furniture, because a rule somebody wrote goes with the area
+    // it pointed at, and a word is only free once nothing names it.
+    for (const statement of RESTORE_VOCABULARY) await db.run(statement)
   }
 
   // Named rather than inlined into `Store`'s constructor, so the same instance

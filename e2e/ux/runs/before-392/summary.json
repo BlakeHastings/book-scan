@@ -1,0 +1,218 @@
+{
+  "run": "before-392",
+  "theme": "light",
+  "tasks": [
+    {
+      "task": 1,
+      "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 15,
+        "typedFields": 3,
+        "deadEnds": 5,
+        "deadEndDetail": [
+          {
+            "step": 8,
+            "target": "Add an area to this bookcase",
+            "screen": "/|Your fixtures"
+          },
+          {
+            "step": 10,
+            "target": "Add an area to this bookcase",
+            "screen": "/|Your fixtures"
+          },
+          {
+            "step": 14,
+            "target": "Add an area to this bookcase",
+            "screen": "/|Your fixtures"
+          },
+          {
+            "step": 15,
+            "target": "Add an area to this bookcase",
+            "screen": "/|Your fixtures"
+          },
+          {
+            "step": 19,
+            "target": "Add an area to this bookcase",
+            "screen": "/|Your fixtures"
+          }
+        ],
+        "backtracks": 1,
+        "backtrackDetail": [
+          {
+            "screen": "/|Hall",
+            "steps": 2,
+            "cameFrom": "/|Your fixtures",
+            "firstStep": 12
+          }
+        ],
+        "pressesThatChangedTheWorld": 6,
+        "screens": 4,
+        "visits": 6,
+        "steps": 23,
+        "wallSeconds": 254.7,
+        "pressingSeconds": 70.5,
+        "notPressingSeconds": 184.1,
+        "lostMoments": []
+      },
+      "verdict": {
+        "id": 1,
+        "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "a bookcase the world did not have",
+            "ok": true,
+            "saw": "fixture 4"
+          },
+          {
+            "what": "it is recognisable as the hall one",
+            "ok": true,
+            "saw": "name \"Hall\""
+          },
+          {
+            "what": "it has four shelves",
+            "ok": true,
+            "saw": "4 shelf/shelves"
+          }
+        ]
+      }
+    },
+    {
+      "task": 2,
+      "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 53,
+        "typedFields": 2,
+        "deadEnds": 4,
+        "deadEndDetail": [
+          {
+            "step": 11,
+            "target": "browser back",
+            "screen": "/|Your tags"
+          },
+          {
+            "step": 12,
+            "target": "Show the covers",
+            "screen": "/|Your tags"
+          },
+          {
+            "step": 20,
+            "target": "Your fixtures",
+            "screen": "/|Neuromancer"
+          },
+          {
+            "step": 23,
+            "target": "Your fixtures Three pieces, seven areas",
+            "screen": "/|Library"
+          }
+        ],
+        "backtracks": 6,
+        "backtrackDetail": [
+          {
+            "screen": "/|Your tags",
+            "steps": 4,
+            "cameFrom": "/|Library",
+            "firstStep": 10
+          },
+          {
+            "screen": "/|Queue",
+            "steps": 1,
+            "cameFrom": "/|Library",
+            "firstStep": 15
+          },
+          {
+            "screen": "/|Edit the details",
+            "steps": 1,
+            "cameFrom": "/|Neuromancer",
+            "firstStep": 19
+          },
+          {
+            "screen": "/|Your tags",
+            "steps": 1,
+            "cameFrom": "/|Library",
+            "firstStep": 39
+          },
+          {
+            "screen": "/|Your fixtures",
+            "steps": 1,
+            "cameFrom": "/|Library",
+            "firstStep": 55
+          },
+          {
+            "screen": "/|Your tags",
+            "steps": 1,
+            "cameFrom": "/|Library",
+            "firstStep": 57
+          }
+        ],
+        "pressesThatChangedTheWorld": 3,
+        "screens": 9,
+        "visits": 30,
+        "steps": 60,
+        "wallSeconds": 573.7,
+        "pressingSeconds": 114,
+        "notPressingSeconds": 459.6,
+        "lostMoments": [
+          {
+            "step": 6,
+            "screenshot": "task2-step06-lost.png",
+            "words": "The rule box only offers Fiction and Non-fiction, and typing Comic tells me no book carries that tag. I do not know where the comics are or how to mark them as comics.",
+            "screen": "/|Hall · D"
+          },
+          {
+            "step": 59,
+            "screenshot": "task2-step59-lost.png",
+            "words": "The only way to make the word Comics exist was to open an unrelated queued book, add the tag to it, then take it off again. Nothing on the fixtures or tags screens lets you name a category you do not yet own a book for.",
+            "screen": "/|Find a book"
+          }
+        ]
+      },
+      "verdict": {
+        "id": 2,
+        "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "there is a bottom shelf on the hall bookcase",
+            "ok": true,
+            "saw": "area 11 at position 3"
+          },
+          {
+            "what": "the app records that comics belong there",
+            "ok": true,
+            "saw": "rule 3 [tag is subject/comics]"
+          },
+          {
+            "what": "nothing that is not a comic stands there",
+            "ok": true,
+            "saw": "0 book(s) there"
+          }
+        ]
+      }
+    },
+    {
+      "task": 3,
+      "goal": "Move every non-fiction book off bookcase 4 and onto bookcase 3, and record that you have carried them.",
+      "outcome": "not attempted",
+      "numbers": {
+        "presses": 0,
+        "typedFields": 0,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 0,
+        "screens": 0,
+        "visits": 0,
+        "steps": 0,
+        "wallSeconds": 0,
+        "pressingSeconds": 0,
+        "notPressingSeconds": 0,
+        "lostMoments": []
+      },
+      "verdict": null
+    }
+  ]
+}

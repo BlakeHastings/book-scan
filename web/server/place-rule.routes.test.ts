@@ -344,7 +344,15 @@ describe('planning a change to what a place allows', () => {
       .not.toContain(standing!.book_id)
   })
 
-  it('refuses a tag the vocabulary has never heard of', async () => {
+  /**
+   * A slug nobody has defined and nobody has named is still a refusal.
+   *
+   * What changed at #392 is that a line may **name** a word; it may not quote an
+   * identity out of thin air. The label is what a person typed and the slug is
+   * worked out from it, and a line that carries only the slug is a request no
+   * screen in this app makes.
+   */
+  it('refuses a tag the vocabulary has never heard of and nobody named', async () => {
     const piece = await nonFiction()
     const { status, body } = await post('/api/placement/rule/plan', {
       about: 'area',
@@ -353,7 +361,7 @@ describe('planning a change to what a place allows', () => {
     })
 
     expect(status).toBe(400)
-    expect(body.error).toMatch(/tag you already have/)
+    expect(body.error).toMatch(/a word you name here/)
   })
 
   it('refuses a place that is not there', async () => {
@@ -511,7 +519,7 @@ describe('applying a change to what a place allows', () => {
     expect(after.areas[2].rule.about).toBe('area')
     expect(after.areas[2].rule.placeId).toBe(area)
     expect(after.areas[2].rule.conditions).toEqual([
-      { operator: 'is', tag: 'Comic books' },
+      { operator: 'is', tag: 'Comic books', carried: 3 },
     ])
   })
 
@@ -649,5 +657,195 @@ describe('applying a change to what a place allows', () => {
     expect(after.areas[1].rule.about).toBe('area')
     expect(after.areas[2].rule.about).toBe('area')
     expect(after.areas[2].holds).toBe('Comic books, carrying on')
+  })
+})
+
+/**
+ * Preparing a shelf for books that are not there yet (#392).
+ *
+ * The usability baseline could not do this at all: a rule could only ask for a
+ * tag some book already carried, and the only place in the app that could invent
+ * one was the review pane of a book still in the queue. So "the comics should
+ * live on the bottom shelf, and only comics" required owning a comic first,
+ * which is backwards from why anybody clears a shelf.
+ *
+ * Driven over HTTP against a real catalogue, because the promises are about what
+ * is on disk afterwards: the plan writes no tag, the apply writes exactly one,
+ * and the word goes through the same fold that stops two spellings becoming two
+ * tags rather than around it.
+ */
+describe('naming a word where the rule is written', () => {
+  /** What the screen sends: the label somebody typed, and the slug it makes. */
+  const MANGA = { operator: 'is' as const, tag: 'subject/manga', label: 'Manga' }
+
+  const tagRows = (): Promise<{ slug: string; label: string }[]> =>
+    db.all('SELECT slug, label FROM tag ORDER BY slug')
+
+  it('plans a rule for a word nothing carries, and writes no tag doing it', async () => {
+    const piece = await nonFiction()
+    const before = await tagRows()
+
+    const { status, body } = await post('/api/placement/rule/plan', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{ id: null, conditions: [MANGA] }],
+    })
+
+    expect(status).toBe(200)
+    // The phrase reads off the word somebody typed rather than falling back to
+    // the rule's own name, which is what a slug with no row behind it would do.
+    expect(body.plan.holds).toBe('Anything tagged Manga')
+    expect(body.plan.names).toEqual(['Manga'])
+    expect(body.plan.claiming).toBe(0)
+    /*
+     * And it is not a change that does nothing, which is the thing somebody
+     * preparing a shelf would otherwise find out afterwards: an area gaining
+     * its first rule stops taking what overflows from the area before it, so
+     * books leave it even though the new word claims none of them. #385 already
+     * says that in the plan and it is what the note is for.
+     */
+    expect(body.plan.opens).toBe(true)
+    expect(body.plan.moving).toBeGreaterThan(0)
+    // Nothing at all is written by a plan, including the word.
+    expect(await tagRows()).toEqual(before)
+  })
+
+  it('writes the word and the rule in one press, and the rule then waits', async () => {
+    const piece = await nonFiction()
+
+    const { status } = await post('/api/placement/rule', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{ id: null, conditions: [MANGA] }],
+    })
+    expect(status).toBe(200)
+
+    expect(await tagRows()).toContainEqual({ slug: 'subject/manga', label: 'Manga' })
+
+    // And the shelf reads as one that is waiting rather than as one that is
+    // broken: it says what it is for, in the word somebody chose, and says that
+    // nothing carries it.
+    const after = await nonFiction()
+    expect(after.areas[1].holds).toBe('Anything tagged Manga')
+    expect(after.areas[1].rule.conditions).toEqual([
+      { operator: 'is', tag: 'Manga', carried: 0 },
+    ])
+  })
+
+  /**
+   * The tag stops being a promise the moment a book carries it.
+   *
+   * This is the whole point of preparing a shelf, and the half a test asserting
+   * only on the rule would miss: the count beside the line is what turns
+   * "waiting" into "filing", and it comes from the same rollup the tags screen
+   * counts with.
+   */
+  it('stops waiting when a book carries the word', async () => {
+    const piece = await nonFiction()
+    await post('/api/placement/rule', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{ id: null, conditions: [MANGA] }],
+    })
+
+    const [book] = await db.all<{ id: number }>(
+      'SELECT id FROM catalogued_books ORDER BY id LIMIT 1',
+    )
+    await post(`/api/books/${book!.id}/tags`, { slug: 'subject/manga', label: 'Manga' })
+
+    const after = await nonFiction()
+    expect(after.areas[1].rule.conditions).toEqual([
+      { operator: 'is', tag: 'Manga', carried: 1 },
+    ])
+  })
+
+  /**
+   * The one thing this must not become is a second way to make a tag.
+   *
+   * #377 settled the hard part: the slug is byte-ordered, so "Comic Book" and
+   * "comic books" would be two rows meaning one thing with nothing anywhere
+   * reporting it. The rule that stops that is `domain/tagging/naming.ts`, and a
+   * word arriving through a placement rule goes through it exactly as a word
+   * arriving through a book does.
+   */
+  it('refuses a second spelling of a word the collection already keeps', async () => {
+    const piece = await nonFiction()
+    const before = await tagRows()
+
+    const { status, body } = await post('/api/placement/rule/plan', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{
+        id: null,
+        conditions: [{ operator: 'is', tag: 'subject/comic-book', label: 'Comic Book' }],
+      }],
+    })
+
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/one tag rather than two/)
+    expect(await tagRows()).toEqual(before)
+  })
+
+  /** #304: a genre is stated on a book, and typing the word is not stating it. */
+  it('refuses to make a second Fiction, and points at the one there is', async () => {
+    const piece = await nonFiction()
+
+    const { status, body } = await post('/api/placement/rule/plan', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{
+        id: null,
+        conditions: [{ operator: 'is', tag: 'subject/fiction', label: 'Fiction' }],
+      }],
+    })
+
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/Fiction and non-fiction are tags you already have/)
+  })
+
+  /**
+   * The slug is checked against the answer rather than taken from the request.
+   *
+   * Otherwise a caller could name a word and have it written anywhere in the
+   * vocabulary, and `NAMED_UNDER` would be a suggestion rather than the rule it
+   * says it is: a tag under nothing is a tag no rule anybody already has can
+   * reach.
+   */
+  it('refuses a word asked for under a heading of the caller\'s choosing', async () => {
+    const piece = await nonFiction()
+
+    const { status, body } = await post('/api/placement/rule/plan', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{
+        id: null,
+        conditions: [{ operator: 'is', tag: 'genre/manga', label: 'Manga' }],
+      }],
+    })
+
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/written under subject/)
+  })
+
+  /** Applying twice writes one tag, the same way it writes one rule. */
+  it('is safe to apply twice and leaves one word behind, not two', async () => {
+    const piece = await nonFiction()
+
+    await post('/api/placement/rule', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{ id: null, conditions: [MANGA] }],
+    })
+    const [rule] = await db.all<{ id: number }>(
+      'SELECT id FROM placement_rule ORDER BY id DESC LIMIT 1',
+    )
+    await post('/api/placement/rule', {
+      about: 'area',
+      placeId: piece.areas[1].id,
+      rules: [{ id: rule!.id, conditions: [{ operator: 'is', tag: 'subject/manga' }] }],
+    })
+
+    expect((await tagRows()).filter((one) => one.slug === 'subject/manga'))
+      .toEqual([{ slug: 'subject/manga', label: 'Manga' }])
   })
 })

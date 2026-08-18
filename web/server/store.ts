@@ -248,6 +248,38 @@ export interface FilingInput {
  * synchronous. The statements are unchanged: the placeholder styles they are
  * written in are translated by the driver rather than rewritten here.
  */
+/**
+ * How many books each tag has, counting the ones under it.
+ *
+ * A free function beside the class rather than only a method on it, because the
+ * furniture reads it too and cannot build a `Store`: that takes an authorship
+ * port it has no use for. **One spelling of the query and two callers**, which
+ * is the same medicine every other shared answer in this app takes; two counts
+ * of one tag that agreed until somebody edited one of them is exactly how a
+ * screen ends up saying "nothing carries this" beside a list of forty books.
+ *
+ * The rollup is the point rather than an extra: choosing Fantasy shows the books
+ * tagged Urban fantasy too, so a count that said 112 next to a list of 126 would
+ * be the screen contradicting itself one tap later. `DISTINCT` because a book
+ * carrying both is one book.
+ *
+ * Catalogued books only, which is the same set the library draws.
+ */
+export async function tagCounts(db: Db): Promise<{ slug: string; books: number }[]> {
+  return db.all<{ slug: string; books: number }>(
+    `SELECT t.slug AS slug,
+            CAST((SELECT COUNT(DISTINCT bt.book_id)
+                    FROM book_tag bt
+                    JOIN tag d ON d.id = bt.tag_id
+                    JOIN catalogued_books b ON b.id = bt.book_id
+                   WHERE d.slug = t.slug
+                      OR (d.slug >= t.slug || '/' AND d.slug < t.slug || '0'))
+                 AS INTEGER) AS books
+       FROM tag t
+      ORDER BY t.slug ASC`,
+  )
+}
+
 export class Store {
   /**
    * The authorship port is here for one question and writes nothing.
@@ -1102,18 +1134,7 @@ export class Store {
    * number beside a tag is the number of rows choosing it produces.
    */
   async tagCounts(): Promise<{ slug: string; books: number }[]> {
-    return this.db.all<{ slug: string; books: number }>(
-      `SELECT t.slug AS slug,
-              CAST((SELECT COUNT(DISTINCT bt.book_id)
-                      FROM book_tag bt
-                      JOIN tag d ON d.id = bt.tag_id
-                      JOIN catalogued_books b ON b.id = bt.book_id
-                     WHERE d.slug = t.slug
-                        OR (d.slug >= t.slug || '/' AND d.slug < t.slug || '0'))
-                   AS INTEGER) AS books
-         FROM tag t
-        ORDER BY t.slug ASC`,
-    )
+    return tagCounts(this.db)
   }
 
   /**

@@ -32,8 +32,8 @@ const rule = (over: Partial<RuleDto> = {}): RuleDto => ({
   placeId: 5,
   enabled: true,
   conditions: [
-    { operator: 'is', tag: 'Non-fiction' },
-    { operator: 'under', tag: 'Cookery' },
+    { operator: 'is', tag: 'Non-fiction', carried: 412 },
+    { operator: 'under', tag: 'Cookery', carried: 18 },
   ],
   said: 'Anything tagged Cookery',
   range: 'nonfiction',
@@ -632,5 +632,113 @@ describe('writing what belongs here', () => {
 
     expect(said).toMatch(/29 books now belong somewhere else/)
     expect(said).toMatch(/Go and carry them/)
+  })
+})
+
+
+/**
+ * Preparing a shelf before the books arrive (#392).
+ *
+ * The usability baseline could not do this at all, and the two halves it needed
+ * are both drawings: a word the collection has never used has to be offerable
+ * where the rule is written, and the rule it leaves behind has to read as
+ * waiting rather than as broken. Held on the pane rather than only in the
+ * gallery, because the gallery draws a rule somebody made up and this draws one
+ * out of a draft and out of the room the server answered with.
+ */
+describe('a shelf prepared before its books', () => {
+  const writing = (over: Partial<Writing> = {}): Writing => ({
+    ...RESTING,
+    on: true,
+    rules: [{ id: null, conditions: [] }],
+    editing: { groups: [[]], choosing: null },
+    ...over,
+  })
+
+  it('offers to make a word nothing of theirs means, and says where it goes', () => {
+    const said = words(drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({
+        editing: {
+          groups: [[]],
+          choosing: {
+            group: 0,
+            query: 'manga',
+            offering: [],
+            make: { name: 'Manga', where: 'Subject' },
+          },
+        },
+      }),
+    ))
+
+    expect(said).toMatch(/Manga/)
+    expect(said).toMatch(/New, under Subject/)
+    expect(said).toMatch(/a rule can ask for it/)
+    // And the wall the baseline hit is gone: nothing tells somebody to go and
+    // tag a book first.
+    expect(said).not.toMatch(/tag a book with it first/)
+  })
+
+  /**
+   * Refused, and told why, in the words #377 already refuses in. Being refused
+   * without being told why reads as the box being broken, and the second comic
+   * book somebody scans making the second comic book tag is the whole thing
+   * that rule exists to stop.
+   */
+  it('says why a second spelling of a word they keep is not offered', () => {
+    const said = words(drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({
+        editing: {
+          groups: [[]],
+          choosing: {
+            group: 0,
+            query: 'comic book',
+            offering: [{ tag: 'Comic books', books: 46 }],
+            make: null,
+            said: 'That is the same word to this app as one you already keep, so there is '
+              + 'one tag rather than two.',
+          },
+        },
+      }),
+    ))
+
+    expect(said).toMatch(/one tag rather than two/)
+    expect(said).toMatch(/Comic books · 46/)
+  })
+
+  /**
+   * The rule as it stands afterwards. Without this line it reads exactly like a
+   * rule claiming forty books, and somebody who has cleared a shelf wants to
+   * know it is waiting.
+   */
+  it('says a written rule is waiting where nothing carries its word yet', () => {
+    const said = words(drawn(null, {
+      holds: 'Anything tagged Manga',
+      own: [rule({
+        name: 'Manga',
+        conditions: [{ operator: 'is', tag: 'Manga', carried: 0 }],
+        said: 'Anything tagged Manga',
+        range: null,
+      })],
+    }))
+
+    expect(said).toMatch(/Anything tagged Manga/)
+    expect(said).toMatch(/Nothing carries Manga yet, so it claims nothing until something does/)
+  })
+
+  /** And says nothing of the sort the moment a book carries it. */
+  it('stops saying it once something carries the word', () => {
+    const said = words(drawn(null, {
+      holds: 'Anything tagged Manga',
+      own: [rule({
+        name: 'Manga',
+        conditions: [{ operator: 'is', tag: 'Manga', carried: 4 }],
+        said: 'Anything tagged Manga',
+        range: null,
+      })],
+    }))
+
+    expect(said).not.toMatch(/Nothing carries/)
   })
 })

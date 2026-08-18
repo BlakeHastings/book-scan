@@ -564,6 +564,20 @@ export interface RuleDraftLine {
   operator: 'is' | 'under'
   /** A tag slug, taken off the vocabulary this app already reads. */
   tag: string
+  /**
+   * What to call it, for a word the collection has not used yet (#392).
+   *
+   * **Set on nothing else.** A line quoting a tag somebody already keeps has its
+   * label on the row, and sending one up would be a rename arriving through a
+   * rule. This is the one case where the label is not yet anywhere: the word
+   * becomes a tag at the same press the rule becomes a row, so until then the
+   * draft is the only thing that knows what it is to be called.
+   *
+   * The server does not take it on trust. It goes back through the same rule
+   * that decides what a word means anywhere else in this app, and a word
+   * something already means is refused rather than written a second time.
+   */
+  label?: string
 }
 
 /** One rule being written: the row it already is, and what it now asks. */
@@ -736,7 +750,17 @@ export interface RuleDto {
    * reading route. Writing has a read of its own, `api.placeRules`, which
    * answers the same rules in the shape they go back in.
    */
-  conditions: { operator: 'is' | 'under'; tag: string }[]
+  conditions: {
+    operator: 'is' | 'under'
+    tag: string
+    /**
+     * Books carrying it, counting the ones under it. **Zero is a real state**:
+     * a shelf somebody prepared before the books arrived asks for a word nothing
+     * has yet, and the screen says it is waiting rather than drawing it exactly
+     * like a rule that claims forty books.
+     */
+    carried: number
+  }[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
   /**
