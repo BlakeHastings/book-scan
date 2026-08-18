@@ -9,9 +9,20 @@
  * kept rather than parsed past (they drive classification and were already in
  * the responses), and the Open Library edition record is fetched for series
  * and Dewey.
+ *
+ * **Since #348, a catalogue that does not answer says so.** It says it to
+ * `source-watch.ts` rather than to the caller: what a successful lookup returns
+ * is exactly what it returned before, because every screen and every save path
+ * was built against that. What changed is that "Google Books answered 429 and
+ * the failure was absorbed" is now a line in the log and a counter on
+ * `/api/health` instead of nothing at all, which is how it went unnoticed for
+ * the whole life of the catalogue. Read the header of that file before changing
+ * anything here: the distinction it turns on is between a source with no record
+ * of a book, which is ordinary, and a source that did not reply.
  */
 
 import { classify, type Classification } from './classify'
+import { noteSourceAnswer } from './source-watch'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 
@@ -73,11 +84,36 @@ function emptyResult(notes: string[] = []): LookupResult {
   }
 }
 
+/**
+ * What came back from one request, which is three outcomes and not two (#348).
+ *
+ * `data` being null while `answered` is true is the ordinary case: the
+ * catalogue replied and has nothing about this book. `answered` being false is
+ * the catalogue not replying at all, which until #348 was the same `null` and
+ * so was indistinguishable from it.
+ */
+interface Answer {
+  /** True when the catalogue replied, whatever it said. */
+  answered: boolean
+  /** What it said, parsed, or null when it said nothing usable. */
+  data: unknown | null
+  /**
+   * Why it did not reply, from the closed vocabulary `source-watch.ts` accepts.
+   *
+   * **Built from the status code and nothing else, deliberately.** The request
+   * this describes carries the API key in its query string, so a reason made by
+   * stringifying the error, the response or the URL would carry the key into
+   * `/api/health` and into the log. Do not widen this to the response body
+   * either: it is somebody else's text and it reaches a diagnostic.
+   */
+  why: string
+}
+
 async function getJson(
   url: string,
   params: Record<string, string>,
   timeoutMs: number,
-): Promise<unknown | null> {
+): Promise<Answer> {
   const target = new URL(url)
   for (const [key, value] of Object.entries(params)) {
     target.searchParams.set(key, value)
@@ -90,10 +126,23 @@ async function getJson(
       headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
       signal: controller.signal,
     })
-    if (!response.ok) return null
-    return await response.json()
-  } catch {
-    return null
+    // 404 is the catalogue answering. Neither of these endpoints uses it for a
+    // book it does not hold, but a source that did would be stating an absence
+    // rather than failing, so it is not counted as silence either way.
+    if (!response.ok) {
+      return { answered: response.status === 404, data: null, why: `HTTP ${response.status}` }
+    }
+    return { answered: true, data: await response.json(), why: '' }
+  } catch (error) {
+    /*
+     * Two shapes reach here and they mean different things to whoever reads the
+     * report. An abort is this process giving up on a catalogue that was too
+     * slow; anything else is the request never completing at all, which is DNS,
+     * TLS, a refused connection or a body that was not JSON. Neither carries
+     * anything from the error itself, for the reason on `why` above.
+     */
+    const aborted = error instanceof Error && error.name === 'AbortError'
+    return { answered: false, data: null, why: aborted ? 'timed out' : 'unreachable' }
   } finally {
     clearTimeout(timer)
   }
@@ -158,11 +207,13 @@ interface OpenLibraryData {
 
 async function fromOpenLibrary(isbn: string, timeoutMs: number) {
   const key = `ISBN:${isbn}`
-  const data = (await getJson(
+  const answer = await getJson(
     OPEN_LIBRARY_URL,
     { bibkeys: key, format: 'json', jscmd: 'data' },
     timeoutMs,
-  )) as Record<string, OpenLibraryData> | null
+  )
+  noteSourceAnswer('Open Library', answer.answered, answer.why)
+  const data = answer.data as Record<string, OpenLibraryData> | null
 
   const entry = data?.[key]
   if (!entry?.title) return null
@@ -187,13 +238,21 @@ interface OpenLibraryEdition {
   lc_classifications?: string[]
 }
 
-/** Second request, for the fields jscmd=data does not carry. */
+/**
+ * Second request, for the fields jscmd=data does not carry.
+ *
+ * **Deliberately not counted in the source report.** It is a second request to
+ * a catalogue this lookup has already recorded an answer from, and counting it
+ * would double Open Library's `asked` against Google Books' one, so "asked"
+ * would stop meaning "consulted about a book". A source that is down fails the
+ * primary request too, and that one is counted.
+ */
 async function fromOpenLibraryEdition(isbn: string, timeoutMs: number) {
   const data = (await getJson(
     `${OPEN_LIBRARY_ORIGIN}/isbn/${encodeURIComponent(isbn)}.json`,
     {},
     timeoutMs,
-  )) as OpenLibraryEdition | null
+  )).data as OpenLibraryEdition | null
   if (!data) return null
 
   const series = parseSeries(data.series?.[0] ?? '')
@@ -245,8 +304,9 @@ function fromGoogleVolume(volume: GoogleVolume) {
 async function fromGoogleIsbn(isbn: string, timeoutMs: number, apiKey: string) {
   const params: Record<string, string> = { q: `isbn:${isbn}` }
   if (apiKey) params.key = apiKey
-  const data = (await getJson(GOOGLE_BOOKS_URL, params, timeoutMs)) as
-    { items?: GoogleVolume[] } | null
+  const answer = await getJson(GOOGLE_BOOKS_URL, params, timeoutMs)
+  noteSourceAnswer('Google Books', answer.answered, answer.why)
+  const data = answer.data as { items?: GoogleVolume[] } | null
   const first = data?.items?.[0]
   return first ? fromGoogleVolume(first) : null
 }
@@ -269,6 +329,14 @@ async function lookupOne(
   const timeoutMs = options.timeoutMs ?? 8000
   const apiKey = options.googleApiKey ?? ''
 
+  /*
+   * Both catalogues, and each of them has already told `source-watch.ts` what
+   * it did by the time this line finishes (#348). Nothing below reads that: a
+   * source going quiet must not change the answer, must not add a note in front
+   * of somebody holding a book, and must not stop the other source from being
+   * the answer. What it changes is that the fact is now recorded rather than
+   * absorbed, and `/api/health` will say so.
+   */
   const [openLibrary, google] = await Promise.all([
     fromOpenLibrary(isbn, timeoutMs),
     fromGoogleIsbn(isbn, timeoutMs, apiKey),
@@ -381,7 +449,7 @@ export async function searchTitle(
   const query = (title ?? '').trim()
   if (query.length < 3) return emptyResult(['Title too short to search.'])
 
-  const data = (await getJson(
+  const answer = await getJson(
     OPEN_LIBRARY_SEARCH_URL,
     {
       title: query,
@@ -389,7 +457,12 @@ export async function searchTitle(
       fields: 'title,author_name,publisher,first_publish_year,number_of_pages_median,isbn,subject',
     },
     timeoutMs,
-  )) as { docs?: OpenLibraryDoc[] } | null
+  )
+  // The one catalogue this route asks, counted the same way, so a search that
+  // came back empty because Open Library was down is not filed as a collection
+  // with no such book in it.
+  noteSourceAnswer('Open Library', answer.answered, answer.why)
+  const data = answer.data as { docs?: OpenLibraryDoc[] } | null
 
   const doc = data?.docs?.[0]
   if (!doc?.title) return emptyResult([`No match for title "${query}".`])

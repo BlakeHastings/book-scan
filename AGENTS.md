@@ -201,6 +201,30 @@ The connection comes from the DPAPI-encrypted file at
 nightly backup wrapper reads and which `scripts/write-connection-file.ps1` is
 the only thing that writes. What the launcher carries is the path.
 
+**That file is where every secret this machine holds goes, and since #348 there
+are two of them.** The second is the Google Books API key, under
+`googleBooksApiKey`, encrypted the same way, written by the same one script and
+by nothing else:
+
+```
+pwsh -File scripts/write-connection-file.ps1 -SetGoogleBooksApiKey
+```
+
+A switch and a prompt rather than a parameter with a value, because a parameter
+would put the key in the process listing and in PowerShell's own history file.
+Anything not given is carried forward, so rotating the key does not mean
+re-typing the connections and rotating a connection does not disturb the key.
+
+The launcher hands it to the server as `GOOGLE_BOOKS_API_KEY`, which is one line
+in `run-stable.ps1` beside the two it already has, and is the only name
+`web/server/secrets.ts` reads. **The owner adds that line; nothing in this
+repository can.** Without it the app still works, Open Library still does the
+real work, and both the startup log and `/api/health` say plainly that the
+second catalogue is unkeyed. That last part is the actual fix in #348: the key
+had never been set, every Google Books request went out anonymously into an
+exhausted shared quota, `lookup_source` read `Open Library + Google Books` for
+zero of 238 books, and nothing anywhere said so. See `docs/catalogue-sources.md`.
+
 `run-stable.ps1` deletes `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH`
 from its own process **before** it resolves anything, so the connection cannot
 come from them and the server it starts never inherits them. Its first log line
@@ -240,6 +264,17 @@ Started with no connection string, the server **refuses to start** and names
 the variable. That is deliberate and it is the good outcome: a process that
 exits saying which variable is empty is recoverable in one command, where one
 that comes up on an empty database is not obviously anything.
+
+**Since #348 that same command also settles which catalogues have answered.**
+`lookups.sources` in the response counts, per catalogue, how many lookups have
+consulted it, how many it replied to, how many it did not reply to at all, and
+when and why it last did not. `lookups.googleBooksKeyConfigured` is a boolean
+and will stay one: it answers "is that why it is quiet" without going anywhere
+near the key. A catalogue that has never been asked is listed at nought rather
+than left out, because an absent entry reads as "nothing to report" and means
+the opposite. `ok` stays `true` while a catalogue is down, on purpose: somebody
+can still catalogue a book, which is why a source that fails does not fail a
+lookup.
 
 Whatever launches it, launch it **detached**, not as a child of an agent
 session. It has died three times because the process was owned by a session
