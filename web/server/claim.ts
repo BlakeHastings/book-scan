@@ -49,7 +49,9 @@ import { standingOf } from '../domain/placement/ledger'
 import { claim, matches, placementOf, type PlacementRule } from '../domain/placement/rules'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { furnitureIn, plankLabels } from '../infrastructure/shelving/areas'
-import { describeRules, tagLabels, type DescribedRule, type Refused } from './furniture'
+import {
+  describeRules, tagCarried, tagLabels, type DescribedRule, type Refused,
+} from './furniture'
 import type { Db } from './driver'
 
 /** A rule that wanted this book, and whether it got it. */
@@ -162,7 +164,7 @@ export async function claimOfBook(db: Db, id: number): Promise<Claimed> {
   const tagSlugs = carried.map((row) => row.slug)
   const { order, rules } = await furnitureIn(db)
   const labels = await plankLabels(db)
-  const described = describeRules(order, rules, await tagLabels(db))
+  const described = describeRules(order, rules, await tagLabels(db), await tagCarried(db))
 
   const rows = await new DrizzlePlacementLedger(db).forBooks([Number(book.id)])
   const standing = standingOf(rows)

@@ -38,7 +38,7 @@ const rule = (over: Partial<RuleDto> = {}): RuleDto => ({
   place: '4',
   placeId: 40,
   enabled: true,
-  conditions: [{ operator: 'is', tag: 'Non-fiction' }],
+  conditions: [{ operator: 'is', tag: 'Non-fiction', carried: 412 }],
   said: 'Anything tagged Non-fiction',
   range: 'nonfiction',
   ...over,

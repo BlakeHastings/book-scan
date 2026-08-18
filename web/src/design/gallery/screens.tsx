@@ -50,7 +50,7 @@ import {
 import { AddBox, AreaBox, Claim, Nest, Order } from '../Furniture'
 import {
   FilterRule, RETARGET_WORD, SortRule, WouldHappen,
-  type OrderLevel, type RuleEditing, type WouldMove,
+  type OrderLevel, type RuleEditing, type RuleSaid, type WouldMove,
 } from '../Rules'
 import { IconCamera, IconEdit, IconInHand } from '../Icons'
 import { AddTag, List, Place, Row, Stats, Tag, Tags } from '../List'
@@ -2951,6 +2951,8 @@ function AreaScreen({
   rules,
   beaten,
   writing,
+  retarget = true,
+  refused,
   would,
   done,
   ordered,
@@ -2971,11 +2973,23 @@ function AreaScreen({
   /** What the rule sends here, said the way a person would say it. */
   belongs: string
   /** The rules that file here, joined by "or" where there is more than one. */
-  rules?: { name: string; lines: { operator: 'is' | 'under'; tag: string }[]; enabled: boolean }[]
+  rules?: RuleSaid[]
   /** Every rule that reaches here, where more than one does. */
   beaten?: { id: number; name: string; place: string; wide: boolean }[]
   /** The rule under a thumb, where somebody is changing what belongs here. */
   writing?: RuleEditing
+  /**
+   * Whether the quiet door to #244's journey is drawn at all.
+   *
+   * Off where the rule is about one area rather than about a stretch of books,
+   * which is what the app itself does: `AreaPane` offers it only for a rule that
+   * serves a whole run and says why in words otherwise. A drawing that offered
+   * "move these books to another bookcase" on a shelf holding no books was the
+   * gallery promising a journey the app refuses.
+   */
+  retarget?: boolean
+  /** Why the stretch cannot be pointed elsewhere, where it cannot. */
+  refused?: string
   /** What the change would do, once they have asked. */
   would?: { moving: WouldMove[]; carrying: number; staying: number; unclaimed: number; note?: string }
   /** What was written, where they said yes to it. */
@@ -3009,9 +3023,10 @@ function AreaScreen({
         beaten={beaten}
         editing={writing}
         onEdit={() => go('rulewriting')}
-        change={rules?.length && !writing
+        change={rules?.length && retarget && !writing
           ? RETARGET(() => go('move'))
           : undefined}
+        refused={writing ? undefined : refused}
       />
 
       {/*
@@ -3103,8 +3118,8 @@ function AreaScreen({
 const COOKERY_RULE = {
   name: 'Cookery',
   lines: [
-    { operator: 'is' as const, tag: 'Non-fiction' },
-    { operator: 'under' as const, tag: 'Cookery' },
+    { operator: 'is' as const, tag: 'Non-fiction', carried: 412 },
+    { operator: 'under' as const, tag: 'Cookery', carried: 18 },
   ],
   enabled: true,
 }
@@ -3152,6 +3167,21 @@ const AREA_LEVELS: OrderLevel[] = [
   { place: 'The whole library', said: 'By the author', decides: true },
   { place: 'Bookcase 2', said: 'The way the whole library does', decides: false },
   { place: '2 · Cookery', said: 'The way bookcase 2 does', decides: false },
+]
+
+/**
+ * The three levels on the shelf somebody is preparing, which is a different
+ * piece and has to say so.
+ *
+ * Drawn rather than reused: a screen about the bottom shelf of the hall bookcase
+ * that answers "how is this ordered" with Bookcase 2 and 2 · Cookery is the
+ * gallery contradicting its own top bar, and it was doing exactly that until the
+ * two new screens were looked at.
+ */
+const HALL_LEVELS: OrderLevel[] = [
+  { place: 'The whole library', said: 'By the author', decides: true },
+  { place: 'The hall bookcase', said: 'The way the whole library does', decides: false },
+  { place: '4 · Bottom row', said: 'The way the hall bookcase does', decides: false },
 ]
 
 /** The same, on a piece: nothing stands between one and the whole library. */
@@ -3288,9 +3318,9 @@ function RuleWriting(go: Go) {
  *
  * The count beside each answer is the reason the box earns its room: adding a
  * tag forty books carry and adding one that nothing carries are different
- * decisions, and the word on its own does not say which is which. A vocabulary
- * this app has never heard of is not offered at all, because a rule that asks
- * for a tag no book has is a rule that claims nothing and says nothing about it.
+ * decisions, and the word on its own does not say which is which. A word this
+ * collection has never used is answered by the screen after this one, because a
+ * shelf gets prepared before the books arrive rather than after.
  */
 function RuleTag(go: Go) {
   return (
@@ -3318,6 +3348,7 @@ function RuleTag(go: Go) {
             { tag: 'Economics', books: 22 },
             { tag: 'Second World War', books: 31 },
           ],
+          onQuery: () => go('rulenewtag'),
           onPick: () => go('rulewriting'),
           onClose: () => go('rulewriting'),
         },
@@ -3326,6 +3357,91 @@ function RuleTag(go: Go) {
       order="It takes what overflows from the area before it."
       levels={AREA_LEVELS}
       sample={sampleBy('who')}
+    />
+  )
+}
+
+/**
+ * A word this collection has never used, offered as the thing it is.
+ *
+ * > The comics should live on the bottom shelf of the hall bookcase, and only
+ * > comics.
+ *
+ * The usability baseline could not do that (#392). This box only ever offered
+ * tags some book already carried, and the only place in the app that could
+ * invent one was the review pane of a book still in the queue, so preparing a
+ * shelf meant scanning a comic first. That is backwards from why anybody clears
+ * a shelf: you decide what goes on it **before** the books arrive.
+ *
+ * **It is not a second way to make a tag.** `domain/tagging/naming.ts` decides
+ * what a word means, here exactly as it does on a book, so "Comic Book" and
+ * "comic books" are still one tag and there is still no way past that. The
+ * offer is the same dashed drawing the panel on a book uses, so somebody who
+ * has made a tag once meets a thing they already know.
+ *
+ * **Nothing is written here.** The word becomes a tag at the same press the
+ * rule becomes a row, which is two screens along, and a draft somebody walks
+ * away from leaves no word behind.
+ */
+function RuleNewTag(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="4 · Bottom row"
+      sub="Nothing on it yet, in the hall"
+      name="Bottom row"
+      belongs="Nothing files here yet"
+      writing={writing(go, {
+        groups: [[]],
+        choosing: {
+          group: 0,
+          query: 'manga',
+          offering: [],
+          make: { name: 'Manga', where: 'Subject', onPress: () => go('rulewaiting') },
+          onPick: () => go('rulewaiting'),
+          onClose: () => go('rulewriting'),
+        },
+      })}
+      ordered="The way the hall bookcase does"
+      order="It takes what overflows from the area before it."
+      levels={HALL_LEVELS}
+    />
+  )
+}
+
+/**
+ * A shelf somebody prepared before the books arrived.
+ *
+ * The rule is written, it is not broken, and nothing files here: the word it
+ * asks for is one no book in the collection carries yet. **Somebody who has
+ * cleared a shelf wants to know it is waiting rather than that it failed**, and
+ * without the line under it this reads exactly like a rule that claims forty
+ * books.
+ *
+ * The sentence is the empty rule's own clause rather than a second vocabulary
+ * for nearly the same thing. "It asks for nothing, so it claims nothing" is
+ * already how this widget says that a half-built rule is a real state; this is
+ * the neighbouring case, and it ends the same way and adds the one word that
+ * makes it different: **yet**.
+ */
+function RuleWaiting(go: Go) {
+  return (
+    <AreaScreen
+      go={go}
+      label="4 · Bottom row"
+      sub="Nothing on it yet, in the hall"
+      name="Bottom row"
+      belongs="Anything tagged Manga"
+      rules={[{
+        name: 'Manga',
+        lines: [{ operator: 'is', tag: 'Manga', carried: 0 }],
+        enabled: true,
+      }]}
+      retarget={false}
+      refused="Manga is about this one area, and what can be moved elsewhere is a whole stretch of books that begins on a piece of furniture. What this area allows is still yours to change."
+      ordered="The way the hall bookcase does"
+      order="It takes what overflows from the area before it."
+      levels={HALL_LEVELS}
     />
   )
 }
@@ -4795,6 +4911,20 @@ export const SCREENS: Screen[] = [
     render: RuleWriting,
   },
   { id: 'ruletag', name: 'Choosing a tag', group: 'Your fixtures', render: RuleTag },
+  /* Preparing a shelf, which is the pair the baseline could not walk: a word
+     the collection has never used, and the rule it leaves waiting. */
+  {
+    id: 'rulenewtag',
+    name: 'A word you have never used',
+    group: 'Your fixtures',
+    render: RuleNewTag,
+  },
+  {
+    id: 'rulewaiting',
+    name: 'Waiting for its books',
+    group: 'Your fixtures',
+    render: RuleWaiting,
+  },
   { id: 'ruleor', name: 'This tag or that one', group: 'Your fixtures', render: RuleOr },
   {
     id: 'rulenothing',

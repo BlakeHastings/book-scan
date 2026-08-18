@@ -52,6 +52,7 @@ import {
   type PlacementRule, type RuleCondition, type RuleOperator,
 } from '../domain/placement/rules'
 import { GENRE_RANGES } from '../domain/tagging/genre'
+import { NAMED_UNDER, nameTag, type KnownTag } from '../domain/tagging/naming'
 import { TagSlug } from '../domain/tagging/tags'
 import {
   AssignPlacementsHandler, type AssignableBook, type AssignmentReport,
@@ -72,7 +73,31 @@ import { refuse, type Refused } from './refusal'
 export interface DraftRule {
   /** The row this already is, or null for one nobody has written yet. */
   id: number | null
-  conditions: { operator: RuleOperator; tag: string }[]
+  conditions: DraftLine[]
+}
+
+/**
+ * One line of a draft: what it asks, of which tag, and the tag's own name where
+ * the collection has not got it yet.
+ *
+ * **`label` is only ever set for a word nobody has used**, and it is not a
+ * second identity: it is what the tag will be **called** when it is written,
+ * one line above the slug it will be written under. A line quoting a tag the
+ * collection already keeps carries no label at all, because the label is on the
+ * row and reading it off the request would let a rename arrive by the back door.
+ *
+ * It exists because somebody preparing a shelf says what the shelf is for before
+ * the books arrive (#392): "the comics should live on the bottom shelf, and only
+ * comics", said in a room with no comics in it yet. The word becomes a tag at
+ * the same press the rule becomes a row, so a draft nobody applies leaves
+ * nothing behind.
+ */
+export interface DraftLine {
+  operator: RuleOperator
+  /** A tag slug, which is the identity a rule references. */
+  tag: string
+  /** What to call it, for a slug the vocabulary has not got. */
+  label?: string
 }
 
 /**
@@ -188,12 +213,73 @@ export async function rulesOnPlace(
 }
 
 /**
+ * What the collection makes of a word a rule wants to name, or the refusal.
+ *
+ * The whole of the decision is `nameTag`, and this only turns its four answers
+ * into the one thing a route can say. **The slug is checked against the answer
+ * rather than taken from the request**, so a client cannot ask for a word under
+ * one heading and have it written under another, and cannot slip a second
+ * spelling past the fold by spelling the slug itself.
+ */
+function naming(
+  typed: string,
+  slug: TagSlug,
+  vocabulary: readonly KnownTag[],
+): { ok: true; label: string } | Refused {
+  const label = typed.trim()
+  if (!label) {
+    return refuse(400, 'A rule asks for a tag you have, or for a word you name here.')
+  }
+
+  const answer = nameTag(label, vocabulary)
+  if (answer.kind === 'nothing') {
+    return refuse(400, `"${label}" is not a word this app can make a tag of.`)
+  }
+  if (answer.kind === 'genre') {
+    return refuse(400, 'Fiction and non-fiction are tags you already have, so a rule '
+      + 'asks for one of those rather than making a second pair.')
+  }
+  if (answer.kind === 'already') {
+    return refuse(400, 'That is the same word to this app as one you already keep, so '
+      + 'there is one tag rather than two. Ask for that one instead.')
+  }
+  if (answer.slug !== slug.value) {
+    return refuse(400, `A tag named here is written under ${NAMED_UNDER.value}, `
+      + 'and that is not where this one was asked for.')
+  }
+
+  return { ok: true, label: answer.label }
+}
+
+/**
  * The draft a request describes, or the refusal a malformed one earns.
  *
  * Every line is checked against the vocabulary rather than only against the
- * shape of a slug. A rule asking for a tag no book has is a rule that claims
- * nothing and says nothing about why, and the honest place to catch that is the
- * moment somebody asks for it.
+ * shape of a slug, because a rule quoting a slug nothing defines is a rule no
+ * screen can read back: the label lives on the tag row, and a line with no row
+ * behind it draws as the rule's own name instead of as the word somebody chose.
+ *
+ * ## A word the collection has never used is named here, once
+ *
+ * It used to be refused outright, and that made preparing a shelf impossible
+ * (#392): the only place in the app that could invent a tag was the review pane
+ * of a book still in the queue, so "this shelf is for comics" required owning a
+ * comic first. Now a line may name a word nobody has used, and it carries the
+ * label to call it by.
+ *
+ * **This is not a second way to make a tag.** The word goes through
+ * `domain/tagging/naming.ts`, which is the one rule about what a word means and
+ * the one that settled the hard part: "Comic Book" and "comic books" are one
+ * tag. So the label is not taken on trust. It is put back through `nameTag`
+ * against the vocabulary as it stands, and the only answer that is accepted is
+ * the one that says this is genuinely a new word **and** agrees with the slug
+ * asked for. Every other answer is the refusal that rule already makes, in its
+ * own words: something already means it, or it is one of the two genre answers,
+ * or it is not a word at all.
+ *
+ * Nothing is written here. The tag becomes a row at the same moment the rule
+ * does, in `applyRuleChange`, so a draft somebody walks away from leaves no word
+ * behind in a vocabulary they never meant to add to.
  *
  * **Two identical lines collapse into one.** "Tagged Cookery and tagged
  * Cookery" is the same rule as "tagged Cookery", and keeping the second would
@@ -218,9 +304,9 @@ export async function draftFrom(
     return refuse(400, 'A place holds a list of rules, and it may be empty.')
   }
 
-  const known = new Set(
-    (await new DrizzleTagRepository(db).vocabulary()).map((tag) => tag.slug.value),
-  )
+  const vocabulary: KnownTag[] = (await new DrizzleTagRepository(db).vocabulary())
+    .map((tag) => ({ slug: tag.slug.value, label: tag.label }))
+  const known = new Set(vocabulary.map((tag) => tag.slug))
 
   const rules: DraftRule[] = []
   for (const asked of raw as Record<string, unknown>[]) {
@@ -234,7 +320,7 @@ export async function draftFrom(
       return refuse(400, 'A rule is a list of lines, and it may be empty.')
     }
 
-    const conditions: RuleCondition[] = []
+    const conditions: DraftLine[] = []
     for (const one of lines as Record<string, unknown>[]) {
       const operator = String(one?.operator ?? '') as RuleOperator
       if (!RULE_OPERATORS.includes(operator)) {
@@ -242,19 +328,21 @@ export async function draftFrom(
       }
 
       const slug = TagSlug.parse(String(one?.tag ?? ''))
-      if (!slug || !known.has(slug.value)) {
-        return refuse(400, 'A rule can only ask for a tag you already have.')
+      if (!slug) return refuse(400, 'A rule asks for a tag, and that is not one.')
+
+      let label: string | undefined
+      if (!known.has(slug.value)) {
+        const named = naming(String(one?.label ?? ''), slug, vocabulary)
+        if (!named.ok) return named
+        label = named.label
       }
 
       const already = conditions.some((line) =>
-        line.operator === operator && line.value === slug.value)
-      if (!already) conditions.push({ field: 'tag', operator, value: slug.value })
+        line.operator === operator && line.tag === slug.value)
+      if (!already) conditions.push({ operator, tag: slug.value, ...(label ? { label } : {}) })
     }
 
-    rules.push({
-      id,
-      conditions: conditions.map(({ operator, value }) => ({ operator, tag: value })),
-    })
+    rules.push({ id, conditions })
   }
 
   return { ok: true, draft: { about, placeId, rules } }
@@ -361,6 +449,19 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
   if (!stands) return refuse(404, 'No such place.')
 
   const labels = await tagLabels(db)
+  /*
+   * A word this draft is naming has no row yet, so the vocabulary has no label
+   * for it and every sentence about the rule would fall back to the rule's own
+   * name. The draft is the only thing that knows what it is to be called until
+   * the apply writes it, so the phrase is built from the draft's own word and
+   * reads the same before the write as after it. Nothing is written here.
+   */
+  for (const rule of draft.rules) {
+    for (const line of rule.conditions) {
+      if (line.label && !labels.has(line.tag)) labels.set(line.tag, line.label)
+    }
+  }
+
   const names = draft.rules.map((one) => ruleName(one.conditions.map((line) => ({
     operator: line.operator,
     tag: labels.get(line.tag) ?? '',
@@ -419,6 +520,26 @@ export async function applyRuleChange(
   now: string,
 ): Promise<AppliedRuleChange> {
   return db.tx(async (tx) => {
+    /*
+     * The words this draft names, written before anything reads the vocabulary
+     * again, so the plan below and every read afterwards sees one tag rather
+     * than a slug with nothing behind it. `define` is `ON CONFLICT DO NOTHING`
+     * and then a read, so applying the same change twice writes one row and
+     * never rewrites somebody's label.
+     *
+     * **This is where the word becomes a tag and the only place it does on this
+     * path.** It is inside the transaction that writes the rule, so a rule that
+     * fails to write leaves no word behind either.
+     */
+    const tags = new DrizzleTagRepository(tx)
+    for (const rule of draft.rules) {
+      for (const line of rule.conditions) {
+        if (!line.label) continue
+        const slug = TagSlug.parse(line.tag)
+        if (slug) await tags.define(slug, line.label)
+      }
+    }
+
     const planned = await planRuleChange(tx, draft)
     if (!planned.ok) return planned
 

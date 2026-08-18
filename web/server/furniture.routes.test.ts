@@ -247,7 +247,8 @@ describe('reading the room', () => {
       const bookcase = await nonFiction()
       expect(bookcase.holds).toBe('Anything tagged Non-fiction')
       expect(bookcase.rule.about).toBe('fixture')
-      expect(bookcase.rule.conditions).toEqual([{ operator: 'is', tag: 'Non-fiction' }])
+      expect(bookcase.rule.conditions)
+        .toEqual([{ operator: 'is', tag: 'Non-fiction', carried: 6 }])
 
       expect(bookcase.areas.map((one: { holds: string; entry: boolean }) =>
         [one.holds, one.entry])).toEqual([

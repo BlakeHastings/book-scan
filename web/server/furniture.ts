@@ -82,6 +82,7 @@ import {
   whatHoldsFixture, type AreaRow, type FixtureRow,
 } from '../infrastructure/shelving/furniture'
 import type { Db } from './driver'
+import { tagCounts } from './store'
 
 /*
  * The refusal, and how one is said, moved out to `server/refusal.ts` (#332).
@@ -138,6 +139,27 @@ const asArea = (row: AreaRow): Area => ({
  * falls back to the rule's own name rather than to the string, so there is no
  * path by which a slug reaches a screen.
  */
+/**
+ * One line of a rule on its way to a screen: what it asks, and whether anything
+ * answers it yet.
+ *
+ * `carried` is how many books carry that tag, counting the ones under it, which
+ * is the same rollup `/api/tags` answers with and the same query. **Zero is the
+ * state a prepared shelf is in** (#392): somebody who clears a shelf and says it
+ * is for comics before carrying a comic to it has written a rule that is waiting
+ * rather than broken, and without this number the two read identically on the
+ * page. It travels beside the label rather than being fetched by the screen,
+ * because a page somebody is only reading should not have to pull the whole
+ * vocabulary down to find out whether the rule it is drawing does anything.
+ */
+export interface RuleLineOut {
+  operator: RuleOperator
+  /** A tag as a person reads it. Never a slug: no read route hands one out. */
+  tag: string
+  /** Books carrying it, counting the ones under it. */
+  carried: number
+}
+
 export interface DescribedRule {
   id: number
   name: string
@@ -167,7 +189,7 @@ export interface DescribedRule {
    * `GET /api/placement/rule`, which speaks identities because that is what it
    * is for.
    */
-  conditions: { operator: RuleOperator; tag: string }[]
+  conditions: RuleLineOut[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
   /**
@@ -210,6 +232,23 @@ const ruleHolds = (rule: PlacementRule, labels: Map<string, string>): string =>
   ruleSaid(linesOf(rule, labels), rule.name)
 
 /**
+ * The same lines with the count beside each one, which is what a screen draws.
+ *
+ * Separate from `linesOf` on purpose: `SaidLine` is what the phrase is built
+ * from and a phrase has no use for a count, so the domain's shape stays the
+ * shape of a sentence.
+ */
+const conditionsOf = (
+  rule: PlacementRule,
+  labels: Map<string, string>,
+  carried: Map<string, number>,
+): RuleLineOut[] => rule.conditions.map((condition) => ({
+  operator: condition.operator,
+  tag: labels.get(condition.value) ?? '',
+  carried: carried.get(condition.value) ?? 0,
+}))
+
+/**
  * What a place holds, given every rule written on it.
  *
  * **Two rules on one place is how this app says "or"** (#384). The owner asked
@@ -250,6 +289,7 @@ function describeRule(
   rule: PlacementRule,
   order: readonly Slot[],
   labels: Map<string, string>,
+  carried: Map<string, number>,
   range: ShelfRange | null,
 ): DescribedRule {
   const entry = entryAreaOf(rule, order as Slot[])
@@ -261,7 +301,7 @@ function describeRule(
     place: slot ? (rule.areaId !== null ? labelFor(slot) : fixtureLabel(slot.fixture)) : '',
     placeId: rule.areaId ?? rule.fixtureId,
     enabled: rule.enabled,
-    conditions: linesOf(rule, labels),
+    conditions: conditionsOf(rule, labels, carried),
     said: ruleHolds(rule, labels),
     range,
   }
@@ -281,6 +321,7 @@ export function describeRules(
   order: readonly Slot[],
   rules: readonly PlacementRule[],
   labels: Map<string, string>,
+  carried: Map<string, number>,
 ): Map<number, DescribedRule> {
   const serves = new Map<number, ShelfRange>()
   for (const { range } of GENRE_RANGES) {
@@ -289,13 +330,24 @@ export function describeRules(
   }
 
   return new Map(rules.map((rule) =>
-    [rule.id, describeRule(rule, order, labels, serves.get(rule.id) ?? null)]))
+    [rule.id, describeRule(rule, order, labels, carried, serves.get(rule.id) ?? null)]))
 }
 
 /** The vocabulary as the rules quote it: slug to the label a person reads. */
 export async function tagLabels(db: Db): Promise<Map<string, string>> {
   const vocabulary = await new DrizzleTagRepository(db).vocabulary()
   return new Map(vocabulary.map((tag) => [tag.slug.value, tag.label]))
+}
+
+/**
+ * The vocabulary as the rules are judged by it: slug to how many books carry it.
+ *
+ * The same rollup `/api/tags` answers with, from the same query, because a rule
+ * saying "nothing carries this yet" beside a tag screen saying 40 would be the
+ * app disagreeing with itself about one word.
+ */
+export async function tagCarried(db: Db): Promise<Map<string, number>> {
+  return new Map((await tagCounts(db)).map((one) => [one.slug, one.books]))
 }
 
 /**
@@ -459,11 +511,12 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
     fixturesOnTheFloor(db), areasOnFaces(db), collectionStrategy(db), offerableStrategies(db),
     furnitureIn(db), new DrizzleTagRepository(db).vocabulary(),
   ])
+  const carried = await tagCarried(db)
 
   const collection = (fallback === INHERIT ? 'author' : fallback) as OrderingStrategy
   const labels = new Map(vocabulary.map((tag) => [tag.slug.value, tag.label]))
   const owners = runOwners(arrangement.order, arrangement.rules)
-  const described = describeRules(arrangement.order, arrangement.rules, labels)
+  const described = describeRules(arrangement.order, arrangement.rules, labels, carried)
   /*
    * Every rule written on one place, in the order a tie is settled. Plural
    * since #384: two rules on a place is how "this tag or that tag" is said, and

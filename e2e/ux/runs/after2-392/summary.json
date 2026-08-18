@@ -1,0 +1,114 @@
+{
+  "run": "after2-392",
+  "theme": "light",
+  "tasks": [
+    {
+      "task": 1,
+      "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 8,
+        "typedFields": 2,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 6,
+        "screens": 3,
+        "visits": 4,
+        "steps": 11,
+        "wallSeconds": 84.9,
+        "pressingSeconds": 17.4,
+        "notPressingSeconds": 67.5,
+        "lostMoments": []
+      },
+      "verdict": {
+        "id": 1,
+        "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "a bookcase the world did not have",
+            "ok": true,
+            "saw": "fixture 8"
+          },
+          {
+            "what": "it is recognisable as the hall one",
+            "ok": true,
+            "saw": "name \"Hall\""
+          },
+          {
+            "what": "it has four shelves",
+            "ok": true,
+            "saw": "4 shelf/shelves"
+          }
+        ]
+      }
+    },
+    {
+      "task": 2,
+      "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 9,
+        "typedFields": 1,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 1,
+        "screens": 3,
+        "visits": 4,
+        "steps": 12,
+        "wallSeconds": 133,
+        "pressingSeconds": 19.9,
+        "notPressingSeconds": 113.1,
+        "lostMoments": []
+      },
+      "verdict": {
+        "id": 2,
+        "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "there is a bottom shelf on the hall bookcase",
+            "ok": true,
+            "saw": "area 29 at position 3"
+          },
+          {
+            "what": "the app records that comics belong there",
+            "ok": true,
+            "saw": "rule 5 [tag is subject/comics]"
+          },
+          {
+            "what": "nothing that is not a comic stands there",
+            "ok": true,
+            "saw": "0 book(s) there"
+          }
+        ]
+      }
+    },
+    {
+      "task": 3,
+      "goal": "Move every non-fiction book off bookcase 4 and onto bookcase 3, and record that you have carried them.",
+      "outcome": "not attempted",
+      "numbers": {
+        "presses": 0,
+        "typedFields": 0,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 0,
+        "screens": 0,
+        "visits": 0,
+        "steps": 0,
+        "wallSeconds": 0,
+        "pressingSeconds": 0,
+        "notPressingSeconds": 0,
+        "lostMoments": []
+      },
+      "verdict": null
+    }
+  ]
+}

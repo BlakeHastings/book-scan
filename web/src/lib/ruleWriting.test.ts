@@ -10,8 +10,10 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  draftHolds, leaving, linesSaid, movesOf, noteOf, offering, saidRules, slugFor, wroteSaid,
+  draftHolds, leaving, linesSaid, making, movesOf, noteOf, offering, saidRules, slugFor,
+  wroteSaid,
 } from './ruleWriting'
+import { waitingSaid } from '../design/Rules'
 import type { RuleChangePlan, RuleDto, TagRow } from './api'
 
 const tag = (slug: string, label: string, books = 0): TagRow =>
@@ -70,7 +72,7 @@ describe('the tags a rule can be given', () => {
    */
   it('names a line by its label and never by its identity', () => {
     expect(linesSaid(vocabulary, [{ operator: 'under', tag: 'genre/fiction' }]))
-      .toEqual([{ operator: 'under', tag: 'Fiction' }])
+      .toEqual([{ operator: 'under', tag: 'Fiction', carried: 740 }])
   })
 })
 
@@ -115,7 +117,7 @@ describe('the phrase at the top of what belongs here', () => {
       place: '2B',
       placeId: 5,
       enabled: true,
-      conditions: [{ operator: 'is', tag: 'Poetry' }],
+      conditions: [{ operator: 'is', tag: 'Poetry', carried: 9 }],
       said: 'Anything tagged Poetry',
       range: null,
     }
@@ -239,5 +241,126 @@ describe('what a change comes to', () => {
     expect(wroteSaid(29)).toBe('29 books now belong somewhere else.')
     expect(wroteSaid(1)).toBe('1 book now belongs somewhere else.')
     expect(wroteSaid(0)).toBe('Nothing changed about where the books belong.')
+  })
+})
+
+
+/**
+ * Naming a word where the rule is written (#392).
+ *
+ * The decision itself is `domain/tagging/naming.ts` and it has its own tests;
+ * what is checked here is the half this file owns, which is turning its four
+ * answers into a drawing without inventing a fifth.
+ */
+describe('a word the collection has never used', () => {
+  it('offers to make one, under the collection\'s own heading', () => {
+    const { make, slug, said } = making(vocabulary, 'Manga', [])
+    expect(make).toEqual({ name: 'Manga', where: 'Subject' })
+    expect(slug).toBe('subject/manga')
+    // Nothing under the box: the offer says both halves of it already, and both
+    // sentences were on screen together until it was looked at.
+    expect(said).toBe('')
+  })
+
+  /**
+   * The one thing this must not become is a second way to make a tag.
+   *
+   * "Comic Book" and "comic books" are one tag to this app, so a rule may not
+   * make the second of them, and being refused without being told why reads as
+   * the box being broken.
+   */
+  it('refuses a second spelling and says which word it already means', () => {
+    const { make, said } = making(vocabulary, 'comic book', [])
+    expect(make).toBeNull()
+    expect(said).toMatch(/one tag rather than two/)
+  })
+
+  /** #304: those two are stated on a book, and typing the word is not stating it. */
+  it('sends the two genre answers back to the tags there already are', () => {
+    const { make, said } = making(vocabulary, 'fiction', [])
+    expect(make).toBeNull()
+    expect(said).toMatch(/Fiction and non-fiction/)
+  })
+
+  /** A word spelled exactly as a tag already is needs no sentence: it is listed. */
+  it('says nothing where the word is one of theirs, spelled their way', () => {
+    expect(making(vocabulary, 'Poetry', [])).toEqual({ make: null, slug: null, said: '' })
+  })
+
+  /**
+   * A word named on the first rule of an "or" is vocabulary for the second.
+   *
+   * Without this the picker would offer to make it again and the two lines
+   * would then disagree about which tag they meant, which is the two-spellings
+   * defect arriving inside one draft.
+   */
+  it('will not make a word this draft has already named', () => {
+    const drafted = [{ tag: 'subject/manga', label: 'Manga' }]
+    expect(making(vocabulary, 'Manga', drafted).make).toBeNull()
+  })
+
+  /**
+   * One word said twice on purpose is not a duplicate.
+   *
+   * "Tagged Comics and Fiction, or tagged Comics and Poetry" is two rules that
+   * share a tag, and the picker narrows by the lines on the rule being written
+   * rather than by the place's, or the second half of an "or" is unwritable.
+   */
+  it('still offers a tag another rule on the place already names', () => {
+    expect(offering(vocabulary, 'comic', ['subject/poetry']).map((one) => one.tag))
+      .toEqual(['Comic books'])
+  })
+
+  /**
+   * A tag they keep under another spelling is offered, not hidden.
+   *
+   * "comic books" typed against a tag labelled "Comic Book" is a substring of
+   * nothing, so matching the label alone offered no tag and an offer to make a
+   * second one. The fold that answers that on a book answers it here.
+   */
+  it('offers the tag a near spelling means, first', () => {
+    const theirs: TagRow[] = [tag('subject/comic-book', 'Comic Book', 46), ...vocabulary.slice(1)]
+    expect(offering(theirs, 'comic books', []).map((one) => one.tag)).toContain('Comic Book')
+    expect(offering(theirs, 'comic books', [])[0]!.tag).toBe('Comic Book')
+  })
+})
+
+/**
+ * A shelf somebody prepared before the books arrived, said in one line.
+ *
+ * The wording is the empty rule's own clause, deliberately: "so it claims
+ * nothing" is already how this widget says a rule is a real state rather than a
+ * fault, and this is the neighbouring case with one word added.
+ */
+describe('a rule waiting on a word nothing carries', () => {
+  it('names the word, and ends the way the empty rule ends', () => {
+    expect(waitingSaid([{ operator: 'is', tag: 'Manga', carried: 0 }]))
+      .toBe('Nothing carries Manga yet, so it claims nothing until something does.')
+  })
+
+  it('names every one of them, because every line has to hold', () => {
+    expect(waitingSaid([
+      { operator: 'is', tag: 'Manga', carried: 0 },
+      { operator: 'is', tag: 'Comic books', carried: 46 },
+      { operator: 'is', tag: 'Zines', carried: 0 },
+    ])).toBe('Nothing carries Manga or Zines yet, so it claims nothing until something does.')
+  })
+
+  /** Silent where the count was never asked for. A screen may not invent a fact. */
+  it('says nothing at all where nothing is waiting, and where nobody counted', () => {
+    expect(waitingSaid([{ operator: 'is', tag: 'Poetry', carried: 41 }])).toBe('')
+    expect(waitingSaid([{ operator: 'is', tag: 'Poetry' }])).toBe('')
+  })
+
+  /**
+   * The draft's own word reads back as the word rather than as the slug.
+   *
+   * A line naming a tag that is not a row yet has no label in the vocabulary,
+   * and the fallback is the slug, which is a bug worth seeing. So the label
+   * rides with the line until the write.
+   */
+  it('draws a word being named by the word, and counts it as carried by nothing', () => {
+    expect(linesSaid(vocabulary, [{ operator: 'is', tag: 'subject/manga', label: 'Manga' }]))
+      .toEqual([{ operator: 'is', tag: 'Manga', carried: 0 }])
   })
 })
