@@ -1162,9 +1162,12 @@ export const ruleCondition = pgTable('rule_condition', {
  * ## What each column is doing
  *
  * `area_id` is set on exactly `assigned`, `placed` and `pinned`, which is said
- * by a check constraint rather than by this paragraph. The other three kinds
- * take a book out of every area there is, so an area on one of them would be a
- * claim about where a book that is nowhere is.
+ * by a check constraint rather than by this paragraph. Three of the other four
+ * kinds take a book out of every area there is, so an area on one of them would
+ * be a claim about where a book that is nowhere is. The fourth is `released`,
+ * a person declining an assignment, and the constraint refusing it an area is
+ * what makes "withdrawing an intention cannot rewrite where a book is" a fact
+ * about the table rather than a promise about the code.
  *
  * `rule_id` is set on `assigned` rows and on no others: it is which rule wanted
  * this, which is the answer to "why is the app telling me to move this book",

@@ -706,6 +706,24 @@ export interface CarryChange {
   again: { book: CarriedBook; from: string; to: string }[]
 }
 
+/**
+ * A trip somebody decided not to walk, kept on the list rather than forgotten.
+ *
+ * The books stand where they stood and nothing asks for them any more. What is
+ * still true is that a rule on that place wants them somewhere else, and only
+ * the person can decide whether to change it, so the pair and the count and the
+ * rule's name stay on the screen.
+ */
+export interface SetAside {
+  fromAreaId: number
+  toAreaId: number
+  from: string
+  to: string
+  books: number
+  /** The rules that asked, named as they were when they asked. */
+  rules: string[]
+}
+
 export interface CarryWork {
   /** Books to carry. The headline number. */
   moving: number
@@ -715,6 +733,8 @@ export interface CarryWork {
   /** What was carried on the most recent day anybody carried anything. */
   carried: { books: number; when: string }
   changed: CarryChange | null
+  /** Work taken off the list by leaving the books where they are. */
+  setAside: SetAside[]
 }
 
 /**
@@ -987,8 +1007,13 @@ export interface AreaRemovalPlan {
 export interface StandingBook extends CarriedBook {
   pages: number
   going: boolean
-  /** Why it is not going. Null for the ones that are. */
-  staying: 'pinned' | 'elsewhere' | 'settled' | null
+  /**
+   * Why it is not going. Null for the ones that are.
+   *
+   * `left` is a book somebody decided to leave where it stands, which is its own
+   * answer and not `settled`: settled means the rules want it here.
+   */
+  staying: 'pinned' | 'elsewhere' | 'settled' | 'left' | null
 }
 
 export interface TripAtAnArea {
@@ -1732,6 +1757,32 @@ export const api = {
    */
   carryTrip: (from: number, to: number) =>
     request<TripAtAnArea>(`/api/carry/trip?from=${from}&to=${to}`),
+
+  /**
+   * Leave these books where they are, and stop the list asking for them.
+   *
+   * **No book moves.** It writes down that the answer was declined and nothing
+   * else: where every book is stays exactly what somebody last said it was, the
+   * ones already carried keep the home they were carried to, and pinned books
+   * are not reachable from here at all.
+   *
+   * A trip, or the whole of the outstanding work when none is named. The list
+   * comes back redrawn rather than being patched here, for the reason every
+   * write on these screens answers with the thing re-described: a screen that
+   * subtracted its own number would be a screen with an opinion.
+   */
+  carryLeave: (trip?: { from: number; to: number }) =>
+    request<{ books: number; work: CarryWork }>('/api/carry/leave', {
+      method: 'POST',
+      body: JSON.stringify(trip ?? {}),
+    }),
+
+  /** Ask for that work again, which is the way back out of the one above. */
+  carryRestore: (trip?: { from: number; to: number }) =>
+    request<{ books: number; work: CarryWork }>('/api/carry/restore', {
+      method: 'POST',
+      body: JSON.stringify(trip ?? {}),
+    }),
 
   setLocation,
   setLocationIn,

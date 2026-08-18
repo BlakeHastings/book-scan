@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  plural, said, skipSaid, stretchOf, surnameOf, whenSaid, words,
+  leftBooks, leftSaid, plural, said, skipSaid, stretchOf, surnameOf, whenSaid, words,
 } from './carryWords'
 
 describe('numbers, as the carry screens say them', () => {
@@ -107,5 +107,41 @@ describe('why a book is not being carried', () => {
 
   it('says nothing at all when nothing was left alone', () => {
     expect(skipSaid([])).toBe('')
+  })
+})
+
+/*
+ * What somebody left where it is, said back to them (#402). The rule is in the
+ * sentence on purpose: leaving books where they are answers the rules for those
+ * books and changes nothing about the rules, so what a person needs afterwards
+ * is to know there is still something on that place wanting them elsewhere.
+ */
+describe('work somebody left where it is', () => {
+  const aside = {
+    fromAreaId: 40, toAreaId: 30, from: '4A', to: '3A', books: 22, rules: ['Non-fiction'],
+  }
+
+  it('says how many, off where, wanted where, and by which rule', () => {
+    expect(leftSaid(aside))
+      .toBe('Twenty-two on 4A the rules want on 3A, asked for by Non-fiction.')
+  })
+
+  it('names both rules when two of them wanted the same place', () => {
+    expect(leftSaid({ ...aside, rules: ['Non-fiction', 'Big books'] }))
+      .toBe('Twenty-two on 4A the rules want on 3A, asked for by Non-fiction and Big books.')
+  })
+
+  /*
+   * A rule taken off a place since is a real case, and the sentence still has to
+   * read: what was recorded is the answer, and a missing name is not a reason to
+   * say nothing about twenty-two books.
+   */
+  it('still says it when nothing recorded a name', () => {
+    expect(leftSaid({ ...aside, rules: [] })).toBe('Twenty-two on 4A the rules want on 3A.')
+  })
+
+  it('counts every group, because the card counts them all', () => {
+    expect(leftBooks([aside, { ...aside, books: 8 }])).toBe(30)
+    expect(leftBooks([])).toBe(0)
   })
 })

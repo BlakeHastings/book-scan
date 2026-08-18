@@ -54,6 +54,7 @@ const work = (over: Partial<CarryWork> = {}): CarryWork => ({
   skipped: [],
   carried: { books: 0, when: '' },
   changed: null,
+  setAside: [],
   ...over,
 })
 
@@ -70,6 +71,10 @@ const carry = (over: Partial<Parameters<typeof CarryPane>[0]> = {}): string =>
     work: work(),
     onTrip: () => {},
     onChanged: () => {},
+    onAsk: () => {},
+    onKeep: () => {},
+    onLeave: () => {},
+    onRestore: () => {},
     onHome: () => {},
     onLibrary: () => {},
     onQueue: () => {},
@@ -91,6 +96,9 @@ const attrip = (over: Partial<Parameters<typeof TripPane>[0]> = {}): string =>
     trip: atArea(),
     only: false,
     onTake: () => {},
+    onAsk: () => {},
+    onKeep: () => {},
+    onLeave: () => {},
     onBack: () => {},
     onHome: () => {},
     onQueue: () => {},
@@ -201,6 +209,80 @@ describe('the list of books to carry', () => {
   })
 })
 
+/**
+ * Saying no to the work, and what stays on the screen afterwards (#402).
+ *
+ * The state the owner was stuck in is the one at the bottom of this block: a
+ * list he had decided against, with no way to say so. What these hold is that
+ * the way out says plainly that nothing moves, that it can be undone, and that
+ * the rule which wanted the books is still there to be changed.
+ */
+describe('leaving the books where they are', () => {
+  const aside = {
+    fromAreaId: 40,
+    toAreaId: 30,
+    from: '4A',
+    to: '3A',
+    books: 22,
+    rules: ['Non-fiction'],
+  }
+
+  it('offers it, quietly and under the two that carry on with the work', () => {
+    expect(words(carry())).toContain('Leave them where they are')
+  })
+
+  it('asks first, and says that nothing moves and that it can be undone', () => {
+    const html = words(carry({ asking: true }))
+
+    expect(html).toContain('Three books stay where they are')
+    expect(html).toContain('Nothing is moved and nothing is carried')
+    expect(html).toContain('put this work back on the list afterwards')
+    // And says the rules are unchanged, which is the thing only he can decide
+    // about and the reason the work would otherwise come back.
+    expect(html).toContain('rules that want them elsewhere are unchanged')
+  })
+
+  it('does not ask until it is asked to', () => {
+    expect(carry()).not.toContain('wf-sure')
+  })
+
+  it('names what was left, where the rules wanted it, and which rule asked', () => {
+    const html = words(carry({ work: work({ setAside: [aside] }) }))
+
+    expect(html).toContain('Left where they are')
+    expect(html).toContain('Twenty-two books')
+    expect(html).toContain('Twenty-two on 4A the rules want on 3A, asked for by Non-fiction.')
+    expect(html).toContain('Put them back on the list')
+  })
+
+  /*
+   * Two different empty lists, and saying the wrong one is a lie about whose
+   * decision emptied it. "Every book is where the rules want it" is the rules
+   * agreeing; this is a person having answered them.
+   */
+  it('does not claim the rules agree with a list somebody emptied by deciding', () => {
+    const html = words(carry({ work: work({ moving: 0, trips: [], setAside: [aside] }) }))
+
+    expect(html).toContain('Nothing is waiting to be carried')
+    expect(html).not.toContain('Every book is where the rules want it')
+    expect(html).toContain('Twenty-two on 4A the rules want on 3A')
+    expect(html).toContain('Put them back on the list')
+  })
+
+  it('still says the rules agree when they do', () => {
+    const html = words(carry({ work: work({ moving: 0, trips: [] }) }))
+
+    expect(html).toContain('Every book is where the rules want it')
+    expect(html).not.toContain('Left where they are')
+  })
+
+  it('lets no word out of the model reach any of it', () => {
+    const html = words(carry({ work: work({ setAside: [aside] }), asking: true }))
+
+    expect(html).not.toMatch(/assigned|released|declined|book_placement|area_id/i)
+  })
+})
+
 describe('one trip, at the area the books come off', () => {
   it('draws every book on the area, staying ones included', () => {
     const html = attrip({
@@ -256,6 +338,42 @@ describe('one trip, at the area the books come off', () => {
     expect(html).toContain('Take  The Book Thief  off 4A.')
     expect(html).toContain('It goes on 3A.')
     expect(html).toContain('I have it')
+  })
+
+  it('offers leaving this walk undone, last and quiet', () => {
+    expect(words(attrip())).toContain('Leave them where they are')
+    expect(words(attrip({
+      only: true,
+      trip: atArea({ books: [standing()] }),
+    }))).toContain('Leave it where it is')
+  })
+
+  it('asks first, about these books and this pair of areas', () => {
+    const html = words(attrip({ asking: true }))
+
+    expect(html).toContain('Two books stay on 4A')
+    expect(html).toContain('Nothing is moved and nothing is carried')
+    expect(html).toContain('rules that want these on 3A are unchanged')
+  })
+
+  /*
+   * A book somebody left where it is is not a book the rules want here, and
+   * saying "already where the rules want it" about one would have the app
+   * agreeing with itself about a decision it did not make.
+   */
+  it('says a book left where it is was left, rather than calling it settled', () => {
+    const html = words(attrip({
+      trip: atArea({
+        books: [
+          standing(),
+          standing({ id: 2, going: false, staying: 'left' }),
+          standing({ id: 3, going: false, staying: 'settled' }),
+        ],
+      }),
+    }))
+
+    expect(html).toContain('One you left where it is.')
+    expect(html).toContain('One already where the rules want it.')
   })
 })
 

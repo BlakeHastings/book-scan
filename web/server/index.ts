@@ -70,7 +70,7 @@ import { areaOfRecordedLocation, historyOf, UnknownPlank } from './placement-led
 import { applyRunMove, planRunMove } from './relocate-run'
 import { applyRuleChange, draftFrom, planRuleChange, rulesOnPlace } from './place-rule'
 // The work list the ledger already holds, grouped into trips (#314).
-import { outstandingWork, tripAtArea } from './carry'
+import { leaveWhereTheyAre, outstandingWork, putBackOnTheList, tripAtArea } from './carry'
 import { watchBackups } from './backup-watch'
 import {
   addAreaTo, addFixture, booksInArea, booksOnFixture,
@@ -285,6 +285,32 @@ function asyncRoute(
   return (req, res, next) => {
     handler(req, res).catch(next)
   }
+}
+
+/**
+ * The trip a body names, or `null` for all of the work, or `undefined` once the
+ * request has been refused.
+ *
+ * Three answers rather than two, because "no trip" and "not a trip" are
+ * different requests: an empty body is somebody saying the whole list, and half
+ * a trip is a mistake. Silently widening `{ from: 4 }` into the whole list would
+ * withdraw every outstanding book on the strength of a typo, which is the one
+ * way this route could do harm.
+ */
+function tripIn(
+  body: unknown,
+  res: express.Response,
+): { fromAreaId: number; toAreaId: number } | null | undefined {
+  const named = (body ?? {}) as Record<string, unknown>
+  if (named.from === undefined && named.to === undefined) return null
+
+  const missing = 'That trip names an area this collection does not have.'
+  const from = idIn(named.from, res, missing)
+  if (from === null) return undefined
+  const to = idIn(named.to, res, missing)
+  if (to === null) return undefined
+
+  return { fromAreaId: from, toAreaId: to }
 }
 
 export interface CreateAppOptions {
@@ -3436,6 +3462,48 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
     res.json(trip)
+  }))
+
+  /**
+   * Leave these books where they are, and stop the list asking for them.
+   *
+   * **The half of applying that was missing.** Applying a plan writes what the
+   * rules want and moves nothing; there was no way to say that answer is not one
+   * this person is going to act on, so forty-six books sat on somebody's list
+   * that he had already decided against. This writes one row per book saying so.
+   *
+   * **It moves no book and rewrites no placement.** Every book stands where it
+   * stood, books already carried keep the home they were carried to, and pinned
+   * books cannot be reached from here at all. `PATCH /api/books/:id/location` is
+   * still the only route that changes where the catalogue thinks a book is.
+   *
+   * A body naming a trip narrows it to that trip; an empty body is the whole of
+   * the outstanding work, which is the state somebody is in who has changed his
+   * mind about the lot. Both answer with the list redrawn, so the screen shows
+   * what the ledger says rather than what it hoped.
+   */
+  app.post('/api/carry/leave', asyncRoute(async (req, res) => {
+    const trip = tripIn(req.body, res)
+    if (trip === undefined) return
+
+    const left = await leaveWhereTheyAre(db, trip, new Date().toISOString())
+    res.json({ books: left.books, work: await outstandingWork(db) })
+  }))
+
+  /**
+   * Ask for that work again, which is the way back out of the sentence above.
+   *
+   * A withdrawal somebody could not withdraw would be the one-way door this
+   * whole change exists to remove, one door along. It writes the assignment
+   * again, by a person rather than by a rule, and the books are back on the list
+   * where they came off it.
+   */
+  app.post('/api/carry/restore', asyncRoute(async (req, res) => {
+    const trip = tripIn(req.body, res)
+    if (trip === undefined) return
+
+    const back = await putBackOnTheList(db, trip, new Date().toISOString())
+    res.json({ books: back.books, work: await outstandingWork(db) })
   }))
 
   app.get('/api/health', asyncRoute(async (_req, res) => {

@@ -27,7 +27,35 @@ export function CarryScreen() {
   const { setError } = useErrorBanner()
   const { choose } = useArmful()
   const [work, setWork] = useState<CarryWork | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [asking, setAsking] = useState(false)
   usePaper()
+
+  /**
+   * Leave the work where it is, or ask for it back, and redraw from the answer.
+   *
+   * **The list comes back from the server rather than being adjusted here.**
+   * Both routes answer with the whole of it, recomputed, which is the same
+   * contract every write in this app has: a screen that subtracted its own
+   * number would be a screen with an opinion about the ledger.
+   */
+  const decide = (about: () => Promise<{ work: CarryWork }>) => {
+    setBusy(true)
+    about()
+      .then((answer) => setWork(answer.work))
+      .catch((caught) => setError((caught as Error).message))
+      .finally(() => {
+        setBusy(false)
+        /*
+         * The question closes when the answer has been carried out and not when
+         * it was pressed, so nobody is left looking at the old list wondering
+         * whether anything happened. It closes on a failure too: the banner is
+         * what says what went wrong, and a dialog still up over it would be a
+         * second thing to dismiss before the message can be read.
+         */
+        setAsking(false)
+      })
+  }
 
   useEffect(() => {
     let live = true
@@ -54,6 +82,12 @@ export function CarryScreen() {
       work={work}
       onTrip={(trip) => { choose(trip); setRoute('trip') }}
       onChanged={() => setRoute('carrystale')}
+      asking={asking}
+      onAsk={() => setAsking(true)}
+      onKeep={() => setAsking(false)}
+      onLeave={() => decide(() => api.carryLeave())}
+      onRestore={() => decide(() => api.carryRestore())}
+      busy={busy}
       onHome={() => setRoute('home')}
       onLibrary={() => setRoute('library')}
       onQueue={() => setRoute('queue')}

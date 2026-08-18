@@ -408,8 +408,8 @@ genuine absence rather than a state with a name.
 Append only. One row per move. The latest row is where the book is; the rows
 behind it are where it has been.
 
-`kind` is `assigned`, `placed`, `pinned`, `checked_out`, `checked_in` or
-`withdrawn`.
+`kind` is `assigned`, `released`, `placed`, `pinned`, `checked_out`,
+`checked_in` or `withdrawn`.
 
 **`assigned` is what the rules want; `placed` is what somebody did.** They
 disagree exactly when a book needs attention, so the misfile list stops being a
@@ -421,6 +421,30 @@ stop pinning is in the history.
 
 `assigned` rows are written only where the answer differs from where the book
 already is.
+
+**`released` is an assignment withdrawn, and it is the other half of applying**
+(#402). Applying a plan writes an intention and moves nothing; until this
+existed there was no way to say the intention was not one this person was going
+to act on, so forty-six of the owner's books sat on a carry list he had already
+decided against. A `released` row takes the standing assignment off and touches
+nothing else: the book stays on the plank it stands on, `placed` is untouched,
+and the assignment it answers stays in the ledger with the rule that wanted it.
+
+**It names no area, and the check constraint is what says so.** `area_id` is set
+on exactly `assigned`, `placed` and `pinned`, so a withdrawal cannot state where
+a book is even by accident. That is the one thing it must never do, expressed as
+a property of the table rather than as a promise about the code.
+
+**The rules do not ask for the same answer twice.** `standingOf` reads the
+withdrawn area back as `Standing.declined`, and `assignmentFor` returns null for
+it, so applying a plan again does not re-create work somebody has dismissed. It
+is the *answer* that is declined and not the book: a rule that changes its mind
+to a different area is written normally, and placing, pinning or checking the
+book out clears the memory, because after any of those the question is a new
+one. The carry list goes on naming what was set aside, where the rules wanted
+it, and which rule asked, so the person knows there is still a rule to change.
+Putting the work back is another `assigned` row, written by a person, so the
+withdrawal is itself withdrawable.
 
 **A book coming back is placed where it came off, not where the rules want it.**
 Going out is one row and it names no area; coming back is two, `checked_in` and

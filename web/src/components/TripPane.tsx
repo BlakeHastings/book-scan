@@ -36,6 +36,7 @@ import { TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
 import { Shelf, type ShelfItem } from '../design/Shelf'
 import { List, Row } from '../design/List'
+import { Sure } from '../design/Sure'
 import { coverThumbUrl } from './PlacementCard'
 import { WfScreen } from './WfScreen'
 import { clothFor } from '../lib/bookLook'
@@ -48,6 +49,19 @@ interface Props {
   /** True when this is the whole of the outstanding work. */
   only: boolean
   onTake: (books: StandingBook[]) => void
+  /**
+   * The question about leaving this trip is on screen.
+   *
+   * A prop rather than state in here, the way `AreaPane` takes the question
+   * about removing an area: this pane holds nothing.
+   */
+  asking?: boolean
+  onAsk: () => void
+  onKeep: () => void
+  /** Leave this trip's books where they stand. Asked about first. */
+  onLeave: () => void
+  /** The answer is being carried out, so it cannot be sent twice. */
+  busy?: boolean
   onBack: () => void
   onHome: () => void
   onQueue: () => void
@@ -85,20 +99,32 @@ function boardOf(books: readonly StandingBook[], mark: boolean): ShelfItem[] {
   }))
 }
 
-/** Why the books that are not going are not going, said as one sentence. */
+/**
+ * Why the books that are not going are not going, said as one sentence.
+ *
+ * **A book somebody left where it is gets its own clause rather than joining the
+ * settled ones.** Settled means the rules want it here, and saying that about a
+ * book whose move was turned down would have the app quietly agreeing with
+ * itself about a decision it did not make.
+ */
 function stayingSaid(staying: readonly StandingBook[]): string {
   const pinned = staying.filter((book) => book.staying === 'pinned').length
   const elsewhere = staying.filter((book) => book.staying === 'elsewhere').length
-  const settled = staying.length - pinned - elsewhere
+  const left = staying.filter((book) => book.staying === 'left').length
+  const settled = staying.length - pinned - elsewhere - left
 
   return [
     pinned > 0 ? `${said(pinned)} you pinned.` : '',
     elsewhere > 0 ? `${said(elsewhere)} going somewhere else.` : '',
+    left > 0 ? `${said(left)} you left ${left === 1 ? 'where it is' : 'where they are'}.` : '',
     settled > 0 ? `${said(settled)} already where the rules want ${settled === 1 ? 'it' : 'them'}.` : '',
   ].filter(Boolean).join(' ')
 }
 
-export function TripPane({ trip, only, onTake, onBack, onHome, onQueue, onScan }: Props) {
+export function TripPane({
+  trip, only, onTake, asking = false, onAsk, onKeep, onLeave, busy = false,
+  onBack, onHome, onQueue, onScan,
+}: Props) {
   const tabs: Record<TabName, () => void> = {
     home: onHome,
     library: onBack,
@@ -132,6 +158,26 @@ export function TripPane({ trip, only, onTake, onBack, onHome, onQueue, onScan }
           onBack={onBack}
         />
       }
+      /* Over the trip, with the area still drawn underneath: what is being
+         asked about is the books somebody is looking at. */
+      over={asking ? (
+        <Sure
+          title={going.length === 1
+            ? `${going[0]?.title ?? 'It'} stays on ${trip.from}`
+            : `${said(going.length)} books stay on ${trip.from}`}
+          said={
+            <>
+              Nothing is moved and nothing is carried. This trip leaves the list
+              and you can put it back afterwards. The rules that want these on
+              {' '}{trip.to} are unchanged.
+            </>
+          }
+          act={busy ? 'Leaving them...' : 'Leave them where they are'}
+          busy={busy}
+          onAct={onLeave}
+          onKeep={onKeep}
+        />
+      ) : undefined}
     >
       <Instruction>
         {one
@@ -176,11 +222,18 @@ export function TripPane({ trip, only, onTake, onBack, onHome, onQueue, onScan }
         </Card>
       )}
 
-      <Button tone="primary" block onPress={() => onTake(going)}>
+      <Button tone="primary" block off={busy} onPress={() => onTake(going)}>
         {one ? 'I have it' : `I have all ${words(going.length)}`}
       </Button>
-      <Button tone="quiet" block onPress={onBack}>
+      <Button tone="quiet" block off={busy} onPress={onBack}>
         {only ? 'Not now' : 'Do a different one'}
+      </Button>
+
+      {/* Last, and quiet, because it is the answer somebody gives when this walk
+          is not going to happen at all. "Not now" above it comes back to the
+          list with the trip still on it; this one takes the trip off. */}
+      <Button tone="quiet" block off={busy} onPress={onAsk}>
+        {one ? 'Leave it where it is' : 'Leave them where they are'}
       </Button>
     </WfScreen>
   )

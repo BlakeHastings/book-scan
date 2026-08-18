@@ -23,7 +23,8 @@ import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
 import { applyRunMove, planRunMove } from './relocate-run'
-import { outstandingWork, tripAtArea } from './carry'
+import { leaveWhereTheyAre, outstandingWork, putBackOnTheList, tripAtArea } from './carry'
+import { countProjectionDisagreements } from '../infrastructure/placement/projection'
 import { photographsTaken } from './photographs'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
@@ -275,6 +276,184 @@ describe('the list of books to carry', () => {
       { book: expect.objectContaining({ id: carried.id }), from: '3A', to: '4A' },
     ])
   })
+})
+
+/**
+ * The situation the owner is actually in, and the way out of it (#402).
+ *
+ * Fifty books assigned across the room, some already carried, one pinned, and a
+ * person who is not going to walk any of it. **Everything here is a claim about
+ * what did not happen**: no book moved, no `placed` row was written, the ones
+ * already carried kept the home they were carried to, and the work did not come
+ * straight back the next time the rules ran.
+ */
+describe('leaving books where they are', () => {
+  /** Where the catalogue says every book is, which is the thing at risk. */
+  const whereEverythingIs = async () => new Map((await db.all<{
+    id: number; current_area_id: number | null
+  }>('SELECT id, current_area_id FROM books ORDER BY id'))
+    .map((row) => [Number(row.id), row.current_area_id]))
+
+  /** How many rows say somebody put a book somewhere. */
+  const placements = async () => Number((await db.get<{ n: string }>(
+    `SELECT count(*)::text AS n FROM book_placement WHERE kind = 'placed'`,
+  ))!.n)
+
+  const now = () => new Date().toISOString()
+
+  it('empties the list and moves nothing at all', async () => {
+    await applyRunMove(db, 'nonfiction', 3, now())
+    const before = await whereEverythingIs()
+    const wasPlaced = await placements()
+
+    const left = await leaveWhereTheyAre(db, null, now())
+
+    expect(left.books).toBe(50)
+    expect((await outstandingWork(db)).moving).toBe(0)
+    // Every book, one by one, still standing where it stood.
+    expect(await whereEverythingIs()).toEqual(before)
+    expect(await placements()).toBe(wasPlaced)
+    // And the projection still agrees with the ledger it is folded from.
+    expect(await countProjectionDisagreements(db)).toBe(0)
+  })
+
+  it('says what was left, off which area, and where the rules wanted it', async () => {
+    await applyRunMove(db, 'nonfiction', 3, now())
+    await leaveWhereTheyAre(db, null, now())
+
+    const work = await outstandingWork(db)
+
+    expect(work.setAside.map((one) => [one.from, one.to, one.books]))
+      .toEqual([['4C', '3C', 22], ['4B', '3B', 20], ['4A', '3A', 8]])
+    // Named by the rule that asked, so the person knows what to change.
+    expect(work.setAside.every((one) => one.rules.length > 0)).toBe(true)
+  })
+
+  it('does not hand the same work back the next time the rules run', async () => {
+    /*
+     * The question #402 says decides the design. The rule that put the run on
+     * bookcase 3 is still there, so a run that knew nothing about the decision
+     * would write all fifty rows again and give him back the list he had just
+     * cleared.
+     */
+    await applyRunMove(db, 'nonfiction', 3, now())
+    await leaveWhereTheyAre(db, null, now())
+
+    await applyRunMove(db, 'nonfiction', 3, now())
+
+    const work = await outstandingWork(db)
+    expect(work.moving).toBe(0)
+    expect(work.setAside.reduce((all, one) => all + one.books, 0)).toBe(50)
+  })
+
+  it('leaves the books somebody had already carried where they were carried to',
+    async () => {
+      await applyRunMove(db, 'nonfiction', 3, now())
+
+      const trip = (await outstandingWork(db)).trips.find((one) => one.from === '4A')!
+      const carried = trip.books.slice(0, 3)
+      for (const book of carried) await store.setLocation(book.id, trip.to)
+
+      const at = await whereEverythingIs()
+      await leaveWhereTheyAre(db, null, now())
+
+      // The three that were walked are on 3A and stay on 3A; the rest are where
+      // they stood. Both halves are the same assertion, which is the point.
+      expect(await whereEverythingIs()).toEqual(at)
+      const work = await outstandingWork(db)
+      expect(work.moving).toBe(0)
+      expect(work.setAside.reduce((all, one) => all + one.books, 0)).toBe(47)
+    })
+
+  it('cannot touch a pinned book, because a pin left nothing to withdraw', async () => {
+    const ids = world
+    await applyRunMove(db, 'nonfiction', 3, now())
+
+    const area = (await db.get<{ current_area_id: number }>(
+      'SELECT current_area_id FROM books WHERE id = ?', [ids[0]!],
+    ))!.current_area_id
+    await new DrizzlePlacementLedger(db).record({
+      bookId: ids[0]!,
+      kind: 'pinned',
+      areaId: area,
+      sortKey: '',
+      actor: 'person',
+      reason: 'it lives here',
+      createdAt: now(),
+    })
+
+    await leaveWhereTheyAre(db, null, now())
+
+    const rows = await db.all<{ kind: string }>(
+      'SELECT kind FROM book_placement WHERE book_id = ? ORDER BY id', [ids[0]!],
+    )
+    expect(rows.map((row) => row.kind)).not.toContain('released')
+    expect((await outstandingWork(db)).skipped).toEqual([{ reason: 'pinned', books: 1 }])
+  })
+
+  it('takes one trip when it is given one, and leaves the others alone', async () => {
+    await applyRunMove(db, 'nonfiction', 3, now())
+
+    const trip = (await outstandingWork(db)).trips.find((one) => one.from === '4A')!
+    const left = await leaveWhereTheyAre(
+      db, { fromAreaId: trip.fromAreaId, toAreaId: trip.toAreaId }, now(),
+    )
+
+    const work = await outstandingWork(db)
+    expect(left.books).toBe(8)
+    expect(work.moving).toBe(42)
+    expect(work.trips.map((one) => one.from)).toEqual(['4B', '4C'])
+    expect(work.setAside.map((one) => [one.from, one.books])).toEqual([['4A', 8]])
+  })
+
+  it('is itself withdrawable, and the books come back on the list they left', async () => {
+    await applyRunMove(db, 'nonfiction', 3, now())
+    const before = await whereEverythingIs()
+    await leaveWhereTheyAre(db, null, now())
+
+    const back = await putBackOnTheList(db, null, now())
+
+    const work = await outstandingWork(db)
+    expect(back.books).toBe(50)
+    expect(work.moving).toBe(50)
+    expect(work.setAside).toEqual([])
+    expect(work.trips.map((one) => [one.from, one.to, one.books.length]))
+      .toEqual([['4A', '3A', 8], ['4B', '3B', 20], ['4C', '3C', 22]])
+    // The way back moves nothing either.
+    expect(await whereEverythingIs()).toEqual(before)
+  })
+
+  it('writes nothing when there is nothing outstanding to withdraw', async () => {
+    const rows = async () => Number((await db.get<{ n: string }>(
+      'SELECT count(*)::text AS n FROM book_placement',
+    ))!.n)
+    const before = await rows()
+
+    expect((await leaveWhereTheyAre(db, null, now())).books).toBe(0)
+    expect(await rows()).toBe(before)
+  })
+
+  it('keeps the assignment and the answer to it, because history is not a gap',
+    async () => {
+      await applyRunMove(db, 'nonfiction', 3, now())
+      const id = (await outstandingWork(db)).trips[0]!.books[0]!.id
+
+      const history = async () => db.all<{ kind: string; area_id: number | null }>(
+        'SELECT kind, area_id FROM book_placement WHERE book_id = ? ORDER BY id', [id],
+      )
+      const before = (await history()).map((row) => row.kind)
+
+      await leaveWhereTheyAre(db, null, now())
+
+      // Nothing rewritten and nothing removed: one row on the end, and the
+      // assignment it answers still there with the rule that wanted it.
+      const rows = await history()
+      expect(rows.map((row) => row.kind)).toEqual([...before, 'released'])
+      expect(before).toContain('assigned')
+      // The withdrawal names no area, which is what stops it saying where a book
+      // is even by accident. The schema refuses it one.
+      expect(rows[rows.length - 1]!.area_id).toBeNull()
+    })
 })
 
 describe('one trip, read at the area the books come off', () => {
