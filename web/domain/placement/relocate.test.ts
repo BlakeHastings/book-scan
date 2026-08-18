@@ -151,3 +151,54 @@ describe('moving a run to another bookcase', () => {
     ])
   })
 })
+
+/**
+ * #391: the pieces a move walks off, which is the half of it that is not about
+ * books and which nothing said out loud.
+ *
+ * The usability baseline put up a bookcase called Hall after bookcase 4 and hung
+ * four shelves on it. Nothing pointed a rule at it, so it was the tail of the
+ * non-fiction run: moving that run one bookcase along took all four planks and
+ * left the Hall bare, and every word on every screen was about books.
+ *
+ * Nothing is deleted, here or in the write. What this answers is what a person
+ * reads before pressing anything, which is #307's shape applied to furniture.
+ */
+describe('the pieces a move would leave with nothing on them', () => {
+  /** Bookcase 4, and a bookcase somebody put up after it with four empty planks. */
+  const WITH_A_HALL = slotsInOrder(
+    [fixture(1, 1), fixture(4, 4), { ...fixture(5, 5), name: 'Hall' }],
+    [
+      area(10, 1, 0),
+      area(40, 4, 0), area(41, 4, 1, 'K'), area(42, 4, 2, 'S'),
+      area(50, 5, 0, 'T'), area(51, 5, 1, 'U'), area(52, 5, 2, 'V'), area(53, 5, 3, 'W'),
+    ],
+  )
+
+  it('names the piece the run walks off, by the name somebody gave it', () => {
+    const moved = relocateRun(WITH_A_HALL, RULES, 2, 3)
+    if (!moved.ok) throw new Error(moved.error)
+
+    // Seven planks across two pieces, shifted one along onto bookcases 3 and 4.
+    // Nothing of the run lands back on 5, so the Hall is left bare.
+    expect(moved.move.emptied).toEqual([{ name: 'Hall', position: 5, planks: 4 }])
+    expect(moved.move.planks).toContainEqual({ from: 'Hall · A', to: '4A' })
+  })
+
+  it('is quiet where the run only shuffles along furniture it covers again', () => {
+    // 4A, 4B and 4C to 3A, 3B and 3C. Bookcase 4 is left bare and is named; the
+    // point of the field is that the piece is said rather than that it is rare.
+    const moved = relocateRun(ORDER, RULES, 2, 3)
+    if (!moved.ok) throw new Error(moved.error)
+
+    expect(moved.move.emptied).toEqual([{ name: '4', position: 4, planks: 3 }])
+  })
+
+  it('says nothing at all when the run is already where it is going', () => {
+    const moved = relocateRun(ORDER, RULES, 2, 4)
+    if (!moved.ok) throw new Error(moved.error)
+
+    expect(moved.move.emptied).toEqual([])
+    expect(moved.move.planks).toEqual([])
+  })
+})

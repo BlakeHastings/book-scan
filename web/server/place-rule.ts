@@ -118,6 +118,16 @@ export interface RuleChangePlan extends PlacementPlan {
   holds: string
   /** What each rule would be called, worked out from its own lines. */
   names: string[]
+  /**
+   * How many rules are written on this place **today**.
+   *
+   * Beside `names`, which is how many there would be, because the two together
+   * are what tells an empty draft on a place with a rule (taking the last one
+   * off, a real change) from an empty draft on a place with none (not a change
+   * at all, and #391's second half: a preview that described lines that did not
+   * exist, and then a truthful "Nothing changed" that read as work being lost).
+   */
+  already: number
   /** How many books in the whole catalogue any of these rules claim. */
   claiming: number
   /**
@@ -379,6 +389,7 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
       ...planPlacements(books, ledger, wanted, order, await plankLabels(db)),
       holds: holdsSaid(written, labels),
       names,
+      already: rulesOn(rules, draft).length,
       claiming: books.filter((book) => written.some((rule) => matches(rule, book))).length,
       opens,
       losing: GENRE_RANGES

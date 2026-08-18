@@ -209,12 +209,27 @@ interface AreaRow {
  * **A name is put back too**, because a name is not decoration: every label on a
  * piece is derived from it, so a scenario that calls bookcase 1 "Hall shelf"
  * leaves every scenario after it reading `Hall shelf · A` where it seeded `1A`.
+ *
+ * **And so is the number.** Deleting what no rule points at is not enough for a
+ * scenario that moved a run: the piece it left behind goes and the piece it
+ * arrived on stays, standing wherever it was sent. Non-fiction would then begin
+ * on bookcase 3 for every scenario afterwards, which is a world none of them
+ * seeded and only some of them notice. The two runs begin where `0013` put them,
+ * and that is asked of the rule rather than of the row, because the rule is what
+ * says which run a piece is carrying.
  */
+const STARTS_ON: [string, number][] = [['genre/fiction', 1], ['genre/non-fiction', 4]]
+
 const RESTORE_FURNITURE = [
   'DELETE FROM area WHERE position <> 0 OR fixture_id NOT IN ' +
   '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
   'DELETE FROM fixture WHERE id NOT IN ' +
   '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
+  ...STARTS_ON.map(([slug, position]) =>
+    `UPDATE fixture SET position = ${position} WHERE id IN (
+       SELECT r.fixture_id FROM placement_rule r
+         JOIN rule_condition c ON c.rule_id = r.id
+        WHERE c.value = '${slug}' AND r.fixture_id IS NOT NULL)`),
   "UPDATE area SET starts_at = '' WHERE starts_at <> ''",
   "UPDATE fixture SET name = '' WHERE name <> ''",
   "UPDATE area SET name = '' WHERE name <> ''",

@@ -28,7 +28,7 @@ import {
 } from '../infrastructure/shelving/areas'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { planPlacements, type PlacementPlan, type PlannableBook } from '../domain/placement/plan'
-import { relocateRun, type PlankMove } from '../domain/placement/relocate'
+import { relocateRun, type EmptiedPiece, type PlankMove } from '../domain/placement/relocate'
 import {
   AssignPlacementsHandler, type AssignableBook, type AssignmentReport,
 } from '../application/placement/assign-placements'
@@ -44,6 +44,15 @@ export interface RunMovePlan extends PlacementPlan {
   to: number
   /** Every plank of the run, old label to new. Empty when it is already there. */
   planks: PlankMove[]
+  /**
+   * Every piece the move would leave standing with nothing on its face.
+   *
+   * **The half of this that is not about books** (#391). Nothing is deleted, and
+   * a person still has to be told: a bookcase they put up after the run and have
+   * not filled yet is the tail of that run, so moving the run takes its planks
+   * and leaves it bare.
+   */
+  emptied: EmptiedPiece[]
 }
 
 export type Planned =
@@ -120,6 +129,7 @@ export async function planRunMove(db: Db, range: ShelfRange, to: number): Promis
       from: moved.move.from,
       to: moved.move.to,
       planks: moved.move.planks,
+      emptied: moved.move.emptied,
     },
   }
 }

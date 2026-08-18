@@ -249,6 +249,56 @@ describe('planning a change to what a place allows', () => {
   })
 
   /**
+   * #391: a draft with no rules on a place with no rules is not a change, and
+   * the screen had no way to tell that from a rule nothing carries.
+   *
+   * The usability baseline walked into it. Somebody opened the editor on a plank
+   * that files by overflow, added nothing, asked what would move, read a
+   * sentence about tags nothing carries, pressed "Write it down" and was told
+   * "Nothing changed about where the books belong". Every step of that was
+   * truthful and the sequence read as an afternoon's work being lost.
+   *
+   * `already` beside `names` is the pair that tells the two apart, and the write
+   * is unchanged: it wrote nothing then and it writes nothing now, because there
+   * was nothing to write.
+   */
+  it('says how many rules the place holds today, beside how many it would', async () => {
+    const piece = await nonFiction()
+    const bare = piece.areas[1].id
+
+    const { body: nothingYet } = await post('/api/placement/rule/plan', {
+      about: 'area', placeId: bare, rules: [],
+    })
+    expect(nothingYet.plan).toEqual(expect.objectContaining({ names: [], already: 0 }))
+
+    await post('/api/placement/rule', {
+      about: 'area',
+      placeId: bare,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: COMICS.value }] }],
+    })
+
+    const { body: takingItOff } = await post('/api/placement/rule/plan', {
+      about: 'area', placeId: bare, rules: [],
+    })
+    expect(takingItOff.plan).toEqual(expect.objectContaining({ names: [], already: 1 }))
+  })
+
+  it('writes nothing at all for a draft that is not a change, and says so', async () => {
+    const piece = await nonFiction()
+    const before = await everyLine()
+    const placements = await everyPlacement()
+
+    const { body } = await post('/api/placement/rule', {
+      about: 'area', placeId: piece.areas[1].id, rules: [],
+    })
+
+    expect(body.wrote.assigned).toBe(0)
+    expect(await everyLine()).toEqual(before)
+    expect(await everyPlacement()).toEqual(placements)
+    expect((await nonFiction()).areas[1].own).toEqual([])
+  })
+
+  /**
    * An area gaining its first rule stops taking what overflows from the area
    * before it, and that is the one consequence no count in the plan carries.
    */

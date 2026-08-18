@@ -217,6 +217,10 @@ export function Planned({
         </Card>
       )}
 
+      {/* The furniture half of the plan, which used to be left unsaid. See
+          `WhatMovesWithIt`: #391 is what that cost somebody. */}
+      <WhatMovesWithIt plan={plan} />
+
       {plan.staying > 0 && (
         <Card
           weight="sunk"
@@ -317,6 +321,57 @@ function Applied({
         {applied.moved > 0 ? 'Go and carry them' : 'Open the list'}
       </Button>
     </RoomFrame>
+  )
+}
+
+/**
+ * What the move does to the shelves themselves, before anybody presses Apply.
+ *
+ * **The half of a run move that is not about books**, and #391 is what leaving
+ * it unsaid cost. Somebody put up a bookcase called Hall, gave it four shelves
+ * and named one Comics, then moved non-fiction from bookcase 4 to bookcase 3.
+ * The Hall stood after bookcase 4 with no rule on it, so it was the tail of the
+ * non-fiction run: the move took all four of its planks and left it bare, and
+ * every word on every screen was about books.
+ *
+ * The plan has known which planks it moves since #244 and drew none of them.
+ * They are drawn now, and a piece the move would leave with nothing on it is
+ * named on its own, because that is the sentence somebody would want to have
+ * read first. #307 set the shape: a plan that would leave something empty says
+ * so before it happens.
+ *
+ * Nothing is deleted either way. The piece keeps standing and its planks are
+ * retired, so moving the run back puts every one of them, and its name, back.
+ */
+function WhatMovesWithIt({ plan }: { plan: RunMovePlan }) {
+  if (plan.planks.length === 0) return null
+
+  const said = `${counted(plan.planks.length, 'area')} ${
+    plan.planks.length === 1 ? 'moves' : 'move'} with them`
+
+  return (
+    <Card
+      kind="What else moves"
+      title={said.charAt(0).toUpperCase() + said.slice(1)}
+    >
+      {plan.emptied.length > 0 && (
+        <p>
+          That leaves {plan.emptied.map((one) => one.name).join(', ')} with nothing on
+          it. Nothing is thrown away: the piece keeps standing, and moving the books
+          back puts every area on it, and its name, back.
+        </p>
+      )}
+
+      <div className="wf-steps" role="list" aria-label="What each area becomes">
+        {plan.planks.map((plank) => (
+          <div className="wf-step" key={`${plank.from}${plank.to}`} role="listitem">
+            <span>
+              <Place>{plank.from}</Place> becomes <Place>{plank.to}</Place>
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }
 

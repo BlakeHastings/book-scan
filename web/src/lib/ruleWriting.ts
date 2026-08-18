@@ -159,6 +159,32 @@ export function noteOf(plan: RuleChangePlan): string {
   const said: string[] = []
 
   /*
+   * No rule at all, which is not the same answer as a rule nothing carries and
+   * used to be given the same sentence. #391: somebody opened the editor on a
+   * plank that files by overflow, added nothing, asked what would move and read
+   * "No book in the collection carries all of these" about lines that did not
+   * exist. Writing it down then answered "Nothing changed about where the books
+   * belong", which was true, and read as the app losing their work.
+   *
+   * Said first and on its own, because everything below it is about a rule.
+   */
+  if (plan.names.length === 0 && plan.already === 0) {
+    return 'There is no rule here to write. Nothing files here by rule now, nothing '
+      + 'would afterwards, and writing it down would change nothing. Allow something '
+      + 'here first.'
+  }
+
+  /*
+   * The other empty draft, which is the opposite thing: taking the last rule off
+   * a place. That is a real change and one worth a sentence, because what the
+   * place then does is take overflow from the area before it.
+   */
+  if (plan.names.length === 0) {
+    said.push('Nothing would file here by rule any more, so this area goes back to '
+      + 'taking what overflows from the area before it.')
+  }
+
+  /*
    * The second half of this sentence was found by running it against a real
    * room rather than by reasoning about it. An area a rule points at does not
    * only stop taking overflow: it **begins** a stretch, and every area after it

@@ -592,6 +592,31 @@ reads as `4C` until somebody carries it. Moving a run back restores those rows
 rather than making new ones, which is what returns each book to the plank the
 ledger already names.
 
+### Applying a move deletes nothing, and says what it empties
+
+This paragraph said the sentence above it before #391 and the code did not do
+it. `relocateRunTo` retired a plank only when a book had stood on it and
+**deleted** every other one, and then deleted any bookcase left with nothing on
+it. So the run flowed on past bookcase 4 onto a bookcase somebody had put up
+that afternoon, and a move about two other bookcases took its four empty planks,
+the name written on one of them, and finally the piece, in silence.
+
+Two rules, and neither is a warning:
+
+- **A move retires every plank it takes, including one no book has stood on.**
+  The row carries somebody's name for it and the run coming back puts it back.
+- **Nothing outside `dropFixture` deletes a piece of furniture.** A bookcase is
+  a thing standing in a room. It goes when somebody says so, through
+  `DELETE /api/fixtures/:id`, which refuses while books or rules are on it and
+  says what becomes of them first.
+
+A piece the move takes every plank off is left standing bare, which is still a
+consequence somebody should read before rather than find after. The plan names
+it: `RunMovePlan.emptied`, computed in `domain/placement/relocate.ts` beside the
+plank moves that were already there, and drawn on the plan screen. That is
+[#307](https://github.com/BlakeHastings/book-scan/issues/307)'s shape applied to
+furniture rather than to books.
+
 ### Planning it writes nothing, and applying it moves no books
 
 Two steps and they are one idea, so neither is useful alone.

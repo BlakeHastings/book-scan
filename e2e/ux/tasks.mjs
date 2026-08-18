@@ -91,7 +91,7 @@ export const TASKS = [
      * out the moves and nobody has confirmed them is a different outcome from a
      * world where nothing happened, and a single boolean would lose that.
      */
-    check(world) {
+    check(world, baseline, standing = []) {
       /*
        * The shelved ones only, and this is a correction the first run earned.
        * A checked-out book is in somebody's bag rather than on bookcase 4, so
@@ -105,6 +105,32 @@ export const TASKS = [
       const stillOnFour = nonFiction.filter((book) => book.fixture_position === 4)
       const onThree = nonFiction.filter((book) => book.fixture_position === 3)
       const waiting = world.outstanding.filter((move) => move.shelf_range === 'nonfiction')
+
+      /*
+       * #391, and it is here because the first pass of this task passed every
+       * part above while deleting a bookcase.
+       *
+       * The person put the hall bookcase up in task 1, gave it four shelves and
+       * named one Comics. Applying the move deleted the piece, all four areas
+       * and the name, and said nothing. Every number this task had was about
+       * books, so a world where somebody's furniture had been destroyed scored
+       * exactly the same as one where it had not.
+       *
+       * **Furniture the person built is not this task's to remove**, whatever
+       * happens to the books, so the pieces and the areas standing when the task
+       * began have to still be rows when it ends. Rows rather than faces: a
+       * shelf the run takes with it comes off the piece it was on, which is a
+       * real consequence of a real request and is said in the plan. Deleting it
+       * is not.
+       */
+      const before = standing.filter((row) => row.fixture_id !== null)
+      const pieces = new Set(world.furniture.map((row) => row.fixture_id))
+      const areas = new Set(world.furniture.map((row) => row.area_id).filter((id) => id !== null))
+      const lostPieces = [...new Set(before
+        .filter((row) => !pieces.has(row.fixture_id))
+        .map((row) => row.fixture_name || `piece ${row.fixture_id}`))]
+      const lostAreas = before.filter((row) => row.area_id !== null && !areas.has(row.area_id))
+
       return {
         parts: [
           ['no non-fiction left on bookcase 4', stillOnFour.length === 0,
@@ -113,6 +139,12 @@ export const TASKS = [
             `${onThree.length} of ${nonFiction.length} on bookcase 3`],
           ['nothing is still waiting to be carried', waiting.length === 0,
             `${waiting.length} outstanding move(s)`],
+          ['no piece of furniture was destroyed on the way', lostPieces.length === 0,
+            lostPieces.length ? `lost ${lostPieces.join(', ')}` : `${pieces.size} piece(s) still standing`],
+          ['no shelf and no name written on one was destroyed', lostAreas.length === 0,
+            lostAreas.length
+              ? `lost ${lostAreas.map((row) => row.area_name || `area ${row.area_id}`).join(', ')}`
+              : `${areas.size} area row(s) still there`],
         ],
       }
     },
@@ -125,9 +157,16 @@ export function taskById(id) {
   return task
 }
 
-/** Run a task's check and fold its parts into one answer. */
-export function judge(task, world, baseline) {
-  const { parts } = task.check(world, baseline)
+/**
+ * Run a task's check and fold its parts into one answer.
+ *
+ * `standing` is the furniture as it was when the task began, which is a
+ * different question from `baseline` and cannot be got from it: the baseline is
+ * the seeded world, and what tasks two and three have to be judged against is
+ * what the person had after task one. See task 3, and #391.
+ */
+export function judge(task, world, baseline, standing = []) {
+  const { parts } = task.check(world, baseline, standing)
   return {
     id: task.id,
     goal: task.goal,

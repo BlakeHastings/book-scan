@@ -132,6 +132,7 @@ const plan = (over: Partial<RuleChangePlan> = {}): RuleChangePlan => ({
   unclaimed: [],
   holds: 'Anything tagged Poetry',
   names: ['Poetry'],
+  already: 1,
   claiming: 41,
   opens: false,
   losing: [],
@@ -202,6 +203,31 @@ describe('what a change comes to', () => {
 
   it('says nothing where there is nothing to add to the counts', () => {
     expect(noteOf(plan())).toBe('')
+  })
+
+  /**
+   * #391's second half. A rule nothing carries and no rule at all were given the
+   * same sentence, so somebody who opened the editor on a plank that files by
+   * overflow, added nothing and asked what would move read "No book in the
+   * collection carries all of these" about lines that did not exist. Writing it
+   * down then answered "Nothing changed about where the books belong", which was
+   * true, and read as their work being lost.
+   */
+  it('tells a draft that is not a change from a rule that claims nothing', () => {
+    const said = noteOf(plan({ names: [], already: 0, claiming: 0 }))
+
+    expect(said).toMatch(/no rule here to write/)
+    expect(said).toMatch(/writing it down would change nothing/)
+    expect(said).not.toMatch(/carries all of these/)
+  })
+
+  /** The other empty draft, which is taking the last rule off and is a change. */
+  it('says what taking the last rule off a place does', () => {
+    const said = noteOf(plan({ names: [], already: 1, claiming: 0 }))
+
+    expect(said).toMatch(/Nothing would file here by rule any more/)
+    expect(said).toMatch(/overflows from the area before it/)
+    expect(said).not.toMatch(/no rule here to write/)
   })
 
   /**

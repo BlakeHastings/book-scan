@@ -206,8 +206,22 @@ switch (command) {
     run.task = task.id
     run.step = 0
     writeCurrent(run)
+
+    /*
+     * The furniture as it stands when the task begins, recorded so the check at
+     * the end can ask whether any of it is gone.
+     *
+     * `baseline.json` cannot answer that: it is the world the seed built, and
+     * what the second and third tasks have to be judged against is what the
+     * person had **after the first one**. #391 is why it is here. Applying a
+     * move in task 3 deleted the bookcase task 1 put up, and the check passed,
+     * because every part of it was about books and the furniture nobody carried
+     * anything to was nobody's number.
+     */
+    const standing = (await (await import('./lib/world.mjs')).worldState(run.connection)).furniture
+
     append(run, {
-      step: 0, task: task.id, action: 'task-start', text: task.goal,
+      step: 0, task: task.id, action: 'task-start', text: task.goal, standing,
       startedAt: Date.now(), endedAt: Date.now(),
     })
     console.log(`[ux] task ${task.id}: ${task.goal}`)
@@ -341,7 +355,12 @@ switch (command) {
 
     const world = await (await import('./lib/world.mjs')).worldState(run.connection)
     const baseline = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : { furniture: [] }
-    const verdict = judge(task, world, baseline)
+    // What was standing when this task began, off its own task-start entry. An
+    // older log has none, and an empty list makes the check say nothing rather
+    // than fail a run it cannot judge.
+    const standing = readLog(run)
+      .find((entry) => entry.task === run.task && entry.action === 'task-start')?.standing ?? []
+    const verdict = judge(task, world, baseline, standing)
 
     const record = {
       step: run.step + 1, task: run.task, action: 'task-end',
