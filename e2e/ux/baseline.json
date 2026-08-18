@@ -17,29 +17,29 @@
       "fixture_name": "",
       "fixture_position": 1,
       "kind": "bookshelf",
-      "area_id": 21,
+      "area_id": 3,
       "area_position": 1,
       "area_name": "",
       "starts_at": "LE GUIN URSULA K\u001f1\u001f\u001f000000.000\u001fLEFT HAND OF DARKNESS",
       "books": "2"
     },
     {
-      "fixture_id": 7,
+      "fixture_id": 3,
       "fixture_name": "",
       "fixture_position": 2,
       "kind": "bookshelf",
-      "area_id": 22,
+      "area_id": 4,
       "area_position": 0,
       "area_name": "",
       "starts_at": "STEPHENSON NEAL\u001f1\u001f\u001f000000.000\u001fSNOW CRASH",
       "books": "5"
     },
     {
-      "fixture_id": 7,
+      "fixture_id": 3,
       "fixture_name": "",
       "fixture_position": 2,
       "kind": "bookshelf",
-      "area_id": 23,
+      "area_id": 5,
       "area_position": 1,
       "area_name": "",
       "starts_at": "村上春樹\u001f1\u001f\u001f000000.000\u001fNORWEGIAN WOOD",
@@ -61,7 +61,7 @@
       "fixture_name": "",
       "fixture_position": 4,
       "kind": "bookshelf",
-      "area_id": 24,
+      "area_id": 6,
       "area_position": 1,
       "area_name": "",
       "starts_at": "HARARI YUVAL NOAH\u001f1\u001f\u001f000000.000\u001fSAPIENS",
@@ -72,7 +72,7 @@
       "fixture_name": "",
       "fixture_position": 4,
       "kind": "bookshelf",
-      "area_id": 25,
+      "area_id": 7,
       "area_position": 2,
       "area_name": "",
       "starts_at": "SAGAN CARL\u001f1\u001f\u001f000000.000\u001fDEMON HAUNTED WORLD",
@@ -100,5 +100,5 @@
     }
   ],
   "books": 27,
-  "fingerprint": "fc271f7497e6a38a361098a84556853b/863a2aa69bdb7d9daee2e4fa111e8c89/a95442a14b253396697c86fccfd7176b/34/6268b591b1a104c185f6c678849b851d/13dd699e50f572e95a06ab479345585e/48e87a76b1bfc1777d772671d9b14084/0"
+  "fingerprint": "a563909878ee0ae1f7291c372927db72/7a00b58b8e5b923a732d92891e749492/492bb162b59bc3cf819d7276e45d170e/34/6268b591b1a104c185f6c678849b851d/13dd699e50f572e95a06ab479345585e/48e87a76b1bfc1777d772671d9b14084/0"
 }
