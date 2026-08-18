@@ -37,6 +37,7 @@ import { Card, Confirmation } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Phone } from '../design/Phone'
 import { ShelveView } from '../components/ShelveView'
+import { Trouble } from '../components/RoomFrame'
 import { PlacementView } from '../components/ShelfStrip'
 import { rangeOfSlug } from '../../domain/tagging/genre'
 import { filingName } from '../../shared/shelving'
@@ -67,7 +68,7 @@ interface Shelved {
 
 export function ShelveScreen() {
   const { setRoute } = useNavigation()
-  const { error, setError } = useErrorBanner()
+  const { error } = useErrorBanner()
   const { leaveFor, returnToOrigin } = useLeaving()
   const {
     draft, bookId, saving, placement, placementStale, refreshPlacement,
@@ -198,7 +199,7 @@ export function ShelveScreen() {
         onTab={(name) => tabs[name]()}
         top={<TopBar title="Where it goes" sub={title} onBack={() => setRoute('review')} />}
       >
-        {error && <div className="warn" onClick={() => setError('')}>{error}</div>}
+        <Trouble said={error} />
 
         <ShelveView
           placement={placement}

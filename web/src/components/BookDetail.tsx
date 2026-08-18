@@ -13,6 +13,7 @@ import { grouped } from '../lib/say'
 import { SLOT_SHORT, type Slot } from '../lib/scanner'
 import { BookFields } from './BookFields'
 import { IsbnPrompt } from './IsbnPrompt'
+import { Trouble } from './RoomFrame'
 import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 interface Props {
@@ -53,10 +54,10 @@ interface Props {
    *
    * On the screen rather than in the app's header, which is where they were
    * until this screen stopped wearing one (#387). The same pair `CaptureReview`
-   * takes, drawn the same way and dismissed by a tap.
+   * takes, and drawn the same way: a refusal is a card with a way to put it
+   * away, and a notice is one quiet line that the next thing you do replaces.
    */
   notice?: string
-  onDismissNotice?: () => void
   error?: string
   onDismissError?: () => void
   /** Null while the book is on a shelf, a timestamp while it is off one. */
@@ -186,7 +187,7 @@ export function BookDetail({
   relookupBusy, relookupError, saved,
   onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
   onDelete, deleting = false, doneLabel = 'Done', placement,
-  tabs, notice = '', onDismissNotice, error = '', onDismissError,
+  tabs, notice = '', error = '', onDismissError,
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
   boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
   misfile = null,
@@ -371,10 +372,16 @@ export function BookDetail({
           />
         ) : undefined}
       >
-        {error && <div className="warn" onClick={onDismissError}>{error}</div>}
-        {notice && (
-          <div className="warn warn--soft" onClick={onDismissNotice}>{notice}</div>
-        )}
+        {/*
+          What went wrong and what just happened, which are two different
+          things and stay two (#387). A refusal is a card somebody has to read
+          and it says so in its own head; a notice is one quiet line, which is
+          what `Said` is for. They looked nearly alike when both were painted
+          out of the app's own palette, and that was the thing worth taking
+          off, not the difference between them.
+        */}
+        <Trouble said={error} onDismiss={onDismissError} />
+        {notice && <Said>{notice}</Said>}
 
         {/* Stated plainly and near the top: everything below, the drawing
             especially, means something different for a book in a pile.
@@ -446,11 +453,14 @@ export function BookDetail({
             {/* Surfaced here rather than only in the prompt, because a failure
                 arrives after the prompt has already closed: the user is back
                 on this view by the time the answer comes in. Tap to dismiss. */}
-            {!relookupBusy && relookupError && (
-              <div className="warn" onClick={onClearRelookupError}>
-                Could not look that up: {relookupError.replace(/\.?$/, '')}. The
-                digits you typed are still saved; tap to dismiss and try again.
-              </div>
+            {!relookupBusy && (
+              <Trouble
+                said={relookupError
+                  ? `Could not look that up: ${relookupError.replace(/\.?$/, '')}.`
+                    + ' The digits you typed are still saved.'
+                  : ''}
+                onDismiss={onClearRelookupError}
+              />
             )}
 
             {/*

@@ -14,12 +14,13 @@ import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
 import {
   couldBeReadAgain, FAILURE_LABEL, failureOf,
 } from '../../shared/captureFailure'
-import { Nothing } from '../design/Card'
+import { Nothing, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Segmented } from '../design/Controls'
-import { Filter } from '../design/Finding'
+import { Filter, SearchField } from '../design/Finding'
 import { Phone } from '../design/Phone'
 import { Queued } from '../design/Queue'
+import { Trouble } from './RoomFrame'
 
 /**
  * The state a waiting book is in, as one word on one pill.
@@ -168,7 +169,7 @@ interface RowProps {
   onOpen: (capture: Capture) => void
   onUndo: (id: number) => void
   gesture: RowGesture
-  registerRow: (id: number, element: HTMLLIElement | null) => void
+  registerRow: (id: number, element: HTMLDivElement | null) => void
 }
 
 /** How many photographs go with a capture, which is what a discard destroys. */
@@ -212,8 +213,9 @@ export function QueueRow({
   const shelvable = canShelve(capture)
 
   return (
-    <li
+    <div
       ref={(el) => registerRow(capture.id, el)}
+      role="listitem"
       className={
         `queue__row queue__row--${capture.status}${held ? ' queue__row--going' : ''}`
       }
@@ -230,12 +232,12 @@ export function QueueRow({
             Discarding <strong>{name.text}</strong> and its {photoCount(capture)} photo
             {photoCount(capture) === 1 ? '' : 's'}. Nothing has been deleted yet.
           </span>
-          <button
-            className="btn btn--primary queue__undo-btn"
-            onClick={() => onUndo(capture.id)}
-          >
+          {/* The design system's button, which is what every other way back in
+              the app is. It is the primary thing here because taking a discard
+              back is the only thing this row is for while the window is open. */}
+          <Button tone="primary" onPress={() => onUndo(capture.id)}>
             Undo
-          </button>
+          </Button>
           <span
             className="queue__undo-bar"
             style={{ animationDuration: `${UNDO_WINDOW_MS}ms` }}
@@ -251,7 +253,15 @@ export function QueueRow({
           <div className="queue__slide" {...gesture}>
             <button
               type="button"
-              className="queue__open"
+              /*
+               * `wf-qrow` is the card a waiting book sits on, which the
+               * gallery draws and which this screen used to redraw. What is
+               * left beside it is the swipe: `queue__open` is the row being
+               * unavailable while its photographs are still being read, and
+               * the two wrappers outside carry the clip, the reveal and the
+               * slide. `library.css` says the same from the other end.
+               */
+              className="queue__open wf-qrow"
               /*
                * `aria-disabled` rather than `disabled`. A disabled button
                * swallows pointer events in every browser this runs on, and
@@ -288,7 +298,7 @@ export function QueueRow({
           </div>
         </>
       )}
-    </li>
+    </div>
   )
 }
 
@@ -317,7 +327,7 @@ export function QueuePane({
   const [held, setHeld] = useState<number[]>([])
   /** True while the stuck books are being sent back through the reader. */
   const [rereading, setRereading] = useState(false)
-  const rows = useRef(new Map<number, HTMLLIElement>())
+  const rows = useRef(new Map<number, HTMLDivElement>())
   // A fresh mount every time the pane is shown (App only renders it while
   // mode === 'queue'), so this only needs to fire once per visit.
   const restored = useRef(false)
@@ -554,7 +564,7 @@ export function QueuePane({
     void open(capture)
   }
 
-  const registerRow = useCallback((id: number, element: HTMLLIElement | null) => {
+  const registerRow = useCallback((id: number, element: HTMLDivElement | null) => {
     if (element) rows.current.set(id, element)
     else rows.current.delete(id)
   }, [])
@@ -677,39 +687,36 @@ export function QueuePane({
         book; a row draws the book now, spine standing against the front, so
         both of its answers produce the same picture. The row itself is the same
         component the library wears and is otherwise untouched.
+
+        **And the box in front of it is the design system's too** (#387), which
+        is the same `SearchField` the find screen and the tag panel type into
+        and the same one `#/design/queue` draws with this screen's own
+        placeholder. It was the app's box wearing the design system's tokens: a
+        second field that agreed with the drawing until one of them was edited.
+
+        **The Clear button went with it, and it is not lost.** The design
+        system keeps the browser's own clear affordance and takes it down to
+        the ink around it rather than hiding it, which is the whole of
+        `.wf-search__input::-webkit-search-cancel-button`; and this screen
+        already had a second way out, which is "Show the whole queue" below,
+        offered at the exact moment a search stops matching anything. Two
+        controls that do one thing is the fault the row itself was built to
+        end.
       */}
       <div className="queue__tools">
         <Filter>
-          <div className="queue__search">
-            <input
-              type="search"
-              className="queue__search-input"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by title or author"
-              aria-label="Search the queue by title or author"
-              autoComplete="off"
-            />
-            {/* Spelled out rather than left to the keyboard's own clear button,
-                which is not there on every phone and is not there at all once
-                the keyboard is dismissed. */}
-            {searching && (
-              <button
-                type="button"
-                className="queue__search-clear"
-                onClick={() => setQuery('')}
-                aria-label="Clear the search"
-              >
-                Clear
-              </button>
-            )}
-          </div>
+          <SearchField
+            typed={query}
+            onType={setQuery}
+            placeholder="Search by title or author"
+            label="Search the queue by title or author"
+          />
         </Filter>
       </div>
 
-      {error && <div className="warn" onClick={() => setError('')}>{error}</div>}
-      {notice && <p className="hint" onClick={() => setNotice('')}>{notice}</p>}
-      {loading && <p className="hint">Loading...</p>}
+      <Trouble said={error} />
+      {notice && <Said>{notice}</Said>}
+      {loading && <Said>Loading...</Said>}
 
       {!loading && captures.length === 0 && (
         <>
@@ -721,28 +728,39 @@ export function QueuePane({
       )}
 
       {!loading && captures.length > 0 && searching && (
-        <p className="hint">
-          {visible.length} of {captures.length} shown.
-          {visible.length === 0 && ' Nothing here matches that. '}
+        <>
+          <Said>
+            {visible.length} of {captures.length} shown.
+            {visible.length === 0 && ' Nothing here matches that.'}
+          </Said>
+          {/*
+            The way back to the whole queue, which was a word underlined inside
+            that sentence. It is the quiet button now, which is what this design
+            system does with a word that is really a control: the same 44px the
+            rest of the app is built to, on the screen most likely to be used
+            one-handed with a book in the other.
+          */}
           {visible.length === 0 && (
-            <button type="button" className="linkish" onClick={() => setQuery('')}>
+            <Button tone="quiet" onPress={() => setQuery('')}>
               Show the whole queue
-            </button>
+            </Button>
           )}
-        </p>
+        </>
       )}
 
       {!loading && captures.length > 0 && !searching && visible.length === 0 && (
-        <p className="hint">Nothing in the queue is in that state.</p>
+        <Said>Nothing in the queue is in that state.</Said>
       )}
 
       {!loading && visible.length > 0 && !searching && (
-        <p className="hint queue__howto">
-          Tap a book to shelve it. Slide one left to discard it.
-        </p>
+        <Said>Tap a book to shelve it. Slide one left to discard it.</Said>
       )}
 
-      <ul className="queue">
+      {/* The gallery's own list of waiting books, called rather than rebuilt.
+          A list of divs rather than a `ul`, which is what the drawing is and
+          what stops a second set of rules existing to undo a `ul`'s bullets
+          and indent. */}
+      <div className="wf-qlist" role="list" aria-label="Books on the table">
         {visible.map((capture) => (
           <QueueRow
             key={capture.id}
@@ -754,7 +772,7 @@ export function QueuePane({
             registerRow={registerRow}
           />
         ))}
-      </ul>
+      </div>
       </Phone>
     </div>
   )

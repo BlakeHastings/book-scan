@@ -28,6 +28,8 @@ export function Row({
   place,
   meta,
   onward = true,
+  off = false,
+  label,
   onPress,
 }: {
   title: string
@@ -42,13 +44,38 @@ export function Row({
   photo?: string
   /** Where it lives: `2C`. Tabular, so a column of them lines up. */
   place?: string
-  /** A word instead of a place: "Checked out", "Needs an ISBN". */
-  meta?: string
+  /**
+   * A word instead of a place: "Checked out", "Needs an ISBN".
+   *
+   * More than one where a row genuinely has more than one thing to say at its
+   * end, which is why this takes nodes rather than a string. The rule was
+   * already a stacking grid ending at the right margin, because a place and a
+   * word have always been able to appear together; the shortlist a cover match
+   * produces is the first caller with three, and the alternative was folding
+   * them into `sub`, which is one line and ellipsised.
+   */
+  meta?: ReactNode
   onward?: boolean
+  /**
+   * Drawn, and not pressable yet. The same word `Button` and `Choice` use for
+   * the same thing, faded the same amount: a row that is present and
+   * unchoosable is not the same as one that is absent, and a list that empties
+   * itself while somebody is reading it is worse than one that dims.
+   */
+  off?: boolean
+  /** What the row says for anybody who cannot see it, where the words on it are not enough. */
+  label?: string
   onPress?: () => void
 }) {
   return (
-    <button type="button" className="wf-row" role="listitem" onClick={onPress}>
+    <button
+      type="button"
+      className="wf-row"
+      role="listitem"
+      disabled={off}
+      aria-label={label}
+      onClick={onPress}
+    >
       <span className={`wf-row__thumb wf-spine--${cloth ?? 'wood'}`} aria-hidden="true">
         {photo && <img className="wf-row__photo" src={photo} alt="" loading="lazy" decoding="async" />}
       </span>
@@ -58,7 +85,10 @@ export function Row({
       </span>
       <span className="wf-row__meta">
         {place && <span className="wf-row__place">{place}</span>}
-        {meta && <span>{meta}</span>}
+        {/* A word arrives as a word and is boxed here, the way it always was.
+            Anything else is already the spans it wants to be, and wrapping
+            them would make three lines one. */}
+        {typeof meta === 'string' ? <span>{meta}</span> : meta}
         {onward && !place && !meta && <IconOnward size={18} />}
       </span>
     </button>

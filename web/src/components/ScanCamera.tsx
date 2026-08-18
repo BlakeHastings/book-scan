@@ -3,6 +3,9 @@ import { api, type Capture, type CoverMatch, type QueueMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { QueuedAlready } from './QueuedAlready'
 import { confidenceLine, confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
+import { Card, Said } from '../design/Card'
+import { Button } from '../design/Controls'
+import { List, Row } from '../design/List'
 import { Viewfinder, type Hand } from '../design/Camera'
 import { rememberedHand } from '../lib/hand'
 import {
@@ -304,63 +307,106 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
               disabled={reading}
             />
 
+            {/*
+              The shortlist a cover match produces, which the gallery does not
+              draw (#387).
+
+              No wireframe screen has an answer floating over a live picture,
+              so where this sits is still the app's, exactly as `QueuedAlready`
+              beside it is: `.isbncam__choices` is an offset and a height and
+              nothing else now, and `Viewfinder`'s `over` slot exists to be
+              handed panels like this one. Everything inside it is the design
+              system's, and it is deliberately the same arrangement the queued
+              panel wears, because the two answer the same question from
+              opposite ends and a person meets them in the same place.
+
+              What went with the old paint is the sticky head. The frame stays
+              at the top of the panel rather than pinned inside a scrolling
+              list, which is what the panel next to it already does, and one
+              arrangement drawn twice is the whole reason either of them is a
+              `Card`.
+            */}
             {choices.length > 0 && (
               <div className="isbncam__choices">
-                {/* Stays put while the list scrolls, so every candidate can be
-                    held against the same picture rather than against a
-                    recollection. */}
-                <div className="choices__head">
+                <Card
+                  title="Which of these is it?"
+                  kind="Closest first"
+                  foot={
+                    /* The way past the answer, in the place the panel beside
+                       this one puts its own. A shortlist with no way out of it
+                       is a shortlist somebody escapes by photographing the book
+                       again. */
+                    <Button tone="quiet" block onPress={clearChoices}>
+                      None of these
+                    </Button>
+                  }
+                >
+                  {/* The frame every candidate is held against, kept above
+                      them: comparing against the viewfinder means comparing
+                      against a memory, because the panel covers the picture. */}
                   {shot
-                    ? <img className="choices__shot" src={shot} alt="The shot these are answering" />
-                    : <span className="choice__nocover">your shot</span>}
-                  <span className="choice__text">
-                    <span className="choice__title">Your shot</span>
-                    <span className="choice__author">
-                      Closest first. Tapping one opens it, nothing more.
-                    </span>
-                  </span>
-                </div>
+                    ? <img className="queued__shot" src={shot} alt="The shot these are answering" />
+                    : <span className="queued__shot queued__shot--waiting">your shot</span>}
+                  {/*
+                    Said once, above the list, rather than on every row that
+                    needs it. Each row ends in a word, which is what a row's
+                    end is for; the sentence explaining what one of those words
+                    means is a sentence, and thirty characters of it at the end
+                    of a row pushed the title into an ellipsis. Found by
+                    looking at it.
+                  */}
+                  <Said>
+                    Tapping one opens it, nothing more. A cover marked
+                    &quot;catalogue image&quot; is the publisher&apos;s, not your photograph,
+                    so an unfamiliar design may be a different printing.
+                  </Said>
 
-                {choices.map((match) => {
-                  // Word, weight and percentage together. The word and colour
-                  // carry the band at a glance; the percentage is scaled so
-                  // chance itself reads as 0%, so it is honest rather than
-                  // merely decorative.
-                  const confidence = matchConfidence(match.distance)
-                  return (
-                    <button
-                      key={match.id}
-                      className={`choice choice--${confidence.strength}`}
-                      onClick={() => onIdentified(match.id)}
-                      disabled={reading}
-                      aria-label={`${match.title} by ${match.authorFiling}, ${confidenceLine(confidence)}`}
-                    >
-                      {match.cover
-                        ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
-                        : <span className="choice__nocover">no photo</span>}
-                      <span className="choice__text">
-                        <span className="choice__title">{match.title}</span>
-                        <span className="choice__author">{match.authorFiling}</span>
-                        <span className={`choice__confidence choice__confidence--${confidence.strength}`}>
-                          {confidence.label}
-                          {confidence.percent !== null && (
-                            <span className="choice__percent"> · {confidence.percent}%</span>
-                          )}
-                        </span>
-                        {/* Said out loud, so an unfamiliar cover design reads
-                            as a different printing rather than as a wrong
-                            match. */}
-                        {match.fromCatalogue && (
-                          <span className="choice__note">catalogue image, not your photo</span>
-                        )}
-                        {match.checkedOut && <span className="choice__state">already off the bookcase</span>}
-                      </span>
-                    </button>
-                  )
-                })}
-                <button className="btn btn--ghost" onClick={clearChoices}>
-                  None of these
-                </button>
+                  <List label="Books this could be">
+                    {choices.map((match) => {
+                      // Word and percentage together. The word carries the band
+                      // at a glance; the percentage is scaled so chance itself
+                      // reads as 0%, so it is honest rather than decorative.
+                      //
+                      // The band was a colour as well as a word, and the word
+                      // is what is left. Nothing in the design system is told
+                      // by a tint alone, and a shortlist ordered closest first
+                      // already says which end is which by where a row sits.
+                      const confidence = matchConfidence(match.distance)
+                      return (
+                        <Row
+                          key={match.id}
+                          title={match.title}
+                          sub={match.authorFiling}
+                          photo={match.cover ? coverUrl(match.cover) : undefined}
+                          onward={false}
+                          off={reading}
+                          /* The label stands in for everything on the row for
+                             anybody who cannot see it, so the two marks at the
+                             end are in it. They were not before, and a label
+                             that is short of what the row says is a row that
+                             says two different things. */
+                          label={[
+                            `${match.title} by ${match.authorFiling}`,
+                            confidenceLine(confidence),
+                            match.fromCatalogue ? 'catalogue image' : '',
+                            match.checkedOut ? 'checked out' : '',
+                          ].filter(Boolean).join(', ')}
+                          meta={
+                            <>
+                              <span>{confidenceLine(confidence)}</span>
+                              {/* Marked, so an unfamiliar cover design reads as
+                                  a different printing rather than as a wrong
+                                  match. What that means is said once above. */}
+                              {match.fromCatalogue && <span>catalogue image</span>}
+                              {match.checkedOut && <span>checked out</span>}
+                            </>
+                          }
+                          onPress={() => onIdentified(match.id)}
+                        />
+                      )
+                    })}
+                  </List>
+                </Card>
               </div>
             )}
           </>

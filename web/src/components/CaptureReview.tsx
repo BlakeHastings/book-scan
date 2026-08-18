@@ -74,6 +74,7 @@ import { AddTag, Tag, Tags } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Shots, threeSlots, type Shot } from '../design/Shots'
 import { IsbnPrompt } from './IsbnPrompt'
+import { Trouble } from './RoomFrame'
 import { TagNaming } from './TagNaming'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import type { AppliedTag, Draft, LookupResponse, TagRow } from '../lib/api'
@@ -101,7 +102,6 @@ interface Props {
   captureNote: string
   /** What the last thing that happened actually did, in its own words. */
   notice: string
-  onDismissNotice: () => void
   error: string
   onDismissError: () => void
   onChange: (patch: Partial<Draft>) => void
@@ -160,7 +160,7 @@ const READ_FROM: Record<string, string> = {
 
 export function CaptureReview({
   draft, lookup, photos, derivedFiling, saving, relookupBusy, relookupError,
-  catalogueCover, coverText, captureNote, notice, onDismissNotice, error,
+  catalogueCover, coverText, captureNote, notice, error,
   onDismissError, onChange, onRelookup, onClearRelookupError, onRetake,
   onShelve, onLeave, tabs,
   tags, vocabulary, taggingBusy, taggingError, onAddTag, onRemoveTag, canTag,
@@ -247,26 +247,30 @@ export function CaptureReview({
           />
         ) : undefined}
       >
-        {error && (
-          <div className="warn" onClick={onDismissError}>{error}</div>
-        )}
-        {notice && (
-          <div className="warn warn--soft" onClick={onDismissNotice}>{notice}</div>
-        )}
+        {/* A refusal and a note about what just happened, drawn as the two
+            different things they are. See `BookDetail`, which says the same. */}
+        <Trouble said={error} onDismiss={onDismissError} />
+        {notice && <Said>{notice}</Said>}
 
         {/* The photographs first, because the first thing somebody wants to
             know is whether they came out. */}
         <Shots {...slots} act size="big" />
 
+        {/* The same two the edit screen draws, out of the same components, so
+            one book cannot be told two different things about its own lookup
+            depending on which door it came through. */}
         {lookup?.duplicateOf && (
-          <div className="warn">
-            Already catalogued as #{lookup.duplicateOf.id} ({lookup.duplicateOf.title})
-            {lookup.duplicateOf.location ? ` at ${lookup.duplicateOf.location}` : ''}.
-            Saving adds a second copy.
-          </div>
+          <Card
+            weight="quiet"
+            kind="Saving adds a second copy"
+            title={
+              `Already catalogued as #${lookup.duplicateOf.id} (${lookup.duplicateOf.title})`
+              + `${lookup.duplicateOf.location ? ` at ${lookup.duplicateOf.location}` : ''}.`
+            }
+          />
         )}
         {lookup?.notes.map((note) => (
-          <div className="warn warn--soft" key={note}>{note}</div>
+          <Said key={note}>{note}</Said>
         ))}
 
         {draft.title ? (
@@ -306,11 +310,14 @@ export function CaptureReview({
           }}
         />
 
-        {!relookupBusy && relookupError && (
-          <div className="warn" onClick={onClearRelookupError}>
-            Could not look that up: {relookupError.replace(/\.?$/, '')}. The
-            digits you typed are still saved; tap to dismiss and try again.
-          </div>
+        {!relookupBusy && (
+          <Trouble
+            said={relookupError
+              ? `Could not look that up: ${relookupError.replace(/\.?$/, '')}.`
+                + ' The digits you typed are still saved.'
+              : ''}
+            onDismiss={onClearRelookupError}
+          />
         )}
 
         <Field
@@ -474,28 +481,45 @@ export function CaptureEvidence({ coverText = '', note = '' }: {
   if (!lines.length && !note) return null
 
   return (
-    <section className="evidence">
-      {note && (
-        <p className="evidence__note">
-          <span className="evidence__label">Note</span>
-          {note}
-        </p>
-      )}
+    /*
+     * A well on the page, which is what the design system does with something
+     * quoted rather than stated, and it is a `Card` in that weight now (#387).
+     * The rules that painted it by hand were already reading the design
+     * tokens, so what this changes is where they live rather than what they
+     * say: same sunk paper, same quiet labels, same monospaced quotation.
+     *
+     * The labels are `Field`'s label, which is the small quiet word this
+     * design system puts above a value. Nothing here is a field, and that is
+     * the point of the well around it: a label over a well says where a line
+     * came from, and a label over a box says what to type in it.
+     */
+    <div className="evidence">
+      <Card weight="sunk">
+        {note && (
+          <div className="evidence__part">
+            <span className="wf-field__label">Note</span>
+            <p>{note}</p>
+          </div>
+        )}
 
-      {lines.length > 0 && (
-        <div className="evidence__cover">
-          <span className="evidence__label">The cover photo reads</span>
-          <ul className="evidence__lines">
-            {lines.map((line, index) => (
-              <li key={`${index}-${line}`}>{line}</li>
-            ))}
-          </ul>
-          <p className="evidence__caveat">
-            Read off the photograph by a machine, and often wrong. Nothing here
-            has been filled in for you: type what the book itself says.
-          </p>
-        </div>
-      )}
-    </section>
+        {lines.length > 0 && (
+          <div className="evidence__part">
+            <span className="wf-field__label">The cover photo reads</span>
+            <ul className="evidence__lines">
+              {lines.map((line, index) => (
+                <li key={`${index}-${line}`}>{line}</li>
+              ))}
+            </ul>
+            {/* Under the quotation rather than over it, and quiet, because it
+                is the app talking about the machine's reading rather than more
+                of the reading. */}
+            <Said>
+              Read off the photograph by a machine, and often wrong. Nothing here
+              has been filled in for you: type what the book itself says.
+            </Said>
+          </div>
+        )}
+      </Card>
+    </div>
   )
 }

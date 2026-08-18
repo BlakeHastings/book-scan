@@ -30,6 +30,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { ShelveView } from '../components/ShelveView'
+import { Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
 import { Phone } from '../design/Phone'
@@ -149,11 +150,11 @@ export function CarryingScreen() {
             one a newly scanned book gets, and it is added around that screen
             rather than inside it: a heading or a count added *to* it is how the
             two would quietly become two screens. */}
-        <p className="hint">
+        <Said>
           {left === 1
             ? `Last of ${words(books.length)} in your hands.`
             : `${said(left)} of ${words(books.length)} still in your hands.`}
-        </p>
+        </Said>
 
         <ShelveView
           placement={placement}

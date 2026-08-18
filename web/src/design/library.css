@@ -704,6 +704,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-row:first-child { border-top: 0; }
 .wf-row:active { background: var(--paper-sunk); }
+/* Present and not pressable yet, faded exactly as much as a button in the same
+   state. Same word, same amount, so the two do not have to be told apart. */
+.wf-row:disabled { opacity: 0.45; }
+.wf-row:disabled:active { background: none; }
 
 .wf-row__thumb {
   width: 34px;

@@ -107,6 +107,29 @@ function find(
   return find(props.children, className)
 }
 
+/**
+ * Find a control by the word on it rather than by a class.
+ *
+ * The undo is `Button` out of the design system since #387, and a component
+ * carries no class of its own for the walker above to catch. The word is the
+ * better hold anyway: what this test is really about is that the way back says
+ * "Undo" and takes the discard back when it is pressed.
+ */
+function pressed(node: unknown, word: string): (Record<string, unknown>) | null {
+  if (!node || typeof node !== 'object') return null
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = pressed(child, word)
+      if (found) return found
+    }
+    return null
+  }
+  const element = node as ReactElement & { props?: Record<string, unknown> }
+  const props = element.props ?? {}
+  if (props.children === word && typeof props.onPress === 'function') return props
+  return pressed(props.children, word)
+}
+
 describe('canShelve', () => {
   it('says no while the photographs are still being read', () => {
     expect(canShelve(capture({ status: 'pending' }))).toBe(false)
@@ -565,7 +588,12 @@ describe('the controls above the books', () => {
   it('wears the row the library wears, led by its own search box', () => {
     expect(PANE, 'the queue draws a row of its own again').toMatch(/<Filter\b/)
     expect(PANE).toMatch(/from '\.\.\/design\/Finding'/)
-    expect(PANE, 'the row lost the box that narrows the list').toMatch(/queue__search-input/)
+    /* The box itself is the design system's since #387, which is the same
+       `SearchField` the gallery leads this row with. A box built here again is
+       a second field that agrees with the drawing until one is edited. */
+    expect(PANE, 'the row lost the box that narrows the list').toMatch(/<SearchField\b/)
+    expect(PANE, 'the queue built its own search box again')
+      .not.toMatch(/queue__search-input/)
   })
 
   it('keeps one segmented control, and it is the one that chooses which books', () => {
@@ -650,8 +678,8 @@ describe('a discard that has not happened yet', () => {
 
   it('takes the discard back when the way back is taken', () => {
     const { undone, tree } = row({}, true)
-    const undo = find(tree, 'queue__undo-btn')
-    ;(undo?.onClick as (() => void) | undefined)?.()
+    const undo = pressed(tree, 'Undo')
+    ;(undo?.onPress as (() => void) | undefined)?.()
     expect(undone).toEqual([3])
   })
 
