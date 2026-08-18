@@ -132,6 +132,18 @@ export type ShelfItem =
       kind: 'spine'
       /** Written down the spine, the way it is printed. */
       text: string
+      /**
+       * What this spine is called for anybody not looking at pixels.
+       *
+       * `text` where a screen has nothing better, which is every screen in the
+       * gallery: there a spine is a name in dyed cloth and the name is all
+       * there is. The app has better, and it is a different string: what is
+       * written down a spine is the filing name, and what a person is looking
+       * for is the title. A run announced as "Herbert, Frank" eleven times
+       * says which shelf you are on and never which book, which is what
+       * `spineLabel` in `lib/shelfRow.ts` was already written to say.
+       */
+      name?: string
       cloth?: Cloth
       /**
        * The one measurement the catalogue actually holds. It decides the
@@ -340,14 +352,14 @@ function Item({ item }: { item: ShelfItem }) {
       type="button"
       className={className}
       style={size}
-      title={item.text}
-      aria-label={item.text}
+      title={item.name ?? item.text}
+      aria-label={item.name ?? item.text}
       onClick={item.onPress}
     >
       {inside}
     </button>
   ) : (
-    <div className={className} style={size} title={item.text}>
+    <div className={className} style={size} title={item.name ?? item.text}>
       {inside}
     </div>
   )

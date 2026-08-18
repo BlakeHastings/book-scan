@@ -41,20 +41,6 @@ export function spineOf(book: FiledBookRow): StripBook {
   }
 }
 
-/**
- * The books physically standing in one area, left to right.
- *
- * Exactly the group the server laid out, and nothing else. A checked out book
- * is not on the shelf: the run has closed up behind it, and the person
- * standing there counting along would count what is left. Putting it back in
- * as a marker would make the drawing disagree with the room and every number
- * after it wrong. The books that are off the bookcase are listed separately,
- * above the rows, which is where something you cannot see belongs.
- */
-export function rowOf(group: ShelfGroupDto): StripBook[] {
-  return group.books.map(({ book }) => spineOf(book))
-}
-
 /** One line of the vertical list: a book, its position, and whether it is there. */
 export interface ListRow {
   book: FiledBookRow
@@ -145,21 +131,25 @@ export function coverOf(book: FiledBookRow): GridBook {
 }
 
 /**
- * What a tile is showing, said plainly.
+ * What a tile is showing, where that is not what it looks like.
  *
- * Every case except a front cover is one somebody would otherwise get wrong:
- * a spine or a back standing in reads as a badly cropped cover, and the
- * publisher's picture reads as a photograph of the book on the shelf when it
- * is a stock image of some edition of it.
+ * Every case except a front cover is one somebody would otherwise get wrong: a
+ * spine or a back standing in reads as a badly cropped cover, and the
+ * publisher's picture reads as a photograph of the book on the shelf when it is
+ * a stock image of some edition of it.
+ *
+ * **It is said in words under the tile rather than drawn on it** (#387). It was
+ * a dashed border and a corner note, and the design system's answer to a fact
+ * about a card is to say the thing in words; `CoverItem.meta` is the line those
+ * words go on, and a tile whose picture is a front cover has nothing to say and
+ * says nothing. A book nobody has photographed says nothing either: the cloth
+ * under it is already the drawing of that, on every screen in the app.
  */
-export function coverLabel(book: GridBook): string {
-  if (book.coverSlot === 'front') return `${book.title}, front cover`
-  if (book.coverSlot === 'edge') return `${book.title}, spine, no cover photo`
-  if (book.coverSlot === 'back') return `${book.title}, back cover, no front cover photo`
-  if (book.coverSlot === 'catalogue') {
-    return `${book.title}, the publisher's picture, not this copy`
-  }
-  return `${book.title}, no picture`
+export function coverNote(book: GridBook): string {
+  if (book.coverSlot === 'edge') return 'Spine, no cover photo'
+  if (book.coverSlot === 'back') return 'Back cover, no front cover photo'
+  if (book.coverSlot === 'catalogue') return "The publisher's picture, not this copy"
+  return ''
 }
 
 /** What a spine is showing, for the people who cannot see it. */

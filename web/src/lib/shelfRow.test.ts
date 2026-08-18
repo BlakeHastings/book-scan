@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  coverLabel, coverOf, listOf, missingFrom, rowOf, spineLabel, spineOf,
+  coverNote, coverOf, listOf, missingFrom, spineLabel, spineOf,
 } from './shelfRow'
 import type { CheckedOutAt, FiledBookRow, ShelfGroupDto } from './api'
 
@@ -160,47 +160,30 @@ describe('coverOf', () => {
   })
 })
 
-describe('coverLabel', () => {
-  it('names a real front cover plainly', () => {
-    expect(coverLabel(coverOf(book({ front_image: 'f.jpg' })))).toBe('Dune, front cover')
+describe('coverNote', () => {
+  it('says nothing about a real front cover, because there is nothing to say', () => {
+    expect(coverNote(coverOf(book({ front_image: 'f.jpg' })))).toBe('')
   })
 
   it('says when a spine or a back is standing in for the cover', () => {
-    expect(coverLabel(coverOf(book({ edge_image: 'e.jpg' }))))
-      .toBe('Dune, spine, no cover photo')
-    expect(coverLabel(coverOf(book({ back_image: 'b.jpg' }))))
-      .toBe('Dune, back cover, no front cover photo')
+    expect(coverNote(coverOf(book({ edge_image: 'e.jpg' }))))
+      .toBe('Spine, no cover photo')
+    expect(coverNote(coverOf(book({ back_image: 'b.jpg' }))))
+      .toBe('Back cover, no front cover photo')
   })
 
   it('says a catalogue picture is the publisher\'s and not this copy', () => {
     // The one a reader would otherwise get wrong. A stock cover sitting in a
     // grid of photographs looks like another photograph.
-    expect(coverLabel(coverOf(book({ cover_image: 'c.jpg' }))))
-      .toBe("Dune, the publisher's picture, not this copy")
+    expect(coverNote(coverOf(book({ cover_image: 'c.jpg' }))))
+      .toBe("The publisher's picture, not this copy")
   })
 
-  it('admits when there is no picture at all', () => {
-    expect(coverLabel(coverOf(book()))).toBe('Dune, no picture')
-  })
-})
-
-describe('rowOf', () => {
-  it('draws the group in the order it was laid out', () => {
-    const row = rowOf(group([
-      book({ id: 1, title: 'Amber' }),
-      book({ id: 2, title: 'Bounty' }),
-      book({ id: 3, title: 'Cider' }),
-    ]))
-    expect(row.map((s) => s.title)).toEqual(['Amber', 'Bounty', 'Cider'])
-  })
-
-  it('is exactly the books on the bookcase, since the server has already left the absent ones out', () => {
-    // The server lays out only books with no checked_out_at, so the run has
-    // already closed up behind one that is off. Adding it back as a marker
-    // would put every number after it out by one, and the numbers are what
-    // somebody counts along to find a book.
-    const row = rowOf(group([book({ id: 1 }), book({ id: 2 })]))
-    expect(row).toHaveLength(2)
+  it('says nothing about a book nobody has photographed', () => {
+    // The cloth under the tile is already the drawing of that, on every screen
+    // in the app, and a note repeating it would be one book in four shouting
+    // that a field is empty.
+    expect(coverNote(coverOf(book()))).toBe('')
   })
 })
 
