@@ -19,6 +19,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { AreaPane, type Asking, type Sorting } from './AreaPane'
+import { RESTING, type Writing } from '../app/writing'
 import type {
   AreaBook, AreaDto, AreaRemovalPlan, FixtureDto, FurnitureDto, RuleDto,
 } from '../lib/api'
@@ -30,7 +31,10 @@ const rule = (over: Partial<RuleDto> = {}): RuleDto => ({
   place: '2 · Cookery',
   placeId: 5,
   enabled: true,
-  conditions: [{ operator: 'is', tag: 'Non-fiction' }, { operator: 'under', tag: 'Cookery' }],
+  conditions: [
+    { operator: 'is', tag: 'Non-fiction' },
+    { operator: 'under', tag: 'Cookery' },
+  ],
   said: 'Anything tagged Cookery',
   range: 'nonfiction',
   ...over,
@@ -39,13 +43,13 @@ const rule = (over: Partial<RuleDto> = {}): RuleDto => ({
 const area: AreaDto = {
   id: 5, position: 2, label: '2 · Cookery', name: 'Cookery', startsAt: '',
   sortStrategy: 'inherit', ordering: 'author', selfContained: false, note: '',
-  books: 18, holds: 'Anything tagged Cookery', entry: true, rule: null,
+  books: 18, holds: 'Anything tagged Cookery', entry: true, rule: null, own: [],
 }
 
 const piece: FixtureDto = {
   id: 2, position: 2, label: '2', kind: 'bookshelf', name: '', sortStrategy: 'inherit',
   note: '', books: 63, areas: [area], sharing: [],
-  holds: 'Anything tagged Non-fiction', rule: null,
+  holds: 'Anything tagged Non-fiction', rule: null, own: [],
 }
 
 const room: FurnitureDto = {
@@ -90,6 +94,7 @@ function drawn(
   books: AreaBook[] = [],
   sorting: Sorting = { open: false, chosen: 'inherit', effect: '', busy: false },
   on: FixtureDto = piece,
+  writing: Writing = RESTING,
 ): string {
   return renderToStaticMarkup(
     <AreaPane
@@ -98,6 +103,7 @@ function drawn(
       area={{ ...area, ...over }}
       name={typed ?? over.name ?? area.name}
       books={books}
+      writing={writing}
       sorting={sorting}
       asking={asking}
       busy={false}
@@ -107,6 +113,7 @@ function drawn(
       onName={nothing}
       onSaveName={nothing}
       onChange={nothing}
+      onCarry={nothing}
       onOpenSort={nothing}
       onChooseSort={nothing}
       onSaveSort={nothing}
@@ -219,25 +226,41 @@ describe('the two rules on an area', () => {
     expect(said).not.toMatch(/See what belongs here/)
   })
 
-  it('offers the one journey that changes a rule, and no editor of its own', () => {
+  /**
+   * Two doors and they are not the same door (#384).
+   *
+   * The loud one changes what this area **allows**, which is what the owner
+   * asked for and what four earlier issues told an agent not to build. The
+   * quiet one under it moves the whole stretch of books to other furniture,
+   * which is #244's journey and is still the only thing that does that. It is
+   * named for what it does rather than for the rule it does it to, because a
+   * word carrying the rule's name grows with the name: a rule asking for two
+   * tags is called "Comic books and Fiction", and "Point Comic books and
+   * Fiction somewhere else" was two lines of button saying one thing.
+   */
+  it('offers changing what belongs here, and moving it elsewhere quietly', () => {
     const markup = drawn(null, { rule: rule() })
 
-    expect(words(markup)).toMatch(/Point Cookery somewhere else/)
-    /*
-     * One field on the page and it is the name. A second box, to type a tag or
-     * a condition into, would be the second way to change a rule that #323
-     * decided against on purpose: a rule change is what makes books need
-     * carrying, so it goes through the journey that says where they would go.
-     */
+    expect(words(markup)).toMatch(/Change what belongs here/)
+    expect(words(markup)).toMatch(/Move these books to another bookcase/)
+    // Nothing is being written, so nothing is under a thumb: one field on the
+    // page and it is the name.
     expect(markup.match(/wf-field__input/g)).toHaveLength(1)
-    expect(markup).not.toMatch(/wf-add-tag|Add another thing that must be true/)
+    expect(markup).not.toMatch(/wf-write/)
   })
 
-  it('offers nothing of the sort for a rule it cannot point anywhere', () => {
+  it('still offers to change what belongs here on a rule it cannot move', () => {
     const said = words(drawn(null, { rule: rule({ range: null }) }))
 
-    expect(said).not.toMatch(/Point Cookery somewhere else/)
+    expect(said).not.toMatch(/Move these books to another bookcase/)
     expect(said).toMatch(/is about this one area/)
+    /*
+     * The two questions came apart here. A rule this app cannot point at other
+     * furniture is still a rule whose lines are somebody's to change, and
+     * before #384 the refusal was the whole answer: an area rule got a sentence
+     * saying no and no way to do the thing they actually wanted.
+     */
+    expect(said).toMatch(/Change what belongs here/)
   })
 
   it('names both rules that reach here, the smaller place first', () => {
@@ -413,5 +436,173 @@ describe('being asked whether to remove an area', () => {
       expect(acts).toMatch(/Keep it/)
       expect(acts.indexOf('wf-btn--danger')).toBeLessThan(acts.indexOf('Keep it'))
     }
+  })
+})
+
+/**
+ * Writing the rule, which is what #384 put on this page.
+ *
+ * Drawn against a `Writing` handed in rather than driven, because there is no
+ * DOM in this project's test setup and the pane holds nothing: what it says can
+ * therefore be held to a claim. The states that matter are the ones a drawing
+ * would skip.
+ */
+describe('writing what belongs here', () => {
+  const writing = (over: Partial<Writing> = {}): Writing => ({
+    ...RESTING,
+    on: true,
+    rules: [{ id: 2, conditions: [{ operator: 'is', tag: 'subject/comic-books' }] }],
+    editing: {
+      groups: [[{ operator: 'is', tag: 'Comic books' }]],
+      choosing: null,
+    },
+    ...over,
+  })
+
+  it('draws the lines with a way to change what each one means', () => {
+    const said = words(drawn(null, { rule: rule() }, undefined, [], undefined, piece, writing()))
+
+    expect(said).toMatch(/Comic books/)
+    expect(said).toMatch(/That tag/)
+    expect(said).toMatch(/That and under it/)
+    expect(said).toMatch(/Take it off/)
+    expect(said).toMatch(/Add a tag/)
+  })
+
+  /**
+   * The one way out of the editor that leads anywhere. There is no Save: what
+   * makes a rule change safe is that somebody reads what it would do first, and
+   * a button that wrote on the spot would be the second answer to where books go
+   * that four issues in a row were about.
+   */
+  it('offers no way to save, only a way to see what would move', () => {
+    const said = words(drawn(null, { rule: rule() }, undefined, [], undefined, piece, writing()))
+
+    expect(said).toMatch(/Show me what would move/)
+    expect(said).toMatch(/Leave it as it is/)
+    expect(said).not.toMatch(/\bSave\b/)
+  })
+
+  /**
+   * A rule with nothing on it is a real state and it is where somebody halfway
+   * through swapping one tag for another is standing. It says which of the two
+   * it is, because "all of no conditions hold" is true and the interface has to
+   * be the thing that says the model does not read it that way.
+   */
+  it('says a rule with nothing on it claims nothing', () => {
+    const said = words(drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({ editing: { groups: [[]], choosing: null } }),
+    ))
+
+    expect(said).toMatch(/It asks for nothing, so it claims nothing/)
+    expect(said).toMatch(/no book files here until it does/)
+  })
+
+  /**
+   * "This tag or that tag", which is a second rule on the same place, and both
+   * halves come apart again one at a time.
+   */
+  it('draws a second rule as an alternative, each with its own way off', () => {
+    const markup = drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({
+        editing: {
+          groups: [[{ operator: 'is', tag: 'Comic books' }], [{ operator: 'is', tag: 'Poetry' }]],
+          choosing: null,
+        },
+      }),
+    )
+
+    expect(markup).toMatch(/wf-or__word/)
+    expect(words(markup)).toMatch(/Comic books/)
+    expect(words(markup)).toMatch(/Poetry/)
+    expect(markup.match(/Take this one off/g)).toHaveLength(2)
+    expect(words(markup)).toMatch(/Allow something else as well/)
+  })
+
+  /**
+   * A tag is drawn by its label and never by its identity, and this is the one
+   * screen where the identity is in the room: the draft holds slugs, because
+   * slugs are what go back. Held here as well as in the gallery, because the
+   * gallery draws a rule somebody made up and this draws one out of a draft.
+   */
+  it('draws no slug anywhere, while holding one behind every line', () => {
+    const markup = drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({
+        rules: [{ id: 2, conditions: [{ operator: 'is', tag: 'subject/comic-books' }] }],
+      }),
+    )
+
+    expect(words(markup)).not.toMatch(/[a-z][a-z0-9]*\/[a-z][a-z0-9-]*/)
+    expect(words(markup)).toMatch(/Comic books/)
+  })
+
+  it('offers the tags it has, with how many books carry each one', () => {
+    const said = words(drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({
+        editing: {
+          groups: [[]],
+          choosing: {
+            group: 0,
+            query: 'co',
+            offering: [{ tag: 'Comic books', books: 46 }, { tag: 'Cookery', books: 18 }],
+          },
+        },
+      }),
+    ))
+
+    expect(said).toMatch(/Which tag has to be on a book/)
+    expect(said).toMatch(/Comic books · 46/)
+    expect(said).toMatch(/Cookery · 18/)
+  })
+
+  /**
+   * The plan, which is the only door between editing a rule and a book moving.
+   * Every count that matters is on it, and the pinned ones are never a silent
+   * subtraction.
+   */
+  it('draws what would happen, pinned books counted and named', () => {
+    const said = words(drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({
+        plan: {
+          groups: [{ from: '2 · Cookery', to: '2B', books: [
+            { id: 1, title: 'One', authorFiling: 'A' },
+          ] }],
+          moving: 1,
+          staying: 1147,
+          skipped: [{ reason: 'pinned', books: [{ id: 2, title: 'Two', authorFiling: 'B' }] }],
+          unclaimed: [{ id: 3, title: 'Three', authorFiling: 'C' }],
+          holds: 'Anything tagged Comic books',
+          names: ['Comic books'],
+          claiming: 46,
+          opens: false,
+          losing: [],
+        },
+      }),
+    ))
+
+    expect(said).toMatch(/1 book to carry/)
+    expect(said).toMatch(/1147\s*stay exactly where they are/)
+    expect(said).toMatch(/pinned where they are, which beats every rule/)
+    expect(said).toMatch(/Nothing moves until you carry the books yourself/)
+    expect(said).toMatch(/Write it down/)
+  })
+
+  /**
+   * And what applying did, which ends on the work rather than on a tick. The
+   * two numbers are never the same number: rows written is not books to carry.
+   */
+  it('ends on the carry list rather than on a report of success', () => {
+    const said = words(drawn(
+      null, { rule: rule() }, undefined, [], undefined, piece,
+      writing({ on: false, editing: null, applied: { wrote: 29, carrying: 29 } }),
+    ))
+
+    expect(said).toMatch(/29 books now belong somewhere else/)
+    expect(said).toMatch(/Go and carry them/)
   })
 })

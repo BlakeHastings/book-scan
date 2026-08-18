@@ -15,19 +15,20 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { FixturePane } from './FixturePane'
 import type { Sorting } from './AreaPane'
+import { RESTING } from '../app/writing'
 import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto } from '../lib/api'
 
 const area = (over: Partial<AreaDto> = {}): AreaDto => ({
   id: 1, position: 0, label: '4A', name: '', startsAt: '', sortStrategy: 'inherit',
   ordering: 'author', selfContained: false, note: '', books: 8,
-  holds: 'Non-fiction starts here', entry: true, rule: null,
+  holds: 'Non-fiction starts here', entry: true, rule: null, own: [],
   ...over,
 })
 
 const fixture = (over: Partial<FixtureDto> = {}): FixtureDto => ({
   id: 1, position: 4, label: '4', kind: 'bookshelf', name: '', sortStrategy: 'inherit',
   note: '', books: 8, areas: [area(), area({ id: 2, position: 1, label: '4B' })],
-  sharing: [], holds: 'Anything tagged Non-fiction', rule: null,
+  sharing: [], holds: 'Anything tagged Non-fiction', rule: null, own: [],
   ...over,
 })
 
@@ -64,6 +65,7 @@ function drawn(
       draft={{ name: piece.name, kind: '', order: room.fixtures.map((_, at) => at) }}
       books={books}
       sorting={sorting}
+      writing={RESTING}
       removal={{ books: 8, areas: 2, rules: 0, retires: false }}
       busy={false}
       error=""
@@ -72,6 +74,7 @@ function drawn(
       onDraft={nothing}
       onSave={nothing}
       onChange={nothing}
+      onCarry={nothing}
       onOpenSort={nothing}
       onChooseSort={nothing}
       onSaveSort={nothing}
@@ -135,7 +138,7 @@ describe('the edit view for a piece', () => {
  * carries about taking what came before it must not turn up on one.
  */
 describe('the two rules on a piece', () => {
-  const holding = fixture({ rule: {
+  const nonFiction: RuleDto = {
     id: 2,
     name: 'Non-fiction',
     about: 'fixture',
@@ -145,14 +148,22 @@ describe('the two rules on a piece', () => {
     conditions: [{ operator: 'is', tag: 'Non-fiction' }],
     said: 'Anything tagged Non-fiction',
     range: 'nonfiction',
-  } as RuleDto })
+  }
+  /*
+   * `own` is what is written on the piece and `rule` is the stretch of books it
+   * opens. They are the same row here and they are not the same question: a
+   * second rule on the piece would be another entry in `own` and would leave
+   * `rule` alone, because both would open the one stretch. See #384.
+   */
+  const holding = fixture({ rule: nonFiction, own: [nonFiction] })
 
   it('shows what belongs on it and the one way to change that', () => {
     const said = words(drawn(holding))
 
     expect(said).toMatch(/Anything tagged Non-fiction/)
     expect(said).toMatch(/Tagged\s*Non-fiction/)
-    expect(said).toMatch(/Point Non-fiction somewhere else/)
+    expect(said).toMatch(/Change what belongs here/)
+    expect(said).toMatch(/Move these books to another bookcase/)
   })
 
   it('says its ordering comes from the whole library and not from a piece', () => {

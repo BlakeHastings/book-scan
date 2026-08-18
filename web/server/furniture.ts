@@ -93,6 +93,9 @@ import type { Db } from './driver'
  * nobody else copied it. Re-exported so every existing importer is unchanged.
  */
 import { refuse, type Refused } from './refusal'
+import {
+  CLAIMS_NOTHING, holdsSaid as phraseFor, ruleSaid, type SaidLine,
+} from '../domain/placement/phrasing'
 
 export { refuse, type Refused }
 
@@ -153,6 +156,17 @@ export interface DescribedRule {
    */
   placeId: number | null
   enabled: boolean
+  /**
+   * What it asks of a book, in the words a person reads.
+   *
+   * **Labels, and no slugs.** A rule is editable on the page of the place it is
+   * about since #384, and the obvious thing was to put the identity beside the
+   * label here so the screen could hand the lines straight back. It is not
+   * allowed: no slug leaves this route, and `furniture.routes.test.ts` holds the
+   * whole answer to `/genre\//` on every read. Writing has a read of its own,
+   * `GET /api/placement/rule`, which speaks identities because that is what it
+   * is for.
+   */
   conditions: { operator: RuleOperator; tag: string }[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
@@ -178,21 +192,59 @@ const byPrecedence = (a: PlacementRule, b: PlacementRule): number =>
   || a.priority - b.priority
   || a.id - b.id
 
-/** What a rule asks of a book, as one phrase, or null when a slug has no label. */
-function conditionsSaid(rule: PlacementRule, labels: Map<string, string>): string | null {
-  if (!rule.conditions.length) return null
-  const parts = rule.conditions.map((condition) => {
-    const label = labels.get(condition.value)
-    if (label === undefined) return null
-    return condition.operator === 'under'
-      ? `tagged anything under ${label}`
-      : `tagged ${label}`
-  })
-  return parts.every((part) => part !== null) ? `Anything ${parts.join(' and ')}` : null
-}
+/**
+ * A rule's lines with the tags named, which is the one direction that is safe.
+ *
+ * The label is what a person reads; the slug is the identity and never reaches
+ * a screen. An empty string is what a slug the vocabulary has no label for
+ * answers, and `ruleSaid` falls back to the rule's own name rather than printing
+ * it, so there is no path by which a slug is drawn.
+ */
+const linesOf = (rule: PlacementRule, labels: Map<string, string>): SaidLine[] =>
+  rule.conditions.map((condition) => ({
+    operator: condition.operator,
+    tag: labels.get(condition.value) ?? '',
+  }))
 
-const ruleSaid = (rule: PlacementRule, labels: Map<string, string>): string =>
-  conditionsSaid(rule, labels) ?? `Anything ${rule.name} claims`
+const ruleHolds = (rule: PlacementRule, labels: Map<string, string>): string =>
+  ruleSaid(linesOf(rule, labels), rule.name)
+
+/**
+ * What a place holds, given every rule written on it.
+ *
+ * **Two rules on one place is how this app says "or"** (#384). The owner asked
+ * for it: "it should be possible for the user to say 'this tag or that tag', as
+ * well as 'this and that'." `domain/placement/rules.ts` had already answered
+ * where it goes, in the same breath as refusing the boolean tree: "two ways of
+ * saying a thing are two rules, which a screen can build". So `and` adds a line
+ * to a rule and `or` adds a rule to the place, and neither is a nested group.
+ *
+ * The wording itself lives in `domain/placement/phrasing.ts`, because a screen
+ * writing a rule has to draw this sentence for a rule that is not a row yet.
+ */
+export const holdsSaid = (
+  rules: readonly PlacementRule[],
+  labels: Map<string, string>,
+): string => phraseFor(rules.map((rule) => ({ lines: linesOf(rule, labels), name: rule.name })))
+
+/**
+ * What a rule is called, worked out from its own lines.
+ *
+ * **A rule is named by what it asks for.** Before this the names came out of
+ * the migration that wrote the first two, and nothing could change a rule, so
+ * "Fiction" was a name that could not go stale. Now that the lines are somebody
+ * else's to change, a rule still called Fiction while asking for comic books
+ * would be the app lying in every sentence it appears in: "Fiction, carrying
+ * on", and the reason written against every assignment it makes.
+ *
+ * The seeded rules keep their names by arithmetic rather than by exception: the
+ * fiction rule asks for one tag whose label is "Fiction", so this answers
+ * "Fiction". A rule that asks for nothing is called nothing, which is the
+ * schema's own default and is the honest answer for a rule there is nothing to
+ * say about yet.
+ */
+export const ruleName = (lines: readonly { operator: RuleOperator; tag: string }[]): string =>
+  lines.map((line) => line.tag).filter(Boolean).join(' and ')
 
 function describeRule(
   rule: PlacementRule,
@@ -209,11 +261,8 @@ function describeRule(
     place: slot ? (rule.areaId !== null ? labelFor(slot) : fixtureLabel(slot.fixture)) : '',
     placeId: rule.areaId ?? rule.fixtureId,
     enabled: rule.enabled,
-    conditions: rule.conditions.map((condition) => ({
-      operator: condition.operator,
-      tag: labels.get(condition.value) ?? '',
-    })),
-    said: ruleSaid(rule, labels),
+    conditions: linesOf(rule, labels),
+    said: ruleHolds(rule, labels),
     range,
   }
 }
@@ -249,9 +298,17 @@ export async function tagLabels(db: Db): Promise<Map<string, string>> {
   return new Map(vocabulary.map((tag) => [tag.slug.value, tag.label]))
 }
 
-/** Which rule's run an area lies in, and whether the area opens that run. */
+/**
+ * Which rules' books reach an area, and whether the area opens that stretch.
+ *
+ * **Plural since #384**, because two rules can be written on one place and that
+ * is how this app says "or". They all open the same stretch and they all point
+ * at the same area, so the stretch is one stretch: what changes is that the
+ * sentence about what belongs there has to name both.
+ */
 interface RunOwner {
-  rule: PlacementRule | null
+  /** Every rule reaching here, the one about the smaller place first. */
+  rules: PlacementRule[]
   entry: boolean
 }
 
@@ -267,20 +324,21 @@ interface RunOwner {
  */
 function runOwners(order: readonly Slot[], rules: readonly PlacementRule[]): Map<number, RunOwner> {
   const entries = entryAreas(rules as PlacementRule[], order as Slot[])
-  const opens = new Map<number, PlacementRule>()
+  const opens = new Map<number, PlacementRule[]>()
   for (const rule of [...rules].sort(byPrecedence)) {
     const at = entryAreaOf(rule, order as Slot[])
-    if (at !== null && !opens.has(at)) opens.set(at, rule)
+    if (at === null) continue
+    opens.set(at, [...(opens.get(at) ?? []), rule])
   }
 
   const owners = new Map<number, RunOwner>()
-  let carrying: PlacementRule | null = null
+  let carrying: PlacementRule[] = []
   for (const slot of order) {
     if (entries.has(slot.area.id) || slot.area.sortStrategy !== INHERIT) {
-      carrying = opens.get(slot.area.id) ?? null
-      owners.set(slot.area.id, { rule: carrying, entry: true })
+      carrying = opens.get(slot.area.id) ?? []
+      owners.set(slot.area.id, { rules: carrying, entry: true })
     } else {
-      owners.set(slot.area.id, { rule: carrying, entry: false })
+      owners.set(slot.area.id, { rules: carrying, entry: false })
     }
   }
   return owners
@@ -296,11 +354,38 @@ function runOwners(order: readonly Slot[], rules: readonly PlacementRule[]): Map
  * hand, which is exactly what a crate by the door is.
  */
 function areaHolds(owner: RunOwner | undefined, labels: Map<string, string>): string {
-  if (!owner?.rule) return 'Put here by hand'
-  if (!owner.rule.enabled) return `${owner.rule.name} is turned off, so nothing files here`
-  if (!owner.entry) return `${owner.rule.name}, carrying on`
-  return owner.rule.areaId !== null ? ruleSaid(owner.rule, labels) : `${owner.rule.name} starts here`
+  const reaching = owner?.rules ?? []
+  if (!reaching.length) return 'Put here by hand'
+
+  /*
+   * A rule asking for nothing claims nothing, whether it is the rule of this
+   * area or of the piece the area stands on, and whether it is on or off. It is
+   * the first of the answers rather than the last because it is the one a name
+   * cannot carry: "carrying on" said of a rule that claims no book would be the
+   * sentence somebody halfway through writing one reads on every area after the
+   * one they are looking at.
+   */
+  const claiming = reaching.filter((rule) => rule.enabled && rule.conditions.length > 0)
+  if (!claiming.length) {
+    return reaching.some((rule) => rule.conditions.length === 0)
+      ? CLAIMS_NOTHING
+      : `${named(reaching)} is turned off, so nothing files here`
+  }
+
+  if (!owner!.entry) return `${named(claiming)}, carrying on`
+
+  /*
+   * The rules written on this area beat the piece's, so they are what the area
+   * says it holds. Where there are none it is the piece's stretch beginning
+   * here, which is a different sentence: the books carry on past this area.
+   */
+  const own = claiming.filter((rule) => rule.areaId !== null)
+  return own.length ? holdsSaid(own, labels) : `${named(claiming)} starts here`
 }
+
+/** Rules said by name, joined the way a person reads two of them: "A or B". */
+const named = (rules: readonly PlacementRule[]): string =>
+  rules.map((rule) => rule.name || 'A rule with no name').join(' or ')
 
 /** One area as the wire says it. `label` is worked out, never stored. */
 export interface DescribedArea {
@@ -322,6 +407,16 @@ export interface DescribedArea {
   entry: boolean
   /** The rule whose books reach here, or null where none does. */
   rule: DescribedRule | null
+  /**
+   * Every rule written **on this area**, which is a different question.
+   *
+   * `rule` is about the stretch of books: it may be the piece's rule, carrying
+   * on through here, and it is one because the stretch is one. This is what the
+   * area itself allows, and there can be more than one of them, because two
+   * rules on a place is how this app says "or" (#384). Empty is a real answer:
+   * an area nothing is written on takes what the piece sends it.
+   */
+  own: DescribedRule[]
 }
 
 export interface DescribedFixture {
@@ -338,8 +433,10 @@ export interface DescribedFixture {
   sharing: number[]
   /** What a rule about the whole piece sends here, in words. */
   holds: string
-  /** That rule, or null when nothing points at the piece itself. */
+  /** The first of those rules, or null when nothing points at the piece. */
   rule: DescribedRule | null
+  /** Every rule written on the piece itself. Two of them is "or" (#384). */
+  own: DescribedRule[]
 }
 
 export interface DescribedFurniture {
@@ -367,13 +464,21 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
   const labels = new Map(vocabulary.map((tag) => [tag.slug.value, tag.label]))
   const owners = runOwners(arrangement.order, arrangement.rules)
   const described = describeRules(arrangement.order, arrangement.rules, labels)
-  const aboutFixture = (id: number): PlacementRule | null =>
-    [...arrangement.rules].sort(byPrecedence).find((rule) => rule.fixtureId === id) ?? null
+  /*
+   * Every rule written on one place, in the order a tie is settled. Plural
+   * since #384: two rules on a place is how "this tag or that tag" is said, and
+   * both of them point at the same area, so which one `claim` picks makes no
+   * difference to where a book lands. See `domain/placement/rules.test.ts`.
+   */
+  const writtenOn = (about: 'area' | 'fixture', id: number): PlacementRule[] =>
+    [...arrangement.rules]
+      .sort(byPrecedence)
+      .filter((rule) => (about === 'area' ? rule.areaId === id : rule.fixtureId === id))
 
   return {
     fixtures: fixtures.map((fixture) => {
       const own = areas.filter((one) => one.fixtureId === fixture.id)
-      const about = aboutFixture(fixture.id)
+      const about = writtenOn('fixture', fixture.id)
       return {
         id: fixture.id,
         position: fixture.position,
@@ -397,15 +502,21 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
           holds: areaHolds(owners.get(area.id), labels),
           entry: owners.get(area.id)?.entry ?? false,
           rule: (() => {
-            const owner = owners.get(area.id)
-            return owner?.rule ? described.get(owner.rule.id) ?? null : null
+            const [won] = owners.get(area.id)?.rules ?? []
+            return won ? described.get(won.id) ?? null : null
           })(),
+          own: writtenOn('area', area.id)
+            .map((rule) => described.get(rule.id))
+            .filter((rule): rule is DescribedRule => rule !== undefined),
         })),
         sharing: fixtures
           .filter((one) => one.id !== fixture.id && one.position === fixture.position)
           .map((one) => one.id),
-        holds: about ? ruleSaid(about, labels) : 'No rule sends books here',
-        rule: about ? described.get(about.id) ?? null : null,
+        holds: about.length ? holdsSaid(about, labels) : 'No rule sends books here',
+        rule: about[0] ? described.get(about[0].id) ?? null : null,
+        own: about
+          .map((rule) => described.get(rule.id))
+          .filter((rule): rule is DescribedRule => rule !== undefined),
       }
     }),
     defaultSortStrategy: fallback,

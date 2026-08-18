@@ -144,3 +144,73 @@ describe('where a book ends up', () => {
       ?.slot.area.id).toBe(12)
   })
 })
+
+/**
+ * "This tag **or** that tag", which is two rules on one place (#384).
+ *
+ * The owner asked for it and this file already said where it goes, in the
+ * sentence that refuses the boolean tree: "two ways of saying a thing are two
+ * rules, which a screen can build". Nothing in the model changes to allow it.
+ *
+ * What had to be checked rather than assumed is the thing that makes it safe.
+ * `claim` picks **one** winner among the rules that match a book, so if two
+ * rules on one place could disagree about where that book goes, an "or" built
+ * this way would file books by whichever of them happened to sort first.
+ *
+ * They cannot disagree. Both name the same place, so `entryAreaOf` answers the
+ * same area for either, `entryAreas` gains nothing from the second, and the
+ * stretch is the stretch it already was. What changes is which rule's name is
+ * written against the assignment, which is a caption rather than a destination.
+ */
+describe('two rules on one place, which is how "or" is said', () => {
+  const order = slotsInOrder(
+    [fixture(1, 1), fixture(2, 2)],
+    [area(10, 1, 0), area(11, 1, 1, 'M'), area(20, 2, 0)],
+  )
+  const comics = onTag(1, 'subject/comic-books', { areaId: 20, priority: 1 })
+  const poetry = onTag(2, 'subject/poetry', { areaId: 20, priority: 2 })
+  const rules = [comics, poetry]
+
+  it('claims a book that matches either of them', () => {
+    expect(matches(comics, { tagSlugs: ['subject/comic-books'] })).toBe(true)
+    expect(matches(poetry, { tagSlugs: ['subject/poetry'] })).toBe(true)
+    expect(claim(rules, { tagSlugs: ['subject/poetry'] })?.id).toBe(2)
+  })
+
+  /**
+   * The check the whole shape rests on. A book carrying both tags is claimed by
+   * both rules and `claim` returns one of them; whichever it returns, the book
+   * lands in the same area, because the two rules name the same one.
+   */
+  it('puts a book both of them claim in the same place either way', () => {
+    const both = { tagSlugs: ['subject/comic-books', 'subject/poetry'], sortKey: 'A' }
+
+    const won = placementOf(both, rules, order)
+    const swapped = placementOf(both, [{ ...poetry, priority: 0 }, comics], order)
+
+    expect(won?.rule.id).toBe(1)
+    expect(swapped?.rule.id).toBe(2)
+    // A different rule and the same answer. That is what makes "or" two rules
+    // rather than a boolean tree inside one.
+    expect(won?.slot.area.id).toBe(swapped?.slot.area.id)
+    expect(won?.slot.area.id).toBe(20)
+  })
+
+  it('divides the collection in exactly the places one of them would', () => {
+    // A second rule on a place opens no second stretch: `entryAreas` is a set
+    // of areas and both of these name the one area.
+    expect(entryAreas(rules, order)).toEqual(entryAreas([comics], order))
+    expect(entryAreas(rules, order)).toEqual(new Set([20]))
+  })
+
+  /**
+   * Taking one of the two off leaves the other working, which is what would
+   * make "or" worse than useless if it did not hold: an alternation somebody
+   * cannot take apart again.
+   */
+  it('leaves the other one claiming when one of them goes', () => {
+    expect(claim([poetry], { tagSlugs: ['subject/comic-books'] })).toBeNull()
+    expect(claim([poetry], { tagSlugs: ['subject/poetry'] })?.id).toBe(2)
+    expect(entryAreas([poetry], order)).toEqual(new Set([20]))
+  })
+})

@@ -193,6 +193,7 @@ describe('what a reordering renames', () => {
     sharing: [],
     holds: '',
     rule: null,
+    own: [],
   })
 
   /** The owner's own room, with the gap in it: pieces at 1, 2 and 4. */

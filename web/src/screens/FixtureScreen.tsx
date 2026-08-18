@@ -29,16 +29,19 @@
  * refusal, which is the same sentence in the same words.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FixturePane, type FixtureDraft } from '../components/FixturePane'
 import { useArranging } from '../app/arranging'
 import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
+import { useLeaving } from '../app/leaving'
+import { useWriting } from '../app/writing'
 import { api, type AreaBook, type FixtureRemoval, type SortStrategyCode } from '../lib/api'
 import { renumbering } from '../lib/furniture'
 
 export function FixtureScreen() {
   const { openArranging } = useNavigation()
+  const { leaveFor } = useLeaving()
   const { fixtureId, instead, back } = useArranging()
   const { room, error, setError, busy, write, read } = useRoom()
   const [draft, setDraft] = useState<FixtureDraft | null>(null)
@@ -51,6 +54,13 @@ export function FixtureScreen() {
   useDesignPage()
 
   const piece = room?.fixtures.find((one) => one.id === fixtureId) ?? null
+
+  /* The rule under a thumb, by the same hook the area's page uses. */
+  const place = useMemo(
+    () => (fixtureId === null ? null : { about: 'fixture' as const, id: fixtureId }),
+    [fixtureId],
+  )
+  const writing = useWriting(place, () => { void read() })
 
   // Seeded once, from whatever the first read said. `draft` staying null is
   // what makes this an "only if it has not been" rather than a dependency list.
@@ -154,6 +164,7 @@ export function FixtureScreen() {
         effect: '',
         busy: saving,
       }}
+      writing={writing}
       removal={removal}
       busy={busy}
       error={error}
@@ -162,6 +173,9 @@ export function FixtureScreen() {
       onDraft={(next) => { setError(''); setDraft(next) }}
       onSave={save}
       onChange={() => { if (piece?.rule?.range) openArranging(piece.rule.range) }}
+      /* Applying wrote where the books belong and carried nothing, so the next
+         screen is the one that lists what somebody would walk. */
+      onCarry={() => leaveFor('carry')}
       onOpenSort={() => { setChosen(piece?.sortStrategy ?? 'inherit'); setOpen(true) }}
       onChooseSort={setChosen}
       onSaveSort={saveSort}
