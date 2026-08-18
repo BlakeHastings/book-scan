@@ -18,7 +18,21 @@ import { CarryStalePane } from './CarryStalePane'
 import { TripPane } from './TripPane'
 import type { CarryTrip, CarryWork, StandingBook, TripAtAnArea } from '../lib/api'
 
-const book = (id: number, title: string, filing: string) => ({ id, title, authorFiling: filing })
+/**
+ * One book as the carry wire answers it: the name, and the two pictures.
+ *
+ * The photographs are named after the book rather than left off, because they
+ * are what somebody at a shelf matches the phone against, and a fixture with
+ * none would be a fixture of the bug. `noPhoto` is the other real case, and it
+ * has its own tests rather than being the default here.
+ */
+const book = (id: number, title: string, filing: string, photographed = true) => ({
+  id,
+  title,
+  authorFiling: filing,
+  spine: photographed ? `spine-${id}.jpg` : '',
+  cover: photographed ? `front-${id}.jpg` : '',
+})
 
 const trip = (over: Partial<CarryTrip> = {}): CarryTrip => ({
   fromAreaId: 40,
@@ -44,9 +58,7 @@ const work = (over: Partial<CarryWork> = {}): CarryWork => ({
 })
 
 const standing = (over: Partial<StandingBook> = {}): StandingBook => ({
-  id: 1,
-  title: 'A Short History of Nearly Everything',
-  authorFiling: 'Bryson, Bill',
+  ...book(1, 'A Short History of Nearly Everything', 'Bryson, Bill'),
   pages: 544,
   going: true,
   staying: null,
@@ -244,6 +256,91 @@ describe('one trip, at the area the books come off', () => {
     expect(html).toContain('Take  The Book Thief  off 4A.')
     expect(html).toContain('It goes on 3A.')
     expect(html).toContain('I have it')
+  })
+})
+
+/**
+ * The books are drawn by their photographs, on every screen in this flow (#386).
+ *
+ * **Not decoration here.** Somebody is standing at a bookcase holding a phone up
+ * against eleven spines looking for eight, so the picture is the match. They
+ * were all missing, and it read as two faults rather than one: no photographs,
+ * and a board that no longer looked like books at all. One cause, one seam: the
+ * carry read sent no pictures, so the shared drawings had nothing to draw and
+ * fell back to the cloth. These hold the panes to passing on what they are sent.
+ */
+describe('a book to carry is drawn by its own picture', () => {
+  const carried = (over: Partial<Parameters<typeof CarriedPane>[0]> = {}) =>
+    renderToStaticMarkup(CarriedPane({
+      placed: 3,
+      to: '3A',
+      board: [standing(), standing({ ...book(2, 'Silent Spring', 'Carson, Rachel', false) })],
+      work: work(),
+      onTrip: () => {},
+      onHome: () => {},
+      onQueue: () => {},
+      onScan: () => {},
+      ...over,
+    }) as ReactElement)
+
+  const stale = (photographed: boolean) =>
+    renderToStaticMarkup(CarryStalePane({
+      work: work({
+        changed: {
+          left: 0,
+          joined: 1,
+          again: [{
+            book: book(9, 'Salt Fat Acid Heat', 'Nosrat, Samin', photographed),
+            from: '3B',
+            to: '2A',
+          }],
+        },
+      }),
+      onCarry: () => {},
+      onHome: () => {},
+      onQueue: () => {},
+      onScan: () => {},
+    }) as ReactElement)
+
+  it('puts the photograph of its spine on the board it is standing on', () => {
+    expect(attrip()).toContain('class="wf-spine__photo" src="/api/covers/spine-1.jpg?w=160"')
+  })
+
+  it('puts the photograph of its cover on the row that names it', () => {
+    expect(attrip()).toContain('class="wf-row__photo" src="/api/covers/front-1.jpg?w=160"')
+  })
+
+  /*
+   * The one this must not answer by hiding the book. A book nobody has
+   * photographed is an ordinary book on an ordinary shelf, and what it wears is
+   * the dyed cloth every other view of the collection binds it in, with its name
+   * down the spine. It is drawn, it is countable, and it is a thing to fix.
+   */
+  it('draws a book nobody has photographed as a book, in cloth, with its name', () => {
+    const html = attrip({
+      trip: atArea({
+        books: [standing({ ...book(2, 'Silent Spring', 'Carson, Rachel', false) })],
+      }),
+    })
+
+    expect(html).toContain('class="wf-spine wf-spine--sky"')
+    expect(html).toContain('Carson')
+    expect(html).not.toContain('wf-spine__photo')
+    expect(html).not.toContain('wf-row__photo')
+  })
+
+  it('draws the same picture on the board at the end of the trip', () => {
+    const html = carried()
+
+    expect(html).toContain('class="wf-spine__photo" src="/api/covers/spine-1.jpg?w=160"')
+    // The second book has none, and is still one of the two on the board.
+    expect(html.match(/class="wf-spine /g) ?? []).toHaveLength(2)
+    expect(html.match(/wf-spine__photo/g) ?? []).toHaveLength(1)
+  })
+
+  it('draws it on a book that has to be carried again', () => {
+    expect(stale(true)).toContain('class="wf-row__photo" src="/api/covers/front-9.jpg?w=160"')
+    expect(stale(false)).not.toContain('wf-row__photo')
   })
 })
 

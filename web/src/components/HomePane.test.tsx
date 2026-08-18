@@ -29,7 +29,7 @@ import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import { HomePane } from './HomePane'
 import { CARRY_BOOKS, IN_HAND, SAY_WHAT } from '../design/Controls'
-import type { BackupWatch, Counts, Misfile, QueueCounts } from '../lib/api'
+import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
 const counts: Counts = { total: 12, fiction: 8, nonfiction: 4, checkedOut: 0 }
@@ -38,22 +38,25 @@ function queue(over: Partial<QueueCounts> = {}): QueueCounts {
   return { pending: 0, ready: 0, failed: 0, done: 0, failures: noFailures, ...over }
 }
 
-/** A book that is not where it belongs, as the shelving review answers one. */
-function misfile(over: Partial<Misfile['book']> = {}, from = '2C', to = '3A'): Misfile {
+/**
+ * One book still to be carried, as the carry list answers one.
+ *
+ * The pictures are on it because every book on the wire carries them now
+ * (#386), and this screen is the one place a carried book is counted rather
+ * than drawn: it wants the shape, not the photograph.
+ */
+function toCarry(over: Partial<CarryItem['book']> = {}, from = '2C', to = '3A'): CarryItem {
   return {
     book: {
-      id: 7, title: 'Underland', authorFiling: 'Macfarlane, Robert',
-      authors: 'Robert Macfarlane',
-      location: from, areaId: 23,
-      derivedLocation: to, derivedAreaId: 30,
-      standing: { fixture: 2, plank: 2 },
-      sortKey: 'macfarlane robert|underland', checkedOut: false,
+      id: 7,
+      title: 'Underland',
+      authorFiling: 'Macfarlane, Robert',
+      spine: '',
+      cover: '',
       ...over,
     },
     from,
     to,
-    toAreaId: 30,
-    instruction: `Move Underland from ${from} to ${to}`,
   }
 }
 
@@ -97,7 +100,7 @@ function said(markup: string): string[] {
 
 describe('the design rules that reach the app', () => {
   it('draws no count that is only a label', () => {
-    const html = home({ queue: queue({ ready: 6, failed: 3 }), carrying: [misfile()] })
+    const html = home({ queue: queue({ ready: 6, failed: 3 }), carrying: [toCarry()] })
     const drawn = html.match(/class="wf-stat[ "]/g) ?? []
 
     expect(drawn.length, 'the first screen draws no counts at all').toBeGreaterThan(2)
@@ -111,7 +114,7 @@ describe('the design rules that reach the app', () => {
   })
 
   it('says the five counts ungrouped, in the order he named them (#361)', () => {
-    const html = home({ queue: queue({ ready: 6, failed: 3 }), carrying: [misfile()] })
+    const html = home({ queue: queue({ ready: 6, failed: 3 }), carrying: [toCarry()] })
 
     expect(html, 'the first screen has a heading on it again').not.toMatch(/wf-heading/)
     expect(said(html)).toEqual([
@@ -140,7 +143,7 @@ describe('the design rules that reach the app', () => {
     // this round was called to fix said another way. Asked on the busiest day
     // this screen has, which since #341 is three doors: something to find,
     // something to carry, and something to say what it is.
-    const html = home({ carrying: [misfile()], unclaimed: 12 })
+    const html = home({ carrying: [toCarry()], unclaimed: 12 })
     const doors = html.match(/class="wf-door[ "]/g) ?? []
 
     expect(doors.length, `the first screen offers ${doors.length} things to do`)
@@ -160,7 +163,7 @@ describe('the design rules that reach the app', () => {
   })
 
   it('says no word out of the model', () => {
-    const text = words(home({ queue: queue({ ready: 2 }), carrying: [misfile()] }))
+    const text = words(home({ queue: queue({ ready: 2 }), carrying: [toCarry()] }))
 
     for (const word of ['run', 'range', 'shelf', 'plank', 'separator', 'capture', 'placement']) {
       expect(text, `the first screen says "${word}"`).not.toMatch(
@@ -273,7 +276,7 @@ describe('the numbers the drawing did not have to survive', () => {
     // drawn at nought and the door is not: a walk to a bookcase for nothing is
     // the door-to-an-empty-room fault wearing the other camera's clothes.
     expect(home({ carrying: [] })).not.toContain(CARRY_BOOKS)
-    expect(words(home({ carrying: [misfile()] }))).toContain(CARRY_BOOKS)
+    expect(words(home({ carrying: [toCarry()] }))).toContain(CARRY_BOOKS)
   })
 
   /*
@@ -311,7 +314,7 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('adds no sixth count for them, because the five are the five he named', () => {
-    const html = home({ unclaimed: 12, queue: queue({ ready: 6 }), carrying: [misfile()] })
+    const html = home({ unclaimed: 12, queue: queue({ ready: 6 }), carrying: [toCarry()] })
 
     expect(said(html)).toEqual([
       'catalogued', 'checked out', 'ready to shelve', 'to carry', 'stuck',
@@ -323,7 +326,7 @@ describe('the numbers the drawing did not have to survive', () => {
     // The card that named three of them went in #361, for saying a third time
     // what the count says. What is left is the count and the door.
     const many = Array.from({ length: 53 }, (_, at) =>
-      misfile({ id: at + 1, title: `Book ${at + 1}` }))
+      toCarry({ id: at + 1, title: `Book ${at + 1}` }))
     const html = home({ carrying: many })
 
     expect(html).toContain('53')

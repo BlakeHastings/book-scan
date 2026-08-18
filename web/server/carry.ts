@@ -45,6 +45,8 @@ import {
 } from '../domain/placement/carry'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { areaFaces } from '../infrastructure/shelving/areas'
+import { bookCover, shelfImage } from '../shared/shelving'
+import { withPhotographs, type PhotographFields } from './photographs'
 import type { Db } from './driver'
 
 interface BookRow {
@@ -54,6 +56,9 @@ interface BookRow {
   /** Text, the way the catalogue holds it: "336", "" or "336 pages". */
   pages: string | null
 }
+
+/** The row with the current photograph of each kind joined onto it. */
+type PhotographedRow = BookRow & PhotographFields
 
 /**
  * Every area the collection has ever had on a face, retired ones included.
@@ -71,11 +76,39 @@ interface BookRow {
  * to speak different vocabularies in the first place.
  */
 
-const named = (row: BookRow): CarryableBook => ({
-  id: Number(row.id),
-  title: row.title,
-  authorFiling: row.author_filing ?? '',
-})
+/**
+ * One row as the carry screens draw it: the name, and the two pictures.
+ *
+ * **The pictures are the reason this list is worth reading at a shelf.** They
+ * were not here, and the symptom was two things rather than one: every book on
+ * a carry screen drew as a flat coloured block, and a board of them stopped
+ * reading as a row of books at all. One cause, which was this function: the
+ * carry read was the only read of a book in the app that never asked for its
+ * photographs, so `Shelf` and `Row` were handed nothing to draw and fell back to
+ * the cloth they draw a book with no photograph in.
+ *
+ * Which photograph stands in for a spine and which for a cover is settled here
+ * by `shelfImage` and `bookCover` rather than by this file, so the shelf on a
+ * carry screen and the shelf in the library cannot disagree about a book. See
+ * `src/lib/shelfRow.ts`, which asks the same two questions of the rows the
+ * library reads.
+ */
+const named = (row: PhotographedRow): CarryableBook => {
+  const images = {
+    front: row.front_image,
+    back: row.back_image,
+    edge: row.edge_image,
+    crops: { front: row.front_crop, back: row.back_crop, edge: row.edge_crop },
+  }
+
+  return {
+    id: Number(row.id),
+    title: row.title,
+    authorFiling: row.author_filing ?? '',
+    spine: shelfImage(images).name,
+    cover: bookCover({ ...images, catalogue: row.cover_image }).name,
+  }
+}
 
 /**
  * Every book the rules have ever placed, and every book that is out of the
@@ -117,7 +150,9 @@ async function everyBookTheRulesSee(db: Db): Promise<CarryableBook[]> {
         SELECT 1 FROM book_placement p WHERE p.book_id = b.id AND p.kind = 'assigned')
       ORDER BY b.sort_key`,
   )
-  return rows.map(named)
+  // One statement for the whole list rather than one per book, which is the
+  // reason `withPhotographs` takes the rows: this is most of the catalogue.
+  return (await withPhotographs(db, rows)).map(named)
 }
 
 /** What is still to be carried, as the trips it is made of. Writes nothing. */
@@ -173,7 +208,7 @@ export async function tripAtArea(
     [fromAreaId],
   )
 
-  const books = rows.map(named)
+  const books = (await withPhotographs(db, rows)).map(named)
   // Zero for a page count the catalogue never learned, which the drawing reads
   // as "no number" and sets at the median width rather than at a sliver.
   const pages = new Map(rows.map((row) => [Number(row.id), parseInt(row.pages ?? '', 10) || 0]))

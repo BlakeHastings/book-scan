@@ -639,6 +639,19 @@ export interface CarriedBook {
   id: number
   title: string
   authorFiling: string
+  /**
+   * The photograph this book is drawn by standing up, or '' where it has none.
+   *
+   * Filenames under `/api/covers`, already chosen: the server asks
+   * `shared/shelving.ts` which photograph stands in for a spine and which for a
+   * cover, so a book on a carry screen is drawn by the same picture the library
+   * draws it by. **A book with no photograph is a real book**, and '' is what
+   * says so; the cloth behind the picture is what it is drawn in, here exactly
+   * as everywhere else.
+   */
+  spine: string
+  /** The same for a book lying face up, which is what a row shows. */
+  cover: string
 }
 
 export interface CarryTrip {

@@ -24,6 +24,7 @@ import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
 import { applyRunMove, planRunMove } from './relocate-run'
 import { outstandingWork, tripAtArea } from './carry'
+import { photographsTaken } from './photographs'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
@@ -320,4 +321,78 @@ describe('one trip, read at the area the books come off', () => {
 
     expect(await tripAtArea(db, 9999, 9998)).toBeNull()
   })
+})
+
+/**
+ * The read that both carry routes make, held to answering the pictures (#386).
+ *
+ * **This is the seam the whole defect lived at.** Every carry screen drew its
+ * books as flat coloured blocks with no photograph and no spine to them, and the
+ * cause was one thing rather than two: this was the only read of a book in the
+ * app that never asked for the photographs, so the shelf drawing and the row
+ * were handed nothing and fell back to the cloth they draw a book with no
+ * picture in. It is checked here rather than only at the panes because a screen
+ * cannot draw what it was never sent.
+ */
+describe('the pictures a book on the list is drawn by', () => {
+  /** Which photograph the wire says stands in for each of the two views. */
+  const picturesOf = async (id: number) => {
+    const found = (await outstandingWork(db)).trips
+      .flatMap((trip) => trip.books)
+      .find((book) => book.id === id)
+    return found && { spine: found.spine, cover: found.cover }
+  }
+
+  it('sends the spine photograph and the cover, on every book of every trip',
+    async () => {
+      const taken = new Date().toISOString()
+      await photographsTaken(db, world[0]!, {
+        front: 'front-one.jpg', back: 'back-one.jpg', edge: 'edge-one.jpg',
+      }, taken)
+      await applyRunMove(db, 'nonfiction', 3, taken)
+
+      expect(await picturesOf(world[0]!))
+        .toEqual({ spine: 'edge-one.jpg', cover: 'front-one.jpg' })
+    })
+
+  /*
+   * The precedence is `shared/shelving.ts`'s and is not restated here: what
+   * matters at this seam is that the same question is asked of a carried book
+   * that the library asks of a shelved one, so a book cannot be one picture on
+   * one screen and another on the next.
+   */
+  it('stands a cover in for a spine nobody photographed, as every shelf does',
+    async () => {
+      const taken = new Date().toISOString()
+      await photographsTaken(db, world[0]!, { front: 'front-one.jpg' }, taken)
+      await applyRunMove(db, 'nonfiction', 3, taken)
+
+      expect(await picturesOf(world[0]!))
+        .toEqual({ spine: 'front-one.jpg', cover: 'front-one.jpg' })
+    })
+
+  /*
+   * A book nobody has photographed is a real book and stays on the list. It is
+   * drawn in the cloth every view binds an unphotographed book in, which is a
+   * decision the drawing makes from '' rather than one this route makes by
+   * leaving the book out.
+   */
+  it('says so with an empty name rather than dropping the book', async () => {
+    await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+
+    expect(await picturesOf(world[0]!)).toEqual({ spine: '', cover: '' })
+  })
+
+  it('sends them for the books standing on the area, staying ones included',
+    async () => {
+      const taken = new Date().toISOString()
+      await photographsTaken(db, world[0]!, { edge: 'edge-one.jpg' }, taken)
+      await applyRunMove(db, 'nonfiction', 3, taken)
+
+      const trip = (await outstandingWork(db)).trips[0]!
+      const at = await tripAtArea(db, trip.fromAreaId, trip.toAreaId)
+
+      expect(at!.books.find((book) => book.id === world[0])!.spine).toBe('edge-one.jpg')
+      expect(at!.books.every((book) => typeof book.spine === 'string')).toBe(true)
+    })
 })

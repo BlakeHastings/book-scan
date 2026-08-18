@@ -75,6 +75,31 @@ export interface AreaFace {
 }
 
 /**
+ * The two pictures a book is drawn by, whichever way up it is drawn.
+ *
+ * **A name is not enough to recognise a book at a shelf**, which is the whole
+ * job of these screens: somebody is standing in front of eleven spines looking
+ * for eight, and the picture is what they match the phone against. Every other
+ * list in the app draws them, so a book that arrives here without them is drawn
+ * as a coloured block and the row stops reading as books.
+ *
+ * Filenames, and empty for a book nobody has photographed, which is a real book
+ * rather than an error: the cloth behind the picture is what such a book is
+ * drawn in, and it is drawn in it on every other screen too.
+ *
+ * **Chosen before they get here.** Which photograph stands in for a spine and
+ * which for a cover is `shared/shelving.ts`'s to answer and nothing else's, so
+ * these arrive already decided rather than as seven filenames for this file to
+ * have an opinion about.
+ */
+export interface BookPictures {
+  /** The book standing up, which is the spine, or what stands in for one. */
+  spine: string
+  /** The book lying face up, for a row or a tile. */
+  cover: string
+}
+
+/**
  * What the carry list needs to know about a book, which is what a row shows.
  *
  * No sort key, and that is not an oversight: nothing here re-orders books
@@ -82,14 +107,14 @@ export interface AreaFace {
  * they stay in it, so a trip's books read down the area the way somebody pulling
  * them reads the spines.
  */
-export interface CarryableBook {
+export interface CarryableBook extends BookPictures {
   id: number
   title: string
   authorFiling: string
 }
 
 /** A book as this list names it: enough to recognise it holding the shelf. */
-export interface CarriedBook {
+export interface CarriedBook extends BookPictures {
   id: number
   title: string
   authorFiling: string
@@ -169,10 +194,19 @@ export interface CarryWork {
   changed: CarryChange | null
 }
 
+/*
+ * The pictures travel with the name, because they are half of what a name is
+ * for here. This function is the one narrowing on the way out of this file, and
+ * it was the place both of them were dropped: every carry screen drew a row of
+ * coloured blocks with no photograph on it and no spine to it, while the same
+ * components drew photographed books everywhere else in the app.
+ */
 const named = (book: CarryableBook): CarriedBook => ({
   id: book.id,
   title: book.title,
   authorFiling: book.authorFiling,
+  spine: book.spine,
+  cover: book.cover,
 })
 
 function rowsByBook(rows: readonly Placement[]): Map<number, Placement[]> {
