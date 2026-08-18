@@ -18,6 +18,16 @@
  * the irreversible thing, it says what will happen to their own books with the
  * count in it, and it goes away again.
  *
+ * ## And before one press decides about a great many books at once
+ *
+ * The carry list's "leave them where they are" is not irreversible, and it asks
+ * here anyway (#402). The reason is the same one and the sentence above is the
+ * general case of it: what a person cannot find out afterwards is the thing to
+ * say first, and one press that answers the rules about fifty-three books is a
+ * press whose consequence is not visible from the button. What it must not do is
+ * dress a reversible decision as a final one, so the line under the title is
+ * where it says the work can be put back.
+ *
  * ## This is `ConfirmDialog`, and `ConfirmDialog` is gone
  *
  * `src/components/ConfirmDialog.tsx` was the working app's version of this

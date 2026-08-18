@@ -4051,6 +4051,15 @@ function Carry(go: Go) {
         Start at 4A
       </Button>
 
+      {/* Not doing it is an answer, and it belongs on this screen (#402).
+          Quiet, and under the one that carries on with the work, because it is
+          what somebody says when the work is not going to happen. It asks
+          before it does anything: one press deciding about fifty-three books is
+          a press whose size is not visible from the button. */}
+      <Button tone="quiet" block onPress={() => go('carryleft')}>
+        Leave them where they are
+      </Button>
+
       {/* The plan said what it would not touch and so does the work list, in
           the same words and the same order. A list of fifty-three that had
           quietly dropped three pinned books would be believed. */}
@@ -4060,6 +4069,50 @@ function Carry(go: Go) {
           bookcase.
         </p>
       </Card>
+    </Phone>
+  )
+}
+
+/**
+ * The list somebody decided against, which is the state #402 was filed from.
+ *
+ * The owner applied a plan, ended with forty-six books the app wanted him to
+ * walk across a room, and had no way to say he was not going to. Every exit was
+ * to carry them or to look at the list.
+ *
+ * **Two things this screen must get right and neither is obvious.**
+ *
+ * It does not say "every book is where the rules want it", which is what the
+ * empty list says when the rules agree. They do not agree: a person answered
+ * them, and claiming otherwise is a lie about whose decision emptied the list.
+ *
+ * And it does not forget. The rule that wanted those books is still on that
+ * place and only he can decide whether to change it, so what was left, where
+ * the rules wanted it and which rule asked all stay on the screen, with the way
+ * to put the work back under them. Silently forgetting a decision is the same
+ * failure as silently reversing one.
+ */
+function CarryLeft(go: Go) {
+  return (
+    <Phone
+      tab="library"
+      go={go}
+      top={<TopBar title="Books to carry" sub="Nothing to carry" onBack={() => go('home')} />}
+    >
+      <Nothing said="Nothing is waiting to be carried.">
+        <p>Nothing to fetch, nothing to put back.</p>
+      </Nothing>
+
+      <Card weight="quiet" kind="Left where they are" title="Fifty-three books">
+        <p>Twenty-two on 4C the rules want on 3C, asked for by Non-fiction.</p>
+        <p>Twenty on 4B the rules want on 3B, asked for by Non-fiction.</p>
+        <p>Eight on 4A the rules want on 3A, asked for by Non-fiction.</p>
+        <p>Three on 1C the rules want on 1D, asked for by Fiction.</p>
+      </Card>
+
+      <Button tone="quiet" block onPress={() => go('carry')}>
+        Put them back on the list
+      </Button>
     </Phone>
   )
 }
@@ -5002,6 +5055,7 @@ export const SCREENS: Screen[] = [
   { id: 'carrystale', name: 'The answer changed', group: 'Putting things right', render: CarryStale },
   { id: 'carryone', name: 'Only one to carry', group: 'Putting things right', render: CarryOne },
   { id: 'carrynone', name: 'Nothing to carry', group: 'Putting things right', render: CarryNone },
+  { id: 'carryleft', name: 'Left where they are', group: 'Putting things right', render: CarryLeft },
   /* The other job that is putting things right, and the one that has never had
      a screen: the books no rule claims, the screen that settles one, and the
      day there are none. */

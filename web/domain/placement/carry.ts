@@ -35,6 +35,16 @@
  * a piece completely is the win. Within a piece the order is the order the areas
  * stand in, which is the closest thing to a path across a room.
  *
+ * ## Leaving books where they are takes work off this list and not off the app
+ *
+ * Somebody who is not going to walk a trip can say so, and the books leave the
+ * trips because the disagreement behind them is gone (`released`,
+ * `domain/placement/ledger.ts`). **They do not leave the screen.** The rule that
+ * asked is still on that place, and it is the person's to change or to keep, so
+ * the pair and the count and the rule's name stay on the list as `setAside`.
+ * A list that silently forgot forty-six books somebody had decided about would
+ * be as bad as one that silently asked for them again.
+ *
  * ## A book in transit gets no row, and this file is why that costs nothing
  *
  * Nothing is recorded between lifting a book off one area and putting it on
@@ -183,6 +193,34 @@ export interface CarryChange {
   again: { book: CarriedBook; from: string; to: string }[]
 }
 
+/**
+ * A trip somebody decided not to walk, still named on the list.
+ *
+ * **A book left where it stands leaves the trips and does not leave the
+ * screen.** The whole of the disagreement is gone from the ledger, so nothing
+ * would draw these at all, and a list that quietly forgot forty-six books
+ * somebody had decided about would be the same silence the withdrawal was
+ * supposed to break: the rule that asked is still on that place, and the person
+ * is the only one who can decide whether to change it.
+ *
+ * The rules are named as the assignment recorded them, which is the rule's name
+ * as it stood when it asked. That is history and it is read back rather than
+ * recomputed, for the same reason `reason` carries it on the assignment itself:
+ * the rule may have been renamed or taken off the place since, and what this
+ * says is what was asked for.
+ */
+export interface SetAside {
+  fromAreaId: number
+  toAreaId: number
+  /** Where the books are, and are staying. */
+  from: string
+  /** Where the rules asked for them, and where they are not going. */
+  to: string
+  books: number
+  /** The rules that asked, by name, without repeats. */
+  rules: string[]
+}
+
 export interface CarryWork {
   /** How many books are in the trips, which is the headline number. */
   moving: number
@@ -192,6 +230,13 @@ export interface CarryWork {
   carried: CarriedAlready
   /** Null when the newest run of the rules changed nothing anybody would read. */
   changed: CarryChange | null
+  /**
+   * Work somebody has taken off the list by leaving the books where they are.
+   *
+   * Empty on a list nobody has done that to, which is every list until somebody
+   * does.
+   */
+  setAside: SetAside[]
 }
 
 /*
@@ -255,6 +300,11 @@ export function lastCarry(rows: readonly Placement[]): Carry | null {
           found = { fromAreaId: area, toAreaId: row.areaId, at: row.createdAt }
         }
         area = row.areaId
+        break
+      case 'released':
+        // Where the book stands is untouched: nobody moved it. What goes is the
+        // assignment, so a carry that never happened is not read back as one.
+        assigned = null
         break
       case 'pinned':
         area = row.areaId
@@ -366,7 +416,64 @@ export function carryWork(
       .map((reason) => ({ reason, books: skipped.get(reason)! })),
     carried: { books: latest ? days.get(latest)! : 0, when: latest },
     changed: changeOf(books, history, where),
+    setAside: setAsideOf(books, history, where),
   }
+}
+
+/**
+ * The work somebody has decided not to do, grouped the way they decided it.
+ *
+ * By the same pair a trip is, because that is the shape the decision was made
+ * in: somebody looking at "twenty-two books, 4C to 3C" said no to that, and
+ * saying so back in those words is what makes it recognisable as the thing they
+ * did rather than as a count of books they have to reconstruct.
+ *
+ * A pinned, checked out or withdrawn book cannot be here. A pin clears the
+ * memory along with the assignment, and so does going out of the house, because
+ * after either of those the question the person answered no longer exists.
+ */
+function setAsideOf(
+  books: readonly CarryableBook[],
+  history: ReadonlyMap<number, Placement[]>,
+  where: ReadonlyMap<number, AreaFace>,
+): SetAside[] {
+  const groups = new Map<string, SetAside>()
+
+  for (const book of books) {
+    const own = history.get(book.id) ?? []
+    const standing = standingOf(own)
+    if (standing.declined === null || standing.area === null) continue
+    if (standing.declined === standing.area) continue
+    if (standing.pinned || standing.checkedOut || standing.withdrawn) continue
+
+    const at = `${standing.area}:${standing.declined}`
+    const group = groups.get(at) ?? {
+      fromAreaId: standing.area,
+      toAreaId: standing.declined,
+      from: where.get(standing.area)?.label ?? '',
+      to: where.get(standing.declined)?.label ?? '',
+      books: 0,
+      rules: [],
+    }
+    group.books += 1
+
+    /*
+     * The rule that asked, off the assignment this withdrawal answered. The
+     * newest one naming that area: a rule change can have asked twice, and what
+     * was withdrawn is the last thing it asked.
+     */
+    const asked = own
+      .filter((row) => row.kind === 'assigned' && row.areaId === standing.declined)
+      .sort((a, b) => b.id - a.id)[0]
+    const name = asked?.reason ?? ''
+    if (name && !group.rules.includes(name)) group.rules.push(name)
+
+    groups.set(at, group)
+  }
+
+  return [...groups.values()].sort((a, b) => b.books - a.books
+    || a.from.localeCompare(b.from)
+    || a.to.localeCompare(b.to))
 }
 
 /**
@@ -495,8 +602,15 @@ export interface StandingBook extends CarriedBook {
   pages: number
   /** On this trip: it comes off here and goes to the area the trip names. */
   going: boolean
-  /** Why it is not going, for the ones that are staying. */
-  staying: 'pinned' | 'elsewhere' | 'settled' | null
+  /**
+   * Why it is not going, for the ones that are staying.
+   *
+   * `left` is a book somebody decided to leave where it stands, and it is its
+   * own answer rather than `settled`: settled means the rules want it here, and
+   * saying that about a book whose assignment a person turned down would be the
+   * app quietly agreeing with itself about a decision it did not make.
+   */
+  staying: 'pinned' | 'elsewhere' | 'settled' | 'left' | null
 }
 
 /**
@@ -532,7 +646,8 @@ export function booksOnArea(
       going,
       staying: going ? null
         : own.pinned ? 'pinned'
-          : needsAttention(own) ? 'elsewhere' : 'settled',
+          : needsAttention(own) ? 'elsewhere'
+            : own.declined !== null ? 'left' : 'settled',
     })
   }
 

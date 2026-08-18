@@ -792,6 +792,35 @@ is no assignment behind it, and moving the boundary to close it would be a new
 decision about the furniture, made on the person's behalf, wearing the word
 undo.
 
+### Taking back a boundary move and leaving a carry list undone are not the same act
+
+Asked and answered when the second one was built (#402), because the first one
+looks like it at a different scale and building the second on top of it would
+have been wrong.
+
+**What they share is the instinct**, and it is the one worth keeping: neither
+writes a location, because nobody carried anything, and a flow whose only exit
+is to assert a walk that did not happen is worse than a missing feature.
+
+**What they do not share is what "back" means, and it decides everything else.**
+`retractMove` puts the *furniture* back: a boundary move changed where a
+boundary sits, so taking it back is replaying a receipt of exactly what it
+changed, checked afterwards and refused rather than approximated when the
+shelves have moved on. There is state to restore, one book at a time, and
+`outstanding_move` exists to hold it.
+
+Leaving a carry list undone restores nothing. **The rules' answer was never
+acted on, so there is nothing to put back**: what is withdrawn is the wanted
+answer itself, one `released` row per book, at whatever scale the person decided
+at, which is usually the whole list. Nothing can have moved on underneath it and
+there is nothing for it to refuse.
+
+The consequences are opposite too. A retracted boundary move cannot come back,
+because the boundary is where it was and the rules will not ask again. A
+withdrawn assignment **would** come straight back, because the rule that wrote it
+is still on the place, and that is the problem `Standing.declined` exists to
+solve. See `docs/data-model.md` on `released`.
+
 ### The edge cases
 
 **The only book in an area.** Allowed, in both directions. The plank it leaves

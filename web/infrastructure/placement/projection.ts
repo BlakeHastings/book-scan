@@ -34,7 +34,17 @@
  * which is the only thing that says whether a writer is missing.
  */
 
+import { KINDS_ABOUT_THE_ANSWER } from '../../domain/placement/ledger'
 import type { Db } from '../../server/driver'
+
+/**
+ * The kinds the fold walks past, as SQL, written from the domain's own list.
+ *
+ * One definition rather than a literal in each statement below. See
+ * `KINDS_ABOUT_THE_ANSWER`.
+ */
+const NOT_ABOUT_A_PLACE = `p.kind NOT IN (${
+  KINDS_ABOUT_THE_ANSWER.map((kind) => `'${kind}'`).join(', ')})`
 
 /** One book whose column and whose rows do not say the same thing. */
 export interface ProjectionDisagreement {
@@ -57,15 +67,16 @@ interface DisagreementRow {
  * The fold, in SQL: the latest row that is not `assigned`, and the area it names
  * when it is a row that puts a book somewhere.
  *
- * `assigned` is excluded rather than handled, because it is where the rules want
- * a book and never where it is. The other five either put the book in an area
- * (`placed`, `pinned`) or take it out of every area there is (`checked_out`,
- * `checked_in`, `withdrawn`), which is `standingOf` in
+ * `assigned` and `released` are excluded rather than handled, because one is
+ * where the rules want a book and the other is somebody declining that, and
+ * neither is ever where the book is. The other four either put the book in an
+ * area (`placed`, `pinned`) or take it out of every area there is
+ * (`checked_out`, `checked_in`, `withdrawn`), which is `standingOf` in
  * `domain/placement/ledger.ts` and has to stay that.
  */
 const FOLDED = `
   SELECT p.kind, p.area_id FROM book_placement p
-   WHERE p.book_id = b.id AND p.kind <> 'assigned'
+   WHERE p.book_id = b.id AND ${NOT_ABOUT_A_PLACE}
    ORDER BY p.id DESC LIMIT 1`
 
 /**
@@ -131,7 +142,7 @@ export async function rebuildProjection(db: Db): Promise<number> {
        FROM (SELECT id FROM books) AS ids
        LEFT JOIN LATERAL (
          SELECT p.kind, p.area_id FROM book_placement p
-          WHERE p.book_id = ids.id AND p.kind <> 'assigned'
+          WHERE p.book_id = ids.id AND ${NOT_ABOUT_A_PLACE}
           ORDER BY p.id DESC LIMIT 1
        ) folded ON true
       WHERE ids.id = b.id

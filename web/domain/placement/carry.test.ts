@@ -322,3 +322,107 @@ describe('one trip, read at the area the books come off', () => {
     expect(carried.map((one) => one.spine)).toEqual(['spine-1.jpg', 'spine-2.jpg', ''])
   })
 })
+
+/**
+ * Leaving books where they are, read back off the list (#402).
+ *
+ * The owner's state: books assigned elsewhere, some already carried, one
+ * pinned, and a decision not to walk any of it. What every one of these is
+ * really checking is that no book moved and that nothing was quietly forgotten.
+ */
+describe('work somebody left where it is', () => {
+  const rules = (bookId: number, name: string, at: number) =>
+    ({ ...row(bookId, 'assigned', at), reason: name })
+
+  it('takes the books off the trips and leaves them standing where they were', () => {
+    const books = [book(1), book(2)]
+    const rows = [
+      row(1, 'placed', 40), row(1, 'assigned', 30), row(1, 'released', null),
+      row(2, 'placed', 40), row(2, 'assigned', 30), row(2, 'released', null),
+    ]
+
+    const work = carryWork(books, rows, ORDER)
+
+    expect(work.moving).toBe(0)
+    expect(work.trips).toEqual([])
+    expect(booksOnArea(books, new Map(), rows, 40, 30).map((one) => one.staying))
+      .toEqual(['left', 'left'])
+  })
+
+  it('says how many, off which area, where the rules wanted them, and by which rule', () => {
+    const books = [book(1), book(2), book(3)]
+    const rows = [
+      row(1, 'placed', 40), rules(1, 'Non-fiction', 30), row(1, 'released', null),
+      row(2, 'placed', 40), rules(2, 'Non-fiction', 30), row(2, 'released', null),
+      row(3, 'placed', 41), rules(3, 'Paperbacks', 31), row(3, 'released', null),
+    ]
+
+    expect(carryWork(books, rows, ORDER).setAside).toEqual([
+      { fromAreaId: 40, toAreaId: 30, from: '4A', to: '3A', books: 2, rules: ['Non-fiction'] },
+      { fromAreaId: 41, toAreaId: 31, from: '4B', to: '3B', books: 1, rules: ['Paperbacks'] },
+    ])
+  })
+
+  it('leaves the books somebody already carried at the other end', () => {
+    /*
+     * Partly carried is the normal case. Two of the three reached `3A` before
+     * the person stopped; withdrawing what was left must not bring them back,
+     * because a book that has been carried is a fact about the room.
+     */
+    const books = [book(1), book(2), book(3)]
+    const rows = [
+      row(1, 'placed', 40), row(1, 'assigned', 30), row(1, 'placed', 30),
+      row(2, 'placed', 40), row(2, 'assigned', 30), row(2, 'placed', 30),
+      row(3, 'placed', 40), row(3, 'assigned', 30), row(3, 'released', null),
+    ]
+
+    const work = carryWork(books, rows, ORDER)
+
+    expect(work.moving).toBe(0)
+    expect(work.setAside.map((one) => [one.from, one.to, one.books]))
+      .toEqual([['4A', '3A', 1]])
+    expect(booksOnArea(books, new Map(), rows, 30, 30).map((one) => one.id)).toEqual([1, 2])
+  })
+
+  it('never counts a pinned book, because a pin left nothing to withdraw', () => {
+    const books = [book(1), book(2)]
+    const rows = [
+      row(1, 'placed', 40), row(1, 'assigned', 30), row(1, 'released', null),
+      row(2, 'placed', 40), row(2, 'assigned', 30), row(2, 'pinned', 40),
+    ]
+
+    const work = carryWork(books, rows, ORDER)
+
+    expect(work.setAside.map((one) => one.books)).toEqual([1])
+    expect(work.skipped).toEqual([{ reason: 'pinned', books: 1 }])
+  })
+
+  it('stops calling it carried, because nobody carried anything', () => {
+    // `lastCarry` reads an assignment followed by a placement landing in it. A
+    // withdrawal is neither, and a list that read one as a carry would tell
+    // somebody they had done work they had decided not to do.
+    const rows = [row(1, 'placed', 40), row(1, 'assigned', 30), row(1, 'released', null)]
+
+    expect(lastCarry(rows)).toBeNull()
+    expect(carryWork([book(1)], rows, ORDER).carried.books).toBe(0)
+  })
+
+  it('is gone from the list once the work is put back on it', () => {
+    const rows = [
+      row(1, 'placed', 40), row(1, 'assigned', 30), row(1, 'released', null),
+      row(1, 'assigned', 30),
+    ]
+
+    const work = carryWork([book(1)], rows, ORDER)
+
+    expect(work.setAside).toEqual([])
+    expect(work.moving).toBe(1)
+    expect(work.trips[0]!.from).toBe('4A')
+  })
+
+  it('says nothing at all on a list nobody has decided anything about', () => {
+    const rows = [row(1, 'placed', 40), row(1, 'assigned', 30)]
+
+    expect(carryWork([book(1)], rows, ORDER).setAside).toEqual([])
+  })
+})

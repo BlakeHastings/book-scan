@@ -1,0 +1,23 @@
+-- A seventh kind of row: the assignment a person will not act on.
+--
+-- Applying a plan writes an intention and moves nothing, which was right and was
+-- half a sentence. There was no way to withdraw the intention, so forty-six of
+-- the owner's books sat on a carry list he had already decided against and the
+-- app went on asking. `released` is the other half: it says the rules' answer is
+-- not one this person is going to act on, and `standingOf` reads it as the
+-- standing assignment coming off while everything about where the book is stays
+-- exactly as it was.
+--
+-- **It is refused an area, by the constraint that was already here.**
+-- `book_placement_area_check` says an area is set on exactly `assigned`,
+-- `placed` and `pinned`, and `released` is deliberately not one of them, so a
+-- row of this kind cannot say where a book is even by mistake. That is the whole
+-- safety argument for the feature written as a constraint rather than as a
+-- promise: `placed` is what somebody did, and withdrawing an intention is not
+-- allowed anywhere near it.
+--
+-- Nothing else changes. No row is rewritten, no row is deleted, and the
+-- assignments this answers stay in the ledger with the rules that wanted them,
+-- because a withdrawal is a thing that happened rather than a gap in the record.
+ALTER TABLE "book_placement" DROP CONSTRAINT "book_placement_kind_check";--> statement-breakpoint
+ALTER TABLE "book_placement" ADD CONSTRAINT "book_placement_kind_check" CHECK ("kind" IN ('assigned', 'released', 'placed', 'pinned', 'checked_out', 'checked_in', 'withdrawn'));

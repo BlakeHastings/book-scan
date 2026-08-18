@@ -19,7 +19,10 @@
  */
 
 import { inArray } from 'drizzle-orm'
-import type { Placement, PlacementActor, PlacementKind } from '../../domain/placement/ledger'
+import {
+  KINDS_ABOUT_THE_ANSWER,
+  type Placement, type PlacementActor, type PlacementKind,
+} from '../../domain/placement/ledger'
 import type { NewPlacement, PlacementLedger } from '../../application/placement/ports'
 import type { Db } from '../../server/driver'
 import { bookPlacement } from '../db/schema'
@@ -74,16 +77,20 @@ export class DrizzlePlacementLedger implements PlacementLedger {
        * this is an index seek down `idx_book_placement_book` rather than the
        * catalogue-wide statement `rebuildProjection` makes.
        *
-       * Written even when the row just inserted was an `assigned` one, and
-       * deliberately: the fold's answer is unchanged, the statement writes the
-       * same value back, and a branch here would be a second place that has to
-       * know which kinds move a book.
+       * Written even when the row just inserted was an `assigned` or a
+       * `released` one, and deliberately: the fold's answer is unchanged, the
+       * statement writes the same value back, and a branch here would be a
+       * second place that has to know which kinds move a book. Which kinds those
+       * are is `KINDS_ABOUT_THE_ANSWER` and is not spelled out here, because a
+       * literal in this statement is exactly what stopped being true when a
+       * second kind that moves nothing arrived.
        */
       await tx.run(
         `UPDATE books SET current_area_id = (
            SELECT CASE WHEN p.kind IN ('placed', 'pinned') THEN p.area_id END
              FROM book_placement p
-            WHERE p.book_id = ? AND p.kind <> 'assigned'
+            WHERE p.book_id = ? AND p.kind NOT IN (${
+  KINDS_ABOUT_THE_ANSWER.map((kind) => `'${kind}'`).join(', ')})
             ORDER BY p.id DESC LIMIT 1
          )
          WHERE id = ?`,

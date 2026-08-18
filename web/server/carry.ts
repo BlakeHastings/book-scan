@@ -20,10 +20,20 @@
  *
  * **So this route is the ledger's own list, drawn for the first time.** It is
  * not a second work list: `assigned` disagreeing with `placed` is the list, and
- * `domain/placement/carry.ts` groups it into the trips somebody walks. Nothing
- * here writes anything. The books move when a person carries them and says so,
- * through `PATCH /api/books/:id/location`, which is the same route that already
- * records where a newly shelved book went.
+ * `domain/placement/carry.ts` groups it into the trips somebody walks. The books
+ * move when a person carries them and says so, through
+ * `PATCH /api/books/:id/location`, which is the same route that already records
+ * where a newly shelved book went.
+ *
+ * ## The two writes in this file, and why neither is a book moving
+ *
+ * Reading was all this file did until #402. It now also takes the list's own
+ * work back: `leaveWhereTheyAre` writes one `released` row per outstanding book
+ * and `putBackOnTheList` writes the assignment again. **Neither writes an area,
+ * a location or a `placed` row**, so the sentence above is untouched and the
+ * route that changes where a book is has not gained a rival. Everything that
+ * decides which books those rows are written for lives in
+ * `application/placement/withdraw-assignments.ts`.
  *
  * ## Only books the rules have an opinion about, and the ones that are out
  *
@@ -43,6 +53,10 @@ import {
   booksOnArea, carryWork,
   type CarryableBook, type CarryWork, type StandingBook,
 } from '../domain/placement/carry'
+import {
+  RestoreAssignmentsHandler, WithdrawAssignmentsHandler,
+  type OneTrip, type WithdrawableBook, type WithdrawalReport,
+} from '../application/placement/withdraw-assignments'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { areaFaces } from '../infrastructure/shelving/areas'
 import { bookCover, shelfImage } from '../shared/shelving'
@@ -162,6 +176,72 @@ export async function outstandingWork(db: Db): Promise<CarryWork> {
   const rows = await new DrizzlePlacementLedger(db).forBooks(books.map((book) => book.id))
 
   return carryWork(books, rows, where)
+}
+
+/**
+ * Every book a withdrawal could be about, with the key a row has to carry.
+ *
+ * The same narrowing `everyBookTheRulesSee` makes and for the same reason, minus
+ * the photographs, which are for looking at a shelf and not for writing a row. A
+ * book with no `assigned` row in its history has never been asked to be
+ * anywhere, so there is nothing about it to withdraw or to put back; a book with
+ * a `released` row is one somebody has already decided about, and it is here so
+ * the decision can be undecided.
+ *
+ * **The narrowing is not the safety.** Which of these books is actually
+ * outstanding work is folded per book by the handler, which is the one place
+ * that knows a pin, a carry that already happened and a book that is out of the
+ * house are all "nothing wanted of this one".
+ */
+async function everyBookWithAnAnswer(db: Db): Promise<WithdrawableBook[]> {
+  const rows = await db.all<{ id: number; sort_key: string }>(
+    `SELECT b.id, b.sort_key
+       FROM catalogued_books b
+      WHERE EXISTS (
+        SELECT 1 FROM book_placement p
+         WHERE p.book_id = b.id AND p.kind IN ('assigned', 'released'))
+      ORDER BY b.sort_key`,
+  )
+  return rows.map((row) => ({ id: Number(row.id), sortKey: row.sort_key }))
+}
+
+/**
+ * Leave these books where they stand, and stop the app asking for them.
+ *
+ * A trip, or the whole of the outstanding work when none is named, which is the
+ * state somebody is in who has changed their mind about the whole thing.
+ *
+ * **This moves no book and rewrites no placement**, which is the reason it can
+ * be offered at all: `PATCH /api/books/:id/location` is still the only route
+ * that changes where the catalogue thinks a book is. What is written is one row
+ * per book saying the answer was declined, and the list empties because the
+ * disagreement behind it is gone rather than because anything was hidden.
+ */
+export async function leaveWhereTheyAre(
+  db: Db,
+  trip: OneTrip | null,
+  now: string,
+): Promise<WithdrawalReport> {
+  return new WithdrawAssignmentsHandler(new DrizzlePlacementLedger(db)).handle({
+    books: await everyBookWithAnAnswer(db),
+    trip,
+    actor: 'person',
+    now,
+  })
+}
+
+/** The same in reverse: ask for this work again. */
+export async function putBackOnTheList(
+  db: Db,
+  trip: OneTrip | null,
+  now: string,
+): Promise<WithdrawalReport> {
+  return new RestoreAssignmentsHandler(new DrizzlePlacementLedger(db)).handle({
+    books: await everyBookWithAnAnswer(db),
+    trip,
+    actor: 'person',
+    now,
+  })
 }
 
 export interface TripAtAnArea {

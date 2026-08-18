@@ -76,7 +76,12 @@ describe('folding a book’s rows', () => {
   it('leaves a withdrawn book nowhere, and keeps saying so', () => {
     const standing = standingOf([row('placed', 3), row('withdrawn')])
     expect(standing).toEqual({
-      area: null, assigned: null, pinned: false, checkedOut: false, withdrawn: true,
+      area: null,
+      assigned: null,
+      declined: null,
+      pinned: false,
+      checkedOut: false,
+      withdrawn: true,
     })
   })
 })
@@ -137,5 +142,105 @@ describe('an assignment is written only where the answer differs', () => {
     // the rules can put it, and inventing one would file it somewhere nobody
     // asked for and report nothing.
     expect(assignmentFor(standingOf([row('placed', 4)]), null)).toBeNull()
+  })
+})
+
+/**
+ * The other half of applying, which is #402.
+ *
+ * Every one of these is about a thing that must not happen: a book moving, a
+ * placement being rewritten, a pinned book being reached, or the work coming
+ * straight back the next time somebody applies a plan.
+ */
+describe('withdrawing an intention', () => {
+  it('leaves the book exactly where it stands', () => {
+    const rows = [row('placed', 4), row('assigned', 6), row('released')]
+    const standing = standingOf(rows)
+
+    expect(standing.area).toBe(4)
+    expect(currentAreaOf(rows)).toBe(4)
+  })
+
+  it('takes the wanted answer off, so nothing is asking any more', () => {
+    const standing = standingOf([row('placed', 4), row('assigned', 6), row('released')])
+
+    expect(standing.assigned).toBeNull()
+    expect(needsAttention(standing)).toBe(false)
+  })
+
+  it('remembers which answer was declined', () => {
+    expect(standingOf([row('placed', 4), row('assigned', 6), row('released')]).declined).toBe(6)
+  })
+
+  it('does not hand the same work back the next time a plan is applied', () => {
+    /*
+     * The question #402 says decides the design. The rule that wrote the
+     * assignment is still on that place, so a run that knew nothing about the
+     * withdrawal would write the identical row again and give somebody back the
+     * work they had just taken off their list.
+     */
+    const rows = [row('placed', 4), row('assigned', 6), row('released')]
+    expect(assignmentFor(standingOf(rows), 6)).toBeNull()
+  })
+
+  it('still asks when a rule changes its answer to somewhere else', () => {
+    // A different area is something the person has not seen and turned down, so
+    // it is work rather than a repeat. Declining is about an answer, not about
+    // a book, which is what stops this becoming a pin nobody chose.
+    const rows = [row('placed', 4), row('assigned', 6), row('released')]
+    expect(assignmentFor(standingOf(rows), 7)).toBe(7)
+  })
+
+  it('forgets the answer once somebody moves the book', () => {
+    // A placement is new information about the room, so the question the person
+    // answered no longer exists and the rules get their say again.
+    const rows = [row('placed', 4), row('assigned', 6), row('released'), row('placed', 5)]
+    const standing = standingOf(rows)
+
+    expect(standing.declined).toBeNull()
+    expect(assignmentFor(standing, 6)).toBe(6)
+  })
+
+  it('forgets it when the book is pinned, or goes out of the house', () => {
+    const pinned = [row('placed', 4), row('assigned', 6), row('released'), row('pinned', 4)]
+    expect(standingOf(pinned).declined).toBeNull()
+
+    const out = [row('placed', 4), row('assigned', 6), row('released'), row('checked_out')]
+    expect(standingOf(out).declined).toBeNull()
+  })
+
+  it('is put back on the list by an assignment naming the same area', () => {
+    // The way back out, and it is another row rather than a delete: a
+    // withdrawal somebody could not withdraw would be the one-way door this
+    // whole change exists to remove, one door along.
+    const rows = [row('placed', 4), row('assigned', 6), row('released'), row('assigned', 6)]
+    const standing = standingOf(rows)
+
+    expect(standing.assigned).toBe(6)
+    expect(standing.declined).toBeNull()
+    expect(needsAttention(standing)).toBe(true)
+    expect(standing.area).toBe(4)
+  })
+
+  it('cannot be reached by a pinned book, because a pin clears the assignment', () => {
+    // A pin beats every rule, so there is no standing assignment to withdraw and
+    // nothing here can touch one. This is the same fact from the other end.
+    const rows = [row('placed', 4), row('assigned', 6), row('pinned', 4), row('released')]
+    const standing = standingOf(rows)
+
+    expect(standing.area).toBe(4)
+    expect(standing.pinned).toBe(true)
+    expect(standing.declined).toBeNull()
+  })
+
+  it('changes nothing for a book already carried where it was wanted', () => {
+    // Partly carried is the normal case. A book that reached the other end has
+    // its assignment satisfied, so a withdrawal over the top of it withdraws
+    // nothing and the book keeps the home somebody walked it to.
+    const rows = [row('placed', 4), row('assigned', 6), row('placed', 6), row('released')]
+    const standing = standingOf(rows)
+
+    expect(standing.area).toBe(6)
+    expect(standing.declined).toBeNull()
   })
 })

@@ -18,7 +18,7 @@
  * it, digits with the thousands grouped.
  */
 
-import type { SkipReason } from './api'
+import type { SetAside, SkipReason } from './api'
 
 const UNITS = [
   'no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
@@ -133,6 +133,31 @@ export const SKIP_WORD: Record<SkipReason, string> = {
   'checked-out': 'Checked out',
   withdrawn: 'Withdrawn',
   'never-placed': 'Never placed',
+}
+
+/**
+ * One group of books somebody left where they are, said in one line.
+ *
+ * **It names the rule, and that is the whole reason this sentence exists.**
+ * Leaving books where they are answers the rules for those books and changes
+ * nothing about the rules themselves, so the thing a person needs to know
+ * afterwards is that something on that place still wants them elsewhere and is
+ * theirs to change or to keep. A screen that only said "twenty-two set aside"
+ * would leave them to work that out the next time they wondered.
+ *
+ * The rule is named as it was when it asked, because that is what was recorded.
+ * A rule taken off a place since leaves the sentence saying what happened rather
+ * than pointing at something that is not there.
+ */
+export function leftSaid(group: SetAside): string {
+  const where = `${said(group.books)} on ${group.from} the rules want on ${group.to}`
+  if (group.rules.length === 0) return `${where}.`
+  return `${where}, asked for by ${group.rules.join(' and ')}.`
+}
+
+/** How many books are set aside altogether, which is what the card counts. */
+export function leftBooks(groups: readonly SetAside[]): number {
+  return groups.reduce((all, one) => all + one.books, 0)
 }
 
 /**
