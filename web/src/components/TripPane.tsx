@@ -10,6 +10,12 @@
  * The reason each of them is staying is on the card under the board, because a
  * count with no reason is not an answer to that question.
  *
+ * **Every book here is drawn by its photograph**, which on this screen is not
+ * decoration: a person is holding the phone up against a shelf, and the picture
+ * is what they match. It is the same pair the library draws a book with, the
+ * photograph over the dyed cloth, so a book nobody has photographed is still a
+ * bound book on the board rather than a gap in the row.
+ *
  * ## Pressing the button writes nothing
  *
  * It is the only step in this flow that does not write, and it is a navigation
@@ -28,9 +34,11 @@
 import { Card, Instruction, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
-import { Shelf, type Cloth, type ShelfItem } from '../design/Shelf'
+import { Shelf, type ShelfItem } from '../design/Shelf'
 import { List, Row } from '../design/List'
+import { coverThumbUrl } from './PlacementCard'
 import { WfScreen } from './WfScreen'
+import { clothFor } from '../lib/bookLook'
 import { plural, said, saidBooks, surnameOf, words } from '../lib/carryWords'
 import type { StandingBook, TripAtAnArea } from '../lib/api'
 
@@ -45,16 +53,6 @@ interface Props {
   onQueue: () => void
   onScan: () => void
 }
-
-/**
- * The bindings a placeholder spine is drawn in, picked off the book's own id so
- * a book is the same colour every time it is drawn. The same stand-in
- * `HomePane` uses, and for the same reason: the design system has nowhere to put
- * a photograph on a spine yet.
- */
-const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
-
-const clothFor = (id: number): Cloth => CLOTHS[Math.abs(id) % CLOTHS.length]!
 
 /**
  * The area as it stands, with the books to take marked on it.
@@ -73,6 +71,13 @@ function boardOf(books: readonly StandingBook[], mark: boolean): ShelfItem[] {
     kind: 'spine' as const,
     text: surnameOf(book.authorFiling) || book.title,
     cloth: clothFor(book.id),
+    /*
+     * The photograph of the spine, which is what somebody is matching the phone
+     * against. Empty for a book nobody has photographed, and the cloth under it
+     * is what that book is drawn in: the same pair the library draws every
+     * board with, so a book is the same book on both screens.
+     */
+    photo: coverThumbUrl(book.spine, 160),
     // Zero is "the catalogue never learned", which the drawing sets at the
     // median rather than at a sliver. See `spineWidth`.
     pages: book.pages || undefined,
@@ -154,6 +159,7 @@ export function TripPane({ trip, only, onTake, onBack, onHome, onQueue, onScan }
               title={book.title}
               sub={book.authorFiling}
               cloth={clothFor(book.id)}
+              photo={coverThumbUrl(book.cover, 160)}
               onward={false}
             />
           ))}

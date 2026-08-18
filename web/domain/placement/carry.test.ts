@@ -50,8 +50,19 @@ const row = (
   createdAt,
 })
 
-const book = (id: number): CarryableBook =>
-  ({ id, title: `Book ${id}`, authorFiling: `Author, ${id}` })
+/*
+ * Every third book has no photograph, which is roughly what the catalogue looks
+ * like and is the case a list must not drop: a book nobody has photographed is
+ * still a book to carry. The pictures ride through this file untouched, so what
+ * is checked here is that they arrive rather than what they are drawn as.
+ */
+const book = (id: number): CarryableBook => ({
+  id,
+  title: `Book ${id}`,
+  authorFiling: `Author, ${id}`,
+  spine: id % 3 === 0 ? '' : `spine-${id}.jpg`,
+  cover: id % 3 === 0 ? '' : `front-${id}.jpg`,
+})
 
 describe('the outstanding work, as trips', () => {
   it('groups by the two areas each move names, and counts what is in them', () => {
@@ -209,7 +220,19 @@ describe('what the newest run of the rules changed', () => {
     expect(work.changed).toEqual({
       joined: 2,
       left: 1,
-      again: [{ book: { id: 1, title: 'Book 1', authorFiling: 'Author, 1' }, from: '3A', to: '1A' }],
+      // The pictures come with the name, because a person reading this list is
+      // being told to fetch a book back and has to recognise it (#386).
+      again: [{
+        book: {
+          id: 1,
+          title: 'Book 1',
+          authorFiling: 'Author, 1',
+          spine: 'spine-1.jpg',
+          cover: 'front-1.jpg',
+        },
+        from: '3A',
+        to: '1A',
+      }],
     })
   })
 
@@ -269,5 +292,33 @@ describe('one trip, read at the area the books come off', () => {
     const rows = [row(1, 'placed', 41), row(1, 'assigned', 30)]
 
     expect(booksOnArea([book(1)], new Map(), rows, 40, 30)).toEqual([])
+  })
+
+  /*
+   * The grouping is the narrowing that dropped them (#386). Every book that
+   * reaches a screen in this flow comes through `named`, and for a while that
+   * kept three fields and threw the pictures away, which is why every carry
+   * screen drew coloured blocks while the same components drew photographed
+   * books everywhere else. Both ends are checked because both are drawn: a book
+   * standing on a board, and a book named in a row.
+   */
+  it('carries the pictures through, on the board and in the trips', () => {
+    const books = [1, 2, 3].map(book)
+    const rows = [
+      row(1, 'placed', 40), row(1, 'assigned', 30),
+      row(2, 'placed', 40), row(2, 'assigned', 30),
+      row(3, 'placed', 40), row(3, 'assigned', 30),
+    ]
+
+    const standing = booksOnArea(books, new Map(), rows, 40, 30)
+    const carried = carryWork(books, rows, ORDER).trips[0]!.books
+
+    // The third has none, which is a real book and not a book to leave out.
+    expect(standing.map((one) => [one.spine, one.cover])).toEqual([
+      ['spine-1.jpg', 'front-1.jpg'],
+      ['spine-2.jpg', 'front-2.jpg'],
+      ['', ''],
+    ])
+    expect(carried.map((one) => one.spine)).toEqual(['spine-1.jpg', 'spine-2.jpg', ''])
   })
 })

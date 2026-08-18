@@ -16,8 +16,10 @@
 import { Card, Confirmation } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
-import { Shelf, type Cloth, type ShelfItem } from '../design/Shelf'
+import { Shelf, type ShelfItem } from '../design/Shelf'
+import { coverThumbUrl } from './PlacementCard'
 import { WfScreen } from './WfScreen'
+import { clothFor } from '../lib/bookLook'
 import { plural, saidBooks, surnameOf, words } from '../lib/carryWords'
 import type { CarryTrip, CarryWork, StandingBook } from '../lib/api'
 
@@ -35,15 +37,21 @@ interface Props {
   onScan: () => void
 }
 
-const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
-
-const clothFor = (id: number): Cloth => CLOTHS[Math.abs(id) % CLOTHS.length]!
-
+/**
+ * The area as it now stands, drawn the way every other board in the app is:
+ * each book's own photograph over the cloth it is bound in.
+ *
+ * This is the answer the screen is, so it has to be a picture of the shelf
+ * somebody is looking at rather than a row of coloured blocks. A book with no
+ * photograph keeps its cloth and its name down the spine, which is what it
+ * looks like in the library too.
+ */
 function boardOf(books: readonly StandingBook[]): ShelfItem[] {
   return books.map((book) => ({
     kind: 'spine' as const,
     text: surnameOf(book.authorFiling) || book.title,
     cloth: clothFor(book.id),
+    photo: coverThumbUrl(book.spine, 160),
     pages: book.pages || undefined,
   }))
 }

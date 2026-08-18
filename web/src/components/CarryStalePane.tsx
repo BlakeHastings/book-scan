@@ -23,9 +23,10 @@ import { Card, Instruction } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button } from '../design/Controls'
 import { List, Row } from '../design/List'
+import { coverThumbUrl } from './PlacementCard'
 import { WfScreen } from './WfScreen'
+import { clothFor } from '../lib/bookLook'
 import { plural, said, saidBooks, words } from '../lib/carryWords'
-import type { Cloth } from '../design/Shelf'
 import type { CarryWork } from '../lib/api'
 
 interface Props {
@@ -35,10 +36,6 @@ interface Props {
   onQueue: () => void
   onScan: () => void
 }
-
-const CLOTHS: Cloth[] = ['moss', 'plum', 'sky', 'sun', 'wood', 'wood2']
-
-const clothFor = (id: number): Cloth => CLOTHS[Math.abs(id) % CLOTHS.length]!
 
 /**
  * What the change did, which is the first question: did the job get bigger.
@@ -123,6 +120,7 @@ export function CarryStalePane({ work, onCarry, onHome, onQueue, onScan }: Props
                     title={one.book.title}
                     sub={one.book.authorFiling}
                     cloth={clothFor(one.book.id)}
+                    photo={coverThumbUrl(one.book.cover, 160)}
                     meta={`${one.from} to ${one.to}`}
                     onward={false}
                   />
