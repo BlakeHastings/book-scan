@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { Cat } from './Cat'
+import { Cat, type CatDoing } from './Cat'
 import { IconOnward } from './Icons'
 import type { Cloth } from './Shelf'
 
@@ -180,20 +180,55 @@ export function Place({ children, quiet = false }: { children: ReactNode; quiet?
  * run is one of the three jobs he has. He is drawn here rather than handed in
  * so the gallery and the app cannot end up with two cats at two sizes.
  *
- * **He is asleep when the whole collection is**, which is the one thing on this
- * screen that says a wall of zeros is a new collection rather than a broken
- * one, and it costs no sentence to say it.
+ * ## And since #410 he lies down and sleeps through it
+ *
+ * > I'd like the actions that we have available to be scooted down, and then
+ * > the cat laying down sleeping with its tail going behind those buttons, and
+ * > the tail slightly moving, and the cat's eyes sometimes slowly opening a
+ * > little bit and then closing.
+ *
+ * `lying` is the pose that does that, and it is the pose the first screen uses
+ * now. It brings the scoot with it, because the scoot exists for him: the
+ * counts take a bottom margin and the doors move down by exactly that, which
+ * is the one thing #410 asks of the row below and it says nothing about what a
+ * door is.
+ *
+ * **Round eight's distinction survives it, drawn differently.** He was sitting
+ * on an ordinary day and asleep when the collection was empty, so a wall of
+ * zeros read as a new collection rather than a broken one at no cost in words.
+ * `lying` takes the ordinary day, and the empty one keeps `sleeping`: a
+ * collection with nothing in it draws no doors, and a tail reaching behind
+ * buttons that are not there is a tail hanging in mid-air. So the two days are
+ * still two drawings, and the pose that says a screen has something on it is
+ * now the stretched-out one rather than the upright one.
  */
+const CAT_ON_STATS: Record<'sitting' | 'sleeping' | 'lying', {
+  size: number
+  doing?: CatDoing
+  /** Whether he is drawn across the row rather than inside its last cell. */
+  across?: boolean
+}> = {
+  sitting: { size: 58 },
+  sleeping: { size: 40 },
+  lying: { size: 132, doing: 'dozing', across: true },
+}
+
 export function Stats({
   items,
   cat,
 }: {
   items: { n: string; word: string; onPress?: () => void }[]
-  /** The bookend: sitting on an ordinary day, asleep when there is nothing. */
-  cat?: 'sitting' | 'sleeping'
+  /**
+   * The bookend. `lying` is asleep and alive, hanging out of the row with his
+   * tail behind whatever is under it, and it is what the first screen draws.
+   * `sitting` and `sleeping` are the still pair, inside the last cell.
+   */
+  cat?: 'sitting' | 'sleeping' | 'lying'
 }) {
+  const how = cat ? CAT_ON_STATS[cat] : undefined
+
   return (
-    <div className="wf-stats">
+    <div className={`wf-stats${how?.across ? ' wf-stats--bed' : ''}`}>
       {items.map((item) => {
         const inside = (
           <>
@@ -217,9 +252,9 @@ export function Stats({
           </div>
         )
       })}
-      {cat && (
-        <div className="wf-stats__cat">
-          <Cat pose={cat} size={cat === 'sitting' ? 58 : 40} />
+      {cat && how && (
+        <div className={`wf-stats__cat${how.across ? ' wf-stats__cat--bed' : ''}`}>
+          <Cat pose={cat} size={how.size} doing={how.doing} />
         </div>
       )}
     </div>

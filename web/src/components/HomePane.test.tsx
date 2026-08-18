@@ -219,15 +219,48 @@ describe('the numbers the drawing did not have to survive', () => {
     expect(html, 'a door was offered to a room with nothing in it').not.toContain('wf-door')
   })
 
-  it('wakes him up as soon as there is a book anywhere', () => {
+  it('stretches him out as soon as there is a book anywhere', () => {
+    /*
+     * Round eight's distinction, redrawn by #410 rather than dropped. He used
+     * to sit up on a screen with something on it and sleep on an empty one;
+     * the owner has since asked for him lying down asleep with his tail behind
+     * the doors, so what separates the two days is the pose that reaches
+     * rather than the eyes being open. The first evening draws no doors, and a
+     * tail going behind buttons that are not there is a tail in mid-air.
+     */
     const table = home({
       counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 },
       queue: queue({ pending: 2 }),
     })
 
     expect(table, 'the cat slept through a book arriving on the table')
-      .not.toMatch(/wf-cat__shut/)
+      .toMatch(/wf-cat__sweep/)
+    expect(table, 'the doors were not scooted down for him').toMatch(/wf-stats--bed/)
     expect(table).toMatch(/wf-stats__cat/)
+  })
+
+  it('leaves him a still loaf on the evening there is nothing to lie across', () => {
+    const nothing = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 } })
+
+    expect(nothing, 'a tail was drawn reaching behind doors that are not there')
+      .not.toMatch(/wf-cat__sweep/)
+    expect(nothing, 'the counts were scooted down for a cat who is not there')
+      .not.toMatch(/wf-stats--bed/)
+  })
+
+  it('gives him a behaviour rather than a still drawing, on the screen he lies on', () => {
+    /*
+     * #410, and the half of it a rendered tree can answer. That the tail
+     * actually moves is a claim about frames, and it is checked by watching
+     * frames: `e2e/features/the-cat-is-alive.feature`. What is pinned here is
+     * that the drawing asks for a behaviour at all, because a component that
+     * quietly stopped passing one would leave that browser scenario the only
+     * thing standing between this screen and a still cat.
+     */
+    const html = home({ carrying: [toCarry()] })
+
+    expect(html, 'the cat on the first screen is doing nothing').toMatch(/wf-cat--dozing/)
+    expect(html, 'the cat dozes once and stops').toMatch(/wf-cat--loop/)
   })
 
   it('offers no way to find a book when there is nothing to find one against', () => {

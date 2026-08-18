@@ -17,16 +17,71 @@
  * of it. See `Silhouette` below.
  *
  * No emoji, here or anywhere. That is the point of him.
+ *
+ * ## A pose and a behaviour, since #410
+ *
+ * > Let's make that a refined component that we can place in different areas
+ * > and has different animations that we can have loop or play. And we want to
+ * > be able to expand it.
+ *
+ * So there are two axes and they are independent. A **pose** is a drawing: a
+ * shape, its own proportions, and nothing that moves. A **behaviour** is what
+ * that drawing is doing, and it either loops or runs through once.
+ *
+ * Both are tables rather than branches, which is the whole of what "expand it"
+ * asks for:
+ *
+ * - a fifth pose is one entry in `BOX` and one in `DRAW`, and nothing else in
+ *   this file is touched;
+ * - a second behaviour is one entry in `DOING` and one block of keyframes in
+ *   `library.css` beside the ones that are there.
+ *
+ * **A caller that names no behaviour gets exactly the markup it got before**,
+ * down to the class attribute, which is what keeps the corner, the empty slot,
+ * the confirmation and the bookend drawing what they drew. Nothing moves
+ * unless somebody asked for it to.
+ *
+ * The animation is CSS and only CSS: no timer, no `requestAnimationFrame`, no
+ * state, so this stays a plain function that renders the same markup on the
+ * server as in a browser, and the cost is paid by the compositor rather than
+ * by the main thread of a phone. See `library.css` for what that costs.
  */
 
-import type { ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 
-export type CatPose = 'sitting' | 'peeking' | 'loaf' | 'sleeping'
+export type CatPose = 'sitting' | 'peeking' | 'loaf' | 'sleeping' | 'lying'
+
+/**
+ * What he is doing, which is a thing that happens over time rather than a
+ * shape.
+ *
+ * `dozing` is asleep but alive: the tail sweeps, slowly and not on the beat,
+ * and the eyes crack open a little now and then and shut again. It belongs to
+ * the `lying` pose, which is the one drawn with a tail long enough to see it.
+ */
+export type CatDoing = 'dozing'
+
+/** Whether a behaviour repeats forever or runs through one time. */
+export type CatPlay = 'loop' | 'once'
 
 interface Props {
   pose?: CatPose
-  /** Height in pixels. Width follows the pose's own proportions. */
+  /**
+   * Height in pixels. Width follows the pose's own proportions.
+   *
+   * For `lying` this is the height of the whole drawing rather than of the
+   * cat: most of that box is the tail reaching down the page, and he is about
+   * a third of it. That is deliberate, because the tail is the part that has
+   * to reach past something.
+   */
   size?: number
+  /**
+   * What he is doing here. Omitted, he is a still drawing and nothing on the
+   * page animates, which is what every caller before #410 gets.
+   */
+  doing?: CatDoing
+  /** Whether that behaviour loops or plays once. Loops by default. */
+  play?: CatPlay
   /**
    * What he is doing here, for a screen reader. Omit it where he is purely
    * decoration and the words beside him already say everything.
@@ -41,15 +96,51 @@ const BOX: Record<CatPose, { w: number; h: number }> = {
   peeking: { w: 40, h: 28 },
   loaf: { w: 68, h: 42 },
   sleeping: { w: 68, h: 38 },
+  lying: { w: 102, h: 132 },
 }
 
-export function Cat({ pose = 'sitting', size = 40, label, className }: Props) {
+/** What each pose actually draws. A fifth pose is a line here and a line above. */
+const DRAW: Record<CatPose, () => ReactElement> = {
+  sitting: Sitting,
+  peeking: Peeking,
+  loaf: Loaf,
+  sleeping: Sleeping,
+  lying: Lying,
+}
+
+/**
+ * What each behaviour is called in the stylesheet.
+ *
+ * The class is the whole of the wiring: the keyframes, their durations and
+ * which parts of him they move all live next to the drawing they belong to, in
+ * `library.css`, so a second behaviour is a line here and a block there.
+ */
+const DOING: Record<CatDoing, string> = {
+  dozing: 'wf-cat--dozing',
+}
+
+/**
+ * Loop or play once, as a class rather than as a property per animation.
+ *
+ * Each behaviour's rules take their iteration count from `--cat-repeat`, so a
+ * behaviour written tomorrow gets both answers without being told about
+ * either.
+ */
+const PLAYING: Record<CatPlay, string> = {
+  loop: 'wf-cat--loop',
+  once: 'wf-cat--once',
+}
+
+export function Cat({ pose = 'sitting', size = 40, doing, play = 'loop', label, className }: Props) {
   const box = BOX[pose]
   const width = Math.round((box.w / box.h) * size)
+  const Parts = DRAW[pose]
 
   return (
     <svg
-      className={['wf-cat', className].filter(Boolean).join(' ')}
+      className={['wf-cat', doing && DOING[doing], doing && PLAYING[play], className]
+        .filter(Boolean)
+        .join(' ')}
       width={width}
       height={size}
       viewBox={`0 0 ${box.w} ${box.h}`}
@@ -58,10 +149,7 @@ export function Cat({ pose = 'sitting', size = 40, label, className }: Props) {
       aria-hidden={label ? undefined : true}
       focusable="false"
     >
-      {pose === 'sitting' && <Sitting />}
-      {pose === 'peeking' && <Peeking />}
-      {pose === 'loaf' && <Loaf />}
-      {pose === 'sleeping' && <Sleeping />}
+      <Parts />
     </svg>
   )
 }
@@ -160,6 +248,58 @@ function Sleeping() {
       </Silhouette>
       <path className="wf-cat__shut" d="M47.5 15c1.6 2 4 2 5.6 0M57.5 15c1.6 2 4 2 5.6 0" />
       <path className="wf-cat__nose" d="M55.2 20.4l2.2 1.9H53Z" />
+    </>
+  )
+}
+
+/**
+ * Asleep, and with a tail long enough to go somewhere.
+ *
+ * > I'd like the actions that we have available to be scooted down, and then
+ * > the cat laying down sleeping with its tail going behind those buttons.
+ *
+ * The cat is the sleeping loaf, in the top right of a box three times his own
+ * height, and the rest of the box is tail. That shape is the point of the pose
+ * rather than an accident of it: **the tail has to leave the box the cat is
+ * in**, reach down the page past whatever the layout put underneath, and be
+ * covered by it. A pose sized to the cat could only ever have a tail that
+ * stops where he does.
+ *
+ * So the drawing owns the sweep and the screen owns the covering. `.wf-stats`
+ * lets this overhang and `.wf-doors` paints over it, which is what makes the
+ * tail pass *behind* the buttons rather than beside them or under a margin
+ * shaped like them.
+ *
+ * The eyes are the sleeping pose's shut lids with a pair of slits drawn over
+ * the top, invisible until `dozing` opens them. They are the eye colour, and
+ * so are the lids, so the two never disagree about where an eye is.
+ */
+const LYING_TAIL = 'M31 42c-12 9-20 20-20 34 0 16 8 32 21 46'
+
+function Lying() {
+  return (
+    <>
+      {/*
+        The tail before the cat, so the join disappears under him: it starts
+        four units inside the body rather than on its edge, and the silhouette
+        painted after it covers the stub. Two passes for the reason the sitting
+        tail has two, which is that a black stroke on a dark room is nothing.
+      */}
+      <g className="wf-cat__sweep">
+        <path className="wf-cat__tail wf-cat__tail--rim" d={LYING_TAIL} />
+        <path className="wf-cat__tail" d={LYING_TAIL} />
+      </g>
+      <g transform="translate(19 2) scale(1.2)">
+        <Silhouette>
+          <path d="M46.5 12.5 45.2 2.6c-.1-1.2 1.1-2 2.1-1.3L55 6.4ZM63.5 12.5l1.3-9.9c.1-1.2-1.1-2-2.1-1.3L57 6.4Z" />
+          <path d="M24 10c14 0 26 5 32 5 6 0 10 5 10 11 0 7-5 11-13 11H16C8 37 3 33 3 26c0-9 9-16 21-16Z" />
+          <circle cx="55" cy="16" r="11.5" />
+        </Silhouette>
+        <path className="wf-cat__shut" d="M47.5 15c1.6 2 4 2 5.6 0M57.5 15c1.6 2 4 2 5.6 0" />
+        <ellipse className="wf-cat__peep" cx="50.3" cy="15.2" rx="2.9" ry="2.2" />
+        <ellipse className="wf-cat__peep" cx="60.3" cy="15.2" rx="2.9" ry="2.2" />
+        <path className="wf-cat__nose" d="M55.2 20.4l2.2 1.9H53Z" />
+      </g>
     </>
   )
 }

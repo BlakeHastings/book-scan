@@ -906,6 +906,44 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   padding-bottom: var(--s1);
 }
 
+/*
+ * The cat lying down, drawn across the screen rather than inside a cell (#410).
+ *
+ * > I'd like the actions that we have available to be scooted down, and then
+ * > the cat laying down sleeping with its tail going behind those buttons.
+ *
+ * Three rules and each does one half of that sentence.
+ *
+ * **The scoot** is `margin-bottom` on the counts, which is the whole of what
+ * moves the doors down. They are not told about it and they do not move
+ * anywhere else; nothing about what a door is or where it goes changes.
+ *
+ * **The overhang** is the drawing taken out of flow. He is 132px tall in a row
+ * about 60px tall, so two thirds of him hangs below it, and out of flow is
+ * what stops that from pushing the counts around or growing the row. There is
+ * nothing to press: `pointer-events` off, so a tail lying across a door does
+ * not eat a tap meant for it.
+ *
+ * **Behind** is the z-index below, and it is a real occlusion rather than a
+ * gap the tail happens to stop in. The doors are opaque paper and they paint
+ * over him, so the tail runs down the page, meets the top edge of the first
+ * one and is gone. That is the difference between a cat drawn across the
+ * layout and a cat in a box in it, which is the whole of what this pose is
+ * for. Checked in the browser rather than described: the tail's box overlaps
+ * the door's, and what answers at a point inside that overlap is the door.
+ *
+ * `overflow-x: clip` on `.wf` means he can hang down the page but never off
+ * the side of it, which is already the rule for everything here.
+ */
+.wf-stats--bed { margin-bottom: var(--s5); }
+.wf-stats__cat--bed { position: relative; padding-bottom: 0; }
+.wf-stats__cat--bed > .wf-cat {
+  position: absolute;
+  top: 0;
+  right: 0;
+  pointer-events: none;
+}
+
 .wf-stat {
   display: grid;
   gap: 0;
@@ -964,6 +1002,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-doors {
   display: grid;
   gap: var(--s2);
+  /* Above the cat, so his tail goes behind these rather than over them (#410).
+     A positioned element paints over an unpositioned one whatever the order in
+     the markup, and the cat is positioned because he hangs out of his row, so
+     without this the tail would be drawn across the first door's face. */
+  position: relative;
+  z-index: 1;
 }
 
 .wf-door {
@@ -2541,6 +2585,82 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   stroke-width: 1.6;
   stroke-linecap: round;
 }
+/* The slits under the lids of the lying pose. Drawn on every one of them and
+   invisible until a behaviour opens them, so a still cat is a shut cat: the
+   two ellipses cover the lid curves exactly, and both are the eye colour, so
+   there is never a moment where a lid and an eye disagree. */
+.wf-cat__peep { fill: var(--cat-eye); opacity: 0; }
+/* The long tail of the lying pose, a shade heavier than the curled one: it is
+   drawn beside a cat scaled up to be the subject, and the width that reads as
+   a tail at 40px reads as a wire at 132. Found by looking at him. */
+.wf-cat__sweep .wf-cat__tail { stroke-width: 7.5; }
+.wf-cat__sweep .wf-cat__tail--rim { stroke-width: 11; }
+
+/*
+ * --- What he does, which is #410 -------------------------------------------
+ *
+ * A behaviour is a class on the svg and a block of rules under it. Two things
+ * are worth knowing before adding a third one.
+ *
+ * **Loop or play once is `--cat-repeat` and nothing else.** Every behaviour
+ * takes its iteration count from that property, so `Cat` decides it once for
+ * all of them and a behaviour written later gets both answers without being
+ * told about either.
+ *
+ * **What it costs, because this runs on a phone.** Two animations, both of
+ * properties the compositor can handle on its own: a `transform` on one group
+ * of two paths, and `opacity` plus a `transform` on two ellipses of about
+ * three pixels each. No timer, no script, nothing measured per frame, and
+ * nothing that changes the size or position of anything laid out, so no frame
+ * of this can make the browser do layout. The moving box is the tail's, about
+ * 30 by 75 CSS pixels on a phone. Both cycles are long, and the eyes are shut
+ * and idle for seventeen of every nineteen seconds. The page has one cat on
+ * it, and a browser stops animating a page it is not showing, so a phone in a
+ * pocket pays nothing at all.
+ *
+ * **The timing is taste, and slow is the taste.** A tail on a two second loop
+ * reads as a fault rather than as a cat; eyes that open on a beat read as a
+ * warning light. So the tail rests for about half of an eleven second cycle
+ * and then makes one unhurried sweep back and forth, and the eyes open once in
+ * nineteen seconds and hold it for a second. Eleven and nineteen do not
+ * divide, so the two never settle into a rhythm somebody could count.
+ */
+.wf-cat--loop { --cat-repeat: infinite; }
+.wf-cat--once { --cat-repeat: 1; }
+
+/* Asleep, and alive. The tail rotates about the point where it meets him,
+   named in the drawing's own units, so the sweep pivots at his hip rather than
+   about the middle of the box. */
+.wf-cat--dozing .wf-cat__sweep {
+  transform-box: view-box;
+  transform-origin: 31px 42px;
+  animation: wf-cat-sweep 11s ease-in-out var(--cat-repeat) both;
+}
+.wf-cat--dozing .wf-cat__peep {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: wf-cat-peep 19s ease-in-out var(--cat-repeat) both;
+}
+
+@keyframes wf-cat-sweep {
+  0%, 46% { transform: rotate(0deg); }
+  60% { transform: rotate(3.6deg); }
+  76% { transform: rotate(-1.4deg); }
+  88% { transform: rotate(1.2deg); }
+  100% { transform: rotate(0deg); }
+}
+
+/* Half open and no further, which is the word he used: "slowly opening a
+   little bit and then closing". Drawn at full and squashed to a slit rather
+   than drawn as a slit, so the shape of an eye survives the squashing and the
+   lid it opens over is the same colour underneath. A cat that opened his eyes
+   the whole way here would be a cat waking up, which is a different animal
+   from the one asked for. Found by looking at both. */
+@keyframes wf-cat-peep {
+  0%, 72% { opacity: 0; transform: scaleY(0.06); }
+  79%, 84% { opacity: 1; transform: scaleY(0.5); }
+  92%, 100% { opacity: 0; transform: scaleY(0.06); }
+}
 
 /* --- A book's own page ------------------------------------------------------ */
 
@@ -3733,4 +3853,19 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 @media (prefers-reduced-motion: reduce) {
   .wf * { transition: none !important; }
+  /*
+   * And the cat stops, which is #410's half of this.
+   *
+   * Every part of him goes back to the frame he is drawn in: the tail sits
+   * where the path puts it and the eyes keep the `opacity: 0` their own rule
+   * gives them, so what is left is a cat asleep. **A sleeping cat that does
+   * not move is still a sleeping cat**, which is why nothing here has to draw
+   * a different pose or say anything instead.
+   *
+   * Scoped to him rather than written as `.wf * { animation: none }`, because
+   * this app has animations that carry meaning: the bar draining on the undo
+   * offer in `src/styles.css` is how long is left, and it has its own answer
+   * to this query beside it.
+   */
+  .wf-cat, .wf-cat * { animation: none !important; }
 }

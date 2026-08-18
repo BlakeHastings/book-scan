@@ -262,8 +262,23 @@ export function HomePane({
     <Screen top={top} tabs={tabs} over={menu}>
       {news}
 
+      {/*
+        The cat, and since #410 he lies across this screen rather than standing
+        at the end of a row of it.
+
+        > I'd like the actions that we have available to be scooted down, and
+        > then the cat laying down sleeping with its tail going behind those
+        > buttons, and the tail slightly moving, and the cat's eyes sometimes
+        > slowly opening a little bit and then closing.
+
+        `lying` is the pose that reaches, `Stats` brings the scoot with it, and
+        the doors paint over the tail. **The first evening keeps the loaf**: it
+        draws no doors at all, and a tail reaching behind buttons that are not
+        there is a tail in mid-air, so the two days stay two drawings the way
+        round eight left them.
+      */}
       <Stats
-        cat={bare ? 'sleeping' : 'sitting'}
+        cat={bare ? 'sleeping' : 'lying'}
         items={[
           { n: grouped(counts.total), word: 'catalogued', onPress: onLibrary },
           { n: grouped(counts.checkedOut), word: 'checked out', onPress: onLibrary },
