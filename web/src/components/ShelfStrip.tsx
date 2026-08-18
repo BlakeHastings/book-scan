@@ -65,8 +65,15 @@ interface Props {
  * hand hangs below it.
  *
  * The counts in the header are the reason this wrapper exists at all: they
- * belong to a placement, which has a gap to count either side of. A library
- * row has no gap, so it draws `SpineRow` directly under its own heading.
+ * belong to a placement, which has a gap to count either side of.
+ *
+ * **This is the placing strip and nothing else now** (#387). The shelves screen
+ * called `SpineRow` directly for its library rows, so this file drew two
+ * different things and disagreed with `design/Shelf.tsx` about how wide a book
+ * is, what marks the one a screen is about, and whether a spine is numbered.
+ * That screen is drawn with the design system now and this is left with the one
+ * job its name is for: a run with a hole in it, and the book in your hand
+ * hanging below the hole. `SpineRow` is private again in consequence.
  */
 export function ShelfStrip({ strip, authorFiling, onOpen }: Props) {
   // Already on the shelf: it is drawn in the row, and there is no gap to open
@@ -113,11 +120,6 @@ interface RowProps {
   label: string
   /** Tap a spine to open that book. */
   onOpen?: (id: number) => void
-  /**
-   * Handed each spine's element as it mounts, so a caller can scroll one
-   * back into view. Called with null when the spine goes away.
-   */
-  registerSpine?: (id: number, element: HTMLElement | null) => void
 }
 
 /**
@@ -132,8 +134,8 @@ interface RowProps {
  * the page scroll. A hand-rolled drag has to guess, and guesses wrong on a
  * thumb moving diagonally. Same reasoning as the photo carousel in #50.
  */
-export function SpineRow({
-  books, gap = null, hereIndex = null, label, onOpen, registerSpine,
+function SpineRow({
+  books, gap = null, hereIndex = null, label, onOpen,
 }: RowProps) {
   const focusRef = useRef<HTMLElement | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -200,7 +202,6 @@ export function SpineRow({
             onOpen={onOpen}
             register={(element) => {
               if (hereIndex === i) focusRef.current = element
-              registerSpine?.(book.id, element)
             }}
           />
         ))}

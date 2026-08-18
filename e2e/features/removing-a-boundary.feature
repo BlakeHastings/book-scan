@@ -28,16 +28,18 @@ Feature: Removing a boundary between two areas
     And "2A" filled up, so its last book started a new area
 
   # The visible half, on its own so that it fails on its own. Each line names
-  # the heading directly beneath it, which is the area its boundary opens.
-  Scenario: Every line names the heading beneath it
+  # the area directly beneath it, which is the area its boundary opens. An area
+  # is its plank read whole, `2B`, since the shelves were drawn with the design
+  # system (#387).
+  Scenario: Every line names the area beneath it
     When I open the app
     And I go to the library
     Then the library should read, top to bottom:
-      | Bookcase 1 Area A        |
+      | 1A                       |
       | New bookcase starts here |
-      | Bookcase 2 Area A        |
+      | 2A                       |
       | New area starts here     |
-      | Bookcase 2 Area B        |
+      | 2B                       |
 
   # The dangerous half, asserted without reading a single label until the end.
   # The line between 2A and 2B is 2B's own plank break, not the bookcase break
@@ -45,7 +47,7 @@ Feature: Removing a boundary between two areas
   Scenario: The line above an area removes that area's boundary
     When I open the app
     And I go to the library
-    And I remove the boundary drawn above "Bookcase 2 Area B"
+    And I remove the boundary drawn above "2B"
 
     Then the boundaries recorded for fiction should be:
       | kind  | starts at |
@@ -73,6 +75,6 @@ Feature: Removing a boundary between two areas
     # And the line that is left reads against the heading it still opens.
     When I go to the library
     Then the library should read, top to bottom:
-      | Bookcase 1 Area A        |
+      | 1A                       |
       | New bookcase starts here |
-      | Bookcase 2 Area A        |
+      | 2A                       |

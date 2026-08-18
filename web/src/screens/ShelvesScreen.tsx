@@ -8,11 +8,12 @@
  * now belong, and the two answers to each of them; the books that are off the
  * bookcase; the way to move a whole run to another piece of furniture.
  *
- * **It is deliberately temporary.** #314 is building the carry flow those first
- * two belong to and #313 is building the furniture screens the third belongs to.
- * What this is not is a second library: it draws no covers and no list, and
- * nothing here duplicates the screen it came off. When both of those land, this
- * file and `ShelfView` go together.
+ * **It was deliberately temporary and it has outlived that.** #314 built the
+ * carry flow and #313 built the furniture screens, and neither took the list of
+ * books whose recorded place disagrees with where the order now puts them: that
+ * is drawn here and nowhere else, and #358 repaired it after it had been
+ * silently dropping 181 books. So the screen stays, and #387 dressed it with the
+ * design system rather than leaving it as the last one wearing the old app.
  */
 
 import { ShelfView } from '../components/ShelfView'
@@ -20,7 +21,7 @@ import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 
 export function ShelvesScreen() {
-  const { libraryReturn, setLibraryReturn, openArranging, openRoom } = useNavigation()
+  const { setRoute, libraryReturn, setLibraryReturn, openArranging, openRoom } = useNavigation()
   const { openFromLibrary } = useOpenBook()
 
   return (
@@ -28,6 +29,10 @@ export function ShelvesScreen() {
       onOpen={openFromLibrary}
       returnAnchor={libraryReturn}
       onReturnAnchorConsumed={() => setLibraryReturn(null)}
+      /* The one door into this screen is the button at the foot of the library,
+         so back is that screen. It had no back arrow at all while it wore the
+         app's header, because that header had none to give. */
+      onBack={() => setRoute('library')}
       /* Through `openArranging` since #323, because that screen has a second
          way in now, from the rule itself, and it has to know which one it came
          through to say where "back" goes. */

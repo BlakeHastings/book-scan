@@ -574,7 +574,7 @@ When('I go to the library', async ({ page }) => {
 When(
   'I open {string} from the off-bookcase list',
   async ({ page }, title: string) => {
-    await page.locator('button.offshelf__row', { hasText: title }).click()
+    await page.locator('.offshelf button.wf-row', { hasText: title }).click()
     // A catalogued book opens as a record, not as the editable form, so the
     // heading is what says the right book is on screen.
     await expect(bookTitle(page)).toHaveText(title)
@@ -587,12 +587,13 @@ Then(
     // Reached from the camera, which is where somebody scanning a pile is.
     await openLibrary(page)
 
-    // The library draws each area as a run of spines now, so a book is in
-    // the right place when its spine is inside that area's section. The
-    // spine's tooltip is what carries the title: at 34px wide there is no
-    // room to print it, which is also true of the shelf itself.
+    // The shelves draw each area as a run of spines, so a book is in the right
+    // place when its spine is inside that area's section. The spine's tooltip
+    // is what carries the title: what is printed down a spine is the filing
+    // name, and at that width there is no room for either, which is also true
+    // of the shelf itself. `ShelfItem.name` is what puts the title there (#387).
     const area = page.locator(`section.shelfgroup[data-label="${shelf}"]`)
-    await expect(area.locator(`button.spine[title*=${JSON.stringify(title)}]`)).toBeVisible()
+    await expect(area.locator(`button.wf-spine[title*=${JSON.stringify(title)}]`)).toBeVisible()
   },
 )
 
@@ -770,7 +771,7 @@ Then(
  * destination, a different route in.
  */
 When('I open {string} from the library', async ({ page }, title: string) => {
-  await page.locator(`button.spine[title*=${JSON.stringify(title)}]`).first().click()
+  await page.locator(`button.wf-spine[title*=${JSON.stringify(title)}]`).first().click()
   await expect(bookTitle(page)).toHaveText(title)
 })
 
@@ -856,12 +857,17 @@ When('I save the changes', async ({ page }) => {
 })
 
 /**
- * The library read down the page: every area heading and every boundary line,
- * in the order somebody scrolling meets them.
+ * The shelves read down the page: every area and every boundary line, in the
+ * order somebody scrolling meets them.
  *
  * Read off the DOM in document order rather than by querying each kind of
  * element separately, because the order is the claim. #145 was a set of lines
  * every one of which was correct in isolation and drawn one area too low.
+ *
+ * **An area is named by its plank and no longer by two halves** (#387). The
+ * heading was "Bookcase 2" and "Area B" in two spans; the design system's
+ * `Shelf` carries `2B` whole on the board, with the piece named once above the
+ * areas that share it, so that is what a line of this table is.
  */
 Then(
   'the library should read, top to bottom:',
@@ -869,20 +875,18 @@ Then(
     const wanted = table.raw().map((row) => row[0] ?? '')
 
     const lines = await page.evaluate(() => {
-      const main = document.querySelector('main.main--library')
-      if (!main) return []
+      const body = document.querySelector('.wf-screen__body')
+      if (!body) return []
 
       const text = (element: Element, selector: string) =>
         element.querySelector(selector)?.textContent?.trim() ?? ''
 
-      return [...main.children].flatMap((element) => {
+      return [...body.children].flatMap((element) => {
         if (element.classList.contains('divider')) {
-          return [text(element, '.divider__label')]
+          return [text(element, '.wf-said')]
         }
         if (element.classList.contains('shelfgroup')) {
-          return [
-            `${text(element, '.shelfgroup__label')} ${text(element, '.shelfgroup__shelf')}`,
-          ]
+          return [text(element, '.wf-shelf__label')]
         }
         return []
       })
@@ -893,26 +897,21 @@ Then(
 )
 
 /**
- * Tap Remove on the line drawn immediately above a named heading.
+ * Tap Remove on the line drawn immediately above a named area.
  *
  * Deliberately positional. Somebody adjusting the shelves is pointing at the
  * gap between two planks, and the whole of #145 was that the line sitting in
- * that gap deleted a boundary from somewhere else. Naming the heading and
+ * that gap deleted a boundary from somewhere else. Naming the area and
  * stepping back one element is how that tap is reproduced.
  */
 When(
   'I remove the boundary drawn above {string}',
-  async ({ page }, heading: string) => {
-    const parts = /^(Bookcase \d+) (Area \w+)$/.exec(heading)
-    expect(parts, `"${heading}" is not an area heading`).toBeTruthy()
-    const [, bookcase, area] = parts!
-
+  async ({ page }, area: string) => {
     const line = page.locator(
-      'xpath=//section[contains(@class,"shelfgroup")]' +
-      `[.//span[normalize-space()="${bookcase}"] and .//span[normalize-space()="${area}"]]` +
-      '/preceding-sibling::*[1]',
+      `xpath=//section[contains(@class,"shelfgroup")][@data-label=${JSON.stringify(area)}]`
+      + '/preceding-sibling::*[1]',
     )
-    await expect(line, `nothing is drawn above ${heading}`).toHaveClass(/divider/)
+    await expect(line, `nothing is drawn above ${area}`).toHaveClass(/divider/)
 
     const drawn = await page.locator('.divider').count()
     await line.getByRole('button', { name: 'Remove' }).click()
@@ -927,8 +926,19 @@ When(
  *
  * A closed list, because the failure being guarded against is books being
  * carried that did not need to move: #145 asked for four of them.
+ *
+ * Each one is a `Row` out of the design system now (#387), so the book and the
+ * two planks are two elements rather than one line of text, and they are read
+ * as two rather than glued back together with a colon.
  */
 Then('it should say to move exactly:', async ({ page }, table: DataTable) => {
-  const wanted = table.hashes().map((row) => `${row.book}: ${row.from} to ${row.to}`)
-  await expect(page.locator('.moves li')).toHaveText(wanted)
+  const wanted = table.hashes()
+  const rows = page.locator('.tomove .wf-row')
+  await expect(rows).toHaveCount(wanted.length)
+
+  for (const [at, row] of wanted.entries()) {
+    await expect(rows.nth(at).locator('.wf-row__title')).toHaveText(row.book ?? '')
+    await expect(rows.nth(at).locator('.wf-row__sub'))
+      .toHaveText(`${row.from} to ${row.to}`)
+  }
 })

@@ -99,9 +99,13 @@ export function standing(
 ): ShelfItem[] {
   const row: ShelfItem[] = strip.books.map((one) => ({
     kind: 'spine' as const,
-    // What is written down a spine with no photograph, and what the spine is
-    // called for anybody not looking at pixels either way.
+    // What is written down a spine with no photograph, which is the filing
+    // name: that is what you read walking along a shelf.
     text: one.authorFiling || one.title || spineLabel(one),
+    // And what it is called for anybody not looking at pixels, which is not
+    // the same string. A run announced as its filing names says which shelf
+    // you are on and never which book.
+    name: spineLabel(one),
     cloth: clothFor(one.id),
     pages: pagesOf(one),
     photo: coverThumbUrl(one.spine, 160),

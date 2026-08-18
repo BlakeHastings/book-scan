@@ -69,15 +69,15 @@ export const SCREENS: Record<Route, ScreenEntry> = {
    * The library group (#315) wears no chrome either, for the same reason: each
    * of these brings the design system's own top bar and four-place tab bar.
    *
-   * `shelves` is the exception and keeps the app's frame, because it is what
-   * the library screen used to be and is unconverted: it draws `ShelfView`
-   * exactly as it was.
+   * **`shelves` was the exception until #387** and is not one now. It was the
+   * last screen in the app drawing the header, the three pills and the blue
+   * accent, and it is `ShelfView` drawn with the design system.
    */
   library: { view: LibraryScreen, chrome: false },
   book: { view: BookScreen, chrome: false },
   find: { view: FindScreen, chrome: false },
   tags: { view: TagsScreen, chrome: false },
-  shelves: { view: ShelvesScreen, chrome: true },
+  shelves: { view: ShelvesScreen, chrome: false },
   queue: { view: QueueScreen, chrome: false },
   /*
    * Changing what belongs where, and the plan it produces (#326). It wore the
