@@ -3,6 +3,8 @@ import { api, type Capture, type CoverMatch, type QueueMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { QueuedAlready } from './QueuedAlready'
 import { confidenceLine, confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
+import { Viewfinder, type Hand } from '../design/Camera'
+import { rememberedHand } from '../lib/hand'
 import {
   applyFocusHints, listLenses, openCamera, preferredLens,
   rememberedLens, rememberLens, stopStream, thumbnail,
@@ -35,6 +37,40 @@ interface Props {
  * was considered and deferred (#49): the cover matcher still puts the wrong
  * book first about one lookup in ten, and that is not a rate to act on
  * unattended against a catalogue nobody can rebuild.
+ *
+ * ## What #408 changed here, and what it did not
+ *
+ * The chrome, and only the chrome. This screen is drawn by `Viewfinder` now,
+ * the same component the gallery draws `#/design/inhand` with and the same one
+ * the cataloguing camera has used since #316, so the picture is the whole
+ * screen and every control floats on it.
+ *
+ * **Nothing about taking a photograph moved.** `shoot` is the same function
+ * against the same burst, the stream is opened by the same effect with the
+ * same lens pinning and the same focus hints, the same single thumbnail is
+ * started and dropped on the floor unless a shortlist comes back, and
+ * `app/cameraSession.tsx` was not edited at all. The shutter is still one
+ * `onClick` straight to `shoot`, with nothing in front of it: see #294 for what
+ * work put behind other work costs.
+ *
+ * What changed is what floats on the picture. The bottom bar of a hint and two
+ * buttons is the design system's bar: a round shutter in the corner a thumb
+ * reaches, the way out beside it, and the way back in the far corner. The
+ * standing sentence under the old bar is gone, because the drawing settled
+ * that: this camera keeps nothing, so it has no rail of photographs to say
+ * what it is pointed at, and the six words that replace them float at the top
+ * instead of costing a band of viewfinder for the whole sitting.
+ *
+ * ## This camera is not the other one, and three things say so
+ *
+ * **Place**: it is reached from the first screen's own door and from the find
+ * screen's corner, never from the tab bar, which opens the camera that
+ * catalogues. **Word**: "Hold a book up" at the top where the other one has a
+ * rail of three photographs, "Done" rather than "Done with this book" on the
+ * way out, and a shutter named "Find this book" where the other one's is named
+ * "Take the photograph". **Glyph**: the doors that reach it carry `IconInHand`
+ * and the tab that reaches the other carries `IconCamera`. #355 is what
+ * confusing the two costs.
  */
 export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -43,6 +79,16 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
   const [reading, setReading] = useState(false)
   const [message, setMessage] = useState('')
   const [choices, setChoices] = useState<CoverMatch[]>([])
+  /**
+   * Which edge the near cluster is on, read once on the way in.
+   *
+   * Not asked here. `design/Camera.tsx` says a switch pressed once ever
+   * belongs beside the rest of the settings, the settings screen asks it since
+   * #350, and this camera has no sheet of its own to hang a second copy off.
+   * So it reads the answer somebody already gave and the shutter lands under
+   * the same thumb it does on the other camera.
+   */
+  const [hand] = useState<Hand>(rememberedHand)
   /**
    * Captures already waiting to be shelved that look like this book.
    *
@@ -69,6 +115,15 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
     setWaiting([])
     setShot('')
   }
+
+  // The camera view fills the screen, so the document behind it must not
+  // scroll or iOS will rubber-band the whole page under the controls. It came
+  // free from a fixed overlay before #408 and is asked for here, the same way
+  // the cataloguing camera asks for it.
+  useEffect(() => {
+    document.body.classList.add('body--locked')
+    return () => document.body.classList.remove('body--locked')
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -191,100 +246,126 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
   }
 
   return (
-    <div className="isbncam">
-      <video ref={videoRef} className="isbncam__video" playsInline muted autoPlay />
+    <div className="wf wf-screen wf-screen--camera">
+      <Viewfinder
+        /* Nothing is kept, so there is no rail of what was kept. The drawing
+           makes the same call and says why. */
+        shots={[]}
+        hand={hand}
+        picture={
+          <video ref={videoRef} className="wf-view__video" playsInline muted autoPlay />
+        }
+        /* Six words, in the app's own, floating rather than in a bar. Without
+           the rail there is nothing else on this screen that says what it is
+           for, and with the rail there is nothing else needed. */
+        top={<span className="wf-view__chip">Hold a book up</span>}
+        /*
+         * Nothing in the far corner, where the drawing stands a handedness
+         * switch in for a settings screen that now exists. The cataloguing
+         * camera puts its lens list and diagnostics there because it owns the
+         * session those belong to; this one opens a stream, reads one frame
+         * and closes it, and has never had a sheet.
+         */
+        far={<></>}
+        onLeave={onClose}
+        onDone={onClose}
+        done="Done"
+        shutterName="Find this book"
+        onShutter={() => void shoot()}
+        /*
+         * The shutter waits on nothing, and these two are not work put in
+         * front of it: `reading` is the request this shutter already started,
+         * and an error here is the stream having failed to open, which is
+         * there being nothing to photograph. Unchanged from before #408.
+         */
+        shutterOff={reading || Boolean(error)}
+        over={
+          <>
+            {error && <div className="cam__error">{error}</div>}
 
-      <div className="isbncam__frame" aria-hidden="true" />
+            {/* What the last shot came to, when it came to something that is
+                neither a book nor a list. One line above the bar, the same
+                place the cataloguing camera says what is in your hands. */}
+            {message && !error && (
+              <p className="wf-view__found wf-view__found--wide">{message}</p>
+            )}
 
-      <div className="isbncam__top">
-        <span className="isbncam__mode">Hold a book up to the camera</span>
-      </div>
+            {/* The panel is shared with the Add flow, which asks the same
+                question from the other end (#146). One wording, one set of
+                affordances, and it is drawn exactly as it was: the gallery has
+                no drawing of it, so this is not the change to invent one in. */}
+            <QueuedAlready
+              matches={waiting}
+              shot={shot}
+              note="Open it rather than photographing it again."
+              onOpen={(match) => onWaiting(match.capture)}
+              onDismiss={clearChoices}
+              dismissLabel="Not this one, it is a different book"
+              disabled={reading}
+            />
 
-      {/* The panel is shared with the Add flow, which asks the same question
-          from the other end (#146). One wording, one set of affordances. */}
-      <QueuedAlready
-        matches={waiting}
-        shot={shot}
-        note="Open it rather than photographing it again."
-        onOpen={(match) => onWaiting(match.capture)}
-        onDismiss={clearChoices}
-        dismissLabel="Not this one, it is a different book"
-        disabled={reading}
-      />
-
-      {choices.length > 0 && (
-        <div className="isbncam__choices">
-          {/* Stays put while the list scrolls, so every candidate can be held
-              against the same picture rather than against a recollection. */}
-          <div className="choices__head">
-            {shot
-              ? <img className="choices__shot" src={shot} alt="The shot these are answering" />
-              : <span className="choice__nocover">your shot</span>}
-            <span className="choice__text">
-              <span className="choice__title">Your shot</span>
-              <span className="choice__author">
-                Closest first. Tapping one opens it, nothing more.
-              </span>
-            </span>
-          </div>
-
-          {choices.map((match) => {
-            // Word, weight and percentage together. The word and colour carry
-            // the band at a glance; the percentage is scaled so chance itself
-            // reads as 0%, so it is honest rather than merely decorative.
-            const confidence = matchConfidence(match.distance)
-            return (
-              <button
-                key={match.id}
-                className={`choice choice--${confidence.strength}`}
-                onClick={() => onIdentified(match.id)}
-                disabled={reading}
-                aria-label={`${match.title} by ${match.authorFiling}, ${confidenceLine(confidence)}`}
-              >
-                {match.cover
-                  ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
-                  : <span className="choice__nocover">no photo</span>}
-                <span className="choice__text">
-                  <span className="choice__title">{match.title}</span>
-                  <span className="choice__author">{match.authorFiling}</span>
-                  <span className={`choice__confidence choice__confidence--${confidence.strength}`}>
-                    {confidence.label}
-                    {confidence.percent !== null && (
-                      <span className="choice__percent"> · {confidence.percent}%</span>
-                    )}
+            {choices.length > 0 && (
+              <div className="isbncam__choices">
+                {/* Stays put while the list scrolls, so every candidate can be
+                    held against the same picture rather than against a
+                    recollection. */}
+                <div className="choices__head">
+                  {shot
+                    ? <img className="choices__shot" src={shot} alt="The shot these are answering" />
+                    : <span className="choice__nocover">your shot</span>}
+                  <span className="choice__text">
+                    <span className="choice__title">Your shot</span>
+                    <span className="choice__author">
+                      Closest first. Tapping one opens it, nothing more.
+                    </span>
                   </span>
-                  {/* Said out loud, so an unfamiliar cover design reads as a
-                      different printing rather than as a wrong match. */}
-                  {match.fromCatalogue && (
-                    <span className="choice__note">catalogue image, not your photo</span>
-                  )}
-                  {match.checkedOut && <span className="choice__state">already off the bookcase</span>}
-                </span>
-              </button>
-            )
-          })}
-          <button className="btn btn--ghost" onClick={clearChoices}>
-            None of these
-          </button>
-        </div>
-      )}
+                </div>
 
-      <div className="isbncam__bar">
-        <p className="isbncam__hint">
-          {error || message
-            || 'Show the barcode, or just the front. It opens the book and you choose.'}
-        </p>
-        <div className="isbncam__controls">
-          <button className="btn" onClick={onClose} disabled={reading}>Done</button>
-          <button
-            className="btn btn--primary"
-            onClick={shoot}
-            disabled={reading || Boolean(error)}
-          >
-            {reading ? 'Reading...' : 'Scan'}
-          </button>
-        </div>
-      </div>
+                {choices.map((match) => {
+                  // Word, weight and percentage together. The word and colour
+                  // carry the band at a glance; the percentage is scaled so
+                  // chance itself reads as 0%, so it is honest rather than
+                  // merely decorative.
+                  const confidence = matchConfidence(match.distance)
+                  return (
+                    <button
+                      key={match.id}
+                      className={`choice choice--${confidence.strength}`}
+                      onClick={() => onIdentified(match.id)}
+                      disabled={reading}
+                      aria-label={`${match.title} by ${match.authorFiling}, ${confidenceLine(confidence)}`}
+                    >
+                      {match.cover
+                        ? <img src={coverUrl(match.cover)} alt="" loading="lazy" />
+                        : <span className="choice__nocover">no photo</span>}
+                      <span className="choice__text">
+                        <span className="choice__title">{match.title}</span>
+                        <span className="choice__author">{match.authorFiling}</span>
+                        <span className={`choice__confidence choice__confidence--${confidence.strength}`}>
+                          {confidence.label}
+                          {confidence.percent !== null && (
+                            <span className="choice__percent"> · {confidence.percent}%</span>
+                          )}
+                        </span>
+                        {/* Said out loud, so an unfamiliar cover design reads
+                            as a different printing rather than as a wrong
+                            match. */}
+                        {match.fromCatalogue && (
+                          <span className="choice__note">catalogue image, not your photo</span>
+                        )}
+                        {match.checkedOut && <span className="choice__state">already off the bookcase</span>}
+                      </span>
+                    </button>
+                  )
+                })}
+                <button className="btn btn--ghost" onClick={clearChoices}>
+                  None of these
+                </button>
+              </div>
+            )}
+          </>
+        }
+      />
     </div>
   )
 }

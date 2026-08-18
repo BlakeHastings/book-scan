@@ -7,7 +7,7 @@
  * same reason: the row is the target, the pill is the drawing.
  */
 
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { IconCarry, IconInHand, IconOnward, IconSaying } from './Icons'
 
 export function Button({
@@ -265,6 +265,8 @@ export function Field({
   placeholder,
   action,
   onChange,
+  onEnter,
+  focus = false,
   inputMode,
 }: {
   label: string
@@ -287,9 +289,36 @@ export function Field({
    * end are decided once, here, whether or not there is a keyboard behind it.
    */
   onChange?: (value: string) => void
+  /**
+   * The key that means "that is my answer", where the field has one thing to
+   * do with it.
+   *
+   * Only a field on its own in a dialog has: a form of eight fields has a
+   * button under it and Enter would guess which of the eight was the point. No
+   * gallery screen sets it, so the drawn markup is unchanged.
+   */
+  onEnter?: () => void
+  /**
+   * Take the keyboard on arrival, and select what is already in the box.
+   *
+   * Off by default and deliberately so, for the reason `SearchField` gives: a
+   * field that opens the keyboard on arrival covers two thirds of a phone with
+   * it, and the screen underneath is most of what a screen is for. A dialog
+   * that exists only to be typed into is the exception, because there is no
+   * screen underneath it to look at.
+   */
+  focus?: boolean
   /** Which keyboard a phone offers. A page count is digits and a title is not. */
   inputMode?: 'text' | 'numeric'
 }) {
+  const box = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!focus) return
+    box.current?.focus()
+    box.current?.select()
+  }, [focus])
+
   const marks = [
     'wf-field__box',
     value ? '' : 'wf-field__box--empty',
@@ -307,6 +336,7 @@ export function Field({
       <div className={marks}>
         {onChange ? (
           <input
+            ref={box}
             className="wf-field__value wf-field__input"
             value={value ?? ''}
             placeholder={placeholder}
@@ -316,6 +346,9 @@ export function Field({
             autoCapitalize="words"
             spellCheck={false}
             onChange={(event) => onChange(event.target.value)}
+            onKeyDown={onEnter
+              ? (event) => { if (event.key === 'Enter') onEnter() }
+              : undefined}
           />
         ) : (
           <span className="wf-field__value">{value || placeholder}</span>

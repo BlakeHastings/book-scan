@@ -2,8 +2,11 @@
  * The scanner: a full-screen camera that reads an ISBN off a book already in
  * the collection and opens it.
  *
- * Above everything else, because it is a full-screen camera and whatever page
- * opened it is still behind waiting to be returned to.
+ * It is the whole screen, and the page that opened it is not behind it: the
+ * route table draws one screen and this is it, so leaving here is a route
+ * change back to wherever `leaveScanner` says. It said "above everything else"
+ * until #408 and that was true of a fixed overlay this camera has not been
+ * since the route table was built.
  */
 
 import { canShelve } from '../components/QueuePane'

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import { Viewfinder, type Hand } from '../design/Camera'
+import { rememberedHand } from '../lib/hand'
 import {
   applyFocusHints, captureStill, listLenses, openCamera, preferredLens,
   rememberedLens, rememberLens, stopStream,
@@ -21,6 +23,24 @@ interface Props {
  * The result fills the field rather than submitting it. OCR misreads digits,
  * and a wrong ISBN silently fetches a different book, so a person still gets
  * to look at the number before it is used.
+ *
+ * ## What #408 changed here, and what it did not
+ *
+ * The chrome, and only the chrome. It is `Viewfinder` now, the frame both the
+ * other cameras wear, so the picture is the whole screen. **Nothing about
+ * taking a photograph moved**: the same single still rather than a burst,
+ * because an ISBN is read from a page held still and close and the burst buys
+ * nothing there; the same lens pinning, for the reason the comment below
+ * gives; the same near-focus hints; the same one call to `identifyIsbn`,
+ * straight off the shutter with nothing in front of it.
+ *
+ * ## It is not either of the two cameras, and does not pretend to be
+ *
+ * It is a way of answering one field, opened from that field and handing an
+ * answer back to it, which is why it is the only one of the three whose way
+ * out is called Cancel and whose shutter is named for digits rather than for a
+ * book. It keeps nothing, so like the camera that finds a book in your hand it
+ * draws no rail of photographs.
  */
 export function IsbnCamera({ onRead, onCancel }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -28,6 +48,15 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
   const [error, setError] = useState('')
   const [reading, setReading] = useState(false)
   const [miss, setMiss] = useState('')
+  /** Read once, and asked for on the settings screen. See `ScanCamera`. */
+  const [hand] = useState<Hand>(rememberedHand)
+
+  // Fills the screen, so the page under it must not scroll. It came free from
+  // a fixed overlay before #408 and is asked for here.
+  useEffect(() => {
+    document.body.classList.add('body--locked')
+    return () => document.body.classList.remove('body--locked')
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -104,23 +133,41 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
     }
   }
 
+  /*
+   * Fixed, because this camera is opened from a screen rather than routed to.
+   * The other two are the whole page already; this one arrives through the
+   * same slot a dialog does and has to leave that screen the way a dialog
+   * does.
+   */
   return (
-    <div className="isbncam">
-      <video ref={videoRef} className="isbncam__video" playsInline muted autoPlay />
-
-      <div className="isbncam__frame" aria-hidden="true" />
-
-      <div className="isbncam__bar">
-        <p className="isbncam__hint">
-          {error || miss || 'Point at the barcode or the printed ISBN and fill the frame.'}
-        </p>
-        <div className="isbncam__controls">
-          <button className="btn" onClick={onCancel} disabled={reading}>Cancel</button>
-          <button className="btn btn--primary" onClick={shoot} disabled={reading || Boolean(error)}>
-            {reading ? 'Reading...' : 'Read ISBN'}
-          </button>
-        </div>
-      </div>
+    <div className="wf wf-screen wf-screen--camera wf-screen--over">
+      <Viewfinder
+        /* Nothing is kept: the answer is thirteen digits and the frame goes. */
+        shots={[]}
+        hand={hand}
+        picture={
+          <video ref={videoRef} className="wf-view__video" playsInline muted autoPlay />
+        }
+        top={<span className="wf-view__chip">Point at the ISBN</span>}
+        /* Nothing in the far corner, for the reason `ScanCamera` gives. */
+        far={<></>}
+        onLeave={onCancel}
+        onDone={onCancel}
+        done="Cancel"
+        shutterName="Read the ISBN"
+        onShutter={() => void shoot()}
+        /* Unchanged from before #408: the request this shutter started, and a
+           stream that never opened. Nothing else is ever in front of it. */
+        shutterOff={reading || Boolean(error)}
+        over={
+          <>
+            {error && <div className="cam__error">{error}</div>}
+            {miss && !error && (
+              <p className="wf-view__found wf-view__found--wide">{miss}</p>
+            )}
+          </>
+        }
+      />
     </div>
   )
 }

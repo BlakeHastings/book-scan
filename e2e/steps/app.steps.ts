@@ -73,15 +73,29 @@ When('I scan the book', async ({ page }) => {
   await page.getByRole('button', { name: 'Find the book in your hand' }).click()
   await expect
     .poll(
-      () => page.locator('video.isbncam__video').evaluate(
+      () => page.locator('video.wf-view__video').evaluate(
         (video) => (video as HTMLVideoElement).videoWidth,
       ),
       { message: 'the fake camera never produced a frame' },
     )
     .toBeGreaterThan(0)
 
-  await page.getByRole('button', { name: 'Scan', exact: true }).click()
+  await inHandShutter(page).click()
 })
+
+/**
+ * The shutter on the camera that finds a book you already own.
+ *
+ * Named rather than located, and that is the assertion hiding in a helper. Both
+ * cameras are drawn by `Viewfinder` since #408, so both shutters are the same
+ * circle with the same class, and the only thing that tells them apart without
+ * looking at which screen you are on is what the button is called. If this ever
+ * finds two, the two cameras have stopped being distinguishable and #355 is
+ * back.
+ */
+export function inHandShutter(page: Page) {
+  return page.getByRole('button', { name: 'Find this book', exact: true })
+}
 
 Then('it should open the book {string}', async ({ page }, title: string) => {
   await expect(bookTitle(page)).toHaveText(title, { timeout: QUEUE_TIMEOUT })
@@ -116,7 +130,10 @@ When('I check it in', async ({ page }) => {
  */
 When('I say it fits and put it back', async ({ page }) => {
   await page.getByRole('button', { name: 'It fits, save' }).click()
-  await expect(page.locator('video.isbncam__video')).toBeVisible({ timeout: QUEUE_TIMEOUT })
+  // The scanner and not the cataloguing camera, which is the whole claim of
+  // this step, so it waits on the shutter that says which camera this is
+  // rather than on a video element both of them now have.
+  await expect(inHandShutter(page)).toBeVisible({ timeout: QUEUE_TIMEOUT })
 })
 
 /**
@@ -814,7 +831,10 @@ When('I change the ISBN to that of {string}', async ({ page }, title: string) =>
   // digits typed off a book by somebody holding the book is the slowest way to
   // answer it. Both open the same prompt, and the prompt still has a keyboard.
   await page.getByRole('button', { name: /Read the barcode/ }).click()
-  await page.locator('.isbn-input input').fill(target.isbn13)
+  // The prompt's own box, which is the design system's field since #408 and
+  // carries its label rather than a class of its own. The ISBN on the screen
+  // underneath is drawn and not typed into, so this names exactly one box.
+  await page.getByRole('textbox', { name: 'ISBN' }).fill(target.isbn13)
   await page.getByRole('button', { name: 'Look up and replace' }).click()
 })
 

@@ -281,18 +281,36 @@ describe('the one action in a corner is an icon with a name', () => {
  * underneath moves it.
  */
 describe('the corner opens onto the glass, not onto wherever the document happens to be scrolled', () => {
-  it('is true because the sheet is fixed to the viewport rather than absolute inside the screen', () => {
-    const css = readFileSync(join(HERE, 'library.css'), 'utf8')
-    const rule = css.match(/\.wf-corner\s*\{[^}]*\}/)?.[0] ?? ''
+  /*
+   * Every sheet that opens over a screen, not only the corner.
+   *
+   * `.wf-sure` was absolute and was the same defect waiting to be found, on the
+   * argument that the screens it sat on were about as tall as the phone. The
+   * book's own page is not, and correcting its ISBN asks here since #408: the
+   * field is near the top, the card was centred in a document three screens
+   * long, and pressing the camera on it looked like it did nothing. Which is
+   * the sentence above, about a different button.
+   *
+   * So the rule is the family rather than the one member of it that has been
+   * caught, because the next sheet is the one this is really for.
+   */
+  const SHEETS = ['wf-corner', 'wf-name', 'wf-sure']
 
-    expect(rule, 'no rule was found for .wf-corner at all').not.toBe('')
-    expect(rule, 'the corner sheet is not pinned to the viewport').toMatch(
-      /position:\s*fixed/,
-    )
-    expect(rule, 'a document-relative sheet would still open off-screen').not.toMatch(
-      /position:\s*absolute/,
-    )
-  })
+  it.each(SHEETS)(
+    '.%s is fixed to the viewport rather than absolute inside the screen',
+    (sheet) => {
+      const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+      const rule = css.match(new RegExp(`\\.${sheet}\\s*\\{[^}]*\\}`))?.[0] ?? ''
+
+      expect(rule, `no rule was found for .${sheet} at all`).not.toBe('')
+      expect(rule, `the .${sheet} sheet is not pinned to the viewport`).toMatch(
+        /position:\s*fixed/,
+      )
+      expect(rule, 'a document-relative sheet would still open off-screen').not.toMatch(
+        /position:\s*absolute/,
+      )
+    },
+  )
 })
 
 /**
