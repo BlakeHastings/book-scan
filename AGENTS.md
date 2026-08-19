@@ -471,6 +471,28 @@ The same applies to anything else you are tempted to background so you can do
 something else meanwhile. **You have nothing else to do.** A task that ends with
 its work uncommitted is a task nobody can tell succeeded from one that crashed.
 
+### Two things a worktree does not give you, and both have cost work
+
+You have your own worktree. **You do not have your own git stash, and you do not
+have your own `node_modules` unless you leave it alone.**
+
+**The stash stack is shared across every worktree in this repository.** `git
+stash pop` in yours takes whatever is on top of the stack, which may be another
+agent's uncommitted work. That happened: an agent stashed, popped, and got
+somebody else's files. It noticed, put the entry back with `git stash store` and
+cleaned up, and nothing was lost, but only because it was paying attention.
+
+**Do not use `git stash` at all.** If you need a clean tree, commit to your own
+branch. It is your branch and nobody else is on it.
+
+**Do not junction or symlink `node_modules` to the main checkout.** It looks like
+a way to save several gigabytes on a machine that is short of them, and it is,
+right up until an install runs. `npm ci` deletes the tree before it writes, and
+through a junction it deletes the *shared* one. The main checkout's dependencies
+were destroyed three times before anybody worked out why, each time costing a
+reinstall and a confused half hour. Run your own install, or ask the orchestrator
+to free disk.
+
 **`npm test` needs Docker, for the whole run.** That started at stage F and it
 got worse at stage I. It is a real regression in what it takes to contribute,
 accepted by the owner rather than stumbled into: a suite that does not exercise
