@@ -83,7 +83,7 @@ import {
 } from '../infrastructure/shelving/furniture'
 import type { Db } from './driver'
 import { withPhotographs, type PhotographFields } from './photographs'
-import { tagCounts } from './store'
+import { tagCounts } from '../infrastructure/books/tag-counts'
 
 /*
  * The refusal, and how one is said, moved out to `server/refusal.ts` (#332).
