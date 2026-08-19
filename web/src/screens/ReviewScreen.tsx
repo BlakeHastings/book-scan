@@ -57,7 +57,7 @@ export function ReviewScreen() {
   const {
     draft, lookup, thumbs, crops, saving, relookupBusy, relookupError,
     evidence, bookId, captureId, origin, notice, placement, placementStale, coverImage,
-    checkedOutAt, misfile, setDraft, setNotice, setRelookupError,
+    checkedOutAt, misfile, setDraft, setRelookupError,
     setActiveSlot,
   } = book
 
@@ -103,7 +103,6 @@ export function ReviewScreen() {
         coverText={evidence.coverText}
         captureNote={evidence.note}
         notice={notice}
-        onDismissNotice={() => setNotice('')}
         error={error}
         onDismissError={() => setError('')}
         onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
@@ -147,7 +146,6 @@ export function ReviewScreen() {
       saved
       tabs={tabs}
       notice={notice}
-      onDismissNotice={() => setNotice('')}
       error={error}
       onDismissError={() => setError('')}
       /*

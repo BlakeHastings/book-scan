@@ -21,6 +21,7 @@
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react'
 import { Card } from '../design/Card'
 import type { TabName } from '../design/Chrome'
+import { Button } from '../design/Controls'
 import { Phone } from '../design/Phone'
 
 export function RoomFrame({
@@ -49,7 +50,20 @@ export function RoomFrame({
  * refusal is the sentence that says what to do instead; drawn at the top of a
  * page somebody is standing at the foot of, it is a button that did nothing.
  */
-export function Trouble({ said }: { said: string }) {
+export function Trouble({ said, onDismiss }: {
+  said: string
+  /**
+   * A way to put the refusal away, where the screen underneath has one.
+   *
+   * Most refusals clear themselves the moment somebody tries the thing again,
+   * and those pass nothing here. The exceptions are the ones that arrive after
+   * whatever asked the question has already closed: a lookup that failed while
+   * the person was back on the page behind it. Those used to be dismissed by
+   * tapping the box, which is a target nothing says is a target, and this is
+   * that made into the button it always was.
+   */
+  onDismiss?: () => void
+}) {
   const card = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -59,7 +73,16 @@ export function Trouble({ said }: { said: string }) {
   if (!said) return null
   return (
     <div ref={card}>
-      <Card weight="quiet" kind="That did not work" title={said} />
+      <Card
+        weight="quiet"
+        kind="That did not work"
+        title={said}
+        foot={onDismiss && (
+          <Button tone="quiet" block onPress={onDismiss}>
+            Dismiss
+          </Button>
+        )}
+      />
     </div>
   )
 }

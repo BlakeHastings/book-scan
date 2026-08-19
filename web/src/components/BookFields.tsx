@@ -67,16 +67,28 @@ export function BookFields({ draft, lookup, derivedFiling, onChange }: Props) {
 
   return (
     <>
+      {/*
+        A book the catalogue already holds, which is news somebody has to read
+        before they save. It is a card with the news in its title, which is
+        where `Card` says news belongs, and it is quiet rather than loud: this
+        is a thing to know rather than a refusal, and saving a second copy of a
+        book somebody genuinely owns twice is allowed.
+      */}
       {lookup?.duplicateOf && (
-        <div className="warn">
-          Already catalogued as #{lookup.duplicateOf.id} ({lookup.duplicateOf.title})
-          {lookup.duplicateOf.location ? ` at ${lookup.duplicateOf.location}` : ''}.
-          Saving adds a second copy.
-        </div>
+        <Card
+          weight="quiet"
+          kind="Saving adds a second copy"
+          title={
+            `Already catalogued as #${lookup.duplicateOf.id} (${lookup.duplicateOf.title})`
+            + `${lookup.duplicateOf.location ? ` at ${lookup.duplicateOf.location}` : ''}.`
+          }
+        />
       )}
 
+      {/* What the catalogue said it could not answer for. Quiet lines, because
+          each of them is a fact about the lookup rather than a thing to do. */}
       {lookup?.notes.map((note) => (
-        <div className="warn warn--soft" key={note}>{note}</div>
+        <Said key={note}>{note}</Said>
       ))}
 
       {/*

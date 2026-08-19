@@ -1,5 +1,21 @@
-/* Phone-first. Everything is sized to be readable at arm's length while
-   holding a book, and tap targets stay at 44px which is the iOS minimum. */
+/*
+ * What is left of the app's own stylesheet.
+ *
+ * Everything a screen is drawn with lives in `src/design`, in `tokens.css` and
+ * `library.css`, and has since the conversion finished (#387). What stayed here
+ * is what that has no answer for, and each block below says which of the three
+ * reasons it is:
+ *
+ * 1. **The chrome the redesign has not reached.** The header and its tabs, and
+ *    the sheet on the cataloguing camera.
+ * 2. **A picture with something floating on it.** No drawing in the gallery has
+ *    an answer over a live camera, so where a panel sits is the app's; what is
+ *    inside every one of them is the design system's.
+ * 3. **A gesture.** The queue's swipe and the undo it opens are a drag, a
+ *    reveal and a countdown, none of which is a thing the gallery draws.
+ *
+ * Nothing here paints a card, a row, a button, a field or a shelf any more.
+ */
 
 :root {
   --bg: #12121a;
@@ -44,6 +60,17 @@ html, body {
 .topbar nav { display: flex; gap: 4px; }
 .counts { flex-basis: 100%; color: var(--muted); font-size: 13px; }
 
+/* The title doubles as the way back, so every flow has an exit that is
+   always in the same place. */
+.topbar__home {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+
 .tab {
   background: none;
   border: 1px solid var(--line);
@@ -55,28 +82,69 @@ html, body {
 }
 .tab--on { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
 
-/*
- * The placement card and its three neighbour rows were here (#387).
- *
- * What answers a placement is the drawing: the run of books with the hole in
- * it, which is `Shelf` out of the design system and is what every screen on the
- * path to a shelf now shows. The card was what the app said when the server
- * sent no run to draw, and it says the same three things out of `Instruction`,
- * `List` and `Row`: the sentence, the two books either side, and the one going
- * between them.
- */
+/* The one line of red the header carries. Every screen inside the redesign
+   says what went wrong on itself, with `Trouble`; this is what is left for
+   whatever is still outside one. */
+.error {
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  margin-bottom: 12px;
+  background: rgba(247, 118, 142, 0.15);
+  border: 1px solid var(--bad);
+}
 
 /*
  * A placement on screen that is known to be out of date.
  *
- * The one thing here that is about state rather than about drawing, and the
- * reason it stays: a placement that has been superseded names a real plank and
- * cannot be told from a current one by reading it, so it dims while the answer
- * it is made of is fetched again. See `ReviewScreen.tsx`, which says the same.
+ * About state rather than about drawing, which is why it stays: a placement
+ * that has been superseded names a real plank and cannot be told from a current
+ * one by reading it, so it dims while the answer it is made of is fetched
+ * again. See `ReviewScreen.tsx`, which says the same.
  */
 .placement--stale { opacity: 0.55; transition: opacity 120ms; }
 
-/* --- Full-screen camera ----------------------------------------------- */
+/*
+ * The fields, which are the design system's and are the last thing in the app
+ * reaching back through this file.
+ *
+ * `.wf-field__input` and `.wf-search__input` set everything about how a field
+ * looks and set no width, so the width comes from here. Taking this away
+ * without giving those two a width of their own collapses every box in the app
+ * to the size of whatever is typed in it, which is why it is still here and
+ * why moving it is its own change rather than a line in this one.
+ */
+input {
+  width: 100%;
+  /* 16px minimum, or iOS zooms the page when the field takes focus. */
+  font-size: 16px;
+  padding: 11px 12px;
+  min-height: 44px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+}
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* --- Buttons ---------------------------------------------------------- */
+
+/* Two left, both on the cataloguing camera's settings sheet, which is the
+   one surface in the app the redesign has not reached. Everything else in
+   the app presses `Button` out of the design system. */
+.btn {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 15px;
+}
+.btn--ghost { background: transparent; }
+.btn:disabled { opacity: 0.45; }
+
+/* --- The camera, and what floats on it -------------------------------- */
 
 /* The camera is a fixed overlay rather than a block in the document. In normal
    flow on iOS the controls below the feed end up under the URL bar and off
@@ -90,54 +158,11 @@ html, body {
   width: 100%;
 }
 
-.cam {
-  position: fixed;
-  inset: 0;
-  /* dvh tracks the visible viewport as the URL bar shows and hides. The vh
-     line is the fallback for browsers without dvh. */
-  height: 100vh;
-  height: 100dvh;
-  background: #000;
-  overflow: hidden;
-  z-index: 10;
-}
-
-.cam__video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cam__top {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: calc(10px + env(safe-area-inset-top)) 12px 24px;
-  background: linear-gradient(rgba(0, 0, 0, 0.75), transparent);
-  /* Above .cam__idle, which is an opaque full-bleed overlay and would
-     otherwise bury the only route to the library on first load. */
-  z-index: 3;
-}
-.cam__meta {
-  flex: 1;
-  text-align: center;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
-  font-variant-numeric: tabular-nums;
-}
-.cam__chip-btn {
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: #fff;
-  border-radius: 999px;
-  padding: 0 12px;
-  min-height: 36px;
-  font-size: 13px;
-}
+/*
+ * The frame, the aiming guide, the bottom bar and the two buttons on it were
+ * all here and are `Viewfinder` in the design system now (#408, #411). Three
+ * screens draw a camera and there is one drawing of one.
+ */
 
 .cam__error {
   position: absolute;
@@ -150,89 +175,6 @@ html, body {
   font-size: 14px;
   z-index: 4;
 }
-
-.cam__idle {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 14px;
-  text-align: center;
-  padding: 24px;
-  background: var(--bg);
-  z-index: 1;
-}
-.cam__idle h2 { margin: 0; font-size: 20px; }
-.cam__idle p { color: var(--muted); margin: 0; max-width: 30ch; }
-.cam__idle-origin {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  word-break: break-all;
-}
-
-/* Two rows only: which side you are shooting, and the shutter. Anything that
-   is read once and then ignored belongs in the sheet or the toast, not here.
-   The scrim starts late and stays soft so the viewfinder keeps the screen. */
-.cam__bottom {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  padding: 28px 12px calc(12px + env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.8));
-}
-
-/* One line, always. A long title used to wrap to three and push the shutter
-   row down the screen mid-session. */
-.cam__found {
-  background: rgba(134, 209, 154, 0.16);
-  border: 1px solid var(--good);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 13px;
-  margin-bottom: 8px;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Neutral rather than the green "good" state: nothing has been found, only
-   confirmed absent, and green there would read as a false all-clear. */
-.cam__found--empty {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.28);
-  color: var(--muted);
-}
-
-.cam__chips { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; }
-.cam__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-}
-.cam__chip--filled { color: #fff; }
-.cam__chip--on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0b0b12;
-  font-weight: 600;
-}
-.cam__chip--found { border-color: var(--good); }
-
-.cam__dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
-}
-.cam__dot--busy { background: var(--warn); }
-.cam__dot--found { background: var(--good); }
 
 /* Shows what the slot wants for a couple of seconds, then leaves. Pointer
    events off so it can never swallow a tap meant for the shutter. */
@@ -258,540 +200,9 @@ html, body {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-.cam__controls {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 10px;
-}
-
-.cam__thumbs { display: flex; gap: 4px; }
-.cam__thumb {
-  width: 30px; height: 40px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  overflow: hidden;
-  display: block;
-}
-.cam__thumb img { width: 100%; height: 100%; object-fit: cover; }
-
-.cam__review {
-  justify-self: end;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  min-height: 48px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(0, 0, 0, 0.5);
-  color: #fff;
-  font-size: 14px;
-}
-.cam__review:disabled { opacity: 0.4; }
-.cam__count { font-size: 11px; color: rgba(255, 255, 255, 0.7); }
-
-.manual--dark { width: 100%; max-width: 380px; }
-
-/* --- Shutter ---------------------------------------------------------- */
-
-.shutter {
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
-  background: #fff;
-  border: 3px solid var(--line);
-  display: grid;
-  place-items: center;
-  padding: 0;
-}
-.shutter:active { transform: scale(0.94); }
-.shutter__ring {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  border: 2px solid #1a1a24;
-  background: #fff;
-}
-
-.found {
-  background: rgba(134, 209, 154, 0.14);
-  border: 1px solid var(--good);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
-  margin-bottom: 12px;
-}
-
-.hint--center { text-align: center; margin: 8px 0; }
-
-/* --- Review thumbnails ------------------------------------------------ */
-
-.deck--review { grid-template-columns: repeat(3, 1fr); }
-.shot { margin: 0; display: grid; gap: 4px; }
-.shot img {
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-}
-.shot figcaption { font-size: 11px; color: var(--muted); text-align: center; }
-
-/* --- Forms ------------------------------------------------------------ */
-
-.manual { display: flex; gap: 8px; margin-top: 12px; }
-.manual input { flex: 1; }
-
-.field { display: block; margin-bottom: 12px; }
-.field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-
-input {
-  width: 100%;
-  /* 16px minimum, or iOS zooms the page when the field takes focus. */
-  font-size: 16px;
-  padding: 11px 12px;
-  min-height: 44px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
-}
-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.hint { color: var(--muted); font-size: 13px; margin: -6px 0 14px; }
-.hint code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
-
-/* --- Buttons ---------------------------------------------------------- */
-
-.btn {
-  min-height: 44px;
-  padding: 0 16px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--text);
-  font-size: 15px;
-}
-.btn--primary { background: var(--accent); color: #0b0b12; border-color: var(--accent); font-weight: 600; }
-.btn--big { min-height: 52px; font-size: 17px; }
-.btn--ghost { background: transparent; }
-.btn:disabled { opacity: 0.45; }
-
-.actions { display: flex; gap: 10px; margin-top: 20px; }
-.actions .btn { flex: 1; }
-
-/* --- Messages --------------------------------------------------------- */
-
-.error, .warn {
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
-  margin-bottom: 12px;
-}
-.error { background: rgba(247, 118, 142, 0.15); border: 1px solid var(--bad); }
-.warn { background: rgba(224, 175, 104, 0.12); border: 1px solid var(--warn); }
-.warn--soft { border-color: var(--line); background: var(--paper-sunk); color: var(--ink-2); }
-.warn ul { margin: 6px 0 0; padding-left: 18px; }
-
-/* --- Library ---------------------------------------------------------- */
-
-.shelf__row {
-  display: grid;
-  grid-template-columns: 46px 34px 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--line);
-}
-.shelf__row--flag { background: rgba(224, 175, 104, 0.1); }
-.shelf__loc { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
-.shelf__body { display: grid; }
-.shelf__author { font-size: 13px; color: var(--muted); }
-.shelf__title { font-size: 15px; }
-.shelf__series { color: var(--muted); font-size: 13px; }
-
-.shelf__photo {
-  width: 34px;
-  height: 46px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--panel-2);
-  display: block;
-}
-.shelf__photo img { width: 100%; height: 100%; object-fit: cover; }
-
-/* Manual ISBN entry inside the camera view. Present whenever the book is
-   still unknown, so a failed scan has somewhere to go. */
-.cam__manual { display: flex; gap: 8px; margin-bottom: 10px; }
-.cam__manual input {
-  flex: 1;
-  min-height: 44px;
-  background: rgba(0, 0, 0, 0.55);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: #fff;
-}
-.cam__manual .btn { flex: 0 0 auto; }
-
-/* Once there is something worth reviewing, stop looking like a ghost button. */
-.cam__review--ready {
-  background: var(--good);
-  border-color: var(--good);
-  color: #0b0b12;
-  font-weight: 600;
-}
-.cam__review--ready .cam__count { color: rgba(0, 0, 0, 0.6); }
-
-/* --- Spine crop guide -------------------------------------------------- */
-
-/* Positioned from the same fractions the crop uses, so what you frame is
-   exactly what gets saved. */
-/* Corner brackets rather than a full outline. A rectangle drawn all the way
-   round competes with the book inside it; four corners say the same thing and
-   leave the subject alone. Eight gradients: two short bars per corner. */
-.cam__guide {
-  position: absolute;
-  pointer-events: none;
-  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
-  --bracket: linear-gradient(var(--accent), var(--accent));
-  background-repeat: no-repeat;
-  background-image:
-    var(--bracket), var(--bracket), var(--bracket), var(--bracket),
-    var(--bracket), var(--bracket), var(--bracket), var(--bracket);
-  background-size:
-    20px 2px, 2px 20px,   /* top left */
-    20px 2px, 2px 20px,   /* top right */
-    20px 2px, 2px 20px,   /* bottom left */
-    20px 2px, 2px 20px;   /* bottom right */
-  background-position:
-    left top, left top,
-    right top, right top,
-    left bottom, left bottom,
-    right bottom, right bottom;
-}
-/* Inside the frame, not above it. Above collides with the top bar once the
-   guide is positioned high enough to clear the shutter row. */
-.cam__guide-label {
-  position: absolute;
-  left: 50%;
-  top: 8px;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.65);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-}
-
-.cam__badge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--warn);
-  color: #0b0b12;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.cam__next {
-  justify-self: start;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  min-height: 48px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(0, 0, 0, 0.5);
-  color: #fff;
-  font-size: 14px;
-}
-.cam__next:disabled { opacity: 0.4; }
-
-/* Controls are exactly three: next book | shutter | review. */
-.cam__controls { grid-template-columns: 1fr auto 1fr; }
-
-/* --- Queue ------------------------------------------------------------- */
-
-.pane-title { font-size: 16px; margin: 4px 0 12px; }
-
-.queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-
-/*
- * Find a book, and choose which photograph of it you are shown.
- *
- * One line now, not two (#349). The switcher was a segmented control under the
- * box, spelling out Front and Spine, and it is the library's round button at
- * the end of the same row: "the icon next to the search system that switches
- * between spine or cover". What used to truncate the placeholder was a
- * two-word switch beside the box; a 44px circle costs a fraction of that, and
- * the box gives up nothing else because the row is the one the library wears.
- */
-.queue__tools { margin-bottom: 12px; }
-.queue__search { display: flex; gap: 6px; min-width: 0; }
-/*
- * The queue wears the design system since #316, and every colour below it is
- * read off the tokens that arrive with it: this list is only ever drawn inside
- * `.wf`, so `--paper-sunk` and `--ink-2` are in scope and the app's cold
- * panels are not. Shapes, sizes and every rule about the swipe are untouched.
- */
-.queue__search-input {
-  flex: 1;
-  min-width: 0;
-  min-height: 48px;
-  padding: 0 var(--s3);
-  /* 16px exactly. Anything smaller and iOS zooms the page on focus, which
-     leaves somebody scrolled sideways on a list they were reading. */
-  font-size: 16px;
-  font-family: var(--face-ui);
-  background: var(--paper-sunk);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  color: inherit;
-}
-.queue__search-input::placeholder { color: var(--ink-2); }
-/* The browser's own clear affordance, turned off. It is a few millimetres
-   across, it is not there on every phone, and it is not there at all once the
-   keyboard is dismissed. The button below replaces it rather than joining it,
-   so there is one way to clear the box and it is thumb-sized. */
-.queue__search-input::-webkit-search-cancel-button { display: none; }
-.queue__search-clear {
-  min-height: 48px;
-  padding: 0 var(--s4);
-  font-size: var(--size-small);
-  background: var(--paper-raised);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-pill);
-  color: var(--ink-2);
-}
-.queue__photoswitch { margin-bottom: 0; }
-.queue__howto { margin: 0 0 10px; }
-
-/* A word inside a sentence that does something, where a button would read as
-   a second instruction. */
-.linkish {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--accent);
-  text-decoration: underline;
-}
-
-/*
- * One book waiting to be filed.
- *
- * **No coloured rail down the side.** There was one, three pixels of it, tinted
- * per status. That is the mark the owner named as an AI fingerprint and
- * rejected on a card, and a row is a card with a book in it. Nothing was lost
- * by taking it off: what the rail was saying is said in words on the row
- * itself, one line down, which is where somebody sorting a stack actually
- * reads it.
- */
-.queue__row {
-  position: relative;
-  overflow: hidden;
-  background: var(--paper-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--lift-1);
-}
-
-/* What the row is sliding off, so the gesture says what it is going to do
-   before the finger lifts. Half lit while the drag is short of the distance
-   that would discard, full once it is past it: letting go early is how
-   somebody backs out, and that has to be legible under a thumb. */
-.queue__behind {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 18px;
-  background: var(--plum-wash);
-  color: var(--plum);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.5;
-}
-.queue__row[data-armed='yes'] .queue__behind {
-  opacity: 1;
-  font-weight: 600;
-  background: var(--plum);
-  color: var(--ink-on-fill);
-}
-
-.queue__slide {
-  position: relative;
-  background: var(--paper-raised);
-  transform: translateX(calc(-1 * var(--dx, 0px)));
-  /* Vertical panning stays the browser's and sideways is ours, so scrolling
-     the list never has to be arbitrated in JavaScript. */
-  touch-action: pan-y;
-  /* Snapping back is animated. Following a finger is not: a transition during
-     the drag makes the row lag behind the thumb. */
-  transition: transform 160ms ease-out;
-}
-.queue__row[data-dragging='yes'] .queue__slide { transition: none; }
-
-/* The row is the control. Whole-row target rather than a button on the right,
-   because this is used one-handed with a book in the other. */
-.queue__open {
-  width: 100%;
-  display: block;
-  padding: var(--s2);
-  background: none;
-  border: 0;
-  border-radius: 10px;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-.queue__open:focus-visible { outline: none; box-shadow: var(--focus); }
-/* Still being read, so there is nothing to shelve yet. Dimmed rather than
-   disabled: a disabled button swallows the pointer events the swipe is made
-   of, and a capture whose photographs came out unusable is exactly one
-   somebody wants rid of before the worker finishes with it. */
-.queue__open[aria-disabled='true'] { opacity: 0.55; }
-
-/* A discard that has not happened. Nothing has been sent while this is on
-   screen; see discardWindow.ts. */
-.queue__undo {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 12px 10px 15px;
-}
-.queue__undo-text { font-size: 13px; color: var(--ink-2); }
-.queue__undo-text strong { color: var(--fg, inherit); font-weight: 600; }
-.queue__undo-btn { min-height: 44px; padding: 0 18px; }
-.queue__undo-bar {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
-  width: 100%;
-  background: var(--warn);
-  transform-origin: left center;
-  animation-name: undo-drain;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}
-@keyframes undo-drain {
-  from { transform: scaleX(1); }
-  to { transform: scaleX(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .queue__undo-bar { animation: none; }
-  .queue__slide { transition: none; }
-}
-
-/*
- * What is inside a row is `.wf-queued`, in `library.css`, which is the
- * wireframe's own row and is called rather than copied (#363).
- *
- * Nine rules stood here: a 46 by 62 thumbnail, a title, a name marked as a
- * guess, a line of author or ISBN, a status in small capitals, a colour for the
- * one status that needs a person, and a note under it. Every one of them now
- * has exactly one home, in the design system, because there are two rows drawn
- * from it and a second copy of any of them is two rows that agree until one is
- * edited.
- */
-
-/*
- * The photographs, the full screen view of one and the ISBN block were here,
- * and they went with `BookGallery` and the book's old edit screen (#387).
- *
- * `Shots` in `src/design/Shots.tsx` draws a book's pictures now, in the
- * wireframe and in the app together, and `library.css` is where that is
- * painted. The ISBN is a `Field` with a camera at the end of it, the way the
- * review screen has drawn it since #316.
- */
-
-/*
- * The modal was here, and it was the last one in the app (#408).
- *
- * One card, opened by one screen, asking for an ISBN. Every other question the
- * app asks over a screen had gone to `Sure` in the design system, so this was a
- * card in the old app's colours drawn over two screens that had been converted
- * around it. It is `Asked` now, which is the card `Sure` is asked on with the
- * question taken off it, and the same breakpoint decides where it sits: bottom
- * edge where a thumb is, centred once there is height for it.
- */
-
-/* Library rows open the detail view; Remove stays a separate target so a
-   mis-tap cannot delete a book. */
-.shelf__body--tap {
-  background: none;
-  border: 0;
-  padding: 0;
-  color: inherit;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-}
-.shelf__body--tap:active { opacity: 0.6; }
-
-/* A solid guide means the frame is the crop (the spine). A dashed one is
-   alignment only: the whole frame is kept, so nothing can clip the ISBN. */
-/* A cover just needs rough alignment, so barely dim outside it. The spine is
-   an actual crop, so what falls outside really is discarded: dim it harder
-   and lengthen the brackets to make the boundary unmistakable. */
-.cam__guide { box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.22); }
-.cam__guide--crop {
-  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
-  /* Faint but continuous. On a spine the side edges are the thing being
-     judged, and four corners alone leave the long sides unmarked. */
-  outline: 1px solid rgba(122, 162, 255, 0.4);
-  background-size:
-    16px 2px, 2px 32px,
-    16px 2px, 2px 32px,
-    16px 2px, 2px 32px,
-    16px 2px, 2px 32px;
-}
-
-/* Destructive actions read as destructive, and never as the primary button. */
-.btn--danger {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: #1a0d10;
-  font-weight: 600;
-}
-
-/*
- * The neighbour thumbnails, the shuffle's tinted box and the box the shelving
- * step asks its question in were here (#387).
- *
- * All three are the design system's now. The box the question is asked in is a
- * `Card`, which is what it already looked like under `.wf`; the shuffle is a
- * `Card` with the news in its title, because the tint was the only thing saying
- * it was a job and a colour is never the only thing that says anything here.
- */
-
-/* Derived, so shown rather than offered for editing. */
-.readonly {
-  margin: 0;
-  padding: 11px 12px;
-  min-height: 44px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-/* Camera settings. Reachable in one tap, invisible the rest of the time. */
-.cam__chip-btn--icon { padding: 0; width: 36px; font-size: 16px; }
+/* Camera settings. Reachable in one tap, invisible the rest of the time, and
+   the one screen in the app still drawn out of this file rather than out of
+   the design system. */
 
 .cam__sheet {
   position: absolute;
@@ -832,15 +243,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .cam__lens--on { background: var(--accent); border-color: var(--accent); color: #0b0b12; font-weight: 600; }
 
-/* The torch chip, lit when it is. Same shape as its neighbours in the top row
-   so it reads as one of them rather than as an alert. */
-.cam__chip-btn--on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0b0b12;
-  font-weight: 600;
-}
-
 /* What the camera reports, laid out so a label and its value stay on one line
    and can be read off a phone straight down a telephone. */
 .cam__sheet-subhead {
@@ -868,47 +270,27 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   overflow-wrap: anywhere;
 }
 
-/*
- * The read-only book, its facts table and the `<details>` the rest of it hid
- * behind were here (#387). The record is `Head` and `Actions` out of the design
- * system now, which is what a book's own page is drawn with, and what was in
- * the table reads as the sentences that component takes.
- */
+/* --- An answer over a picture ----------------------------------------- */
 
 /*
- * The ISBN camera and the box with a camera in it were here (#408).
+ * Two panels float over a live camera: "this is already in the queue", and the
+ * shortlist a cover match produces. They are the same question asked from
+ * opposite ends, so they sit in the same place and are drawn the same way, and
+ * both of them are a `Card` with the design system's rows inside it.
  *
- * Both cameras are `Viewfinder` out of the design system now, the one the
- * cataloguing camera has worn since #316 and the one the gallery draws
- * `#/design/inhand` with, so the full-screen shell, the aiming frame, the
- * bottom bar and the two buttons in it have one home in `library.css`. The box
- * is a `Field` with a camera at the end of it, which is where the drawing has
- * put it since #316 and what the design rule about a field with another way to
- * answer it is about.
+ * **Position and nothing else.** No screen in the gallery has an answer over a
+ * picture, so where these sit is the app's business the way the camera's own
+ * error line and toast are, and `Viewfinder`'s `over` slot exists to be handed
+ * exactly this. The offset clears the bottom band on both cameras: a shutter
+ * with a button stacked above it on one, and the same again with a rail of
+ * photographs beside it on the other.
  *
- * What did not go is `.isbncam__choices` and the `.choice` rows under it,
- * further down. The shortlist a cover match produces is drawn by nothing in
- * the wireframe, so it is still drawn by this.
- *
- * The "already in the queue" panel used to be under there with it (#387). What
- * is inside it is `Card` and `Queued` now, which is the same component the
- * queue screen draws the same waiting book with; only where it floats over the
- * picture is still the app's, below.
+ * Two names for one rule because the browser journeys tell the two answers
+ * apart by them, and telling them apart is the point: a finding about work
+ * somebody has already done is not a list of books to choose between.
  */
-
-/*
- * "This is already in the queue", floating over a live camera.
- *
- * Position and nothing else. No wireframe screen has an answer over a picture,
- * so where it sits is the app's business the way the camera's own error line
- * and toast are, and `Viewfinder`'s `over` slot exists to be handed exactly
- * this. Everything inside is the design system's.
- *
- * The offset clears the bottom band on both cameras: a shutter with a button
- * stacked above it on one, and the same again with a rail of photographs beside
- * it on the other.
- */
-.queued {
+.queued,
+.isbncam__choices {
   position: absolute;
   left: 10px; right: 10px;
   bottom: 200px;
@@ -920,8 +302,13 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
    too, so this one has to say which is on top. */
 .queued--incam { z-index: 3; }
 
-/* Every answer below is held against the same picture, so it goes above them
-   and stays there while they scroll. */
+/*
+ * The frame every answer is held against, drawn once for both panels.
+ *
+ * It goes above them and stays there while they scroll. Comparing a candidate
+ * against the viewfinder means comparing it against a memory, because the panel
+ * covers most of the picture and the book has moved by then.
+ */
 .queued__shot {
   display: block;
   width: 46px;
@@ -955,293 +342,130 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   text-align: left;
 }
 
+/* --- The queue's swipe ------------------------------------------------- */
+
+/*
+ * A row is `.wf-qrow` out of the design system, which is the card the gallery
+ * draws a waiting book on, and what is written here is the gesture around it:
+ * the clip, the word revealed behind, the layer that follows a thumb, and the
+ * undo that takes the row's place. `library.css` says the same from its end.
+ *
+ * **No coloured rail down the side.** There was one, three pixels of it, tinted
+ * per status. That is the mark the owner named as an AI fingerprint and
+ * rejected on a card, and a row is a card with a book in it.
+ */
+.queue__tools { margin-bottom: 12px; }
+
+.queue__row {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+}
+
+/* What the row is sliding off, so the gesture says what it is going to do
+   before the finger lifts. Half lit while the drag is short of the distance
+   that would discard, full once it is past it: letting go early is how
+   somebody backs out, and that has to be legible under a thumb. */
+.queue__behind {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 18px;
+  background: var(--plum-wash);
+  color: var(--plum);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+.queue__row[data-armed='yes'] .queue__behind {
+  opacity: 1;
+  font-weight: 600;
+  background: var(--plum);
+  color: var(--ink-on-fill);
+}
+
+.queue__slide {
+  position: relative;
+  /* Opaque, and it has to be. The card above it fades while its photographs
+     are still being read, and a translucent card over the word revealed behind
+     it puts "Discard" on a row nobody has touched. Found by looking at it. */
+  background: var(--paper-raised);
+  transform: translateX(calc(-1 * var(--dx, 0px)));
+  /* Vertical panning stays the browser's and sideways is ours, so scrolling
+     the list never has to be arbitrated in JavaScript. */
+  touch-action: pan-y;
+  /* Snapping back is animated. Following a finger is not: a transition during
+     the drag makes the row lag behind the thumb. */
+  transition: transform 160ms ease-out;
+}
+.queue__row[data-dragging='yes'] .queue__slide { transition: none; }
+
+/* Still being read, so there is nothing to shelve yet. Dimmed rather than
+   disabled: a disabled button swallows the pointer events the swipe is made
+   of, and a capture whose photographs came out unusable is exactly one
+   somebody wants rid of before the worker finishes with it. */
+.queue__open[aria-disabled='true'] { opacity: 0.55; }
+
+/* A discard that has not happened. Nothing has been sent while this is on
+   screen; see discardWindow.ts. */
+.queue__undo {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 10px 15px;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.queue__undo-text { font-size: var(--size-small); color: var(--ink-2); }
+.queue__undo-text strong { color: var(--ink); font-weight: 600; }
+/* The window draining, which is the one thing on this row that is not a word.
+   It is not the only thing saying what is happening: the sentence beside it
+   says what is being discarded and that nothing has gone yet. */
+.queue__undo-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--plum);
+  transform-origin: left center;
+  animation-name: undo-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes undo-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .queue__undo-bar { animation: none; }
+  .queue__slide { transition: none; }
+}
+
 /* --- What is quoted beside a form -------------------------------------- */
 
 /*
- * The checked-out banner, the misfile notice, the books off the bookcase, the
- * boundary lines, the three area drawings and the strip of pills that chose
- * between them were all painted here, out of the app's own palette, which is
- * white text once the page around them is the design system's. Every one of
- * them is a design system component now (#387), and the class names that
- * survive on the shelves screen -- `attention`, `attention__row`, `offshelf`,
- * `divider`, `shelfgroup`, `tomove` -- are hooks the browser journeys hold on
- * to rather than paint. What is left in this section is the evidence block,
- * which was retuned to the design tokens by #147 and is drawn nowhere else.
- */
-
-/* What the photographs read, quoted next to the form rather than poured into
-   it. Deliberately does not look like a field: no box, no border on the lines
-   themselves, and a rule down the left the way a quotation is set, so that
-   nothing here can be mistaken for a value somebody has confirmed. */
-/*
  * What the photographs read, beside the form and never in it (#147).
  *
- * **No rail down the side.** It had one, three pixels of it, which is the mark
- * the owner named as an AI fingerprint and rejected on a card. What it was
- * saying is said by the labels inside it, which name where each line came from
- * in words. It is a well on the page instead, which is what the design system
- * does with something quoted rather than stated.
+ * The well it sits in is a sunk `Card` now and the labels over each part are
+ * the design system's own field labels, so what is left here is the two things
+ * that have no answer in a system built on three faces and no monospace: the
+ * shape of a label over a quotation, and the quotation itself, set apart from
+ * the page's own prose because this is a machine quoting a photograph rather
+ * than the app talking.
  */
-.evidence {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: var(--s3);
-  border-radius: var(--r-lg);
-  background: var(--paper-sunk);
-  font-size: 14px;
-}
-.evidence__label {
-  display: block;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-2);
-  margin-bottom: 2px;
-}
-.evidence__note { margin: 0; }
+.evidence__part { display: grid; gap: 2px; }
 .evidence__lines {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
   gap: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-/* Set apart from the page's own prose: this is a machine quoting a
-   photograph, not the app talking. */
-.evidence__lines li { font-family: var(--mono, ui-monospace, monospace); }
-.evidence__caveat { margin: 6px 0 0; font-size: 12px; color: var(--ink-2); }
-
-/* --- Home ------------------------------------------------------------- */
-
-/* The title doubles as the way back, so every flow has an exit that is
-   always in the same place. */
-.topbar__home {
-  background: none;
-  border: 0;
-  padding: 0;
-  color: var(--text);
-  font: inherit;
-  font-weight: 700;
-}
-
-.home {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin: 8px 0 14px;
-}
-
-.tile {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  min-height: 112px;
-  padding: 14px;
-  text-align: left;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--text);
-}
-.tile:active { background: var(--panel-2); }
-/* Adding books is the job most sessions are, so it leads. */
-.tile--primary { border-color: var(--accent); border-width: 2px; }
-/* The two camera jobs pair off on the top row. Browsing is not one of them,
-   so it takes the width below rather than leaving a hole beside itself. */
-.tile--wide { grid-column: 1 / -1; min-height: 0; }
-
-.tile__title { font-size: 18px; font-weight: 600; }
-.tile__body { font-size: 13px; color: var(--muted); line-height: 1.35; }
-
-/* A to-do list rather than a job you set out to do, so it sits apart and
-   disappears when there is nothing in it. */
-.home__queue {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  text-align: left;
-  padding: 14px;
-  border: 1px solid var(--warn);
-  border-radius: var(--radius);
-  background: none;
-  color: var(--text);
-  margin-bottom: 10px;
-}
-.home__queue-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-}
-.home__queue-badge {
-  background: var(--warn);
-  color: #221803;
-  border-radius: 999px;
-  padding: 1px 9px;
-  font-size: 13px;
-  font-weight: 700;
-}
-.home__queue-body { font-size: 13px; color: var(--muted); }
-
-.home__off {
-  width: 100%;
-  text-align: left;
-  padding: 12px 14px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  background: none;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-/* --- Which of these is it? --------------------------------------------- */
-
-/* A cover match is a good guess, so the covers are large enough to tell
-   apart at arm's length and nothing happens until one is tapped.
-
-   It cleared the bottom band at 150px, which was the old camera's bar: a hint
-   and a row of two buttons. Both cameras wear the design system's bar since
-   #408, and that one is a shutter with a button stacked above it, so the panel
-   clears what the cataloguing camera already had it clear. */
-.isbncam__choices {
-  position: absolute;
-  left: 10px; right: 10px;
-  bottom: 200px;
-  max-height: 44%;
-  display: grid;
-  gap: 6px;
-  overflow-y: auto;
-  padding: 10px;
-  border-radius: var(--radius);
-  background: rgba(10, 10, 16, 0.92);
-}
-
-.choice {
-  display: grid;
-  grid-template-columns: 46px 1fr;
-  align-items: center;
-  gap: 10px;
-  text-align: left;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--text);
-  min-height: 62px;
-}
-.choice:active { border-color: var(--accent); }
-
-/* The user's own shot, pinned above the list it is being compared against.
-   Same 46x62 box as a candidate cover, because two thumbnails of different
-   sizes are harder to tell apart than two of the same. */
-.choices__head {
-  position: sticky;
-  top: -10px;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: 46px 1fr;
-  align-items: center;
-  gap: 10px;
-  /* Negative margins cancel the panel's own padding so the strip runs edge
-     to edge, and the padding puts it back inside. */
-  margin: -10px -10px 4px;
-  padding: 10px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(10, 10, 16, 0.96);
-}
-/* No frame to show, because the answer is not about one frame: the Add flow is
-   asking about photographs that are already on the chips below. The empty box
-   goes with it rather than being left captioned and blank. */
-.choices__head--noshot { grid-template-columns: 1fr; }
-
-.choices__shot {
-  width: 46px;
-  height: 62px;
-  object-fit: cover;
-  border-radius: 3px;
-  border: 1px solid var(--accent);
-  background: var(--panel-2);
-}
-
-/* "This is already in the queue" is a finding, not a shortlist, and it has to
-   read as one at arm's length while somebody is holding a book. Same panel,
-   edged in the colour the app already uses for a good match, because that is
-   the only band this answer is ever drawn in. */
-.isbncam__choices--queued {
-  border: 1px solid var(--good);
-}
-
-/* The same panel over the cataloguing camera, which has more under it again:
-   the rail of photographs shares the bar with a two-button near cluster. It
-   clears the shutter rather than covering it, because the shutter has to stay
-   reachable. This is a finding about a photograph already taken and accepted,
-   not a gate in front of the next one (#146).
-
-   Only the stacking is its own now. The offset and the height moved up to the
-   panel itself with #408, when the other camera got the same bar. */
-.isbncam__choices--incam {
-  z-index: 3;
-}
-
-/* How alike, in words. The distance itself is a Hamming distance over 64
-   bits and is deliberately never shown: it reads as precision it does not
-   have. Colour repeats what the words say, so it is not the only carrier. */
-.choice__confidence { font-size: 11px; }
-.choice__confidence--close { color: var(--good); }
-.choice__confidence--similar { color: var(--muted); }
-.choice__confidence--loose { color: var(--warn); }
-/* The percentage is the same measurement restated, not a second opinion, so
-   it stays visually quieter than the word that carries the band. */
-.choice__percent { color: var(--muted); font-variant-numeric: tabular-nums; }
-
-/* A weak candidate is still offered, and still a plain unselected button.
-   It just stops looking as solid as a good one. */
-.choice--loose {
-  border-style: dashed;
-  background: transparent;
-}
-.choice--loose img, .choice--loose .choice__title { opacity: 0.75; }
-.choice img {
-  width: 46px;
-  height: 62px;
-  object-fit: cover;
-  border-radius: 3px;
-  background: var(--panel-2);
-}
-.choice__nocover {
-  display: grid;
-  place-items: center;
-  width: 46px; height: 62px;
-  border: 1px dashed var(--line);
-  border-radius: 3px;
-  font-size: 9px;
-  color: var(--muted);
-  text-align: center;
-}
-.choice__text { display: grid; gap: 1px; min-width: 0; }
-.choice__title {
-  font-size: 14px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.choice__author { font-size: 12px; color: var(--muted); }
-.choice__state { font-size: 11px; color: var(--warn); }
-.choice__note { font-size: 11px; color: var(--muted); font-style: italic; }
-
-/* --- What is left of two stylesheets meeting --------------------------- */
-
-/*
- * Twenty-one rules stood here and one does (#387).
- *
- * They were the app's own shapes repainted in the design system's ink for
- * wherever a converted screen still contained one: the placing strip and its
- * spines, the box the shelving step asked its question in, the shuffle and its
- * three states. Every one of those is drawn by `src/design` now and arrives in
- * the right ink already, so the overlap is one quiet line, which the queue
- * still draws with.
- */
-.wf .hint { color: var(--ink-2); }

@@ -60,7 +60,6 @@ function drawn(over: {
       coverText={over.coverText ?? ''}
       captureNote={over.captureNote ?? ''}
       notice=""
-      onDismissNotice={() => {}}
       error=""
       onDismissError={() => {}}
       onChange={() => {}}

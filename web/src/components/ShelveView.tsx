@@ -5,6 +5,7 @@ import {
   started, whereYouAre, type Cascade, type Proposal,
 } from '../lib/cascade'
 import { PlacementView, ShelfStrip } from './ShelfStrip'
+import { Trouble } from './RoomFrame'
 import { Card, Instruction, Said } from '../design/Card'
 import { Button } from '../design/Controls'
 import type { ShelfRange } from '../../shared/shelving'
@@ -311,7 +312,7 @@ export function ShelveView({
 
   return (
     <>
-      {error && <div className="warn" onClick={() => setError('')}>{error}</div>}
+      <Trouble said={error} />
 
       {/* One picture, of the question being asked. Four drawn strips stacked
           up do not fit a phone, and three of them would be about books
