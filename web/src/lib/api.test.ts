@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   api, captureName, draftFromBook, draftFromCapture, draftFromLookup,
-  editFromDraft, emptyDraft,
+  editFromDraft, emptyDraft, withReadIsbn,
 } from './api'
 import type { BookRow, Capture, LookupResponse } from './api'
 import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
@@ -120,6 +120,54 @@ describe('draftFromCapture', () => {
       edit_json: JSON.stringify({ title: 'Song of Solomon' }),
     }))
     expect(draft.title).toBe('Song of Solomon')
+  })
+
+  /**
+   * The number the row has is the number the screen says (#436).
+   *
+   * "ISBN - Not read yet" was drawn two inches under a note reading "Barcode on
+   * the back reads 9780030000126", on a capture whose row carried that number
+   * and whose database row still does. A person reading that retypes thirteen
+   * digits the app already has, off a book they have to go and find.
+   *
+   * A catalogue's record is not obliged to carry the identifier it was found
+   * by, which is the way this happens without anybody doing anything wrong: the
+   * lookup answered, its own `isbn13` is empty, and the draft took the empty
+   * one because the lookup is the base. The row's column is the fallback and it
+   * is the fallback for the identifier only.
+   */
+  it('falls back to the row\'s own ISBN when the lookup carries none', () => {
+    const draft = draftFromCapture(capture({
+      isbn13: '9780030000126',
+      isbn_source: 'barcode',
+      draft_json: JSON.stringify({ ...found, isbn13: '', isbn10: '' }),
+    }))
+
+    expect(draft.isbn13).toBe('9780030000126')
+    // And the rest of the record is still the catalogue's, not the row's.
+    expect(draft.title).toBe('Dune')
+  })
+
+  it('keeps the ISBN of a barcode no catalogue has ever heard of', () => {
+    const draft = draftFromCapture(capture({
+      status: 'failed',
+      isbn13: '9780030000126',
+      isbn_source: 'barcode',
+      note: 'Barcode on the back reads 9780030000126, but no catalogue has it.',
+    }))
+
+    expect(draft.isbn13).toBe('9780030000126')
+    expect(draft.isbnSource).toBe('barcode')
+  })
+
+  /* The lookup wins where it has an answer: a corrected ISBN that refetched is
+     the whole point of `Change ISBN`, and a stale column must not undo it. */
+  it('does not let the row overrule an ISBN the lookup does carry', () => {
+    const draft = draftFromCapture(capture({
+      isbn13: '9780030000126',
+      draft_json: JSON.stringify(found),
+    }))
+    expect(draft.isbn13).toBe('9780441013593')
   })
 })
 
@@ -318,5 +366,55 @@ describe('updateAndShelve', () => {
       sent.filter((call) => call.url.endsWith('/checkout')),
       'a metadata edit asserted whether the book was on the bookcase',
     ).toEqual([])
+  })
+})
+
+/**
+ * What the camera keeps of a reading no catalogue answered (#436).
+ *
+ * The screen after the shutter was headed "Barcode on the back reads
+ * 9780030000126", the queue row showed that number and the database had it, and
+ * two inches under the banner the ISBN read "Not read yet". The camera had two
+ * answers for a settled capture, a found lookup and an error banner, and a
+ * barcode nothing has ever catalogued is neither.
+ */
+describe('withReadIsbn', () => {
+  const read = {
+    isbn13: '9780030000126', isbn10: '', isbn_source: 'barcode',
+  }
+
+  it('takes the digits the reading produced into an empty draft', () => {
+    const draft = withReadIsbn(emptyDraft, read)
+    expect(draft.isbn13).toBe('9780030000126')
+    expect(draft.isbnSource).toBe('barcode')
+  })
+
+  /* No catalogue answered, so there is nothing else to carry and carrying
+     anything else would be this app inventing a record (#147). */
+  it('claims nothing else about the book', () => {
+    const draft = withReadIsbn(emptyDraft, read)
+    expect(draft.title).toBe('')
+    expect(draft.authors).toBe('')
+    expect(draft.publisher).toBe('')
+  })
+
+  /* A background pass landing behind somebody's typing must not overwrite it,
+     which is the precedence the server keeps (#65) said on this side too. */
+  it('leaves an ISBN a person has already answered exactly as it is', () => {
+    const typed = { ...emptyDraft, isbn13: '9780441013593', isbnSource: 'manual' }
+    expect(withReadIsbn(typed, read)).toBe(typed)
+  })
+
+  it('does nothing at all when the reading produced no identifier', () => {
+    expect(withReadIsbn(emptyDraft, { isbn13: '', isbn10: '', isbn_source: '' }))
+      .toBe(emptyDraft)
+  })
+
+  it('takes a ten-digit reading where that is all there is', () => {
+    const draft = withReadIsbn(emptyDraft, {
+      isbn13: '', isbn10: '0441013597', isbn_source: 'ocr',
+    })
+    expect(draft.isbn10).toBe('0441013597')
+    expect(draft.isbnSource).toBe('ocr')
   })
 })

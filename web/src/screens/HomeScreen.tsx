@@ -14,7 +14,7 @@ import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 
 export function HomeScreen() {
-  const { setRoute, openScanner } = useNavigation()
+  const { setRoute, openScanner, openQueueOn } = useNavigation()
   const { counts, queueCounts, carrying, unclaimed, backup } = useSummary()
   /*
    * The corner, and the sheet it opens (#350). `HomePane` holds no state, so
@@ -44,7 +44,11 @@ export function HomeScreen() {
       corner={room.action}
       menu={room.sheet}
       onLibrary={() => setRoute('library')}
-      onQueue={() => setRoute('queue')}
+      /* The queue, on the books the press was about (#436). `openQueueOn` sets
+         the filter and the route together, so a count cannot open the right
+         screen showing the wrong thing; with nothing named it is the whole
+         queue, which is what the tab bar asks for. */
+      onQueue={(showing) => (showing ? openQueueOn(showing) : setRoute('queue'))}
       onCarry={() => setRoute('carry')}
       onUnclaimed={() => setRoute('unclaimed')}
     />

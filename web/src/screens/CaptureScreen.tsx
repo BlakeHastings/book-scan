@@ -82,7 +82,7 @@ export function CaptureScreen() {
     duplicates, duplicatesTurnedDown,
     setShots, setThumbs, setCrops, setExamined, setStatus, setActiveSlot,
     setCaptureId, setDuplicates, setDuplicatesTurnedDown,
-    applyLookup, clearBookInHand,
+    applyLookup, applyReading, clearBookInHand,
   } = book
 
   const {
@@ -192,8 +192,19 @@ export function CaptureScreen() {
         if (capture.status === 'ready' && capture.draft_json) {
           const looked = JSON.parse(capture.draft_json) as LookupResponse
           if (looked.found && !identified) applyLookup(looked, capture.isbn_source)
-        } else if (capture.status === 'failed' && capture.note) {
-          setError(capture.note)
+        } else if (capture.status === 'failed') {
+          if (capture.note) setError(capture.note)
+          /*
+           * And keep what the reading did get (#436).
+           *
+           * A barcode that decoded and a catalogue that has never heard of the
+           * book is `failed`, and the digits are on the row. Saying so in a
+           * banner and dropping them left the screen after this one headed
+           * "Barcode on the back reads 9780030000126" over a field reading
+           * "Not read yet", with nothing to do but type the number back in.
+           * Nothing a person has answered is touched; see `applyReading`.
+           */
+          applyReading(capture)
         }
       } catch {
         // A poll failing is not worth interrupting the person scanning.
@@ -203,7 +214,7 @@ export function CaptureScreen() {
     void tick()
     const timer = setInterval(tick, 1500)
     return () => { cancelled = true; clearInterval(timer) }
-  }, [captureId, identified, applyLookup, setDuplicates, setStatus, setError])
+  }, [captureId, identified, applyLookup, applyReading, setDuplicates, setStatus, setError])
 
   /**
    * The same answer, given at the cataloguing camera instead of the scanner

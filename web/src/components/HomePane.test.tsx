@@ -29,6 +29,8 @@ import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import { HomePane } from './HomePane'
 import { CARRY_BOOKS, IN_HAND, SAY_WHAT } from '../design/Controls'
+import { Stats } from '../design/List'
+import type { Which } from './QueuePane'
 import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
@@ -65,8 +67,10 @@ function watched(over: Partial<BackupWatch> & Pick<BackupWatch, 'state'>): Backu
   return { where: 'E-drive', limitHours: 26, ...over }
 }
 
-function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
-  return renderToStaticMarkup(HomePane({
+function propsFor(
+  over: Partial<Parameters<typeof HomePane>[0]> = {},
+): Parameters<typeof HomePane>[0] {
+  return {
     counts,
     queue: queue(),
     carrying: [],
@@ -85,7 +89,48 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
     onCarry: () => {},
     onUnclaimed: () => {},
     ...over,
-  }) as ReactElement)
+  }
+}
+
+function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
+  return renderToStaticMarkup(HomePane(propsFor(over)) as ReactElement)
+}
+
+/**
+ * The screen as a tree rather than as markup, for the one thing markup cannot
+ * answer: where a press goes.
+ *
+ * Every count on this screen is a button, and rendering one tells you it is a
+ * button and nothing about what it opens. #436 is exactly that gap: the counts
+ * were targets, they went to the right screen, and two of them showed the wrong
+ * books when they got there.
+ */
+function tree(over: Partial<Parameters<typeof HomePane>[0]> = {}): ReactElement {
+  // The same props `home` renders, taken before they are rendered.
+  return HomePane(propsFor(over)) as ReactElement
+}
+
+/** Find the first element of a given type anywhere in an unrendered tree. */
+function elementOf<P>(node: unknown, type: unknown): { props: P } | null {
+  if (!node || typeof node !== 'object') return null
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const hit = elementOf<P>(child, type)
+      if (hit) return hit
+    }
+    return null
+  }
+  const element = node as { type?: unknown; props?: Record<string, unknown> }
+  if (element.type === type) return element as { props: P }
+  return elementOf<P>(element.props?.children, type)
+}
+
+/** The counts, as the row of targets they are. */
+function pressable(over: Partial<Parameters<typeof HomePane>[0]> = {}) {
+  const stats = elementOf<{ items: { word: string; onPress: () => void }[] }>(
+    tree(over), Stats,
+  )
+  return stats!.props.items
 }
 
 /** The words on the screen, with the markup and the class names gone. */
@@ -495,5 +540,66 @@ describe('when the collection has stopped being backed up', () => {
         )
       }
     }
+  })
+})
+
+/**
+ * A count is a promise about what you will see (#436).
+ *
+ * Both of the queue's counts opened the queue on the whole queue. Pressing "31
+ * stuck" produced a list headed "All 39", so the number that sent somebody
+ * there was contradicted by the first thing they read when they arrived, and
+ * the thirty-one had to be found again by hand.
+ *
+ * Which books each one opens is the only thing checked, because it is the only
+ * thing that was wrong: they were already targets and they already went to the
+ * right screen.
+ */
+describe('what a count opens', () => {
+  const pressing = (word: string, over: Partial<Parameters<typeof HomePane>[0]> = {}) => {
+    const opened: (Which | undefined)[] = []
+    const items = pressable({
+      queue: queue({ ready: 6, failed: 31 }),
+      onQueue: (showing?: Which) => opened.push(showing),
+      ...over,
+    })
+    items.find((one) => one.word === word)!.onPress()
+    return opened
+  }
+
+  it('opens the queue on the stuck books when the stuck count is pressed', () => {
+    expect(pressing('stuck')).toEqual(['stuck'])
+  })
+
+  it('opens the queue on the ready ones when the ready count is pressed', () => {
+    expect(pressing('ready to shelve')).toEqual(['ready'])
+  })
+
+  /* The tab is the one way in that claims nothing, so it is the one way in that
+     filters nothing: somebody working through a pile wants the pile. */
+  it('opens the whole queue from the tab bar, which counts nothing', () => {
+    const opened: (Which | undefined)[] = []
+    const screen = tree({ onQueue: (showing?: Which) => opened.push(showing) })
+    const tabs = (screen.props as { tabs: Record<string, () => void> }).tabs
+    tabs.queue!()
+    expect(opened).toEqual([undefined])
+  })
+
+  /* The other three are about books that are not in the queue at all, and this
+     is here so that a later hand wiring a filter through does not wire one
+     through these by accident. */
+  it('leaves the counts that are not about the queue alone', () => {
+    const went: string[] = []
+    const items = pressable({
+      counts: { ...counts, checkedOut: 2 },
+      carrying: [toCarry()],
+      onLibrary: () => went.push('library'),
+      onCarry: () => went.push('carry'),
+      onQueue: () => went.push('queue'),
+    })
+    for (const word of ['catalogued', 'checked out', 'to carry']) {
+      items.find((one) => one.word === word)!.onPress()
+    }
+    expect(went).toEqual(['library', 'library', 'carry'])
   })
 })

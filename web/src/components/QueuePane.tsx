@@ -29,6 +29,11 @@ import { Trouble } from './RoomFrame'
  * under "Stuck" says "Stuck" on itself. `failed` is `Stuck` here and nothing
  * more: what is actually wrong with it is a different fact and gets its own
  * pill, which is `whatItNeeds` below and is the whole of #148.
+ *
+ * **`pending` is the one word that turned into two** (#436), and the control
+ * above still holds both under "Reading": what that word answers is which
+ * statuses a book can be in, and the row answers something the status cannot,
+ * which is whether the worker is on this book right now. See `WAITING_LABEL`.
  */
 const STATE_LABEL: Record<CaptureStatus, string> = {
   pending: 'Reading photos',
@@ -37,8 +42,33 @@ const STATE_LABEL: Record<CaptureStatus, string> = {
   failed: 'Stuck',
 }
 
-/** Which of those, for one book. */
-export function stateWord(capture: Capture): string {
+/**
+ * What a waiting book says when nothing is reading it (#436).
+ *
+ * `pending` was one word over two situations. A book the worker has in its
+ * hands is being read and will be done in seconds; a book behind it is waiting
+ * for its turn, and a whole queue of them with nothing at the front is a queue
+ * that has stopped. Eight of those said "Reading photos" for five minutes.
+ *
+ * **It is not a third state and it is not a fault.** Nothing is wrong with a
+ * book that is waiting to be read, which is exactly why it must not be dressed
+ * as one: a capture that could not be read already has its own word, its own
+ * diagnosis pill and its own retry (#299, #339), and printing that over a book
+ * whose photographs nobody has opened sends somebody to fetch a book that never
+ * needed them.
+ */
+const WAITING_LABEL = 'Waiting to be read'
+
+/**
+ * Which of those, for one book.
+ *
+ * `reading` is the capture the server says its worker is holding, which is what
+ * tells a book being read from a book waiting for one. Null, or an id that is
+ * not this book's, means nothing is reading this: null because the worker is
+ * idle, and a different id because it is busy with somebody else's book.
+ */
+export function stateWord(capture: Capture, reading?: number | null): string {
+  if (capture.status === 'pending' && capture.id !== reading) return WAITING_LABEL
   return STATE_LABEL[capture.status]
 }
 
@@ -152,6 +182,20 @@ interface Props {
    */
   returnAnchor?: QueueReturnAnchor | null
   onReturnAnchorConsumed?: () => void
+  /**
+   * Which books to open on, where whatever opened this screen was about some of
+   * them rather than all of them (#436).
+   *
+   * The first screen's counts are the reason it exists. "31 stuck" opened this
+   * screen on "All 39", so pressing a number about thirty-one books produced a
+   * list of thirty-nine, and **a count is a promise about what you will see**.
+   * Absent means the whole queue, which is what the tab bar asks for and what
+   * somebody working through a pile wants.
+   *
+   * Used once, on the way in, and then the control above the list owns it: this
+   * is where the screen opens, not a filter it is held to.
+   */
+  showing?: Which | null
 }
 
 /** The four pointer handlers a row needs, kept together so it takes one prop. */
@@ -166,6 +210,8 @@ interface RowProps {
   capture: Capture
   /** True while this capture's discard is being held open, undoable. */
   held: boolean
+  /** The capture the server's worker is holding, so a row can say which. */
+  reading: number | null
   onOpen: (capture: Capture) => void
   onUndo: (id: number) => void
   gesture: RowGesture
@@ -198,7 +244,7 @@ export function photoCount(capture: Capture): number {
  * and the drawing has none of them.
  */
 export function QueueRow({
-  capture, held, onOpen, onUndo, gesture, registerRow,
+  capture, held, reading, onOpen, onUndo, gesture, registerRow,
 }: RowProps) {
   // What anybody has worked out about this book, over what the worker
   // read off its photographs. The row has to show the corrected title,
@@ -290,7 +336,7 @@ export function QueueRow({
                 guessed={name.guessed}
                 sub={draft.authors || draft.isbn13}
                 shots={shotsOf(capture)}
-                state={stateWord(capture)}
+                state={stateWord(capture, reading)}
                 wants={whatItNeeds(capture)}
                 device={deviceOn(capture)}
               />
@@ -315,9 +361,27 @@ export function QueueRow({
  */
 export function QueuePane({
   onOpen, onCounts, tabs, onPhotograph, returnAnchor, onReturnAnchorConsumed,
+  showing,
 }: Props) {
   const [captures, setCaptures] = useState<Capture[]>([])
-  const [which, setWhich] = useState<Which>('all')
+  /*
+   * Where the screen opens, which is whatever sent somebody here (#436). A
+   * fresh mount per visit, so the initial value is read once and the control
+   * above the list owns it from then on: coming in on "Stuck" and pressing
+   * "All" shows all of them, and leaving and coming back through the tab bar
+   * opens on the whole queue again.
+   */
+  const [which, setWhich] = useState<Which>(showing ?? 'all')
+  /**
+   * The capture the server's worker has in its hands, or null.
+   *
+   * Read from the same answer the list comes from, so it is as fresh as the
+   * rows are and stale in exactly the same way. Null covers both "the worker is
+   * idle" and "this server did not say", and the row then says a book is
+   * waiting rather than being read, which is the safe direction to be wrong in:
+   * it claims less.
+   */
+  const [reading, setReading] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -339,6 +403,7 @@ export function QueuePane({
         // reads them in. The stack is on top, not the bottom, so newest
         // first is what the display shows.
         setCaptures(newestFirst(result.captures))
+        setReading(result.reading ?? null)
         onCounts(result.counts)
       })
       .catch((caught) => setError((caught as Error).message))
@@ -389,7 +454,16 @@ export function QueuePane({
   const anyPending = captures.some((c) => c.status === 'pending')
 
   useEffect(() => {
-    // Only poll while there is something to wait for.
+    /*
+     * Only poll while there is something to wait for, which is what makes this
+     * a wait rather than a poll: it starts when a book is unread and stops when
+     * none is.
+     *
+     * **It is also what keeps the server looking** (#436). A read that finds
+     * pending work arms the server's own sweep, so a person standing on this
+     * screen watching a queue that has stopped is the thing that starts it
+     * again, within a couple of seconds and without touching anything.
+     */
     if (!anyPending) return
     const timer = setInterval(load, 2000)
     return () => clearInterval(timer)
@@ -766,6 +840,7 @@ export function QueuePane({
             key={capture.id}
             capture={capture}
             held={held.includes(capture.id)}
+            reading={reading}
             onOpen={openRow}
             onUndo={undoDiscard}
             gesture={gestureFor(capture)}

@@ -976,3 +976,195 @@ describe('captures waiting under the same ISBN', () => {
     expect((await queue.sharingIsbn(DUNE)).map((c) => c.id)).toEqual([id])
   })
 })
+
+/**
+ * Nothing picked the queue up again (#436).
+ *
+ * Eight captures sat pending for five minutes, through reloads, a shelving and
+ * a lookup, every one of them saying "Reading photos" with nothing reading
+ * anything. One press of the shutter drained all eight in half a minute, which
+ * is the whole diagnosis: `drain` was only ever called by the shutter, by a
+ * retake and at boot, and **a queue that has silently stopped looks exactly
+ * like a queue that is busy**.
+ *
+ * Both halves of the fix are reproduced here rather than reasoned about: the
+ * race that loses a capture inside this process, and the pending work this
+ * process never heard about. The last two blocks are the part #299 asks for,
+ * which is that whatever picks the queue up can stop.
+ */
+describe('picking the queue up again', () => {
+  function worker(over: Db = db) {
+    return new CaptureQueue(over, () => Buffer.from('a photograph'))
+  }
+
+  /** A readable barcode some catalogue has, so a pass always settles. */
+  function readsCleanly() {
+    vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+  }
+
+  /**
+   * A reading held open, so a test can stand inside the seconds a pass takes.
+   *
+   * `started` resolves once the worker is genuinely inside `identify`, which is
+   * the only moment "a drain is in flight" is true rather than merely likely.
+   */
+  function heldReading() {
+    let entered!: () => void
+    let open!: () => void
+    const started = new Promise<void>((done) => { entered = done })
+    const gate = new Promise<void>((done) => { open = done })
+    vi.mocked(identify).mockImplementation(async () => {
+      entered()
+      await gate
+      return readBarcode(DUNE)
+    })
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+    return { started, release: () => { open() } }
+  }
+
+  /**
+   * The database, with a hook on the query the drain loop ends on.
+   *
+   * The window this opens is a real one and it is only microseconds wide:
+   * `nextPending` is a query on another connection, so a capture inserted after
+   * it has been issued and before it answers is a capture the loop has already
+   * decided is not there. Racing two real requests for it would be a test that
+   * passes most of the time, which is worse than no test, so the arrival is put
+   * exactly where it has to be: after the empty answer, before the loop acts on
+   * it.
+   */
+  function afterTheLastLook(inner: Db, arrive: () => Promise<void>): Db {
+    let fired = false
+    return {
+      all: (sql, params) => inner.all(sql, params),
+      run: (sql, params) => inner.run(sql, params),
+      tx: (work, options) => inner.tx(work, options),
+      close: () => inner.close(),
+      async get<Row>(sql: string, params?: unknown) {
+        const answer = await inner.get<Row>(sql, params as never)
+        const looking = sql.includes('FROM queued_books') && sql.includes('LIMIT 1')
+        if (!fired && looking && answer === undefined) {
+          fired = true
+          await arrive()
+        }
+        return answer
+      },
+    } as Db
+  }
+
+  it('reads a capture that arrived while the last look for work was in flight', async () => {
+    readsCleanly()
+
+    let running: CaptureQueue
+    let arrival = 0
+    const watched = afterTheLastLook(db, async () => {
+      // Exactly what `POST /api/captures` does, in the one moment where it used
+      // to be lost: the row lands, and the drain it fires is refused by the
+      // guard because the pass that is about to give up still holds it.
+      arrival = (await running.attach(null, 'back', 'b2.jpg')).id
+      await running.drain()
+    })
+    running = worker(watched)
+
+    const first = await running.attach(null, 'back', 'b1.jpg')
+    await running.drain()
+
+    // The one that was already there is read either way. The one that arrived
+    // in the window is the whole test: it used to stay pending until the next
+    // shutter or the next restart, with nothing anywhere saying so.
+    expect((await running.get(first.id))!.status).toBe('ready')
+    expect((await running.get(arrival))!.status).toBe('ready')
+    expect(await running.counts()).toMatchObject({ pending: 0, ready: 2 })
+  })
+
+  it('picks up work this process never heard about', async () => {
+    readsCleanly()
+    const running = worker()
+
+    // A capture with nothing following it. The seeder writing into a running
+    // server's database is the case this was found in; a second server, or a
+    // process that died mid-pass, are the same shape. Nothing in here has any
+    // reason to call `drain`.
+    const stranded = await running.attach(null, 'back', 'b.jpg')
+    expect(await running.counts()).toMatchObject({ pending: 1, ready: 0 })
+
+    // And it stays that way. This is the five minutes.
+    await new Promise((done) => setTimeout(done, 20))
+    expect((await running.get(stranded.id))!.status).toBe('pending')
+    expect(vi.mocked(identify)).not.toHaveBeenCalled()
+
+    // Then somebody looks at a queue with unread books in it, which is what
+    // arms the sweep. The pass is what a look leads to and what this drives
+    // directly: waiting five real seconds to watch one is how a suite stops
+    // being run.
+    await running.sweepPass()
+
+    expect((await running.get(stranded.id))!.status).toBe('ready')
+    expect(await running.counts()).toMatchObject({ pending: 0, ready: 1 })
+  })
+
+  it('stops sweeping once the queue is empty', async () => {
+    readsCleanly()
+    const running = worker()
+    await running.attach(null, 'back', 'b.jpg')
+
+    expect(await running.sweepPass(), 'a sweep that emptied the queue asked for another')
+      .toBe(false)
+    // And a sweep over an empty queue does not come back either.
+    expect(await running.sweepPass()).toBe(false)
+  })
+
+  /**
+   * The bound #299 asks for, and the reason this is a sweep rather than a poll.
+   *
+   * A pass that changes nothing is the last pass. How many captures are waiting
+   * is a non-negative integer that has to fall every time or this ends, so a
+   * reader that has wedged is looked at once and then left alone rather than
+   * asked again for the life of the process.
+   */
+  it('stops sweeping when a pass moved nothing', async () => {
+    const held = heldReading()
+    const running = worker()
+    await running.attach(null, 'back', 'b1.jpg')
+    await running.attach(null, 'back', 'b2.jpg')
+
+    const reading = running.drain()
+    await held.started
+
+    // The drain this asks for is refused, because one is already running: two
+    // passes over one queue is what that guard exists to stop. So the queue is
+    // exactly as long after this sweep as before it, and a second sweep has
+    // nothing to do that this one did not already fail to do.
+    expect(await running.sweepPass()).toBe(false)
+
+    held.release()
+    await reading
+    expect(await running.counts()).toMatchObject({ pending: 0 })
+  })
+
+  /**
+   * The other half of "a queue that has stopped looks like one that is busy",
+   * which is what the row says.
+   *
+   * `reading` is not a column and is never written down. It is which capture
+   * the worker has in its hands, for the seconds one reading takes, and it is
+   * what lets the queue draw "Reading photos" on the book being read and
+   * "Waiting to be read" on the ones behind it.
+   */
+  it('says which capture it is reading, and says so only while it is', async () => {
+    const held = heldReading()
+    const running = worker()
+    const first = await running.attach(null, 'back', 'b1.jpg')
+
+    expect(running.reading, 'a queue that has not started claims a book').toBeNull()
+
+    const reading = running.drain()
+    await held.started
+    expect(running.reading).toBe(first.id)
+
+    held.release()
+    await reading
+    expect(running.reading, 'a queue that has finished still claims a book').toBeNull()
+  })
+})

@@ -29,7 +29,7 @@
 import { createContext, useContext, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import type { ShelfRange } from '../../shared/shelving'
 import type { LibraryReturnAnchor } from '../components/ShelfView'
-import type { QueueReturnAnchor } from '../components/QueuePane'
+import type { QueueReturnAnchor, Which } from '../components/QueuePane'
 
 /**
  * The screens, one name each.
@@ -104,6 +104,18 @@ export interface Navigation {
   readonly queueReturn: QueueReturnAnchor | null
   readonly setQueueReturn: Dispatch<SetStateAction<QueueReturnAnchor | null>>
   /**
+   * Which books the queue opens on, or null for the whole of it (#436).
+   *
+   * Kept here for the reason the anchor above is kept here: the screen that
+   * says which books somebody wants is unmounted before the queue mounts, so
+   * the answer has to be carried rather than asked for. Consumed on the way in
+   * and cleared, so the tab bar still opens the whole queue.
+   */
+  readonly queueShowing: Which | null
+  /** Open the queue on the books a count was about. */
+  readonly openQueueOn: (showing: Which) => void
+  readonly clearQueueShowing: () => void
+  /**
    * Where the library was when a book was opened from it. Rows are long and
    * the page is a stack of them, so coming back to the top of the first
    * bookcase means finding your place again every time.
@@ -174,6 +186,7 @@ const Context = createContext<Navigation | null>(null)
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<Route>('home')
   const [queueReturn, setQueueReturn] = useState<QueueReturnAnchor | null>(null)
+  const [queueShowing, setQueueShowing] = useState<Which | null>(null)
   const [libraryReturn, setLibraryReturn] = useState<LibraryReturnAnchor | null>(null)
   const [arranging, setArranging] = useState<ShelfRange>('fiction')
   /*
@@ -259,6 +272,12 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       value={{
         route, setRoute,
         queueReturn, setQueueReturn,
+        queueShowing,
+        /* Both in one call, because the two apart is how "31 stuck" opened the
+           queue on "All 39": a caller that sets the route and forgets the
+           filter is a count that does not keep its promise. */
+        openQueueOn: (showing: Which) => { setQueueShowing(showing); setRoute('queue') },
+        clearQueueShowing: () => setQueueShowing(null),
         libraryReturn, setLibraryReturn,
         arranging, setArranging,
         openLibraryOn,
