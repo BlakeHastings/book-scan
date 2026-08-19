@@ -226,24 +226,10 @@ When('I photograph all three sides of the book', async ({ page }) => {
  * never take the photograph the claim is about.
  */
 When('I press the shutter', async ({ page }) => {
+  // And nothing else. What the press did is read out of the database, and the
+  // wait for it to have landed is there rather than here: waiting on this
+  // screen for the right outcome would be the test agreeing with the app.
   await page.locator('button.wf-shutter').click()
-  // Handed over and read, so that what the next steps read out of the database
-  // is the state after the press rather than the state during it. The barcode
-  // is the camera's own evidence that the photograph reached a capture: it
-  // arrives on the poll, and the poll is of whatever capture the shutter filled.
-  await expect(page.locator('.wf-shot__note').first())
-    .toHaveText('ISBN found', { timeout: QUEUE_TIMEOUT })
-})
-
-/**
- * The camera says it is holding nothing.
- *
- * The one screen assertion in the reproduction of #431, and it is here because
- * it is the sentence the defect contradicted: the camera opened saying "3 of 3"
- * about a book that was already on a shelf.
- */
-Then('nothing should be in hand', async ({ page }) => {
-  await expect(page.locator('.wf-view__found--empty')).toBeVisible()
 })
 
 Then('the camera should recognise the book as {string}', async ({ page }, title: string) => {

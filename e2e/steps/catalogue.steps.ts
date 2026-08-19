@@ -469,6 +469,9 @@ Then('all three photographs should have been read', async ({ catalogue }) => {
  */
 let noted: { spine: string; read: string } | null = null
 
+/** How many photographs existed then, which is what the next one is counted against. */
+let photographsThen = 0
+
 When('I note the photographs of {string}', async ({ catalogue }, title: string) => {
   const book = await catalogue.bookByTitle(title)
   expect(book, `no book called "${title}" is catalogued`).toBeTruthy()
@@ -476,6 +479,27 @@ When('I note the photographs of {string}', async ({ catalogue }, title: string) 
   noted = photographsOf(book!)
   expect(noted.spine, `"${title}" has no spine photograph to lose`).not.toBe('')
   expect(noted.read, `"${title}" has no reading to lose`).not.toBe('')
+
+  photographsThen = await catalogue.photographCount()
+})
+
+/**
+ * One more photograph exists than did, whoever it belongs to.
+ *
+ * The wait the assertion after it needs, and it has to be a wait that finishes
+ * whether the shutter did the right thing or the wrong one: a photograph is a
+ * row of its own and taking one writes exactly one, on to whichever book the
+ * camera thought it was holding. Waiting instead for the correct outcome would
+ * let the wrong one be asserted before it had happened, and the scenario would
+ * pass by reading the database too early.
+ */
+Then('the photograph should have reached a book', async ({ catalogue }) => {
+  await expect
+    .poll(() => catalogue.photographCount(), {
+      message: 'the photograph never reached the database',
+      timeout: READING_TIMEOUT,
+    })
+    .toBe(photographsThen + 1)
 })
 
 /**

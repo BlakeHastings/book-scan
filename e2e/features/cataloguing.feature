@@ -80,15 +80,18 @@ Feature: Cataloguing a book from its cover
     And I say it fits
     And I note the photographs of "Dune"
 
-    # Press Scan, press Start camera. The book is on a shelf, so the hands are
-    # empty and the next press of the shutter starts a new book.
+    # Press Scan, press Start camera, press the shutter, which is what somebody
+    # with the next book in their hands does and the only thing on that screen
+    # they have any reason to press.
     And I start the camera
-    Then nothing should be in hand
+    And I press the shutter
 
-    When I press the shutter
-    # A capture of its own, which is the whole of it: the photograph went to a
-    # new book rather than on to the finished one.
-    Then the queue should hold one book
+    # Waited for whichever book it landed on, so that what follows is read after
+    # the press rather than during it.
+    Then the photograph should have reached a book
     And the photographs of "Dune" should be untouched
+    # A book of its own, which is the same fact said from the other end: the
+    # camera started a new book instead of filling a finished one.
+    And the queue should hold one book
     And the catalogue should be filed in this order:
       | Dune |

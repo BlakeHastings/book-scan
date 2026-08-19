@@ -549,6 +549,25 @@ export class Catalogue {
     )
   }
 
+  /**
+   * Every photograph anybody has taken, counted.
+   *
+   * `capture` rather than the books, because a photograph is a row of its own
+   * since #228 and taking one again does not replace the one it improves on.
+   * That is what makes this the honest wait for "the shutter's work has reached
+   * the database": it goes up by one whichever book the photograph landed on,
+   * so a scenario about which book that was can wait for the write and then
+   * look, rather than looking and hoping it has happened (#431).
+   */
+  async photographCount(): Promise<number> {
+    // CAST for the reason `captureCount` carries one: COUNT is a bigint, and
+    // node-postgres hands one back as a string.
+    const [row] = await this.all<{ n: number }>(
+      'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM capture',
+    )
+    return row!.n
+  }
+
   async captureCount(): Promise<number> {
     // CAST for the reason the stores carry one: COUNT is a bigint and
     // node-postgres hands a bigint back as a string rather than lose precision,
