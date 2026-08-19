@@ -183,7 +183,7 @@ switch (command) {
     const id = flag('run') ?? `run-${Date.now().toString(36)}`
     const theme = flag('theme', 'light')
     const port = Number(flag('port', '9333'))
-    const { web, connection } = await whereIsTheApp()
+    const { web, api, connection } = await whereIsTheApp()
     const url = flag('url', web)
 
     const dir = join(RUNS_ROOT, id)
@@ -192,7 +192,15 @@ switch (command) {
     rmSync(profile, { recursive: true, force: true })
     const pid = await launchDetached({ port, profileDir: profile, url })
 
-    const run = { id, theme, port, pid, connection, web: url, task: 0, step: 0, startedAt: Date.now() }
+    /*
+     * The api URL is kept beside the connection because the furniture check
+     * needs both: the rows say what is there, and the app says what a person can
+     * reach. #420. It is recorded once, at `open`, rather than asked of the
+     * AppHost per command, for the same reason the connection is.
+     */
+    const run = {
+      id, theme, port, pid, connection, api, web: url, task: 0, step: 0, startedAt: Date.now(),
+    }
     writeCurrent(run)
     append(run, { step: 0, task: 0, action: 'open', url, theme, startedAt: Date.now(), endedAt: Date.now() })
     console.log(`[ux] run ${id} on ${url} in ${theme} theme, chromium pid ${pid}`)
@@ -218,10 +226,17 @@ switch (command) {
      * because every part of it was about books and the furniture nobody carried
      * anything to was nobody's number.
      */
-    const standing = (await (await import('./lib/world.mjs')).worldState(run.connection)).furniture
+    const began = await (await import('./lib/world.mjs')).worldState(run.connection, run.api)
 
     append(run, {
-      step: 0, task: task.id, action: 'task-start', text: task.goal, standing,
+      step: 0, task: task.id, action: 'task-start', text: task.goal,
+      standing: began.furniture,
+      /*
+       * And the same moment as the app draws it. `standing` is rows and this is
+       * what somebody could reach, which is the question #420 found nobody was
+       * asking: four shelves at negative positions are four rows and no shelf.
+       */
+      drawing: began.drawn,
       startedAt: Date.now(), endedAt: Date.now(),
     })
     console.log(`[ux] task ${task.id}: ${task.goal}`)
@@ -353,14 +368,22 @@ switch (command) {
     const steps = readLog(run).filter((entry) => entry.task === run.task && entry.action !== 'task-start')
     const numbers = summarise(steps)
 
-    const world = await (await import('./lib/world.mjs')).worldState(run.connection)
+    const world = await (await import('./lib/world.mjs')).worldState(run.connection, run.api)
     const baseline = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : { furniture: [] }
     // What was standing when this task began, off its own task-start entry. An
     // older log has none, and an empty list makes the check say nothing rather
     // than fail a run it cannot judge.
-    const standing = readLog(run)
-      .find((entry) => entry.task === run.task && entry.action === 'task-start')?.standing ?? []
-    const verdict = judge(task, world, baseline, standing)
+    const began = readLog(run)
+      .find((entry) => entry.task === run.task && entry.action === 'task-start')
+    const standing = began?.standing ?? []
+    /*
+     * The drawing is `null` rather than `[]` when it is missing, and the
+     * difference is load bearing: an empty list is "the app drew nothing", which
+     * would pass a check about things not disappearing. `null` is "nobody
+     * asked", which fails it. See `tasks.mjs`.
+     */
+    const drawing = began?.drawing ?? null
+    const verdict = judge(task, world, baseline, standing, drawing)
 
     const record = {
       step: run.step + 1, task: run.task, action: 'task-end',

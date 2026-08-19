@@ -13,6 +13,9 @@
  *     from rows rather than from the driver's own account of itself. An agent
  *     that believes it finished is exactly the thing that must not be trusted
  *     here.
+ *  3. **What the app draws**, which is the one question rows cannot answer and
+ *     the one #420 found nobody was asking. See `drawnFurniture` at the bottom.
+ *     It is a request to the app rather than a query, on purpose.
  *
  * The connection comes from the AppHost, via `aspire describe`, and from
  * nowhere else. This file never reads a connection string from the environment,
@@ -175,13 +178,71 @@ export async function outstandingMoves(client) {
   return rows
 }
 
-/** Everything the three completion checks read, in one connection. */
-export async function worldState(connection) {
+/**
+ * The furniture **the app draws**, asked of the app rather than of the rows.
+ *
+ * Everything else in this file reads the database, on purpose: completion has to
+ * be decided from rows, because an agent that believes it finished is the
+ * witness that must not be trusted. This is the one question rows cannot answer.
+ *
+ * #420. The furniture check added after the first pass asked whether the rows
+ * were still there, and they were, and four shelves somebody had built were on
+ * no screen in the app with a rule filing comics onto one of them. **A guard
+ * that measures the wrong thing is worse than no guard, because it is
+ * believed.** So reachability is not defined here as a predicate over positions,
+ * which would be this harness holding a second opinion about what the app shows:
+ * it is `GET /api/fixtures`, which is what the screens are drawn from, and a
+ * shelf missing from it is a shelf missing from the app.
+ *
+ * `areas` is a piece's face and `gone` is the planks it has had taken out that
+ * still have books standing on them, which the app draws on the piece's own page
+ * so somebody can reach those books (#403). Both are reachable. A plank in
+ * neither is one nobody can get to.
+ */
+export async function drawnFurniture(api) {
+  const response = await fetch(`${api}/api/fixtures`)
+  if (!response.ok) {
+    throw new Error(`GET ${api}/api/fixtures answered ${response.status}`)
+  }
+  const body = await response.json()
+
+  return (body.fixtures ?? []).map((piece) => ({
+    fixture_id: piece.id,
+    fixture_name: piece.name,
+    fixture_position: piece.position,
+    fixture_label: piece.label,
+    books: piece.books,
+    shelves: [
+      ...(piece.areas ?? []).map((area) => ({ ...describeShelf(area), gone: false })),
+      ...(piece.gone ?? []).map((area) => ({ ...describeShelf(area), gone: true })),
+    ],
+  }))
+}
+
+const describeShelf = (area) => ({
+  area_id: area.id,
+  area_name: area.name,
+  label: area.label,
+  books: area.books,
+})
+
+/**
+ * Everything the three completion checks read.
+ *
+ * The rows come from the connection and `drawn` comes from the app. `api` is
+ * optional only so a caller that genuinely has no app to ask (nothing does
+ * today) fails the reachability checks rather than passing them silently: see
+ * `tasks.mjs`, where an absent drawing is a failed part and never a quiet ok.
+ */
+export async function worldState(connection, api = null) {
+  const drawn = api ? await drawnFurniture(api) : null
+
   return withClient(connection, async (client) => ({
     furniture: await furniture(client),
     books: await shelvedBooks(client),
     rules: await rules(client),
     outstanding: await outstandingMoves(client),
     fingerprint: await fingerprint(client),
+    drawn,
   }))
 }

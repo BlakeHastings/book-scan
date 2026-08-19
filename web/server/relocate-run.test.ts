@@ -23,9 +23,10 @@ import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
 import { applyRunMove, planRunMove } from './relocate-run'
 import {
-  addAreaTo, addFixture, booksInArea, booksOnFixture, describeFurniture, planAreaRemoval,
-  type DescribedFixture,
+  addAreaTo, addFixture, booksInArea, booksOnFixture, describeFixture, describeFurniture,
+  dropArea, planAreaRemoval, type DescribedFixture,
 } from './furniture'
+import { applyRuleChange } from './place-rule'
 import { outstandingWork } from './carry'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
@@ -36,7 +37,10 @@ import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { CreditBookHandler } from '../application/authorship/credit-book'
 import { FileAliasHandler } from '../application/authorship/curate-authors'
 import { NON_FICTION_SLUG, FICTION_SLUG } from '../domain/tagging/catalogue-claims'
+import { TagSlug } from '../domain/tagging/tags'
 import { standingOf } from '../domain/placement/ledger'
+import { furnitureIn } from '../infrastructure/shelving/areas'
+import { entryAreaOf } from '../domain/placement/rules'
 
 let db: Db
 let store: Store
@@ -354,6 +358,173 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
     expect(planned.plan.emptied).toEqual([
       expect.objectContaining({ name: 'Hall', planks: 4 }),
     ])
+  })
+
+  /**
+   * #420: the same bookcase, with the rule somebody wrote on it.
+   *
+   * The second pass of the usability loop (#419) ran the same three tasks
+   * against the same seed. Task 1 put the Hall up with four shelves; task 2 said
+   * the comics live on its bottom one, which is a rule pointing at that plank;
+   * task 3 moved non-fiction from bookcase 4 to bookcase 3. Afterwards the Hall
+   * stood with all four of its shelves at `area_position` -4 to -1, drawn by no
+   * screen, the piece answering "0 areas, 0 books", the comics rule still
+   * pointing at one of them, and a `4D` nobody had added standing on the
+   * bookcase the books had come off. **Task 3 silently undid task 2.**
+   *
+   * One defect and three symptoms. The plan cut the run where the comics rule
+   * did, because `runFrom` stops at any rule's entry area; the write cut it
+   * where the next *genre range* began, and there is no genre range past
+   * non-fiction, so `bandsOf` handed `relocateRunTo` every bookcase standing
+   * past bookcase 4. The plan moved six planks and the write moved seven.
+   *
+   * What this holds to is the sentence the fix is: **a bookcase somebody's rule
+   * stands on is that rule's furniture, and a move does not touch it.**
+   */
+  describe('and the rule somebody wrote on its bottom shelf', () => {
+    const COMICS = TagSlug.of('subject/comics')
+
+    /** Task 1 and task 2 of the usability run, done through the same calls the app makes. */
+    async function prepareTheComicsShelf(): Promise<{ hall: number; bottom: number }> {
+      const hall = await putUpTheHall()
+
+      const piece = await describeFixture(db, hall)
+      const bottom = piece!.areas[piece!.areas.length - 1]!
+      expect(bottom.name).toBe('Comics')
+
+      const wrote = await applyRuleChange(db, {
+        about: 'area',
+        placeId: bottom.id,
+        rules: [{ id: null, conditions: [{ operator: 'is', tag: COMICS.value, label: 'Comics' }] }],
+      }, new Date().toISOString())
+      if (!wrote.ok) throw new Error(wrote.error)
+
+      return { hall, bottom: bottom.id }
+    }
+
+    /** Every plank the app would draw on a piece, in the order it draws them. */
+    const drawn = async (id: number): Promise<string[]> =>
+      (await describeFixture(db, id))!.areas.map((area) => `${area.label}${area.name ? ` ${area.name}` : ''}`)
+
+    it('leaves every shelf of the hall bookcase exactly where somebody put it', async () => {
+      const { hall } = await prepareTheComicsShelf()
+      expect(await drawn(hall))
+        .toEqual(['Hall · A', 'Hall · B', 'Hall · C', 'Hall · Comics Comics'])
+
+      const applied = await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+      if (!applied.ok) throw new Error(applied.error)
+
+      expect(await drawn(hall))
+        .toEqual(['Hall · A', 'Hall · B', 'Hall · C', 'Hall · Comics Comics'])
+      expect(await db.get<{ n: number }>(
+        'SELECT count(*)::int AS n FROM area WHERE fixture_id = ? AND position < 0', [hall],
+      )).toEqual({ n: 0 })
+    })
+
+    it('leaves the comics rule pointing at a shelf the app draws', async () => {
+      const { bottom } = await prepareTheComicsShelf()
+
+      await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+
+      const rule = await db.get<{ id: number; area_id: number }>(
+        `SELECT r.id, r.area_id FROM placement_rule r JOIN rule_condition c ON c.rule_id = r.id
+          WHERE c.value = ?`, [COMICS.value],
+      )
+      expect(rule?.area_id).toBe(bottom)
+
+      const { rules, order } = await furnitureIn(db)
+      const entry = entryAreaOf(rules.find((one) => one.id === rule!.id)!, order)
+      expect(entry).toBe(bottom)
+      expect(order.some((slot) => slot.area.id === bottom)).toBe(true)
+    })
+
+    it('stands no plank on the bookcase the books came off, so there is no 4D', async () => {
+      await prepareTheComicsShelf()
+      const before = await drawn((await describeFurniture(db)).fixtures
+        .find((one) => one.position === 4)!.id)
+      expect(before).toEqual(['4A', '4B', '4C'])
+
+      await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+
+      const four = (await describeFurniture(db)).fixtures.find((one) => one.position === 4)!
+      expect(four.areas).toEqual([])
+      expect(four.gone.map((area) => area.label)).toEqual(['4A', '4B', '4C'])
+      // The books are still standing on it, which is the whole of #403, and the
+      // piece accounts for them while none of its planks is on its face.
+      expect(four.books).toBe(50)
+    })
+
+    it('moves the three planks it is about, and says so in the plan', async () => {
+      await prepareTheComicsShelf()
+
+      const planned = await planRunMove(db, 'nonfiction', 3)
+      if (!planned.ok) throw new Error(planned.error)
+
+      expect(planned.plan.planks).toEqual([
+        { from: '4A', to: '3A' }, { from: '4B', to: '3B' }, { from: '4C', to: '3C' },
+      ])
+      expect(planned.plan.emptied).toEqual([
+        expect.objectContaining({ position: 4, planks: 3 }),
+      ])
+    })
+
+    it('leaves no shelf anywhere that nobody can reach', async () => {
+      await prepareTheComicsShelf()
+
+      await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+
+      /*
+       * The one state #420 says must not exist: a plank off a face with nothing
+       * standing on it. A plank off a face with books on it is reachable, on the
+       * piece's own page and in the carry list, and is what a move leaves the
+       * bookcase it emptied.
+       */
+      const orphans = await db.all<{ id: number; label: string }>(
+        `SELECT a.id, f.position || ':' || a.position AS label
+           FROM area a JOIN fixture f ON f.id = a.fixture_id
+          WHERE a.position < 0
+            AND NOT EXISTS (SELECT 1 FROM books b WHERE b.current_area_id = a.id)`,
+      )
+      expect(orphans).toEqual([])
+    })
+
+    /*
+     * The other half of "a rule pointing at an unreachable area is its own
+     * defect": a move must not create one, and neither must anything else.
+     * Taking the plank out by hand is deliberate and stays (#307), so the rule
+     * comes to rest on the piece the plank was on rather than being refused or
+     * deleted. It keeps claiming the same books and opens its run one plank up.
+     */
+    it('leaves a rule on the piece when somebody takes its plank out by hand', async () => {
+      const { hall, bottom } = await prepareTheComicsShelf()
+
+      const dropped = await dropArea(db, bottom, new Date().toISOString())
+      if (!dropped.ok) throw new Error(dropped.error)
+
+      const rule = await db.get<{ area_id: number | null; fixture_id: number | null }>(
+        `SELECT r.area_id, r.fixture_id FROM placement_rule r
+           JOIN rule_condition c ON c.rule_id = r.id WHERE c.value = ?`, [COMICS.value],
+      )
+      expect(rule).toEqual({ area_id: null, fixture_id: hall })
+
+      // And it still opens a run, on the plank that is now the top of the piece.
+      const { rules, order } = await furnitureIn(db)
+      const comics = rules.find((one) => one.fixtureId === hall)!
+      expect(entryAreaOf(comics, order)).not.toBeNull()
+    })
+
+    it('still puts every book back on the plank it names when the run comes home', async () => {
+      await prepareTheComicsShelf()
+      const where = async (): Promise<string[]> =>
+        (await shelves.layout('nonfiction')).map((placed) => placed.label)
+
+      await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+      await applyRunMove(db, 'nonfiction', 4, new Date().toISOString())
+
+      const home = await where()
+      expect(home[0]).toBe('4A')
+      expect(new Set(home)).toEqual(new Set(['4A', '4B', '4C']))
+    })
   })
 })
 

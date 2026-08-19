@@ -40,7 +40,9 @@
 import {
   fixtureLabel, labelFor, runFrom, slotsInOrder, type Area, type Fixture, type Slot,
 } from './geography'
-import { entryAreaOf, entryAreas, type PlacementRule } from './rules'
+import {
+  entryAreaOf, entryAreas, nextRunStartAfter, type PlacementRule,
+} from './rules'
 
 /** One plank of the run, said the way somebody reads it off a shelf. */
 export interface PlankMove {
@@ -63,6 +65,11 @@ export interface PlankMove {
  * Nothing is deleted either way. The piece keeps standing and its planks are
  * retired rather than dropped, so moving the run back puts every one of them
  * back on its face.
+ *
+ * **A piece it cannot take whole is not in here, because it is not touched**
+ * (#420). A bookcase somebody wrote their own rule on is that rule's furniture,
+ * the move stops in front of it, and a piece that keeps a plank is never left
+ * having quietly lost the rest.
  */
 export interface EmptiedPiece {
   /** What the piece reads as: its name, or its number. */
@@ -131,14 +138,34 @@ export function relocateRun(
   }
 
   const entry = entryAreaOf(rule, order)
-  const run = entry === null ? [] : runFrom(order, entry, entryAreas(rules, order))
-  if (!run.length) {
+  const flowing = entry === null ? [] : runFrom(order, entry, entryAreas(rules, order))
+  if (!flowing.length) {
     return {
       ok: false,
       error: `${rule.name} does not point at a bookcase with any planks on it, `
         + 'so there is nothing to move.',
     }
   }
+
+  /*
+   * **The run flows further than the move may reach**, and #420 is the gap
+   * between the two. A run runs on until the next rule's entry area, which can
+   * fall part way down a piece: somebody puts up a bookcase, gives it four
+   * shelves, and writes a rule on the bottom one. The three shelves above it are
+   * the tail of this run and the bookcase is not this run's furniture.
+   *
+   * A move rehangs whole pieces. A piece it cannot take whole it does not touch,
+   * because taking three shelves out of somebody's bookcase and screwing them
+   * onto another one is not a thing a person asked for and is not a thing the
+   * plan could honestly draw. So the stretch that moves stops at the first piece
+   * another rule stands on, which is exactly the bound `bandsOf` reconciles
+   * over, read from the same function.
+   */
+  const start = flowing[0]!.fixture.position
+  const limit = nextRunStartAfter(order, rules, start)
+  const run = limit === undefined
+    ? flowing
+    : flowing.filter((slot) => slot.fixture.position < limit)
 
   const from = run[0]!.fixture.position
   if (from === to) {
