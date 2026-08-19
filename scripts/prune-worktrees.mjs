@@ -113,6 +113,13 @@ function worktrees() {
  * Returns `null` when the comparison cannot be made at all, which is treated as
  * a refusal rather than as permission: not being able to tell is the one case
  * where deleting somebody's afternoon is unrecoverable.
+ *
+ * **`origin/master` has to be fetched first, and the caller does it.** This runs
+ * from `merge-pr.mjs` immediately after a merge, which is exactly the moment the
+ * local ref is one commit behind the branch that was just landed. Comparing
+ * against the stale ref makes every freshly merged worktree look like unlanded
+ * work, so the sweep refuses everything and reclaims nothing. That is safe and
+ * useless, and it is how a full disk was found rather than prevented.
  */
 function worksMasterDoesNotHave(branch) {
   if (!branch) return null
@@ -167,6 +174,17 @@ export function main() {
   if (candidates.length === 0) {
     console.log('No agent worktrees.')
     return
+  }
+
+  // Before anything is compared. See `worksMasterDoesNotHave`: this runs right
+  // after a merge, when the local `origin/master` is the one thing guaranteed
+  // to be out of date, and comparing against it refuses every worktree that
+  // just landed. A failure here is not fatal; the comparison refuses on its own
+  // and nothing is deleted.
+  try {
+    git(['fetch', 'origin', 'master', '--quiet'])
+  } catch {
+    console.log('Could not fetch origin/master, so nothing will look landed.')
   }
 
   const onOrigin = branchesOnOrigin()
