@@ -407,14 +407,31 @@ export class CaptureQueue {
    * a corrected or auto-identified ISBN gets the same warning a fresh lookup
    * does (#233). `queue.edit` and the background worker both call this rather
    * than each querying the catalogue their own way.
+   *
+   * **Public since #435, because it is a question about an ISBN and not a
+   * question about a lookup.** Whether some catalogue on the internet can name
+   * a book, and whether this collection already holds it, are two questions,
+   * and only the first of them needs the network. Riding the second on the
+   * answer to the first left a book no source answers for with no warning at
+   * all, and that is exactly the book somebody scans twice, because there is
+   * nothing on screen to recognise it by. `GET /api/captures/:id` asks this of
+   * a capture's own ISBN on every poll, whatever the lookup did or did not
+   * return.
+   *
+   * `exceptId` is the row asking, which must not be its own answer. A capture
+   * becomes a book rather than being copied into one (#183), so from the
+   * moment it is shelved its ISBN really is in `catalogued_books`, and without
+   * this the book that has just been saved reports itself. It is the same
+   * exclusion `duplicatesOf` makes on the queue half.
    */
-  private async duplicateOf(isbn: string): Promise<DuplicateBook | null> {
+  async cataloguedAs(isbn: string, exceptId: number | null = null): Promise<DuplicateBook | null> {
     if (!isbn || !this.findCatalogued) return null
     const existing = await this.findCatalogued(isbn)
+    if (!existing || existing.id === exceptId) return null
     // Narrowed to the three fields a warning names, not the whole row `Store`
     // hands back: the same shape the sibling route answers with, and the only
     // one `LookupWithDuplicate.duplicateOf` promises a caller.
-    return existing ? { id: existing.id, title: existing.title, location: existing.location } : null
+    return { id: existing.id, title: existing.title, location: existing.location }
   }
 
   // -----------------------------------------------------------------------
@@ -769,9 +786,9 @@ export class CaptureQueue {
     // The same isbn a fresh lookup would have been asked about: what the
     // catalogue answered, falling back to the digits typed when nothing
     // answered at all. Computed here rather than trusted to whatever called
-    // `lookupIsbn` above, for the reason `duplicateOf` exists (#233).
+    // `lookupIsbn` above, for the reason `cataloguedAs` exists (#233).
     const withDuplicate: LookupWithDuplicate | null = lookup
-      ? { ...lookup, duplicateOf: await this.duplicateOf(lookup.isbn13 || typed?.isbn13 || '') }
+      ? { ...lookup, duplicateOf: await this.cataloguedAs(lookup.isbn13 || typed?.isbn13 || '', id) }
       : null
 
     return { ok: true, row: (await this.get(id))!, lookup: withDuplicate }
@@ -1428,8 +1445,17 @@ export class CaptureQueue {
       // over from a stale draft_json, the same as a corrected ISBN gets in
       // `edit` (#233): a person scanning a book the catalogue already holds
       // must see that on the very first read, not only after correcting it.
+      //
+      // **This is not where the warning comes from any more, and #435 is why.**
+      // It is written here for the lookup that found something, and a capture
+      // no source could answer for has no draft to carry it, which is the book
+      // most likely to be photographed twice. The question is asked of the
+      // capture's own ISBN by `GET /api/captures/:id` instead, on the poll the
+      // camera is already making. This stays because a draft is what the
+      // review pane reads a found book out of, and taking the field off it
+      // would be a second change to the same screen.
       const draftWithDuplicate: LookupWithDuplicate | null = lookup
-        ? { ...lookup, duplicateOf: await this.duplicateOf(lookup.isbn13 || isbn13) }
+        ? { ...lookup, duplicateOf: await this.cataloguedAs(lookup.isbn13 || isbn13, capture.id) }
         : null
 
       await this.db.run(

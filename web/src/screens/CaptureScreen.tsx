@@ -79,9 +79,9 @@ export function CaptureScreen() {
 
   const {
     draft, shots, thumbs, status, activeSlot, identified, captureId, saving,
-    duplicates, duplicatesTurnedDown,
+    duplicates, duplicatesTurnedDown, catalogued,
     setShots, setThumbs, setCrops, setExamined, setStatus, setActiveSlot,
-    setCaptureId, setDuplicates, setDuplicatesTurnedDown,
+    setCaptureId, setDuplicates, setDuplicatesTurnedDown, setCatalogued,
     applyLookup, applyReading, clearBookInHand,
   } = book
 
@@ -170,7 +170,9 @@ export function CaptureScreen() {
     let cancelled = false
     const tick = async () => {
       try {
-        const { capture, duplicates: found } = await api.getCapture(captureId)
+        const {
+          capture, duplicates: found, catalogued: onAShelf,
+        } = await api.getCapture(captureId)
         if (cancelled) return
 
         // Whether this book is already in the queue arrives with the reading,
@@ -178,6 +180,13 @@ export function CaptureScreen() {
         // the barcode, and failing that the hash of the front. Nothing is
         // blocked or undone by it; it is drawn over the viewfinder and waits.
         setDuplicates(found)
+        // And whether it is already on a shelf, which is the other half of the
+        // same worry and is a separate question (#435). It arrives on this
+        // same poll and it is the reason the warning is on this screen at all:
+        // somebody shooting book after book and pressing "Next book" never
+        // reaches the capture's own detail, which is where the only warning
+        // there was used to be.
+        setCatalogued(onAShelf)
 
         const read = new Set(capture.analysed.split(',').filter(Boolean))
         setStatus((current) => {
@@ -214,7 +223,10 @@ export function CaptureScreen() {
     void tick()
     const timer = setInterval(tick, 1500)
     return () => { cancelled = true; clearInterval(timer) }
-  }, [captureId, identified, applyLookup, applyReading, setDuplicates, setStatus, setError])
+  }, [
+    captureId, identified, applyLookup, applyReading,
+    setDuplicates, setCatalogued, setStatus, setError,
+  ])
 
   /**
    * The same answer, given at the cataloguing camera instead of the scanner
@@ -410,6 +422,34 @@ export function CaptureScreen() {
               dismissLabel="Different book, keep what I just took"
               disabled={saving}
             />
+
+            {/*
+              This book is already in the catalogue (#435).
+
+              The warning existed only on the capture's own detail, which is a
+              screen somebody working through a stack never opens: they shoot
+              three photographs, press "Next book" and start the next one. So
+              it is said here, where they are.
+
+              A line rather than a panel, and with no way past it, because it
+              asks for nothing. Two copies of one book genuinely turn up and
+              nothing here refuses the photograph or the save; it is the fact
+              somebody needs in order to decide, and the deciding happens at
+              the shelving step. `QueuedAlready` above offers a choice and so
+              it is a panel with a way out; this offers none and needs none.
+
+              Above the line saying what is in your hands, and as far from the
+              shutter as that one is. Nothing on this screen may sit in front
+              of the shutter, which is #294.
+            */}
+            {catalogued && (
+              <p className="cam__catalogued" role="status">
+                <strong>Already catalogued</strong>
+                {` as #${catalogued.id} (${catalogued.title})`}
+                {catalogued.location ? ` at ${catalogued.location}` : ''}
+                . Saving it adds a second copy.
+              </p>
+            )}
 
             {/*
               What is in your hands, said rather than inferred from nothing

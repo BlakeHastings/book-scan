@@ -126,6 +126,57 @@ Then('it should stop saying the book is already in the queue', async ({ page }) 
   await expect(page.locator('.queued')).toHaveCount(0)
 })
 
+/**
+ * The other book this camera can already know about, and the other place the
+ * answer comes from (#435).
+ *
+ * `.queued` is a book somebody photographed and has not shelved; this is a
+ * book on a shelf, and the two are answered by two different questions on the
+ * same poll. It is a line rather than a panel because it offers nothing to
+ * choose between: the book is catalogued, and what to do about that is decided
+ * at the shelving step by the person holding it.
+ */
+Then('it should say the book is already catalogued', async ({ page }) => {
+  const said = page.locator('.cam__catalogued')
+  await expect(said).toBeVisible({ timeout: QUEUE_TIMEOUT })
+  await expect(said).toContainText('Already catalogued')
+  // Named, so somebody can go and look at the copy they already own rather
+  // than being told a bare fact about a book they cannot identify.
+  await expect(said).toContainText('Dune')
+})
+
+Then('it should stop saying the book is already catalogued', async ({ page }) => {
+  await expect(page.locator('.cam__catalogued')).toHaveCount(0)
+})
+
+/**
+ * Nothing named this book, which is the state the warning above has to survive.
+ *
+ * The line that says what is in your hands is drawn only where the queue has
+ * settled on a book, so its absence is the screen saying it has no name for
+ * this one. That is the whole situation #435 is about: a person holding a book
+ * the app cannot name, with nothing to tell them they already own it.
+ */
+Then('the camera should not have recognised the book', async ({ page }) => {
+  await expect(page.locator('.wf-view__found').filter({ hasText: 'Dune' }))
+    .toHaveCount(0)
+})
+
+/**
+ * Nothing has been put in front of the shutter (#294, and #435's own warning).
+ *
+ * Pressed rather than looked at, and that is the whole of the check: an
+ * enabled button proves nothing about what is floating over it, and Playwright
+ * refuses a click that another element would receive. The photograph landing
+ * in the next slot is what says the press was a press.
+ */
+Then('the shutter should still take a photograph', async ({ page }) => {
+  const before = await page.locator('.wf-shot--taken').count()
+  await page.locator('button.wf-shutter').click()
+  await expect(page.locator('.wf-shot--taken'))
+    .toHaveCount(before + 1, { timeout: QUEUE_TIMEOUT })
+})
+
 Then('the camera should still be ready to scan', async ({ page }) => {
   await expect(inHandShutter(page)).toBeEnabled()
   await expect(page.locator('video.wf-view__video')).toBeVisible()

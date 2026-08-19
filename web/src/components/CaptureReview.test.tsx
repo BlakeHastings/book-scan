@@ -25,7 +25,9 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { CaptureReview } from './CaptureReview'
-import { emptyDraft, type AppliedTag, type Draft, type TagRow } from '../lib/api'
+import {
+  emptyDraft, type AppliedTag, type CataloguedBook, type Draft, type TagRow,
+} from '../lib/api'
 import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import type { TabName } from '../design/Chrome'
 
@@ -46,11 +48,19 @@ function drawn(over: {
   canTag?: boolean
   coverText?: string
   captureNote?: string
+  catalogued?: CataloguedBook | null
 } = {}) {
   return renderToStaticMarkup(
     <CaptureReview
       draft={{ ...emptyDraft, title: 'Watchmen', ...over.draft }}
+      /*
+       * Null on both, which is the case the file was written for and is also
+       * the shape of #435: no source answered, so there is no lookup at all.
+       * The warning below is drawn from `catalogued` and never from a lookup,
+       * so a test that wants it says so on its own.
+       */
       lookup={null}
+      catalogued={over.catalogued ?? null}
       photos={{}}
       derivedFiling="Moore, Alan"
       saving={false}
@@ -221,6 +231,44 @@ describe('a queued capture with cover text and no title', () => {
 
   it('stops saying it the moment there is a title', () => {
     expect(drawn({ draft: { title: 'Song of Solomon' } }))
+      .not.toContain('Type the title off the book to shelve it')
+  })
+})
+
+/**
+ * The book is already in the catalogue, and no source could name it (#435).
+ *
+ * The warning used to be read off the lookup, so it existed only where some
+ * catalogue had answered. That is the wrong way round: a book nobody can look
+ * up has nothing on screen to recognise it by, so it is precisely the book
+ * somebody photographs a second time, and it was the one book that got no
+ * warning at all. What is checked here is that the two are independent on this
+ * screen: no lookup whatsoever, and the warning is still drawn.
+ */
+describe('a book the catalogue already holds', () => {
+  const shelved: CataloguedBook = { id: 45, title: 'Song of Solomon', location: '1B' }
+
+  it('names it with no lookup behind it at all', () => {
+    const markup = words(drawn({ catalogued: shelved }))
+
+    expect(markup).toContain('Already catalogued as #45 (Song of Solomon) at 1B.')
+    expect(markup).toContain('Saving adds a second copy')
+  })
+
+  it('leaves the location out rather than saying nowhere', () => {
+    expect(words(drawn({ catalogued: { ...shelved, location: '' } })))
+      .toContain('Already catalogued as #45 (Song of Solomon).')
+  })
+
+  it('says nothing about a book the catalogue does not hold', () => {
+    expect(words(drawn())).not.toContain('Already catalogued')
+  })
+
+  it('does not refuse the save, because two copies genuinely turn up', () => {
+    // A finding to put in front of a person, never a gate. The same rule the
+    // queue half is held to: an answer with no way past it is one somebody
+    // escapes by photographing the book again.
+    expect(drawn({ catalogued: shelved, draft: { title: 'Song of Solomon' } }))
       .not.toContain('Type the title off the book to shelve it')
   })
 })

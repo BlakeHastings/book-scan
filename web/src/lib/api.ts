@@ -41,6 +41,20 @@ export interface Classification {
   reason: string
 }
 
+/**
+ * A book the catalogue already holds under an ISBN somebody is holding.
+ *
+ * Named since #435, because it is now answered in two places and they must
+ * answer with the same three fields: a lookup says whether the ISBN it just
+ * fetched is already on a shelf, and `GET /api/captures/:id` says whether a
+ * capture's own ISBN is, whether or not anything looked it up.
+ */
+export interface CataloguedBook {
+  id: number
+  title: string
+  location: string
+}
+
 export interface LookupResponse {
   found: boolean
   title: string
@@ -57,7 +71,7 @@ export interface LookupResponse {
   source: string
   classification: Classification
   notes: string[]
-  duplicateOf: { id: number; title: string; location: string } | null
+  duplicateOf: CataloguedBook | null
 }
 
 /** What the review pane edits and what gets posted. */
@@ -1339,19 +1353,29 @@ export const api = {
     }),
 
   /**
-   * One capture, and whether it is a second photographing of a book already in
-   * the queue (#146).
+   * One capture, whether it is a second photographing of a book already in the
+   * queue (#146), and whether the catalogue already holds its ISBN (#435).
    *
-   * `duplicates` rides along on the poll the camera is already making rather
-   * than being its own request or its own poll. It cannot be answered when the
-   * photograph is handed over, because nothing has read it yet: the ISBN and
-   * the hash both arrive on the background pass, and this is the call that
-   * waits for that pass anyway.
+   * Both findings ride along on the poll the camera is already making rather
+   * than being their own request or their own poll. Neither can be answered
+   * when the photograph is handed over, because nothing has read it yet: the
+   * ISBN and the hash both arrive on the background pass, and this is the call
+   * that waits for that pass anyway.
+   *
+   * **`duplicates` and `catalogued` are two different findings** and the words
+   * for them are different on purpose: one is a book somebody has photographed
+   * and not shelved, the other is a book on a shelf. `catalogued` is null when
+   * the collection does not hold this ISBN, and also when nobody has read an
+   * ISBN off the photographs yet, which is every capture until the background
+   * pass has been.
    */
   getCapture: (id: number) =>
-    request<{ capture: Capture; duplicates: QueueMatch[]; counts: QueueCounts }>(
-      `/api/captures/${id}`,
-    ),
+    request<{
+      capture: Capture
+      duplicates: QueueMatch[]
+      catalogued: CataloguedBook | null
+      counts: QueueCounts
+    }>(`/api/captures/${id}`),
 
   /**
    * The whole queue, its counts, and which capture the worker is holding.

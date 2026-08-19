@@ -13,7 +13,7 @@ import type { DataTable } from 'playwright-bdd'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { Given, Then, When } from './fixtures.js'
+import { After, Given, Then, When } from './fixtures.js'
 import { BOOK_IN_HAND, stubBookByTitle } from '../support/books.js'
 import type { BookRow, Catalogue, PlankRow } from '../support/database.js'
 
@@ -32,6 +32,46 @@ Given('the catalogue is empty', async ({ catalogue }) => {
  */
 Given('the catalogue service knows about {string}', async ({}, title: string) => {
   expect(stubBookByTitle(title).isbn13).not.toBe('')
+})
+
+/**
+ * The opposite, and it is not the absence of the step above (#435).
+ *
+ * A book no source can name is ordinary: an old paperback, a book club
+ * edition, anything printed before ISBNs were universal. It is also the case
+ * the app is worst at, because a book nothing can name has nothing on screen
+ * to recognise it by, which makes it the book most likely to be photographed
+ * twice. So it has to be possible to say it out loud in a scenario, rather
+ * than only reachable by inventing an ISBN nothing knows.
+ *
+ * Armed on the stub's control endpoint, like the slow lookup above, because it
+ * has to be in place before the barcode is read.
+ */
+Given('no source can name {string}', async ({ stubUrl }, title: string) => {
+  const book = stubBookByTitle(title)
+  const response = await fetch(`${stubUrl}/__control/answer-for-nobody`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isbn13: book.isbn13 }),
+  })
+  expect(response.ok, `silencing "${title}" failed: ${response.status}`).toBe(true)
+})
+
+/**
+ * Give every book its name back at the end of every scenario.
+ *
+ * The stub is started once for the whole run, so a book silenced above stays
+ * silenced for every scenario after it, and the book it would be is the one
+ * the camera is pointed at in all of them. That is the sort of leak that shows
+ * up as an unrelated feature failing three files later, so it is undone here
+ * rather than remembered.
+ *
+ * Unconditional, because a hook that only runs where it is needed needs
+ * something to tell it, and one local request per scenario is cheaper than
+ * that something.
+ */
+After(async ({ stubUrl }) => {
+  await fetch(`${stubUrl}/__control/answer-for-everybody`, { method: 'POST' })
 })
 
 /**

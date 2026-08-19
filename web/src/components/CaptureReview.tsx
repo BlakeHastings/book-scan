@@ -77,12 +77,24 @@ import { IsbnPrompt } from './IsbnPrompt'
 import { Trouble } from './RoomFrame'
 import { TagNaming } from './TagNaming'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
-import type { AppliedTag, Draft, LookupResponse, TagRow } from '../lib/api'
+import type { AppliedTag, CataloguedBook, Draft, LookupResponse, TagRow } from '../lib/api'
 import { SLOT_SHORT, type Slot } from '../lib/scanner'
 
 interface Props {
   draft: Draft
   lookup: LookupResponse | null
+  /**
+   * The book the catalogue already holds under this one's ISBN, or null.
+   *
+   * A prop of its own since #435, and it used to be read off `lookup`. That is
+   * the defect: the warning only existed where a lookup had found something,
+   * so a book no source can name, which is exactly the book somebody scans
+   * twice because there is nothing on screen to recognise it by, was never
+   * warned about. Whether some catalogue can name an ISBN and whether this
+   * collection already holds it are two questions, and the caller answers this
+   * one from the catalogue rather than from the lookup.
+   */
+  catalogued: CataloguedBook | null
   photos: Partial<Record<Slot, string>>
   derivedFiling: string
   saving: boolean
@@ -159,7 +171,7 @@ const READ_FROM: Record<string, string> = {
 }
 
 export function CaptureReview({
-  draft, lookup, photos, derivedFiling, saving, relookupBusy, relookupError,
+  draft, lookup, catalogued, photos, derivedFiling, saving, relookupBusy, relookupError,
   catalogueCover, coverText, captureNote, notice, error,
   onDismissError, onChange, onRelookup, onClearRelookupError, onRetake,
   onShelve, onLeave, tabs,
@@ -258,14 +270,18 @@ export function CaptureReview({
 
         {/* The same two the edit screen draws, out of the same components, so
             one book cannot be told two different things about its own lookup
-            depending on which door it came through. */}
-        {lookup?.duplicateOf && (
+            depending on which door it came through.
+
+            The first of them comes from the catalogue rather than from the
+            lookup since #435, so it is said for a book no source could name
+            as well as for one every source can. The words are unchanged. */}
+        {catalogued && (
           <Card
             weight="quiet"
             kind="Saving adds a second copy"
             title={
-              `Already catalogued as #${lookup.duplicateOf.id} (${lookup.duplicateOf.title})`
-              + `${lookup.duplicateOf.location ? ` at ${lookup.duplicateOf.location}` : ''}.`
+              `Already catalogued as #${catalogued.id} (${catalogued.title})`
+              + `${catalogued.location ? ` at ${catalogued.location}` : ''}.`
             }
           />
         )}

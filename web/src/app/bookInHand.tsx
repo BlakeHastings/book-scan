@@ -29,7 +29,8 @@ import {
 } from 'react'
 import {
   api, deviceName, draftFromLookup, editFromDraft, emptyDraft, withReadIsbn,
-  type Capture, type Draft, type LookupResponse, type QueueMatch,
+  type Capture, type CataloguedBook, type Draft, type LookupResponse,
+  type QueueMatch,
 } from '../lib/api'
 import { putDownCapture, putDownOnPageHide, type HeldCapture } from '../lib/leaveCapture'
 import type { Slot } from '../lib/scanner'
@@ -125,6 +126,23 @@ export interface BookInHand extends ShelfState {
    */
   readonly duplicatesTurnedDown: number[]
   readonly setDuplicatesTurnedDown: Dispatch<SetStateAction<number[]>>
+  /**
+   * The book the catalogue already holds under this capture's ISBN (#435).
+   *
+   * A different finding from `duplicates` and asked a different way. That one
+   * is about the queue, this one is about the shelves, and this one is asked
+   * of the ISBN alone: whether a catalogue on the internet could name the book
+   * has nothing to do with whether this collection already owns it, and
+   * hanging the second on the first is what left the book nobody could look up
+   * with no warning at all. See `GET /api/captures/:id`.
+   *
+   * Filled by the camera's poll while somebody is photographing, and asked
+   * again when a capture is opened from the queue, because the answer is about
+   * a catalogue that moves under it: a book shelved this morning was not
+   * shelved when the photograph was read.
+   */
+  readonly catalogued: CataloguedBook | null
+  readonly setCatalogued: Dispatch<SetStateAction<CataloguedBook | null>>
 
   readonly origin: Origin
   readonly setOrigin: Dispatch<SetStateAction<Origin>>
@@ -204,6 +222,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
 
   const [duplicates, setDuplicates] = useState<QueueMatch[]>([])
   const [duplicatesTurnedDown, setDuplicatesTurnedDown] = useState<number[]>([])
+  const [catalogued, setCatalogued] = useState<CataloguedBook | null>(null)
 
   const [origin, setOrigin] = useState<Origin>('capture')
   const [notice, setNotice] = useState('')
@@ -388,6 +407,10 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
     // over on to the next one.
     setDuplicates([])
     setDuplicatesTurnedDown([])
+    // And the shelf half of the same answer. It names a book the person is no
+    // longer holding, and carrying it on to the next one would warn about the
+    // wrong book, which is worse than not warning at all.
+    setCatalogued(null)
     setBookId(null)
     setCheckedOutAt(null)
     setCoverImage('')
@@ -418,6 +441,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
         checkedOutAt, setCheckedOutAt,
         duplicates, setDuplicates,
         duplicatesTurnedDown, setDuplicatesTurnedDown,
+        catalogued, setCatalogued,
         origin, setOrigin,
         notice, setNotice,
         saving, setSaving,
