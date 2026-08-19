@@ -106,6 +106,32 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
     expect([...at].sort((a, b) => a - b), 'they are drawn in another order').toEqual(at)
   })
 
+  /**
+   * The other half of not forking it, and the whole of #429.
+   *
+   * One screen serving two journeys only works if each journey hands it what it
+   * needs. The carry journey did not: the screen worked out for itself where the
+   * book belonged *now*, from the rules, and with a second piece of furniture
+   * claiming the same tag that is a different plank from the one the trip named.
+   * Somebody did exactly what the app asked, no assignment named that plank, and
+   * the trip came back forever.
+   *
+   * So the fix is an argument rather than a second screen, and this is what
+   * stops it being quietly dropped: **the carry flow tells the placing preview
+   * where this trip goes**, and the journey that has no trip does not.
+   */
+  it('is told where this trip goes rather than working it out', () => {
+    expect(
+      read('screens/CarryingScreen.tsx'),
+      'the carry flow does not tell the placing screen where this trip goes',
+    ).toMatch(/previewPlacement\([^)]*trip\.toAreaId/)
+
+    expect(
+      read('screens/ShelveScreen.tsx'),
+      'a newly scanned book has no trip, so nothing may name one for it',
+    ).not.toMatch(/toAreaId/)
+  })
+
   it('has no second thing in the client drawing a placing strip with a gap', () => {
     const drawing = sources(HERE)
       .concat(sources(join(HERE, '..', 'screens')))

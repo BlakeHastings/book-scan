@@ -471,8 +471,16 @@ function conditionsFor(query: Listing): SQL | undefined {
   return conditions.length ? and(...conditions) : undefined
 }
 
-/** A shelf row as the placement advice speaks about one. */
-function toNeighbour(row: FiledPlacedBook | undefined): Neighbour | null {
+/**
+ * A shelf row as the placement advice speaks about one.
+ *
+ * Exported since #429, for the one other place that has to name the two books a
+ * gap is between: the plank a carried book is going onto, whose neighbours come
+ * off that plank rather than out of the run. One reading, so the sentence a
+ * person is given about a carried book is built the same way as the sentence
+ * they are given about a scanned one.
+ */
+export function toNeighbour(row: FiledPlacedBook | undefined): Neighbour | null {
   if (!row) return null
   return {
     id: row.id,

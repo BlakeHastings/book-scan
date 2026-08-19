@@ -38,6 +38,69 @@ When('I open the list of books to carry', async ({ page }) => {
 })
 
 /**
+ * The first trip on the list, opened at the piece the books come off.
+ *
+ * The primary button rather than the row, because that is the answer the screen
+ * leads with, and it names where to start: "Start at 5A", or "Carry on at 5A" on
+ * a list somebody is part way through.
+ */
+When('I start the first trip', async ({ page }) => {
+  await page.getByRole('button', { name: /^(Start|Carry on) at / }).click()
+  await expect(page.getByRole('button', { name: /^I have (all .+|it)$/ }))
+    .toBeVisible({ timeout: REDRAW })
+})
+
+/**
+ * The books are off the shelf and in somebody's hands.
+ *
+ * **This writes nothing**, which is the one thing to know about it: a book in
+ * transit gets no row, so this is a navigation and there is nothing to unwind if
+ * the phone locks halfway across the room.
+ */
+When('I take the books off the shelf', async ({ page }) => {
+  await page.getByRole('button', { name: /^I have (all .+|it)$/ }).click()
+  await expect(page.locator('.wf-top__title')).toHaveText('Where it goes', { timeout: REDRAW })
+})
+
+/**
+ * Every book in the armful put down, one at a time, saying so each time.
+ *
+ * The same press for each, because that is what a person does: the screen names
+ * a plank, they put the book on it, they say it fitted, and the next book is in
+ * their hand. It ends when the trip does, on "Carried".
+ *
+ * A bounded loop rather than a wait for a count, because the armful is however
+ * many books the trip had, and a loop that could not end is how a broken flow
+ * reads as a hung test rather than as a failure.
+ */
+When('I say each book fits', async ({ page }) => {
+  for (let at = 0; at < 20; at += 1) {
+    if (await page.locator('.wf-top__title').textContent() === 'Carried') return
+    await page.getByRole('button', { name: 'It fits, save' }).click()
+    await expect(page.getByRole('button', { name: 'Saving...' }))
+      .toHaveCount(0, { timeout: REDRAW })
+  }
+  await expect(page.locator('.wf-top__title')).toHaveText('Carried', { timeout: REDRAW })
+})
+
+/**
+ * Where the book actually ended up, which is the half no screen can answer.
+ *
+ * #429 is exactly this gap: the finished screen said a book was on `3A` while
+ * the row it drew for `3A` had nothing on it, because nothing had ever been
+ * written there. A sentence over a write that did not happen where it said reads
+ * the same as one over a write that did.
+ */
+Then('{string} should be standing on {string}', async (
+  { catalogue }, title: string, plank: string,
+) => {
+  const book = await catalogue.bookByTitle(title)
+  expect(book, `no book called "${title}" is catalogued`).toBeTruthy()
+  expect(book!.current_area_id, `${title} is not on ${plank}`)
+    .toBe(await catalogue.plankId(plank))
+})
+
+/**
  * What the list says, line by line.
  *
  * Substrings rather than whole screens, the way the plan's own step reads them:

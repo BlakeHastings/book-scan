@@ -19,11 +19,50 @@
 import { expect } from '@playwright/test'
 import type { DataTable } from 'playwright-bdd'
 
-import { Given, Then, When } from './fixtures.js'
+import { After, Given, Then, When } from './fixtures.js'
 import { stubBookByTitle } from '../support/books.js'
 
 /** How long a press is given to redraw before a claim is made about the screen. */
 const REDRAW = 15_000
+
+/** Every piece standing, as the furniture screen reads them. */
+async function furniture(apiUrl: string): Promise<{ id: number; position: number; name: string }[]> {
+  const read = await fetch(`${apiUrl}/api/fixtures`)
+  expect(read.ok, `reading the furniture failed: ${read.status}`).toBe(true)
+  const { fixtures } = (await read.json()) as {
+    fixtures: { id: number; position: number; name: string }[]
+  }
+  return fixtures
+}
+
+/**
+ * The piece this scenario put up in front of everything else, or null.
+ *
+ * **It has to be taken down again, and `catalogue.reset()` will not do it.** The
+ * reset keeps every piece a `placement_rule` points at, on purpose, because the
+ * two seeded rules are what the app files by; a piece somebody gave a rule to is
+ * indistinguishable from those, so it would survive into the next scenario and
+ * be shoved to non-fiction's own number on the way. So the rule comes off here
+ * and the piece goes with it, through the same two routes the furniture screen
+ * presses.
+ *
+ * Module scope, which is per worker and therefore per scenario file: the suite
+ * runs one worker and every scenario that sets this clears it.
+ */
+let putUpFirst: number | null = null
+
+After(async ({ apiUrl }) => {
+  if (putUpFirst === null) return
+  const piece = putUpFirst
+  putUpFirst = null
+
+  await fetch(`${apiUrl}/api/placement/rule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ about: 'fixture', placeId: piece, rules: [] }),
+  })
+  await fetch(`${apiUrl}/api/fixtures/${piece}`, { method: 'DELETE' })
+})
 
 /**
  * Books that file on the last bookcase in the room.
@@ -89,6 +128,81 @@ Given(
 )
 
 /**
+ * A piece put up in front of everything else, and given a rule somewhere else
+ * already has (#429).
+ *
+ * **Two pieces claiming one tag is legitimate**, and it is what exposed the
+ * defect this exists for: the two readings of "where does this book belong"
+ * pick different rules, so the trip a person is walking and the plank the
+ * placing screen names come apart. Nothing here is unusual otherwise. A person
+ * puts up a bookcase, drags it to the front of the room and says what it is for.
+ *
+ * **Nothing renumbers a room on anybody's behalf**, which is why the pieces
+ * already standing are bumped along one at a time before this one takes number
+ * one: every label on every piece is derived from its number, so a renumber that
+ * happened by itself would relabel every book in the house. That is also why the
+ * non-fiction bookcase reads as `5` in the scenarios below and as `4`
+ * everywhere else.
+ */
+Given(
+  'a bookcase called {string} stands first, with these shelves:',
+  async ({ apiUrl }, name: string, table: DataTable) => {
+    const made = await fetch(`${apiUrl}/api/fixtures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    expect(made.ok, `putting up "${name}" failed: ${made.status}`).toBe(true)
+    const { fixture } = (await made.json()) as { fixture: { id: number } }
+    putUpFirst = fixture.id
+
+    const standing = await furniture(apiUrl)
+    for (const piece of standing) {
+      if (piece.id === fixture.id) continue
+      const bumped = await fetch(`${apiUrl}/api/fixtures/${piece.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position: piece.position + 1 }),
+      })
+      expect(bumped.ok, `moving piece ${piece.position} along failed`).toBe(true)
+    }
+
+    const first = await fetch(`${apiUrl}/api/fixtures/${fixture.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ position: 1 }),
+    })
+    expect(first.ok, `standing "${name}" first failed: ${first.status}`).toBe(true)
+
+    for (const row of table.raw()) {
+      const added = await fetch(`${apiUrl}/api/fixtures/${fixture.id}/areas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: row[0] ?? '' }),
+      })
+      expect(added.ok, `hanging a shelf on "${name}" failed: ${added.status}`).toBe(true)
+    }
+  },
+)
+
+/** The same rule the non-fiction bookcase carries, written on this piece too. */
+Given('{string} is for non-fiction as well', async ({ apiUrl }, name: string) => {
+  const piece = (await furniture(apiUrl)).find((one) => one.name === name)
+  expect(piece, `no piece called "${name}" is standing`).toBeTruthy()
+
+  const wrote = await fetch(`${apiUrl}/api/placement/rule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      about: 'fixture',
+      placeId: piece!.id,
+      rules: [{ conditions: [{ operator: 'is', tag: 'genre/non-fiction' }] }],
+    }),
+  })
+  expect(wrote.ok, `writing a rule on "${name}" failed: ${wrote.status}`).toBe(true)
+})
+
+/**
  * The way to the furniture, which is a menu behind the corner icon.
  *
  * Two presses and they are one intention, so they are one step: the corner
@@ -126,10 +240,28 @@ When('I open the shelf called {string}', async ({ page }, label: string) => {
     .toBeVisible({ timeout: REDRAW })
 })
 
-/** Say where the stretch should live, and ask what it would take to get it there. */
+/**
+ * Say where the stretch should live, and ask what it would take to get it there.
+ *
+ * **The pick is read back before the plan is asked for**, and that is not
+ * belt and braces. The screen starts the picker on the bookcase the stretch is
+ * on already, and it sets that from a read of the shelves that lands after the
+ * screen is drawn; a press that gets in before the read is quietly overwritten
+ * by it, and the plan then comes back about the bookcase the books are already
+ * on. That went red once, on a room with an extra piece in it and therefore one
+ * more request to wait for, and it would have been an intermittent red in
+ * `moving-a-run.feature` on a slow machine. `aria-pressed` is what the choice
+ * says about itself, so waiting on it waits for the state the press was for.
+ */
 When('I ask to move these books to bookcase {int}', async ({ page }, bookcase: number) => {
   await page.getByRole('button', { name: 'Move these books to another bookcase' }).click()
-  await page.getByRole('button', { name: new RegExp(`^Bookcase ${bookcase}\\b`) }).click()
+
+  const chosen = page.getByRole('button', { name: new RegExp(`^Bookcase ${bookcase}\\b`) })
+  await expect(chosen, `bookcase ${bookcase} is not offered`).toBeVisible({ timeout: REDRAW })
+  await chosen.click()
+  await expect(chosen, `bookcase ${bookcase} did not stay chosen`)
+    .toHaveAttribute('aria-pressed', 'true', { timeout: REDRAW })
+
   await page.getByRole('button', { name: 'Show me the plan' }).click()
   await expect(page.getByRole('heading', { name: 'The plan' })).toBeVisible({ timeout: REDRAW })
 })

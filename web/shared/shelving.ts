@@ -406,6 +406,16 @@ export type PlacementKind =
   | 'start-of-range'
   | 'end-of-range'
   | 'first-in-range'
+  /**
+   * A position on one plank rather than a position in a run (#429).
+   *
+   * Every kind above is a statement about a whole range, because every one of
+   * them was answered by looking the book up in the run it belongs to. A book
+   * being carried is answered about the plank somebody is standing at, and there
+   * are books of that range on other planks, so "first in non-fiction" and "last
+   * in non-fiction" are both false of it. See `placementOnAPlank`.
+   */
+  | 'on-a-plank'
 
 export interface Placement {
   kind: PlacementKind
@@ -530,6 +540,47 @@ export function buildPlacement(
     successor: null,
     suggestedLocation: rangeStart,
     instruction: `First book in ${label}. Start at ${rangeStart}.`,
+  }
+}
+
+/**
+ * The same sentence about one plank, for a book somebody is carrying to it
+ * (#429).
+ *
+ * **`buildPlacement` above answers about a range and this one cannot.** Its
+ * four sentences say "first in non-fiction" and "last in non-fiction", which are
+ * true of a book looked up in the run it belongs to and false of a book being
+ * put on a particular plank: the neighbours here are the two books either side
+ * of it *on that plank*, and there is a whole range of other books on other
+ * planks either side of them. Somebody carrying the third of eight books onto an
+ * empty `3A` would otherwise be told, twice, that it is the last book in
+ * non-fiction.
+ *
+ * So the plank is the subject of every sentence, and each one names it. Nothing
+ * here is a second opinion about *which* plank: that is settled by the trip
+ * before this is called, which is the whole of the fix in #429.
+ */
+export function placementOnAPlank(
+  range: ShelfRange,
+  plank: string,
+  predecessor: Neighbour | null,
+  successor: Neighbour | null,
+): Placement {
+  const between = predecessor && successor
+    ? `${plank}: between ${describe(predecessor)} and ${describe(successor)}`
+    : predecessor
+      ? `${plank}: after ${describe(predecessor)}, at the end.`
+      : successor
+        ? `${plank}: before ${describe(successor)}, at the start.`
+        : `${plank} has nothing on it yet, so this book starts it.`
+
+  return {
+    kind: 'on-a-plank',
+    range,
+    predecessor,
+    successor,
+    suggestedLocation: plank,
+    instruction: between,
   }
 }
 
