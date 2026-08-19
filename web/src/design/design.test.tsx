@@ -935,8 +935,25 @@ describe('the first screen is counts, and every count goes somewhere', () => {
     ])
   })
 
-  it('keeps the cat, who is what closes them', () => {
-    expect(home(), 'the cat has gone off the first screen').toMatch(/wf-stats__cat/)
+  /*
+   * Where the cat is, which is a decision rather than a detail (#427).
+   *
+   * > This is the cat. It is supposed to be sleeping on the actions, not as
+   * > part of the metrics grid.
+   *
+   * He closed the counts from #361 and #410 stretched him across them, and on a
+   * phone that read as a sixth count with a long tail. He belongs to the things
+   * you can do now, and the counts are five counts. Both halves are checked,
+   * because "he moved" and "he moved and took a hole with him" are different
+   * outcomes and only one of them was asked for.
+   */
+  it('sleeps on the things you can do, and leaves the counts five', () => {
+    const markup = home()
+
+    expect(markup, 'the cat has gone off the first screen').toMatch(/wf-doors__cat/)
+    expect(markup, 'the cat is back in the counts grid').not.toMatch(/wf-stats__cat/)
+    expect((markup.match(/class="wf-stat[ "]/g) ?? []).length, 'the grid is not five counts')
+      .toBe(5)
   })
 
   it('offers few things to do, and none of them where a tab already goes', () => {

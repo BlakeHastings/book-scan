@@ -82,19 +82,21 @@ describe('a pose is a drawing', () => {
     }
   })
 
-  it('gives the lying one shut eyes and a tail long enough to leave his box', () => {
-    const markup = renderToStaticMarkup(<Cat pose="lying" size={132} />)
+  it('gives the lying one shut eyes and a tail long enough to leave him', () => {
+    const markup = renderToStaticMarkup(<Cat pose="lying" size={92} />)
 
     expect(markup, 'the lying cat has his eyes open').toContain('wf-cat__shut')
     expect(markup, 'the lying cat has no tail to put behind anything')
       .toContain('wf-cat__sweep')
-    // Three times as tall as he is, and that is the pose: the rest of the box
-    // is the tail reaching down the page past whatever is under him.
-    expect(tag(markup)).toContain('width="102" height="132"')
+    expect(markup, 'nothing can ask where the lying cat ends').toContain('wf-cat__rest')
+    // Twice as tall as he is, and that is the pose (#427): the top half is cat
+    // and the bottom half is tail, so a screen puts the middle of this box on
+    // the top edge of whatever he is lying on and the rest goes behind it.
+    expect(tag(markup)).toContain('width="102" height="92"')
   })
 
   it('adds no behaviour of its own, so a still screen stays still', () => {
-    expect(tag(renderToStaticMarkup(<Cat pose="lying" size={132} />)))
+    expect(tag(renderToStaticMarkup(<Cat pose="lying" size={92} />)))
       .toContain('class="wf-cat"')
   })
 })
@@ -102,7 +104,7 @@ describe('a pose is a drawing', () => {
 describe('a behaviour is what he is doing', () => {
   it('names itself on the drawing, and loops unless told otherwise', () => {
     for (const doing of BEHAVIOURS) {
-      const markup = tag(renderToStaticMarkup(<Cat pose="lying" size={132} doing={doing} />))
+      const markup = tag(renderToStaticMarkup(<Cat pose="lying" size={92} doing={doing} />))
       expect(markup, `${doing} is not on the drawing`).toContain(`wf-cat--${doing}`)
       expect(markup, `${doing} does not loop by default`).toContain('wf-cat--loop')
     }
@@ -111,7 +113,7 @@ describe('a behaviour is what he is doing', () => {
   it('loops or plays once, and that is the caller\'s to say', () => {
     for (const play of PLAYS) {
       const markup = tag(renderToStaticMarkup(
-        <Cat pose="lying" size={132} doing="dozing" play={play} />,
+        <Cat pose="lying" size={92} doing="dozing" play={play} />,
       ))
       expect(markup, `${play} is not on the drawing`).toContain(`wf-cat--${play}`)
     }

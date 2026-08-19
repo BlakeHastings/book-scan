@@ -967,43 +967,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   padding-bottom: var(--s1);
 }
 
-/*
- * The cat lying down, drawn across the screen rather than inside a cell (#410).
- *
- * > I'd like the actions that we have available to be scooted down, and then
- * > the cat laying down sleeping with its tail going behind those buttons.
- *
- * Three rules and each does one half of that sentence.
- *
- * **The scoot** is `margin-bottom` on the counts, which is the whole of what
- * moves the doors down. They are not told about it and they do not move
- * anywhere else; nothing about what a door is or where it goes changes.
- *
- * **The overhang** is the drawing taken out of flow. He is 132px tall in a row
- * about 60px tall, so two thirds of him hangs below it, and out of flow is
- * what stops that from pushing the counts around or growing the row. There is
- * nothing to press: `pointer-events` off, so a tail lying across a door does
- * not eat a tap meant for it.
- *
- * **Behind** is the z-index below, and it is a real occlusion rather than a
- * gap the tail happens to stop in. The doors are opaque paper and they paint
- * over him, so the tail runs down the page, meets the top edge of the first
- * one and is gone. That is the difference between a cat drawn across the
- * layout and a cat in a box in it, which is the whole of what this pose is
- * for. Checked in the browser rather than described: the tail's box overlaps
- * the door's, and what answers at a point inside that overlap is the door.
- *
- * `overflow-x: clip` on `.wf` means he can hang down the page but never off
- * the side of it, which is already the rule for everything here.
- */
-.wf-stats--bed { margin-bottom: var(--s5); }
-.wf-stats__cat--bed { position: relative; padding-bottom: 0; }
-.wf-stats__cat--bed > .wf-cat {
-  position: absolute;
-  top: 0;
-  right: 0;
-  pointer-events: none;
-}
+/* The cat who lies down is not drawn here at all: he sleeps on the things you
+   can do, which is `.wf-doors--bed` further down (#427). This row is five
+   counts, and the still bookend above on a screen that offers nothing. */
 
 .wf-stat {
   display: grid;
@@ -1063,12 +1029,53 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-doors {
   display: grid;
   gap: var(--s2);
-  /* Above the cat, so his tail goes behind these rather than over them (#410).
-     A positioned element paints over an unpositioned one whatever the order in
-     the markup, and the cat is positioned because he hangs out of his row, so
-     without this the tail would be drawn across the first door's face. */
+  /* The cat sleeps inside this block and hangs out of the top of it, so this is
+     what he is positioned against (#427). */
   position: relative;
-  z-index: 1;
+}
+
+/*
+ * The cat asleep on top of them, which is what these buttons are to him (#427).
+ *
+ * > This is the cat. It is supposed to be sleeping on the actions, not as part
+ * > of the metrics grid.
+ *
+ * He was hung off the bottom of the counts with only his tail reaching down
+ * here, so he read as a sixth count with a long tail. He belongs to this block
+ * now, and three rules put him on it.
+ *
+ * **The scoot is this block's own margin.** The owner asked for the actions to
+ * be scooted down and the cat to lie on them, so the room he sleeps in is made
+ * by the thing he sleeps on. The counts are not told anything, do not move, and
+ * draw no cat: five counts, three and two, exactly as round eight settled them.
+ *
+ * **Where he lies is `-50%` and nothing measured.** The `lying` pose is half cat
+ * and half tail, with his belly across the middle of its box, so pulling the
+ * drawing up by half its own height puts his belly on whatever `top` names. That
+ * is `--s2` above the first button: he lies along its top edge, his tail leaves
+ * him, crosses that gap in the open and then goes behind. Nothing here knows how
+ * tall he is drawn, and `Cat` may draw him at any size without this rule being
+ * touched.
+ *
+ * **Behind is a real occlusion rather than a gap the tail stops in.** He is
+ * painted before the buttons and each of them is `position: relative`, so opaque
+ * raised paper is drawn over the tail: it runs down the page, meets the top edge
+ * of the first button and is gone. Checked by taking him away in a browser and
+ * finding the button's own pixels unchanged, which is the only version of this
+ * claim worth having.
+ *
+ * There is nothing to press: `pointer-events` off, so a cat lying on a door
+ * cannot eat a tap meant for it. `overflow-x: clip` on `.wf` means he may hang
+ * up the page but never off the side of it, which is already the rule here.
+ */
+.wf-doors--bed { margin-top: var(--s7); }
+.wf-doors__cat {
+  position: absolute;
+  right: var(--s3);
+  top: calc(var(--s2) * -1);
+  transform: translateY(-50%);
+  line-height: 0;
+  pointer-events: none;
 }
 
 .wf-door {
@@ -1084,6 +1091,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border-radius: var(--r-md);
   box-shadow: var(--lift-1);
   color: var(--ink);
+  /* Painted after the cat, so the tail goes behind this rather than across its
+     face (#427). A positioned element paints over an unpositioned one whatever
+     the markup says, and the cat has to be positioned to hang out of the block,
+     so the buttons take a position of their own to win it back in source order.
+     It moves nothing: `relative` with no offsets is where the button already
+     was. */
+  position: relative;
 }
 .wf-door:active { background: var(--paper-sunk); box-shadow: none; }
 .wf-door:focus-visible { outline: none; box-shadow: var(--focus); }

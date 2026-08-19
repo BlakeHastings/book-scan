@@ -194,7 +194,7 @@ describe('the numbers a drawing of twelve never sees', () => {
     const html = drawn({ books: null, total: 0 })
 
     expect(words(html)).not.toContain('Every book is claimed')
-    expect(words(html)).not.toContain('Nothing files these these')
+    expect(html, 'the top bar counted books nobody has counted yet').not.toContain('wf-top__sub')
     expect(html, 'the frame went with it').toContain('wf-tab')
   })
 

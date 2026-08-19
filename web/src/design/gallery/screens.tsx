@@ -197,7 +197,7 @@ function Phone({
  * **Find the book in your hand**, which is the camera no tab opens and which
  * this screen owes a press to (#355); **carry books where they belong**, which
  * is the one job in this app that has a flow of its own and no door in the tab
- * bar; and **say what the books nothing files are** (#341), which is the other
+ * bar; and **say what the unfiled books are** (#341), which is the other
  * one, and which nothing on this screen mentioned at all until it was added.
  *
  * That third one is the ceiling reached rather than a fourth thing sneaking on.
@@ -278,7 +278,6 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
           only ever reads "3" would have let the whole flow be designed for a
           list that fits on one screen. */}
       <Stats
-        cat="lying"
         items={[
           { n: '1,204', word: 'catalogued', onPress: () => go('library') },
           { n: '2', word: 'checked out', onPress: () => go('listing') },
@@ -295,8 +294,11 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
           count here holds these books and none can, because they are not the
           collection, not the table and not the carry list. So it is a door, in
           the row round eight made for exactly this, and it is drawn only on a
-          day it can do something. */}
-      <Doors>
+          day it can do something.
+
+          And the cat asleep on top of them (#427), which is what a screen with
+          something to do draws instead of a cat closing a run of counts. */}
+      <Doors cat="lying">
         <InHand onPress={() => go('inhand')} />
         <CarryBooks onPress={() => go('carry')} />
         <SayWhat onPress={() => go('unclaimed')} />
@@ -5200,7 +5202,7 @@ function Unclaimed(go: Go) {
       tab="library"
       go={go}
       top={
-        <TopBar title="Nothing files these" sub="Twelve books" onBack={() => go('home')} />
+        <TopBar title="Unfiled books" sub="Twelve books" onBack={() => go('home')} />
       }
     >
       <Instruction>
@@ -5349,7 +5351,7 @@ function UnclaimedNone(go: Go) {
       go={go}
       top={
         <TopBar
-          title="Nothing files these"
+          title="Unfiled books"
           sub="Every book is claimed"
           onBack={() => go('home')}
         />
@@ -5576,7 +5578,7 @@ export const SCREENS: Screen[] = [
   /* The other job that is putting things right, and the one that has never had
      a screen: the books no rule claims, the screen that settles one, and the
      day there are none. */
-  { id: 'unclaimed', name: 'Nothing files these', group: 'Putting things right', render: Unclaimed },
+  { id: 'unclaimed', name: 'Unfiled books', group: 'Putting things right', render: Unclaimed },
   { id: 'saying', name: 'Say what a book is', group: 'Putting things right', render: Saying },
   {
     id: 'unclaimednone',

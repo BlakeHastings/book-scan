@@ -88,6 +88,100 @@ Then('the cat should be drawn exactly one way over {int} seconds', async (
 })
 
 /**
+ * Where he is, which is the thing nothing was asking (#427).
+ *
+ * The first attempt hung him off the bottom of the counts, with a tail let out
+ * far enough to reach the buttons underneath, and every check in this file
+ * passed: the tail moved, it went behind, its pixels were where they should be.
+ * He was still in the metrics grid, which is what the owner saw in a second.
+ *
+ * So this measures the cat rather than the tail. `.wf-cat__rest` is the drawing
+ * of him, without the tail, and lying on something means his underside is on
+ * that thing's top edge: within twelve pixels of it, which is a cat resting on a
+ * button rather than a cat floating above one. The tail is asked about
+ * separately, and its own scenario is the one that says it goes behind.
+ *
+ * The last part is what stops the tail being let out again: nothing of him is
+ * drawn below the buttons, on a screen that often draws only one of them. That
+ * one is asked in pixels rather than in boxes, because a stroked path reports a
+ * box a great deal bigger than the ink inside it: Blink inflates it by the
+ * stroke width times the miter limit, which here is about twenty pixels of
+ * nothing. The honest question is whether anything under the buttons changes
+ * when he is taken away, and that is what is asked.
+ */
+Then('he should be lying on the first thing I can do', async ({ page }) => {
+  const resting = page.locator('.wf-cat__rest')
+  const door = page.locator('.wf-door').first()
+  const doors = page.locator('.wf-doors')
+
+  await expect(resting, 'nothing on the first screen is a cat lying down').toBeVisible()
+  await expect(door, 'the first screen offers nothing to lie on').toBeVisible()
+
+  const him = await resting.boundingBox()
+  const button = await door.boundingBox()
+  const block = await doors.boundingBox()
+  expect(him && button && block, 'something on this screen has no box').toBeTruthy()
+
+  const belly = him!.y + him!.height - button!.y
+  expect(
+    Math.abs(belly),
+    `he lies ${Math.round(-belly)}px above the button rather than on it`,
+  ).toBeLessThan(12)
+  expect(
+    him!.x < button!.x + button!.width && him!.x + him!.width > button!.x,
+    'he is drawn beside the buttons rather than over them',
+  ).toBe(true)
+
+  const under = {
+    x: Math.ceil(block!.x),
+    y: Math.ceil(block!.y + block!.height) + 1,
+    width: Math.floor(block!.width),
+    height: 24,
+  }
+  const shot = async () =>
+    createHash('sha1').update(await page.screenshot({ clip: under })).digest('hex')
+
+  const withHim = await shot()
+  await hide(page, true)
+  const without = await shot()
+  await hide(page, false)
+
+  expect(without, 'his tail hangs out below the last button').toBe(withHim)
+})
+
+/** Take him off the screen without moving anything, and put him back. */
+async function hide(page: Page, away: boolean): Promise<void> {
+  await cat(page).evaluate((drawing, gone) => {
+    ;(drawing as SVGElement).style.visibility = gone ? 'hidden' : ''
+  }, away)
+}
+
+/**
+ * And he is clear of the counts, which is the complaint said the other way.
+ *
+ * Two ways of asking it, because either alone can be satisfied by an accident:
+ * nothing of him is drawn inside that grid, and no pixel of him is level with
+ * it. A cat positioned out of flow can be a child of anything, so the DOM
+ * question and the geometry question are different questions.
+ */
+Then('no part of him should be in among the counts', async ({ page }) => {
+  const counts = page.locator('.wf-stats')
+  await expect(counts, 'the first screen has no counts on it').toBeVisible()
+
+  expect(
+    await page.locator('.wf-stats .wf-cat').count(),
+    'the cat is drawn inside the counts grid',
+  ).toBe(0)
+
+  const grid = await counts.boundingBox()
+  const drawing = await page.locator('.wf-cat').boundingBox()
+  expect(grid && drawing, 'the counts or the cat has no box').toBeTruthy()
+
+  const over = grid!.y + grid!.height - drawing!.y
+  expect(over, `he overlaps the counts by ${Math.round(over)}px`).toBeLessThanOrEqual(0)
+})
+
+/**
  * The tail is long enough to be underneath the button rather than above it.
  *
  * Ten pixels is a real bite rather than an edge touching an edge, which is what
@@ -154,13 +248,9 @@ Then('taking him away should change nothing about it', async ({ page }) => {
     createHash('sha1').update(await page.screenshot({ clip })).digest('hex')
 
   const withHim = await shot()
-  await cat(page).evaluate((drawing) => {
-    ;(drawing as SVGElement).style.visibility = 'hidden'
-  })
+  await hide(page, true)
   const without = await shot()
-  await cat(page).evaluate((drawing) => {
-    ;(drawing as SVGElement).style.visibility = ''
-  })
+  await hide(page, false)
 
   expect(
     without,

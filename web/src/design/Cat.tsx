@@ -70,9 +70,11 @@ interface Props {
    * Height in pixels. Width follows the pose's own proportions.
    *
    * For `lying` this is the height of the whole drawing rather than of the
-   * cat: most of that box is the tail reaching down the page, and he is about
-   * a third of it. That is deliberate, because the tail is the part that has
-   * to reach past something.
+   * cat: **the top half of that box is cat and the bottom half is tail**, so
+   * he is drawn half this tall and the tail reaches the other half down the
+   * page. That halving is not decoration, it is what lets a layout put his
+   * belly on the top edge of something and let the rest go behind it without
+   * either of them knowing a number the other one knows. See `.wf-doors__cat`.
    */
   size?: number
   /**
@@ -96,7 +98,8 @@ const BOX: Record<CatPose, { w: number; h: number }> = {
   peeking: { w: 40, h: 28 },
   loaf: { w: 68, h: 42 },
   sleeping: { w: 68, h: 38 },
-  lying: { w: 102, h: 132 },
+  /* Half cat, half tail, and the halving is load-bearing: see `size` above. */
+  lying: { w: 102, h: 92 },
 }
 
 /** What each pose actually draws. A fifth pose is a line here and a line above. */
@@ -258,23 +261,40 @@ function Sleeping() {
  * > I'd like the actions that we have available to be scooted down, and then
  * > the cat laying down sleeping with its tail going behind those buttons.
  *
- * The cat is the sleeping loaf, in the top right of a box three times his own
- * height, and the rest of the box is tail. That shape is the point of the pose
- * rather than an accident of it: **the tail has to leave the box the cat is
- * in**, reach down the page past whatever the layout put underneath, and be
- * covered by it. A pose sized to the cat could only ever have a tail that
- * stops where he does.
+ * The cat is the sleeping loaf, lying across the top half of the box, and the
+ * bottom half is tail. That shape is the point of the pose rather than an
+ * accident of it: **the tail has to leave the cat**, reach down the page past
+ * whatever he is lying on, and be covered by it. A pose sized to the cat alone
+ * could only ever have a tail that stops where he does.
  *
- * So the drawing owns the sweep and the screen owns the covering. `.wf-stats`
- * lets this overhang and `.wf-doors` paints over it, which is what makes the
- * tail pass *behind* the buttons rather than beside them or under a margin
- * shaped like them.
+ * **Half and half, so the layout needs no number from this file.** His belly is
+ * the middle of the box, so a screen that wants him lying on top of something
+ * puts the middle of the drawing on that thing's top edge, which is one line of
+ * CSS with a `-50%` in it and no measurement of a cat. Everything below that
+ * line is tail and goes behind. `#427` moved him from the counts onto the
+ * buttons without this drawing being told, which is what that costs.
+ *
+ * So the drawing owns the sweep and the screen owns the covering. `.wf-doors`
+ * is his bed and each `.wf-door` paints over him, which is what makes the tail
+ * pass *behind* the buttons rather than beside them or under a margin shaped
+ * like them.
  *
  * The eyes are the sleeping pose's shut lids with a pair of slits drawn over
  * the top, invisible until `dozing` opens them. They are the eye colour, and
  * so are the lids, so the two never disagree about where an eye is.
  */
-const LYING_TAIL = 'M31 42c-12 9-20 20-20 34 0 16 8 32 21 46'
+/*
+ * Down past his belly and no further than the box, which is one button's worth
+ * of tail (#427).
+ *
+ * It used to fall eighty units, which was fine when he hung off a row of counts
+ * with a whole gap to cross and three buttons under him, and is a tail dangling
+ * below the last one on the ordinary day when the screen offers only one. Forty
+ * four units, drawn at the sizes this pose is used at, ends inside the first
+ * button with room to spare and still reaches far enough into it that nobody
+ * could mistake the tail for stopping at the edge.
+ */
+const LYING_TAIL = 'M31 42c-11 8-17 15-17 23 0 9 5 17 14 21'
 
 function Lying() {
   return (
@@ -289,7 +309,14 @@ function Lying() {
         <path className="wf-cat__tail wf-cat__tail--rim" d={LYING_TAIL} />
         <path className="wf-cat__tail" d={LYING_TAIL} />
       </g>
-      <g transform="translate(19 2) scale(1.2)">
+      {/*
+        The cat himself, named so that something can ask where he ends. That is
+        the question #412 got wrong and no rendered tree could have answered:
+        he was in the right shape, doing the right thing, and lying in the wrong
+        place. `e2e/features/the-cat-is-alive.feature` measures this group
+        against the top edge of the first button.
+      */}
+      <g className="wf-cat__rest" transform="translate(19 2) scale(1.2)">
         <Silhouette>
           <path d="M46.5 12.5 45.2 2.6c-.1-1.2 1.1-2 2.1-1.3L55 6.4ZM63.5 12.5l1.3-9.9c.1-1.2-1.1-2-2.1-1.3L57 6.4Z" />
           <path d="M24 10c14 0 26 5 32 5 6 0 10 5 10 11 0 7-5 11-13 11H16C8 37 3 33 3 26c0-9 9-16 21-16Z" />
