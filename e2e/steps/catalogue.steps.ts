@@ -422,6 +422,84 @@ Then(
   },
 )
 
+/**
+ * What one book's photographs are, as the database has them.
+ *
+ * The two facts a photograph landing on the wrong book changes, and neither of
+ * them is on a screen: which file is this book's spine, and which of its
+ * photographs the queue has read. `edge_image` is the newest spine, so a second
+ * spine attached to the book takes the first one's place in it and the bookcase
+ * view stops drawing that book's picture.
+ */
+function photographsOf(book: BookRow): { spine: string; read: string } {
+  return { spine: book.edge_image, read: book.analysed }
+}
+
+/** Reading the photographs is a background pass, and it takes seconds. */
+const READING_TIMEOUT = 90 * 1000
+
+/**
+ * Every photograph taken has been read.
+ *
+ * A wait rather than a claim, and the scenario it belongs to needs it to be
+ * one: what that scenario asserts is a photograph and a reading not changing,
+ * so it has to start from a reading that has finished changing on its own.
+ */
+Then('all three photographs should have been read', async ({ catalogue }) => {
+  await expect
+    .poll(
+      async () => {
+        const [capture] = await catalogue.captures()
+        return (capture?.analysed.split(',').filter(Boolean) ?? []).sort().join(',')
+      },
+      {
+        message: 'the queue never finished reading all three photographs',
+        timeout: READING_TIMEOUT,
+      },
+    )
+    .toBe('back,edge,front')
+})
+
+/**
+ * The reading everything after it is compared against.
+ *
+ * Module scope, which is per worker and therefore per scenario: playwright-bdd
+ * gives each worker its own module instance, and the scenario that reads this
+ * writes it first.
+ */
+let noted: { spine: string; read: string } | null = null
+
+When('I note the photographs of {string}', async ({ catalogue }, title: string) => {
+  const book = await catalogue.bookByTitle(title)
+  expect(book, `no book called "${title}" is catalogued`).toBeTruthy()
+
+  noted = photographsOf(book!)
+  expect(noted.spine, `"${title}" has no spine photograph to lose`).not.toBe('')
+  expect(noted.read, `"${title}" has no reading to lose`).not.toBe('')
+})
+
+/**
+ * Nothing has happened to them since, which is the whole of #431.
+ *
+ * A shelved book was still the book in hand at the camera, so the next press of
+ * the shutter attached its photograph to that book: a different book's picture
+ * became its spine, and the slot dropped out of `analysed` leaving a list with
+ * an empty entry at each end of it. Measured on book 54, `back,front,edge` and
+ * a spine file named for its ISBN became `,back,front,` and a file named for no
+ * ISBN at all.
+ *
+ * Asserted here rather than on the screen, because the screen said "reading",
+ * which is what it says about a photograph that landed on the right book.
+ */
+Then('the photographs of {string} should be untouched', async ({ catalogue }, title: string) => {
+  expect(noted, 'nothing was noted to compare against').toBeTruthy()
+
+  const book = await catalogue.bookByTitle(title)
+  expect(book, `no book called "${title}" is catalogued`).toBeTruthy()
+
+  expect(photographsOf(book!), `something has been written on to "${title}"`).toEqual(noted)
+})
+
 Then('the photograph of {string} should be on disk', async ({ catalogue }, title: string) => {
   const book = await catalogue.bookByTitle(title) as BookRow
   expect(book?.back_image, 'the book kept no back cover photograph').toBeTruthy()

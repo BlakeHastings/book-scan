@@ -46,6 +46,15 @@ export interface BookRow {
   isbn_source: string
   lookup_source: string
   /**
+   * Which of its photographs the queue has read, comma separated.
+   *
+   * A column on the book rather than on anything the queue keeps separately,
+   * and it stays with the book after it is shelved. Read here because a
+   * photograph attached to the wrong book takes a slot back out of it, which is
+   * a fact about a catalogued book that no screen shows (#431).
+   */
+  analysed: string
+  /**
    * Which of the seven states the book is in. `checked_out` is a book in
    * somebody's bag and `shelved` is one on the bookcase, which is the pair
    * `books.checked_out_at` used to answer before #232 dropped it.
@@ -77,6 +86,8 @@ export interface CaptureRow {
   isbn10: string
   isbn_source: string
   title_guess: string
+  /** Which of its photographs the background worker has read, comma separated. */
+  analysed: string
   /** What the background worker read off the photographs. */
   draft_json: string
   /** What a person stated while it sat in the queue. */

@@ -50,3 +50,45 @@ Feature: Cataloguing a book from its cover
       | lookup_source | Open Library + Google Books  |
     And the photograph of "Dune" should be on disk
     And the library should show "Dune" on shelf "1A"
+
+  Scenario: The next photograph does not land on the book just shelved
+    Shelving a book finishes with it. Until #431 it did not: the shelving step
+    kept the book in hand so that the screen after it could say where the book
+    went, and every other way off that screen carried it along. The tab bar is
+    on that screen, and pressing Scan is what somebody with the next book
+    already in their hands does.
+
+    So the camera reopened holding a book that was on a shelf, three of three
+    and thumbnails and all, and the obvious press of the shutter attached the
+    next book's photograph to it. A different book's picture became its spine,
+    which is the picture the bookcase view draws, and the slot it replaced came
+    back out of the reading. The screen said "reading", which is what it says
+    when a photograph lands on the right book.
+
+    That is why this is asserted against the database and not against the
+    screen. All three sides are photographed so that there is a spine to lose.
+
+    Given the camera is pointed at the back cover of "Dune"
+    When I open the app
+    And I start the camera
+    And I photograph all three sides of the book
+    Then the camera should recognise the book as "Dune"
+    And all three photographs should have been read
+
+    When I review what it found
+    And I confirm the details and go to shelve it
+    And I say it fits
+    And I note the photographs of "Dune"
+
+    # Press Scan, press Start camera. The book is on a shelf, so the hands are
+    # empty and the next press of the shutter starts a new book.
+    And I start the camera
+    Then nothing should be in hand
+
+    When I press the shutter
+    # A capture of its own, which is the whole of it: the photograph went to a
+    # new book rather than on to the finished one.
+    Then the queue should hold one book
+    And the photographs of "Dune" should be untouched
+    And the catalogue should be filed in this order:
+      | Dune |

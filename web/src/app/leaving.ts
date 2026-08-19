@@ -42,6 +42,19 @@ export interface Leaving {
   readonly returnToOrigin: () => void
   /** Go somewhere else from the header, taking the book down on the way. */
   readonly leaveFor: (next: Route) => void
+  /**
+   * Where finishing with the book on screen leads, which is the route
+   * `returnToOrigin` is about to take.
+   *
+   * Read by the one screen that finishes with a book before it stops talking
+   * about it. Shelving lets go of the book the moment it reaches a shelf
+   * (#431), so by the time somebody presses "Next book" the origin has been
+   * put down with everything else and there is nothing left to read it off.
+   * That screen takes this while the book is still in hand and goes there
+   * itself, off the same table, so there is still no second answer to where
+   * finishing a book leads.
+   */
+  readonly landing: Route
 }
 
 export function useLeaving(): Leaving {
@@ -60,10 +73,14 @@ export function useLeaving(): Leaving {
    * what forgets where it came from. queueReturn survives on purpose; QueuePane
    * uses it once to land near the book just handled, then reports it consumed.
    */
+  const landing = RETURN_TO[origin]
+
   const returnToOrigin = () => {
-    const landing = RETURN_TO[origin]
+    // Read before the book is put down, since putting it down is what forgets
+    // where it came from. It is read at render for the same reason.
+    const back = landing
     clearBookInHand()
-    setRoute(landing)
+    setRoute(back)
   }
 
   /**
@@ -92,5 +109,5 @@ export function useLeaving(): Leaving {
     setRoute(next)
   }
 
-  return { returnToOrigin, leaveFor }
+  return { returnToOrigin, leaveFor, landing }
 }

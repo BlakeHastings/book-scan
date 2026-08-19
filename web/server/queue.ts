@@ -444,8 +444,16 @@ export class CaptureQueue {
                   -- undo the discard.
                   state = CASE WHEN "state" IN (${QUEUED_SQL}) THEN '${STATE_OF_QUEUE_STATUS.pending}'
                                ELSE "state" END,
-                  -- Re-taking a slot means it needs reading again.
-                  analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
+                  -- Re-taking a slot means it needs reading again. The slot is
+                  -- taken out by surrounding the list with the separator it is
+                  -- joined by, which is what makes the match exact; the two
+                  -- commas that put there are then taken back off, or the list
+                  -- comes back as ",back,front," with an empty entry at each
+                  -- end (#431). Every reader drops those, so nothing depended
+                  -- on them, and a column read by a person while they work out
+                  -- what a photograph did should say what it means.
+                  analysed = TRIM(BOTH ',' FROM
+                    REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ','))
             WHERE id = @id`,
           { id: captureId, slot },
         )

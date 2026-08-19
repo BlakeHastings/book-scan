@@ -519,13 +519,17 @@ describe('the parameters with nothing to take a type from', () => {
     )
     await expect(db.run(
       `UPDATE captures
-          SET analysed = REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ',')
+          SET analysed = TRIM(BOTH ',' FROM
+            REPLACE(REPLACE(',' || analysed || ',', ',' || @slot || ',', ','), ',,', ','))
         WHERE id = @id`,
       { slot: 'front', id: 1 },
     )).resolves.toEqual({ changes: 1 })
 
+    // The list, and nothing either side of it. It came back as ",back," until
+    // #431: the separators the match is made exact with were left on the ends,
+    // so every retake wrote a list with an empty entry at each end of it.
     const row = await db.get<{ analysed: string }>('SELECT analysed FROM captures WHERE id = ?', [1])
-    expect(row!.analysed).toBe(',back,')
+    expect(row!.analysed).toBe('back')
   })
 })
 
