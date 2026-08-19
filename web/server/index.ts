@@ -932,7 +932,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // So the queue can name a duplicate the same way GET /api/lookup/isbn/:isbn
     // does below, on both the doors it reads a lookup through: the automatic
     // pass that identifies a fresh scan and a person correcting one with
-    // Change ISBN (#233).
+    // Change ISBN (#233). Since #435 it is also what answers the third door,
+    // which is not a lookup at all: `GET /api/captures/:id` asking the
+    // catalogue about a capture's ISBN whether or not anything looked it up.
     (isbn) => store.findByIsbn(isbn),
   )
 
@@ -1095,8 +1097,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }))
 
   /**
-   * One capture, and whether it is a second photographing of a book already in
-   * the queue (#146).
+   * One capture: whether it is a second photographing of a book already in the
+   * queue (#146), and whether the catalogue already holds its ISBN (#435).
    *
    * Answered here rather than on the way in, and that is the whole shape of
    * the fix. `POST /api/captures` returns the moment the photograph exists,
@@ -1105,6 +1107,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * background pass and this route is what the camera already polls for it, so
    * the answer arrives with the reading, on the request the camera was making
    * anyway, and the shutter waits for nothing.
+   *
+   * **`catalogued` is a second question and it is asked separately** (#435).
+   * `duplicates` is about the queue and `catalogued` is about the shelves, and
+   * neither of them is the lookup. The already-catalogued warning used to ride
+   * on the lookup result, so a book no source could answer for was never asked
+   * about at all, even though the ISBN was printed at the top of the same
+   * screen: the app knew it and never put the question. It is one indexed
+   * query against the database the request is already talking to, on the poll
+   * the camera is already making, and nothing at all is in front of the
+   * shutter.
    */
   app.get('/api/captures/:id', asyncRoute(async (req, res) => {
     const id = idIn(req.params.id, res, 'No such capture.')
@@ -1118,6 +1130,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({
       capture,
       duplicates: await duplicatesOf(capture),
+      // The row's own ISBN, which is where a person's correction is mirrored
+      // as well as where a barcode reading lands, so this is the number on the
+      // screen whether a catalogue confirmed it or nobody did.
+      catalogued: await queue.cataloguedAs(capture.isbn13, capture.id),
       counts: await queue.counts(),
     })
   }))

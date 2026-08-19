@@ -102,6 +102,35 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
   const requests: string[] = []
   const unknown: string[] = []
   let pendingDelay: PendingDelay | null = null
+  /**
+   * ISBNs this stub will answer nothing for, however well it knows them.
+   *
+   * A book no source can name is a real and ordinary thing: an old paperback,
+   * a book club edition, anything printed before ISBNs were universal. It is
+   * also the case the app is worst at, because there is nothing on screen to
+   * recognise the book by, so it is the book somebody photographs twice
+   * (#435). Every route below answers as it does for a book it has never heard
+   * of, which is the honest simulation: not an error, not a timeout, an empty
+   * answer.
+   *
+   * Armed by ISBN rather than by a global switch, so a scenario can have one
+   * book nobody can name while the shelf furniture around it stays nameable.
+   */
+  const nobodyAnswersFor = new Set<string>()
+
+  /**
+   * The stub's own knowledge, minus whatever a scenario has taken off it.
+   *
+   * The book is silenced rather than the number, and that is not tidiness. The
+   * app retries a failed 13-digit lookup under the 10-digit form (the note it
+   * writes says so out loud), so silencing the digits a scenario named would
+   * leave the other form answering and the book identified anyway. Found by
+   * doing exactly that.
+   */
+  function look(isbn: string): StubBook | undefined {
+    const book = byIsbn(isbn)
+    return book && nobodyAnswersFor.has(book.isbn13) ? undefined : book
+  }
 
   /**
    * How long to hold this ISBN's answer up, consuming one use of whatever
@@ -134,6 +163,30 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
       return
     }
 
+    // The same kind of call, and the same reasoning about where it is
+    // answered: a scenario saying no source can name this book.
+    if (request.method === 'POST' && url.pathname === '/__control/answer-for-nobody') {
+      let body = ''
+      request.on('data', (chunk: Buffer) => { body += chunk })
+      request.on('end', () => {
+        const { isbn13 } = JSON.parse(body || '{}') as { isbn13?: string }
+        if (isbn13) nobodyAnswersFor.add(normalise(isbn13))
+        response.writeHead(204)
+        response.end()
+      })
+      return
+    }
+
+    // And the undo, called after every scenario. This server outlives them
+    // all, so a book left silent would be silent for the rest of the run, and
+    // it would be the book the camera is pointed at in every other feature.
+    if (request.method === 'POST' && url.pathname === '/__control/answer-for-everybody') {
+      nobodyAnswersFor.clear()
+      response.writeHead(204)
+      response.end()
+      return
+    }
+
     requests.push(url.pathname + url.search)
 
     const json = (body: unknown) => {
@@ -149,7 +202,7 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     if (url.pathname === '/api/books') {
       const key = url.searchParams.get('bibkeys') ?? ''
       const isbn = normalise(key.replace(/^ISBN:/, ''))
-      const book = byIsbn(isbn)
+      const book = look(isbn)
       const send = () => json(book ? { [key]: openLibraryData(book) } : {})
       const wait = delayFor(isbn)
       if (wait > 0) setTimeout(send, wait); else send()
@@ -159,7 +212,7 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     // Open Library: the edition record, for series and Dewey.
     const edition = /^\/isbn\/([^/]+)\.json$/.exec(url.pathname)
     if (edition) {
-      const book = byIsbn(edition[1] ?? '')
+      const book = look(edition[1] ?? '')
       if (!book) return missing()
       // No series, and a Dewey that agrees with the categories rather than
       // fighting them, so classification cannot come out ambiguous.
@@ -170,7 +223,11 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     // Open Library: title search, the fallback when no ISBN can be read.
     if (url.pathname === '/search.json') {
       const title = (url.searchParams.get('title') ?? '').toLowerCase()
-      const book = ALL_STUB_BOOKS.find((b) => b.title.toLowerCase() === title)
+      // Silenced by title as well as by ISBN. "No source answers for this
+      // book" has to mean the book, or a scenario about one would be answered
+      // round the side by the search nobody was thinking about.
+      const named = ALL_STUB_BOOKS.find((b) => b.title.toLowerCase() === title)
+      const book = named && look(named.isbn13)
       json({
         docs: book
           ? [{
@@ -191,7 +248,7 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     if (url.pathname === '/books/v1/volumes') {
       const query = url.searchParams.get('q') ?? ''
       const isbn = normalise(query.replace(/^isbn:/, ''))
-      const book = byIsbn(isbn)
+      const book = look(isbn)
       const send = () => json(book ? googleVolume(book) : { items: [] })
       const wait = delayFor(isbn)
       if (wait > 0) setTimeout(send, wait); else send()

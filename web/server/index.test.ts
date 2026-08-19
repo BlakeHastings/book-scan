@@ -2128,6 +2128,108 @@ describe('a capture of a book already in the queue', () => {
 })
 
 /**
+ * A capture of a book the catalogue already holds (#435).
+ *
+ * The sibling of the describe above and a different question: that one is
+ * "somebody has already photographed this and not shelved it", this one is
+ * "this book is on a shelf". Both are findings about the book in somebody's
+ * hands and neither is a refusal.
+ *
+ * **The defect was that the second question was only ever asked as part of a
+ * lookup.** `CaptureQueue.process` wrote the answer into `draft_json` beside a
+ * lookup that found something, so an ISBN no source answers for produced no
+ * draft, and therefore no warning, anywhere. That is the worst case to fail
+ * in: a book no catalogue can identify has nothing on screen to recognise it
+ * by, so it is precisely the book somebody photographs a second time.
+ *
+ * Nothing here is stubbed away. `lookupIsbn` is the file's stub and it answers
+ * `found: false` for everything, which is the failing case stated as a
+ * fixture: no source answers for this ISBN, and the catalogue is asked anyway.
+ */
+describe('a capture of a book already on a shelf', () => {
+  const queueOf = async (id: number) =>
+    (await new CaptureQueue(running.db, () => null).get(id))!
+
+  /** A capture carrying an ISBN and nothing else, as a barcode read leaves it. */
+  async function queuedWith(isbn13: string): Promise<number> {
+    const queue = new CaptureQueue(running.db, () => null)
+    const capture = await queue.add({ front: 'front.jpg', back: 'back.jpg' })
+    await running.db.run(
+      'UPDATE books SET isbn13 = ?, state = ? WHERE id = ?',
+      [isbn13, stateFor('failed'), capture.id],
+    )
+    return capture.id
+  }
+
+  /** A book on a shelf, at a plank the seeded furniture actually has. */
+  const shelvedDune = () => running.store.addBook({
+    title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
+    isbn13: DUNE, location: '1A',
+  })
+
+  const cataloguedFor = async (id: number) =>
+    (await call(`/api/captures/${id}`)).body.catalogued as
+      { id: number; title: string; location: string } | null
+
+  it('names the shelved book when no source answered for the ISBN', async () => {
+    // The reported defect, in one test. The capture has a barcode reading and
+    // no draft at all, because nothing could be looked up, and the book is on
+    // a shelf under the same digits.
+    const { id: shelved } = await shelvedDune()
+    const mine = await queuedWith(DUNE)
+
+    expect((await queueOf(mine)).draft_json).toBe('')
+    expect(await cataloguedFor(mine)).toEqual({
+      id: shelved, title: 'Dune', location: '1A',
+    })
+  })
+
+  it('says nothing when the shelves hold nothing under that ISBN', async () => {
+    expect(await cataloguedFor(await queuedWith(DUNE))).toBeNull()
+  })
+
+  it('says nothing about a capture nobody could read an ISBN off', async () => {
+    // The absence of an identifier is not an identifier they share, which is
+    // the same rule the queue half is held to.
+    await shelvedDune()
+    expect(await cataloguedFor(await queuedWith(''))).toBeNull()
+  })
+
+  it('never reports a book as its own duplicate', async () => {
+    // A capture becomes a book rather than being copied into one (#183), so
+    // the moment it is shelved its ISBN is genuinely in the catalogue. Polling
+    // it once more must not answer with the row that was just saved. Shelved
+    // with its ISBN rather than through the file's `shelve`, whose draft
+    // carries none: an answer of null because the digits went is not the
+    // answer this is about.
+    const mine = await queuedWith(DUNE)
+    const draft = {
+      title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
+    }
+    await running.store.updateBook(mine, draft, genreStatedBy(draft).range)
+
+    expect((await queueOf(mine)).isbn13).toBe(DUNE)
+    expect(await cataloguedFor(mine)).toBeNull()
+  })
+
+  it('answers the same when the lookup did work, and writes nothing either way', async () => {
+    // The two questions are separate and this is the one that already worked,
+    // kept here so a fix to the failing case cannot be a swap. And asking is
+    // still a read: neither row moves.
+    const { id: shelved } = await shelvedDune()
+    const mine = await queuedWith(DUNE)
+    await patch(`/api/captures/${mine}`, { who: 'alice', title: 'Dune' })
+    const before = await queueOf(mine)
+
+    expect(await cataloguedFor(mine)).toEqual({
+      id: shelved, title: 'Dune', location: '1A',
+    })
+    expect(await queueOf(mine)).toEqual(before)
+    expect((await running.store.counts()).total).toBe(1)
+  })
+})
+
+/**
  * The route the queue was missing, and the workflow it exists for: one person
  * photographs, another resolves details, a third shelves. Asserted through
  * HTTP and read back out of SQLite, because "it stayed on screen" is exactly

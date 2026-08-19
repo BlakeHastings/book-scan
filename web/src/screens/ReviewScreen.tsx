@@ -27,6 +27,7 @@
  */
 
 import { useEffect } from 'react'
+import { api } from '../lib/api'
 import { BookDetail } from '../components/BookDetail'
 import { CaptureReview } from '../components/CaptureReview'
 import { Where } from '../design/Book'
@@ -57,13 +58,44 @@ export function ReviewScreen() {
   const {
     draft, lookup, thumbs, crops, saving, relookupBusy, relookupError,
     evidence, bookId, captureId, origin, notice, placement, placementStale, coverImage,
-    checkedOutAt, misfile, setDraft, setRelookupError,
+    checkedOutAt, misfile, catalogued, setCatalogued, setDraft, setRelookupError,
     setActiveSlot,
   } = book
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
 
   const tagging = useTagging(bookId === null ? captureId : null)
+
+  /**
+   * Ask whether this capture's ISBN is already on a shelf (#435).
+   *
+   * The camera fills this in from its own poll, so a book carried straight
+   * from the shutter to here arrives with the answer. A capture opened from
+   * the queue does not: it is handed the row the listing already had, and the
+   * row cannot carry this, because the catalogue moves underneath it. A book
+   * shelved this morning was not shelved when these photographs were read.
+   *
+   * So it is asked once, on the way in, of the route that answers it. Nothing
+   * waits for it: the screen is already drawn and the line appears when the
+   * answer lands, the same way the camera's does.
+   *
+   * Only for a capture. A book already in the catalogue is the book, and
+   * telling somebody their own book is already catalogued is nonsense.
+   */
+  useEffect(() => {
+    if (bookId !== null || captureId === null) return
+    let cancelled = false
+    void api.getCapture(captureId)
+      .then(({ catalogued: onAShelf }) => {
+        if (!cancelled) setCatalogued(onAShelf)
+      })
+      // Swallowed on purpose. This is a finding beside a form somebody is
+      // filling in, and an error banner over it would cost more than the
+      // finding is worth. The camera's poll swallows its failures for the
+      // same reason.
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [bookId, captureId, setCatalogued])
 
   /*
    * Both screens take the design system's paper, the same way the first one
@@ -88,6 +120,14 @@ export function ReviewScreen() {
       <CaptureReview
         draft={draft}
         lookup={lookup}
+        /* Whether this book is already on a shelf, from either of the two
+           things that can know. The catalogue asked about the ISBN itself is
+           the answer that exists whether or not any source could name the
+           book (#435); the lookup's own is what a correction made a moment ago
+           came back with, before the effect above has been round again. They
+           are the same three fields and they cannot disagree about a book,
+           only about how recently they were asked. */
+        catalogued={catalogued ?? lookup?.duplicateOf ?? null}
         photos={thumbs}
         derivedFiling={derivedFiling}
         saving={saving}

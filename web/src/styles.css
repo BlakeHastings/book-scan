@@ -176,6 +176,43 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   z-index: 4;
 }
 
+/*
+ * This book is already in the catalogue (#435).
+ *
+ * Reason 2 above: an answer floating on a picture, so where it sits is the
+ * app's business the way the error line and the toast are.
+ *
+ * **At the top, under the error line, and that was decided by looking.** It
+ * was above the bottom band first, beside the line that says what is in your
+ * hands, and at 414 by 896 it lay straight across "Next book": a warning
+ * drawn over a control is worse than the warning is good. The bottom of this
+ * screen is crowded, with a shutter, two buttons and a rail of photographs in
+ * it, and the top has two round targets in the corners and nothing between
+ * them.
+ *
+ * Pointer events off, and that is not a detail. Nothing on this screen may sit
+ * in front of a control, and the way #294 was paid for is work put behind
+ * other work. It can be looked at and it can never be pressed.
+ */
+.cam__catalogued {
+  position: absolute;
+  left: 12px; right: 12px;
+  /* Under the error line's own place, so the two stack rather than collide on
+     the rare screen that has both. */
+  top: calc(108px + env(safe-area-inset-top));
+  z-index: 3;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--warn);
+  background: rgba(30, 22, 8, 0.92);
+  color: rgba(255, 250, 240, 0.94);
+  font-size: 13px;
+  text-align: center;
+  text-wrap: balance;
+  pointer-events: none;
+}
+
 /* Shows what the slot wants for a couple of seconds, then leaves. Pointer
    events off so it can never swallow a tap meant for the shutter. */
 .cam__toast {
