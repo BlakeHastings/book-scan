@@ -69,7 +69,11 @@ server/                 Express API on loopback only
   crop.ts                  stores a crop beside the photograph it came from
   capturecrop.ts           the same crops and a front hash, for a queued capture
   queue.ts                 the capture queue and its background worker
-  lookup.ts               Open Library primary, Google Books top-up
+  lookup.ts               Open Library primary, Google Books top-up, and the gap
+                            handed on to two national catalogues
+  catalogue-sru.ts         Library of Congress and K10plus, and reading a MARC record
+  source-pace.ts           how often this process is willing to ask each of them
+  bounded-fetch.ts         the one place a catalogue request gets a deadline
   classify.ts             fiction vs non-fiction ladder
   store.ts                 all SQL for books
   shelves.ts               the shelf geography, the boundary moves, misfile review
@@ -77,6 +81,8 @@ server/                 Express API on loopback only
   db.pg.ts                 the Postgres driver, and where every column is explained
 infrastructure/shelving/
   areas.ts                 the areas a range is cut into, and the boundary list they are read back as
+domain/books/
+  catalogue-reconciliation.ts  what to believe when two catalogues answer
 shared/                 pure logic used by both sides
   shelving.ts              sort keys, filing names, placement, misfile detection
   layout.ts                turns a range's boundaries into physical shelf/area labels
@@ -740,6 +746,43 @@ there is one. Either way, `GET /api/health` now carries `lookups`, which counts
 what each catalogue was asked and what it answered, so a source that has gone
 quiet is a thing somebody can find out rather than a thing that is absorbed.
 See `server/source-watch.ts`.
+
+## Four catalogues, and what the last two are for
+
+`docs/catalogue-sources.md` asked five candidate sources about all 238 books in
+the real catalogue and reported what each would add. The answer was **worth
+building for the page count and the genre, and not for the author**: Library of
+Congress and K10plus between them reach every one of the 15 books nobody has
+classified and 33 of the 55 drawn at a guessed spine width, both without a key,
+and 65 of 65 of their records were verified as the right book.
+
+So `lookupIsbn` asks Open Library and Google Books exactly as it always did, and
+then, **only for a book those two left with no page count or no stated genre**,
+asks Library of Congress and K10plus as well. Four rules hold that together and
+each is written out where it lives:
+
+| The rule | Where |
+| --- | --- |
+| A supplement fills a gap and never overrides. Nothing already on a book can be changed by a new source | `domain/books/catalogue-reconciliation.ts` |
+| Nothing is taken from a record until its own title agrees with ours. A page count off the wrong record is worse than none, because the spine is then drawn wrong on purpose | `sameBook`, same file |
+| A page-count disagreement is settled by rank, Library of Congress first, and the disagreement is recorded rather than dropped. A genre disagreement is not settled there at all: the headings are merged and `classify` decides, as it already did | same file, and `server/classify.ts` |
+| **No author is taken from either of them.** `catalogue-sru.ts` does not read MARC 100 or 700, so there is no name from a national catalogue anywhere in the process. Of 34 apparent author gains the measurement read one at a time, 33 were a variant spelling, a translator or the wrong person | `server/catalogue-sru.ts` |
+
+**What it costs a scan.** Nothing at all for a book the first two catalogues
+answered fully, which on the measured collection is roughly four books in five:
+the same requests, the same deadline, the same answer. For the rest it is one
+extra round, both catalogues at once, bounded at three seconds including any
+wait for a rate-limit slot, and a catalogue that is slow or down contributes
+nothing rather than delaying anything. Where a caller cannot use a page count or
+a heading it passes `supplement: false` and the round does not happen.
+
+**Neither needs a key**, which is why they are reachable at all. Both are asked
+no faster than `server/source-pace.ts` allows: one request every three seconds
+to Library of Congress, matching the strictest figure it publishes anywhere, and
+one every 1.1 seconds to K10plus, matching the rate the measurement swept at.
+When a slot cannot be had inside the caller's deadline the source is not asked,
+which is counted on `/api/health` as `skipped` and is neither an answer nor a
+silence.
 
 ## Tests
 

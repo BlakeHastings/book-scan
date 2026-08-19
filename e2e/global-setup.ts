@@ -167,6 +167,12 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
     BOOKSCAN_OPENLIBRARY_URL: stub.url,
     BOOKSCAN_GOOGLE_BOOKS_URL: stub.url,
     BOOKSCAN_COVERS_URL: stub.url,
+    // The two catalogues #305 added. Nothing in a green run asks them, because
+    // every stub book already has a page count and a genre and they are only
+    // asked about a book missing one, but an origin left unset is the real
+    // Library of Congress and this suite talks to nobody.
+    BOOKSCAN_LOC_SRU_URL: `${stub.url}/sru/lcdb`,
+    BOOKSCAN_K10PLUS_SRU_URL: `${stub.url}/sru/k10plus`,
   })
 
   await waitForHealthy('api')

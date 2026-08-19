@@ -26,7 +26,9 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
-import { CATALOGUES, forgetSourceStandings, noteSourceAnswer } from './source-watch'
+import {
+  CATALOGUES, forgetSourceStandings, noteSourceAnswer, noteSourceSkipped,
+} from './source-watch'
 
 /** A key nothing may echo. Chosen to be findable in a raw response body. */
 const API_KEY = 'not-a-real-key-4b7e2a'
@@ -78,13 +80,20 @@ describe('GET /api/health', () => {
     expect(typeof answer.db).toBe('string')
   })
 
-  it('names both catalogues, so one that has never been asked is visible as that', async () => {
+  it('names every catalogue, so one that has never been asked is visible as that', async () => {
+    /*
+     * Four of them since #305, and the last two are the ones this matters most
+     * for: they are a top-up asked only about a book the first two left without
+     * a page count or a genre, so `asked: 0` after a long session is a real and
+     * good state rather than a source that has been left out of the report.
+     */
     const answer = await (await fetch(`${await serving()}/api/health`)).json()
 
     expect(answer.lookups.sources.map((one: { source: string }) => one.source))
       .toEqual([...CATALOGUES])
+    expect(answer.lookups.sources).toHaveLength(4)
     for (const one of answer.lookups.sources) {
-      expect(one).toMatchObject({ asked: 0, answered: 0, silent: 0 })
+      expect(one).toMatchObject({ asked: 0, answered: 0, silent: 0, skipped: 0 })
     }
   })
 
@@ -102,6 +111,25 @@ describe('GET /api/health', () => {
     // Still healthy. A source being down is not this server being unwell:
     // somebody can still catalogue a book, which is why a failed source does
     // not fail a lookup in the first place.
+    expect(answer.ok).toBe(true)
+  })
+
+  it('reports a catalogue that was wanted and not asked, as neither of the other two', async () => {
+    /*
+     * #305 put two free national catalogues behind a rate limiter, and the
+     * failure mode a rate limiter has is costing answers quietly. Nothing was
+     * sent, so the catalogue neither answered nor stayed silent and owes no
+     * explanation; the decision was this application's, and it is counted as
+     * this application's.
+     */
+    const base = await serving()
+    noteSourceSkipped('Library of Congress')
+
+    const answer = await (await fetch(`${base}/api/health`)).json()
+    const loc = answer.lookups.sources
+      .find((one: { source: string }) => one.source === 'Library of Congress')
+
+    expect(loc).toMatchObject({ asked: 0, answered: 0, silent: 0, skipped: 1, lastSilence: '' })
     expect(answer.ok).toBe(true)
   })
 
