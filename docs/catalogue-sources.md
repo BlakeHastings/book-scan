@@ -302,6 +302,55 @@ the re-measurement that follows it is this document's third act. **Until then
 every number above is one source**, which is now a thing a running server will
 tell you rather than a thing somebody had to go and find.
 
+## What was built from this (#305)
+
+The recommendation above was taken as written, and this section records where
+each of its findings ended up so that the two do not drift apart.
+
+**Both recommended sources, and neither of the three that were not.**
+`web/server/catalogue-sru.ts` asks Library of Congress and K10plus over SRU, at
+the rates in the table above, enforced by `web/server/source-pace.ts` rather
+than left to good manners. The Deutsche Nationalbibliothek is named in that
+file's header as measured and refused, so the next person to wonder about it
+finds the fourteen wrong records rather than the endpoint.
+
+**Only for the gap.** The two are asked only about a book Open Library and
+Google Books left with no page count or no stated genre, which is what keeps a
+scan costing what it cost before for roughly four books in five and keeps the
+app comfortably inside two published rate limits. A round is bounded at three
+seconds including any wait for a slot, so this document's numbers are the
+ceiling on what #305 can cost a lookup as well as the case for it.
+
+**The verification step was kept and made stricter.**
+`web/domain/books/catalogue-reconciliation.ts` compares MARC 245 with our title,
+as the sweep did, after folding case, accents and the ISBD punctuation MARC
+carries as data, and after dropping a leading article. It accepts a record that
+carries a subtitle we do not, which is one of the two K10plus mismatches found
+here, and refuses a translation, which is the other. It is stricter than the
+sweep in one place: a one-word title has to agree exactly, so `Dune` does not
+match `Dune Messiah`.
+
+**Nothing already known can be overridden**, which is the rule that turns 33
+page counts into a gain with nothing at risk. Where two verified sources
+disagree about an extent, rank decides and the disagreement is recorded on the
+lookup's `provenance`; where they disagree about a genre, the headings are
+merged and `classify` decides, because this document asked for no second opinion
+about what counts as a stated genre.
+
+**No author, structurally.** `readMarc` has no branch for MARC 100 or 700, so
+there is no name from either catalogue anywhere in the running process. The
+finding that produced that rule is the table above: 1 real gain and 33 that
+would have been a doubled credit, a translator or the wrong person.
+
+**Four books are still gained by nobody**, and the change was not sold as
+though they would be. They carry no genre, no rule claims them, and a person is
+the only thing that will settle them.
+
+The third act this document names is unchanged and still the owner's: until
+`GOOGLE_BOOKS_API_KEY` is set, every number here is measured against one source,
+and the re-measurement that follows setting it is what would say how much of the
+gain above Google Books would have supplied on its own.
+
 ## Re-running it
 
 Nothing here is checked in: the harness was four throwaway scripts, deliberately

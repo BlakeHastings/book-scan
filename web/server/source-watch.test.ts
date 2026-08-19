@@ -9,7 +9,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CATALOGUES, forgetSourceStandings, noteSourceAnswer, sourceStandings } from './source-watch'
+import {
+  CATALOGUES, forgetSourceStandings, noteSourceAnswer, noteSourceSkipped, sourceStandings,
+} from './source-watch'
 
 const standingFor = (source: string) =>
   sourceStandings().find((one) => one.source === source)!
@@ -24,7 +26,7 @@ afterEach(() => {
 })
 
 describe('what a server that has looked nothing up reports', () => {
-  it('names both catalogues at nought rather than leaving them out', () => {
+  it('names every catalogue at nought rather than leaving them out', () => {
     /*
      * The whole point of the seeded list. "Google Books was asked and answered
      * nothing" and "Google Books is not in this report" are different facts,
@@ -129,6 +131,34 @@ describe('what reaches the log', () => {
     const said = vi.mocked(console.warn).mock.calls.flat().join(' ')
     expect(said).not.toMatch(/key/i)
     expect(said).toContain('the other catalogue')
+  })
+})
+
+describe('a catalogue that was wanted and not asked (#305)', () => {
+  it('is neither an answer nor a silence, and says nothing in the log', () => {
+    /*
+     * The third thing that can happen to a source, added when two of them came
+     * with a rate limit. Nothing was sent, so the catalogue did nothing: folded
+     * into `silent` this would read as a library being down, and folded into
+     * `asked` it would read as a request that was made. It is also not worth a
+     * line in the log, because unlike a source going quiet it is a decision this
+     * process made on purpose and can explain from the counter alone.
+     */
+    noteSourceSkipped('Library of Congress')
+    noteSourceSkipped('Library of Congress')
+
+    expect(standingFor('Library of Congress')).toMatchObject({
+      asked: 0, answered: 0, silent: 0, skipped: 2, lastSilentAt: '', lastSilence: '',
+    })
+    expect(console.warn).not.toHaveBeenCalled()
+  })
+
+  it('does not disturb what the same catalogue has answered', () => {
+    noteSourceAnswer('K10plus', true)
+    noteSourceSkipped('K10plus')
+    noteSourceAnswer('K10plus', true)
+
+    expect(standingFor('K10plus')).toMatchObject({ asked: 2, answered: 2, skipped: 1 })
   })
 })
 

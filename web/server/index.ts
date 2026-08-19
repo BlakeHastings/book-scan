@@ -1282,10 +1282,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
     // All at once, then chosen in reading order. Asked one at a time this
     // cost a lookup per wrong guess, and the wrong guesses come first.
+    //
+    // `supplement: false` because the only thing read off these answers is
+    // `found`. Most of them are a barcode misread and belong to no book at all,
+    // and the one that is right is looked up again properly by whoever asked.
+    // Topping up a page count here would be several requests to two national
+    // catalogues, per wrong guess, for a result that is discarded on the next
+    // line (#305).
     const checked = await Promise.all(
       readings.map(async (isbn) => ({
         isbn,
-        real: (await lookupIsbn(isbn, { googleApiKey })
+        real: (await lookupIsbn(isbn, { googleApiKey, supplement: false })
           .catch(() => null))?.found ?? false,
       })),
     )
@@ -2904,7 +2911,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     let name = await downloadCover(openLibraryCover(isbn), isbn, coverDir)
 
     if (!name) {
-      const found = await lookupIsbn(isbn, { googleApiKey })
+      // `supplement: false`: the one field read here is `coverUrl`, which no SRU
+      // catalogue carries. This also runs as a backfill over every book in the
+      // collection at once, which is the shape of request two free national
+      // catalogues publish a rate limit about (#305).
+      const found = await lookupIsbn(isbn, { googleApiKey, supplement: false })
         .catch(() => null)
       if (found?.coverUrl) {
         name = await downloadCover(upgradeGoogleCover(found.coverUrl), isbn, coverDir)

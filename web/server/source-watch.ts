@@ -47,8 +47,28 @@
  */
 
 /**
+ * The two SRU catalogues #305 added, spelled once, and spelled here.
+ *
+ * `catalogue-sru.ts` owns everything else about them: the endpoint, the CQL
+ * index, the rate, the terms. It cannot own the names as well, because this file
+ * has to stand a tally up for them as it is imported, and a name imported from a
+ * module that imports this one back is a cycle whose resolution order decides
+ * whether `CATALOGUES` exists yet. One spelling, at the end the other end can
+ * safely import from.
+ */
+export const LIBRARY_OF_CONGRESS_NAME = 'Library of Congress'
+export const K10PLUS_NAME = 'K10plus'
+
+/**
  * The catalogues `lookupIsbn` consults, named so a standing exists before the
  * first request is made.
+ *
+ * **The last two are asked about some books and not others** (#305), which the
+ * report shows as a low `asked` rather than by leaving them out. They are a
+ * top-up for a book the first two left without a page count or a genre, so a
+ * server that has looked up forty books and asked Library of Congress about nine
+ * of them is working exactly as intended, and `asked: 0` after a long session
+ * means the first two have answered everything.
  *
  * That is the point of listing them rather than letting the map fill in as
  * requests happen. "Google Books was asked forty times and answered none" and
@@ -56,7 +76,9 @@
  * indistinguishable from a server nobody has looked a book up on yet. That
  * ambiguity is the exact shape of the defect this file exists for.
  */
-export const CATALOGUES = ['Open Library', 'Google Books'] as const
+export const CATALOGUES = [
+  'Open Library', 'Google Books', LIBRARY_OF_CONGRESS_NAME, K10PLUS_NAME,
+] as const
 
 /**
  * The reasons a source is allowed to give for not answering.
@@ -78,6 +100,17 @@ export interface SourceStanding {
   answered: number
   /** Requests it did not reply to at all. */
   silent: number
+  /**
+   * Times this catalogue was wanted and not asked, to stay inside its rate (#305).
+   *
+   * Deliberately not counted as `asked` and deliberately not counted as
+   * `silent`. Nothing was sent, so the catalogue did nothing and owes no
+   * explanation; the decision was this application's. It is a number worth
+   * having separately because it is the one that says the limiter in
+   * `source-pace.ts` is costing answers, which is the failure mode a rate limit
+   * has, and it would be invisible folded into either of the other two.
+   */
+  skipped: number
   /** When it last did not answer, ISO 8601, or empty if it always has. */
   lastSilentAt: string
   /** Why it last did not answer, or empty. Never the request. */
@@ -100,6 +133,7 @@ function tallyFor(source: string): Tally {
     asked: 0,
     answered: 0,
     silent: 0,
+    skipped: 0,
     lastSilentAt: '',
     lastSilence: '',
     answering: true,
@@ -162,6 +196,18 @@ export function noteSourceAnswer(source: string, answered: boolean, why = ''): v
 }
 
 /**
+ * Record that a catalogue was wanted and not asked, to stay inside its rate.
+ *
+ * Called by `catalogue-sru.ts` when `source-pace.ts` declines a slot inside the
+ * caller's deadline. Like `noteSourceAnswer` it returns nothing and cannot fail.
+ *
+ * @param source the catalogue, spelled as `lookup_source` spells it
+ */
+export function noteSourceSkipped(source: string): void {
+  tallyFor(source).skipped += 1
+}
+
+/**
  * What every catalogue has done, for `/api/health`.
  *
  * A copy, in the order `CATALOGUES` names them, so a caller cannot reach in and
@@ -173,8 +219,10 @@ export function sourceStandings(): SourceStanding[] {
   const rest = [...standings.keys()].filter((name) => !known.includes(name)).sort()
 
   return [...known, ...rest].map((name) => {
-    const { source, asked, answered, silent, lastSilentAt, lastSilence } = tallyFor(name)
-    return { source, asked, answered, silent, lastSilentAt, lastSilence }
+    const {
+      source, asked, answered, silent, skipped, lastSilentAt, lastSilence,
+    } = tallyFor(name)
+    return { source, asked, answered, silent, skipped, lastSilentAt, lastSilence }
   })
 }
 

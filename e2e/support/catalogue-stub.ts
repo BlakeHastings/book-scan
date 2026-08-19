@@ -198,6 +198,29 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
       return
     }
 
+    /*
+     * The two SRU catalogues (#305), which stand in for Library of Congress and
+     * K10plus. They answer a well-formed SRU response with no records in it,
+     * which is a real and ordinary thing for a national catalogue to say.
+     *
+     * That is the whole point of them being here. The app asks these two only
+     * about a book the other two left without a page count or a genre, and every
+     * book in `books.ts` has both, so nothing in a green run reaches them. What
+     * this stops is a run that goes off-script from reaching the real Library of
+     * Congress, which is the failure this file exists to prevent, one origin
+     * later than it was written for.
+     */
+    if (url.pathname === '/sru/lcdb' || url.pathname === '/sru/k10plus') {
+      response.writeHead(200, { 'Content-Type': 'application/xml' })
+      response.end(
+        '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/">' +
+        '<version>1.1</version><numberOfRecords>0</numberOfRecords>' +
+        '</searchRetrieveResponse>',
+      )
+      return
+    }
+
     // Cover artwork. Deliberately absent: a 404 is what Open Library sends
     // for a book it has no picture of, and it keeps the run off the network
     // without inventing artwork nobody asserts on.
