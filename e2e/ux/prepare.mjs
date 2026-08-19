@@ -55,7 +55,7 @@ await aspire(['resource', 'api', 'restart'], { timeoutMs: 5 * 60 * 1000 }).catch
 })
 await aspire(['wait', 'api', '--timeout', '300'], { timeoutMs: 330 * 1000 })
 
-const state = await worldState(connection)
+const state = await worldState(connection, api)
 console.log('')
 console.log('  The baseline world')
 console.log('  ' + '-'.repeat(64))

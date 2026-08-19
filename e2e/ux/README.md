@@ -32,14 +32,48 @@ number the task had was about books, so a world with somebody's furniture
 destroyed in it scored exactly the same as one without.
 
 So `task` now records the furniture as it stands when the task begins, and task
-3's check asks whether any of it is gone. **Rows rather than faces**: a shelf a
-move takes with it comes off the piece it was on, which is a real consequence of
-a real request and is said in the plan. Deleting the row is not, and neither is
-deleting the piece.
+3's check asks whether any of it is gone.
 
 `baseline.json` cannot answer this. It is the world the seed built, and what
 tasks two and three have to be judged against is what the person had after task
 one.
+
+### And rows are not the question. Reachability is
+
+The first version of that check counted rows, and the second pass of the loop
+walked straight through it (#420). Applying the move left the hall bookcase
+standing and all four of its shelves as rows, at `area_position` -4 to -1, drawn
+by no screen, the piece answering "0 areas, 0 books", and the rule task 2 wrote
+still filing comics onto one of them. Every row was there, so both furniture
+parts reported ok against a world where task 3 had silently undone task 2.
+
+**A guard that measures the wrong thing is worse than no guard, because it is
+believed.** So `task` also records what the app *draws*, from
+`GET /api/fixtures`, and task 3 asks three more things of it:
+
+- every shelf on a bookcase the task was not about is still one the app draws;
+- no shelf appeared that nobody asked for, anywhere but on the bookcase the books
+  were going to;
+- no rule is left filing books onto a shelf the app will not draw.
+
+Reachability is asked **of the app** rather than defined here as a predicate over
+positions, because a predicate would be this harness holding a second opinion
+about what the screens show. A plank on a piece's face is reachable, and so is
+one that has been taken out and still has books standing on it, which the app
+draws so somebody can go and get them (#403). A plank in neither is one nobody
+can get to.
+
+The two bookcases task 3 names are exempt from the first two, and only from
+those: taking the run's planks off the bookcase it leaves is the request, said in
+the plan first, and standing planks on the bookcase it goes to is the request
+itself. Every other piece in the room is somebody else's furniture.
+
+**A run that never asked the app what it draws fails those three rather than
+passing them.** Saying nothing has to read as "not judged", never as ok, which is
+the whole lesson of the version this replaces.
+
+`node e2e/ux/tasks.test.mjs` is what proves it: the check is pure, so it is fed
+the world #419 recorded, rows and all, and asserted to fail on it. CI runs it.
 
 ## Running a pass
 
@@ -141,7 +175,8 @@ a number somebody will quote.
 
 | Path | What it is |
 | --- | --- |
-| `tasks.mjs` | The three goals, and the checks that decide from rows whether each was done |
+| `tasks.mjs` | The three goals, and the checks that decide whether each was done |
+| `tasks.test.mjs` | What those checks must catch, run by CI. `node e2e/ux/tasks.test.mjs` |
 | `metrics.md` | What each number means, exactly |
 | `prepare.mjs` | Seeds the baseline world and records it in `baseline.json` |
 | `drive.mjs` | The commands above |

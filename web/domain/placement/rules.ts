@@ -168,3 +168,40 @@ export function placementOf(
   const slot = areaFor(runFrom(order, entry, entryAreas(rules, order)), book.sortKey)
   return slot ? { rule, slot } : null
 }
+
+/**
+ * The first piece of furniture past `from` that somebody's rule stands on.
+ *
+ * **A run stops where the next run begins, and "the next run" is any rule's, not
+ * only the other genre's.** `runFrom` says exactly that already, area by area,
+ * through `entryAreas`. This is the same sentence read a piece at a time, for
+ * the two callers that have to decide which *furniture* a run owns rather than
+ * which planks it flows through: the band a range is reconciled over
+ * (`bandsOf`) and the stretch a move is allowed to pick up (`relocateRun`).
+ *
+ * **Piece granularity is the point**, and #420 is what its absence cost. A rule
+ * somebody wrote on the bottom shelf of a bookcase they had just put up cut the
+ * run three planks in. The band arithmetic could not see that rule at all, so a
+ * move about two other bookcases took the three planks above it, left them on no
+ * face, and stood a plank nobody had asked for on the bookcase it had emptied.
+ * A piece somebody's rule stands on is that rule's furniture, and half a piece
+ * is nobody's to take.
+ *
+ * `undefined` when nothing stands past `from`, which is the last run in the room
+ * and genuinely has no bound: it flows on across whatever gets put up next.
+ */
+export function nextRunStartAfter(
+  order: Slot[],
+  rules: PlacementRule[],
+  from: number,
+): number | undefined {
+  const entries = entryAreas(rules, order)
+
+  let limit: number | undefined
+  for (const slot of order) {
+    if (!entries.has(slot.area.id)) continue
+    if (slot.fixture.position <= from) continue
+    if (limit === undefined || slot.fixture.position < limit) limit = slot.fixture.position
+  }
+  return limit
+}

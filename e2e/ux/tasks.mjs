@@ -20,6 +20,27 @@
 /** Anything a person would call a comic, however the tag ended up spelled. */
 const COMICS = /comic|graphic novel|manga/i
 
+/**
+ * The two bookcases task 3 names out loud, and the only two it may rearrange.
+ *
+ * Task 3 asks for books to come off bookcase 4 and go onto bookcase 3. Those two
+ * pieces are the request: taking the run's planks off the one it leaves is a
+ * real consequence of it, said in the plan before anybody presses anything, and
+ * standing planks on the one it goes to is the request itself. **Every other
+ * piece in the room is somebody else's furniture and this task may not change
+ * it**, which is the difference between a consequence and collateral damage.
+ */
+const ABOUT = { off: 4, onto: 3 }
+
+/** Every shelf the app draws, keyed by area id, from a `drawn` reading. */
+function shelvesDrawn(drawn) {
+  const shelves = new Map()
+  for (const piece of drawn ?? []) {
+    for (const shelf of piece.shelves) shelves.set(shelf.area_id, { ...shelf, piece })
+  }
+  return shelves
+}
+
 export const TASKS = [
   {
     id: 1,
@@ -91,7 +112,7 @@ export const TASKS = [
      * out the moves and nobody has confirmed them is a different outcome from a
      * world where nothing happened, and a single boolean would lose that.
      */
-    check(world, baseline, standing = []) {
+    check(world, baseline, standing = [], drawnBefore = null) {
       /*
        * The shelved ones only, and this is a correction the first run earned.
        * A checked-out book is in somebody's bag rather than on bookcase 4, so
@@ -131,6 +152,53 @@ export const TASKS = [
         .map((row) => row.fixture_name || `piece ${row.fixture_id}`))]
       const lostAreas = before.filter((row) => row.area_id !== null && !areas.has(row.area_id))
 
+      /*
+       * #420, and it is the part of this check that was missing rather than
+       * wrong.
+       *
+       * The two above ask whether the rows survived, and the second pass of the
+       * loop walked straight through both: applying the move left the hall
+       * bookcase standing and all four of its shelves as rows, at
+       * `area_position` -4 to -1, drawn by no screen, the piece answering
+       * "0 areas, 0 books", and the rule task 2 wrote still filing comics onto
+       * one of them. Every row was there. **What went was reachability**, and a
+       * guard that measures the wrong thing is worse than none, because it is
+       * believed.
+       *
+       * So these three ask the app instead of the table, through
+       * `GET /api/fixtures`, which is what the screens are drawn from:
+       *
+       *  - nothing the person could reach when the task began became
+       *    unreachable, on any piece the task was not about;
+       *  - no shelf appeared that nobody asked for, anywhere but on the
+       *    bookcase the books were going to (that is the `4D`);
+       *  - no rule is left filing books onto a shelf the app will not draw.
+       *
+       * **An absent drawing fails them rather than passing them.** A run from a
+       * harness that never asked the app what it draws cannot say any of this,
+       * and saying nothing has to read as "not judged", never as ok.
+       */
+      const drawnNow = shelvesDrawn(world.drawn)
+      const drawnThen = shelvesDrawn(drawnBefore)
+      const asked = Boolean(world.drawn) && Boolean(drawnBefore)
+
+      const pieceOf = (shelf) => shelf.piece.fixture_position
+      const elsewhere = ([, shelf]) => pieceOf(shelf) !== ABOUT.off && pieceOf(shelf) !== ABOUT.onto
+
+      const unreachable = [...drawnThen]
+        .filter(elsewhere)
+        .filter(([id]) => !drawnNow.has(id))
+        .map(([, shelf]) => `${shelf.label}${shelf.area_name ? ` "${shelf.area_name}"` : ''}`)
+
+      const invented = [...drawnNow]
+        .filter(([, shelf]) => pieceOf(shelf) !== ABOUT.onto)
+        .filter(([id]) => !drawnThen.has(id))
+        .map(([, shelf]) => shelf.label)
+
+      const filingNowhere = world.rules
+        .filter((rule) => rule.area_id !== null && !drawnNow.has(rule.area_id))
+        .map((rule) => `rule ${rule.id} [${rule.conditions}] -> area ${rule.area_id}`)
+
       return {
         parts: [
           ['no non-fiction left on bookcase 4', stillOnFour.length === 0,
@@ -145,6 +213,21 @@ export const TASKS = [
             lostAreas.length
               ? `lost ${lostAreas.map((row) => row.area_name || `area ${row.area_id}`).join(', ')}`
               : `${areas.size} area row(s) still there`],
+          ['every shelf on a bookcase this was not about is still one the app draws',
+            asked && unreachable.length === 0,
+            !asked ? 'the app was never asked what it draws'
+              : unreachable.length ? `${unreachable.join(', ')} reach nobody now`
+                : `${drawnThen.size} shelf/shelves drawn before, all still drawn`],
+          ['no shelf appeared that nobody asked for',
+            asked && invented.length === 0,
+            !asked ? 'the app was never asked what it draws'
+              : invented.length ? `${invented.join(', ')} nobody added`
+                : `${drawnNow.size} shelf/shelves drawn`],
+          ['no rule files books onto a shelf the app will not draw',
+            asked && filingNowhere.length === 0,
+            !asked ? 'the app was never asked what it draws'
+              : filingNowhere.length ? filingNowhere.join('; ')
+                : `${world.rules.length} rule(s), every one pointing somewhere reachable`],
         ],
       }
     },
@@ -164,9 +247,13 @@ export function taskById(id) {
  * different question from `baseline` and cannot be got from it: the baseline is
  * the seeded world, and what tasks two and three have to be judged against is
  * what the person had after task one. See task 3, and #391.
+ *
+ * `drawing` is the same moment asked of the app rather than of the rows: what
+ * the person could actually reach when the task began. Rows and reachability are
+ * two different questions and #420 is the cost of only ever asking the first.
  */
-export function judge(task, world, baseline, standing = []) {
-  const { parts } = task.check(world, baseline, standing)
+export function judge(task, world, baseline, standing = [], drawing = null) {
+  const { parts } = task.check(world, baseline, standing, drawing)
   return {
     id: task.id,
     goal: task.goal,

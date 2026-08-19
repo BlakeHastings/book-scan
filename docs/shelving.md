@@ -572,6 +572,33 @@ Only the second produces a book in somebody's hands, so it is what
 arithmetic and `relocateRunTo` in `infrastructure/shelving/areas.ts` is the
 write.
 
+### A run stops where the next run begins, and a move stops a piece earlier
+
+A run runs from its rule's entry area until the next area any rule points at.
+That is `runFrom` and it has always been the model. **A move is bounded one step
+further in: it stops at the first piece of furniture somebody else's rule stands
+on, and does not touch that piece at all.**
+
+The two bounds are different because they answer different questions. A run
+flowing onto the top three shelves of a bookcase whose bottom shelf has its own
+rule is a true statement about where books go. Taking those three shelves off
+that bookcase and screwing them onto another one is not a thing anybody asked
+for, it is not a thing the plan could honestly draw, and
+[#420](https://github.com/BlakeHastings/book-scan/issues/420) is what it cost:
+the plan cut the run at the rule and the write cut it at the next *genre range*,
+of which there is none past non-fiction, so the plan moved six planks and the
+write moved seven. The hall bookcase somebody had put up that afternoon was left
+standing with all four of its shelves at negative positions, drawn by no screen,
+its own page reading "0 areas, 0 books", with the rule they had written still
+filing comics onto one of them, and a `4D` nobody had added standing on the
+bookcase the books had come off.
+
+**A bookcase somebody's rule stands on is that rule's furniture.** Half of one is
+nobody's to take. `nextRunStartAfter` in `domain/placement/rules.ts` is the one
+definition of where the next run begins, `bandsOf` and `relocateRun` both ask it,
+and `relocateRunTo` refuses inside its own transaction if a move would ever leave
+a piece half stripped again.
+
 ### The run takes its own cuts with it
 
 Non-fiction is 8 books, then 20, then 22. The destination gets the same number
@@ -640,6 +667,34 @@ Three rules follow, and none of them weakens retiring:
   because it is furniture.
 - **A piece with books standing on it is not a free destination**, even with
   nothing on its face. It is the fullest bookcase in the room.
+
+### There is no third state, and #420 is what one cost
+
+A negative `area.position` means one thing: **this plank was taken out, and the
+row stayed because the ledger names it.** Somebody can still reach it, through
+the books standing on it, on the piece's own page and in the carry list. That is
+what the three rules above are for.
+
+#391 borrowed the same encoding for a second job nobody named: parking the planks
+of a run part way through a move, on the understanding that they would all be
+hung straight back. When they were not, what was left read as a retirement in
+every query and was nothing like one to a person. Four planks holding no books,
+so drawn by nothing, on a bookcase in another room.
+
+**A guard that measures the wrong thing is worse than no guard, because it is
+believed**, and the same goes for a state. So the answer is not a fourth read
+that tolerates it:
+
+- a move takes planks off pieces the run is **leaving**, which the plan names as
+  `RunMovePlan.emptied` before anybody presses anything, and never off a piece it
+  cannot take whole;
+- **a rule never survives its plank leaving the face.** `area_id` becomes null
+  and `fixture_id` the piece it was on, so the rule goes on claiming the same
+  books and opens its run at the top of that bookcase. A rule pointing at
+  something no screen draws files every book it claims nowhere and says nothing,
+  which is its own defect and not a consequence of anything;
+- a move that would leave a piece half stripped anyway fails inside its own
+  transaction rather than committing it.
 
 ### Planning it writes nothing, and applying it moves no books
 

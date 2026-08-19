@@ -51,6 +51,27 @@
  * a retired plank back onto the face rather than making a second one beside it
  * when a boundary is put back.
  *
+ * ### There is no third state, and #420 is what one cost
+ *
+ * A negative position means one thing: **this plank was taken out, and the row
+ * stayed because the ledger names it.** Somebody can still reach it, through the
+ * books standing on it, on the piece's own page and in the carry list (#403).
+ *
+ * #391 borrowed the same encoding for a second job nobody named: parking the
+ * planks of a run mid-move, in `takeOffTheFace`, on the understanding that
+ * `writeBoundaries` would hang every one of them straight back. When it did not,
+ * what was left was indistinguishable from a retirement in every read and was
+ * nothing like one to a person: four planks on a bookcase somebody had put up
+ * that afternoon, holding no books, so drawn by no screen, with a rule still
+ * filing comics onto one of them.
+ *
+ * That state is not tolerated by a fourth read here. It is made unreachable: a
+ * move only ever takes planks off pieces the run is leaving, `bandsOf` and
+ * `relocateRun` agree on which those are because they ask the same function
+ * (`nextRunStartAfter`), a rule never survives its plank leaving the face
+ * (`repointRulesOffTheFace`), and a move that would half strip a piece anyway
+ * refuses inside its own transaction (`refuseAHalfStrippedPiece`).
+ *
  * ## Statements, not the query builder
  *
  * The reconcile is conditional deletes and find-or-create, which read as SQL and
@@ -59,7 +80,9 @@
  */
 
 import type { AreaFace } from '../../domain/placement/carry'
-import { entryAreaOf, type PlacementRule, type RuleOperator } from '../../domain/placement/rules'
+import {
+  entryAreaOf, nextRunStartAfter, type PlacementRule, type RuleOperator,
+} from '../../domain/placement/rules'
 import {
   labelFor, slotsInOrder, type Area, type Fixture, type Slot,
 } from '../../domain/placement/geography'
@@ -278,7 +301,27 @@ export async function bandsOf(db: Db): Promise<Map<ShelfRange, RangeBand>> {
 
   const bands = new Map<ShelfRange, RangeBand>()
   starts.forEach(({ range, start }, at) => {
-    bands.set(range, { start, limit: starts[at + 1]?.start.shelf })
+    /*
+     * Where the next run begins, and **not only where the next range does**.
+     * That is the whole of #420. The two genre rules were the only thing that
+     * could bound a band, so a bookcase somebody stood past the last of them,
+     * and wrote their own rule on, fell inside non-fiction's band: every read
+     * here treated its planks as non-fiction's cuts, and a move about two other
+     * bookcases rewrote them onto a third.
+     *
+     * `nextRunStartAfter` is `runFrom`'s own cut read a piece at a time, so the
+     * furniture this reconciles is the furniture the domain says the run owns.
+     * The next range's start is one of those entries and is kept in the
+     * arithmetic anyway, for the one case the entries cannot express: two runs
+     * beginning on the same piece, where the bound is that piece rather than
+     * something past it.
+     */
+    const next = starts[at + 1]?.start.shelf
+    const claimed = nextRunStartAfter(order, rules, start.shelf)
+    const limit = next === undefined ? claimed
+      : claimed === undefined ? next
+        : Math.min(next, claimed)
+    bands.set(range, { start, limit })
   })
   return bands
 }
@@ -738,6 +781,34 @@ export const faceOf = (position: number): number =>
   (position < 0 ? -position - 1 : position)
 
 /**
+ * A rule whose plank is going comes to rest on the piece it was on.
+ *
+ * **A rule pointing at an area off a face is its own defect** (#420), and it is
+ * a quiet one: `furnitureIn` reads `position >= 0`, so `entryAreaOf` answers
+ * null, the rule stops opening a run, and every book it claims is filed nowhere
+ * while the rule goes on reading as enabled on its own screen. The app was found
+ * holding one that filed comics onto a shelf it would not draw.
+ *
+ * So the answer is not to refuse the retirement and not to delete the rule.
+ * **A rule names a place, and when the plank goes the place is the bookcase.**
+ * `area_id` becomes null and `fixture_id` the piece the plank was on, which is
+ * the same shape a range's own rule already has and resolves, through
+ * `entryAreaOf`, to the first area of that piece. The rule keeps claiming the
+ * same books and keeps opening a run, one plank up.
+ *
+ * `removeAreaIfUnused` still refuses to **delete** an area a rule points at, and
+ * that is untouched: it runs first, finds the rule, and hands the area here.
+ */
+async function repointRulesOffTheFace(db: Db, id: number): Promise<void> {
+  await db.run(
+    `UPDATE placement_rule
+        SET area_id = NULL, fixture_id = (SELECT fixture_id FROM area WHERE id = ?)
+      WHERE area_id = ?`,
+    [id, id],
+  )
+}
+
+/**
  * Take an area off the fixture's face without deleting it.
  *
  * For the area a removed boundary leaves behind when a book has been placed in
@@ -752,6 +823,8 @@ export const faceOf = (position: number): number =>
  * for a plank two removals ago.
  */
 async function retireArea(db: Db, id: number, position: number): Promise<void> {
+  await repointRulesOffTheFace(db, id)
+
   const taken = await db.get<{ id: number }>(
     `SELECT other.id FROM area other
       WHERE other.fixture_id = (SELECT fixture_id FROM area WHERE id = ?)
@@ -952,6 +1025,23 @@ export async function writeBoundaries(
  * front of somebody first, as `RunMovePlan.emptied`, and what it does is take
  * planks off a face rather than take rows away.
  *
+ * ## And it takes nothing off a piece it was not about
+ *
+ * Not deleting was not enough, which is #420. `boundariesOf` and `runAreasOf`
+ * read the range's **band**, and a band was bounded only by the next genre
+ * range's start, so the last range in the room reached across every bookcase
+ * standing past it. A rule somebody wrote on one of those bookcases cut the run
+ * for the plan and not for this write, and the two disagreed by three planks:
+ * the plan moved six and this moved seven, so the shelves of a bookcase in
+ * another room came off its face onto nothing, and the seventh plank was stood
+ * up on the emptied bookcase as a `4D` nobody had asked for.
+ *
+ * `bandsOf` now stops where any rule's run begins, through `nextRunStartAfter`,
+ * which is the cut `runFrom` already made in the domain read a piece at a time.
+ * One definition, asked by both, so the planks the plan names are the planks
+ * this takes. `refuseAHalfStrippedPiece` is the backstop for the day they drift
+ * again.
+ *
  * Idempotent: relocating a run to the bookcase it is already on reads the same
  * boundaries, retires nothing that is not immediately restored, and writes the
  * rule the value it holds.
@@ -1017,4 +1107,52 @@ export async function relocateRunTo(
   )
 
   await writeBoundaries(db, range, boundaries)
+
+  await refuseAHalfStrippedPiece(db, run)
+}
+
+/**
+ * The one thing a move may not have done, checked rather than argued.
+ *
+ * **A move empties pieces; it does not half strip one.** A plank a move takes
+ * off a face is a plank of a piece the run is leaving, the plan says so as
+ * `RunMovePlan.emptied` before anybody presses anything, and the books still
+ * standing on it reach a person through the piece's own page (#403). A plank
+ * taken off a piece that goes on standing with other planks on its face reaches
+ * nobody: no screen draws it, the piece does not name it, and the row is there
+ * to be found only by somebody reading the table. That is the state #420
+ * reports and it is the state this refuses to commit.
+ *
+ * It cannot fire while `bandsOf` and `relocateRun` stop at the same piece, which
+ * is the fix. It is here because they are two functions, they can drift, and the
+ * cost of the drift the last time was four shelves nobody could reach and a rule
+ * filing books onto one of them. A move that would do it again fails loudly
+ * inside its own transaction instead.
+ */
+async function refuseAHalfStrippedPiece(db: Db, taken: readonly RunArea[]): Promise<void> {
+  const ids = taken.map((area) => area.id)
+  if (!ids.length) return
+
+  /*
+   * Resolved through the rows rather than through `fixturePosition`, because
+   * `fixture.position` carries no unique index and the live catalogue already
+   * has two pieces numbered 4. Asking by number would judge one piece by
+   * another's planks.
+   */
+  const half = await db.get<{ position: number; name: string }>(
+    `SELECT f.position, f.name
+       FROM fixture f
+      WHERE f.id IN (SELECT fixture_id FROM area WHERE id IN (${ids.map(() => '?').join(', ')}))
+        AND EXISTS (SELECT 1 FROM area a WHERE a.fixture_id = f.id AND a.position < 0)
+        AND EXISTS (SELECT 1 FROM area a WHERE a.fixture_id = f.id AND a.position >= 0)
+      LIMIT 1`,
+    ids,
+  )
+  if (!half) return
+
+  throw new Error(
+    `Moving this run would take some of the planks off ${half.name || `bookcase ${half.position}`} `
+    + 'and leave the rest, which puts a shelf on no screen in the app. '
+    + 'Nothing was moved.',
+  )
 }

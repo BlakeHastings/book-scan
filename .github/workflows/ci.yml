@@ -237,3 +237,13 @@ jobs:
       - name: Install retry classifies failures correctly
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/npm-install.test.mjs
+
+      # The usability harness decides from rows whether each task was done, and
+      # #420 is what it cost for one of those decisions to be wrong: the check
+      # added to catch a move destroying furniture counted rows, the rows were
+      # all still there, and four shelves nobody could reach scored as ok. The
+      # check is pure, so it is tested here beside the other tooling rather than
+      # needing a browser, an AppHost or a database.
+      - name: The usability harness judges a task correctly
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node e2e/ux/tasks.test.mjs
