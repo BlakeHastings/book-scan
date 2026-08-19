@@ -1,6 +1,14 @@
 /**
  * Everything that touches the database. Keeps SQL out of the route handlers
  * and out of shared/shelving.ts, which stays pure.
+ *
+ * **Shrinking, one aggregate at a time.** #424 took the six read-only methods —
+ * `listing`, `listRange`, `neighbours`, `checkedOut`, `counts` and `tagCounts` —
+ * to `infrastructure/books/book-repository.ts`, where the SQL is generated from
+ * the schema rather than written out. They are still methods here, delegating,
+ * so nothing above this class had to move with them; what changed is which layer
+ * the statements live in. The write paths follow in later slices of #169, and
+ * until they do this file is both a facade and a store.
  */
 
 import type { BookRow, FiledBookRow } from './db.pg'
@@ -71,6 +79,18 @@ import {
   recordCheckedOut, recordPlaced, recordPlacedIn, withPlacements, withPlacementsOf,
   type PlacementFields,
 } from './placement-ledger'
+/*
+ * The book's reads, which are a repository now (#424).
+ *
+ * The six methods below that delegate to this are the whole of what moved. It
+ * takes the same `Db` this class was handed, so a read made through it is on the
+ * same connection, the same transaction and the same advisory lock as the write
+ * beside it; see `infrastructure/db/query.ts`.
+ */
+import {
+  DrizzleBookRepository, PAGE_LIMIT, wordsOf,
+  type FiledPlacedBook, type Listing,
+} from '../infrastructure/books/book-repository'
 
 /**
  * A book as everything above this class reads one. Declared beside the
@@ -82,85 +102,16 @@ import {
  */
 export type { FiledPhotographedBook, PhotographedBook }
 export type PlacedPhotographedBook = PhotographedBook & PlacementFields
-export type FiledPlacedBook = FiledPhotographedBook & PlacementFields
-
-/**
- * The most books one listing answers with, asked for or not.
- *
- * Both halves of that, and it is the point of the number (#332). It is the cap a
- * stated `limit` is clamped to, and since #332 it is also what an absent one
- * means, so "the largest page" and "the page you get for not asking" cannot
- * drift apart. It was already the clamp; what it was not was the default, and an
- * absent limit meant every matching row.
- */
-export const PAGE_LIMIT = 500
-
-/**
- * What a listing is being asked for, beyond "everything".
- *
- * Every field is optional and an absent one narrows nothing, so `{}` is the
- * whole catalogue narrowed by nothing, and `{ range }` is what `listRange` has
- * always answered, up to one page of it.
- */
-export interface Listing {
-  /** One run of the collection. Absent means both, in bookcase order. */
-  range?: ShelfRange | null
-  /** Titles and the names on the cover, near enough rather than exact. */
-  words?: string
-  /** Either form of the number. At most one answer. */
-  isbn?: string
-  /** Slugs, all of which the book must carry, itself or under. */
-  tags?: readonly string[]
-  /** How many rows this page holds. Absent means `PAGE_LIMIT` of them. */
-  limit?: number
-  offset?: number
-}
+export type { FiledPlacedBook }
 
 /*
- * Folding, so `mieville` finds Miéville.
- *
- * Written as a translation pair rather than reached for with `unaccent`, which
- * is an extension this database is not guaranteed to have and would be a
- * migration and a privilege for one `LIKE`. What it covers is the accented
- * Latin letters a European collection actually carries; a name in a script with
- * no fold at all is matched as it is written, which is what somebody typing it
- * would type anyway.
- *
- * The two strings are one character to one character and the same length. A
- * ligature has no single-character fold, so none is attempted here.
+ * `PAGE_LIMIT`, `Listing`, `wordsOf` and the accent fold moved to
+ * `infrastructure/books/book-repository.ts` with the six reads that used them
+ * (#424), and are re-exported here so that a caller of this class does not have
+ * to know which slice of it has moved yet. `index.ts` and
+ * `listing.routes.test.ts` import `PAGE_LIMIT` from here.
  */
-const FOLD_FROM = 'áàâäãåāéèêëēíìîïīóòôöõøōúùûüūñçćšžýÿ'
-const FOLD_TO = 'aaaaaaaeeeeeiiiiiooooooouuuuunccszyy'
-
-/** The same fold in SQL, over whichever column is being searched. */
-function folded(column: string): string {
-  return `translate(lower(${column}), '${FOLD_FROM}', '${FOLD_TO}')`
-}
-
-/**
- * The same fold in TypeScript, over what somebody typed.
- *
- * Both sides have to agree or the search silently answers nothing, which is why
- * this sits against the statement rather than in a helper file: NFD and a
- * translation table are two spellings of one decision.
- *
- * `%` and `_` are escaped rather than dropped. They are the two characters
- * `LIKE` reads as a pattern, and a title with a percent sign in it is a real
- * book somebody should be able to find.
- */
-export function wordsOf(typed: string): string[] {
-  return typed
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/ø/g, 'o')
-    .split(/\s+/)
-    .map((word) => word.trim().replace(/([\\%_])/g, '\\$1'))
-    .filter(Boolean)
-    // Six is more words than any title anybody types, and it bounds the number
-    // of clauses a single request can ask the database to run.
-    .slice(0, 6)
-}
+export { PAGE_LIMIT, wordsOf, type Listing }
 
 export interface DraftBook {
   isbn13?: string
@@ -248,39 +199,24 @@ export interface FilingInput {
  * synchronous. The statements are unchanged: the placeholder styles they are
  * written in are translated by the driver rather than rewritten here.
  */
-/**
- * How many books each tag has, counting the ones under it.
- *
- * A free function beside the class rather than only a method on it, because the
- * furniture reads it too and cannot build a `Store`: that takes an authorship
- * port it has no use for. **One spelling of the query and two callers**, which
- * is the same medicine every other shared answer in this app takes; two counts
- * of one tag that agreed until somebody edited one of them is exactly how a
- * screen ends up saying "nothing carries this" beside a list of forty books.
- *
- * The rollup is the point rather than an extra: choosing Fantasy shows the books
- * tagged Urban fantasy too, so a count that said 112 next to a list of 126 would
- * be the screen contradicting itself one tap later. `DISTINCT` because a book
- * carrying both is one book.
- *
- * Catalogued books only, which is the same set the library draws.
+/*
+ * `tagCounts` as a free function moved with the class's method of the same name
+ * (#424). `server/furniture.ts` imports it from its new home directly, because a
+ * re-export through here would be a second name for one query.
  */
-export async function tagCounts(db: Db): Promise<{ slug: string; books: number }[]> {
-  return db.all<{ slug: string; books: number }>(
-    `SELECT t.slug AS slug,
-            CAST((SELECT COUNT(DISTINCT bt.book_id)
-                    FROM book_tag bt
-                    JOIN tag d ON d.id = bt.tag_id
-                    JOIN catalogued_books b ON b.id = bt.book_id
-                   WHERE d.slug = t.slug
-                      OR (d.slug >= t.slug || '/' AND d.slug < t.slug || '0'))
-                 AS INTEGER) AS books
-       FROM tag t
-      ORDER BY t.slug ASC`,
-  )
-}
 
 export class Store {
+  /**
+   * The reads, built from the same `Db` rather than taken as an argument.
+   *
+   * Not a constructor parameter, and that is deliberate for as long as this
+   * class is a facade over its own move (#424): forty callers build a `Store`
+   * and none of them has an opinion about which half of it answers a listing.
+   * When the write paths follow, the routes take the repository directly and
+   * this field goes with the six delegations below.
+   */
+  private readonly reads: DrizzleBookRepository
+
   /**
    * The authorship port is here for one question and writes nothing.
    *
@@ -295,7 +231,9 @@ export class Store {
   constructor(
     private readonly db: Db,
     private readonly authors: AuthorRepository,
-  ) {}
+  ) {
+    this.reads = new DrizzleBookRepository(db)
+  }
 
   // -----------------------------------------------------------------------
   // Filing names and keys
@@ -412,76 +350,19 @@ export class Store {
     return locationLabel(start.shelf, start.area)
   }
 
-  private toNeighbour(row: FiledPlacedBook | undefined): Neighbour | null {
-    if (!row) return null
-    return {
-      id: row.id,
-      title: row.title,
-      authorFiling: row.author_filing,
-      authors: row.authors,
-      location: row.location,
-      sortKey: row.sort_key,
-      images: {
-        front: row.front_image,
-        back: row.back_image,
-        edge: row.edge_image,
-      },
-    }
-  }
-
   /**
-   * The core query pair. Both are covered by idx_books_shelved, so this stays
-   * two index seeks no matter how large the collection gets.
+   * The two index seeks either side of a sort key: who this book goes between.
    *
-   * `excludeId` matters when previewing an edit to an already-saved book, so
-   * it does not end up as its own neighbour.
-   *
-   * **`shelved_books`, not `books`, and that is not a rename.** These two
-   * statements are what decides which physical books somebody is told to put a
-   * book between, so a row that is not on a shelf reaching them is somebody
-   * standing at a bookcase looking for a book that is not there. The condition
-   * used to be `checked_out_at IS NULL`, written out here and in three other
-   * statements, and #183 gave books six more states that must not reach a shelf.
-   * Saying which states in every query is the arrangement that lasts until the
-   * next query is written, so the view says it once and this cannot forget. See
-   * `shelvedBooks` in infrastructure/db/schema.ts.
+   * The statement and the reasoning are in
+   * `infrastructure/books/book-repository.ts` since #424. Kept as a method here
+   * because every caller that places a book holds a `Store`.
    */
-  async neighbours(
+  neighbours(
     range: ShelfRange,
     sortKey: string,
     excludeId?: number,
   ): Promise<{ predecessor: Neighbour | null; successor: Neighbour | null }> {
-    const exclude = excludeId ?? -1
-
-    const predecessor = await this.db.get<FiledBookRow>(
-      `SELECT * FROM shelved_books
-        WHERE shelf_range = ? AND sort_key < ? AND id != ?
-        ORDER BY sort_key DESC LIMIT 1`,
-      [range, sortKey, exclude],
-    )
-
-    const successor = await this.db.get<FiledBookRow>(
-      `SELECT * FROM shelved_books
-        WHERE shelf_range = ? AND sort_key > ? AND id != ?
-        ORDER BY sort_key ASC LIMIT 1`,
-      [range, sortKey, exclude],
-    )
-
-    /*
-     * One statement for both, because a neighbour is drawn with the photograph
-     * it is recognised by and the photographs are rows now. Asking per book
-     * would be two more statements on the path a person waits on while holding a
-     * book, where this is one.
-     */
-    const drawn = await withPlacements(this.db, await withPhotographs(
-      this.db,
-      [predecessor, successor].filter((row): row is FiledBookRow => Boolean(row)),
-    ))
-
-    return {
-      predecessor: this.toNeighbour(drawn.find((row) => row.id === predecessor?.id)),
-      successor: this.toNeighbour(drawn.find((row) => row.id === successor?.id)),
-    }
+    return this.reads.neighbours(range, sortKey, excludeId)
   }
 
   /**
@@ -974,167 +855,38 @@ export class Store {
   // -----------------------------------------------------------------------
 
   /**
-   * Every book in a range, in order. `catalogued_books`, which is neither
-   * `books` nor `shelved_books`.
+   * Every book in a range, in order. `catalogued_books`, not `books`.
    *
-   * This is the catalogue rather than a shelf. It has always included the books
-   * somebody has taken out, and a view that dropped them would take them off a
-   * listing that is the only place some of them appear. Nothing here tells
-   * anybody where to put a book, which is what makes it a different question
-   * from the two statements in `neighbours`.
-   *
-   * **#204 left the other half of that question open here, and this is the
-   * answer.** What should `GET /api/books` say about a book that has been
-   * scanned and not identified? Nothing, and now that such a row exists the
-   * reason can be stated rather than guessed at: it has no title, no author and
-   * no shelf range, so there is nothing to list and nothing to file it under,
-   * and it is already on screen in the queue, which is the place built to show
-   * it and the only place anybody can act on it. Listing it here would put a
-   * nameless row in the middle of somebody's library and would offer no way to
-   * do anything about it.
-   *
-   * **The rows are unchanged on the day this lands**, because `shelved` and
-   * `checked_out` were the only two states anything could write until now, and
-   * `catalogued_books` holds those two and `withdrawn`. So this listing, the
-   * counts beside it and every duplicate check answer exactly what they answered
-   * yesterday, which is checkable rather than asserted.
-   *
-   * The predicate is the view's and is not repeated here, for the reason
-   * `shelved_books` exists: eight statements in this file mean "the catalogue",
-   * and eight places to remember which states that is are eight places to
-   * forget one.
+   * The statement and the reasoning are in
+   * `infrastructure/books/book-repository.ts` since #424. Kept as a method here
+   * because the shelving screens ask a `Store` for a whole run.
    */
-  async listRange(range: ShelfRange): Promise<FiledPlacedBook[]> {
-    return withPlacements(this.db, await withPhotographs(this.db,
-      await this.db.all<FiledBookRow>(
-        'SELECT * FROM catalogued_books WHERE shelf_range = ? ORDER BY sort_key ASC',
-        [range],
-      )))
+  listRange(range: ShelfRange): Promise<FiledPlacedBook[]> {
+    return this.reads.listRange(range)
   }
 
   /**
    * The same listing, asked a narrower question and a page at a time.
    *
-   * `listRange` is this with a range and nothing else, and it is left alone: the
-   * shelving screens ask for a whole run and are entitled to it. What this adds
-   * is the four things the library and the find screen ask, which the catalogue
-   * could not answer at all before:
-   *
-   * - **words**, matched against the title, the printed names and the name the
-   *   book files under, folded so `mieville` finds Miéville. That is not a
-   *   contrived example: it is what somebody types on a phone keyboard, and an
-   *   exact match answers nothing and is wrong.
-   * - **an ISBN**, in either form, which has at most one answer.
-   * - **tags**, all of which the book must carry, itself or under: choosing
-   *   Fantasy finds the book somebody tagged Urban fantasy, because the
-   *   hierarchy is in the slug and `under` is the question a person is asking.
-   * - **a page**, because this is the screen with the most books on it and
-   *   answering with the whole collection is what stops being possible first.
-   *
-   * `total` is what the query matches rather than what the page holds, because
-   * the screen says "6 of 1,204" and the second number is not `books.length`.
-   *
-   * ## An absent `limit` is the largest page, not every book (#332)
-   *
-   * It used to mean no `LIMIT` clause at all, so `GET /api/books?range=all` was
-   * 1204 KB at 1200 books, about a kilobyte each, unbounded, over somebody's
-   * mobile data. Nothing was asking for it: `useListing` has always sent a page.
-   * The problem was the default, because an unbounded response was what you got
-   * for forgetting a parameter, and the client shipped a wrapper that forgot it
-   * (`api.listBooks`, deleted by the same change).
-   *
-   * `PAGE_LIMIT` is the cap a stated limit was already clamped to, so what you
-   * get for asking for everything and what you get for asking for too much are
-   * now one number defined once, rather than one number and no number. Every
-   * caller was checked: the client always pages, and the two suites that ask
-   * without a limit seed a handful of books each.
+   * The statement and the reasoning are in
+   * `infrastructure/books/book-repository.ts` since #424. Kept as a method here
+   * because `GET /api/books` is answered from a `Store` the routes already hold.
    */
-  async listing(query: Listing): Promise<{ books: FiledPlacedBook[]; total: number }> {
-    const where: string[] = []
-    const params: unknown[] = []
-
-    if (query.range) {
-      where.push('b.shelf_range = ?')
-      params.push(query.range)
-    }
-
-    if (query.isbn) {
-      const pair = resolveIsbnPair(query.isbn)
-      // Both forms, because a person types whichever is printed on the book and
-      // the catalogue may hold the other. An unresolvable number matches nothing
-      // rather than everything, which is the honest answer to thirteen digits
-      // that are not an ISBN.
-      where.push('(b.isbn13 = ? AND b.isbn13 != \'\') OR (b.isbn10 = ? AND b.isbn10 != \'\')')
-      params.push(pair.isbn13 || query.isbn, pair.isbn10 || query.isbn)
-    }
-
-    for (const word of wordsOf(query.words ?? '')) {
-      where.push(
-        `(${folded('b.title')} LIKE ? OR ${folded('b.authors')} LIKE ?`
-        + ` OR ${folded('b.author_filing')} LIKE ?)`,
-      )
-      params.push(`%${word}%`, `%${word}%`, `%${word}%`)
-    }
-
-    for (const slug of query.tags ?? []) {
-      /*
-       * At or under, as a range over the slug rather than a `LIKE`, which is the
-       * shape `TagRepository.vocabulary` already uses and for the same reason: the
-       * slug is ordered `COLLATE "C"`, so a prefix is an index range. `/` is 0x2F
-       * and `0` is 0x30, so everything under `genre/` sorts below `genre0`.
-       */
-      where.push(
-        'EXISTS (SELECT 1 FROM book_tag bt JOIN tag t ON t.id = bt.tag_id'
-        + ' WHERE bt.book_id = b.id AND (t.slug = ? OR (t.slug >= ? AND t.slug < ?)))',
-      )
-      params.push(slug, `${slug}/`, `${slug}0`)
-    }
-
-    const filter = where.length ? `WHERE ${where.map((one) => `(${one})`).join(' AND ')}` : ''
-    // Range first, so a listing of the whole collection runs fiction then
-    // non-fiction, which is the order the bookcases stand in.
-    const order = 'ORDER BY b.shelf_range ASC, b.sort_key ASC'
-
-    const counted = await this.db.get<{ total: number }>(
-      `SELECT CAST(COUNT(*) AS INTEGER) AS total FROM catalogued_books b ${filter}`,
-      params,
-    )
-
-    const page: string[] = []
-    const paged = [...params]
-    page.push('LIMIT ?')
-    paged.push(query.limit === undefined
-      ? PAGE_LIMIT
-      : Math.max(1, Math.min(PAGE_LIMIT, Math.floor(query.limit))))
-    if (query.offset) {
-      page.push('OFFSET ?')
-      paged.push(Math.max(0, Math.floor(query.offset)))
-    }
-
-    const rows = await this.db.all<FiledBookRow>(
-      `SELECT b.* FROM catalogued_books b ${filter} ${order} ${page.join(' ')}`,
-      paged,
-    )
-
-    return {
-      books: await withPlacements(this.db, await withPhotographs(this.db, rows)),
-      total: counted?.total ?? 0,
-    }
+  listing(query: Listing): Promise<{ books: FiledPlacedBook[]; total: number }> {
+    return this.reads.listing(query)
   }
 
   /**
    * How many books each tag has, counting the ones under it.
    *
-   * The rollup is the point rather than an extra: choosing Fantasy shows the
-   * books tagged Urban fantasy too, so a count that said 112 next to a list of
-   * 126 would be the screen contradicting itself one tap later. `DISTINCT`
-   * because a book carrying both is one book.
-   *
-   * Catalogued books only, which is the same set the library draws, so the
-   * number beside a tag is the number of rows choosing it produces.
+   * The statement and the reasoning are in
+   * `infrastructure/books/book-repository.ts` since #424. Kept as a method here
+   * because the tag routes hold a `Store` and not a repository.
+   * `server/furniture.ts` has no `Store` and imports
+   * `infrastructure/books/tag-counts.ts` directly.
    */
-  async tagCounts(): Promise<{ slug: string; books: number }[]> {
-    return tagCounts(this.db)
+  tagCounts(): Promise<{ slug: string; books: number }[]> {
+    return this.reads.tagCounts()
   }
 
   /**
@@ -1395,63 +1147,24 @@ export class Store {
   /**
    * Books off the shelf, oldest first, so nothing is quietly forgotten.
    *
-   * The complement of `shelved_books` is not one relation and there is no view
-   * for it: `checked_out` is one of six states that are not `shelved`, and the
-   * other five are not books somebody has taken out. So this names the state it
-   * means rather than reading "everything the shelf does not show".
+   * The statement and the reasoning are in
+   * `infrastructure/books/book-repository.ts` since #424. Kept as a method here
+   * because the checked-out route is answered from a `Store`.
    */
-  async checkedOut(): Promise<FiledPlacedBook[]> {
-    return withPlacements(this.db, await withPhotographs(this.db,
-      await this.db.all<FiledBookRow>(
-        // `catalogued_books`, not `books`, and only for the joined filing name:
-        // the state is stated here as it always was. See `FiledBookRow`.
-        //
-        // Oldest first is the point of the listing, and the moment a book left
-        // is the `checked_out` row that took it out rather than a column (#232).
-        `SELECT * FROM catalogued_books b WHERE state = ?
-          ORDER BY (SELECT p.id FROM book_placement p
-                     WHERE p.book_id = b.id AND p.kind = 'checked_out'
-                     ORDER BY p.id DESC LIMIT 1) ASC NULLS LAST, b.id ASC`,
-        [CHECKED_OUT],
-      )))
+  checkedOut(): Promise<FiledPlacedBook[]> {
+    return this.reads.checkedOut()
   }
 
   /**
-   * Two dialect-neutrality details here, both of which are silent when wrong.
+   * The four numbers every save response and `/api/health` carry.
    *
-   * The CASTs: COUNT and SUM are wider than an int in every real database, and
-   * a driver that refuses to narrow them hands back a string rather than lose
-   * precision. `/api/health` and every save response carry these numbers, so a
-   * total of "57" would render identically and fail every piece of arithmetic
-   * downstream. Casting says what the caller actually wants.
-   *
-   * The quoted "checkedOut": an unquoted alias is folded to a single case by
-   * some dialects and preserved verbatim by others, so the one camelCase name
-   * in this file has to say it means that. Quoting is understood everywhere.
+   * The statement and the reasoning are in
+   * `infrastructure/books/book-repository.ts` since #424. Kept as a method here
+   * because every route that saves a book already holds a `Store`.
    */
-  async counts(): Promise<{
+  counts(): Promise<{
     total: number; fiction: number; nonfiction: number; checkedOut: number
   }> {
-    const row = await this.db.get<{
-      total: number; fiction: number | null
-      nonfiction: number | null; checkedOut: number | null
-    }>(
-      `SELECT
-         CAST(COUNT(*) AS INTEGER)                                   AS total,
-         CAST(SUM(CASE WHEN shelf_range = 'fiction'    THEN 1 ELSE 0 END)
-              AS INTEGER)                                            AS fiction,
-         CAST(SUM(CASE WHEN shelf_range = 'nonfiction' THEN 1 ELSE 0 END)
-              AS INTEGER)                                            AS nonfiction,
-         CAST(SUM(CASE WHEN state = '${CHECKED_OUT}' THEN 1 ELSE 0 END)
-              AS INTEGER)                                            AS "checkedOut"
-       FROM catalogued_books`,
-    )
-
-    return {
-      total: row?.total ?? 0,
-      fiction: row?.fiction ?? 0,
-      nonfiction: row?.nonfiction ?? 0,
-      checkedOut: row?.checkedOut ?? 0,
-    }
+    return this.reads.counts()
   }
 }

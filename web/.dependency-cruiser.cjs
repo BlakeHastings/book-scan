@@ -86,6 +86,50 @@ module.exports = {
       to: { path: 'node_modules/(drizzle-orm|pg|better-sqlite3|express)' },
     },
     {
+      name: 'data-store-stays-in-infrastructure',
+      comment:
+        'The driver and the query builder belong to infrastructure/ and to nothing else. ' +
+        'A `pg` or a `drizzle-orm` import anywhere below is a statement being written ' +
+        'outside the layer that owns statements, which is the thing #169 exists to stop. ' +
+        'The exceptions are named below and each is a file whose whole job is the seam ' +
+        'itself, or a test looking inside it.',
+      severity: 'error',
+      from: {
+        pathNot: [
+          '^infrastructure/',
+          /*
+           * `Db` and its one implementation. This *is* the seam: every
+           * repository executes through it, and it is the only thing in the
+           * codebase that may hold a connection. It belongs under
+           * `infrastructure/db/` and moving it is its own slice of #169,
+           * because forty files import `type { Db }` from it.
+           */
+          '^server/db\\.pg\\.ts$',
+          /*
+           * The test harness. Both files say "test support only" at the top and
+           * both import `vitest`, so neither can be reached from a running
+           * server; what they do with `pg` is create and drop scratch
+           * databases, which is not a query about books.
+           */
+          '^server/(pgcontainer|testdb)\\.ts$',
+          /*
+           * The backup tool, which opens its own connection on purpose: it
+           * talks to a catalogue whose schema it does not assume, reads
+           * `pg_class` to find out, and must work against a database this
+           * code's schema has never been applied to. See #240.
+           */
+          '^server/backup-catalogue\\.ts$',
+          /*
+           * A test may look inside the box. Fourteen of them stand up a real
+           * Postgres and assert what the production code actually wrote, which
+           * is the opposite of a layering violation.
+           */
+          '\\.test\\.ts$',
+        ],
+      },
+      to: { path: 'node_modules/(pg|drizzle-orm)/' },
+    },
+    {
       name: 'infrastructure-imports-no-client',
       comment: 'The React client is above everything here, not beside it.',
       severity: 'error',
