@@ -29,6 +29,15 @@
  * and carrying one across a boundary both come through here too, and both
  * still go back where they came from: they are journeys that started
  * somewhere else and owe that screen a return.
+ *
+ * ## The book is not in your hands on that screen
+ *
+ * "Shelved" is drawn out of `Shelved` below and out of nothing else. The book
+ * itself is put down by the save, because it is on a shelf, and a screen that
+ * says so is not a reason to go on holding it: holding it is what sent the
+ * next photograph on to the book somebody had just finished (#431). So what
+ * this screen wants to keep saying is written down here first, one press
+ * earlier than it used to be, and that includes where "Next book" leads.
  */
 
 import { useState } from 'react'
@@ -46,7 +55,7 @@ import { useBookActions } from '../app/bookActions'
 import { useBookInHand } from '../app/bookInHand'
 import { useErrorBanner } from '../app/errorBanner'
 import { useLeaving } from '../app/leaving'
-import { useNavigation } from '../app/navigation'
+import { useNavigation, type Route } from '../app/navigation'
 import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 
@@ -64,12 +73,20 @@ interface Shelved {
    * is the newest thing that would have been one.
    */
   placement: PlacementResponse | null
+  /**
+   * Where "Next book" leads, read off the book while it was still in hand.
+   *
+   * The origin is put down with the book, so this is taken before the save
+   * rather than asked for after it. It is still `RETURN_TO`'s answer and not a
+   * second one: `useLeaving().landing` is that table, read a moment earlier.
+   */
+  next: Route
 }
 
 export function ShelveScreen() {
   const { setRoute } = useNavigation()
   const { error } = useErrorBanner()
-  const { leaveFor, returnToOrigin } = useLeaving()
+  const { leaveFor, landing } = useLeaving()
   const {
     draft, bookId, saving, placement, placementStale, refreshPlacement,
   } = useBookInHand()
@@ -126,18 +143,23 @@ export function ShelveScreen() {
   }
 
   const shelveIt = async (shelvedAt: number) => {
-    // Read before the save, which is what clears the book in hand on the
-    // paths that go back where they came from. The plank was answered about by
-    // id and is named here for the sentence, which is the split #359 makes.
+    // Read before the save, which is what puts the book down on every path out
+    // of here. The plank was answered about by id and is named here for the
+    // sentence, which is the split #359 makes.
     const ending: Shelved = {
       title,
       area: placement?.derivedLocation ?? '',
       placement: withTheBookIn(),
+      next: landing,
     }
-    const fresh = bookId === null
-    if (await save(shelvedAt, fresh ? 'here' : 'origin')) {
-      if (fresh) setShelved(ending)
-    }
+    /*
+     * A book that was not in the catalogue a moment ago ends on "Shelved", and
+     * that ending is written down in the same update that puts the book down.
+     * Everything else came from somewhere and owes that screen a return, which
+     * the save makes itself.
+     */
+    if (bookId === null) await save(shelvedAt, 'here', () => setShelved(ending))
+    else await save(shelvedAt, 'origin')
   }
 
   if (shelved) {
@@ -162,10 +184,14 @@ export function ShelveScreen() {
             <Confirmation said={`${shelved.title} is on ${shelved.area}.`} />
           )}
 
-          <Button tone="primary" block onPress={returnToOrigin}>
+          {/* Both of these are a route and nothing else. There is no book to
+              put down by the time either can be pressed: the save did that,
+              standing at the bookcase, which is where finishing with a book
+              belongs (#431). */}
+          <Button tone="primary" block onPress={() => setRoute(shelved.next)}>
             Next book
           </Button>
-          <Button tone="quiet" block onPress={() => { returnToOrigin(); setRoute('home') }}>
+          <Button tone="quiet" block onPress={() => setRoute('home')}>
             That is enough for today
           </Button>
 

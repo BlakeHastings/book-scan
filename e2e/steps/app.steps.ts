@@ -178,6 +178,60 @@ When('I photograph the book', async ({ page }) => {
   await page.locator('button.wf-shutter').click()
 })
 
+/**
+ * All three sides, which is what somebody photographing a book actually does.
+ *
+ * One press per slot, and each one waits for the slot marker to move before the
+ * next. That is not politeness: `shoot` reads the active slot out of the render
+ * it was clicked in, so two presses inside one frame would photograph the same
+ * side twice, and the shutter deliberately has nothing in front of it to stop
+ * that.
+ *
+ * The back is waited on differently, and it is the only one that has to be: the
+ * capture does not exist until the first photograph reaches the server, so a
+ * second press before that answer lands would start a second capture. What says
+ * the answer landed is the queue having read the barcode off it.
+ */
+When('I photograph all three sides of the book', async ({ page }) => {
+  const nextSlot = page.locator('.wf-shot--next')
+  const shutter = page.locator('button.wf-shutter')
+
+  await expect(nextSlot).toContainText('Back')
+  await shutter.click()
+  // The barcode having been read off it, which only the queue can say and only
+  // about a capture that exists. That is the wait the second press needs: the
+  // capture is created by the first photograph reaching the server, and until
+  // the camera has been told its id a second press would start another one.
+  await expect(page.locator('.wf-shot__note').first())
+    .toHaveText('ISBN found', { timeout: QUEUE_TIMEOUT })
+
+  await expect(nextSlot).toContainText('Front')
+  await shutter.click()
+
+  await expect(nextSlot).toContainText('Spine')
+  await shutter.click()
+  // The marker has nowhere left to move, so what says the third shot happened
+  // is the third photograph being on screen. What says all three reached the
+  // server is the queue having read them, which the database step asserts.
+  await expect(page.locator('.wf-shot__img')).toHaveCount(3)
+})
+
+/**
+ * The shutter, pressed at whatever the camera is pointed at.
+ *
+ * Deliberately without the check that the back cover is the slot about to be
+ * filled, which every other press here makes. This is the press somebody makes
+ * with the next book in their hands, and what it lands on is the question
+ * (#431): a step that asserted the slot first would fail on the screen and
+ * never take the photograph the claim is about.
+ */
+When('I press the shutter', async ({ page }) => {
+  // And nothing else. What the press did is read out of the database, and the
+  // wait for it to have landed is there rather than here: waiting on this
+  // screen for the right outcome would be the test agreeing with the app.
+  await page.locator('button.wf-shutter').click()
+})
+
 Then('the camera should recognise the book as {string}', async ({ page }, title: string) => {
   await expect(page.locator('.wf-view__found')).toContainText(title, { timeout: QUEUE_TIMEOUT })
 })
@@ -506,6 +560,20 @@ Then('the gap should be on screen without scrolling the shelf', async ({ page })
 When('I go back to the book details', async ({ page }) => {
   await page.getByRole('button', { name: 'Back to book details' }).click()
   await expect(reviewScreen(page).or(bookTitle(page))).toBeVisible()
+})
+
+/**
+ * Say the book fits, and stop on the screen that says where it went.
+ *
+ * The step below carries on to the next book, which is the answer the screen
+ * leads with. This one stops, because what #431 is about is everything else a
+ * person can do from there: the tab bar is on that screen too, and pressing
+ * Scan is what somebody with the next book already in their hands does.
+ */
+When('I say it fits', async ({ page }) => {
+  await page.getByRole('button', { name: 'It fits, save' }).click()
+  await expect(page.locator('.wf-top__title'))
+    .toHaveText('Shelved', { timeout: QUEUE_TIMEOUT })
 })
 
 When('I say it fits and save it', async ({ page }) => {

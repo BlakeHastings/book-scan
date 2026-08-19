@@ -41,6 +41,10 @@ const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
  * sense for a book that was not in the catalogue a moment ago. A book being
  * checked back in or carried across a boundary came from somewhere and owes
  * that screen a return.
+ *
+ * Both put the book down. They differ in where they leave the person, and
+ * `here` leaves them looking at a screen about a book they are no longer
+ * holding, which is why it is the one that takes a `finished` callback.
  */
 export type Landing = 'origin' | 'here'
 
@@ -51,8 +55,16 @@ export interface BookActions {
    * `shelvedAt` is the plank the person just said the book fits on, or null for
    * an edit nobody made a statement about the room in. The plank rather than its
    * name, for the reason `ShelveView.onShelved` gives (#359).
+   *
+   * `finished` is what a screen wants to go on saying about a book it has just
+   * finished with, written down in the same update the book is put down in.
+   * Only meaningful with `land: 'here'`; see `persist`.
    */
-  readonly save: (shelvedAt?: number | null, land?: Landing) => Promise<boolean>
+  readonly save: (
+    shelvedAt?: number | null,
+    land?: Landing,
+    finished?: () => void,
+  ) => Promise<boolean>
   /** Write edits to a catalogued book without leaving it. */
   readonly saveEdits: () => Promise<boolean>
   readonly deleteBook: () => Promise<void>
@@ -116,6 +128,7 @@ export function useBookActions(): BookActions {
     stay: boolean,
     shelvedAt: number | null = null,
     land: Landing = 'origin',
+    finished?: () => void,
   ): Promise<boolean> => {
     book.setSaving(true)
     setError('')
@@ -139,14 +152,31 @@ export function useBookActions(): BookActions {
         await refreshPlacement()
       } else if (land === 'here') {
         /*
-         * The shelving step keeps the screen so it can say the book is on the
-         * shelf. The book stays in hand for exactly that one screen, and both
-         * of its answers put it down: "next book" goes back where this one
-         * came from, and "that is enough for today" goes to the first screen.
-         * Nothing is held open that a tap does not close, and the capture is
-         * released by the same `clearBookInHand` either way.
+         * The book is on a shelf, so it is out of the hands that carried it
+         * there, and this is the moment that says so (#431).
+         *
+         * It used to stay in hand for the one screen that says where it went,
+         * on the reasoning that both of that screen's answers put it down.
+         * They do; the trouble is that they are not the only way off it. The
+         * tab bar is right there, and pressing Scan is what somebody with the
+         * next book in their hands does. That reopened the viewfinder holding
+         * the finished book, three of three, so the next press of the shutter
+         * attached a different book's photograph to it and took its spine off
+         * the shelf. The same stale draft then wrote a second row for a book
+         * already catalogued, past a duplicate check that had been answered
+         * before the first save, and the finished capture went on being polled
+         * because a poll only stops when there is no capture.
+         *
+         * None of those are three defects. They are one piece of state that
+         * outlived the book it described, so it does not outlive it any more.
+         *
+         * `finished` runs first and in the same update, so the screen has
+         * written down what it is about to say about the book before the book
+         * is put down, and the shelving step never redraws its question
+         * against an emptied one in between.
          */
-        endReviewSession()
+        finished?.()
+        clearBookInHand()
       } else {
         // Finished with the book, so back the way you came in: the scanner for
         // the next one off the pile, the shelves for the next adjustment, the
@@ -167,8 +197,11 @@ export function useBookActions(): BookActions {
   // Named wrappers rather than passing persist straight to a handler: onClick
   // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
   /** Finish shelving a book, and go wherever the landing says. */
-  const save = (shelvedAt: number | null = null, land: Landing = 'origin') =>
-    persist(false, shelvedAt, land)
+  const save = (
+    shelvedAt: number | null = null,
+    land: Landing = 'origin',
+    finished?: () => void,
+  ) => persist(false, shelvedAt, land, finished)
 
   /** Write edits to a catalogued book without leaving it. */
   const saveEdits = () => persist(true)

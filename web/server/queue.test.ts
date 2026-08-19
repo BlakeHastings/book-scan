@@ -608,6 +608,11 @@ describe('photos arriving one at a time', () => {
     expect(again.back_image).toBe('b2.jpg')
     // Back drops out of analysed; front, which did not change, stays.
     expect(again.analysed.split(',').filter(Boolean)).toEqual(['front'])
+    // And it is a list of one, not ",front,". Every reader here drops the empty
+    // entries, which is how a column went on being written malformed for as
+    // long as it did: the string is what somebody reads when they are working
+    // out what a photograph did to a book (#431).
+    expect(again.analysed).toBe('front')
     expect(again.status).toBe('pending')
   })
 
