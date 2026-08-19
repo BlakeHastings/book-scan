@@ -1,0 +1,158 @@
+{
+  "run": "turn2",
+  "theme": "dark",
+  "tasks": [
+    {
+      "task": 1,
+      "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 9,
+        "typedFields": 1,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 6,
+        "screens": 4,
+        "visits": 5,
+        "steps": 14,
+        "wallSeconds": 201,
+        "pressingSeconds": 37.6,
+        "notPressingSeconds": 163.4,
+        "lostMoments": [
+          {
+            "step": 3,
+            "screenshot": "task1-step03-lost.png",
+            "words": "The Library draws all three bookcases and offers nothing anywhere, top or bottom, that adds a fourth. The only thing left is the round icon in the top corner, which is still drawn as a person's head and shoulders and reads as an account or profile. The harness tells me it is called 'Your fixtures'; the picture does not, and 'fixtures' is not a word I would use about my own bookcases anyway.",
+            "screen": "/|Library"
+          },
+          {
+            "step": 9,
+            "screenshot": "task1-step09-lost.png",
+            "words": "I have typed Hall into 'What you call it' and there is no button belonging to that field, or to 'What it is' below it. The only Save on the screen sits inside a different card headed 'Nothing yet: it has no areas on it' above a line reading 'What it will be called'. I cannot tell whether pressing it saves the name I typed or makes a shelf, and the heading at the top still says Bookcase 5.",
+            "screen": "/|Bookcase 5"
+          }
+        ]
+      },
+      "verdict": {
+        "id": 1,
+        "goal": "You have a new bookcase in the hall with four shelves. Get it into the app.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "a bookcase the world did not have",
+            "ok": true,
+            "saw": "fixture 4"
+          },
+          {
+            "what": "it is recognisable as the hall one",
+            "ok": true,
+            "saw": "name \"Hall\""
+          },
+          {
+            "what": "it has four shelves",
+            "ok": true,
+            "saw": "4 shelf/shelves"
+          }
+        ]
+      }
+    },
+    {
+      "task": 2,
+      "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 7,
+        "typedFields": 2,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 2,
+        "screens": 3,
+        "visits": 3,
+        "steps": 10,
+        "wallSeconds": 76.2,
+        "pressingSeconds": 13.8,
+        "notPressingSeconds": 62.4,
+        "lostMoments": []
+      },
+      "verdict": {
+        "id": 2,
+        "goal": "The comics should live on the bottom shelf of the hall bookcase, and only comics.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "there is a bottom shelf on the hall bookcase",
+            "ok": true,
+            "saw": "area 11 at position 3"
+          },
+          {
+            "what": "the app records that comics belong there",
+            "ok": true,
+            "saw": "rule 3 [tag is subject/comics]"
+          },
+          {
+            "what": "nothing that is not a comic stands there",
+            "ok": true,
+            "saw": "0 book(s) there"
+          }
+        ]
+      }
+    },
+    {
+      "task": 3,
+      "goal": "Move every non-fiction book off bookcase 4 and onto bookcase 3, and record that you have carried them.",
+      "outcome": "completed",
+      "numbers": {
+        "presses": 21,
+        "typedFields": 0,
+        "deadEnds": 0,
+        "deadEndDetail": [],
+        "backtracks": 0,
+        "backtrackDetail": [],
+        "pressesThatChangedTheWorld": 8,
+        "screens": 11,
+        "visits": 16,
+        "steps": 24,
+        "wallSeconds": 165.1,
+        "pressingSeconds": 44.1,
+        "notPressingSeconds": 121,
+        "lostMoments": []
+      },
+      "verdict": {
+        "id": 3,
+        "goal": "Move every non-fiction book off bookcase 4 and onto bookcase 3, and record that you have carried them.",
+        "completed": true,
+        "parts": [
+          {
+            "what": "no non-fiction left on bookcase 4",
+            "ok": true,
+            "saw": "0 of 7 still there"
+          },
+          {
+            "what": "every non-fiction book is on bookcase 3",
+            "ok": true,
+            "saw": "7 of 7 on bookcase 3"
+          },
+          {
+            "what": "nothing is still waiting to be carried",
+            "ok": true,
+            "saw": "0 outstanding move(s)"
+          },
+          {
+            "what": "no piece of furniture was destroyed on the way",
+            "ok": true,
+            "saw": "5 piece(s) still standing"
+          },
+          {
+            "what": "no shelf and no name written on one was destroyed",
+            "ok": true,
+            "saw": "15 area row(s) still there"
+          }
+        ]
+      }
+    }
+  ]
+}
