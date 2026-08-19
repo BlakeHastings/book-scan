@@ -1294,11 +1294,25 @@ export const api = {
   searchTitle: (title: string) =>
     request<LookupResponse>(`/api/lookup/title?q=${encodeURIComponent(title)}`),
 
-  /** `excludeId` keeps a book being edited out of its own neighbour search. */
-  previewPlacement: (draft: Draft, excludeId?: number) =>
+  /**
+   * `excludeId` keeps a book being edited out of its own neighbour search.
+   *
+   * **`goingTo` is the plank a walk is taking this book to** (#429). Without it
+   * the answer is where the rules say the book belongs, which is the question a
+   * person editing the review fields is asking. With it the answer is about the
+   * plank they are standing in front of, and the rules are not asked which plank
+   * that is.
+   *
+   * Only the carry flow sends it, and it sends the trip's own destination, fixed
+   * at the moment the armful was lifted. That is the fix for the loop in #429:
+   * the placing screen used to work out for itself where the book belonged now,
+   * and answered a plank no trip had ever named, so doing what the app asked
+   * never satisfied it.
+   */
+  previewPlacement: (draft: Draft, excludeId?: number, goingTo?: number) =>
     request<PlacementResponse>('/api/placement/preview', {
       method: 'POST',
-      body: JSON.stringify({ ...draftBody(draft), excludeId }),
+      body: JSON.stringify({ ...draftBody(draft), excludeId, goingTo }),
     }),
 
   /**

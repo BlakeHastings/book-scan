@@ -36,7 +36,9 @@ import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
 import { rangeLock, Shelves, type Planks, type ShelvedBook } from './shelves'
-import type { RunPlanks } from '../infrastructure/shelving/areas'
+import { plankLabels, type RunPlanks } from '../infrastructure/shelving/areas'
+// The two books a gap is between, said the one way the placing card says them.
+import { toNeighbour } from '../infrastructure/books/book-repository'
 import type { Move, PlankAt } from '../shared/layout'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
@@ -88,7 +90,8 @@ import { booksNoRuleClaims, claimOfBook } from './claim'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
-  bookCover, buildPlacement, formatLocation, parseLocation, shelfImage,
+  bookCover, buildPlacement, formatLocation, parseLocation, placementOnAPlank,
+  shelfImage,
   type Placement, type ShelfRange, type ShelfSlot,
 } from '../shared/shelving'
 
@@ -698,6 +701,85 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       derivedLocation,
       derivedAreaId,
       strip: await stripFor(range, placement.sortKey, excludeId, planks),
+    }
+  }
+
+  /**
+   * The same answer, about the plank a walk is taking this book to (#429).
+   *
+   * **`inDerivedScheme` above asks where the book belongs; this is told where it
+   * is going.** They are different questions and the app had only the first,
+   * which is the whole of #429: a carry list said "4A to 3A", the placing screen
+   * worked out for itself where the book belonged *now*, answered a plank on
+   * another piece of furniture, and the person who did exactly what it asked put
+   * the book somewhere no assignment named. So the trip came straight back, the
+   * finished screen said a book was on a plank it had never written to, and the
+   * count never moved. Nothing was wrong with what got written down; what was
+   * wrong was what the app asked for next.
+   *
+   * There is no second placing screen and there must not be one: the carry flow
+   * calls the same `ShelveView` a newly scanned book gets, and `carrying.test`
+   * pins that. What changed is what it is handed.
+   *
+   * **The plank is not re-derived here and is not checked against the rules.**
+   * It is where the person is standing, taken from the trip they are walking,
+   * and the trip is fixed the moment the books are lifted (`app/armful.tsx`).
+   * Asking the rules again is what this exists to stop.
+   *
+   * Everything drawn is therefore read off that plank rather than out of the
+   * run: the two books the gap is between are the two either side of it among
+   * what is standing there, and the strip is that plank as it looks. A run laid
+   * out by sort key would draw books that are still on the plank the person just
+   * took this armful off.
+   */
+  async function atThePlankItIsGoingTo<
+    T extends Awaited<ReturnType<typeof store.placementFor>>,
+  >(
+    range: 'fiction' | 'nonfiction',
+    placement: T,
+    goingTo: { areaId: number; label: string },
+    /** The book being carried, which must not appear as its own neighbour. */
+    excludeId?: number,
+  ) {
+    const standing = await shelves.standingOn(goingTo.areaId, excludeId)
+
+    // Where along the plank the book goes: the first book standing there that
+    // sorts at or after it. One split rather than two filters, so a book keying
+    // exactly alongside another cannot fall out of both halves and off the row.
+    const found = standing.findIndex((row) => row.sortKey >= placement.sortKey)
+    const gapIndex = found === -1 ? standing.length : found
+
+    const predecessor = toNeighbour(standing[gapIndex - 1])
+    const successor = toNeighbour(standing[gapIndex])
+
+    /*
+     * Rebuilt rather than patched, for `inDerivedScheme`'s reason: the
+     * instruction carries the plank's name inside its wording. `buildPlacement`
+     * is not what rebuilds it, because its sentences are about a whole range and
+     * these neighbours are two books on one plank. See `placementOnAPlank`.
+     */
+    const restated = placementOnAPlank(range, goingTo.label, predecessor, successor)
+
+    return {
+      ...placement,
+      ...restated,
+      suggestedLocation: goingTo.label,
+      derivedLocation: goingTo.label,
+      derivedAreaId: goingTo.areaId,
+      /*
+       * Null for a plank with nothing on it, which is the ordinary first book of
+       * a trip rather than an error. The screen draws the sentence instead, the
+       * same as it does for the first book of an empty run: there is no row of
+       * spines to put a gap in yet.
+       */
+      strip: standing.length
+        ? {
+          label: goingTo.label,
+          gapIndex,
+          placedIndex: null,
+          books: standing.map((row) => stripBook(row, true)),
+        }
+        : null,
     }
   }
 
@@ -1343,6 +1425,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   /**
    * Where would this book go, without saving it? Drives the live placement
    * card as the user edits the review fields.
+   *
+   * **And, since #429, where does it go on the plank a walk is taking it to.**
+   * `goingTo` names that plank, and it is the difference between the two
+   * questions this route can be asked. Without it the answer is the rules':
+   * where does this book belong, which is what somebody typing into the review
+   * pane is asking. With it the answer is about one plank a person is standing
+   * in front of, and the rules are not consulted about which plank that is.
+   *
+   * The carry flow sends it, because a trip already knows where it is going and
+   * the placing screen never did. See `atThePlankItIsGoingTo`.
    */
   app.post('/api/placement/preview', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
@@ -1350,6 +1442,33 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     if (!draft.title) {
       res.status(400).json({ error: 'A title is required to work out placement.' })
       return
+    }
+    /*
+     * The plank a caller says the book is going onto, named by its area and
+     * refused when this collection has no such area.
+     *
+     * Refused rather than ignored, and this is the one thing here that must not
+     * be lenient: quietly falling back to "where does it belong" is exactly the
+     * answer #429 is about, and a screen would have no way of telling that it
+     * had been given it.
+     *
+     * `plankLabels` rather than the run's own planks, so a plank somebody has
+     * taken out of a bookcase still counts. That is half of every trip a run
+     * move creates, and the carry list already names those at the other end of
+     * the walk; a check that only knew the face would refuse the one place a
+     * person is most likely to be standing.
+     */
+    let goingTo: { areaId: number; label: string } | null = null
+    if (body.goingTo !== undefined && body.goingTo !== null) {
+      const areaId = Number(body.goingTo)
+      const label = Number.isInteger(areaId) && areaId > 0
+        ? (await plankLabels(db)).get(areaId)
+        : undefined
+      if (label === undefined) {
+        res.status(400).json({ error: 'There is no such plank to put a book on.' })
+        return
+      }
+      goingTo = { areaId, label }
     }
     // When editing a saved book, it must not turn up as its own neighbour.
     const excludeId = Number(body.excludeId ?? 0) || undefined
@@ -1382,7 +1501,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
     const placement = await store.placementFor(draft, range, excludeId)
-    res.json(await inDerivedScheme(placement.range, placement, excludeId))
+    res.json(goingTo
+      ? await atThePlankItIsGoingTo(placement.range, placement, goingTo, excludeId)
+      : await inDerivedScheme(placement.range, placement, excludeId))
   }))
 
   /**

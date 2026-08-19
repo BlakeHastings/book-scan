@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   bookCover, buildPlacement, buildSortKey, compareLocations, filingName,
-  normalise, parseLocation, reviewShelving, shelfImage, shelfPhoto, shelfPhotoSlot,
-  titleFiling, type FiledBook, type Neighbour,
+  normalise, parseLocation, placementOnAPlank, reviewShelving, shelfImage, shelfPhoto,
+  shelfPhotoSlot, titleFiling, type FiledBook, type Neighbour,
 } from './shelving'
 
 describe('normalise', () => {
@@ -246,6 +246,61 @@ describe('buildPlacement', () => {
     }
     const result = buildPlacement('fiction', neighbour(1, 'Alpha', '1A'), nameless, '1A')
     expect(result.instruction).toContain('Unknown author')
+  })
+})
+
+/**
+ * The same question asked about one plank, for a book somebody is carrying to it.
+ *
+ * Every test here is really one claim: **no sentence says anything about the
+ * range.** `buildPlacement` above is entitled to, because it looked the book up
+ * in the run; these neighbours are the two books either side of a gap on one
+ * plank, and the rest of the range is on other planks. Somebody carrying the
+ * third of eight books onto an empty plank was told, twice, that it was the last
+ * book in non-fiction (#429).
+ */
+describe('placementOnAPlank', () => {
+  const neighbour = (id: number, title: string): Neighbour => ({
+    id, title, authorFiling: `Author ${id}`, authors: '', location: '3A', sortKey: String(id),
+    images: { front: '', back: '', edge: '' },
+  })
+
+  it('names the plank and the two books the gap is between', () => {
+    const result = placementOnAPlank(
+      'nonfiction', '3A', neighbour(1, 'Alpha'), neighbour(2, 'Beta'),
+    )
+    expect(result.kind).toBe('on-a-plank')
+    expect(result.suggestedLocation).toBe('3A')
+    expect(result.instruction).toContain('3A')
+    expect(result.instruction).toContain('Alpha')
+    expect(result.instruction).toContain('Beta')
+  })
+
+  it('says where on the plank when there is only a book on one side', () => {
+    const after = placementOnAPlank('nonfiction', '3A', neighbour(1, 'Alpha'), null)
+    expect(after.instruction).toContain('at the end')
+    expect(after.instruction, 'it claims a place in the whole run').not.toContain('non-fiction')
+
+    const before = placementOnAPlank('nonfiction', '3A', null, neighbour(2, 'Beta'))
+    expect(before.instruction).toContain('at the start')
+    expect(before.instruction, 'it claims a place in the whole run').not.toContain('non-fiction')
+  })
+
+  it('says a bare plank is bare rather than calling the book the first in a range', () => {
+    const result = placementOnAPlank('nonfiction', 'Landing shelves · Top', null, null)
+    expect(result.instruction).toBe(
+      'Landing shelves · Top has nothing on it yet, so this book starts it.',
+    )
+  })
+
+  it('names a neighbour the way every other placement names one', () => {
+    const uncredited: Neighbour = {
+      id: 2, title: 'Beta', authorFiling: '', authors: 'J. R. R. Tolkien',
+      location: '3A', sortKey: '2', images: { front: '', back: '', edge: '' },
+    }
+    const result = placementOnAPlank('fiction', '3A', neighbour(1, 'Alpha'), uncredited)
+    expect(result.instruction).toContain('J. R. R. Tolkien')
+    expect(result.instruction).not.toContain('Unknown author')
   })
 })
 

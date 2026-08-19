@@ -74,25 +74,37 @@ export function CarryingScreen() {
   const [saving, setSaving] = useState(false)
 
   /**
-   * Where this one goes, worked out the way the review pane works it out.
+   * Where this one goes: **on the plank this trip is taking it to** (#429).
    *
    * The book's own row rather than the two fields the list carries, because the
    * placing preview is answered from a draft and the answer has to be the one a
    * save of that book would give.
+   *
+   * `trip.toAreaId` is the fix, and it is one argument because the screen it
+   * feeds is not forked: `ShelveView` is the same component a newly scanned book
+   * gets, and `carrying.test` pins that there is one of it. What was wrong was
+   * that this screen asked where the book belongs *now*, from the rules, rather
+   * than being told where this walk goes. With a second piece of furniture
+   * claiming the same tag, "where it belongs" answered that piece, the person
+   * put the book exactly where they were told, no assignment named that plank,
+   * and the trip came back forever.
+   *
+   * The trip is the one the armful was lifted on and is never re-answered
+   * underneath somebody (`app/armful.tsx`), so this cannot drift while they walk.
    */
   const load = useCallback(async () => {
-    if (!book) return
+    if (!book || !trip) return
     setStale(true)
     try {
       const { book: row } = await api.getBook(book.id)
       const draft = draftFromBook(row)
       setRange(rangeOfSlug(draft.genre))
-      setPlacement(await api.previewPlacement(draft, book.id))
+      setPlacement(await api.previewPlacement(draft, book.id, trip.toAreaId))
       setStale(false)
     } catch (caught) {
       setError((caught as Error).message)
     }
-  }, [book, setError])
+  }, [book, trip, setError])
 
   useEffect(() => {
     if (!trip || !book) { setRoute(trip ? 'carried' : 'carry'); return }

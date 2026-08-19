@@ -421,6 +421,35 @@ export class Shelves {
     return layoutRange(merged, await this.list(range), await this.startOf(range))
   }
 
+  /**
+   * Everything standing on one plank right now, in the order it stands there.
+   *
+   * **Not the layout, and that is the whole of why it exists** (#429). The
+   * layout answers where a book *belongs*, which is a question about the rules;
+   * this answers what is *on* the plank, which is a question about the room. A
+   * person carrying a book to `3A` is looking at whatever is on `3A`, including
+   * the books they carried there ten seconds ago and anything the rules have no
+   * opinion about, and none of that is what a run laid out by sort key draws.
+   *
+   * `current_area_id`, which is the projection of the ledger's `placed` rows and
+   * is indexed with the sort key, so this is an index seek rather than a read of
+   * a whole range. Same reading `tripAtArea` makes at the other end of the walk,
+   * so the plank a person is told about and the plank the finished screen draws
+   * cannot come from two different answers.
+   */
+  async standingOn(areaId: number, excludeId = 0): Promise<ShelvedBook[]> {
+    const rows = await withPlacements(this.db, await withPhotographs(
+      this.db,
+      await this.db.all<FiledBookRow>(
+        'SELECT * FROM shelved_books WHERE current_area_id = ? ORDER BY sort_key ASC',
+        [areaId],
+      ),
+    ))
+    return rows
+      .filter((row) => row.id !== excludeId)
+      .map((row) => ({ ...row, sortKey: row.sort_key }))
+  }
+
   /** The shelf this book lands on, end on, with the gap it goes in. */
   async strip(
     range: ShelfRange,
