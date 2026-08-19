@@ -15,8 +15,18 @@ Feature: The cat on the first screen is alive
   Nothing that renders a component to markup can answer any of this. A tree of
   elements is the same tree whether the stylesheet moves it or not, so "the tail
   moves" stays a claim until something watches frames go by. That is what these
-  three scenarios are: they take the drawing repeatedly over time and compare it
-  against itself.
+  scenarios are: they take the drawing repeatedly over time and compare it
+  against itself, and they measure it against the buttons it is drawn on.
+
+  And the first attempt passed every one of its own tests while being wrong. It
+  put the cat in the sixth cell of the counts grid, where he read as a sixth
+  count with a long tail, and the owner said so as soon as he saw it:
+
+    This is the cat. It is supposed to be sleeping on the actions, not as part
+    of the metrics grid.
+
+  Nothing was checking where he was. Something is now, and it is the last
+  scenario here.
 
   Deliberately not a stored baseline image. This suite has spent real effort
   having nothing left to be flaky about, and a committed screenshot compared
@@ -56,3 +66,12 @@ Feature: The cat on the first screen is alive
     When I open the app
     Then his tail should reach into the first thing I can do
     And taking him away should change nothing about it
+
+  Scenario: He is asleep on the things you can do, not among the counts
+    # The half that was wrong while everything above it was right, so it is
+    # asked in the two ways it can be got wrong: he is clear of the counts
+    # altogether, and he is lying along the top edge of the first button rather
+    # than hovering somewhere above it with a tail let out to reach.
+    When I open the app
+    Then he should be lying on the first thing I can do
+    And no part of him should be in among the counts

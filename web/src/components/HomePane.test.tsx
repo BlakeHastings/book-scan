@@ -124,9 +124,44 @@ describe('the design rules that reach the app', () => {
 
   it('keeps the cat', () => {
     // "We still should have the cat icon on this screen though, because it's
-    // cute." He sits at the end of the counts, which is where the sentence he
-    // used to sit beside used to be.
-    expect(home(), 'the cat has gone off the first screen').toMatch(/wf-stats__cat/)
+    // cute." Where he is, on a day there are things to do, is #427's whole
+    // subject and is checked below.
+    expect(home(), 'the cat has gone off the first screen').toMatch(/wf-cat/)
+  })
+
+  /*
+   * #427, and the fault it closes is the one no rendered tree caught: the cat
+   * was drawn correctly, animated correctly, and in the wrong place.
+   *
+   * > This is the cat. It is supposed to be sleeping on the actions, not as
+   * > part of the metrics grid.
+   *
+   * Markup can answer which block he is in, and that is what is asked here.
+   * Whether he then *looks* like he is lying on the buttons is a fact about
+   * pixels and is answered by measuring him against the first one in a browser:
+   * `e2e/features/the-cat-is-alive.feature`.
+   */
+  it('sleeps on the things you can do rather than among the counts', () => {
+    const html = home({ carrying: [toCarry()], unclaimed: 12 })
+
+    expect(html, 'the cat is back in the counts grid').not.toMatch(/wf-stats__cat/)
+    expect(html, 'the cat is not on the things you can do').toMatch(/wf-doors__cat/)
+    // Before the first button in the markup, which is the half of "behind" that
+    // is not a stylesheet: the buttons are painted after him and over him.
+    expect(html.indexOf('wf-doors__cat'), 'the cat is painted over the buttons')
+      .toBeLessThan(html.indexOf('wf-door--'))
+  })
+
+  it('still says five counts with him gone from the grid', () => {
+    // The hole this was not allowed to leave. Five counts across two rows is
+    // what round eight settled, and the cell after the last one is empty the
+    // way it is empty whenever a count has not answered.
+    const html = home({ queue: queue({ ready: 6, failed: 3 }), carrying: [toCarry()] })
+
+    expect(said(html)).toEqual([
+      'catalogued', 'checked out', 'ready to shelve', 'to carry', 'stuck',
+    ])
+    expect((html.match(/class="wf-stat[ "]/g) ?? []).length, 'a sixth tile appeared').toBe(5)
   })
 
   it('has one door to the camera that reads a book in your hand, and one only', () => {
@@ -221,12 +256,11 @@ describe('the numbers the drawing did not have to survive', () => {
 
   it('stretches him out as soon as there is a book anywhere', () => {
     /*
-     * Round eight's distinction, redrawn by #410 rather than dropped. He used
-     * to sit up on a screen with something on it and sleep on an empty one;
-     * the owner has since asked for him lying down asleep with his tail behind
-     * the doors, so what separates the two days is the pose that reaches
-     * rather than the eyes being open. The first evening draws no doors, and a
-     * tail going behind buttons that are not there is a tail in mid-air.
+     * Round eight's distinction, redrawn by #410 and moved by #427 rather than
+     * dropped. He used to sit up on a screen with something on it and sleep on
+     * an empty one; what separates the two days now is where he is. A book on
+     * the table is a screen with a door on it, so it is a screen he lies on,
+     * and the scoot that makes room for him is that block's own margin.
      */
     const table = home({
       counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 },
@@ -235,17 +269,22 @@ describe('the numbers the drawing did not have to survive', () => {
 
     expect(table, 'the cat slept through a book arriving on the table')
       .toMatch(/wf-cat__sweep/)
-    expect(table, 'the doors were not scooted down for him').toMatch(/wf-stats--bed/)
-    expect(table).toMatch(/wf-stats__cat/)
+    expect(table, 'the things you can do were not scooted down for him')
+      .toMatch(/wf-doors--bed/)
+    expect(table, 'the cat is back among the counts').not.toMatch(/wf-stats__cat/)
   })
 
-  it('leaves him a still loaf on the evening there is nothing to lie across', () => {
+  it('leaves him a still loaf on the evening there is nothing to lie on', () => {
+    // The empty screen has no doors at all, so there is nothing to sleep on
+    // and no button for a tail to go behind. He keeps the cell after the last
+    // count, still and curled, which is where he has been since round eight.
     const nothing = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 } })
 
     expect(nothing, 'a tail was drawn reaching behind doors that are not there')
       .not.toMatch(/wf-cat__sweep/)
-    expect(nothing, 'the counts were scooted down for a cat who is not there')
-      .not.toMatch(/wf-stats--bed/)
+    expect(nothing, 'a bed was made out of buttons that are not drawn')
+      .not.toMatch(/wf-doors/)
+    expect(nothing, 'the cat left the one screen he still closes').toMatch(/wf-stats__cat/)
   })
 
   it('gives him a behaviour rather than a still drawing, on the screen he lies on', () => {

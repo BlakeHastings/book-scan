@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { Cat, type CatDoing } from './Cat'
+import { Cat } from './Cat'
 import { IconOnward } from './Icons'
 import type { Cloth } from './Shelf'
 
@@ -179,7 +179,7 @@ export function Place({ children, quiet = false }: { children: ReactNode; quiet?
 }
 
 /**
- * The counts, three across and wrapping, with the cat at the end of them.
+ * The counts, three across and wrapping.
  *
  * **A count with an `onPress` is a target rather than a label**, and on the
  * first screen every one of them has one. The owner asked for that screen to
@@ -201,46 +201,33 @@ export function Place({ children, quiet = false }: { children: ReactNode; quiet?
  * answered yet left two sharing the width instead of a hole, and wrapping keeps
  * that: a missing count closes up.
  *
- * ## And the cat sits at the end of them
+ * ## The cat is only here on a screen with nothing under him (#427)
  *
  * > We still should have the cat icon on this screen though, because it's cute.
  *
- * The sentence he sat beside is gone, so he needs somewhere to be, and the
- * sixth cell of a five-count grid is somewhere he already belongs: closing a
- * run is one of the three jobs he has. He is drawn here rather than handed in
- * so the gallery and the app cannot end up with two cats at two sizes.
+ * He closed this run from #361, in the sixth cell of a five-count grid, and
+ * #410 stretched him across it in the `lying` pose with his tail reaching down
+ * behind the buttons. The owner looked at that on his phone and said what was
+ * wrong with it:
  *
- * ## And since #410 he lies down and sleeps through it
+ * > This is the cat. It is supposed to be sleeping on the actions, not as part
+ * > of the metrics grid.
  *
- * > I'd like the actions that we have available to be scooted down, and then
- * > the cat laying down sleeping with its tail going behind those buttons, and
- * > the tail slightly moving, and the cat's eyes sometimes slowly opening a
- * > little bit and then closing.
+ * So the cat a screen with things to do draws is not this one. He lies on the
+ * doors, which is where #427 put him: `Doors` in `Controls.tsx` draws him and
+ * this row is five counts and nothing else, three and two, with the sixth cell
+ * empty the way it is empty whenever a count has not answered.
  *
- * `lying` is the pose that does that, and it is the pose the first screen uses
- * now. It brings the scoot with it, because the scoot exists for him: the
- * counts take a bottom margin and the doors move down by exactly that, which
- * is the one thing #410 asks of the row below and it says nothing about what a
- * door is.
- *
- * **Round eight's distinction survives it, drawn differently.** He was sitting
- * on an ordinary day and asleep when the collection was empty, so a wall of
- * zeros read as a new collection rather than a broken one at no cost in words.
- * `lying` takes the ordinary day, and the empty one keeps `sleeping`: a
- * collection with nothing in it draws no doors, and a tail reaching behind
- * buttons that are not there is a tail hanging in mid-air. So the two days are
- * still two drawings, and the pose that says a screen has something on it is
- * now the stretched-out one rather than the upright one.
+ * **What is left here is the bookend, and it is what a screen with no doors
+ * gets.** The first evening is the whole of that: five zeros, no door for a
+ * tail to go behind, and a cat asleep saying the collection is new rather than
+ * broken at no cost in words. That is round eight's distinction and it has not
+ * moved. He is drawn here rather than handed in so the gallery and the app
+ * cannot end up with two cats at two sizes.
  */
-const CAT_ON_STATS: Record<'sitting' | 'sleeping' | 'lying', {
-  size: number
-  doing?: CatDoing
-  /** Whether he is drawn across the row rather than inside its last cell. */
-  across?: boolean
-}> = {
+const CAT_ON_STATS: Record<'sitting' | 'sleeping', { size: number }> = {
   sitting: { size: 58 },
   sleeping: { size: 40 },
-  lying: { size: 132, doing: 'dozing', across: true },
 }
 
 export function Stats({
@@ -249,16 +236,18 @@ export function Stats({
 }: {
   items: { n: string; word: string; onPress?: () => void }[]
   /**
-   * The bookend. `lying` is asleep and alive, hanging out of the row with his
-   * tail behind whatever is under it, and it is what the first screen draws.
-   * `sitting` and `sleeping` are the still pair, inside the last cell.
+   * The bookend, still, and inside the cell after the last count.
+   *
+   * `sitting` on an ordinary run of numbers and `sleeping` where there is
+   * nothing at all. The cat who lies down and sweeps his tail belongs to the
+   * things you can do rather than to the numbers, and `Doors` draws him.
    */
-  cat?: 'sitting' | 'sleeping' | 'lying'
+  cat?: 'sitting' | 'sleeping'
 }) {
   const how = cat ? CAT_ON_STATS[cat] : undefined
 
   return (
-    <div className={`wf-stats${how?.across ? ' wf-stats--bed' : ''}`}>
+    <div className="wf-stats">
       {items.map((item) => {
         const inside = (
           <>
@@ -283,8 +272,8 @@ export function Stats({
         )
       })}
       {cat && how && (
-        <div className={`wf-stats__cat${how.across ? ' wf-stats__cat--bed' : ''}`}>
-          <Cat pose={cat} size={how.size} doing={how.doing} />
+        <div className="wf-stats__cat">
+          <Cat pose={cat} size={how.size} />
         </div>
       )}
     </div>

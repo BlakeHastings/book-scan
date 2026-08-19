@@ -263,22 +263,23 @@ export function HomePane({
       {news}
 
       {/*
-        The cat, and since #410 he lies across this screen rather than standing
-        at the end of a row of it.
+        Five counts, and a cat only on the evening there is nothing under him.
 
-        > I'd like the actions that we have available to be scooted down, and
-        > then the cat laying down sleeping with its tail going behind those
-        > buttons, and the tail slightly moving, and the cat's eyes sometimes
-        > slowly opening a little bit and then closing.
+        He lay across this row from #410 and the owner said what was wrong with
+        it: "it is supposed to be sleeping on the actions, not as part of the
+        metrics grid". So the cat with the tail belongs to `Doors` now (#427)
+        and this is five counts and nothing else, three and two, with the sixth
+        cell of the grid left empty the way it is left empty whenever a count
+        has not answered yet.
 
-        `lying` is the pose that reaches, `Stats` brings the scoot with it, and
-        the doors paint over the tail. **The first evening keeps the loaf**: it
-        draws no doors at all, and a tail reaching behind buttons that are not
-        there is a tail in mid-air, so the two days stay two drawings the way
-        round eight left them.
+        **The first evening keeps the loaf**, which is round eight's own answer
+        and the one thing here that says a wall of zeros is a new collection
+        rather than a broken one. It draws no doors at all, so there is nothing
+        for him to sleep on and nothing for a tail to go behind, and the cell
+        after the last count is where he already belongs.
       */}
       <Stats
-        cat={bare ? 'sleeping' : 'lying'}
+        cat={bare ? 'sleeping' : undefined}
         items={[
           { n: grouped(counts.total), word: 'catalogued', onPress: onLibrary },
           { n: grouped(counts.checkedOut), word: 'checked out', onPress: onLibrary },
@@ -298,11 +299,17 @@ export function HomePane({
         that everything on it earns its place cannot carry a door to an empty
         room. The camera answers a book against the catalogue **or** the table,
         and the second half of that is not a technicality (#122).
+
+        **And the cat sleeps on them** (#427), which is why the block asks for
+        him rather than the counts above it. The two days cannot come apart: a
+        screen that is not `bare` has a book somewhere, and a book somewhere is
+        the camera's door, so there is never a day with counts, no doors and a
+        cat left standing over nothing.
       */}
       {(counts.total > 0 || waiting > 0
         || (carrying && carrying.length > 0)
         || (unclaimed !== null && unclaimed > 0)) && (
-        <Doors>
+        <Doors cat="lying">
           {(counts.total > 0 || waiting > 0) && <InHand onPress={onInHand} />}
           {carrying && carrying.length > 0 && <CarryBooks onPress={onCarry} />}
           {/*

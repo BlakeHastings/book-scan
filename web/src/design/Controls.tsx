@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef, type ReactNode } from 'react'
+import { Cat } from './Cat'
 import { IconCarry, IconInHand, IconOnward, IconSaying } from './Icons'
 
 export function Button({
@@ -401,8 +402,55 @@ export function Field({
  * book they already own into a second record. So each sentence is a constant
  * here, next to the component that draws it.
  */
-export function Doors({ children }: { children: ReactNode }) {
-  return <div className="wf-doors">{children}</div>
+export function Doors({ children, cat }: {
+  children: ReactNode
+  /**
+   * The cat, asleep on top of the things you can do (#427).
+   *
+   * > This is the cat. It is supposed to be sleeping on the actions, not as
+   * > part of the metrics grid.
+   *
+   * He was in the counts, in the sixth cell of a five-count grid, reading as a
+   * sixth count with only his tail reaching down here. What was asked for is
+   * this, and it was asked for in these words:
+   *
+   * > I'd like the actions that we have available to be scooted down, and then
+   * > the cat laying down sleeping with its tail going behind those buttons,
+   * > and the tail slightly moving, and the cat's eyes sometimes slowly opening
+   * > a little bit and then closing.
+   *
+   * So the scoot belongs to this block rather than to the counts: **the room he
+   * sleeps in is above these buttons, and it is these buttons that make it**.
+   * The counts know nothing about him now and draw five counts and no cat.
+   *
+   * He is drawn here rather than handed in, for the reason every sentence on a
+   * door is a constant in this file: the gallery and the app draw this block
+   * twice and neither may end up with a different cat.
+   *
+   * **He is only ever asked for where there is something to lie on.** A screen
+   * with no doors draws no `Doors`, so there is no version of this that puts a
+   * cat over nothing; the first evening keeps him asleep at the end of the
+   * counts instead, which is where `Stats` still draws him.
+   */
+  cat?: 'lying'
+}) {
+  return (
+    <div className={`wf-doors${cat ? ' wf-doors--bed' : ''}`}>
+      {cat && (
+        /*
+          Before the buttons, so they paint over him: each door is opaque paper
+          and takes `position: relative` for exactly this, which is what makes
+          the tail pass *behind* one rather than across its face. Proved by
+          taking him away and finding the button's own pixels unchanged, in
+          `e2e/features/the-cat-is-alive.feature`.
+        */
+        <span className="wf-doors__cat">
+          <Cat pose={cat} size={96} doing="dozing" />
+        </span>
+      )}
+      {children}
+    </div>
+  )
 }
 
 export function Door({
@@ -497,8 +545,28 @@ export function CarryBooks({ onPress }: { onPress?: () => void }) {
  * A collection with enough rules lives with none of these, and a walk to a list
  * of nothing is the door-to-an-empty-room fault the first screen keeps being
  * defended against.
+ *
+ * ## The words, which were not a sentence (#427)
+ *
+ * It read "Say what the books nothing files are", and the owner found it on his
+ * phone. That is not English: "the books nothing" is read as a noun phrase and
+ * the reader is halfway down the row before finding out that "nothing files" was
+ * the relative clause. A door is one line and gets one reading, and this is the
+ * door to the books most in need of a person, so it is the last one that may
+ * read as broken.
+ *
+ * What it says now is what somebody would say out loud about them, and it names
+ * them by the thing that is true of them rather than by a clause: **unfiled**.
+ * The verb is the app's own, and has been since a rule started filing books: an
+ * area with no rule reaching it says "Nothing files here yet". A book no rule
+ * files is unfiled, and this door says so out loud in six words.
+ *
+ * **The room it opens is called the same thing** (`UnclaimedPane`, and the
+ * drawings at `#/design/unclaimed`): the door says "the unfiled books" and the
+ * screen is titled "Unfiled books". A door and a room with two names between
+ * them is somebody pressing one thing and arriving at another.
  */
-export const SAY_WHAT = 'Say what the books nothing files are'
+export const SAY_WHAT = 'Say what the unfiled books are'
 
 export function SayWhat({ onPress }: { onPress?: () => void }) {
   return <Door word={SAY_WHAT} icon={<IconSaying size={20} />} mark="saying" onPress={onPress} />

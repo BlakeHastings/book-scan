@@ -853,7 +853,7 @@ explicitly**, and this specification is not the place to do that.
 What the screen does gain, in slice 3, is a **door and not a count**. Doors sit
 below the counts, are drawn only when they can do something, and there are three
 (`Find the book in your hand`, `Carry books where they belong`, `Say what the
-books nothing files are`). A fourth, `Pick up where you left off`, drawn only when
+unfiled books are`). A fourth, `Pick up where you left off`, drawn only when
 at least one book is being read, opens the library narrowed to Reading. **That is
 the sofa moment**: open the app, one press, one press, and the page field is in
 front of you. It reads `GET /api/books?reading=reading&limit=3`, which both tells
