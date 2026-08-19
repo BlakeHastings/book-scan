@@ -61,6 +61,15 @@ export function useLeaving(): Leaving {
   const { setRoute, setQueueReturn } = useNavigation()
   const { origin, bookId, clearBookInHand } = useBookInHand()
 
+  /*
+   * Where finishing with this book leads, worked out while it is still in hand.
+   *
+   * Putting a book down is what forgets where it came from, so this has always
+   * had to be read first. It is read at render now rather than inside the
+   * function, which is the same "first" and one a caller can have too.
+   */
+  const landing = RETURN_TO[origin]
+
   /**
    * Put the book down and go back to wherever it was picked up.
    *
@@ -69,18 +78,12 @@ export function useLeaving(): Leaving {
    * moments, and they all owe the person the screen they started on. There
    * used to be two of these disagreeing about which screen that was.
    *
-   * The origin is read before the book is put down, since putting it down is
-   * what forgets where it came from. queueReturn survives on purpose; QueuePane
-   * uses it once to land near the book just handled, then reports it consumed.
+   * queueReturn survives on purpose; QueuePane uses it once to land near the
+   * book just handled, then reports it consumed.
    */
-  const landing = RETURN_TO[origin]
-
   const returnToOrigin = () => {
-    // Read before the book is put down, since putting it down is what forgets
-    // where it came from. It is read at render for the same reason.
-    const back = landing
     clearBookInHand()
-    setRoute(back)
+    setRoute(landing)
   }
 
   /**
