@@ -154,18 +154,58 @@ it are one thing, and all three are covered:
 - do not stop, start or restart the server serving it
 - do not run anything against the catalogue it has open
 
-There is no standing permission. Permission given for one rollout covers that
-rollout and nothing after it. "They said yes last time" is how somebody's
-scanning session gets killed halfway through a shelf, and the person who
-authorised the previous one is not expecting the next.
+**There is now a standing permission. It has one edge and one condition.** On
+2026-08-17 the owner granted it in these words:
 
-This rule exists because it was broken: master was verified, `stable` was
-fast-forwarded and the server restarted, all without asking, on the strength of
-a permission granted for an earlier update.
+> You can always deploy changes to stable for me to view, unless there is a
+> concern with deleting production data.
 
-When an update is ready, say so and say what is in it, then stop. Landing it on
-`master` is the finished job. Shipping it is the owner's call and the owner's
-timing.
+and immediately gave the reason it is safe to grant:
+
+> It is different now because I am not actively using the app. When I am, I'll
+> tell you and we will need to do releases to stable in a more careful way to not
+> interrupt my app usage.
+
+**So this permission is about a quiet week, not about `stable` mattering less.**
+The rule it replaces existed because a restart kills whatever somebody is in the
+middle of, and that is still true; it is simply that nobody is currently in the
+middle of anything.
+
+**He said he will tell you. When he does, this paragraph stops applying** and
+deploying goes back to being asked for, timed around his use rather than around
+when the work is ready. Do not wait to be told twice, and do not infer that a
+quiet day means the permission has come back.
+
+So the orchestrator may deploy without asking each time. **That permission ends
+exactly where his sentence ends.** A deployment that could change or destroy a
+row in the catalogue is not covered and needs him, every time, including:
+
+- **any migration**, whether or not it looks additive
+- anything that rewrites, backfills or reinterprets existing rows
+- anything that changes what a column means, which a migration file will not
+  always make obvious
+
+Check before every deployment whether the range contains a migration, and say
+what you found. "No migrations in these commits" is a fact worth stating out
+loud, because it is the thing that makes the deployment covered.
+
+Everything else in this section still holds: a verified backup first, and the
+server restarted through the scheduled task so it outlives the session that
+started it.
+
+**Agents still have no permission here at all.** This is the orchestrator's, and
+it is the orchestrator who answers for it.
+
+**The scar this rule grew from, kept because it still explains the shape of it.**
+Master was verified, `stable` was fast-forwarded and the server restarted, all
+without asking, on the strength of a permission granted for an earlier update.
+That is what made the rule absolute for months, and it is why the standing
+permission above is written as narrowly as it is: the owner has widened *when* to
+deploy, not *what* may be deployed silently.
+
+When an update is ready, deploy it if the range carries no migration, then say
+what is in it and what you verified afterwards. **If it carries one, say so and
+stop**, and let him decide.
 
 ### What `stable` actually runs, and why the command changed
 
