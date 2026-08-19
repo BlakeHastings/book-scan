@@ -1353,8 +1353,23 @@ export const api = {
       `/api/captures/${id}`,
     ),
 
+  /**
+   * The whole queue, its counts, and which capture the worker is holding.
+   *
+   * `reading` is a fact about the server rather than about a book, which is
+   * why it rides here rather than on a row: it is the id the background pass
+   * has in its hands for the seconds one reading takes, and null when the pass
+   * is not reading anything. A waiting book and a book being read said
+   * "Reading photos" alike until #436, so a queue that had stopped was
+   * indistinguishable from one that was busy.
+   *
+   * Absent from an older server, and the queue then says the honest thing for
+   * a server that did not answer the question, which is the waiting word.
+   */
   listCaptures: () =>
-    request<{ captures: Capture[]; counts: QueueCounts }>('/api/captures'),
+    request<{ captures: Capture[]; counts: QueueCounts; reading?: number | null }>(
+      '/api/captures',
+    ),
 
   claimCapture: (id: number, who: string) =>
     request<{ capture: Capture }>(`/api/captures/${id}/claim`, {
@@ -2095,7 +2110,7 @@ export function editsOn(capture: Capture): CaptureEdit {
  */
 function machineDraft(capture: Capture): Draft {
   const looked = lookupOn(capture)
-  return looked?.found
+  const base = looked?.found
     ? draftFromLookup(looked, capture.isbn_source)
     : {
         ...emptyDraft,
@@ -2103,6 +2118,24 @@ function machineDraft(capture: Capture): Draft {
         isbn10: capture.isbn10,
         isbnSource: capture.isbn_source,
       }
+  /*
+   * The row's own columns have the last word about the identifier, and only
+   * about the identifier (#436).
+   *
+   * A catalogue's record is not obliged to carry the number it was found by:
+   * Open Library answers plenty of editions with no ISBN-13 identifier on them
+   * at all. Taking the lookup's copy and nothing else meant a book the row and
+   * the queue listing both showed a number for could reach the screen where it
+   * is corrected saying "Not read yet", which is the app telling somebody to
+   * retype a number it already has. Nothing else falls back like this: a title
+   * or an author off the row would be a machine's reading promoted into a box
+   * somebody saves (#147), and there is no such column to promote anyway.
+   */
+  return {
+    ...base,
+    isbn13: base.isbn13 || capture.isbn13,
+    isbn10: base.isbn10 || capture.isbn10,
+  }
 }
 
 /**
@@ -2135,6 +2168,41 @@ export function draftFromCapture(capture: Capture): Draft {
   }
 
   return { ...base, ...patch }
+}
+
+/**
+ * The identifier a reading produced, laid into a draft that has none (#436).
+ *
+ * **For the camera, where there is no draft to read a capture into.** Opening a
+ * book from the queue goes through `draftFromCapture` above and always has; the
+ * camera watches the capture it is filling and had exactly two answers for what
+ * came back, a found lookup and an error banner. So the third outcome, which is
+ * the ordinary one for a book no catalogue has, put nothing anywhere: the
+ * barcode decoded, the digits went to the row and to the database, and the
+ * screen where the book is corrected said "Not read yet" underneath a banner
+ * quoting the very number it had read.
+ *
+ * Two rules, and both are about not claiming more than was read:
+ *
+ * - **The identifier and nothing else.** No catalogue answered, so there is no
+ *   title and no author to carry, and what OCR read off the cover is evidence
+ *   rather than an answer (#147).
+ * - **A person's answer wins.** An empty box is filled in; one somebody has
+ *   already answered is left exactly as it is, which is the precedence the
+ *   queue keeps on the server (#65) said once more on this side of the wire.
+ */
+export function withReadIsbn(
+  draft: Draft,
+  capture: Pick<Capture, 'isbn13' | 'isbn10' | 'isbn_source'>,
+): Draft {
+  if (!capture.isbn13 && !capture.isbn10) return draft
+  if (draft.isbn13 || draft.isbn10) return draft
+  return {
+    ...draft,
+    isbn13: capture.isbn13,
+    isbn10: capture.isbn10,
+    isbnSource: capture.isbn_source,
+  }
 }
 
 /** What to call a capture on a screen that lists several of them. */

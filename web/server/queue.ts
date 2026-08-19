@@ -18,6 +18,35 @@
  * stuck capture costs this loop a minute and one book, where it used to cost
  * every book behind it for the life of the process.
  *
+ * ## What picks the queue up, and when it stops (#436)
+ *
+ * Three things used to call `drain`: the shutter, a retake, and boot. All three
+ * are events inside this process, and the guard on `drain` refused any of them
+ * that arrived while a pass was running. So a capture written while the last
+ * pass was taking its last look at the queue was read by nobody, and eight of
+ * them sat saying "Reading photos" for five minutes, through reloads, until
+ * somebody pressed the shutter again. **A queue that has silently stopped looks
+ * exactly like a queue that is busy**, which is the fourth time this app has
+ * stopped quietly.
+ *
+ * Two answers, and they are different problems:
+ *
+ * 1. **`drainAgain`.** A refused call is remembered and the running loop looks
+ *    once more before it stops. That closes the race for good rather than
+ *    narrowing it, and it involves no clock at all.
+ * 2. **`wake` and `sweepPass`.** Nothing inside this process knows about a
+ *    capture another process wrote, so something has to look. It is armed by a
+ *    read that saw pending work rather than by a timer of its own, and it stops
+ *    the moment a pass fails to shorten the queue. **It is not a poll**: #299
+ *    is the reason an unbounded background loop is not an option here.
+ *
+ * What it deliberately does not do is give a waiting capture a deadline of its
+ * own. A capture nobody could read is already a state with a name and a retry
+ * on it (#299, #339); a capture nobody has looked at yet is a different fact
+ * and dressing it as the first would send somebody to a book whose photographs
+ * are fine. What it gets instead is `reading`, so the two words on the row are
+ * "Reading photos" and "Waiting to be read" rather than one word for both.
+ *
  * ## There is no `captures` table any more (#183)
  *
  * A book exists from its first photograph. The queue held the same thing at an
@@ -73,6 +102,18 @@ import {
  * predicate `queued_books` and `idx_books_queued` already share.
  */
 const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
+
+/**
+ * How long a sweep waits before it looks at the queue again (#436).
+ *
+ * Five seconds, and the number is answerable rather than round. A reading takes
+ * about six or seven seconds when it goes well (#299), so a sweep that fires
+ * sooner would spend its passes finding a drain already in flight, and one that
+ * fired much later would be a person watching a queue that says nothing is
+ * happening while nothing is. It is the delay before the *first* look, not an
+ * interval: see `wake`, which is armed by a reader, not by a clock.
+ */
+const SWEEP_MS = 5_000
 
 /**
  * The row a caller of this class gets, in the shape the queue has always
@@ -319,6 +360,16 @@ export function editsOn(capture: Pick<CaptureRow, 'edit_json'>): CaptureEdit {
 
 export class CaptureQueue {
   private draining = false
+  /**
+   * A drain that was asked for while one was running, so the running one looks
+   * again before it stops. The same arrangement `hashAgain` below keeps, and
+   * for the same reason: a guard that refuses work has to remember it did.
+   */
+  private drainAgain = false
+  /** The capture the worker has in its hands right now. See `reading`. */
+  private readingNow: number | null = null
+  /** The sweep that is armed, where one is. See `wake`. */
+  private sweep: ReturnType<typeof setTimeout> | null = null
   private hashing = false
   private hashAgain = false
 
@@ -1089,23 +1140,140 @@ export class CaptureQueue {
    * working from a list taken at the start.
    */
   async drain(): Promise<void> {
-    if (this.draining) return
+    if (this.draining) {
+      // The whole of #436's first half. A call refused here used to be a call
+      // dropped, and the pass that refused it may already have taken its last
+      // look for work: `nextPending` is a query on another connection, so a
+      // capture inserted while that query was in flight lands behind the only
+      // eye that was going to see it. The refusal is recorded instead, and the
+      // running loop looks once more before it stops.
+      this.drainAgain = true
+      return
+    }
     this.draining = true
     try {
       for (;;) {
         const next = await this.nextPending()
-        if (!next) break
-        await this.process(next)
-        // After the reading, not before it: identifying the book is what the
-        // queue is for and what the next person is waiting on, and a crop is
-        // worth a second of a background pass but not a second of that.
-        // Idempotent, so a capture that comes back round for a newly arrived
-        // photograph crops only the slot that is new.
-        await this.derive(next.id)
+        if (!next) {
+          // Nothing found, but somebody asked while this pass was running, so
+          // the empty answer above may be older than what they were telling it
+          // about. Look again. Cleared before the second look rather than
+          // after, so a call arriving during *that* look is recorded too.
+          if (!this.drainAgain) break
+          this.drainAgain = false
+          continue
+        }
+        // Which capture the worker is actually holding. Only ever set here, so
+        // it answers the one question a person looking at a queue that says
+        // "Reading photos" cannot otherwise ask: is anything reading?
+        this.readingNow = next.id
+        try {
+          await this.process(next)
+          // After the reading, not before it: identifying the book is what the
+          // queue is for and what the next person is waiting on, and a crop is
+          // worth a second of a background pass but not a second of that.
+          // Idempotent, so a capture that comes back round for a newly arrived
+          // photograph crops only the slot that is new.
+          await this.derive(next.id)
+        } finally {
+          this.readingNow = null
+        }
       }
     } finally {
       this.draining = false
+      this.drainAgain = false
     }
+  }
+
+  /**
+   * Which capture the worker has in its hands, or null when it has none.
+   *
+   * Not a column and never written down: it is a fact about this process, true
+   * for the seconds one reading takes. `GET /api/captures` hands it out beside
+   * the queue so a row can say whether it is being read or waiting to be, which
+   * before #436 were one word.
+   */
+  get reading(): number | null {
+    return this.readingNow
+  }
+
+  /** How many captures are waiting to be read. The sweep's whole measure. */
+  private async pendingCount(): Promise<number> {
+    const row = await this.db.get<{ n: number }>(
+      `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM books WHERE "state" = ?`,
+      [STATE_OF_QUEUE_STATUS.pending],
+    )
+    return Number(row?.n ?? 0)
+  }
+
+  /**
+   * Look at the queue again in a moment, because somebody found work in it that
+   * nothing in this process was going to pick up.
+   *
+   * **This is not a poll and it must never become one** (#436). The queue is
+   * drained by the shutter, by a retake and at boot, and every one of those is
+   * an event inside this process; a capture written by anything else, which in
+   * practice is the seeder or a second server, is invisible to all three. So
+   * something has to look — and #299 is the reason it has to be able to stop,
+   * because an unbounded background loop against a reader that has wedged is
+   * the shape of fault this app keeps finding.
+   *
+   * It stops on its own, and `sweepPass` below is where that is decided rather
+   * than here. Arming is idempotent: a hundred requests arm one sweep.
+   *
+   * Returns nothing and is never awaited. **The shutter waits on nothing**, and
+   * neither does the read that arms this.
+   */
+  wake(): void {
+    if (this.sweep) return
+    const timer = setTimeout(() => {
+      this.sweep = null
+      void this.sweepPass()
+    }, SWEEP_MS)
+    // The same reason `withDeadline` unrefs its own: a sweep that is merely
+    // waiting must not be what keeps a process alive.
+    timer.unref?.()
+    this.sweep = timer
+  }
+
+  /**
+   * One look at the queue, and the decision about whether there is another.
+   *
+   * **The stopping condition is the point of this method.** It arms a second
+   * sweep only where the pass it just made left strictly fewer captures pending
+   * than it found, so the number of sweeps is bounded by the number of captures
+   * that were waiting when the first one was armed: a non-negative integer that
+   * has to fall every time or this ends. A queue nothing can move is swept once
+   * and then left alone, which is what stops a reader that has wedged being
+   * pounded until somebody restarts the server.
+   *
+   * Public, and it answers whether it armed another, because both of those are
+   * for the same test. Waiting five real seconds to watch a sweep is how a
+   * suite gets slow enough that nobody runs it, and "it stopped" is not a thing
+   * a test can wait for at all.
+   */
+  async sweepPass(): Promise<boolean> {
+    const before = await this.pendingCount()
+    // Nothing waiting: whatever armed this was looking at an older answer than
+    // this one, and there is nothing to come back for.
+    if (before === 0) return false
+
+    try {
+      // Returns at once if a pass is already running, which is the case where
+      // the queue is being picked up by something better than this and the
+      // measurement below will say so.
+      await this.drain()
+    } catch (error) {
+      // Said out loud and then left alone, for the reason the worker's own
+      // catch is: a sweep that fails silently is the fourth quiet stop.
+      console.warn('[queue] the sweep could not read the queue:', (error as Error).message)
+      return false
+    }
+
+    const after = await this.pendingCount()
+    if (after === 0 || after >= before) return false
+    this.wake()
+    return true
   }
 
   private async process(capture: CaptureRow): Promise<void> {
@@ -1398,5 +1566,10 @@ export class CaptureQueue {
     // ended the process, the same defect as the chain after a save.
     await this.hashQueued()
     await this.drain()
+    // And one look afterwards, for whatever landed while the boot pass was
+    // running. A seeded world is written by another process against the same
+    // database, so "the queue was empty when I looked" is a fact with a
+    // shelf life. The sweep stops itself; see `wake`.
+    this.wake()
   }
 }

@@ -1122,8 +1122,28 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
   }))
 
+  /**
+   * The whole queue, and the two things about it that are not rows.
+   *
+   * `reading` is which capture the worker has in its hands, or null. It is not
+   * a column and it is not stored: it is true for the seconds one reading
+   * takes, and it exists because a row that says "Reading photos" while nothing
+   * is reading is the state #436 is about. With it, the queue can say which of
+   * its waiting books is being read and which are waiting to be.
+   *
+   * **And a read that finds pending work arms the sweep** (#436). Nothing in
+   * this process knows about a capture another process wrote, so the moment
+   * somebody looks at a queue with unread books in it is the moment to make
+   * sure something is reading them. It is fired and not awaited: this answers
+   * with what the queue says now, and the sweep is a background pass that stops
+   * itself. Only where background work is on at all, which is the same
+   * condition the boot resume is under and for the same reason.
+   */
   app.get('/api/captures', asyncRoute(async (_req, res) => {
-    res.json({ captures: await queue.list(), counts: await queue.counts() })
+    const captures = await queue.list()
+    const counts = await queue.counts()
+    if (startBackgroundWork && counts.pending > 0) queue.wake()
+    res.json({ captures, counts, reading: queue.reading })
   }))
 
   app.post('/api/captures/:id/claim', asyncRoute(async (req, res) => {

@@ -74,12 +74,23 @@ interface Row {
   tree: ReactElement
 }
 
-function row(over: Partial<Capture> = {}, held = false): Row {
+/**
+ * One row, drawn as the queue draws it.
+ *
+ * `reading` is which capture the server says its worker is holding, and the
+ * default is that it is holding this one: every assertion below that predates
+ * #436 was written about a row whose photographs were actually being read, and
+ * the ones that are about a row nobody has reached say so by naming a different
+ * id.
+ */
+function row(over: Partial<Capture> = {}, held = false, reading?: number | null): Row {
   const opened: Capture[] = []
   const undone: number[] = []
+  const one = capture(over)
   const tree = QueueRow({
-    capture: capture(over),
+    capture: one,
     held,
+    reading: reading === undefined ? one.id : reading,
     onOpen: (c) => opened.push(c),
     onUndo: (id) => undone.push(id),
     gesture,
@@ -321,9 +332,11 @@ describe('what a failed row says is wrong', () => {
 
   /* The other question, which used to share this answer. One word each, and
      they are the words the control above the list filters by, so a book found
-     under "Stuck" says "Stuck" on itself. */
+     under "Stuck" says "Stuck" on itself. `pending` takes the id of the book
+     the worker is holding, which is the one thing the status cannot say; see
+     the block below. */
   it('says the state separately, in the words the filter uses', () => {
-    expect(stateWord(capture({ status: 'pending' }))).toBe('Reading photos')
+    expect(stateWord(capture({ id: 3, status: 'pending' }), 3)).toBe('Reading photos')
     expect(stateWord(capture({ status: 'ready' }))).toBe('Identified')
     expect(stateWord(capture({ status: 'done' }))).toBe('Shelved')
     expect(stateWord(capture({ status: 'failed' }))).toBe('Stuck')
@@ -738,5 +751,92 @@ describe('which stuck books are worth reading again', () => {
       capture({ id: 6, status: 'pending' }),
       capture({ id: 7, status: 'done' }),
     ])).toEqual([])
+  })
+})
+
+/**
+ * A book being read, and a book waiting to be (#436).
+ *
+ * Eight captures said "Reading photos" for five minutes with nothing reading
+ * any of them, because `pending` was one word over two situations and the
+ * screen had no way to tell them apart. It has one now, and it is not a column:
+ * the server says which capture its worker is holding, for the seconds one
+ * reading takes.
+ *
+ * **The waiting word is not a failure and must never read like one.** A capture
+ * that could not be read already has its own word, its own diagnosis pill and
+ * its own retry (#299, #339). A capture nobody has reached yet is a different
+ * fact about a book whose photographs are perfectly fine, and dressing it as
+ * the first would send somebody to fetch a book that never needed them.
+ */
+describe('a book being read and a book waiting to be', () => {
+  const waiting = capture({ id: 7, status: 'pending' })
+
+  it('says a book is being read only when the worker is holding it', () => {
+    expect(stateWord(waiting, 7)).toBe('Reading photos')
+  })
+
+  it('says a book behind it is waiting rather than being read', () => {
+    expect(stateWord(waiting, 4)).toBe('Waiting to be read')
+  })
+
+  /* The whole queue at once, which is what a stopped queue looks like: nothing
+     at the front of it claiming to be read. That is the state five minutes of
+     "Reading photos" was hiding. */
+  it('says every book is waiting when nothing is being read at all', () => {
+    expect(stateWord(waiting, null)).toBe('Waiting to be read')
+    expect(stateWord(waiting)).toBe('Waiting to be read')
+  })
+
+  /* It says nothing about the other three: whether the worker is holding a
+     book is only a question about a book it could be holding. */
+  it('changes nothing about a book that is not waiting for the reader', () => {
+    for (const status of ['ready', 'failed', 'done'] as CaptureStatus[]) {
+      expect(stateWord(capture({ id: 7, status }), null))
+        .toBe(stateWord(capture({ id: 7, status }), 7))
+    }
+  })
+
+  it('draws the two words on the row rather than only in the helper', () => {
+    expect(renderToStaticMarkup(row({ status: 'pending' }).tree))
+      .toContain('Reading photos')
+    expect(renderToStaticMarkup(row({ status: 'pending' }, false, null).tree))
+      .toContain('Waiting to be read')
+  })
+
+  /* Not a diagnosis, and this is the line that keeps it from becoming one. A
+     waiting book carries no "wants" pill, so nothing on it tells anybody to go
+     and find the book. */
+  it('never dresses a waiting book as one that could not be read', () => {
+    const html = renderToStaticMarkup(row({ status: 'pending' }, false, null).tree)
+    expect(html).not.toContain('Stuck')
+    expect(html).not.toContain('needs an ISBN')
+    expect(html).not.toContain('could not be read')
+    expect(whatItNeeds({ ...waiting })).toBe('')
+  })
+})
+
+/**
+ * Where the screen opens, which is whatever sent somebody to it (#436).
+ *
+ * "31 stuck" on the first screen opened this one on "All 39". The right screen,
+ * showing the wrong thing, and **a count is a promise about what you will see**.
+ * The pane takes the answer as the state it opens on rather than as a filter it
+ * is held to, so the control above the list still works normally afterwards.
+ */
+describe('which books the queue opens on', () => {
+  it('opens on the whole queue when nothing said otherwise', () => {
+    expect(PANE).toMatch(/useState<Which>\(showing \?\? 'all'\)/)
+  })
+
+  /* Pinned on the source for the reason the block above the search box is: the
+     pane asks the server the moment it mounts, so it cannot be rendered here.
+     What would break this is somebody making `showing` a prop the filter is
+     held to, which would leave a person who came in on "Stuck" unable to see
+     the rest of their queue. */
+  it('lets the control above the list take it from there', () => {
+    expect(PANE).toMatch(/onPick=\{setWhich\}/)
+    expect(PANE, 'the filter is held to what opened the screen')
+      .not.toMatch(/SHOWING\[showing/)
   })
 })

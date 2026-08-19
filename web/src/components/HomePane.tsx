@@ -47,6 +47,12 @@
  * carry list, which is where the trips are and where somebody says they have
  * carried a book. That last one went to the library until #314 built the flow.
  *
+ * **And going somewhere is not enough** (#436). Both of the queue's counts
+ * opened it on the whole queue, so pressing "31 stuck" produced a list headed
+ * "All 39" and somebody had to find the thirty-one again. A count is a promise
+ * about what you will see, so each of these two hands the queue the books it
+ * was counting.
+ *
  * Five counts and five destinations, and the headings they used to sit under
  * are gone: "the collection" and "needs you" were the shape #283 gave this
  * screen and #361 took away, because a person reading five numbers does not
@@ -126,6 +132,7 @@ import { Trouble } from '../design/Trouble'
 import { troubleWith } from '../lib/backupWords'
 import { grouped } from '../lib/say'
 import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
+import type { Which } from './QueuePane'
 
 interface Props {
   counts: Counts | null
@@ -179,7 +186,16 @@ interface Props {
   /** That menu, while it is open. */
   menu?: ReactElement
   onLibrary: () => void
-  onQueue: () => void
+  /**
+   * Open the queue, on the books the press was about (#436).
+   *
+   * **The argument is the whole of the fix.** "31 stuck" opened the queue on
+   * "All 39": the right screen, showing the wrong thing. A count on this screen
+   * is a promise about what you will see, and two of these five were counting
+   * one kind of book and opening a list of every kind. The tab bar passes
+   * nothing, because a tab is not a claim about anything.
+   */
+  onQueue: (showing?: Which) => void
   /**
    * Go and carry them, which is a flow of its own since #314 and used to be the
    * library's needs-attention list. The count and the door both open it,
@@ -211,7 +227,9 @@ export function HomePane({
     home: () => {},
     library: onLibrary,
     scan: onAdd,
-    queue: onQueue,
+    /* The whole queue. A tab is a room rather than a claim about how many
+       books are in it, so this is the one way in that filters nothing. */
+    queue: () => onQueue(),
   }
 
   const top = (
@@ -283,11 +301,17 @@ export function HomePane({
         items={[
           { n: grouped(counts.total), word: 'catalogued', onPress: onLibrary },
           { n: grouped(counts.checkedOut), word: 'checked out', onPress: onLibrary },
-          { n: grouped(queue.ready), word: 'ready to shelve', onPress: onQueue },
+          {
+            n: grouped(queue.ready),
+            word: 'ready to shelve',
+            // Not `onQueue` bare: the count says six and the queue has to open
+            // on those six. See the prop's own note.
+            onPress: () => onQueue('ready'),
+          },
           ...(carrying
             ? [{ n: grouped(carrying.length), word: 'to carry', onPress: onCarry }]
             : []),
-          { n: grouped(queue.failed), word: 'stuck', onPress: onQueue },
+          { n: grouped(queue.failed), word: 'stuck', onPress: () => onQueue('stuck') },
         ]}
       />
 

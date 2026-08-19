@@ -28,8 +28,8 @@ import {
   type Dispatch, type ReactNode, type SetStateAction,
 } from 'react'
 import {
-  api, deviceName, draftFromLookup, editFromDraft, emptyDraft,
-  type Draft, type LookupResponse, type QueueMatch,
+  api, deviceName, draftFromLookup, editFromDraft, emptyDraft, withReadIsbn,
+  type Capture, type Draft, type LookupResponse, type QueueMatch,
 } from '../lib/api'
 import { putDownCapture, putDownOnPageHide, type HeldCapture } from '../lib/leaveCapture'
 import type { Slot } from '../lib/scanner'
@@ -169,6 +169,11 @@ export interface BookInHand extends ShelfState {
   readonly endReviewSession: () => void
   readonly clearBookInHand: () => void
   readonly applyLookup: (result: LookupResponse, isbnSource: string) => void
+  /**
+   * What a reading produced when no catalogue answered: the ISBN and where it
+   * came from, and nothing else (#436). See the implementation.
+   */
+  readonly applyReading: (capture: Capture) => void
 }
 
 const Context = createContext<BookInHand | null>(null)
@@ -323,6 +328,28 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
   }, [])
 
   /**
+   * Take what the reading produced when no catalogue answered for it (#436).
+   *
+   * **A reading that ends in `failed` still read something**, and the case this
+   * exists for is the common one: the barcode decoded perfectly, the digits are
+   * on the row and in the database, and nothing anywhere has that book. The
+   * camera showed the worker's note as a banner and put nothing in the book in
+   * hand, so the screen behind it was headed "Barcode on the back reads
+   * 9780030000126" over a field reading "Not read yet", and the only thing left
+   * to do was retype a number the app already had.
+   *
+   * Only the identifier, and only into a field nobody has answered. There is no
+   * title and no author here on purpose: a lookup found nothing, so anything
+   * beyond the digits would be this app inventing a record, and what OCR read
+   * off the cover is evidence rather than an answer (#147). And a person's
+   * typing wins over a background pass that lands behind it, which is the same
+   * precedence the queue keeps on the server (#65).
+   */
+  const applyReading = useCallback((capture: Capture) => {
+    setDraft((current) => withReadIsbn(current, capture))
+  }, [])
+
+  /**
    * Put down whatever book is on screen: release its capture lock, bump the
    * review session so a relookup still in flight for it cannot land once it
    * has been left, and clear every field that describes it. Callers decide
@@ -402,6 +429,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
         endReviewSession,
         clearBookInHand,
         applyLookup,
+        applyReading,
       }}
     >
       {children}
