@@ -94,9 +94,21 @@ present and wired, after two fixes made that day:
 **`.claude/settings.json` is gitignored here**, so the hook wiring is
 machine-local: a fresh clone gets `scripts/guard-merge.mjs` and no hook calling
 it. That is worth knowing before trusting layer 2 in a checkout you did not
-wire yourself.
+wire yourself. The same is now true of the compaction hooks.
 
-`scripts/guard-merge.mjs` in this repo **predates the `--probe` flag** the skill
-documents, so the "wired is not loaded" question cannot be answered here yet.
-Until it can, the honest statement about the guard is that it is installed, not
-that it is loaded.
+**The guard is loaded, and we found that out by accident.** It refused an
+attempt to open a pull request, because the pull request's *body* quoted the
+merge command it denies, and then refused a heredoc writing an issue about it
+for the same reason. So it reads the whole command string and cannot tell a
+command from a document a command is carrying. Both halves of that are #444:
+the false positive, and the fact that the repo's copy predates the `--probe`
+flag, so being denied by accident was the only way to learn the answer. The
+workaround while it stands is `--body-file`, or a non-shell write tool.
+
+## Open, as of this writing
+
+- **#443** — this change. Mine, written and to be merged by me, which the PR
+  body says out loud.
+- **#444** — the guard defects above. Dispatchable; not dispatched, because the
+  three agents already out are enough and this one is not urgent while the
+  guard's failure direction is to over-refuse rather than to let a merge past.
