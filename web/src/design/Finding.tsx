@@ -429,7 +429,8 @@ export function TagPick({
   return (
     <button type="button" className={className} aria-pressed={on} onClick={onPress}>
       <span className="wf-pick__name">{name}</span>
-      <span className="wf-pick__count">{books} books</span>
+      {/* One book is one book, the same as the row under it (#433). */}
+      <span className="wf-pick__count">{books} book{books === 1 ? '' : 's'}</span>
       {on && <span className="wf-pick__mark">Showing</span>}
     </button>
   )

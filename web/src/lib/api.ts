@@ -144,6 +144,30 @@ export interface Plank {
   label: string
 }
 
+/** A label as it reads now and as it will read. */
+export interface LabelChange {
+  from: string
+  to: string
+}
+
+/**
+ * One direction a boundary move is open in, and what taking it costs.
+ *
+ * `empties` is set for the one move that removes furniture: a book alone in an
+ * area is both the first and the last book of it, so both directions are open,
+ * and either leaves the area with no books to name. The screen asks before
+ * taking one, the same way the furniture screen asks before removing an area
+ * (#281), and it can only ask because the offer says the question is coming.
+ */
+export interface BoundaryOffer extends Plank {
+  empties: {
+    /** What each area that goes is called today. */
+    areas: string[]
+    /** Every label that reads differently once they are gone. */
+    becomes: LabelChange[]
+  } | null
+}
+
 /** A single shelf seen end on, with the space the new book goes in. */
 export interface PlacementStrip {
   label: string
@@ -162,7 +186,7 @@ export interface PlacementStrip {
    * position can be offered one (#96). The server refuses the move itself
    * regardless of what this said a moment ago.
    */
-  boundary?: { next: Plank | null; previous: Plank | null }
+  boundary?: { next: BoundaryOffer | null; previous: BoundaryOffer | null }
 }
 
 export interface PlacementResponse extends Placement {
@@ -1740,11 +1764,17 @@ export const api = {
    *
    * The server refuses a book that is not at a boundary; the controls that
    * call this are only offered on ones that are. Both, deliberately.
+   *
+   * `theAreaGoes` says somebody has been asked about the one move that removes
+   * furniture, and the server refuses without it (#433). It is not a flag the
+   * caller may set to be rid of a dialog: it means a person read what would
+   * happen and pressed the button that does it.
    */
   moveAcrossBoundary: (
     range: ShelfRange,
     id: number,
     direction: 'next' | 'previous',
+    theAreaGoes = false,
   ) =>
     request<{
       move: (PlankStep & { id: number; title: string }) | null
@@ -1752,7 +1782,7 @@ export const api = {
       moves: Move[]
     }>('/api/shelves/move', {
       method: 'POST',
-      body: JSON.stringify({ range, id, direction }),
+      body: JSON.stringify({ range, id, direction, theAreaGoes }),
     }),
 
   /**

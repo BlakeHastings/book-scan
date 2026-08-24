@@ -7,13 +7,14 @@ import { Actions, Amiss, Head } from '../design/Book'
 import { Phone } from '../design/Phone'
 import { Shots, threeSlots, type Shot } from '../design/Shots'
 import { Sure } from '../design/Sure'
-import type { Draft, LookupResponse, Misfile, Plank } from '../lib/api'
+import type { AppliedTag, BoundaryOffer, Draft, LookupResponse, Misfile, TagRow } from '../lib/api'
 import { rememberedFirstPicture } from '../lib/firstPicture'
 import { grouped } from '../lib/say'
 import { SLOT_SHORT, type Slot } from '../lib/scanner'
 import { BookFields } from './BookFields'
 import { IsbnPrompt } from './IsbnPrompt'
 import { Trouble } from './RoomFrame'
+import { TagNaming } from './TagNaming'
 import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 interface Props {
@@ -76,10 +77,19 @@ interface Props {
    * same screen as this book's recorded location, so what it says has to be what
    * that says: it read `Move it on to 1B` beside `Hall shelf · B`, which is two
    * names for one plank on one screen.
+   *
+   * **And what the move costs** (#433). An offer whose `empties` is set takes an
+   * area off the furniture, so pressing it asks first instead of doing it.
    */
-  boundaryMoves?: { next: Plank | null; previous: Plank | null } | null
-  /** Carry the first or last book of an area to the plank beside it. */
-  onBoundaryMove?: (direction: 'next' | 'previous') => void
+  boundaryMoves?: { next: BoundaryOffer | null; previous: BoundaryOffer | null } | null
+  /**
+   * Carry the first or last book of an area to the plank beside it.
+   *
+   * The second argument is somebody having been asked about an area going, not a
+   * property of the move: the server refuses a move that removes furniture
+   * without it, which is what keeps the promise off this rendering.
+   */
+  onBoundaryMove?: (direction: 'next' | 'previous', theAreaGoes: boolean) => void
   boundaryMoving?: boolean
   /** Present only for a book already on the shelves. */
   onDelete?: () => void
@@ -107,6 +117,22 @@ interface Props {
    * notice opens, so it is on the screen twice without being written once.
    */
   misfile?: Misfile | null
+  /**
+   * What a person has said this book is, and the vocabulary to say more in.
+   *
+   * The third door onto naming a book (#433). #377 built it on the queue's
+   * check-the-details screen and #400 let a rule name a tag nothing carries yet;
+   * a book already on a shelf had neither, so the only thing anybody could say
+   * about one was which of two genres it was. It is the same `useTagging` hook
+   * both other screens use and the same panel, because a second way of saying
+   * what a book is would be two vocabularies waiting to disagree.
+   */
+  tags?: AppliedTag[]
+  vocabulary?: TagRow[]
+  taggingBusy?: boolean
+  taggingError?: string
+  onAddTag?: (tag: { slug: string; label: string }) => void
+  onRemoveTag?: (slug: string) => void
 }
 
 /**
@@ -191,12 +217,25 @@ export function BookDetail({
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
   boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
   misfile = null,
+  tags = [], vocabulary = [], taggingBusy = false, taggingError = '',
+  onAddTag, onRemoveTag,
 }: Props) {
   // A catalogued book opens as a record. A new one opens ready to correct,
   // because correcting it is the whole reason it is on screen.
   const [editing, setEditing] = useState(!saved)
   const [asking, setAsking] = useState(false)
+  const [naming, setNaming] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  /**
+   * The direction of a boundary move somebody is being asked about, or null.
+   *
+   * Only ever set for an offer whose `empties` says an area goes with the book
+   * (#433). An ordinary move re-anchors a boundary and removes nothing, and a
+   * dialog over every one of them would be the ceremony `Sure`'s own comment
+   * warns against: what it exists for is the moment somebody cannot find out
+   * afterwards.
+   */
+  const [emptying, setEmptying] = useState<'next' | 'previous' | null>(null)
   const [jokeIndex, setJokeIndex] = useState(0)
   /*
    * Which picture the record opens on, read once when the page mounts. A
@@ -324,6 +363,30 @@ export function BookDetail({
 
   const back = editing && saved ? () => setEditing(false) : onDiscard
 
+  /*
+   * The offer somebody is being asked about, or null when nothing is being
+   * asked. Read back off `boundaryMoves` rather than copied into state when the
+   * button was pressed, so a placement that arrives while the question is on
+   * screen is the placement the question is about.
+   */
+  const asked = emptying ? boundaryMoves?.[emptying] ?? null : null
+  const goingWith = asked?.empties ? { ...asked, empties: asked.empties } : null
+
+  /*
+   * Taking one of the two offers, which is two different acts wearing one
+   * button (#433).
+   *
+   * A move that only re-anchors a boundary happens on the press, as it always
+   * has: the shelving step is the stop, and it names the plank and waits. A move
+   * that leaves an area with no books on it takes that area off the furniture,
+   * and #281 settled that a thing somebody cannot find out afterwards is asked
+   * about first.
+   */
+  const start = (direction: 'next' | 'previous', offer: BoundaryOffer) => {
+    if (offer.empties) setEmptying(direction)
+    else onBoundaryMove?.(direction, false)
+  }
+
   return (
     <div className="wf">
       <Phone
@@ -358,6 +421,15 @@ export function BookDetail({
             onCancel={() => setAsking(false)}
             onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
           />
+        ) : naming ? (
+          <TagNaming
+            vocabulary={vocabulary}
+            carried={tags.map((tag) => tag.slug)}
+            busy={taggingBusy}
+            error={taggingError}
+            onPick={(tag) => { onAddTag?.(tag); setNaming(false) }}
+            onClose={() => setNaming(false)}
+          />
         ) : confirmingDelete && onDelete ? (
           <Sure
             title={`Delete ${draft.title || 'this book'}?`}
@@ -369,6 +441,37 @@ export function BookDetail({
             busy={deleting}
             onAct={onDelete}
             onKeep={() => setConfirmingDelete(false)}
+          />
+        ) : goingWith ? (
+          /*
+            The one boundary move that removes furniture, asked about before it
+            happens rather than reported after (#433).
+
+            It is `Sure` and not a second dialog invented here, for the reason
+            that component exists: the area screen already asks this exact
+            question when somebody removes an area, and two dialogs about one act
+            are two sets of words waiting to disagree about what it does. The
+            rows under it are the labels that read differently afterwards, which
+            is #281's argument that showing a renumbering beats claiming one.
+          */
+          <Sure
+            title={goingWith.empties.areas.length === 1
+              ? `${goingWith.empties.areas[0]} goes when this book leaves it`
+              : `${goingWith.empties.areas.join(' and ')} go when this book leaves`}
+            said={
+              'It is the only book there, and an area with no books on it comes off '
+              + `the furniture. Carry it to ${goingWith.label} and say it fits; until you `
+              + 'do, the list of books needing attention offers the move back.'
+            }
+            becomes={goingWith.empties.becomes}
+            act={boundaryMoving ? 'Moving...' : `Move it to ${goingWith.label}`}
+            busy={boundaryMoving}
+            onAct={() => {
+              const direction = emptying!
+              setEmptying(null)
+              onBoundaryMove?.(direction, true)
+            }}
+            onKeep={() => setEmptying(null)}
           />
         ) : undefined}
       >
@@ -483,6 +586,15 @@ export function BookDetail({
               lookup={lookup}
               derivedFiling={derivedFiling}
               onChange={onChange}
+              tags={tags}
+              taggingBusy={taggingBusy}
+              taggingError={taggingError}
+              onRemoveTag={onRemoveTag}
+              /* The panel is over the whole screen rather than inside the form,
+                 which is why opening it is a callback rather than a state this
+                 owns: there is a keyboard under it. Same shape as the queue's
+                 check-the-details screen, and the same panel. */
+              onAddTag={onAddTag ? () => setNaming(true) : undefined}
             />
 
             {/*
@@ -584,7 +696,7 @@ export function BookDetail({
                   tone="quiet"
                   small
                   off={boundaryMoving}
-                  onPress={() => onBoundaryMove('next')}
+                  onPress={() => start('next', boundaryMoves.next!)}
                 >
                   {boundaryMoving ? 'Moving...' : `Move it on to ${boundaryMoves.next.label}`}
                 </Button>
@@ -594,7 +706,7 @@ export function BookDetail({
                   tone="quiet"
                   small
                   off={boundaryMoving}
-                  onPress={() => onBoundaryMove('previous')}
+                  onPress={() => start('previous', boundaryMoves.previous!)}
                 >
                   {boundaryMoving
                     ? 'Moving...'

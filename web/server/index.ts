@@ -2061,19 +2061,28 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * Nothing here writes a location. The furniture moves; a person then says
    * the book is on the new plank through PATCH /api/books/:id/location, which
    * is still the only route that changes where the catalogue thinks a book is.
+   *
+   * **`theAreaGoes` is somebody having been asked** (#433). Moving the only book
+   * off a plank takes the area with it, and a request that has not said it knows
+   * that is refused with the sentence and a room exactly as it was. The dialog
+   * is the screen's; being unable to do it silently is the route's.
    */
   app.post('/api/shelves/move', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const range = body.range === 'nonfiction' ? 'nonfiction' : 'fiction'
     const direction = body.direction === 'previous' ? 'previous' : 'next'
     const id = Number(body.id ?? 0)
+    const theAreaGoes = body.theAreaGoes === true
 
     // Read before the move, as it always was: afterwards the book may have
     // left this layout, and the title is what the person is told to carry.
     const title = (await shelves.layout(range)).find((p) => p.book.id === id)?.book.title ?? ''
-    const result = await shelves.moveAcrossBoundary(range, id, direction)
+    const result = await shelves.moveAcrossBoundary(range, id, direction, { theAreaGoes })
     if (!result.ok) {
-      res.status(400).json({ error: result.error })
+      // The refusal carries what it refused to do, so a caller that asked
+      // without knowing can put the question in front of somebody rather than
+      // reading it back out of a sentence.
+      res.status(400).json({ error: result.error, empties: result.empties ?? null })
       return
     }
 

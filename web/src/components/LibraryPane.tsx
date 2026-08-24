@@ -66,6 +66,7 @@ import { areaRuns } from '../lib/areaRuns'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
 import { plural } from '../lib/carryWords'
 import { grouped } from '../lib/say'
+import { plural } from '../lib/carryWords'
 import { useBrowsing } from '../app/browsing'
 import { useListing } from '../app/listing'
 import { useNavigation } from '../app/navigation'
@@ -101,8 +102,8 @@ export function LibraryPane() {
    */
   const counted = counts
     ? narrowed
-      ? `${grouped(total)} of ${grouped(counts.total)} books`
-      : `${grouped(counts.total)} books`
+      ? `${grouped(total)} of ${plural(counts.total, 'book')}`
+      : plural(counts.total, 'book')
     : undefined
 
   const open = (book: FiledBookRow) => viewBook(book.id)
@@ -124,7 +125,7 @@ export function LibraryPane() {
       */}
       <Filter
         tags={narrowing.map((tag) => tag.label)}
-        note={counts ? `${grouped(total)} books` : ''}
+        note={counts ? plural(total, 'book') : ''}
         onTags={() => setRoute('tags')}
         onFind={() => setRoute('find')}
         look={look}

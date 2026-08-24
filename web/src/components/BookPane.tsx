@@ -105,7 +105,7 @@ import { Frame } from './Frame'
 export function BookPane() {
   const { setRoute, openClaim } = useNavigation()
   const { viewing, setTyped } = useBrowsing()
-  const { openBook, viewBook } = useOpenBook()
+  const { openBook, moveBook, viewBook } = useOpenBook()
 
   const [book, setBook] = useState<BookRow | null>(null)
   const [credits, setCredits] = useState<Credit[]>([])
@@ -285,8 +285,15 @@ export function BookPane() {
             {busy ? 'Just a moment' : 'Check it out'}
           </Button>
         )}
+        {/*
+          A walk, not a form (#433). It opened the screen that corrects a record,
+          which offers check out, edit, back to library and delete and nothing at
+          all about where the book now is, so pressing it did nothing and said
+          nothing about why. It opens the step that places a book, which is where
+          a location is written and the only place one is.
+        */}
         {!out && (
-          <Button tone="quiet" small onPress={() => void openBook(book.id)}>
+          <Button tone="quiet" small onPress={() => void moveBook(book.id)}>
             It moved
           </Button>
         )}

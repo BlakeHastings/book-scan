@@ -31,8 +31,8 @@
 
 import { Card, Said } from '../design/Card'
 import { Field } from '../design/Controls'
-import { Tag, Tags } from '../design/List'
-import type { Draft, LookupResponse } from '../lib/api'
+import { AddTag, Tag, Tags } from '../design/List'
+import type { AppliedTag, Draft, LookupResponse } from '../lib/api'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
 interface Props {
@@ -40,6 +40,20 @@ interface Props {
   lookup: LookupResponse | null
   derivedFiling: string
   onChange: (patch: Partial<Draft>) => void
+  /**
+   * What a person has said this book is, beyond which of the two genres it is.
+   *
+   * Absent until #433, which is the defect: the two genre answers are a draft
+   * the save writes, and everything else somebody might say about a book is a
+   * set written the moment it is said. This form had the first and not the
+   * second, so a book already on a shelf could not be told what it was.
+   */
+  tags?: AppliedTag[]
+  taggingBusy?: boolean
+  taggingError?: string
+  /** Open the panel a tag is named in. Absent where there is nowhere to write one. */
+  onAddTag?: () => void
+  onRemoveTag?: (slug: string) => void
 }
 
 const CONFIDENCE_LABEL: Record<string, string> = {
@@ -49,7 +63,10 @@ const CONFIDENCE_LABEL: Record<string, string> = {
   unknown: 'unknown, please set',
 }
 
-export function BookFields({ draft, lookup, derivedFiling, onChange }: Props) {
+export function BookFields({
+  draft, lookup, derivedFiling, onChange,
+  tags = [], taggingBusy = false, taggingError = '', onAddTag, onRemoveTag,
+}: Props) {
   const confidence = draft.classificationConfidence
 
   /*
@@ -114,8 +131,26 @@ export function BookFields({ draft, lookup, derivedFiling, onChange }: Props) {
           >
             Non-fiction
           </Tag>
+
+          {/* Everything else somebody has said this book is, in the same
+              wrapping row as the two genre answers, because a person reading
+              this sees tags. Where they came from is a distinction the model
+              needs and the screen does not, and the review screen draws the
+              same row the same way. Lit, because every one of these is on the
+              book right now and pressing one takes it off again. */}
+          {tags.map((tag) => (
+            <Tag
+              key={tag.slug}
+              tone="on"
+              onPress={taggingBusy ? undefined : () => onRemoveTag?.(tag.slug)}
+            >
+              {tag.label}
+            </Tag>
+          ))}
+          {onAddTag && <AddTag onPress={onAddTag}>Add a tag</AddTag>}
         </Tags>
         {why && <Said>{why}</Said>}
+        {taggingError && <Said>{taggingError}</Said>}
       </div>
 
       <Field
