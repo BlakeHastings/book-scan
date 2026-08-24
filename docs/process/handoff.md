@@ -22,11 +22,58 @@ they do not collide:
 | #433 | the book page and manage screen | an offer that relocates a correctly filed book and deletes its area, without asking |
 | #432 | the camera error message and the shelving cascade | a failure message at 1.05:1 in the light theme, and a cascade with no button that obeys it |
 
+A fourth agent, a read-only hunting pass on the lending journey, was dispatched
+beside them and is described below under what the restart cost.
+
 **#430 is deliberately held back.** It collides with two of the three: its
 "one fixture, two names" is the same defect family as #434's phantom bookcase,
 and its overflow-onto-the-wrong-bookcase is the same cascade #432 is inside.
 Dispatch it after those two land, and re-check its four items against the
 result first, because some of them may already be gone.
+
+## The harness process exited, and took every agent with it
+
+This happened on 2026-08-24 with four agents running, and it is the most useful
+thing in this file, because none of it is guessable from the repository.
+
+**Three of the four came back; one did not.** A stopped agent's transcript is on
+disk and it can be resumed from where it stopped, with its worktree intact and
+still locked. The fourth had no transcript at all, so there was nothing to
+resume and it was discarded and its worktree pruned. **Resume or discard: do not
+quietly finish an agent's work yourself.** Whether a transcript exists is the
+whole of the decision, and you find out by trying.
+
+**Two of the three had done hours of work and committed none of it.** One had
+twelve or more modified files across `web/server/` and `web/src/components/`
+with no branch created and nothing pushed. Nothing was lost, because a worktree
+survives the process that made it, but nothing was *safe* either. When resuming
+an agent, tell it to commit what it already has before it does anything else. If
+this happens a second time, the fix moves out of this file and into
+`docs/process/working-an-issue.md` as an instruction to branch and commit early,
+which is where it will actually be read.
+
+**An agent's environment outlives the agent.** The dead one left an AppHost and
+six node processes running against a worktree whose owner no longer existed.
+`aspire stop` from inside that worktree stopped the AppHost and left three
+children, which then exited on their own. Check with a process query filtered on
+the worktree path rather than assuming the stop was complete, and do it before
+pruning, because the pruner cannot see a process holding files open.
+
+**`prune-worktrees.mjs` refused the dead worktree over two untracked scratch
+files, and that is the tool working.** It made somebody look. They turned out to
+be `aspire describe` output and nothing else, and only then was the worktree
+removable. Do not reach for `--force` on that refusal; read what it is holding.
+
+**Disk went from 45 GB to 20 GB in about an hour with four worktrees**, and
+pruning one returned only 1 GB. On this machine four concurrent agents is the
+practical ceiling, and it is a disk ceiling rather than a judgment about
+collision surface. A fifth was briefed and deliberately not dispatched. Watch
+`df -h /c` rather than the agent count.
+
+**The shell started failing to fork** under that load: `sed` returned
+`Resource temporarily unavailable`, and `bash.exe.stackdump` in the repo root is
+the residue of the same thing. If commands start failing for no reason, it is
+the machine and not the repository.
 
 ## The one thing that is easy to get wrong here
 
@@ -108,7 +155,22 @@ workaround while it stands is `--body-file`, or a non-shell write tool.
 ## Open, as of this writing
 
 - **#443** — this change. Mine, written and to be merged by me, which the PR
-  body says out loud.
+  body says out loud. Green.
+- **#445** — the documentation half of #444, split out because it is inert to
+  CI and lands first under this repo's own merge discipline. Green.
 - **#444** — the guard defects above. Dispatchable; not dispatched, because the
-  three agents already out are enough and this one is not urgent while the
-  guard's failure direction is to over-refuse rather than to let a merge past.
+  agents already out are enough and this one is not urgent while the guard's
+  failure direction is to over-refuse rather than to let a merge past.
+
+**Both pull requests are green and neither can be merged.** The harness's own
+auto-mode classifier refuses `node scripts/merge-pr.mjs <n>`, which is this
+repository's only sanctioned way to land anything. The script itself runs:
+`--help` returns its usage. It is the merge invocation specifically, and it
+needs a Bash permission rule from the owner. Nothing is wrong with the branches.
+
+**Which means this file does not yet exist on `master`.** It lives only on
+`platform/continuity-hooks`, and the `SessionStart` hook resolves
+`docs/process/handoff.md` against the checkout it fires in. Until #443 lands,
+the compaction layer installed to carry this across a boundary will report that
+there is no handoff. The restart described above is exactly the failure it was
+built for, and it arrived four hours early.
