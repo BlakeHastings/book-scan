@@ -173,3 +173,35 @@ Feature: A cascade asks at every plank, shows each move, and makes none of them 
     And the bookcase should still show "The Dispossessed" on "1A"
     And the catalogue should hold "The Dispossessed" recorded as:
       | location | 1A |
+
+  Scenario: The shuffle already made is still on screen when you come back
+    `Cascade.done` is append only, because a book that was physically carried
+    was physically carried. It lived on the shelving step itself, though, and a
+    screen unmounts the moment the route changes, so the way out threw the whole
+    record away: the catalogue still knew where the book had gone and the person
+    holding the next one no longer did (#432).
+
+    What does not come back is the question. Nothing moved for it and nobody has
+    looked at those shelves since, so the way back in is the placing question
+    asked again, with the record of what was carried underneath it.
+
+    Given the camera is pointed at the back cover of "Dune"
+    When I open the app
+    And I start the camera
+    And I photograph the book
+    Then the camera should recognise the book as "Dune"
+
+    When I review what it found
+    And I confirm the details and go to shelve it
+    And I say there is no room on the shelf
+    And I say there is no room on that one either
+    Then it should ask me to move "The Book Thief" from "1B" to "1C"
+
+    When I say the moved book fitted
+    Then it should ask me to move "The Dispossessed" from "1A" to "1B"
+
+    When I go back to the book details
+    And I confirm the details and go to shelve it
+    Then the shuffle should still list "The Book Thief" carried from "1B" to "1C"
+    And it should not ask me to move any other book
+    And it should tell me to put "Dune" in the gap at "1A"

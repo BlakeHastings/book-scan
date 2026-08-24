@@ -156,6 +156,30 @@ export function repropose(cascade: Cascade, proposal: Proposal): Cascade {
   }
 }
 
+/**
+ * The shuffle as it stands after somebody leaves the shelving step (#432).
+ *
+ * Two halves with opposite answers, which is why this is a function and not a
+ * reset. **What was carried survives**: `done` is append only because a book
+ * that was physically carried was physically carried, and every rung was
+ * written to the catalogue as it was confirmed. Losing the list of them left
+ * the person at the bookcase with no record of what they had already done while
+ * the database quietly held all of it.
+ *
+ * **What was only asked does not.** A frame is a proposal, and a proposal is not
+ * an observation (#111): nothing on the shelves has moved for it, and nobody has
+ * looked at those shelves since it was drawn. Answering it later is the stale
+ * answer #106 is about, one level in. So the way back in is the placing question
+ * again, asked about the shelves as they now are, with the record of the carried
+ * books still under it.
+ *
+ * The same cascade rather than a new one when there was nothing open, so a route
+ * change that had no shuffle to tidy costs no render.
+ */
+export function walkedAway(cascade: Cascade): Cascade {
+  return cascade.stack.length ? { done: cascade.done, stack: [] } : cascade
+}
+
 /** How many books are in the air. Zero means only the one in your hand. */
 export function depth(cascade: Cascade): number {
   return cascade.stack.length

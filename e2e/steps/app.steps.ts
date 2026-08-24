@@ -428,6 +428,24 @@ When('I say the moved book fitted', async ({ page }) => {
 })
 
 /**
+ * What the shuffle list still says, after somebody has been somewhere else.
+ *
+ * The list is the only place a person can see which books they have already
+ * carried, and it survives leaving the shelving step because the carrying did
+ * (#432). Matched on the whole sentence, including the words that mean the
+ * write landed, so a row that came back as an open question rather than as a
+ * move that happened fails here.
+ */
+Then(
+  'the shuffle should still list {string} carried from {string} to {string}',
+  async ({ page }, title: string, from: string, to: string) => {
+    await expect(page.locator('.wf-step')).toContainText(
+      `${title}: end of ${from} to start of ${to} · moved and written down`,
+    )
+  },
+)
+
+/**
  * The same answer as "there is no room on the shelf", given about a plank the
  * cascade has already reached rather than about the one the book started on.
  *

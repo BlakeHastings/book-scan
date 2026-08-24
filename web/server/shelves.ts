@@ -595,26 +595,31 @@ export class Shelves {
     // everywhere else on the same screen.
     const here = planks.at(at).label || label
 
-    // Two different failures used to share one message, which sent you looking
-    // at the shelf when the real problem was that the label never existed.
-    if (!groups.some((g) => g.label === label)) {
+    /*
+     * The one thing this can refuse, and it used to be two.
+     *
+     * The other was "`here` holds only one book, so moving it along would just
+     * empty the shelf. Put the new book on the next shelf instead." That
+     * sentence told somebody to do a thing this screen offers no way of doing,
+     * and it was wrong as well as unhelpful: emptying the plank is how the gap
+     * gets opened. See `overflow`, and `docs/shelving.md` under "Placing a book
+     * on a plank that is full" and "The edge cases" (#432).
+     *
+     * Two different failures used to share one message, which sent you looking
+     * at the shelf when the real problem was that the label never existed. That
+     * is why the sentence names the shelves this run does have.
+     */
+    const noSuchPlank = () => {
       const said = groups.map((g) => planks.at({ shelf: g.shelf, area: g.area }).label)
-      return {
-        ok: false,
-        error: said.length
-          ? `There is no shelf ${here}. Shelves here are ${said.join(', ')}.`
-          : `There is no shelf ${here} yet; nothing has been shelved in this range.`,
-      }
+      return said.length
+        ? `There is no shelf ${here}. Shelves here are ${said.join(', ')}.`
+        : `There is no shelf ${here} yet; nothing has been shelved in this range.`
     }
 
+    // `overflow` answers null for exactly this, and asking it that way keeps the
+    // two from being able to disagree about which planks a run has.
     const step = overflow(before, separators, label, kindIfNew)
-    if (!step) {
-      return {
-        ok: false,
-        error: `${here} holds only one book, so moving it along would just ` +
-          'empty the shelf. Put the new book on the next shelf instead.',
-      }
-    }
+    if (!step) return { ok: false, error: noSuchPlank() }
 
     return { ok: true, step, before, separators }
   }

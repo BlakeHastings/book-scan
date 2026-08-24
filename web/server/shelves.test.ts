@@ -117,11 +117,24 @@ describe('saying a shelf is full', () => {
     expect(await labels()).toEqual(['1A', '2A'])
   })
 
-  it('refuses a shelf with only one book on it', async () => {
-    await add('Ann Author')
+  /*
+   * It used to refuse this, saying the plank held only one book and that moving
+   * it along would empty the shelf (#432). Emptying it is the point: the person
+   * needs a gap on the plank the book in their hand belongs on, and on a plank
+   * holding one book the gap is the whole plank. `docs/shelving.md` allows the
+   * only book in an area to leave it, and says the cascade and a boundary moved
+   * by hand write the same thing.
+   */
+  it('takes the only book off a shelf, leaving that shelf bare', async () => {
+    const ann = await add('Ann Author')
     const result = await shelves.overflow('fiction', plank('1A'), 'area')
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain('holds only one book')
+    expect(result.ok).toBe(true)
+    expect(result.step?.moved.id).toBe(ann)
+    expect(result.step?.from).toBe('1A')
+    expect(result.step?.to).toBe('1B')
+    // 1A is bare, so it has no books to name it and drops out of the layout
+    // until something lands on it. Which is what the person is about to do.
+    expect(await labels()).toEqual(['1B'])
   })
 
   it('walks the cascade one answer at a time', async () => {
@@ -187,12 +200,14 @@ describe('proposing the move without making it', () => {
     expect(await shelves.list('fiction')).toHaveLength(0)
   })
 
-  it('reports the refusals rather than pretending a move is available', async () => {
+  it('reports the one refusal rather than pretending a move is available', async () => {
     await add('Ann Author')
-    expect((await shelves.proposeOverflow('fiction', plank('1A'), 'area')).error)
-      .toContain('holds only one book')
-    expect((await shelves.proposeOverflow('fiction', plank('9Z'), 'area')).error)
-      .toContain('There is no shelf 9Z')
+    // A plank this run does not have is the only thing left to refuse (#432),
+    // and the sentence says which planks it does have.
+    const refused = await shelves.proposeOverflow('fiction', plank('9Z'), 'area')
+    expect(refused.ok).toBe(false)
+    expect(refused.error).toContain('There is no shelf 9Z')
+    expect(refused.error).toContain('1A')
   })
 })
 
@@ -323,17 +338,21 @@ describe('placing a book on a shelf that is full', () => {
     expect(await labels()).toEqual(['1A', '1A', '2A'])
   })
 
-  it('answers for a shelf with one book on it, which the cascade cannot', async () => {
-    // A shelf holding one book has nothing to give up, so the cascade refuses.
-    // That refusal was the only answer available, and it is the wrong one when
-    // the book in hand goes at the end: it moves, not the one on the shelf.
+  it('is preferred to the cascade on a shelf with one book on it', async () => {
+    // Both answers exist here since #432: the cascade would take Author off 1A
+    // and 1A would be bare. It is still the wrong one when the book in hand
+    // goes at the end of the plank, because then it moves and nothing shelved
+    // does, which is #77.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(bob, '1B')
     expect(await labels()).toEqual(['1A', '1B'])
 
-    expect((await shelves.overflow('fiction', plank('1A'), 'area')).ok).toBe(false)
+    // Offered rather than made, so the shelf is still there for the line below.
+    expect((await shelves.proposeOverflow('fiction', plank('1A'), 'area')).step)
+      .toMatchObject({ from: '1A', to: '1B' })
+
     // Bailey goes after Author and before Baker, so 1A is where he belongs and
     // there is nothing on it to his right.
     expect((await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Ann Bailey'))).carry)
@@ -352,9 +371,60 @@ describe('placing a book on a shelf that is full', () => {
 
     const result = await shelves.overflow('fiction', plank('1B'), 'area', await keyFor('Ann Baxter'))
     expect(result.carry).toBeUndefined()
-    // 1B holds one book, so the cascade has nothing to give up and says so.
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain('holds only one book')
+    // 1B holds one book, and it gives that one up like any other plank (#432):
+    // Downs goes on to 1C and 1B is left bare for the book coming off 1A.
+    expect(result.ok).toBe(true)
+    expect(result.step?.moved.id).toBe(ids[3])
+    expect(result.step?.from).toBe('1B')
+    expect(result.step?.to).toBe('1C')
+  })
+
+  it('walks the whole chain through a plank that holds one book', async () => {
+    /*
+     * The case #432 reported. A person is handed a book off the end of 1A, they
+     * carry it to 1B, and 1B holds one book and will not take it. The app used
+     * to answer "1B holds only one book, so moving it along would just empty the
+     * shelf. Put the new book on the next shelf instead", which is a sentence
+     * with no button behind it and the wrong instruction besides.
+     *
+     * Walked here the way the screen walks it: propose, descend on a no, and
+     * confirm the outer move last, recording where each book physically went.
+     */
+    const ids: number[] = []
+    for (const a of ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs']) ids.push(await shelve(a))
+    await shelves.overflow('fiction', plank('1A'), 'area')
+    await store.setLocation(ids[3]!, '1B')
+    expect(await labels()).toEqual(['1A', '1A', '1A', '1B'])
+
+    // Baxter files between Baker and Church, so the gap is in the middle of 1A.
+    const placing = await keyFor('Ann Baxter')
+
+    // Down one: 1A is full, so Church comes off its end and is offered to 1B.
+    const first = await shelves.proposeOverflow('fiction', plank('1A'), 'area', placing)
+    expect(first.step?.moved.id).toBe(ids[2])
+    expect(first.step).toMatchObject({ from: '1A', to: '1B' })
+
+    // Down two: 1B will not take Church, so Downs goes on to a 1C that is made
+    // for him. Nothing about 1A has been decided yet.
+    const second = await shelves.overflow('fiction', plank('1B'), 'area', placing, ids[3])
+    expect(second.ok).toBe(true)
+    expect(second.step).toMatchObject({ from: '1B', to: '1C' })
+    await store.setLocationIn(ids[3]!, second.planks!.to.areaId!)
+
+    // Up one: Church goes on the plank Downs has just left.
+    const back = await shelves.overflow('fiction', plank('1A'), 'area', placing, ids[2])
+    expect(back.ok).toBe(true)
+    expect(back.step).toMatchObject({ from: '1A', to: '1B' })
+    await store.setLocationIn(ids[2]!, back.planks!.to.areaId!)
+
+    // And the book in hand goes in the gap the shuffle opened.
+    const baxter = await add('Ann Baxter')
+    expect(await shelves.labelFor('fiction', baxter)).toBe('1A')
+    await store.setLocation(baxter, '1A')
+
+    expect(await labels()).toEqual(['1A', '1A', '1A', '1B', '1C'])
+    // Every book went where the app said, so the record and the room agree.
+    expect((await shelves.review('fiction')).misfiles).toEqual([])
   })
 
   it('leaves nothing needing attention once the book is saved', async () => {

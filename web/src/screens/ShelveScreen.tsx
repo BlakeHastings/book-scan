@@ -89,6 +89,7 @@ export function ShelveScreen() {
   const { leaveFor, landing } = useLeaving()
   const {
     draft, bookId, saving, placement, placementStale, refreshPlacement,
+    cascade, setCascade,
   } = useBookInHand()
   const { save } = useBookActions()
 
@@ -235,6 +236,8 @@ export function ShelveScreen() {
           saving={saving}
           onShelved={(shelvedAt) => void shelveIt(shelvedAt)}
           onBack={() => setRoute('review')}
+          cascade={cascade}
+          setCascade={setCascade}
           onRefresh={refreshPlacement}
         />
       </Phone>

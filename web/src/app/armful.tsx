@@ -37,8 +37,10 @@
  */
 
 import {
-  createContext, useCallback, useContext, useMemo, useState, type ReactNode,
+  createContext, useCallback, useContext, useMemo, useState,
+  type Dispatch, type ReactNode, type SetStateAction,
 } from 'react'
+import { emptyCascade, type Cascade } from '../lib/cascade'
 import type { CarriedBook, CarryTrip } from '../lib/api'
 
 export interface Armful {
@@ -67,6 +69,20 @@ export interface Armful {
    * written down, which is what lets somebody walk away mid-trip.
    */
   readonly putBack: () => void
+  /**
+   * The shuffle a full plank started while the book at the front of the armful
+   * was being placed.
+   *
+   * Held here rather than on the placing screen for the reason everything else
+   * in this file is (#432). That screen does not unmount between one book of an
+   * armful and the next, so a shuffle kept on it was still on screen for the
+   * book after the one it happened to, and it went away entirely on a route
+   * change instead. Both are answered by the thing that knows when the book in
+   * hand changes, which is this: every call below that moves the armful on
+   * clears it.
+   */
+  readonly cascade: Cascade
+  readonly setCascade: Dispatch<SetStateAction<Cascade>>
 }
 
 const Context = createContext<Armful | null>(null)
@@ -75,6 +91,7 @@ export function ArmfulProvider({ children }: { children: ReactNode }) {
   const [trip, setTrip] = useState<CarryTrip | null>(null)
   const [books, setBooks] = useState<CarriedBook[]>([])
   const [done, setDone] = useState(0)
+  const [cascade, setCascade] = useState<Cascade>(emptyCascade)
 
   /*
    * Every one of these is stable, and that is load bearing rather than tidy.
@@ -86,14 +103,26 @@ export function ArmfulProvider({ children }: { children: ReactNode }) {
     setTrip(chosen)
     setBooks([])
     setDone(0)
+    setCascade(emptyCascade)
   }, [])
-  const pickUp = useCallback((taken: CarriedBook[]) => { setBooks(taken); setDone(0) }, [])
-  const placed = useCallback(() => setDone((at) => at + 1), [])
-  const putBack = useCallback(() => { setBooks([]); setDone(0) }, [])
+  const pickUp = useCallback((taken: CarriedBook[]) => {
+    setBooks(taken)
+    setDone(0)
+    setCascade(emptyCascade)
+  }, [])
+  const placed = useCallback(() => {
+    setDone((at) => at + 1)
+    setCascade(emptyCascade)
+  }, [])
+  const putBack = useCallback(() => {
+    setBooks([])
+    setDone(0)
+    setCascade(emptyCascade)
+  }, [])
 
   const value = useMemo<Armful>(
-    () => ({ trip, books, done, choose, pickUp, placed, putBack }),
-    [trip, books, done, choose, pickUp, placed, putBack],
+    () => ({ trip, books, done, choose, pickUp, placed, putBack, cascade, setCascade }),
+    [trip, books, done, choose, pickUp, placed, putBack, cascade],
   )
 
   return <Context.Provider value={value}>{children}</Context.Provider>

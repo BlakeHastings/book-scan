@@ -32,6 +32,7 @@ import {
   type Capture, type CataloguedBook, type Draft, type LookupResponse,
   type QueueMatch,
 } from '../lib/api'
+import { emptyCascade, walkedAway, type Cascade } from '../lib/cascade'
 import { putDownCapture, putDownOnPageHide, type HeldCapture } from '../lib/leaveCapture'
 import type { Slot } from '../lib/scanner'
 import { useErrorBanner } from './errorBanner'
@@ -163,6 +164,21 @@ export interface BookInHand extends ShelfState {
    */
   readonly boundaryMoving: boolean
   readonly setBoundaryMoving: Dispatch<SetStateAction<boolean>>
+  /**
+   * The shuffle a full plank started while this book was being placed.
+   *
+   * Here for the same reason as the flag above, and it cost more by being on
+   * the screen instead (#432). Every rung somebody confirms carries a real book
+   * to a real plank and writes down where it went, and the list of them is the
+   * only place a person can see what they have already done. "Back to book
+   * details" unmounts the shelving step, so that record went with it: the
+   * catalogue still knew, and the person standing at the bookcase did not.
+   *
+   * Cleared in `clearBookInHand` and nowhere else, so the shuffle lasts exactly
+   * as long as the book it was made for.
+   */
+  readonly cascade: Cascade
+  readonly setCascade: Dispatch<SetStateAction<Cascade>>
 
   readonly relookupBusy: boolean
   readonly setRelookupBusy: Dispatch<SetStateAction<boolean>>
@@ -228,6 +244,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState('')
   const [saving, setSaving] = useState(false)
   const [boundaryMoving, setBoundaryMoving] = useState(false)
+  const [cascade, setCascade] = useState<Cascade>(emptyCascade)
   const [relookupBusy, setRelookupBusy] = useState(false)
   const [relookupError, setRelookupError] = useState('')
 
@@ -273,6 +290,19 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
   // Every way out that is not a tap: the browser's back button, the tab
   // closing, the phone putting the page away. See lib/leaveCapture.ts.
   useEffect(() => putDownOnPageHide(heldCapture), [heldCapture])
+
+  /*
+   * Leaving the shelving step closes the questions it had open, and keeps what
+   * was carried. See `walkedAway`, which is where the two halves are argued.
+   *
+   * Keyed on the route rather than hung off the screen's own unmount, so every
+   * way out is covered by one line: the way back to the book, the tab bar, and
+   * the browser's own back button. It is idempotent, which a cleanup would not
+   * have been under `StrictMode`.
+   */
+  useEffect(() => {
+    if (route !== 'shelve') setCascade(walkedAway)
+  }, [route])
 
   /**
    * Write what is being worked out back to the capture, while it is being
@@ -415,6 +445,11 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
     setCheckedOutAt(null)
     setCoverImage('')
     setNotice('')
+    // The shuffle belonged to the book being placed, so it goes down with it.
+    // What it recorded is on the shelves and in the catalogue either way: every
+    // rung was written as it was confirmed, which is what lets somebody walk
+    // away mid-shuffle and leave both honest.
+    setCascade(emptyCascade)
     // Nothing in hand means the camera is where the next book comes from,
     // which is what the origin says once this one has been put down.
     setOrigin('capture')
@@ -446,6 +481,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
         notice, setNotice,
         saving, setSaving,
         boundaryMoving, setBoundaryMoving,
+        cascade, setCascade,
         relookupBusy, setRelookupBusy,
         relookupError, setRelookupError,
         reviewSessionRef,
