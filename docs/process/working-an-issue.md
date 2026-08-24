@@ -112,6 +112,14 @@ each is worth exactly what it covers:
 2. **`scripts/guard-merge.mjs`**, a PreToolUse hook wired up in
    `.claude/settings.json`. It denies the commands above before they run.
    *Not covered:* sessions that did not load it. A net, not a guarantee.
+   **`.claude/` is gitignored**, so this repository ships the script and not its
+   registration: a fresh clone gets `guard-merge.mjs` and nothing calling it,
+   and every checkout has to be wired by hand. **And the wiring names the shell
+   tools it covers one by one.** On 2026-08-24 it named `Bash` while the harness
+   also had a PowerShell tool carrying its command in the same field, so
+   everything this layer exists to deny was reachable through the other one.
+   Check the matcher against the tools your harness actually has, rather than
+   assuming the layer is on because the file is there.
 3. **`scripts/check-main-provenance.mjs`**, run on every push to the default
    branch. It asks the API whether each new commit belongs to a merged pull
    request and fails loudly when one does not.
