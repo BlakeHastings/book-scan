@@ -1,5 +1,5 @@
 import type {
-  Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelfSlot,
+  AreaStanding, Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelfSlot,
   ShelvingReview,
 } from '../../shared/shelving'
 import type { FailureCounts } from '../../shared/captureFailure'
@@ -223,7 +223,24 @@ export interface BookRow {
   notes: string
   series_name: string
   series_index: number | null
+  /**
+   * Where a person last said this book physically is, as a label to read.
+   *
+   * A rendering, and only that. Nothing is decided from it and nothing is
+   * grouped by it: see `area_id` and `standing`, which are the halves that
+   * answer which place it is and where that place stands.
+   */
   location: string
+  /** The area `location` renders, or null for a book nobody has placed. */
+  area_id: number | null
+  /**
+   * The piece that area hangs on and where the two of them stand.
+   *
+   * What lets a drawing of the room put the boards in the order somebody walks
+   * past them and name the piece over them, without reading a label back to
+   * front. Null with `area_id`.
+   */
+  standing: AreaStanding | null
   /**
    * Which run this book is in, which is what its genre tag settled on.
    *

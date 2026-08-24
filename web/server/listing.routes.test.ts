@@ -145,6 +145,62 @@ describe('the whole collection, which is what the library draws', () => {
   })
 })
 
+/*
+ * The half of a placement a drawing of the room reads, and the half that used
+ * not to be on the wire at all.
+ *
+ * The library's boards were cut where the location label changed and headed by
+ * a regular expression over it, which is how a retagged book drew a second copy
+ * of its bookcase in the middle of another one (#434). A label cannot be asked
+ * which place it is or where that place stands without being taken apart, so
+ * the placement says both.
+ */
+describe('where a book stands, beside what its place is called', () => {
+  it('carries the area and the piece it hangs on, not only the label', async () => {
+    await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+
+    const { body } = await call('/api/books?range=all')
+    const [book] = body.books as {
+      location: string
+      area_id: number | null
+      standing: { fixtureId: number; fixture: number; plank: number; name: string; kind: string }
+    }[]
+
+    expect(book!.location).toBe('1A')
+    expect(book!.area_id).toEqual(expect.any(Number))
+    expect(book!.standing).toEqual({
+      fixtureId: expect.any(Number), fixture: 1, plank: 0, name: '', kind: 'bookshelf',
+    })
+  })
+
+  /*
+   * #356's lesson, said about this field. Naming a bookcase changes every label
+   * on it and moves nothing, so what a drawing groups and orders by has to be
+   * the half that did not change.
+   */
+  it('keeps saying the same place after somebody names the bookcase', async () => {
+    await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+
+    const before = (await call('/api/books?range=all')).body.books[0]
+    const named = await call(`/api/fixtures/${before.standing.fixtureId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Hall shelf' }),
+    })
+    expect(named.status).toBe(200)
+
+    const after = (await call('/api/books?range=all')).body.books[0]
+
+    expect(before.location).toBe('1A')
+    expect(after.location).toBe('Hall shelf · A')
+    expect(after.area_id).toBe(before.area_id)
+    expect(after.standing.fixtureId).toBe(before.standing.fixtureId)
+    expect(after.standing.fixture).toBe(before.standing.fixture)
+    expect(after.standing.plank).toBe(before.standing.plank)
+    expect(after.standing.name).toBe('Hall shelf')
+  })
+})
+
 describe('finding a book by what somebody typed', () => {
   /*
    * The case the folding is actually for. "mieville" has no accent in it and the

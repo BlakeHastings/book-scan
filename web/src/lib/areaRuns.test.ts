@@ -1,12 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import { areaRuns, pieceOf } from './areaRuns'
+import type { AreaStanding } from '../../shared/shelving'
 
-const book = (id: number, location: string) => ({ id, location })
+/** A piece nobody has named, standing where it stands. */
+const at = (
+  fixture: number,
+  plank: number,
+  more: Partial<AreaStanding> = {},
+): AreaStanding => ({ fixtureId: fixture, fixture, plank, name: '', kind: 'bookshelf', ...more })
+
+const book = (id: number, areaId: number, location: string, standing: AreaStanding) =>
+  ({ id, area_id: areaId, location, standing })
+
+/** A book nobody has put anywhere: checked out, or never placed. */
+const nowhere = (id: number) => ({ id, area_id: null, location: '', standing: null })
 
 describe('cutting a listing into the rows a bookcase has', () => {
-  it('makes one run of books next to each other under one label', () => {
+  it('makes one board per area, in the order the books arrived on it', () => {
     const { runs } = areaRuns(
-      [book(1, '1A'), book(2, '1A'), book(3, '1B'), book(4, '2C')],
+      [
+        book(1, 10, '1A', at(1, 0)),
+        book(2, 10, '1A', at(1, 0)),
+        book(3, 11, '1B', at(1, 1)),
+        book(4, 20, '2C', at(2, 2)),
+      ],
       true,
     )
 
@@ -15,17 +32,70 @@ describe('cutting a listing into the rows a bookcase has', () => {
   })
 
   /*
-   * The state a misfiled book is in, and the reason a run is consecutive rather
-   * than gathered. Two stretches of 1A with a 1B book between them are two rows
-   * on the drawing because that is what the bookcase looks like.
+   * #434, and the reason a board is an area rather than a stretch of the
+   * listing.
+   *
+   * A book retagged from non-fiction to fiction files into the other run at
+   * once and goes on standing exactly where it was, so the listing hands it
+   * over between two fiction books while its recorded plank is on the
+   * non-fiction bookcase. Cut where the label changes, that drew "Bookcase 4 /
+   * 4B, 1 book" between bookcase 1 and bookcase 2, with 4B drawn again further
+   * down holding the rest. One area, two boards, two counts.
    */
-  it('does not gather two stretches of one label into one row', () => {
-    const { runs } = areaRuns([book(1, '1A'), book(2, '1B'), book(3, '1A')], true)
-    expect(runs.map((run) => run.label)).toEqual(['1A', '1B', '1A'])
+  it('draws the area a retagged book stands on once, where it stands', () => {
+    const { runs } = areaRuns(
+      [
+        book(1, 10, '1A', at(1, 0)),
+        book(2, 11, '1B', at(1, 1)),
+        book(3, 46, '4B', at(4, 1)),
+        book(4, 20, '2A', at(2, 0)),
+        book(5, 46, '4B', at(4, 1)),
+        book(6, 46, '4B', at(4, 1)),
+      ],
+      true,
+    )
+
+    expect(runs.map((run) => run.label)).toEqual(['1A', '1B', '2A', '4B'])
+    expect(runs.filter((run) => run.label === '4B')).toHaveLength(1)
+    expect(runs[3]!.books.map((one) => one.id)).toEqual([3, 5, 6])
+  })
+
+  it('puts the boards in the order the furniture stands, not the order they arrived', () => {
+    const { runs } = areaRuns(
+      [
+        book(1, 20, '2A', at(2, 0)),
+        book(2, 11, '1B', at(1, 1)),
+        book(3, 10, '1A', at(1, 0)),
+      ],
+      true,
+    )
+
+    expect(runs.map((run) => run.label)).toEqual(['1A', '1B', '2A'])
+  })
+
+  /*
+   * This catalogue has two pieces standing on number 4, which `slotsInOrder`
+   * and the ordering column both take care to keep apart. Unnamed they read the
+   * same, and they are still two bookcases.
+   */
+  it('keeps two pieces standing on one number apart', () => {
+    const { runs } = areaRuns(
+      [
+        book(1, 40, '4A', { ...at(4, 0), fixtureId: 7 }),
+        book(2, 50, '4A', { ...at(4, 0), fixtureId: 9 }),
+      ],
+      true,
+    )
+
+    expect(runs).toHaveLength(2)
+    expect(runs.map((run) => run.standing.fixtureId)).toEqual([7, 9])
   })
 
   it('leaves a book that is not on a bookcase out, and counts it', () => {
-    const { runs, off } = areaRuns([book(1, '1A'), book(2, ''), book(3, '1A')], true)
+    const { runs, off } = areaRuns(
+      [book(1, 10, '1A', at(1, 0)), nowhere(2), book(3, 10, '1A', at(1, 0))],
+      true,
+    )
 
     expect(off).toBe(1)
     // And it does not split the area either side of it: the run has closed up
@@ -34,21 +104,20 @@ describe('cutting a listing into the rows a bookcase has', () => {
     expect(runs[0]!.books.map((one) => one.id)).toEqual([1, 3])
   })
 
-  it('closes every run when everything has loaded', () => {
-    const { runs } = areaRuns([book(1, '1A'), book(2, '1B')], true)
+  it('closes every board when everything has loaded', () => {
+    const { runs } = areaRuns([book(1, 10, '1A', at(1, 0)), book(2, 11, '1B', at(1, 1))], true)
     expect(runs.every((run) => run.closed)).toBe(true)
   })
 
   /*
-   * The one thing paging costs the drawing. The last run of a partial load is
-   * usually half an area, and a count over it would be wrong until somebody
-   * scrolls.
+   * The one thing paging costs the drawing. A board is a place rather than a
+   * stretch of the filing order, so any of them can still gain a book from a
+   * later page and a count over any of them would be wrong until somebody
+   * pressed More.
    */
-  it('leaves the last run open while there is more to load', () => {
-    const { runs } = areaRuns([book(1, '1A'), book(2, '1B')], false)
-
-    expect(runs[0]!.closed).toBe(true)
-    expect(runs[1]!.closed).toBe(false)
+  it('closes no board while there is more to load', () => {
+    const { runs } = areaRuns([book(1, 10, '1A', at(1, 0)), book(2, 11, '1B', at(1, 1))], false)
+    expect(runs.some((run) => run.closed)).toBe(false)
   })
 
   it('has nothing to say about no books', () => {
@@ -56,7 +125,32 @@ describe('cutting a listing into the rows a bookcase has', () => {
   })
 })
 
-describe('what the heading over a row of books says', () => {
+describe('what the heading over a board says', () => {
+  it('says which bookcase, where nobody has named one', () => {
+    const { runs } = areaRuns([book(1, 10, '1A', at(1, 0))], true)
+    expect(runs[0]!.piece).toBe('Bookcase 1')
+  })
+
+  it('says what somebody called it, where they have', () => {
+    const { runs } = areaRuns(
+      [book(1, 10, 'Hall shelf · Cookery', at(1, 0, { name: 'Hall shelf' }))],
+      true,
+    )
+    expect(runs[0]!.piece).toBe('Hall shelf')
+  })
+
+  /*
+   * The word "Bookcase" is not a fact about a piece of furniture, and the piece
+   * says what it is. Reading the heading back out of the label could only ever
+   * answer one word for all five of them.
+   */
+  it('calls a crate a crate', () => {
+    const { runs } = areaRuns([book(1, 10, '5A', at(5, 0, { kind: 'crate' }))], true)
+    expect(runs[0]!.piece).toBe('Crate 5')
+  })
+})
+
+describe('the heading worked back out of a label, which the shelves screen still does', () => {
   it('says which bookcase, where nobody has named one', () => {
     expect(pieceOf('1A')).toBe('Bookcase 1')
     expect(pieceOf('12C')).toBe('Bookcase 12')
