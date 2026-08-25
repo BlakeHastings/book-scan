@@ -73,9 +73,9 @@ import { Filter } from '../design/Finding'
 import { List, Row } from '../design/List'
 import { Shelf, type ShelfItem } from '../design/Shelf'
 import { Sure } from '../design/Sure'
-import { pieceOf } from '../lib/areaRuns'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
 import { plural, saidBooks } from '../lib/carryWords'
+import { pieceSaid } from '../lib/furniture'
 import { useBrowsing } from '../app/browsing'
 import { Frame } from './Frame'
 import { Trouble } from './RoomFrame'
@@ -321,7 +321,13 @@ export function ShelfView({
   /** The book somebody came back from, marked so the run opens on it. */
   const marked = arrivedWith.current?.bookId ?? 0
 
-  let piece = ''
+  /*
+   * The piece the last board was on, so a heading is drawn where it changes
+   * rather than over every board. The **piece**, not what the piece is called:
+   * two pieces standing on one number read the same and are two pieces, and a
+   * comparison of the words would draw them as one (#447).
+   */
+  let piece: number | null = null
 
   return (
     <Frame
@@ -488,24 +494,40 @@ export function ShelfView({
         }
 
         const group = row.group
-        const missing = missingFrom(group.label, off)
+        const missing = missingFrom(group, off)
         /* Counted, not concatenated. "1 books" was on this screen before it was
            converted and survived the first cut of the conversion; `plural` is
            what every other count in the app goes through. */
         const note = `${plural(group.books.length, 'book')}${missing > 0 ? `, ${missing} off` : ''}`
-        /* The piece the area is on, named once where it changes rather than
-           over every row: `2A` and `2B` are two planks of one bookcase, and the
-           drawing says "Bookcase 2" once above them. Never "Bookcase" over
-           something somebody has called the hall shelf; `pieceOf` decides. */
-        const heading = pieceOf(group.label) === piece ? null : pieceOf(group.label)
-        piece = pieceOf(group.label)
+        /* The piece the area is on, named once where it changes rather than over
+           every row: `2A` and `2B` are two planks of one bookcase, and the
+           drawing says "Bookcase 2" once above them. It comes off the board's
+           own `standing` through `pieceSaid`, which every furniture screen uses,
+           so a crate reads "Crate 5" and something somebody has called the hall
+           shelf reads "Hall shelf" (#447). */
+        const heading = group.standing && group.standing.fixtureId !== piece
+          ? pieceSaid({
+              name: group.standing.name,
+              kind: group.standing.kind,
+              position: group.standing.fixture,
+            })
+          : null
+        piece = group.standing?.fixtureId ?? null
 
         return (
-          /* The label is on the section as well as on the board, because the
+          /* Keyed on the area, because that is what makes this one board and not
+             two: two pieces standing on one number draw the same label, and a
+             board's place in the page shifts under it as later pages arrive.
+
+             The label is on the section as well as on the board, because the
              boundary line above it is found by stepping back one element from
              this section and nothing else on the page carries the plank whole
              in an attribute. */
-          <section key={group.label} className="shelfgroup" data-label={group.label}>
+          <section
+            key={group.areaId ?? `at-${group.shelf}-${group.area}`}
+            className="shelfgroup"
+            data-label={group.label}
+          >
             {heading && <p className="wf-heading">{heading}</p>}
 
             {/* The area itself, drawn whichever way was asked for. Everything

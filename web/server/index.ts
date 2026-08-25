@@ -1920,13 +1920,28 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * off.
      */
     const off = (await store.checkedOut()).filter((book) => book.shelf_range === range)
-    const labels = await shelves.shelvesForSortKeys(range, off.map((book) => book.sort_key))
+    /*
+     * The plank, and then its name, which is the order #356 settled and the
+     * order the placing step already asks in. The screen puts an absent book in
+     * the gap it belongs in by matching it to a board, and matching two
+     * renderings of one plank is the comparison that hid 181 books; so the area
+     * is what it matches on and the label is what it reads. `shelvesForSortKeys`
+     * renders the ordinal walk and is the answer only where the run has no plank
+     * to name.
+     */
+    const areas = await shelves.areasForSortKeys(range, off.map((book) => book.sort_key))
+    const walked = await shelves.shelvesForSortKeys(range, off.map((book) => book.sort_key))
+    const planks = await shelves.planks(range)
 
     res.json({
       groups: drawn.groups,
       separators: drawn.separators,
       loads: drawn.loads,
-      checkedOut: off.map((book, at) => ({ book, label: labels[at]! })),
+      checkedOut: off.map((book, at) => ({
+        book,
+        areaId: areas[at] ?? null,
+        label: areas[at] == null ? walked[at]! : planks.labelOf(areas[at]!),
+      })),
     })
   }))
 

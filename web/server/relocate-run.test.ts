@@ -24,7 +24,7 @@ import { recordCredits, settleGenre } from './book-save'
 import { applyRunMove, planRunMove } from './relocate-run'
 import {
   addAreaTo, addFixture, booksInArea, booksOnFixture, describeFixture, describeFurniture,
-  dropArea, planAreaRemoval, type DescribedFixture,
+  dropArea, editFixture, planAreaRemoval, type DescribedFixture,
 } from './furniture'
 import { applyRuleChange } from './place-rule'
 import { outstandingWork } from './carry'
@@ -565,6 +565,22 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
 
   beforeEach(async () => {
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
+  })
+
+  it('PROBE two pieces at four', async () => {
+    const room = await describeFurniture(db)
+    const three = room.fixtures.find((one) => one.position === 3)!
+    const four = room.fixtures.find((one) => one.position === 4)!
+    // eslint-disable-next-line no-console
+    console.log('ids', { three: three.id, four: four.id })
+    const moved = await editFixture(db, three.id, { position: 4 })
+    // eslint-disable-next-line no-console
+    console.log('renumber ok', moved.ok)
+
+    const work = await outstandingWork(db)
+    // eslint-disable-next-line no-console
+    console.log('TRIPS', work.trips.map((t) =>
+      `${t.from} (${t.fromAreaId}) -> ${t.to} (${t.toAreaId}) x${t.books.length}`))
   })
 
   it('is the two answers the owner saw, and they are now the same number', async () => {

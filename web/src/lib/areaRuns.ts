@@ -82,29 +82,23 @@ interface Book {
   standing: AreaStanding | null
 }
 
-/**
- * What the heading over a row of books says, worked back out of its label.
+/*
+ * `pieceOf` was here, and it worked the heading over a row of books back out of
+ * that row's label with a regular expression.
  *
- * **This is the defect it is named after, kept for its last caller.** The
- * shelves screen groups a run the server laid out from the boundaries, and what
- * that answers is a label and an ordinal walk rather than a piece of furniture,
- * so there is nothing there yet to ask which piece a board is on. Reading the
- * piece back out of the string is a third rendering of a place and it drifts
- * exactly as the other two did: #430 has one fixture reading as `Bookcase 3` on
- * one screen and `Bookcase 4` on another, and this is the half of it that
- * invents the word "Bookcase" for a piece that may be a crate.
+ * It is gone (#447), and it was the last place in this app that read a rendered
+ * label to recover a fact about the furniture. That is the hole seven defects
+ * came out of: #356 compared two renderings of one plank and hid 181 books, #380
+ * would have moved a book by a stale name, #401 made a bookcase read as empty,
+ * #434 drew a bookcase twice, and #430 had one fixture answering to two names on
+ * two screens somebody walks between while standing at the shelf.
  *
- * Nothing new should call it. `pieceSaid`, which every furniture screen uses, is
- * the answer, and `AreaStanding` is what carries a piece far enough for a
- * drawing to ask it.
+ * It survived #446 because `GET /api/shelves` answered the ordinals the boundary
+ * walk counts and had no piece to be asked about. It does now: a board carries
+ * `standing`, built from the same row and the same `labelFor` that renders its
+ * label, and `pieceSaid` is the one answer to what a piece is called. So a crate
+ * reads "Crate 5" rather than the word this function invented for everything.
  */
-export function pieceOf(label: string): string {
-  const named = label.split(' · ')
-  if (named.length > 1) return named[0]!.trim()
-
-  const plank = /^\s*[Ss]?(\d+)\s*[A-Za-z]*\s*$/.exec(label)
-  return plank ? `Bookcase ${plank[1]}` : label
-}
 
 /**
  * Where two areas stand relative to each other, which is the order somebody

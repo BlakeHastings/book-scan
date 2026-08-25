@@ -34,12 +34,13 @@ import {
   NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt, stripWithGap,
   type PlankAt, type RangeStart,
   type BoundaryDirection, type BoundaryMove, type BoundaryRefusal, type CarryOn,
-  type Move, type Overflow, type Placed, type Separator, type SeparatorKind,
+  type LayoutInput, type Move, type Overflow, type Placed, type Separator,
+  type SeparatorKind,
   type ShelfGroup, type Strip,
 } from '../shared/layout'
 import {
   reviewShelving,
-  type FiledBook, type ShelfRange, type ShelvingReview,
+  type AreaStanding, type FiledBook, type ShelfRange, type ShelvingReview,
 } from '../shared/shelving'
 
 /**
@@ -69,6 +70,35 @@ export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
  * view (#227). See `withPhotographs` and `FiledBookRow`.
  */
 export type ShelvedBook = FiledPhotographedBook & PlacementFields & { sortKey: string }
+
+/**
+ * A board of the run, and the plank of furniture it is drawn on.
+ *
+ * **This is #447, and it is the last of the hole #356 opened.** `ShelfGroup` is
+ * pure arithmetic over boundaries and knows the furniture only as a pair of
+ * ordinals, so `/api/shelves` answered `4A` for a plank every other screen in
+ * the app called `Hall shelf · A`, and the shelves screen ran a regular
+ * expression over that string to work out which piece the board was on. It
+ * guessed the word "Bookcase" for a piece that is a crate, and it was the fifth
+ * reader of a rendered label in a family that has cost seven defects.
+ *
+ * So the route says which plank and which piece, off the same row and the same
+ * `labelFor` that renders the label. `label` is the furniture's answer now
+ * rather than `locationLabel`'s, which is the same string on a piece nobody has
+ * named and the right string on one somebody has.
+ *
+ * `areaId` and `standing` are null together, and only where no piece stands at
+ * the board's number at all: a range whose rule points at furniture that has
+ * been taken out. A board the furniture has no *plank* row for still says which
+ * piece it is on, because a cascade proposes a plank before anybody makes it and
+ * the piece it would go on is real. See `RunPlanks.at`.
+ */
+export interface StandingGroup<T extends LayoutInput = LayoutInput> extends ShelfGroup<T> {
+  /** The area this board is, or null when the furniture has no row for it. */
+  areaId: number | null
+  /** The piece it hangs on, and where on it, for a screen to group and order by. */
+  standing: AreaStanding | null
+}
 
 /**
  * A row as the misfile check sees it: where it is, and where it belongs.
@@ -380,8 +410,36 @@ export class Shelves {
     )
   }
 
-  async groups(range: ShelfRange): Promise<ShelfGroup<ShelvedBook>[]> {
-    return groupByShelf(await this.layout(range), await this.list(range))
+  /**
+   * The run drawn as boards, each joined back to the plank of furniture it is
+   * drawn on.
+   *
+   * **The join is from the address, not from the books standing there**, and
+   * that is the whole care in it. A board is a place the boundary walk laid out;
+   * where a book on it happens to stand is the ledger's answer and the two
+   * disagreeing is a misfile, which is drawn as a misfile. Taking a board's
+   * identity off its first book is exactly the phantom bookcase #434 drew.
+   */
+  async groups(range: ShelfRange): Promise<StandingGroup<ShelvedBook>[]> {
+    return this.standing(range, groupByShelf(await this.layout(range), await this.list(range)))
+  }
+
+  /** `groupByShelf`'s ordinals, said as the furniture they are drawn on. */
+  private async standing<T extends LayoutInput>(
+    range: ShelfRange,
+    groups: ShelfGroup<T>[],
+  ): Promise<StandingGroup<T>[]> {
+    const planks = await this.planks(range)
+    return groups.map((group) => {
+      const where = { shelf: group.shelf, area: group.area }
+      const plank = planks.at(where)
+      return {
+        ...group,
+        label: plank.label,
+        areaId: plank.areaId,
+        standing: planks.standingAt(where),
+      }
+    })
   }
 
   async loads(range: ShelfRange) {
@@ -398,7 +456,7 @@ export class Shelves {
    * used to appear on a shelf whose count did not include it.
    */
   async shelving(range: ShelfRange): Promise<{
-    groups: ShelfGroup<ShelvedBook>[]
+    groups: StandingGroup<ShelvedBook>[]
     separators: Separator[]
     loads: { label: string; count: number }[]
   }> {
@@ -408,7 +466,7 @@ export class Shelves {
       separators,
       await this.startOf(range),
     )
-    const groups = groupByShelf(placed, separators)
+    const groups = await this.standing(range, groupByShelf(placed, separators))
     // `shelfLoads` is `groupByShelf` and a count, so the count is taken off the
     // groups already in hand rather than by grouping the same layout again.
     return {

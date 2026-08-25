@@ -449,7 +449,33 @@ export interface Move extends PlankStep {
 export interface ShelfGroupDto {
   area: number
   shelf: number
+  /**
+   * What the board is called, worked out from the furniture.
+   *
+   * `4A` on a piece nobody has named and `Hall shelf · A` on one somebody has,
+   * which is the same answer every other screen gives (#447). It was
+   * `locationLabel`, a rendering of the two ordinals above, so this route and
+   * `/api/fixtures` said two different things about one plank one tap apart.
+   */
   label: string
+  /**
+   * The area this board is, or null where the furniture has no row for it.
+   *
+   * What says two boards are one board. A label is a rendering and two pieces
+   * standing on one number render the same, so nothing decides anything from
+   * `label`. See #356.
+   */
+  areaId: number | null
+  /**
+   * The piece the board hangs on, and where on it.
+   *
+   * What a screen groups and orders by, and where the word for the piece comes
+   * from: `standing.kind` is the owner's own, so a crate reads as a crate. The
+   * shelves screen used to run a regular expression over `label` to recover
+   * both, which invented "Bookcase" for whatever the piece actually was and was
+   * the last reader of a rendered label in the app (#447).
+   */
+  standing: AreaStanding | null
   books: { book: FiledBookRow }[]
   /**
    * The boundary this area begins at, if it is not the first.
@@ -545,6 +571,14 @@ export interface QueueMatch {
 /** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
   book: FiledBookRow
+  /**
+   * The area it would go back on, which is what puts it in the right board.
+   *
+   * Null where the run has no plank to name, which is a rule pointing at
+   * furniture that has been taken out.
+   */
+  areaId: number | null
+  /** That area as it reads off the furniture, for the line the person sees. */
   label: string
 }
 
