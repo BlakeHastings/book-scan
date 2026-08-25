@@ -88,6 +88,34 @@ written down here. What is not fine is nobody having decided.
 
 ## There is no schedule any more, and that is a decision
 
+> **This heading is false as of 2026-08-25 and is kept only because the
+> reasoning under it is still worth reading.** A scheduled task exists, it fires
+> nightly, and it has been failing. Measured rather than assumed:
+>
+> ```
+> TaskName    : book-scan catalogue backup
+> State       : Ready
+> LastRunTime : 2026-08-24 03:30:01
+> LastTaskResult: 2147942402   (0x80070002, ERROR_FILE_NOT_FOUND)
+> NextRunTime : 2026-08-25 03:30:00
+> ```
+>
+> So the task was retired by #241 and something registered it again, and this
+> section was never updated. `ERROR_FILE_NOT_FOUND` is #454: the registration
+> names a version-pinned `pwsh` path that stopped existing when PowerShell
+> updated, so the task starts, cannot find its interpreter, and dies in under a
+> second every night.
+>
+> **This stale section nearly cost the alarm that found it.** Reading "there is
+> no schedule any more", the honest conclusion is that a five-day-old dump is the
+> documented, intended state and the check reporting it is noise. It took asking
+> the machine to find out that the opposite was true. A document describing a
+> decision that has since been undone is worse than no document, because it
+> argues confidently against the evidence in front of you.
+>
+> Whoever fixes #454 should rewrite this section to match whatever is then true,
+> and say which of the two the owner actually wants.
+
 **The owner retired the scheduled task on 2026-08-11.** Backups are taken before
 any operation that touches the catalogue, by whoever is doing the operation, and
 not on a clock.
