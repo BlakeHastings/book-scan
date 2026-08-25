@@ -93,9 +93,16 @@ interface Props {
    * are all held here until Save.
    */
   leaving: boolean
+  /**
+   * Whether the draft says anything the room does not.
+   *
+   * Worked out by the screen because the screen is what seeded the draft, and
+   * handed down because this is where the press it changes is drawn.
+   */
+  unsaved: boolean
   onBack: () => void
-  /** Go back and throw the draft away, which is only ever answered out loud. */
-  onLeave: () => void
+  /** Back, with a draft nobody has saved. The two are told apart by `unsaved`. */
+  onAskLeave: () => void
   /** Stay on the screen, with the draft and the Save still on it. */
   onStay: () => void
   onDraft: (draft: FixtureDraft) => void
@@ -112,8 +119,8 @@ interface Props {
 }
 
 export function FixturePane({
-  room, piece, draft, books, sorting, writing, removal, busy, error, tabs, leaving,
-  onBack, onLeave, onStay, onDraft, onSave, onChange, onCarry,
+  room, piece, draft, books, sorting, writing, removal, busy, error, tabs, leaving, unsaved,
+  onBack, onAskLeave, onStay, onDraft, onSave, onChange, onCarry,
   onOpenSort, onChooseSort, onSaveSort, onCloseSort, onDelete,
 }: Props) {
   const top = (
@@ -122,7 +129,8 @@ export function FixturePane({
       sub={piece
         ? `${plural(piece.areas.length, 'area')}, ${plural(piece.books, 'book')}`
         : undefined}
-      onBack={onBack}
+      /* Two answers to one press: going back, and being asked first (#430 item 4). */
+      onBack={unsaved ? onAskLeave : onBack}
     />
   )
 
@@ -169,7 +177,7 @@ export function FixturePane({
       top={top}
       tabs={tabs}
       over={leaving
-        ? <Unsaved typed={draft.name.trim()} keeping="Save" onLeave={onLeave} onStay={onStay} />
+        ? <Unsaved typed={draft.name.trim()} keeping="Save" onLeave={onBack} onStay={onStay} />
         : undefined}
     >
       <Trouble said={error} />

@@ -182,17 +182,15 @@ export function AreaScreen() {
       busy={busy}
       error={error}
       tabs={tabs}
+      onBack={() => back('fixture')}
       /*
        * Back with a name typed and never kept used to throw it away in silence
-       * (#430 item 4). The button that keeps it is under the field and this is
+       * (#430 item 4). The button that keeps it is under the field and Back is
        * at the top of the screen, which is the right place for both, so what
-       * was missing was the app noticing.
+       * was missing was the app noticing. Which press this is belongs to the
+       * pane, because the pane is what holds the typed name.
        */
-      onBack={() => {
-        if (area && (name ?? '').trim() !== area.name) setAsking({ kind: 'unsaved' })
-        else back('fixture')
-      }}
-      onLeave={() => { setAsking(null); back('fixture') }}
+      onAskLeave={() => setAsking({ kind: 'unsaved' })}
       onName={setName}
       onSaveName={() => area && write(() => api.editArea(area.id, { name: (name ?? '').trim() }))}
       onChange={() => { if (area?.rule?.range) openArranging(area.rule.range) }}

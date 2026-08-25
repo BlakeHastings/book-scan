@@ -75,8 +75,9 @@ function drawn(
       error=""
       tabs={{ home: nothing, library: nothing, scan: nothing, queue: nothing }}
       leaving={leaving}
+      unsaved={leaving}
       onBack={nothing}
-      onLeave={nothing}
+      onAskLeave={nothing}
       onStay={nothing}
       onDraft={nothing}
       onSave={nothing}

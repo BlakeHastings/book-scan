@@ -147,8 +147,16 @@ interface Props {
   onAsk: () => void
   onKeep: () => void
   onRemove: () => void
-  /** Go back and throw the typed name away, which is only ever answered out loud. */
-  onLeave: () => void
+  /**
+   * Back was pressed with a name typed and never kept.
+   *
+   * Beside `onBack` rather than instead of it, because the two are different
+   * answers to one press and only this pane can tell them apart: it is what
+   * holds the typed name against the saved one, one expression above the
+   * button that keeps it. The screen goes on naming its own way out and
+   * nothing else, which is the rule `app/arranging.test.ts` pins.
+   */
+  onAskLeave: () => void
   /** The way out of the last state: the piece itself is what has to go. */
   onPiece: () => void
 }
@@ -186,7 +194,7 @@ export const holdsHere = (writing: Writing, standing: string): string => {
 
 export function AreaPane({
   room, piece, area, name, books, sorting, writing, asking, busy, error, tabs,
-  onBack, onName, onSaveName, onChange, onCarry, onLeave,
+  onBack, onName, onSaveName, onChange, onCarry, onAskLeave,
   onOpenSort, onChooseSort, onSaveSort, onCloseSort,
   onClaimed, onAsk, onKeep, onRemove, onPiece,
 }: Props) {
@@ -194,7 +202,13 @@ export function AreaPane({
     <TopBar
       title={area ? area.label : 'An area'}
       sub={area && piece ? `${plural(area.books, 'book')}, on ${pieceSaid(piece)}` : undefined}
-      onBack={onBack}
+      /*
+       * Two answers to one press, told apart here because this is where the
+       * typed name is held against the saved one, one expression above the
+       * button that keeps it (#430 item 4). The screen still names the one way
+       * out and nothing else.
+       */
+      onBack={area && name.trim() !== area.name ? onAskLeave : onBack}
     />
   )
 
@@ -278,7 +292,7 @@ export function AreaPane({
     + `${orphans.length === 1 ? 'matches' : 'match'} no rule at all`
 
   return (
-    <RoomFrame top={top} tabs={tabs} over={asked(asking, area, piece, name, onRemove, onKeep, onPiece, onLeave)}>
+    <RoomFrame top={top} tabs={tabs} over={asked(asking, area, piece, name, onRemove, onKeep, onPiece, onBack)}>
       <Trouble said={error} />
 
       <Field

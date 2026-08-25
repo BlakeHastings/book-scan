@@ -36,7 +36,7 @@ export function Unsaved({ typed, keeping, onLeave, onStay }: {
       said={
         <>
           Going back now throws it away. The way to keep it is
-          {' '}<strong>{keeping}</strong>, which is the button under the field.
+          {' '}<strong>{keeping}</strong>, further down this screen.
         </>
       }
       act="Go back without it"

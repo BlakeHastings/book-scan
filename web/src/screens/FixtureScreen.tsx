@@ -182,13 +182,14 @@ export function FixtureScreen() {
       error={error}
       tabs={tabs}
       leaving={leaving}
+      unsaved={unsaved}
+      onBack={() => back('furniture')}
       /*
        * Back with the draft changed and never saved threw it away in silence,
        * the same as the area's page did (#430 item 4). More is held here: the
        * name, what the piece is, and the order the room stands in.
        */
-      onBack={() => (unsaved ? setLeaving(true) : back('furniture'))}
-      onLeave={() => { setLeaving(false); back('furniture') }}
+      onAskLeave={() => setLeaving(true)}
       onStay={() => setLeaving(false)}
       onDraft={(next) => { setError(''); setDraft(next) }}
       onSave={save}
