@@ -421,15 +421,17 @@ export class Shelves {
    * identity off its first book is exactly the phantom bookcase #434 drew.
    */
   async groups(range: ShelfRange): Promise<StandingGroup<ShelvedBook>[]> {
-    return this.standing(range, groupByShelf(await this.layout(range), await this.list(range)))
+    return this.standing(
+      await this.planks(range),
+      groupByShelf(await this.layout(range), await this.list(range)),
+    )
   }
 
   /** `groupByShelf`'s ordinals, said as the furniture they are drawn on. */
-  private async standing<T extends LayoutInput>(
-    range: ShelfRange,
+  private standing<T extends LayoutInput>(
+    planks: RunPlanks,
     groups: ShelfGroup<T>[],
-  ): Promise<StandingGroup<T>[]> {
-    const planks = await this.planks(range)
+  ): StandingGroup<T>[] {
     return groups.map((group) => {
       const where = { shelf: group.shelf, area: group.area }
       const plank = planks.at(where)
@@ -459,6 +461,13 @@ export class Shelves {
     groups: StandingGroup<ShelvedBook>[]
     separators: Separator[]
     loads: { label: string; count: number }[]
+    /*
+     * Handed back rather than read again by the route, which also has to name
+     * the plank each checked-out book would go back on. Reading the furniture
+     * twice for one screen is the same waste `shelving` exists to stop `groups`
+     * and `loads` making of the layout.
+     */
+    planks: RunPlanks
   }> {
     const separators = await this.list(range)
     const placed = layoutRange(
@@ -466,13 +475,15 @@ export class Shelves {
       separators,
       await this.startOf(range),
     )
-    const groups = await this.standing(range, groupByShelf(placed, separators))
+    const planks = await this.planks(range)
+    const groups = this.standing(planks, groupByShelf(placed, separators))
     // `shelfLoads` is `groupByShelf` and a count, so the count is taken off the
     // groups already in hand rather than by grouping the same layout again.
     return {
       groups,
       separators,
       loads: groups.map((group) => ({ label: group.label, count: group.books.length })),
+      planks,
     }
   }
 

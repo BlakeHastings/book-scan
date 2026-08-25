@@ -1931,7 +1931,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      */
     const areas = await shelves.areasForSortKeys(range, off.map((book) => book.sort_key))
     const walked = await shelves.shelvesForSortKeys(range, off.map((book) => book.sort_key))
-    const planks = await shelves.planks(range)
 
     res.json({
       groups: drawn.groups,
@@ -1940,7 +1939,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       checkedOut: off.map((book, at) => ({
         book,
         areaId: areas[at] ?? null,
-        label: areas[at] == null ? walked[at]! : planks.labelOf(areas[at]!),
+        label: areas[at] == null ? walked[at]! : drawn.planks.labelOf(areas[at]!),
       })),
     })
   }))
