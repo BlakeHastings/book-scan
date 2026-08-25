@@ -708,8 +708,8 @@ scroll past.
 
 ### It happened a third time, and the noticing was never switched on
 
-**2026-08-24. The newest dump was 5.8 days old and the newest cover 16.9 days
-old, and nothing said so.** `install-backup-task.ps1:165` registers a
+**2026-08-24. The newest dump was 5.8 days old and nothing said so.**
+`install-backup-task.ps1:165` registers a
 version-pinned `pwsh` path; PowerShell updated to 7.6.5 and the path stopped
 existing, so the task ran and died in under a second every night (#454).
 
@@ -740,9 +740,31 @@ the fix:
   the reason above. Where the two disagree, `backup-watch.ts` is right and the
   script is the copy to fix.
 
-**And it watches the covers as a second clock**, because the dumps stopped on
-2026-08-19 and the covers on 2026-08-08. Twelve days apart. A check watching
-only the dumps would have said healthy through most of that gap.
+**And it watches the covers, but not by their age**, which is a correction worth
+recording because the first version of the check got it wrong and the wrong
+answer looked entirely plausible.
+
+`robocopy /E /XO` preserves source timestamps, so the newest file in
+`E:\book-scan-covers` **is** the newest file at the source. Its age measures how
+long since somebody photographed a book, not how long since the mirror ran. On
+2026-08-25 both sides held 1541 files with an identical newest mtime of
+`2026-08-08T04:21:01.189Z`: nobody had scanned for seventeen days, and there was
+nothing for the mirror to carry.
+
+The first version reported "the newest backed-up cover is 16.9 days old" and it
+was a **false alarm** — a true number about the wrong thing, sitting next to a
+genuinely stale dump figure, which is exactly why it survived being run. On a
+quiet week after the schedule is repaired it would have cried wolf over a sync
+working perfectly.
+
+So the covers are checked by comparison: the mirror is current when the
+destination's newest is at least as new as the source's, at any age. False the
+moment a copy is missed, and silent through a quiet fortnight. Where the source
+cannot be read it says so rather than falling back to an age.
+
+**The dumps are still checked by age**, because a run produces a new file every
+night, so age there really is time-since-last-success. Two clocks, two kinds of
+question.
 
 ### Where the answer goes
 

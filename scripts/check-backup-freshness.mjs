@@ -29,11 +29,35 @@
 // state: this opens no connection and reads no database. If the two ever
 // disagree, `backup-watch.ts` is right and this is the copy to fix.
 //
-// WHY TWO CLOCKS
-// The dumps and the covers stopped **twelve days apart**. A check watching only
-// the dumps would have reported healthy through most of the gap, and a check
-// watching only the newest file in either would have been satisfied by the other
-// still running. They are aged independently for that reason.
+// WHY TWO CLOCKS, AND WHY THEY ARE NOT THE SAME KIND OF CLOCK
+// The dumps and the covers stopped eleven days apart, so watching only one would
+// have reported healthy through most of the gap. But they must be measured
+// differently, and getting that wrong is a defect this file shipped once.
+//
+// **A dump is produced by the run** — one new file a night — so its age is the
+// time since the last successful run, and an age is the right question.
+//
+// **The covers are mirrored with `robocopy /E /XO`**, whose default `/COPY:DAT`
+// preserves source timestamps. So the newest file in the destination is the
+// newest file *at the source*, and its age measures how long since somebody
+// photographed a book, not how long since the mirror ran. Verified on
+// 2026-08-25: 1541 files on each side, newest identical at
+// `2026-08-08T04:21:01.189Z`, and destination mtimes spread over thirteen
+// distinct hours instead of clustering at the 03:30 schedule.
+//
+// The first version of this file aged the covers destination and reported "the
+// newest backed-up cover is 16.9 days old". A real number about the wrong thing:
+// the mirror was current and nobody had scanned for seventeen days. On a quiet
+// week it would cry wolf over a sync that ran perfectly every night, which is
+// the failure this file exists to argue against. It was caught in review, not by
+// me, and it is written here because the plausible-looking number is what made
+// it survive being run.
+//
+// So the covers are checked by **comparison**: the mirror is current when the
+// destination's newest is at least as new as the source's, whatever age that is.
+// True on a quiet week, false the moment a copy is missed. Where the source
+// cannot be read, that is said rather than falling back to an age, because the
+// age is the answer that looked right and was not.
 //
 // WHY IT SAYS THE NUMBER
 // "The backup is stale" gets normalised and then ignored. "The newest backup is
@@ -82,8 +106,9 @@ export function directories(env = process.env, factoryDir = null) {
   const fromEnv = {
     dumps: env.BOOKSCAN_BACKUP_DIR ?? null,
     covers: env.BOOKSCAN_COVERS_DIR ?? null,
+    coversSource: env.BOOKSCAN_COVERS_SOURCE ?? null,
   }
-  if (fromEnv.dumps && fromEnv.covers) return fromEnv
+  if (fromEnv.dumps && fromEnv.covers && fromEnv.coversSource) return fromEnv
 
   const dir = factoryDir ?? commonDir()
   const record = dir && join(dir, 'factory', 'backup-dirs.json')
@@ -93,6 +118,7 @@ export function directories(env = process.env, factoryDir = null) {
       return {
         dumps: fromEnv.dumps ?? said.dumps ?? null,
         covers: fromEnv.covers ?? said.covers ?? null,
+        coversSource: fromEnv.coversSource ?? said.coversSource ?? null,
       }
     } catch {
       // A malformed record is the same as no record, and saying so is the
@@ -171,13 +197,17 @@ function verificationOf(dir, dumpName) {
 export function complaints(dirs, now = Date.now(), staleAfter = STALE_AFTER_HOURS) {
   const said = []
 
-  if (!dirs.dumps || !dirs.covers) {
+  const missing = [
+    dirs.dumps ? null : 'no dump directory',
+    dirs.covers ? null : 'no covers destination',
+    dirs.coversSource ? null : 'no covers source',
+  ].filter(Boolean)
+
+  if (missing.length) {
     said.push(
-      'Backup freshness is not being watched'
-      + `${dirs.dumps ? '' : ' (no dump directory)'}`
-      + `${dirs.covers ? '' : ' (no covers directory)'}.`
-      + '\n  Set BOOKSCAN_BACKUP_DIR and BOOKSCAN_COVERS_DIR, or write'
-      + ' .git/factory/backup-dirs.json.',
+      `Backup freshness is not fully watched (${missing.join(', ')}).`
+      + '\n  Set BOOKSCAN_BACKUP_DIR, BOOKSCAN_COVERS_DIR and BOOKSCAN_COVERS_SOURCE,'
+      + '\n  or write .git/factory/backup-dirs.json.',
     )
     if (!dirs.dumps && !dirs.covers) return said
   }
@@ -202,15 +232,25 @@ export function complaints(dirs, now = Date.now(), staleAfter = STALE_AFTER_HOUR
     }
   }
 
-  if (dirs.covers) {
-    const newest = newestIn(dirs.covers)
-    if (!newest) {
+  // The covers are a comparison rather than an age. See the header: robocopy
+  // preserves source timestamps, so the destination's newest file is the
+  // source's newest file and its age says nothing about when the mirror ran.
+  if (dirs.covers && dirs.coversSource) {
+    const copied = newestIn(dirs.covers)
+    const source = newestIn(dirs.coversSource)
+
+    if (!source) {
+      said.push(
+        `The covers source ${dirs.coversSource} could not be read, so the mirror`
+        + ' cannot be checked.',
+      )
+    } else if (!copied) {
       said.push(`No cover has ever been copied to ${dirs.covers}.`)
-    } else {
-      const old = hoursSince(newest.at, now)
-      if (old > staleAfter) {
-        said.push(`The newest backed-up cover is ${days(old)} days old.`)
-      }
+    } else if (copied.at < source.at) {
+      said.push(
+        `The covers mirror is behind: the newest photograph is ${days(hoursSince(source.at, now))}`
+        + ` days old and the newest copy of one is ${days(hoursSince(copied.at, now))} days old.`,
+      )
     }
   }
 
