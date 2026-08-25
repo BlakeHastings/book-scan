@@ -796,9 +796,21 @@ describe('moving a book across an area boundary', () => {
     return id
   }
 
-  /** The move, followed by the person saying the book is on the new plank. */
-  const carry = async (id: number, direction: 'next' | 'previous') => {
-    const result = await shelves.moveAcrossBoundary('fiction', id, direction)
+  /**
+   * The move, followed by the person saying the book is on the new plank.
+   *
+   * `theAreaGoes` is what somebody being asked looks like from here (#433): a
+   * move that leaves an area with no books on it takes the area off the piece,
+   * and the write path refuses to do that for a caller that has not said it
+   * knows. Passed by the tests whose subject is the move rather than the
+   * question, and pinned on its own below.
+   */
+  const carry = async (
+    id: number,
+    direction: 'next' | 'previous',
+    theAreaGoes = false,
+  ) => {
+    const result = await shelves.moveAcrossBoundary('fiction', id, direction, { theAreaGoes })
     if (result.ok && result.move) await store.setLocation(id, result.move.to)
     return result
   }
@@ -826,7 +838,7 @@ describe('moving a book across an area boundary', () => {
     await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
-    expect((await carry(cal, 'previous')).ok).toBe(true)
+    expect((await carry(cal, 'previous', true)).ok).toBe(true)
     expect(await labels()).toEqual(['1A', '1A', '1A'])
     // Nothing was left for that boundary to start at, so it went.
     expect(await shelves.list('fiction')).toEqual([])
@@ -1217,7 +1229,7 @@ describe('taking a boundary move back', () => {
     await store.setLocation(bob, '1B')
     expect(await shelves.list('fiction')).toHaveLength(1)
 
-    await shelves.moveAcrossBoundary('fiction', bob, 'previous')
+    await shelves.moveAcrossBoundary('fiction', bob, 'previous', { theAreaGoes: true })
     expect(await labels()).toEqual(['1A', '1A'])
     expect(await shelves.list('fiction')).toEqual([])
     expect((await shelves.boundaryOptions('fiction', bob)).next).toBeNull()
