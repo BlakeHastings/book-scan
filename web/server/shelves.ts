@@ -10,9 +10,11 @@ import type { Db } from './driver'
 import { withPhotographs, type FiledPhotographedBook } from './photographs'
 import { withPlacements, type PlacementFields } from './placement-ledger'
 import {
-  areaFaces, areaOfKey, bandOf, planksOf, runAreasOf,
+  areaFaces, areaOfKey, bandOf, furnitureIn, planksOf, runAreasOf,
   type Plank, type RunPlanks,
 } from '../infrastructure/shelving/areas'
+import { fixtureLabel } from '../domain/placement/geography'
+import { entryAreaOf, entryAreas } from '../domain/placement/rules'
 import type { AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
 import { relabellingWithout } from './furniture'
@@ -585,7 +587,10 @@ export class Shelves {
       const carry = carryOn(
         await this.layoutWith(range, placing), separators, label, kindIfNew,
       )
-      if (carry) return { ok: true, carry, before, separators }
+      if (carry) {
+        const off = await this.offTheRun(range, carry.toAt)
+        return off ? { ok: false, error: off } : { ok: true, carry, before, separators }
+      }
     }
 
     const groups = groupByShelf(before, separators)
@@ -621,7 +626,55 @@ export class Shelves {
     const step = overflow(before, separators, label, kindIfNew)
     if (!step) return { ok: false, error: noSuchPlank() }
 
+    const off = await this.offTheRun(range, step.toAt)
+    if (off) return { ok: false, error: off }
+
     return { ok: true, step, before, separators }
+  }
+
+  /**
+   * Why this run may not step onto that plank, or the empty string.
+   *
+   * **A run stops where the next run begins, and the cascade is a step along a
+   * run.** `docs/shelving.md` settles both halves: "A run runs from its rule's
+   * entry area until the next area any rule points at", and "a bookcase holds
+   * one run", which is the arrangement migration `0013` already refuses. So a
+   * new bookcase for fiction cannot be the bookcase non-fiction starts on, and
+   * saying it can is not a smaller problem than doing it.
+   *
+   * **It said it could, and then did something else entirely** (#430 item 2).
+   * Asked for a new bookcase at the end of fiction with non-fiction standing on
+   * the next number, the step read "take Crime and Punishment off 2B and put it
+   * on 3A", where `3A` was the plank a rule had just been written on saying
+   * non-fiction starts there. The write then reconciled the boundary list inside
+   * fiction's own band, which stops at that bookcase: nothing went to 3A, `2C`
+   * was retired with a book still on it, and that book was reported as moving
+   * backwards from `2C` to `2B`. One press, an instruction naming a plank
+   * nothing was written to, and a plank the person had quietly taken out.
+   *
+   * The bound is `bandOf`, which is `nextRunStartAfter` read as furniture, so
+   * this is the same cut `runFrom` and `relocateRun` make rather than a fourth
+   * opinion about where a run ends. Renumbering is offered as the way on because
+   * it is the one move that costs nothing: `editFixture` says a renumber moves
+   * no books, only what the planks are called.
+   */
+  private async offTheRun(range: ShelfRange, to: PlankAt): Promise<string> {
+    const band = await bandOf(this.db, range)
+    if (!band || band.limit === undefined || to.shelf < band.limit) return ''
+
+    const { order, rules } = await furnitureIn(this.db)
+    const entries = entryAreas(rules, order)
+    const standing = order.find((slot) =>
+      slot.fixture.position === band.limit && entries.has(slot.area.id))
+    const piece = standing ? fixtureLabel(standing.fixture) : String(band.limit)
+    const held = standing
+      ? rules.find((rule) => entryAreaOf(rule, order) === standing.area.id)?.name ?? ''
+      : ''
+
+    return `There is no room for another bookcase here. Bookcase ${piece} is where `
+      + `${held || 'another rule'} begins, and a bookcase holds one run. Renumber that `
+      + 'bookcase further along, which moves no books and only changes what its planks '
+      + 'are called, and then say there is no room again.'
   }
 
   /**
