@@ -35,6 +35,9 @@ import { AddTag, Tag, Tags } from '../design/List'
 import type { AppliedTag, Draft, LookupResponse } from '../lib/api'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 
+/** The two the buttons above the row answer, which the row never repeats. */
+const GENRE_ANSWERS: string[] = [FICTION_SLUG, NON_FICTION_SLUG]
+
 interface Props {
   draft: Draft
   lookup: LookupResponse | null
@@ -135,10 +138,15 @@ export function BookFields({
           {/* Everything else somebody has said this book is, in the same
               wrapping row as the two genre answers, because a person reading
               this sees tags. Where they came from is a distinction the model
-              needs and the screen does not, and the review screen draws the
-              same row the same way. Lit, because every one of these is on the
-              book right now and pressing one takes it off again. */}
-          {tags.map((tag) => (
+              needs and the screen does not. Lit, because every one of these is
+              on the book right now and pressing one takes it off again.
+
+              The two genre slugs are filtered out rather than drawn twice: they
+              are the buttons to the left of this, and a book whose genre a
+              person set carries that tag, so without this the row read
+              "Fiction  Non-fiction  Fiction". `TagNaming` leaves them out of
+              what it offers for the same reason. */}
+          {tags.filter((tag) => !GENRE_ANSWERS.includes(tag.slug)).map((tag) => (
             <Tag
               key={tag.slug}
               tone="on"

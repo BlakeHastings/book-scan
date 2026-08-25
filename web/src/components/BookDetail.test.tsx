@@ -267,6 +267,21 @@ describe('the tags on the form that corrects a record', () => {
     expect(words(form())).not.toContain('Add a tag')
   })
 
+  /*
+   * The two genre answers are the buttons to the left of the row, and a book
+   * whose genre a person set carries that tag, so drawing every tag would read
+   * "Fiction  Non-fiction  Fiction". Found by looking at it in the running app.
+   */
+  it('does not repeat a genre the buttons beside it already answer', () => {
+    const said = words(form({
+      tags: [{ slug: 'genre/fiction', label: 'Fiction', source: 'person' as const, confidence: 'high' }],
+      onAddTag: () => {},
+    }))
+
+    // Once: the button. "Non-fiction" is a lower-case f and is not this word.
+    expect(said.match(/Fiction/g) ?? []).toHaveLength(1)
+  })
+
   /* The slug is the identity and the label is what a person reads, which is a
      pinned rule and the reason this row draws labels. */
   it('never draws the slug', () => {
