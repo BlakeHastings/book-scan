@@ -1,0 +1,134 @@
+[e2e] generating the camera video for 9780441013593
+[e2e] generating the front cover video for Dune
+[e2e] catalogue stub on http://127.0.0.1:60869
+[e2e] starting the app through Aspire (data in web/data/e2e/run-mt87omx2)
+[e2e] api never became healthy. What the AppHost has:
+[e2e]   api-installer-mrjjvknd state=NotStarted health=unknown
+[e2e]   api-pwrqbmxe state=FailedToStart health=unknown
+[e2e]   bookscan state=Running health=Healthy
+[e2e]   npm-install-ydbrpcxd state=Finished health=unknown
+[e2e]   postgres-edgzdscy state=Running health=Healthy
+[e2e]   web-installer-nmcjzmep state=NotStarted health=unknown
+[e2e]   web-jwnmywwe state=Waiting health=unknown
+[e2e] ----- aspire logs api-installer-mrjjvknd -----
+[2mScanning for running AppHosts...[0m
+[2mGetting logs...[0m
+[38;5;12mℹ️[0m No logs found.
+[e2e] ----- aspire logs api-pwrqbmxe -----
+[2mScanning for running AppHosts...[0m
+[2mGetting logs...[0m
+[2m2026-08-25T05:15:47.464Z [0m[38;5;37m[api][0m Waiting for resource 'npm-install' to complete.
+[2m2026-08-25T05:15:47.471Z [0m[38;5;37m[api][0m Waiting for resource 'postgres' to enter the 'Running' state.
+[2m2026-08-25T05:15:47.475Z [0m[38;5;37m[api][0m Waiting for resource 'bookscan' to enter the 'Running' state.
+[2m2026-08-25T05:15:50.963Z [0m[38;5;37m[api][0m Waiting for resource 'bookscan' to become healthy.
+[2m2026-08-25T05:15:50.963Z [0m[38;5;37m[api][0m Waiting for resource 'postgres' to become healthy.
+[2m2026-08-25T05:15:51.368Z [0m[38;5;37m[api][0m Waiting for resource ready to execute for 'postgres'.
+[2m2026-08-25T05:15:51.460Z [0m[38;5;37m[api][0m Finished waiting for resource 'postgres'.
+[2m2026-08-25T05:15:52.396Z [0m[38;5;37m[api][0m Waiting for resource ready to execute for 'bookscan'.
+[2m2026-08-25T05:15:52.396Z [0m[38;5;37m[api][0m Finished waiting for resource 'bookscan'.
+[2m2026-08-25T05:15:52.802Z [0m[38;5;37m[api][0m Resource 'npm-install' has entered the 'Finished' state with exit code '-4048' expected '0'.
+[2m2026-08-25T05:15:52.805Z [0m[38;5;37m[api][0m Failed to create resource api
+Aspire.Hosting.DistributedApplicationException: Resource 'api' stopped waiting for dependency resource 'npm-install' because it entered the 'Finished' state 
+with exit code '-4048', expected '0'.
+   at Aspire.Hosting.ApplicationModel.ResourceNotificationService.<>c__DisplayClass24_0.<<WaitUntilCompletionAsync>g__Core|0>d.MoveNext() in 
+/_/src/Aspire.Hosting/ApplicationModel/ResourceNotificationService.cs:line 338
+--- End of stack trace from previous location ---
+   at Aspire.Hosting.ApplicationModel.ResourceNotificationService.WaitUntilCompletionAsync(IResource resource, IResource dependency, Int32 exitCode, 
+CancellationToken cancellationToken, Func`2 onDependencyReady) in /_/src/Aspire.Hosting/ApplicationModel/ResourceNotificationService.cs:line 301
+   at Aspire.Hosting.ApplicationModel.ResourceNotificationService.WaitForDependenciesAsync(IResource resource, CancellationToken cancellationToken) in 
+/_/src/Aspire.Hosting/ApplicationModel/ResourceNotificationService.cs:line 545
+   at Aspire.Hosting.Orchestrator.ApplicationOrchestrator.WaitForInBeforeResourceStartedEvent(BeforeResourceStartedEvent event, CancellationToken 
+cancellationToken) in /_/src/Aspire.Hosting/Orchestrator/ApplicationOrchestrator.cs:line 123
+   at Aspire.Hosting.Eventing.DistributedApplicationEventing.<>c__DisplayClass5_0`1.<<Subscribe>b__0>d.MoveNext() in 
+/_/src/Aspire.Hosting/Eventing/DistributedApplicationEventing.cs:line 130
+--- End of stack trace from previous location ---
+   at Aspire.Hosting.Eventing.DistributedApplicationEventing.<InvokeSubscriptionCallbackAsync>g__AwaitSubscriptionCallbackAsync|4_0[T](Task callbackTask, 
+ActivityScope activity) in /_/src/Aspire.Hosting/Eventing/DistributedApplicationEventing.cs:line 108
+   at Aspire.Hosting.Eventing.DistributedApplicationEventing.PublishAsync[T](T event, EventDispatchBehavior dispatchBehavior, CancellationToken 
+cancellationToken) in /_/src/Aspire.Hosting/Eventing/DistributedApplicationEventing.cs:line 70
+   at Aspire.Hosting.Orchestrator.ApplicationOrchestrator.OnResourceStarting(OnResourceStartingContext context) in 
+/_/src/Aspire.Hosting/Orchestrator/ApplicationOrchestrator.cs:line 202
+   at Aspire.Hosting.Dcp.DcpExecutorEvents.PublishAsync[T](T context) in /_/src/Aspire.Hosting/Dcp/DcpExecutorEvents.cs:line 34
+   at Aspire.Hosting.Dcp.DcpExecutor.CreateResourceReplicasAsync[TDcpResource,TContext](IResource modelResource, IEnumerable`1 replicaResources, 
+IObjectCreator`2 creator, TContext context, CancellationToken cancellationToken) in /_/src/Aspire.Hosting/Dcp/DcpExecutor.cs:line 869
+[e2e] ----- aspire logs bookscan -----
+[2mScanning for running AppHosts...[0m
+[2mGetting logs...[0m
+[38;5;12mℹ️[0m No logs found.
+[e2e] ----- aspire logs npm-install-ydbrpcxd -----
+[2mScanning for running AppHosts...[0m
+[2mGetting logs...[0m
+[2m2026-08-25T05:15:47.524Z [0m[38;5;209m[npm-install][0m [sys] Starting process...: Cmd = C:\Program Files\nodejs\node.exe, Args = 
+["C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\scripts\\npm-install.mjs"]
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE Unsupported engine {
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE   package: 'testcontainers@12.1.0',
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE   required: { node: '>= 22.22' },
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE   current: { node: 'v22.14.0', npm: '11.12.1' }
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE }
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE Unsupported engine {
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE   package: 'undici@8.10.0',
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE   required: { node: '>=22.19.0' },
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE   current: { node: 'v22.14.0', npm: '11.12.1' }
+[2m2026-08-25T05:15:49.631Z [0m[38;5;209m[npm-install][0m npm warn EBADENGINE }
+[2m2026-08-25T05:15:52.250Z [0m[38;5;209m[npm-install][0m npm error code EPERM
+[2m2026-08-25T05:15:52.251Z [0m[38;5;209m[npm-install][0m npm error syscall unlink
+[2m2026-08-25T05:15:52.251Z [0m[38;5;209m[npm-install][0m npm error path 
+C:\Users\Blake\source\repos\book-scan\.claude\worktrees\agent-afd7796456b0a764f\web\node_modules\@napi-rs\canvas-win32-x64-msvc\skia.win32-x64-msvc.node
+[2m2026-08-25T05:15:52.251Z [0m[38;5;209m[npm-install][0m npm error errno -4048
+[2m2026-08-25T05:15:52.252Z [0m[38;5;209m[npm-install][0m npm error [Error: EPERM: operation not permitted, unlink 
+'C:\Users\Blake\source\repos\book-scan\.claude\worktrees\agent-afd7796456b0a764f\web\node_modules\@napi-rs\canvas-win32-x64-msvc\skia.win32-x64-msvc.node'] {
+[2m2026-08-25T05:15:52.252Z [0m[38;5;209m[npm-install][0m npm error   errno: -4048,
+[2m2026-08-25T05:15:52.252Z [0m[38;5;209m[npm-install][0m npm error   code: 'EPERM',
+[2m2026-08-25T05:15:52.252Z [0m[38;5;209m[npm-install][0m npm error   syscall: 'unlink',
+[2m2026-08-25T05:15:52.252Z [0m[38;5;209m[npm-install][0m npm error   path: 
+'C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\web\\node_modules\\@napi-rs\\canvas-win32-x64-msvc\\skia.win32-x64-msv
+c.node'
+[2m2026-08-25T05:15:52.252Z [0m[38;5;209m[npm-install][0m npm error }
+[2m2026-08-25T05:15:52.253Z [0m[38;5;209m[npm-install][0m npm error
+[2m2026-08-25T05:15:52.253Z [0m[38;5;209m[npm-install][0m npm error The operation was rejected by your operating system.
+[2m2026-08-25T05:15:52.253Z [0m[38;5;209m[npm-install][0m npm error It's possible that the file was already in use (by a text editor or antivirus), or that you lack permissions to
+access it.
+[2m2026-08-25T05:15:52.253Z [0m[38;5;209m[npm-install][0m npm error
+[2m2026-08-25T05:15:52.253Z [0m[38;5;209m[npm-install][0m npm error If you believe this might be a permissions issue, please double-check the permissions of the file and its 
+containing directories, or try running the command again as root/Administrator.
+[2m2026-08-25T05:15:52.255Z [0m[38;5;209m[npm-install][0m npm error A complete log of this run can be found in: 
+C:\Users\Blake\AppData\Local\npm-cache\_logs\2026-08-25T05_15_48_463Z-debug-0.log
+[2m2026-08-25T05:15:52.288Z [0m[38;5;209m[npm-install][0m 
+[2m2026-08-25T05:15:52.288Z [0m[38;5;209m[npm-install][0m npm ci failed with exit code 4294963248 and it does not look like the transient network timeout #342 retries for. Failing
+without retrying.
+[e2e] ----- aspire logs postgres-edgzdscy -----
+[2mScanning for running AppHosts...[0m
+[2mGetting logs...[0m
+[2m2026-08-25T05:15:47.974Z [0m[38;5;111m[postgres][0m 5cdd7d19cedd774f50458042587a2a01499adc35378dee27d0d471a759f70916
+[2m2026-08-25T05:15:49.720Z [0m[38;5;111m[postgres][0m [sys] Added new ContainerNetworkConnection: ContainerName = postgres-edgzdscy
+[2m2026-08-25T05:15:50.528Z [0m[38;5;111m[postgres][0m 
+[2m2026-08-25T05:15:50.528Z [0m[38;5;111m[postgres][0m 5cdd7d19cedd774f50458042587a2a01499adc35378dee27d0d471a759f70916
+[2m2026-08-25T05:15:50.543Z [0m[38;5;111m[postgres][0m 
+[2m2026-08-25T05:15:50.543Z [0m[38;5;111m[postgres][0m PostgreSQL Database directory appears to contain a database; Skipping initialization
+[2m2026-08-25T05:15:50.543Z [0m[38;5;111m[postgres][0m 
+[2m2026-08-25T05:15:50.570Z [0m[38;5;111m[postgres][0m 2026-08-25 05:15:50.570 UTC [1] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by 
+gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+[2m2026-08-25T05:15:50.570Z [0m[38;5;111m[postgres][0m 2026-08-25 05:15:50.570 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+[2m2026-08-25T05:15:50.570Z [0m[38;5;111m[postgres][0m 2026-08-25 05:15:50.570 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+[2m2026-08-25T05:15:50.577Z [0m[38;5;111m[postgres][0m 2026-08-25 05:15:50.577 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+[2m2026-08-25T05:15:50.586Z [0m[38;5;111m[postgres][0m 2026-08-25 05:15:50.585 UTC [33] LOG:  database system was shut down at 2026-08-25 05:15:31 UTC
+[2m2026-08-25T05:15:50.592Z [0m[38;5;111m[postgres][0m 2026-08-25 05:15:50.592 UTC [1] LOG:  database system is ready to accept connections
+[2m2026-08-25T05:15:51.206Z [0m[38;5;111m[postgres][0m 2026-08-25 05:15:51.206 UTC [37] FATAL:  database "bookscan_run_mt87omx2" does not exist
+[2m2026-08-25T05:15:51.369Z [0m[38;5;111m[postgres][0m Creating database 'bookscan_run_mt87omx2'
+[2m2026-08-25T05:15:51.458Z [0m[38;5;111m[postgres][0m Database 'bookscan_run_mt87omx2' created successfully
+[e2e] ----- aspire logs web-installer-nmcjzmep -----
+[2mScanning for running AppHosts...[0m
+[2mGetting logs...[0m
+[38;5;12mℹ️[0m No logs found.
+[e2e] ----- aspire logs web-jwnmywwe -----
+[2mScanning for running AppHosts...[0m
+[2mGetting logs...[0m
+[2m2026-08-25T05:15:47.464Z [0m[38;5;176m[web][0m Waiting for resource 'npm-install' to complete.
+[2m2026-08-25T05:15:47.471Z [0m[38;5;176m[web][0m Waiting for resource 'api' to enter the 'Running' state.
+[2m2026-08-25T05:15:52.802Z [0m[38;5;176m[web][0m Resource 'npm-install' has entered the 'Finished' state with exit code '-4048' expected '0'.
+Error: Command failed: aspire wait api --timeout 300 --non-interactive
+[38;5;9m❌[0m [1;38;5;9mResource 'api' entered a failed state: Stopped waiting for resource 'api' to become healthy because it failed to start.[0m
+[38;5;15m📄[0m See logs at ]8;id=452517322;file:///C:/Users/Blake/.aspire/logs/cli_20260825T051550_34066645.log\C:\Users\Blake\.aspire\logs\cli_20260825T051550_34066645.log]8;;\
+[38;5;12m🔍[0m See AppHost logs at ]8;id=26916742;file:///C:/Users/Blake/.aspire/logs/cli_20260825T051534162_detach-child_7126616dbe9a4d6e80969d55bbdb85c3.log\C:\Users\Blake\.aspire\logs\cli_20260825T051534162_detach-child_7126616dbe9a4d6e80969d55bbdb85c3.log]8;;\
+
+

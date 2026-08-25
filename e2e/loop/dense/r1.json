@@ -1,0 +1,96 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "leaving-books-where-they-are",
+      "--repeat-each=4",
+      "--reporter=list,json"
+    ],
+    "configFile": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\playwright.config.ts",
+    "rootDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      },
+      {
+        "outputDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "chromium-front-cover",
+        "name": "chromium-front-cover",
+        "testDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [],
+  "errors": [
+    {
+      "message": "Error: C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\web\\node_modules\\tsx\\dist\\cli.mjs is missing. Run `npm ci` in web/ before the end to end suite: the camera fixtures are generated with that package's toolchain.",
+      "stack": "Error: C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\web\\node_modules\\tsx\\dist\\cli.mjs is missing. Run `npm ci` in web/ before the end to end suite: the camera fixtures are generated with that package's toolchain.\n    at generate (C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\support\\camera-fixture.ts:55:11)\n    at ensureCameraVideo (C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\support\\camera-fixture.ts:39:10)\n    at globalSetup (C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\global-setup.ts:153:9)",
+      "location": {
+        "file": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\support\\camera-fixture.ts",
+        "column": 11,
+        "line": 55
+      },
+      "snippet": "\u001b[90m   at \u001b[39m..\\support\\camera-fixture.ts:55\n\n\u001b[0m \u001b[90m 53 |\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m generate(out\u001b[33m:\u001b[39m string\u001b[33m,\u001b[39m args\u001b[33m:\u001b[39m string[])\u001b[33m:\u001b[39m \u001b[33mPromise\u001b[39m\u001b[33m<\u001b[39m\u001b[33mstring\u001b[39m\u001b[33m>\u001b[39m {\n \u001b[90m 54 |\u001b[39m   \u001b[36mif\u001b[39m (\u001b[33m!\u001b[39mexistsSync(\u001b[33mTSX\u001b[39m)) {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 55 |\u001b[39m     \u001b[36mthrow\u001b[39m \u001b[36mnew\u001b[39m \u001b[33mError\u001b[39m(\n \u001b[90m    |\u001b[39m           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 56 |\u001b[39m       \u001b[32m`${TSX} is missing. Run \\`npm ci\\` in web/ before the end to end suite: `\u001b[39m \u001b[33m+\u001b[39m\n \u001b[90m 57 |\u001b[39m       \u001b[32m'the camera fixtures are generated with that package\\'s toolchain.'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 58 |\u001b[39m     )\u001b[0m"
+    }
+  ],
+  "stats": {
+    "startTime": "2026-08-25T05:17:17.823Z",
+    "duration": 87.05099999999993,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
