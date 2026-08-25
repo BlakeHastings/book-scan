@@ -468,7 +468,7 @@ describe('removing a boundary', () => {
     expect(await labels()).toEqual(['1A', '1B'])
 
     const before = await shelves.layout('fiction')
-    await shelves.remove((await shelves.list('fiction'))[0]!.id)
+    await shelves.remove((await shelves.list('fiction'))[0]!.id, { theAreaGoes: true })
 
     expect(await labels()).toEqual(['1A', '1A'])
     expect(await shelves.movesSince('fiction', before)).toEqual([

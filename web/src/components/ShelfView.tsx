@@ -58,8 +58,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  api, type CheckedOutAt, type Counts, type Misfile, type Move, type ShelfGroupDto,
-  type ShelvingReviewResponse,
+  api, Refusal, type AreaGoing, type CheckedOutAt, type Counts, type Misfile,
+  type Move, type ShelfGroupDto, type ShelvingReviewResponse,
 } from '../lib/api'
 import { canTakeBack, notChecked, recordMoved, takeMoveBack } from '../lib/misfile'
 import { coverNote, coverOf, listOf, missingFrom, spineLabel, spineOf } from '../lib/shelfRow'
@@ -72,6 +72,7 @@ import { Covers, type CoverItem } from '../design/Covers'
 import { Filter } from '../design/Finding'
 import { List, Row } from '../design/List'
 import { Shelf, type ShelfItem } from '../design/Shelf'
+import { Sure } from '../design/Sure'
 import { pieceOf } from '../lib/areaRuns'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
 import { plural, saidBooks } from '../lib/carryWords'
@@ -152,6 +153,12 @@ export function ShelfView({
   const [off, setOff] = useState<CheckedOutAt[]>([])
   const [review, setReview] = useState<ShelvingReviewResponse | null>(null)
   const [moving, setMoving] = useState(0)
+  /*
+   * The line somebody has pressed Remove on and has not yet answered about,
+   * with what the server said it would cost. Null the rest of the time, which
+   * is every moment nothing is being asked.
+   */
+  const [going, setGoing] = useState<{ id: number; cost: AreaGoing } | null>(null)
   /*
    * The anchor this mount was born with, which is the only one that means
    * "you are coming back".
@@ -268,14 +275,34 @@ export function ShelfView({
     }
   }
 
-  const removeSeparator = async (id: number) => {
+  /**
+   * Press Remove on the line between two areas.
+   *
+   * **The first press is a question, never the act** (#456). The server refuses
+   * a removal nobody has been asked about and hands back what it would cost, so
+   * this asks with that rather than with anything it worked out for itself, and
+   * the second press is the answer. Before this, one tap took an area off the
+   * furniture and moved its books, and the only thing the person saw was the
+   * carry list drawn afterwards, which is a list of what has already happened.
+   *
+   * The refusal is the server's and not this screen's on purpose: a control
+   * that only appears after a dialog is one caller away from being lost, which
+   * is how this door stayed open while the other two were shut.
+   */
+  const removeSeparator = async (id: number, theAreaGoes = false) => {
     setError('')
     try {
-      const result = await api.removeSeparator(id, range)
+      const result = await api.removeSeparator(id, range, theAreaGoes)
       setGroups(result.groups)
       setMoves(result.moves)
+      setGoing(null)
     } catch (caught) {
+      if (caught instanceof Refusal && caught.effect) {
+        setGoing({ id, cost: caught.effect as AreaGoing })
+        return
+      }
       setError((caught as Error).message)
+      setGoing(null)
     }
   }
 
@@ -583,6 +610,33 @@ export function ShelfView({
         <div className="wf-under">
           <Button tone="quiet" onPress={onFurniture}>See your fixtures</Button>
         </div>
+      )}
+
+      {/* The same dialog an area is removed through on the furniture screen and
+          on a book's own page, because it is the same act reached from a third
+          door (#456). Its title is the cost said about their books, which is
+          what #281 settled and what the other two already say; the sentence
+          under it adds what happens next rather than repeating the title, and
+          the rows are the labels that read differently afterwards. */}
+      {going && (
+        <Sure
+          /* The area is named rather than said as "its", which is what the
+             area's own page can afford: this dialog covers a page of shelves
+             and there is nothing on it for a pronoun to point at. */
+          title={going.cost.books === 0
+            ? `No books stand in ${going.cost.area}`
+            : `${going.cost.area} goes, and its ${plural(going.cost.books, 'book')} `
+              + `${going.cost.books === 1 ? 'joins' : 'join'} ${going.cost.into}`}
+          said={going.cost.books === 0
+            ? 'The area comes off the furniture and nothing has to be refiled.'
+            : 'Nothing is carried for you. Afterwards the list of books needing '
+              + 'attention names each one, and you confirm it where it stands, '
+              + 'because only somebody in front of a book can say it has moved.'}
+          becomes={going.cost.becomes}
+          act="Remove it"
+          onAct={() => removeSeparator(going.id, true)}
+          onKeep={() => setGoing(null)}
+        />
       )}
     </Frame>
   )

@@ -78,3 +78,27 @@ Feature: Removing a boundary between two areas
       | 1A                       |
       | New bookcase starts here |
       | 2A                       |
+
+  # #456. Removing a boundary takes an area off the furniture and hands its
+  # books to the area in front, and this route did it on one tap, with nothing
+  # said, while the same act reached from a book's own page was already being
+  # refused. The only thing the person saw was a carry list drawn afterwards,
+  # which is a list of what has already happened.
+  #
+  # Driven from the screen because that is where the tap was, but the refusal
+  # is not the screen's: it is on the act, so a caller reaching it another way
+  # is refused too.
+  Scenario: The first press asks, and backing out changes nothing
+    When I open the app
+    And I go to the library
+    And I press Remove on the boundary drawn above "2B"
+    Then I should be asked "2B goes, and its 1 book joins 2A"
+
+    When I keep it
+    Then the boundaries recorded for fiction should be:
+      | kind  | starts at        |
+      | shelf | Dune             |
+      | area  | The Dispossessed |
+    And the library should show "The Dispossessed" on shelf "2B"
+    And it should say to move exactly:
+      | book | from | to |

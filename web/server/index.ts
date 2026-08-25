@@ -84,7 +84,7 @@ import {
 // How this API says no, and how it reads an id out of a request (#332). One
 // line replaces `Number(req.params.id)`, and a client typo is a 404 rather than
 // a 500 with a Postgres stack trace in the log.
-import { idIn, refused } from './refusal'
+import { idIn, refuse, refused } from './refusal'
 // Why a book is here: which rule claimed it, and which ones lost (#323).
 import { booksNoRuleClaims, claimOfBook } from './claim'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
@@ -2127,6 +2127,18 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
   }))
 
+  /**
+   * Somebody pressed Remove on the line between two areas.
+   *
+   * **Refused until they have been told what it does** (#456). Removing a
+   * boundary takes an area off the furniture and hands its books to the area in
+   * front, and until this route carried an assent one tap did both with nothing
+   * said: the only thing the person saw was a carry list drawn afterwards,
+   * which is a list of what has already happened rather than a question. The
+   * refusal is the act's, not this route's; what belongs here is the sentence
+   * and the rows a dialog puts in front of somebody, which is the same shape
+   * `PATCH /api/areas/:id` refuses a strategy change with.
+   */
   app.delete('/api/shelves/:id', asyncRoute(async (req, res) => {
     // Before the layout below, so a request that names nothing costs no read.
     const separatorId = idIn(req.params.id, res, 'No such boundary.')
@@ -2138,7 +2150,35 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // asked for and nothing about how it is stored, which is the whole of what
     // #172 is demonstrating; the reads either side of it still go through
     // `Shelves` because books have not been converted.
-    await removeSeparator.handle({ separatorId })
+    const removal = await removeSeparator.handle({
+      separatorId,
+      theAreaGoes: req.query.theAreaGoes === 'true',
+    })
+
+    if (!removal.ok) {
+      // The boundary's own range rather than the one asked for, so the labels
+      // are of the run the area actually stands in.
+      const going = await shelves.removalCost(removal.range, separatorId)
+      /*
+       * Two sentences for the two costs, which is the answer to whether this is
+       * the same act as the one #433 guards. It is: an area comes off the
+       * furniture. What differs is whether anything was standing on it, and a
+       * sentence about books joining another area when there are none would be
+       * the app describing something that is not going to happen.
+       */
+      refused(res, refuse(
+        409,
+        going.books === 0
+          ? `Removing this line takes ${going.area} off the furniture. `
+            + 'Nothing has been changed.'
+          : `Removing this line takes ${going.area} off the furniture, and its `
+            + `${going.books} book${going.books === 1 ? ' joins ' : 's join '}${going.into}. `
+            + 'Nothing has been changed.',
+        going,
+      ))
+      return
+    }
+
     res.json({
       moves: await describeMoves(range, await shelves.movesSince(range, before)),
       groups: await shelfGroups(range),

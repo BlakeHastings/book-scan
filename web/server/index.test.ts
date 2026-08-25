@@ -1507,6 +1507,82 @@ describe('moving a book across an area boundary', () => {
     expect((await misfiles()).misfiles).toEqual([])
   })
 
+  /**
+   * The third door to the same act, and the one that never had a lock (#456).
+   *
+   * `DELETE /api/shelves/:id` is what the line between two areas offers Remove
+   * through, and it reached `RemoveSeparatorHandler` with no assent parameter
+   * at all while the boundary move above was refusing without one. So one tap
+   * took an area off the furniture and handed its books to the area in front,
+   * and the only thing anybody saw was the carry list drawn afterwards, which
+   * is a list of what has already happened rather than a question.
+   */
+  it('refuses to remove a boundary unless the request says it knows', async () => {
+    const { dispossessed } = await threeOverTwoAreas()
+    const before = (await call('/api/shelves?range=fiction')).body
+    const boundary = before.groups
+      .find((group: { label: string }) => group.label === '1B').opensWith.id
+
+    const { status, body } = await del(`/api/shelves/${boundary}?range=fiction`)
+
+    expect(status).toBe(409)
+    expect(body.error).toBe(
+      'Removing this line takes 1B off the furniture, and its 1 book joins 1A. '
+      + 'Nothing has been changed.',
+    )
+    // What a dialog puts in front of somebody, so the screen asks with the
+    // server's rows rather than with anything it worked out for itself.
+    expect(body.effect).toEqual({ area: '1B', into: '1A', books: 1, becomes: [] })
+
+    // The read-back: the boundary is still there and the book is still on it.
+    expect((await call('/api/shelves?range=fiction')).body).toEqual(before)
+    expect((await running.store.getBook(dispossessed))?.location).toBe('1B')
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  it('removes it once the request carries the answer', async () => {
+    const { dispossessed } = await threeOverTwoAreas()
+    const boundary = (await call('/api/shelves?range=fiction')).body.groups
+      .find((group: { label: string }) => group.label === '1B').opensWith.id
+
+    const { status, body } = await del(
+      `/api/shelves/${boundary}?range=fiction&theAreaGoes=true`,
+    )
+
+    expect(status).toBe(200)
+    expect(body.groups.map((group: { label: string }) => group.label)).toEqual(['1A'])
+    // The carry list is still drawn, and it is still a list of what has already
+    // happened. What changed is that somebody agreed to it first.
+    // `fromAreaId` is null because 1B is the plank that just came off: the
+    // label is where the book was last drawn and there is no longer a row to
+    // name for it. Where it goes is a real plank, which is what gets sent back
+    // when the person says they have carried it.
+    expect(body.moves).toEqual([
+      { id: dispossessed, title: 'The Dispossessed', from: '1B', to: '1A',
+        fromAreaId: null, toAreaId: expect.any(Number) },
+    ])
+  })
+
+  /**
+   * A second press on a screen drawn before the first one landed is a retry,
+   * and the act is idempotent by design. The refusal must not turn that into an
+   * error, so the boundary that has already gone is answered rather than
+   * refused, even though this request carries no assent.
+   */
+  it('answers a boundary that has already gone, instead of asking about it', async () => {
+    await threeOverTwoAreas()
+    const boundary = (await call('/api/shelves?range=fiction')).body.groups
+      .find((group: { label: string }) => group.label === '1B').opensWith.id
+    await del(`/api/shelves/${boundary}?range=fiction&theAreaGoes=true`)
+    const settled = (await call('/api/shelves?range=fiction')).body
+
+    const { status, body } = await del(`/api/shelves/${boundary}?range=fiction`)
+
+    expect(status).toBe(200)
+    expect(body.moves).toEqual([])
+    expect((await call('/api/shelves?range=fiction')).body).toEqual(settled)
+  })
+
   it('refuses a book that is not at a boundary, whatever asked', async () => {
     // The rule lives on this route, not in the screen that offers it. A
     // client that forgot the restriction cannot get past here.

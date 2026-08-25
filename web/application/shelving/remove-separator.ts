@@ -22,12 +22,32 @@
  */
 
 import { RangeSeparators } from '../../domain/shelving/separators'
+import type { ShelfRange } from '../../shared/shelving'
 import type { SeparatorRepository, Transactions } from './ports'
 
 /** Take out the boundary with this id, wherever it turns out to be. */
 export interface RemoveSeparator {
   separatorId: number
+  /**
+   * Somebody has been told the area comes off the furniture and said yes.
+   *
+   * Absent means nobody has been asked, which is the only safe reading of a
+   * caller that does not mention it (#456). See `handle`.
+   */
+  theAreaGoes?: boolean
 }
+
+/**
+ * What became of a removal, which is three answers rather than two.
+ *
+ * `removed: null` is the boundary that was already gone. It is an `ok` because
+ * the caller has what it asked for, and the difference between that and a
+ * refusal is the whole reason this is a union rather than a boolean: a retry
+ * must not become an error.
+ */
+export type SeparatorRemoval =
+  | { ok: true; removed: number | null }
+  | { ok: false; areaId: number; range: ShelfRange }
 
 export class RemoveSeparatorHandler {
   constructor(
@@ -54,17 +74,42 @@ export class RemoveSeparatorHandler {
    * Called from inside `Shelves.moveAcrossBoundary`'s transaction as well as on
    * its own. `Db.tx` opens a savepoint rather than a second transaction when
    * that happens, and the advisory lock is re-entrant for the same reason.
+   *
+   * ## It refuses a removal nobody has agreed to (#456)
+   *
+   * Removing a boundary takes an area off the furniture and hands its books to
+   * the area before it, and #281 settled that a thing somebody cannot find out
+   * afterwards is asked about first. The rule is here rather than on either
+   * caller because it is the act, and this handler had two callers of which
+   * only one had ever been guarded: `Shelves.moveAcrossBoundary` refused
+   * without `theAreaGoes` (#433) and `DELETE /api/shelves/:id` had no such
+   * parameter at all, so one tap on a divider removed an area and relocated
+   * its books with nothing said. A caller cannot forget what it never had to
+   * remember, which is the same reason the placement ledger sits on the
+   * statements that write a location (#185) and not on the routes above them.
+   *
+   * **The order of the two checks is the rule about retries.** A boundary this
+   * range no longer has is answered `{ ok: true, removed: null }`, not refused:
+   * a request to remove a line somebody else already removed has got what it
+   * asked for, and turning that into a refusal would make a second tap on a
+   * stale screen an error. Only a boundary that is really there and really
+   * about to go is refused.
    */
-  async handle(command: RemoveSeparator): Promise<void> {
+  async handle(command: RemoveSeparator): Promise<SeparatorRemoval> {
     const range = await this.separators.rangeOf(command.separatorId)
-    if (!range) return
+    if (!range) return { ok: true, removed: null }
 
-    await this.transactions.inRange(range, async () => {
+    return this.transactions.inRange(range, async (): Promise<SeparatorRemoval> => {
       const boundaries = RangeSeparators.of(range, await this.separators.inRange(range))
       const removal = boundaries.without(command.separatorId)
-      if (!removal) return
+      if (!removal) return { ok: true, removed: null }
+
+      // Before the write and not after it, so a caller that has not asked gets
+      // the refusal and a room exactly as it was.
+      if (command.theAreaGoes !== true) return { ok: false, areaId: removal.id, range }
 
       await this.separators.remove(removal.id)
+      return { ok: true, removed: removal.id }
     })
   }
 }

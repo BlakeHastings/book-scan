@@ -501,6 +501,35 @@ taken because it contradicts the anchor: the boundary is the sort key of a book
 on the *new* plank, so the area it closes may hold no book that names it, and an
 emptied area would leave the line describing a plank with nothing on it.
 
+### Removing a boundary is asked about first, and the asking is not the screen's
+
+Removing a boundary takes that area off the furniture and hands its books to the
+area in front, which is the act #281 settled: a person is told what becomes of
+their books and decides, because it is not something they can find out
+afterwards.
+
+**The refusal is on the act, not on any route or screen that reaches it.**
+`RemoveSeparatorHandler` will not remove a boundary unless it was told the area
+goes, and there are two callers that reach it: `Shelves.moveAcrossBoundary`,
+which carries a person's answer down, and `DELETE /api/shelves/:id`, which takes
+one on the request. Neither decides for itself.
+
+That is written here because it was got wrong once in exactly the way this
+document exists to prevent (#456). The rule was put on `moveAcrossBoundary`
+(#433), which is one of the two callers, so the other one removed an area and
+relocated its books on a single tap with nothing said. A caller cannot forget
+what it never had to remember, which is the same reason a placement is recorded
+by the statement that writes a location rather than by the route above it.
+
+**The two costs are two sentences and one act.** A boundary move empties the
+area before it takes it, so nothing is standing on it; pressing Remove on the
+line itself takes an area with its books still on it, and they join the one
+above. What somebody is asked says which of those is happening, with the count
+and the area that takes them in.
+
+**The carry list drawn afterwards is not the asking.** "Nothing has moved.
+Dismiss this once they have" is a list of what has already happened.
+
 ## Placing a book on a plank that is full
 
 Capacity is not modelled and never will be (decision 2), so the only signal
