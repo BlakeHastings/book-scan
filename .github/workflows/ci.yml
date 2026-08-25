@@ -229,6 +229,16 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/guard-live-data.test.mjs
 
+      # The detector for the one failure on this project that loses something
+      # nobody can re-derive. It reads timestamps off a disk CI cannot see, so
+      # what runs here is its judgement over fixtures: silent when fresh, and
+      # specific about which of the two clocks has stopped. The silent cases are
+      # the ones worth protecting — a notice that prints every session is a
+      # notice nobody reads, which is how six days went by (#454).
+      - name: Backup freshness check behaves
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/check-backup-freshness.test.mjs
+
       # The other half of the merge path. `guard-merge.mjs` decides which
       # commands may run; `merge-pr.mjs` decides whether a pull request may
       # land, and since #154 that includes whether its checks ran against the

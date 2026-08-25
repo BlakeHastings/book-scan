@@ -88,6 +88,34 @@ written down here. What is not fine is nobody having decided.
 
 ## There is no schedule any more, and that is a decision
 
+> **This heading is false as of 2026-08-25 and is kept only because the
+> reasoning under it is still worth reading.** A scheduled task exists, it fires
+> nightly, and it has been failing. Measured rather than assumed:
+>
+> ```
+> TaskName    : book-scan catalogue backup
+> State       : Ready
+> LastRunTime : 2026-08-24 03:30:01
+> LastTaskResult: 2147942402   (0x80070002, ERROR_FILE_NOT_FOUND)
+> NextRunTime : 2026-08-25 03:30:00
+> ```
+>
+> So the task was retired by #241 and something registered it again, and this
+> section was never updated. `ERROR_FILE_NOT_FOUND` is #454: the registration
+> names a version-pinned `pwsh` path that stopped existing when PowerShell
+> updated, so the task starts, cannot find its interpreter, and dies in under a
+> second every night.
+>
+> **This stale section nearly cost the alarm that found it.** Reading "there is
+> no schedule any more", the honest conclusion is that a five-day-old dump is the
+> documented, intended state and the check reporting it is noise. It took asking
+> the machine to find out that the opposite was true. A document describing a
+> decision that has since been undone is worse than no document, because it
+> argues confidently against the evidence in front of you.
+>
+> Whoever fixes #454 should rewrite this section to match whatever is then true,
+> and say which of the two the owner actually wants.
+
 **The owner retired the scheduled task on 2026-08-11.** Backups are taken before
 any operation that touches the catalogue, by whoever is doing the operation, and
 not on a clock.
@@ -706,12 +734,75 @@ usefully: the answer is not in the catalogue.
 news. An alarm that fires on an ordinary Tuesday is an alarm somebody learns to
 scroll past.
 
+### It happened a third time, and the noticing was never switched on
+
+**2026-08-24. The newest dump was 5.8 days old and nothing said so.**
+`install-backup-task.ps1:165` registers a
+version-pinned `pwsh` path; PowerShell updated to 7.6.5 and the path stopped
+existing, so the task ran and died in under a second every night (#454).
+
+That is the third stoppage, after #239 and #311, and the shape is identical
+again. But the important part is not the cause. **The noticing that #311 built
+was never armed.**
+
+`BOOKSCAN_BACKUP_DIR` was not set in `run-stable.ps1`. The section below calls
+setting it "the one thing to wire, which the owner runs", and it was not run. So
+`backup-watch.ts` answered `unwatched` — which draws nothing, correctly, because
+nothing was claimed — and the card that exists to carry this to the first screen
+of the app had nothing to say. **A layer that is built, documented and never
+switched on is indistinguishable from a layer that is working**, because both of
+them are quiet.
+
+Two things follow, and they are why this is written here rather than closed with
+the fix:
+
+- **The unarmed state must be as loud as the bad state.** `unwatched` is drawn
+  as nothing on the theory that nothing was claimed. That theory is right for a
+  developer's checkout and wrong for the machine holding the collection, and
+  there is no way for the app to tell those apart. Whatever replaces it has to
+  make "I am not watching anything" visible somewhere.
+- **`scripts/check-backup-freshness.mjs` exists for that reason** and is
+  deliberately not a second answer to this question. It asks the same question
+  of the same disk and puts it somewhere that needs nobody to have wired
+  anything up: the start of a session. It is loud when unconfigured, for exactly
+  the reason above. Where the two disagree, `backup-watch.ts` is right and the
+  script is the copy to fix.
+
+**And it watches the covers, but not by their age**, which is a correction worth
+recording because the first version of the check got it wrong and the wrong
+answer looked entirely plausible.
+
+`robocopy /E /XO` preserves source timestamps, so the newest file in
+`E:\book-scan-covers` **is** the newest file at the source. Its age measures how
+long since somebody photographed a book, not how long since the mirror ran. On
+2026-08-25 both sides held 1541 files with an identical newest mtime of
+`2026-08-08T04:21:01.189Z`: nobody had scanned for seventeen days, and there was
+nothing for the mirror to carry.
+
+The first version reported "the newest backed-up cover is 16.9 days old" and it
+was a **false alarm** — a true number about the wrong thing, sitting next to a
+genuinely stale dump figure, which is exactly why it survived being run. On a
+quiet week after the schedule is repaired it would have cried wolf over a sync
+working perfectly.
+
+So the covers are checked by comparison: the mirror is current when the
+destination's newest is at least as new as the source's, at any age. False the
+moment a copy is missed, and silent through a quiet fortnight. Where the source
+cannot be read it says so rather than falling back to an age.
+
+**The dumps are still checked by age**, because a run produces a new file every
+night, so age there really is time-since-last-success. Two clocks, two kinds of
+question.
+
 ### Where the answer goes
 
 **The first screen of the app**, above everything else on it, as a card with the
 bad news in the title. That screen already exists to say what needs the owner,
 and he already looks at it. A second log would have been the thing that failed
 twice, written again.
+
+**That reasoning still holds and it is not what failed.** What failed is that
+the card was never given anything to draw. See above.
 
 The card is drawn only when something is wrong. **There is no reassuring
 version of it**, deliberately: a line saying backups are fine is a line that can
