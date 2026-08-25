@@ -7,50 +7,42 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, at `0cefe09` (`master`, after #441).** It rots quickly.
-Three merges from now, distrust the "in flight" section entirely and read
-`gh pr list` instead.
+**Written 2026-08-24, topped up at `fdbf7cc` (`master`, after #450).** It rots
+quickly. Three merges from now, distrust the "in flight" section entirely and
+read `gh pr list` instead.
 
 ## In flight
 
-Three agents dispatched in one wave, each alone in its own worktree, batched so
-they do not collide:
+Two agents out, which is the ceiling on this machine for the memory reason
+below:
 
-| Issue | Surface | Why it is in this wave |
+| Issue | What it is | Note |
 | --- | --- | --- |
-| #434 | the spine and shelf view | a phantom bookcase after a tag change, and spine labels clipped at the *start* |
-| #433 | the book page and manage screen | an offer that relocates a correctly filed book and deletes its area, without asking |
-| #432 | the camera error message and the shelving cascade | a failure message at 1.05:1 in the light theme, and a cascade with no button that obeys it |
+| #430 | four from the arranging hunt | briefed to **re-reproduce all four first**, because three fixes landed underneath it in the last hour |
+| hunt | the lending journey, read-only | third attempt; the first two died to harness restarts |
 
-A fourth agent, a read-only hunting pass on the lending journey, was dispatched
-beside them and is described below under what the restart cost.
+**The wave before this one is finished and merged**: #434 as #446, #433 as #449,
+#432 as #450. All three were verified in the running app before merging rather
+than accepted from their reports, and each PR carries a review record saying
+what was checked and what was taken on trust.
 
-**All three survived two harness restarts with their work committed**, which is
-the one thing that went right. Each has a branch and one substantive commit, and
-none has been pushed or opened a pull request:
+**What those three actually turned out to be** is worth carrying forward,
+because two of the three corrected the issue that described them:
 
-| Issue | Branch | Commit |
-| --- | --- | --- |
-| #434 | `library/434-one-board-per-area` | draw a board per area, from the furniture rather than from a parsed label |
-| #433 | `shelving/433-asking-before-an-area-goes` | ask before the one boundary move that takes an area off the furniture |
-| #432 | `shelving/432-readable-refusals` | say the refusal in ink somebody can see, and stop refusing a plank that holds one book |
+- **#434** was not a text-truncation bug. Spine labels were not being clipped;
+  the spine is a photograph and the picture was taller than the book, hanging
+  off both ends of an `overflow: hidden`. An ellipsis would have fixed a defect
+  that was not happening.
+- **#432** had no missing button. The cascade's refusal on a one-book plank was
+  itself the bug, and `docs/shelving.md` said so in four places. The fix was
+  deleting one guard.
+- **#433** was what it looked like, and the fix went to the write path rather
+  than the screen: `moveAcrossBoundary` now refuses to remove an area unless
+  told, defaulting to refusing.
 
-All three commit messages read as though the agent found a cause rather than
-patched a symptom, which is what the briefs asked for and is not yet verified.
-**None of them has met its evidence bar**, so do not treat those branches as
-done. **#432 is resumed last and is currently paused** for the memory reason
-below, not for anything wrong with it.
-
-The lending hunt has produced nothing across two attempts and one of its two
-worktrees. Re-dispatch it when there is headroom, and keep the instruction to
-write findings to a file as it goes, because holding them in context is exactly
-how the first one produced nothing.
-
-**#430 is deliberately held back.** It collides with two of the three: its
-"one fixture, two names" is the same defect family as #434's phantom bookcase,
-and its overflow-onto-the-wrong-bookcase is the same cascade #432 is inside.
-Dispatch it after those two land, and re-check its four items against the
-result first, because some of them may already be gone.
+**The moral, which is now three for three: reproduce before fixing, and read the
+specification before deciding what correct is.** Both briefs asked for it
+explicitly and both times it changed the answer.
 
 ## The harness process exited, and took every agent with it
 
@@ -156,6 +148,17 @@ Traps, each of which has actually bitten:
   whoever started first. `aspire start --non-interactive` assigns them.
 - **Measure disk with `du`, not PowerShell one-liners.** Escaping has silently
   measured the wrong path twice.
+- **Aspire's reported web URL is wrong.** `aspire describe` and `aspire ps`
+  advertise a proxy port that serves nothing: `curl` gets `ERR_EMPTY_RESPONSE`
+  and a browser gets nothing. The real one is in `aspire logs web`, printed by
+  Vite as `https://localhost:<port>` — **https**, and a different port. This cost
+  a verification pass twice before it was written down. `aspire wait web`
+  reporting healthy in 0.0s does not mean the URL you were given works.
+- **`docs/reading-status.md` describes something that does not exist.** It is the
+  specification for #395 and says "Nothing here is built" in its own third
+  paragraph. #395 is closed because the *spec* was written. A brief once sent a
+  hunt looking for the feature; do not repeat that, and be careful of the other
+  documents in `docs/` that are arguments rather than descriptions.
 
 ## What needs the owner, and what does not
 
@@ -198,23 +201,40 @@ workaround while it stands is `--body-file`, or a non-shell write tool.
 
 ## Open, as of this writing
 
-- **#443** — this change. Mine, written and to be merged by me, which the PR
-  body says out loud. Green.
-- **#445** — the documentation half of #444, split out because it is inert to
-  CI and lands first under this repo's own merge discipline. Green.
-- **#444** — the guard defects above. Dispatchable; not dispatched, because the
-  agents already out are enough and this one is not urgent while the guard's
-  failure direction is to over-refuse rather than to let a merge past.
+No pull requests open. Everything below is an issue nobody is working.
 
-**Both pull requests are green and neither can be merged.** The harness's own
-auto-mode classifier refuses `node scripts/merge-pr.mjs <n>`, which is this
-repository's only sanctioned way to land anything. The script itself runs:
-`--help` returns its usage. It is the merge invocation specifically, and it
-needs a Bash permission rule from the owner. Nothing is wrong with the branches.
+**Filed today out of the wave, all with reproductions or measurements behind
+them:**
 
-**Which means this file does not yet exist on `master`.** It lives only on
-`platform/continuity-hooks`, and the `SessionStart` hook resolves
-`docs/process/handoff.md` against the checkout it fires in. Until #443 lands,
-the compaction layer installed to carry this across a boundary will report that
-there is no handoff. The restart described above is exactly the failure it was
-built for, and it arrived four hours early.
+- **#444** — the merge guard reads text it should not (it denied a `gh pr create`
+  whose *body* quoted the phrase, and a heredoc writing an issue about it), and
+  cannot say whether it is loaded. The workaround is `--body-file` or a non-shell
+  write tool.
+- **#447** — `pieceOf`, the last reader of a parsed label. **This is the hole
+  five defects came out of** (#356, #380, #401, #430 item 3, #434) and closing it
+  should close #430 item 3 outright. The highest-value item on this list.
+- **#448** — `leaving-books-where-they-are.feature` fails differently every run,
+  measured on a clean master baseline. A flaky *required* check makes the merge
+  gate arbitrary, which matters more here than three red scenarios, because these
+  checks are the only gate.
+- **#451** — `.cam__sheet-meta` at 3.83:1, and a dead header frame the
+  stylesheet's own orphan test cannot see because `Chrome.tsx` still names the
+  classes it never renders.
+- **#452** — the third tag door: making a tag no book carries yet.
+
+**Older and still open:** #440 (a queue holding many captures of one book says
+nothing about it; a design question wanting a gallery drawing first), #348 (the
+second catalogue has never answered; needs the owner's API key for the smaller
+half), and the two `shaping` epics #171 and #139, which are never dispatched.
+
+## Merging works, and it did not for the first three hours
+
+The harness's auto-mode classifier refused `node scripts/merge-pr.mjs <n>` three
+times, while the same script ran fine with `--help`. It is the merge invocation
+specifically. **The owner settled it: merges are approved.** If it ever refuses
+again, that is a harness permission rule and not a decision the owner needs to
+retake — say which rule, and keep going.
+
+Two green pull requests sat blocked across three status updates before this was
+asked plainly enough. Ask early, in prose, and carry on with everything that does
+not depend on the answer.
