@@ -103,6 +103,73 @@ Ask on every change:
 4. Would a new engineer find this where they would look for it?
 5. Is the project's single source of truth still single, or did a parallel one
    just get born?
+6. **If the change places a rule to protect an act, who else performs that
+   act?** Name the act, grep for its callers, and say in the review which are
+   covered and which are not. A rule on one caller of a shared act is not on the
+   act.
+
+### Why these questions exist, which is one sentence
+
+**The author's attention is on the change. The defect is in what the change does
+not contain.**
+
+That is not a remark about carelessness, and the evidence is that it kept
+happening to people holding the right idea at the time. Four instances over two
+days, two authors, both kinds of artefact:
+
+- A confirmation was put on the act that removes an area. The review quoted the
+  principle that a rule belongs on the statement which writes — and neither
+  author nor reviewer asked what *else* called it. The diff contained one of the
+  two callers (#456).
+- A check written to stop a backup alarm crying wolf **shipped a false alarm in
+  its own first run**, and was executed against the real disks without anybody
+  noticing, because the wrong number sat beside a true one and read as more of
+  the same.
+- A hunting pass found that missing caller in one journey, two hours after the
+  review, having read none of the code.
+- A correct alarm was nearly withdrawn because a runbook section confidently
+  described a decision that had since been undone. The document was specific,
+  and wrong, and it argued.
+
+Every question in this lens is a way of looking at what is *not* in front of
+you: what else calls this, what else answers this, what else already does this.
+They are mechanical on purpose. Having the principle was demonstrably not
+enough — it was quoted inside the review that missed the caller.
+
+### The sixth question, and what it cost to learn
+
+**#449 put a confirmation on the boundary move that removes an area, and I
+reviewed it and said the rule was in the right place.** The review even quoted
+the principle: #214 and #185 established that the rule goes on the statement
+that writes, never on the caller, because a caller cannot forget what it never
+had to remember.
+
+The rule went onto `Shelves.moveAcrossBoundary`. The act is
+`RemoveSeparatorHandler.handle`, and it has **two** callers:
+
+```
+web/server/shelves.ts:1226   inside Shelves      <- guarded by #449
+web/server/index.ts:2141     DELETE /api/shelves/:id  <- not guarded, no assent parameter at all
+```
+
+So one tap on the other door still removed a boundary and relocated books with
+nothing said (#456). The review had the right principle in front of it, applied
+it to the code in the diff, and never asked what else reached the same act. It
+is the third door to a thing #433 had already been raised about twice.
+
+**Two things follow, and the second is the one that generalises.**
+
+The check is mechanical and belongs in the pull request, not in a reviewer's
+memory: name the act, list its callers, say which are covered. It takes one
+grep and it is checkable by somebody who was not there.
+
+And: **a review reads the lock, a hunt tries the doors.** #456 was found by a
+hunting pass two hours after that review, in one journey, without reading any of
+the code. A careful reading of a diff cannot find a caller the diff does not
+contain, and no amount of care in that reading changes it. That is not an
+argument for reviewing less; it is the argument for `agent-hunting-pass.md`
+existing at all, and it is the strongest evidence this project has produced for
+it.
 
 If a change introduces a new pattern deliberately, record the decision where
 somebody will meet it. This repository does not use ADRs. Decisions live in
