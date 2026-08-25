@@ -1,0 +1,14 @@
+== before3 run 1  exit=0  free-commit-before=3.5GB
+passed  The whole list, decided against, and not one book moved
+passed  A book already carried keeps the shelf it was carried to
+passed  The decision can itself be taken back
+== before3 run 2  exit=1  free-commit-before=1.3GB
+failed  The whole list, decided against, and not one book moved
+        Error: browserContext.close: Target page, context or browser has been closed
+passed  A book already carried keeps the shelf it was carried to
+failed  The decision can itself be taken back
+        Error: worker process exited unexpectedly (code=134, signal=null)
+== before3 run 3  exit=0  free-commit-before=0.7GB
+passed  The whole list, decided against, and not one book moved
+passed  A book already carried keeps the shelf it was carried to
+passed  The decision can itself be taken back

@@ -1,0 +1,349 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "leaving-books-where-they-are",
+      "--reporter=list,json"
+    ],
+    "configFile": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\playwright.config.ts",
+    "rootDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      },
+      {
+        "outputDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium-front-cover",
+        "name": "chromium-front-cover",
+        "testDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "features\\leaving-books-where-they-are.feature.spec.js",
+      "file": "features/leaving-books-where-they-are.feature.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Saying never mind to a move leaves every book exactly where it stands",
+          "file": "features/leaving-books-where-they-are.feature.spec.js",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "The whole list, decided against, and not one book moved",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 10325,
+                      "error": {
+                        "message": "Error: browserContext.close: Target page, context or browser has been closed",
+                        "stack": "Error: browserContext.close: Target page, context or browser has been closed"
+                      },
+                      "errors": [
+                        {
+                          "message": "Error: browserContext.close: Target page, context or browser has been closed"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "steps": [
+                        {
+                          "title": "When I open the app",
+                          "duration": 4701
+                        },
+                        {
+                          "title": "And I open my fixtures",
+                          "duration": 277
+                        },
+                        {
+                          "title": "And I open the bookcase called \"Bookcase 4\"",
+                          "duration": 162
+                        },
+                        {
+                          "title": "And I ask to move these books to bookcase 3",
+                          "duration": 265
+                        },
+                        {
+                          "title": "And I apply the plan",
+                          "duration": 144
+                        },
+                        {
+                          "title": "And I open the list of books to carry",
+                          "duration": 49
+                        },
+                        {
+                          "title": "Then the carry list should say:",
+                          "duration": 46
+                        },
+                        {
+                          "title": "Given I note where every book stands",
+                          "duration": 4
+                        },
+                        {
+                          "title": "When I leave them where they are",
+                          "duration": 143
+                        },
+                        {
+                          "title": "Then the carry list should say:",
+                          "duration": 29
+                        },
+                        {
+                          "title": "And the carry list should not say \"Every book is where the rules want it\"",
+                          "duration": 6
+                        },
+                        {
+                          "title": "And every book should still stand where it stood",
+                          "duration": 6
+                        }
+                      ],
+                      "startTime": "2026-08-25T05:27:28.940Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\test-results\\features-leaving-books-whe-919a5-inst-and-not-one-book-moved-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\test-results\\features-leaving-books-whe-919a5-inst-and-not-one-book-moved-chromium\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "17f7e8e1aee36a33ce05-3de7f0d457dfebfb3ded",
+              "file": "features/leaving-books-where-they-are.feature.spec.js",
+              "line": 11,
+              "column": 3
+            },
+            {
+              "title": "A book already carried keeps the shelf it was carried to",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5829,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "steps": [
+                        {
+                          "title": "When I open the app",
+                          "duration": 446
+                        },
+                        {
+                          "title": "And I open my fixtures",
+                          "duration": 173
+                        },
+                        {
+                          "title": "And I open the bookcase called \"Bookcase 4\"",
+                          "duration": 191
+                        },
+                        {
+                          "title": "And I ask to move these books to bookcase 3",
+                          "duration": 186
+                        },
+                        {
+                          "title": "And I apply the plan",
+                          "duration": 121
+                        },
+                        {
+                          "title": "Given I have already carried \"Dune\" to \"3A\"",
+                          "duration": 28
+                        },
+                        {
+                          "title": "And I note where every book stands",
+                          "duration": 4
+                        },
+                        {
+                          "title": "When I open the list of books to carry",
+                          "duration": 36
+                        },
+                        {
+                          "title": "And I leave them where they are",
+                          "duration": 113
+                        },
+                        {
+                          "title": "Then the carry list should say:",
+                          "duration": 13
+                        },
+                        {
+                          "title": "And \"Dune\" should still be recorded on \"3A\"",
+                          "duration": 6
+                        },
+                        {
+                          "title": "And every book should still stand where it stood",
+                          "duration": 4
+                        }
+                      ],
+                      "startTime": "2026-08-25T05:27:42.105Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "17f7e8e1aee36a33ce05-9ed9fa857f1b39efd888",
+              "file": "features/leaving-books-where-they-are.feature.spec.js",
+              "line": 26,
+              "column": 3
+            },
+            {
+              "title": "The decision can itself be taken back",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: worker process exited unexpectedly (code=134, signal=null)"
+                      },
+                      "errors": [
+                        {
+                          "message": "Error: worker process exited unexpectedly (code=134, signal=null)"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [
+                        {
+                          "buffer": "DQo8LS0tIExhc3QgZmV3IEdDcyAtLS0+DQoNClsxMjgzNjowMDAwMDJCQjEwNzc0MDAwXSAgICAgIDYzNiBtczogU2NhdmVuZ2UgMTMuNCAoMTguOSkgLT4gMTAuOSAoMTkuNikgTUIsIHBvb2xlZDogMCBNQiwgMC42OCAvIDAuMDEgbXMgIChhdmVyYWdlIG11ID0gMS4wMDAsIGN1cnJlbnQgbXUgPSAxLjAwMCkgdGFzazsgDQpbMTI4MzY6MDAwMDAyQkIxMDc3NDAwMF0gICAgIDg3MzYgbXM6IE1hcmstQ29tcGFjdCAocmVkdWNlKSAxMy4xICgxOS42KSAtPiA5LjcgKDEyLjMpIE1CLCBwb29sZWQ6IDAgTUIsIDMuMzggLyAwLjAyIG1zICAoKyAyLjIgbXMgaW4gMCBzdGVwcyBzaW5jZSBzdGFydCBvZiBtYXJraW5nLCBiaWdnZXN0IHN0ZXAgMC4wIG1zLCB3YWxsdGltZSBzaW5jZSBzdGFydCBvZiBtYXJraW5nIDYgbXMpIChhdmVyYWdlIG11ID0gMC45OTksIGN1cnJlbnQgbXUNCg0KPC0tLSBKUyBzdGFja3RyYWNlIC0tLT4NCg0KRkFUQUwgRVJST1I6IENvbW1pdHRpbmcgc2VtaSBzcGFjZSBmYWlsZWQuIEFsbG9jYXRpb24gZmFpbGVkIC0gSmF2YVNjcmlwdCBoZWFwIG91dCBvZiBtZW1vcnkNCi0tLS0tIE5hdGl2ZSBzdGFjayB0cmFjZSAtLS0tLQ0KDQo="
+                        },
+                        {
+                          "buffer": "IDE6IDAwMDA3RkY3MEU4QjIwQUQgDQogMjogMDAwMDdGRjcwRTgxQTREOCANCiAzOiAwMDAwN0ZGNzBGMzlBMUIxIA0KIDQ6IDAwMDA3RkY3MEYzODcwOTYgDQogNTogMDAwMDdGRjcwRjFENjkyMCANCiA2OiAwMDAwN0ZGNzBGMThGNkMzIA0KIDc6IDAwMDA3RkY3MEYxREZBMUMgDQogODogMDAwMDdGRjcwRjFEMDJFOSANCiA5OiAwMDAwN0ZGNzBGMUNCQ0Y1IA0KMTA6IDAwMDA3RkY3MEVCNTEzQkQgDQo="
+                        }
+                      ],
+                      "retry": 0,
+                      "steps": [
+                        {
+                          "title": "When I open the app",
+                          "duration": -1
+                        }
+                      ],
+                      "startTime": "2026-08-25T05:27:48.562Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "17f7e8e1aee36a33ce05-9a0173fba646ee75c2d8",
+              "file": "features/leaving-books-where-they-are.feature.spec.js",
+              "line": 41,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-25T05:26:22.042Z",
+    "duration": 106987.241,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  }
+}

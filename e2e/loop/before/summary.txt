@@ -1,0 +1,12 @@
+== before run 1 exit=0
+   passed  The whole list, decided against, and not one book moved
+   passed  A book already carried keeps the shelf it was carried to
+   passed  The decision can itself be taken back
+== before run 2 exit=0
+   passed  The whole list, decided against, and not one book moved
+   passed  A book already carried keeps the shelf it was carried to
+   passed  The decision can itself be taken back
+== before run 3 exit=0
+   passed  The whole list, decided against, and not one book moved
+   passed  A book already carried keeps the shelf it was carried to
+   passed  The decision can itself be taken back

@@ -1,0 +1,360 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "leaving-books-where-they-are",
+      "--reporter=list,json"
+    ],
+    "configFile": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\playwright.config.ts",
+    "rootDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "C:\\Users\\Blake\\source\\repos\\book-scan\\.claude\\worktrees\\agent-afd7796456b0a764f\\e2e\\global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      },
+      {
+        "outputDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium-front-cover",
+        "name": "chromium-front-cover",
+        "testDir": "C:/Users/Blake/source/repos/book-scan/.claude/worktrees/agent-afd7796456b0a764f/e2e/.features-gen",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "features\\leaving-books-where-they-are.feature.spec.js",
+      "file": "features/leaving-books-where-they-are.feature.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Saying never mind to a move leaves every book exactly where it stands",
+          "file": "features/leaving-books-where-they-are.feature.spec.js",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "The whole list, decided against, and not one book moved",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6259,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "steps": [
+                        {
+                          "title": "When I open the app",
+                          "duration": 4273
+                        },
+                        {
+                          "title": "And I open my fixtures",
+                          "duration": 252
+                        },
+                        {
+                          "title": "And I open the bookcase called \"Bookcase 4\"",
+                          "duration": 157
+                        },
+                        {
+                          "title": "And I ask to move these books to bookcase 3",
+                          "duration": 266
+                        },
+                        {
+                          "title": "And I apply the plan",
+                          "duration": 141
+                        },
+                        {
+                          "title": "And I open the list of books to carry",
+                          "duration": 38
+                        },
+                        {
+                          "title": "Then the carry list should say:",
+                          "duration": 46
+                        },
+                        {
+                          "title": "Given I note where every book stands",
+                          "duration": 6
+                        },
+                        {
+                          "title": "When I leave them where they are",
+                          "duration": 146
+                        },
+                        {
+                          "title": "Then the carry list should say:",
+                          "duration": 30
+                        },
+                        {
+                          "title": "And the carry list should not say \"Every book is where the rules want it\"",
+                          "duration": 6
+                        },
+                        {
+                          "title": "And every book should still stand where it stood",
+                          "duration": 5
+                        }
+                      ],
+                      "startTime": "2026-08-25T05:09:35.614Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "17f7e8e1aee36a33ce05-3de7f0d457dfebfb3ded",
+              "file": "features/leaving-books-where-they-are.feature.spec.js",
+              "line": 11,
+              "column": 3
+            },
+            {
+              "title": "A book already carried keeps the shelf it was carried to",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1988,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "steps": [
+                        {
+                          "title": "When I open the app",
+                          "duration": 464
+                        },
+                        {
+                          "title": "And I open my fixtures",
+                          "duration": 153
+                        },
+                        {
+                          "title": "And I open the bookcase called \"Bookcase 4\"",
+                          "duration": 122
+                        },
+                        {
+                          "title": "And I ask to move these books to bookcase 3",
+                          "duration": 220
+                        },
+                        {
+                          "title": "And I apply the plan",
+                          "duration": 119
+                        },
+                        {
+                          "title": "Given I have already carried \"Dune\" to \"3A\"",
+                          "duration": 30
+                        },
+                        {
+                          "title": "And I note where every book stands",
+                          "duration": 3
+                        },
+                        {
+                          "title": "When I open the list of books to carry",
+                          "duration": 34
+                        },
+                        {
+                          "title": "And I leave them where they are",
+                          "duration": 234
+                        },
+                        {
+                          "title": "Then the carry list should say:",
+                          "duration": 12
+                        },
+                        {
+                          "title": "And \"Dune\" should still be recorded on \"3A\"",
+                          "duration": 7
+                        },
+                        {
+                          "title": "And every book should still stand where it stood",
+                          "duration": 4
+                        }
+                      ],
+                      "startTime": "2026-08-25T05:09:42.474Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "17f7e8e1aee36a33ce05-9ed9fa857f1b39efd888",
+              "file": "features/leaving-books-where-they-are.feature.spec.js",
+              "line": 26,
+              "column": 3
+            },
+            {
+              "title": "The decision can itself be taken back",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1864,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "steps": [
+                        {
+                          "title": "When I open the app",
+                          "duration": 396
+                        },
+                        {
+                          "title": "And I open my fixtures",
+                          "duration": 139
+                        },
+                        {
+                          "title": "And I open the bookcase called \"Bookcase 4\"",
+                          "duration": 111
+                        },
+                        {
+                          "title": "And I ask to move these books to bookcase 3",
+                          "duration": 186
+                        },
+                        {
+                          "title": "And I apply the plan",
+                          "duration": 131
+                        },
+                        {
+                          "title": "And I open the list of books to carry",
+                          "duration": 34
+                        },
+                        {
+                          "title": "Given I note where every book stands",
+                          "duration": 5
+                        },
+                        {
+                          "title": "When I leave them where they are",
+                          "duration": 167
+                        },
+                        {
+                          "title": "And I put them back on the list",
+                          "duration": 104
+                        },
+                        {
+                          "title": "Then the carry list should say:",
+                          "duration": 16
+                        },
+                        {
+                          "title": "And the carry list should not say \"Left where they are\"",
+                          "duration": 6
+                        },
+                        {
+                          "title": "And every book should still stand where it stood",
+                          "duration": 4
+                        }
+                      ],
+                      "startTime": "2026-08-25T05:09:44.484Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "17f7e8e1aee36a33ce05-9a0173fba646ee75c2d8",
+              "file": "features/leaving-books-where-they-are.feature.spec.js",
+              "line": 41,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-25T05:08:33.283Z",
+    "duration": 79873.47600000001,
+    "expected": 3,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
