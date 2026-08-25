@@ -2172,7 +2172,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
           ? `Removing this line takes ${going.area} off the furniture. `
             + 'Nothing has been changed.'
           : `Removing this line takes ${going.area} off the furniture, and its `
-            + `${going.books} book${going.books === 1 ? '' : 's'} join ${going.into}. `
+            + `${going.books} book${going.books === 1 ? ' joins ' : 's join '}${going.into}. `
             + 'Nothing has been changed.',
         going,
       ))

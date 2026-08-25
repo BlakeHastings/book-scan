@@ -155,10 +155,10 @@ export function ShelfView({
   const [moving, setMoving] = useState(0)
   /*
    * The line somebody has pressed Remove on and has not yet answered about,
-   * with the server's own sentence and rows. Null the rest of the time, which
+   * with what the server said it would cost. Null the rest of the time, which
    * is every moment nothing is being asked.
    */
-  const [going, setGoing] = useState<{ id: number; said: string; cost: AreaGoing } | null>(null)
+  const [going, setGoing] = useState<{ id: number; cost: AreaGoing } | null>(null)
   /*
    * The anchor this mount was born with, which is the only one that means
    * "you are coming back".
@@ -298,7 +298,7 @@ export function ShelfView({
       setGoing(null)
     } catch (caught) {
       if (caught instanceof Refusal && caught.effect) {
-        setGoing({ id, said: caught.message, cost: caught.effect as AreaGoing })
+        setGoing({ id, cost: caught.effect as AreaGoing })
         return
       }
       setError((caught as Error).message)
@@ -613,16 +613,25 @@ export function ShelfView({
       )}
 
       {/* The same dialog an area is removed through on the furniture screen and
-          a book's own page, because it is the same act reached from a third
-          door (#456). The title says what goes and the sentence is the
-          server's: whoever refuses is who knows what it costs. */}
+          on a book's own page, because it is the same act reached from a third
+          door (#456). Its title is the cost said about their books, which is
+          what #281 settled and what the other two already say; the sentence
+          under it adds what happens next rather than repeating the title, and
+          the rows are the labels that read differently afterwards. */}
       {going && (
         <Sure
+          /* The area is named rather than said as "its", which is what the
+             area's own page can afford: this dialog covers a page of shelves
+             and there is nothing on it for a pronoun to point at. */
           title={going.cost.books === 0
-            ? `${going.cost.area} comes off the furniture`
-            : `${going.cost.area} comes off, and its `
-              + `${plural(going.cost.books, 'book')} join ${going.cost.into}`}
-          said={going.said}
+            ? `No books stand in ${going.cost.area}`
+            : `${going.cost.area} goes, and its ${plural(going.cost.books, 'book')} `
+              + `${going.cost.books === 1 ? 'joins' : 'join'} ${going.cost.into}`}
+          said={going.cost.books === 0
+            ? 'The area comes off the furniture and nothing has to be refiled.'
+            : 'Nothing is carried for you. Afterwards the list of books needing '
+              + 'attention names each one, and you confirm it where it stands, '
+              + 'because only somebody in front of a book can say it has moved.'}
           becomes={going.cost.becomes}
           act="Remove it"
           onAct={() => removeSeparator(going.id, true)}

@@ -1527,7 +1527,7 @@ describe('moving a book across an area boundary', () => {
 
     expect(status).toBe(409)
     expect(body.error).toBe(
-      'Removing this line takes 1B off the furniture, and its 1 book join 1A. '
+      'Removing this line takes 1B off the furniture, and its 1 book joins 1A. '
       + 'Nothing has been changed.',
     )
     // What a dialog puts in front of somebody, so the screen asks with the

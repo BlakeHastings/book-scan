@@ -1050,6 +1050,17 @@ why `Shelves`, `RemoveSeparatorHandler` and the routes above them are covered
 without knowing they are. **If you add a fourth, it goes in that class beside the
 three that do.**
 
+**The removal refuses unless somebody has been asked** (#456), and the refusal is
+on `RemoveSeparatorHandler` rather than on either caller. Taking a boundary out
+takes an area off the furniture and hands its books to the area in front, and
+#281 settled that a person is told what becomes of their books first. The rule
+lived on `Shelves.moveAcrossBoundary` for two hours (#433), which is one of the
+two callers, and the other one relocated books on a single tap in that window.
+So `RemoveSeparator` carries `theAreaGoes`, it is **not** defaulted to true
+anywhere, and a caller that says nothing is a caller nobody asked. A boundary
+that has already gone is still answered rather than refused: a retry must not
+become an error.
+
 **`area` is what `separators` became, and `separators` is dropped** (#232), along
 with `shelf_ranges`. `area.starts_at` is `separators.starts_at` under a name that
 says what it anchors; a boundary's `kind` and `position` are derived from where
