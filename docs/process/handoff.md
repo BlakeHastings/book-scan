@@ -7,42 +7,51 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up at `fdbf7cc` (`master`, after #450).** It rots
-quickly. Three merges from now, distrust the "in flight" section entirely and
-read `gh pr list` instead.
+**Written 2026-08-24, topped up 2026-08-25 at `4d6ce22` (`master`, after #460).**
+It rots quickly. Three merges from now, distrust the "in flight" section entirely
+and read `gh pr list` instead.
 
 ## In flight
 
-Two agents out, which is the ceiling on this machine for the memory reason
-below:
+**One agent running, one paused, and the pause is about the machine rather than
+the work.**
 
-| Issue | What it is | Note |
+| Issue | Branch | State |
 | --- | --- | --- |
-| #430 | four from the arranging hunt | briefed to **re-reproduce all four first**, because three fixes landed underneath it in the last hour |
-| hunt | the lending journey, read-only | third attempt; the first two died to harness restarts |
+| #447 | `shelving/447-shelves-standing` | running, two commits: the shelves route carries the piece, and a carry trip with two ends reading the same is named |
+| #448 | `e2e/448-leaving-books-flake` | **paused by me**, one commit: the feature measured in a loop rather than argued about |
 
-**The wave before this one is finished and merged**: #434 as #446, #433 as #449,
-#432 as #450. All three were verified in the running app before merging rather
-than accepted from their reports, and each PR carries a review record saying
-what was checked and what was taken on trust.
+**#448 was stopped deliberately.** Its work is committed and safe and it can be
+resumed with a message. It runs browser journeys in a loop, which is the
+heaviest thing on this machine, and the machine started refusing to spawn
+processes (`EUNKNOWN: uv_spawn`) while it and #447 ran together. Shedding it kept
+#447 alive. **Resume it when nothing else is running**, not alongside another
+agent.
 
-**What those three actually turned out to be** is worth carrying forward,
-because two of the three corrected the issue that described them:
+**Nine pull requests merged across 2026-08-24 and 25**: #443, #445, #446, #449,
+#450, #453, #455, #460, #461, #462, #464. Every code one was verified in the
+running app before merging, and each carries a review record saying what was
+checked and what was taken on trust.
 
-- **#434** was not a text-truncation bug. Spine labels were not being clipped;
-  the spine is a photograph and the picture was taller than the book, hanging
-  off both ends of an `overflow: hidden`. An ellipsis would have fixed a defect
-  that was not happening.
-- **#432** had no missing button. The cascade's refusal on a one-book plank was
-  itself the bug, and `docs/shelving.md` said so in four places. The fix was
-  deleting one guard.
-- **#433** was what it looked like, and the fix went to the write path rather
-  than the screen: `moveAcrossBoundary` now refuses to remove an area unless
-  told, defaulting to refusing.
+## What the fixes keep turning out to be
 
-**The moral, which is now three for three: reproduce before fixing, and read the
-specification before deciding what correct is.** Both briefs asked for it
-explicitly and both times it changed the answer.
+Worth carrying forward, because it has now happened five times and it changes
+how to write a brief:
+
+- **#434** was not a text-truncation bug; a photograph was overflowing its box.
+- **#432** had no missing button; the refusal was the bug, and `docs/shelving.md`
+  said so in four places.
+- **#430 item 2** was worse than described: it retired an area with a book still
+  on it.
+- **#456** was found by a hunt two hours after I reviewed #449 and said the rule
+  was in the right place. It was one level too high.
+- **#454** was overstated by me twice, and the second correction inverted the
+  fix: the schedule was retired on purpose and the failing task has never worked.
+
+**Reproduce before fixing, read the specification before deciding what correct
+is, and when a document and a machine disagree, ask the machine.** All three are
+now in `docs/process/working-an-issue.md` rather than in whichever brief somebody
+remembered to put them in.
 
 ## The harness process exited, and took every agent with it
 
@@ -60,10 +69,16 @@ whole of the decision, and you find out by trying.
 twelve or more modified files across `web/server/` and `web/src/components/`
 with no branch created and nothing pushed. Nothing was lost, because a worktree
 survives the process that made it, but nothing was *safe* either. When resuming
-an agent, tell it to commit what it already has before it does anything else. If
-this happens a second time, the fix moves out of this file and into
-`docs/process/working-an-issue.md` as an instruction to branch and commit early,
-which is where it will actually be read.
+an agent, tell it to commit what it already has before it does anything else.
+
+**It happened a second time, the fix moved, and it has already paid for itself.**
+"Branch and commit from your first working change, not when you are finished" is
+now in `docs/process/working-an-issue.md` rather than in this file. On 2026-08-25
+the process died twice more with two agents mid-task; **both had committed,
+unprompted, and the harness restarted them from their transcripts on its own.**
+Nobody had to write a resume message. That is the whole argument for routing a
+lesson to the layer where it will be read rather than to the one where it was
+learned.
 
 **An agent's environment outlives the agent.** The dead one left an AppHost and
 six node processes running against a worktree whose owner no longer existed.
@@ -201,31 +216,77 @@ workaround while it stands is `--body-file`, or a non-shell write tool.
 
 ## Open, as of this writing
 
-No pull requests open. Everything below is an issue nobody is working.
+No pull requests open. **#447 and #448 are being worked**; everything else below
+is an issue nobody is holding.
 
-**Filed today out of the wave, all with reproductions or measurements behind
-them:**
+**The label-parser family, which is the expensive one.** Seven defects have come
+out of one question answered twice, and three fixes for it landed on 2026-08-24.
 
-- **#444** — the merge guard reads text it should not (it denied a `gh pr create`
-  whose *body* quoted the phrase, and a heredoc writing an issue about it), and
-  cannot say whether it is loaded. The workaround is `--body-file` or a non-shell
-  write tool.
-- **#447** — `pieceOf`, the last reader of a parsed label. **This is the hole
-  five defects came out of** (#356, #380, #401, #430 item 3, #434) and closing it
-  should close #430 item 3 outright. The highest-value item on this list.
-- **#448** — `leaving-books-where-they-are.feature` fails differently every run,
-  measured on a clean master baseline. A flaky *required* check makes the merge
-  gate arbitrary, which matters more here than three red scenarios, because these
-  checks are the only gate.
-- **#451** — `.cam__sheet-meta` at 3.83:1, and a dead header frame the
-  stylesheet's own orphan test cannot see because `Chrome.tsx` still names the
-  classes it never renders.
-- **#452** — the third tag door: making a tag no book carries yet.
+- **#447** — `pieceOf`, the last reader of a parsed label. Being worked. Its
+  brief asks the agent to say plainly whether any place is left that reads a
+  rendered label back as a fact, so **its report is the test of whether the
+  family is closed.** #430 item 3 is tracked only here now.
+- **#463** — `bandsOf` picks a range's rule with `rules.find(...)` while `claim`
+  picks by area-before-fixture, priority, id. With two rules on one genre they
+  disagree about where a run begins. Seen live. **Upstream of the cascade**, so
+  it is the most valuable one left after #447.
+- **#458** — Today says "0 to carry" while the manage screen says "Needs
+  attention (2)", on the count that tells the owner whether there is work
+  outstanding. Same family, worst placement.
 
-**Older and still open:** #440 (a queue holding many captures of one book says
-nothing about it; a design question wanting a gallery drawing first), #348 (the
-second catalogue has never answered; needs the owner's API key for the smaller
-half), and the two `shaping` epics #171 and #139, which are never dispatched.
+**From the lending hunt**, which found more in one pass than any review did:
+
+- **#457** — lending a book hides furniture, and one of those hidings caused five
+  books to be moved by mistake.
+- **#459** — nothing records who has a lent book, and the date is on a screen
+  reached by a misfile label. Item 4 of it needs the owner.
+- **#465** — removing a boundary moves books and writes no placements, so they
+  end up pointing at an area that no longer exists. Confirmed live.
+
+**Process and housekeeping:** #444 (the merge guard reads text it should not, and
+cannot say whether it is loaded — workaround is `--body-file`), #451 (a message
+faint in both themes, and a dead header frame the orphan test cannot see), #452
+(making a tag no book carries yet).
+
+**Needs the owner, not an agent:** #454 (remove the failing task or restore the
+schedule, and whether to arm `BOOKSCAN_BACKUP_DIR` on the stable launcher), #440
+(a design question wanting a gallery drawing first), #348 (needs an API key for
+the smaller half). The two `shaping` epics #171 and #139 are never dispatched.
+
+## The backup, which was reported wrongly twice and is worth reading carefully
+
+**The catalogue is not at risk and was not when this was first raised.** Both
+alarms were mine and both were overstated.
+
+**First**: the covers were reported as seventeen days stale. They are current.
+`backup-catalogue.ps1` mirrors with `robocopy /E /XO` and default `/COPY:DAT`, so
+the destination's newest file *is* the source's newest file. Source and
+destination are identical to the millisecond, 1541 files each. What that number
+actually measures is how long since somebody photographed a book.
+
+**Second, and it inverted the fix**: the 03:30 task has **never produced a dump**
+— fourteen dumps on disk from 2026-08-09 to 08-19, not one at 03:30. #241 retired
+the schedule deliberately on 2026-08-11, and `docs/backup-runbook.md` says why:
+"a task that exists and fails is worse than no task, because it looks like
+protection." The irregular dump times are that model working. Nothing has been
+scanned since 2026-08-08 and no operation has touched the live catalogue since
+08-19, so under "back up before any operation" there was nothing to back up.
+
+**What actually remains** is on #454: a task that fires nightly and fails and by
+#241's own argument should be removed rather than repaired; a version-pinned
+`pwsh` path in `install-backup-task.ps1:165` worth fixing regardless; and
+`BOOKSCAN_BACKUP_DIR` never having been set on the stable launcher, which is the
+most valuable single line and is the owner's.
+
+**`scripts/check-backup-freshness.mjs` is armed on this machine.**
+`.git/factory/backup-dirs.json` holds the three measured paths, it is untracked
+and machine-local, and the check runs on `SessionStart`. It now reports one true
+line rather than two plausible ones.
+
+**The lesson, which cost two wrong reports to learn: when a document and a
+machine disagree, ask the machine.** The runbook was right about what the owner
+decided; the scheduler was right about what is true. Reading either alone
+produces the wrong fix.
 
 ## Merging works, and it did not for the first three hours
 
