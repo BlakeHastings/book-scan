@@ -108,6 +108,34 @@ Ask on every change:
    covered and which are not. A rule on one caller of a shared act is not on the
    act.
 
+### Why these questions exist, which is one sentence
+
+**The author's attention is on the change. The defect is in what the change does
+not contain.**
+
+That is not a remark about carelessness, and the evidence is that it kept
+happening to people holding the right idea at the time. Four instances over two
+days, two authors, both kinds of artefact:
+
+- A confirmation was put on the act that removes an area. The review quoted the
+  principle that a rule belongs on the statement which writes — and neither
+  author nor reviewer asked what *else* called it. The diff contained one of the
+  two callers (#456).
+- A check written to stop a backup alarm crying wolf **shipped a false alarm in
+  its own first run**, and was executed against the real disks without anybody
+  noticing, because the wrong number sat beside a true one and read as more of
+  the same.
+- A hunting pass found that missing caller in one journey, two hours after the
+  review, having read none of the code.
+- A correct alarm was nearly withdrawn because a runbook section confidently
+  described a decision that had since been undone. The document was specific,
+  and wrong, and it argued.
+
+Every question in this lens is a way of looking at what is *not* in front of
+you: what else calls this, what else answers this, what else already does this.
+They are mechanical on purpose. Having the principle was demonstrably not
+enough — it was quoted inside the review that missed the caller.
+
 ### The sixth question, and what it cost to learn
 
 **#449 put a confirmation on the boundary move that removes an area, and I
