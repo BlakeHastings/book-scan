@@ -37,6 +37,13 @@
 // a script file the command merely names, a compiled binary, or a tool that is
 // not a shell at all. It reads one command line and no more.
 //
+// **And it believes an agent lives under `/.claude/worktrees/`.** That is where
+// this harness puts them, and it is the whole of how `inAgentWorktree` decides.
+// A worktree made anywhere else — by hand, by a different harness, or by a
+// future version of this one — is not recognised as an agent's and passes
+// straight through, silently. Silence is the exact state this file exists to
+// end, so it is named here rather than discovered later.
+//
 // **It is prevention with no detection behind it, which by this project's own
 // standard is half a layer.** Nothing here notices afterwards that a row
 // changed. `docs/backup-runbook.md` is what makes such a change survivable; it
