@@ -85,13 +85,42 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 /**
- * How old is too old.
+ * THE AGE OF A DUMP IS NOT A QUESTION HERE, AND THIS FILE ASKED IT TWICE.
  *
- * The runbook's own question is "less than about a day ago". A day and a half
- * allows one late run without crying wolf, and still catches a task that has
- * stopped, because a stopped task never comes back on its own.
+ * The first version aged the dumps against a 36 hour threshold, on the
+ * assumption that a nightly schedule produces one every night. **There is no
+ * nightly schedule.** #241 retired it on 2026-08-12 and replaced it with a rule:
+ * a backup is taken before any operation that touches the catalogue, by whoever
+ * is doing the operation.
+ *
+ * Measured, which is what settled it: all fourteen dumps on the disk were
+ * written at irregular local times — 16:14, 10:47, 13:14, 22:32, 08:28, 00:05,
+ * 20:21 — and **not one at 03:30**. They are people backing up before work, and
+ * that is #241's model doing exactly what it says.
+ *
+ * (A task called `book-scan catalogue backup` does still fire at 03:30 and fail
+ * with `ERROR_FILE_NOT_FOUND` every night. It is a leftover from before #241 and
+ * it has never written a dump to that directory. Removing it is #454.)
+ *
+ * So under the rule that actually exists, an age says nothing. There is no
+ * schedule for it to be late against, and complaining that the newest dump is
+ * five days old on a week when nobody touched the catalogue is the third time
+ * this file would have cried wolf about a backup that was fine.
+ *
+ * WHAT THE DISK CAN ACTUALLY PROVE
+ * Two things, and they are the two things below: that scanning has happened
+ * since the last dump, and that the last dump verified.
+ *
+ * **WHAT IT CANNOT PROVE, WHICH MATTERS MORE THAN IT LOOKS.** Covers are only
+ * written when somebody photographs a book. Editing a record, moving a book,
+ * lending one, running a repair — none of them leave a file. So this is silent
+ * through a week of edits, and under #241 the only thing covering that is the
+ * person doing the operation taking a dump first. That is a procedural
+ * guarantee and nothing here can detect its absence. It is written down rather
+ * than implied, because a check that looks like it watches the catalogue and
+ * only watches the camera is precisely the shape of thing this project keeps
+ * finding.
  */
-const STALE_AFTER_HOURS = 36
 
 /**
  * Where the backups live, from the environment first and the machine record
@@ -194,7 +223,7 @@ function verificationOf(dir, dumpName) {
  * Returned rather than printed so the test can ask the question without
  * reading stdout, and so the two clocks are visibly independent.
  */
-export function complaints(dirs, now = Date.now(), staleAfter = STALE_AFTER_HOURS) {
+export function complaints(dirs, now = Date.now()) {
   const said = []
 
   const missing = [
@@ -212,23 +241,37 @@ export function complaints(dirs, now = Date.now(), staleAfter = STALE_AFTER_HOUR
     if (!dirs.dumps && !dirs.covers) return said
   }
 
+  const newestDump = dirs.dumps ? newestIn(dirs.dumps, '.dump') : null
+
   if (dirs.dumps) {
-    const newest = newestIn(dirs.dumps, '.dump')
-    if (!newest) {
+    if (!newestDump) {
       said.push(`No dump at all in ${dirs.dumps}.`)
     } else {
-      const old = hoursSince(newest.at, now)
-      if (old > staleAfter) {
-        said.push(`The newest catalogue dump is ${days(old)} days old (${newest.name}).`)
-      }
-      const verified = verificationOf(dirs.dumps, newest.name)
+      const verified = verificationOf(dirs.dumps, newestDump.name)
       if (!verified.known) {
-        said.push(`The newest dump has no readable verification beside it (${newest.name}).`)
+        said.push(`The newest dump has no readable verification beside it (${newestDump.name}).`)
       } else if (!verified.ok) {
         said.push(
           `The newest dump did not verify clean: ${verified.differences.length} difference(s).`,
         )
       }
+    }
+  }
+
+  // The one thing about timing the disk can actually prove: somebody has
+  // photographed a book since the last dump was taken, so there is work no
+  // backup holds. An age would say nothing here, because #241 replaced the
+  // schedule with "back up before the operation" and there is no clock to be
+  // late against. See the header, including what this cannot see.
+  if (newestDump && dirs.coversSource) {
+    const scanned = newestIn(dirs.coversSource)
+    if (scanned && scanned.at > newestDump.at) {
+      said.push(
+        `Books have been photographed since the last backup: the newest is`
+        + ` ${days(hoursSince(scanned.at, now))} days old and the newest dump is`
+        + ` ${days(hoursSince(newestDump.at, now))} days old.`
+        + '\n  Take one before the next operation (docs/backup-runbook.md).',
+      )
     }
   }
 
@@ -265,7 +308,9 @@ if (process.argv[1]?.endsWith('check-backup-freshness.mjs')) {
     console.log(`dumps:  ${dirs.dumps ?? '(not configured)'}`)
     console.log(`covers: ${dirs.covers ?? '(not configured)'}`)
     console.log('')
-    console.log(said.length ? said.join('\n') : 'Both are fresh and the newest dump verified clean.')
+    console.log(said.length
+      ? said.join('\n')
+      : 'Nothing has been photographed since the newest dump, and that dump verified clean.')
     process.exit(0)
   }
 
