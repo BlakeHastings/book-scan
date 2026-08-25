@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { api, type Move, type PlacementResponse } from '../lib/api'
 import {
-  asking, confirm, depth, emptyCascade, pushCarry, pushFrame, repropose,
+  asking, confirm, depth, pushCarry, pushFrame, repropose,
   started, whereYouAre, type Cascade, type Proposal,
 } from '../lib/cascade'
 import { PlacementView, ShelfStrip } from './ShelfStrip'
@@ -47,6 +47,23 @@ interface Props {
    * already does for the screen beside this one.
    */
   backSaid?: string
+  /**
+   * The shuffle so far, held by whoever owns the book being placed.
+   *
+   * It was this component's own `useState` and that was the wrong lifetime in
+   * both directions (#432). A screen unmounts the moment the route changes, so
+   * "Back to book details" threw away the record of every book the person had
+   * already carried and written down, which `Cascade.done` promises is append
+   * only: a book that was physically carried was physically carried. And here
+   * the component does **not** unmount between two books of one armful, so the
+   * previous book's shuffle was still on screen for the next one.
+   *
+   * So the owner is whoever knows when the book in hand changes, and both of
+   * them already do: the book in hand clears it when the book is put down, and
+   * the armful clears it as each book goes down.
+   */
+  cascade: Cascade
+  setCascade: Dispatch<SetStateAction<Cascade>>
   /** Re-read placement after a move, so the strip shows the shelf as it is now. */
   onRefresh: () => Promise<unknown>
 }
@@ -89,9 +106,8 @@ interface Props {
  */
 export function ShelveView({
   placement, stale, range, title, saving, onShelved, onBack,
-  backSaid = 'Back to book details', onRefresh,
+  backSaid = 'Back to book details', cascade, setCascade, onRefresh,
 }: Props) {
-  const [cascade, setCascade] = useState(emptyCascade)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 

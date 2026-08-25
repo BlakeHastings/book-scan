@@ -395,6 +395,28 @@ export interface Overflow {
  * Deliberately one step at a time. Whether the next shelf can take the extra
  * book is not something that can be computed, so the caller asks the person
  * and calls again if the answer is no. That walk is the guided sequence.
+ *
+ * **A shelf holding one book gives that book up like any other** (#432). It
+ * used to refuse, on the reasoning that moving the only book along would empty
+ * the shelf. Emptying it is the point: what the person needs is a gap on the
+ * plank the book in their hand belongs on, and on a plank holding one book the
+ * gap is the whole plank. `docs/shelving.md` says so twice, and neither place
+ * makes room for a special case:
+ *
+ *   "Anywhere else, a book has to come off the end. [...] the last book on the
+ *    plank goes to the start of the next one. That is the cascade"
+ *
+ *   "The only book in an area. Allowed, in both directions. The plank it
+ *    leaves is then empty, which is exactly what happened in the room."
+ *
+ * The second is written of a boundary moved by hand, and the same document
+ * says the hand and the cascade must write the same thing: "a manual move and
+ * an automatic shuffle answer the same physical question, and if they wrote
+ * different things down one would quietly undo the other. The two differ only
+ * at the ends of the run". A one-book plank is not an end of the run, so the
+ * refusal was the code disagreeing with the specification.
+ *
+ * Null now means one thing and one thing only: this run has no such plank.
  */
 export function overflow(
   placed: Placed[],
@@ -407,9 +429,6 @@ export function overflow(
   if (index === -1) return null
 
   const group = groups[index]!
-  // A shelf holding one book cannot give anything up without emptying itself.
-  if (group.books.length < 2) return null
-
   const moved = group.books[group.books.length - 1]!.book
   const nextGroup = groups[index + 1]
   const fromAt: PlankAt = { shelf: group.shelf, area: group.area }

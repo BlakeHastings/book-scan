@@ -24,6 +24,7 @@ import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ShelveView } from './ShelveView'
+import { emptyCascade } from '../lib/cascade'
 import type { PlacementResponse } from '../lib/api'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
@@ -97,6 +98,8 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
         saving={false}
         onShelved={() => {}}
         onBack={() => {}}
+        cascade={emptyCascade}
+        setCascade={() => {}}
         onRefresh={async () => {}}
       />,
     )

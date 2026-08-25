@@ -48,7 +48,7 @@ export function CarryingScreen() {
   const { setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const { leaveFor } = useLeaving()
-  const { trip, books, done, placed, putBack } = useArmful()
+  const { trip, books, done, placed, putBack, cascade, setCascade } = useArmful()
 
   usePaper()
 
@@ -177,6 +177,8 @@ export function CarryingScreen() {
           onShelved={(shelvedAt) => void shelved(shelvedAt)}
           onBack={back}
           backSaid="Back to books to carry"
+          cascade={cascade}
+          setCascade={setCascade}
           onRefresh={load}
         />
 

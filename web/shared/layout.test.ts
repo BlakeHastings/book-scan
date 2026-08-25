@@ -118,10 +118,25 @@ describe('overflow, when someone says a shelf is full', () => {
     expect(step.create).toEqual({ startsAt: 'B', kind: 'shelf' })
   })
 
-  it('refuses to empty a shelf holding a single book', () => {
-    // Moving its only book would leave the shelf empty and solve nothing.
+  it('empties a shelf holding a single book, which is how the gap is opened', () => {
+    /*
+     * It used to refuse, on the reasoning that moving the only book along would
+     * leave the shelf empty and solve nothing (#432). Emptying it is what solves
+     * it: the gap the person needs is on this plank, and on a plank holding one
+     * book the gap is the whole plank. `docs/shelving.md` allows exactly this of
+     * a boundary moved by hand, and says the hand and the cascade write the same
+     * thing down.
+     */
     const separators = [sep(1, 'B')]
-    expect(overflow(layoutRange(run('AB'), separators), separators, '1A')).toBeNull()
+    const step = overflow(layoutRange(run('AB'), separators), separators, '1A')!
+    expect(step.moved.sortKey).toBe('A')
+    expect(step).toMatchObject({ from: '1A', to: '1B', shift: { id: 1, startsAt: 'A' } })
+
+    // A is on 1B beside B, 1A has nothing to name it, and a book sorting before
+    // A now lands on the plank that has been cleared for it.
+    const after = [{ ...separators[0]!, startsAt: step.shift!.startsAt }]
+    expect(labels(run('AB'), after)).toEqual(['1B', '1B'])
+    expect(labels(run('0AB'), after)).toEqual(['1A', '1B', '1B'])
   })
 
   it('returns nothing for a shelf that does not exist', () => {
@@ -346,13 +361,22 @@ describe('a cascade across several shelves', () => {
     }
   })
 
-  it('stops rather than emptying a shelf that is down to one book', () => {
-    // The end of a cascade: nothing left to give, so the chain has to stop
-    // and the person is told to start a new shelf instead.
+  it('walks on through a shelf that is down to one book', () => {
+    /*
+     * This used to be where a chain stopped: nothing left to give, so the person
+     * was told to start a new shelf instead, by a screen with no such answer on
+     * it (#432). The plank gives up its one book like any other, and what it
+     * leaves behind is a bare plank for the book coming the other way, which is
+     * the same arrangement a boundary moved by hand produces.
+     */
     const books = run('ABC')
     const separators: Separator[] = [sep(1, 'B'), sep(2, 'C')]
     expect(labels(books, separators)).toEqual(['1A', '1B', '1C'])
-    expect(apply(books, separators, '1B').step).toBeNull()
+
+    const walked = apply(books, separators, '1B')
+    expect(walked.step!.moved.sortKey).toBe('B')
+    expect(walked.step!.to).toBe('1C')
+    expect(labels(books, walked.separators)).toEqual(['1A', '1C', '1C'])
   })
 
   it('carries a chain into a new bookcase when asked', () => {
