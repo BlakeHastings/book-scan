@@ -309,6 +309,9 @@ describe('the shelf and the furniture, asked about one piece', () => {
     const shelved = (await get('/api/shelves?range=nonfiction')).body
       .groups.map((one: { label: string }) => one.label)
 
+    // Written out rather than only compared, so what each route says is on the
+    // page: the shelves screen answered `4A`, `4B`, `4C` here.
+    expect(furniture).toEqual(['Hall shelf · A', 'Hall shelf · B', 'Hall shelf · C'])
     expect(shelved).toEqual(furniture)
   })
 

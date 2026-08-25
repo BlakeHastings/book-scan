@@ -40,7 +40,7 @@ import { Sure } from '../design/Sure'
 import { coverThumbUrl } from './PlacementCard'
 import { WfScreen } from './WfScreen'
 import { clothFor } from '../lib/bookLook'
-import { plural, said, saidBooks, surnameOf, words } from '../lib/carryWords'
+import { plural, said, saidBooks, sharedSaid, surnameOf, words } from '../lib/carryWords'
 import type { StandingBook, TripAtAnArea } from '../lib/api'
 
 interface Props {
@@ -179,6 +179,17 @@ export function TripPane({
         />
       ) : undefined}
     >
+      {/* Above the instruction, because the instruction is "take these off 4A
+          and put them on 4A" and somebody would read it, do it, and change
+          nothing. Two pieces stand on that number and neither is named, so no
+          wording here can say which is which; naming one of them is what can
+          (#447). */}
+      {trip.sharedNumber !== null && (
+        <Card kind="Two pieces stand here">
+          <Said>{sharedSaid(trip.from, trip.sharedNumber)}</Said>
+        </Card>
+      )}
+
       <Instruction>
         {one
           ? <>Take <em>{going[0]?.title}</em> off {trip.from}.</>

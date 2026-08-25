@@ -819,6 +819,14 @@ export interface CarryTrip {
   /** Where the books are now, as the label reads off the furniture. */
   from: string
   to: string
+  /**
+   * The number two pieces stand on, when both ends of this trip read the same.
+   *
+   * A trip nobody can walk, and a real arrangement rather than a mistake: two
+   * pieces standing on one number, neither of them named, so their planks render
+   * alike. Null on nearly every trip. See the server's `CarryTrip.sharedNumber`.
+   */
+  sharedNumber: number | null
   books: CarriedBook[]
   /** How many of this trip are already at the other end. */
   carried: number
@@ -1164,6 +1172,8 @@ export interface TripAtAnArea {
   to: string
   fromAreaId: number
   toAreaId: number
+  /** See `CarryTrip.sharedNumber`. The same walk, drawn at the shelf. */
+  sharedNumber: number | null
   /** Everything on the area, in shelf order, staying books included. */
   books: StandingBook[]
 }

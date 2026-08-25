@@ -567,20 +567,48 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
   })
 
-  it('PROBE two pieces at four', async () => {
+  /**
+   * #447's second half: the trip that printed `4A -> 4A`.
+   *
+   * The room is legitimate and this is how it is reached without contriving it:
+   * the run has moved off the piece at 4 onto the piece at 3, so every book is
+   * still recorded on an area of the first and assigned to an area of the
+   * second, and then somebody renumbers the second piece to 4. **Two pieces
+   * standing on one number is an arrangement this catalogue has** (`places` in
+   * `lib/furniture.ts`), and neither is named, so `labelFor` renders both their
+   * top planks `4A`.
+   *
+   * The counts and the areas were always right and still are. What was wrong was
+   * that the list printed a walk nobody could walk and said nothing about it.
+   */
+  it('says so when a trip has two ends that read the same', async () => {
     const room = await describeFurniture(db)
     const three = room.fixtures.find((one) => one.position === 3)!
-    const four = room.fixtures.find((one) => one.position === 4)!
-    // eslint-disable-next-line no-console
-    console.log('ids', { three: three.id, four: four.id })
-    const moved = await editFixture(db, three.id, { position: 4 })
-    // eslint-disable-next-line no-console
-    console.log('renumber ok', moved.ok)
+    const renumbered = await editFixture(db, three.id, { position: 4 })
+    expect(renumbered.ok).toBe(true)
 
     const work = await outstandingWork(db)
-    // eslint-disable-next-line no-console
-    console.log('TRIPS', work.trips.map((t) =>
-      `${t.from} (${t.fromAreaId}) -> ${t.to} (${t.toAreaId}) x${t.books.length}`))
+
+    // Both ends read alike, which is the defect, and it is still true: nothing
+    // here renames a plank.
+    expect(work.trips.map((trip) => `${trip.from} -> ${trip.to}`))
+      .toEqual(['4A -> 4A', '4B -> 4B', '4C -> 4C'])
+    // The areas underneath are three distinct pairs, and the counts are the
+    // owner's own 8, 20 and 22.
+    expect(work.trips.map((trip) => [trip.fromAreaId, trip.toAreaId, trip.books.length]))
+      .toEqual([[2, 5, 8], [3, 6, 20], [4, 7, 22]])
+    // And the list now says which number the two pieces are sharing, so the
+    // screen can say that rather than drawing a trip to where you are standing.
+    expect(work.trips.map((trip) => trip.sharedNumber)).toEqual([4, 4, 4])
+  })
+
+  /** Every ordinary trip, which is nearly all of them, says nothing about it. */
+  it('says nothing of the sort about a trip whose ends read differently', async () => {
+    const work = await outstandingWork(db)
+
+    expect(work.trips.map((trip) => `${trip.from} -> ${trip.to}`))
+      .toEqual(['4A -> 3A', '4B -> 3B', '4C -> 3C'])
+    expect(work.trips.map((trip) => trip.sharedNumber)).toEqual([null, null, null])
   })
 
   it('is the two answers the owner saw, and they are now the same number', async () => {

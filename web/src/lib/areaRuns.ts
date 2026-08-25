@@ -48,7 +48,7 @@
  */
 
 import type { AreaStanding } from '../../shared/shelving'
-import { pieceSaid } from './furniture'
+import { pieceOn } from './furniture'
 
 /** One row of books: an area, as it stands and as it reads. */
 export interface AreaRun {
@@ -136,11 +136,7 @@ export function areaRuns<T extends Book>(
       areaId: book.area_id,
       label: book.location,
       standing: book.standing,
-      piece: pieceSaid({
-        name: book.standing.name,
-        kind: book.standing.kind,
-        position: book.standing.fixture,
-      }),
+      piece: pieceOn(book.standing),
       books: [book],
       closed: complete,
     })

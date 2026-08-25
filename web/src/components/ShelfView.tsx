@@ -75,7 +75,7 @@ import { Shelf, type ShelfItem } from '../design/Shelf'
 import { Sure } from '../design/Sure'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
 import { plural, saidBooks } from '../lib/carryWords'
-import { pieceSaid } from '../lib/furniture'
+import { pieceOn } from '../lib/furniture'
 import { useBrowsing } from '../app/browsing'
 import { Frame } from './Frame'
 import { Trouble } from './RoomFrame'
@@ -506,11 +506,7 @@ export function ShelfView({
            so a crate reads "Crate 5" and something somebody has called the hall
            shelf reads "Hall shelf" (#447). */
         const heading = group.standing && group.standing.fixtureId !== piece
-          ? pieceSaid({
-              name: group.standing.name,
-              kind: group.standing.kind,
-              position: group.standing.fixture,
-            })
+          ? pieceOn(group.standing)
           : null
         piece = group.standing?.fixtureId ?? null
 

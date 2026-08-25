@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { moveWithin } from '../design/Furniture'
 import {
   addAreaSaid, areaSettled, counted, fixtureSettled, inOrder, kindSaid, labelsIfNamed,
-  orderEnds, orderingSaid, orderingWarning, pieceNote, pieceSaid, places, plural,
+  orderEnds, orderingSaid, orderingWarning, pieceNote, pieceOn, pieceSaid, places, plural,
   renamings, renumbering, roomSaid, skippedSaid,
   type Standing,
 } from './furniture'
@@ -89,6 +89,21 @@ describe('what a piece is called', () => {
   it('says the kind and the number where there is not', () => {
     expect(pieceSaid({ name: '', kind: 'bookshelf', position: 2 })).toBe('Bookcase 2')
     expect(pieceSaid({ name: '', kind: 'crate', position: 4 })).toBe('Crate 4')
+  })
+
+  /**
+   * The two screens that draw a heading over a row of books ask this, and #447
+   * is what the second of them was doing instead: a regular expression over the
+   * row's label, which could only ever answer "Bookcase" whatever the piece is.
+   */
+  it('says the same of a piece asked through a placement', () => {
+    expect(pieceOn({ fixtureId: 9, fixture: 4, plank: 0, name: '', kind: 'crate' }))
+      .toBe('Crate 4')
+    expect(pieceOn({ fixtureId: 9, fixture: 4, plank: 1, name: 'Hall shelf', kind: 'crate' }))
+      .toBe('Hall shelf')
+    // An empty kind is a real row and still reads as something.
+    expect(pieceOn({ fixtureId: 9, fixture: 4, plank: 0, name: '', kind: '' }))
+      .toBe('Bookcase 4')
   })
 
   it('calls the schema default a bookcase and anything else what it is', () => {

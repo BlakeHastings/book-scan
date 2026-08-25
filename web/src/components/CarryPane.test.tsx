@@ -39,6 +39,7 @@ const trip = (over: Partial<CarryTrip> = {}): CarryTrip => ({
   toAreaId: 30,
   from: '4A',
   to: '3A',
+  sharedNumber: null,
   carried: 0,
   books: [
     book(1, 'A Short History of Nearly Everything', 'Bryson, Bill'),
@@ -87,6 +88,7 @@ const atArea = (over: Partial<TripAtAnArea> = {}): TripAtAnArea => ({
   to: '3A',
   fromAreaId: 40,
   toAreaId: 30,
+  sharedNumber: null,
   books: [standing(), standing({ id: 2, title: 'Silent Spring', authorFiling: 'Carson, Rachel' })],
   ...over,
 })
@@ -121,6 +123,25 @@ describe('the list of books to carry', () => {
 
   it('says the stretch of shelf a trip covers, to pull it without opening it', () => {
     expect(words(carry())).toContain('Bryson to Didion')
+  })
+
+  /**
+   * #447. `GET /api/carry` printed such a row as `4A -> 4A`, with the counts and
+   * the areas right and nothing on the screen saying the two ends are two
+   * different pieces. Somebody reading it walks to a bookcase and finds the
+   * books already on it.
+   *
+   * The stretch of authors is displaced rather than joined, because it reads as
+   * a row somebody can act on and this is not one until a piece has a name.
+   */
+  it('says so on a trip whose two ends read the same', () => {
+    const html = words(carry({
+      work: work({ trips: [trip({ from: '4A', to: '4A', toAreaId: 41, sharedNumber: 4 })] }),
+    }))
+
+    expect(html).toContain('Both ends read 4A: two pieces stand at 4 and neither is named.')
+    expect(html).toContain('Name one of them to tell this trip apart.')
+    expect(html).not.toContain('Bryson to Didion')
   })
 
   it('says nothing rather than an empty list when there is nothing to carry', () => {
@@ -284,6 +305,22 @@ describe('leaving the books where they are', () => {
 })
 
 describe('one trip, at the area the books come off', () => {
+  /**
+   * The same fact at the shelf, and above the instruction rather than under it:
+   * "Take these three off 4A" followed by "They go on 4A" is an instruction
+   * somebody would carry out and change nothing (#447).
+   */
+  it('says when both ends read the same, before telling anybody to lift a book', () => {
+    const html = words(attrip({ trip: atArea({ to: '4A', sharedNumber: 4 }) }))
+
+    expect(html).toContain('Two pieces stand here')
+    expect(html).toContain('Both ends read 4A: two pieces stand at 4 and neither is named.')
+  })
+
+  it('says nothing of the sort on an ordinary trip', () => {
+    expect(words(attrip())).not.toContain('Two pieces stand here')
+  })
+
   it('draws every book on the area, staying ones included', () => {
     const html = attrip({
       trip: atArea({
