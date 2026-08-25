@@ -37,6 +37,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/check-backup-freshness.mjs\"",
+            "timeout": 15
+          }
+        ]
       }
     ]
   }

@@ -706,12 +706,53 @@ usefully: the answer is not in the catalogue.
 news. An alarm that fires on an ordinary Tuesday is an alarm somebody learns to
 scroll past.
 
+### It happened a third time, and the noticing was never switched on
+
+**2026-08-24. The newest dump was 5.8 days old and the newest cover 16.9 days
+old, and nothing said so.** `install-backup-task.ps1:165` registers a
+version-pinned `pwsh` path; PowerShell updated to 7.6.5 and the path stopped
+existing, so the task ran and died in under a second every night (#454).
+
+That is the third stoppage, after #239 and #311, and the shape is identical
+again. But the important part is not the cause. **The noticing that #311 built
+was never armed.**
+
+`BOOKSCAN_BACKUP_DIR` was not set in `run-stable.ps1`. The section below calls
+setting it "the one thing to wire, which the owner runs", and it was not run. So
+`backup-watch.ts` answered `unwatched` — which draws nothing, correctly, because
+nothing was claimed — and the card that exists to carry this to the first screen
+of the app had nothing to say. **A layer that is built, documented and never
+switched on is indistinguishable from a layer that is working**, because both of
+them are quiet.
+
+Two things follow, and they are why this is written here rather than closed with
+the fix:
+
+- **The unarmed state must be as loud as the bad state.** `unwatched` is drawn
+  as nothing on the theory that nothing was claimed. That theory is right for a
+  developer's checkout and wrong for the machine holding the collection, and
+  there is no way for the app to tell those apart. Whatever replaces it has to
+  make "I am not watching anything" visible somewhere.
+- **`scripts/check-backup-freshness.mjs` exists for that reason** and is
+  deliberately not a second answer to this question. It asks the same question
+  of the same disk and puts it somewhere that needs nobody to have wired
+  anything up: the start of a session. It is loud when unconfigured, for exactly
+  the reason above. Where the two disagree, `backup-watch.ts` is right and the
+  script is the copy to fix.
+
+**And it watches the covers as a second clock**, because the dumps stopped on
+2026-08-19 and the covers on 2026-08-08. Twelve days apart. A check watching
+only the dumps would have said healthy through most of that gap.
+
 ### Where the answer goes
 
 **The first screen of the app**, above everything else on it, as a card with the
 bad news in the title. That screen already exists to say what needs the owner,
 and he already looks at it. A second log would have been the thing that failed
 twice, written again.
+
+**That reasoning still holds and it is not what failed.** What failed is that
+the card was never given anything to draw. See above.
 
 The card is drawn only when something is wrong. **There is no reassuring
 version of it**, deliberately: a line saying backups are fine is a line that can
