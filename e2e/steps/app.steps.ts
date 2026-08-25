@@ -746,6 +746,49 @@ When('I choose to move it back to {string}', async ({ page }, label: string) => 
   await expect(page.locator('.shelve__ask')).toBeVisible()
 })
 
+/*
+ * The one boundary move that takes an area off the furniture, and the stop in
+ * front of it (#433).
+ *
+ * A book alone in an area is both the first and the last book of it, so both
+ * directions are offered, and either leaves the area with no books to name.
+ * That is an area being removed, which #281 settled says what it will do and
+ * asks first, and this path had no dialog at all: one press retired a recorded
+ * area with nothing said. The wait is on the dialog rather than on the shelving
+ * step, which is exactly the difference.
+ */
+When('I choose to move it back to {string}, which empties the area', async (
+  { page },
+  label: string,
+) => {
+  await page.getByRole('button', { name: `Move it back to ${label}` }).click()
+  await expect(page.locator('.wf-sure')).toBeVisible()
+})
+
+Then('it should say that {string} goes with the book', async ({ page }, area: string) => {
+  const dialog = page.locator('.wf-sure')
+
+  await expect(dialog).toContainText(`${area} goes when this book leaves it`)
+  await expect(dialog).toContainText('an area with no books on it comes off the furniture')
+  // The act named for what it does and the safe answer beside it, neither of
+  // them "OK", which is the shape every dialog in this app has.
+  await expect(dialog.getByRole('button', { name: /^Move it to / })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Keep it' })).toBeVisible()
+})
+
+When('I keep the area', async ({ page }) => {
+  await page.locator('.wf-sure').getByRole('button', { name: 'Keep it' }).click()
+  await expect(page.locator('.wf-sure')).toHaveCount(0)
+})
+
+When('I agree that the area goes', async ({ page }) => {
+  await page.locator('.wf-sure').getByRole('button', { name: /^Move it to / }).click()
+  await expect(page.locator('.wf-sure')).toHaveCount(0)
+  // And only then the shelving step, which is where the move has always ended
+  // up: named plank, walk over, confirm.
+  await expect(page.locator('.shelve__ask')).toBeVisible()
+})
+
 /**
  * The end of a move, which is the end of any placement: the person says the
  * book is on the plank they were sent to.

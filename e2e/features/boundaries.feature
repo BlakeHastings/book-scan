@@ -103,7 +103,11 @@ Feature: Adjusting where one area ends
     Then the book should offer to move it:
       | Move it back to 1A |
 
-    When I choose to move it back to "1A"
+    # 1B holds nothing else, so this is the move that takes the area with the
+    # book and it asks first (#433). Agreeing is what the rest of this scenario
+    # is about; the question itself is the scenario below.
+    When I choose to move it back to "1A", which empties the area
+    And I agree that the area goes
     And I go back to the book details
 
     # The furniture moved and nobody carried anything, which is the truth and
@@ -129,6 +133,37 @@ Feature: Adjusting where one area ends
       | location | 1B |
     And the catalogue should hold "Rendezvous with Rama" recorded as:
       | location | 1A |
+
+  Scenario: The move that takes an area with it says so, and waits to be told
+    # The defect this scenario exists for (#433). A book alone in an area is
+    # both the first and the last book of it, so the offer is drawn in both
+    # directions, which docs/shelving.md allows on purpose. What it never said
+    # was that either direction leaves the area with no books to name, and an
+    # area with no books on it comes off the piece: one press on a quiet button
+    # between "Check out" and "Edit details" retired a recorded area, from a
+    # screen whose "Why is it here?" had just said the book was where the rules
+    # want it, with nothing asked and nothing said afterwards.
+    #
+    # #281 settled that removing an area says what it will do and asks first.
+    # This is the second path that removes one and it is the same dialog.
+    When I open the app
+    And I go to the library
+    And I open "The Dispossessed" from the library
+    Then the book should offer to move it:
+      | Move it back to 1A |
+
+    When I choose to move it back to "1A", which empties the area
+    Then it should say that "1B" goes with the book
+
+    # The half the old path could not offer: by the time it could have said
+    # anything the area was already gone.
+    When I keep the area
+    And I go to the library
+    Then the library should show "The Dispossessed" on shelf "1B"
+    And the library should show "Dune" on shelf "1A"
+    And nothing should need attention
+    And the catalogue should hold "The Dispossessed" recorded as:
+      | location | 1B |
 
   Scenario: The notice on a book is the door to the step that places it
     # The book's own page used to answer for the walk. A card at the top named
