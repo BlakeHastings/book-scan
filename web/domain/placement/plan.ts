@@ -10,14 +10,28 @@
  * third opinion about where a book goes, beside `assigned` and `placed`, and the
  * reason the ledger has two kinds is that two is the number.
  *
- * ## The comparison is on labels, and that is deliberate
+ * ## Whether a book moves is decided on areas, and only said in labels
  *
- * The handler compares area ids, because it is writing rows that name areas.
- * This compares the labels a person reads, because it is answering "which plank
- * do I take this off and which do I put it on". The two agree wherever a label
- * identifies a plank, which is everywhere on a bookcase's face; where they can
- * differ is a plank that has been taken out and put back, and there the label is
- * the honest answer, because the person is standing in front of the shelf.
+ * This block used to argue the opposite, that comparing "the labels a person
+ * reads" was deliberate because "the two agree wherever a label identifies a
+ * plank, which is everywhere on a bookcase's face". **A label does not identify
+ * a plank**, and `slotsInOrder` says why in as many words: two pieces of
+ * furniture can stand on one number, which is an arrangement this catalogue has.
+ * Both then render `4A`, and a plan comparing the strings reported a book as
+ * staying exactly where it was while the engine, which compares area ids, wrote
+ * an assignment moving it to the other bookcase.
+ *
+ * That is [#430](https://github.com/BlakeHastings/book-scan/issues/430) item 1:
+ * a rule previewed as "no book would have to be carried" and then produced a
+ * carry list, one of whose trips read `4A` to `4A`. It is the same hole as #356,
+ * #380, #401 and #434 arriving through the preview: a place was rendered to a
+ * string and the string was read back as if it were the place.
+ *
+ * So the decision is `standing.area` against `found.slot.area.id`, which is the
+ * same identity the handler writes rows about, and the labels are carried
+ * alongside because "which plank do I take this off and which do I put it on" is
+ * still the question a person is answering. What the two numbers say and what
+ * the two strings say can no longer part company.
  *
  * ## What it refuses to leave out
  *
@@ -153,11 +167,13 @@ export function planPlacements(
 
     if (standing.area === null) { skip('never-placed', book); continue }
 
+    if (standing.area === found.slot.area.id) { staying += 1; continue }
+
     const from = placed.get(standing.area) ?? ''
     const to = there.get(found.slot.area.id) ?? ''
-    if (from === to) { staying += 1; continue }
-
-    const key = `${from}${to}`
+    // The two areas rather than the two labels, for the reason above them:
+    // one trip is one pair of places, and two places can read alike.
+    const key = `${standing.area}${found.slot.area.id}`
     const group = grouped.get(key) ?? { from, to, books: [] }
     group.books.push(named(book))
     grouped.set(key, group)
