@@ -25,6 +25,27 @@ they do not collide:
 A fourth agent, a read-only hunting pass on the lending journey, was dispatched
 beside them and is described below under what the restart cost.
 
+**All three survived two harness restarts with their work committed**, which is
+the one thing that went right. Each has a branch and one substantive commit, and
+none has been pushed or opened a pull request:
+
+| Issue | Branch | Commit |
+| --- | --- | --- |
+| #434 | `library/434-one-board-per-area` | draw a board per area, from the furniture rather than from a parsed label |
+| #433 | `shelving/433-asking-before-an-area-goes` | ask before the one boundary move that takes an area off the furniture |
+| #432 | `shelving/432-readable-refusals` | say the refusal in ink somebody can see, and stop refusing a plank that holds one book |
+
+All three commit messages read as though the agent found a cause rather than
+patched a symptom, which is what the briefs asked for and is not yet verified.
+**None of them has met its evidence bar**, so do not treat those branches as
+done. **#432 is resumed last and is currently paused** for the memory reason
+below, not for anything wrong with it.
+
+The lending hunt has produced nothing across two attempts and one of its two
+worktrees. Re-dispatch it when there is headroom, and keep the instruction to
+write findings to a file as it goes, because holding them in context is exactly
+how the first one produced nothing.
+
 **#430 is deliberately held back.** It collides with two of the three: its
 "one fixture, two names" is the same defect family as #434's phantom bookcase,
 and its overflow-onto-the-wrong-bookcase is the same cascade #432 is inside.
@@ -64,16 +85,39 @@ files, and that is the tool working.** It made somebody look. They turned out to
 be `aspire describe` output and nothing else, and only then was the worktree
 removable. Do not reach for `--force` on that refusal; read what it is holding.
 
-**Disk went from 45 GB to 20 GB in about an hour with four worktrees**, and
-pruning one returned only 1 GB. On this machine four concurrent agents is the
-practical ceiling, and it is a disk ceiling rather than a judgment about
-collision surface. A fifth was briefed and deliberately not dispatched. Watch
-`df -h /c` rather than the agent count.
+**The ceiling on this machine is committed memory, not disk.** That correction
+matters, because watching the wrong number is how it was hit twice in one
+evening.
 
-**The shell started failing to fork** under that load: `sed` returned
-`Resource temporarily unavailable`, and `bash.exe.stackdump` in the repo root is
-the residue of the same thing. If commands start failing for no reason, it is
-the machine and not the repository.
+Disk did fall from 45 GB to 20 GB with four worktrees, which is what prompted
+the first, wrong diagnosis. But what actually broke was the Windows **commit
+limit**: `sed` returned `Resource temporarily unavailable`, bash reported
+`0xC000012D` (`STATUS_COMMITMENT_LIMIT`) on fork, `aspire` failed to load
+`hostfxr.dll` with `0x800705AF`, and finally **PowerShell itself could not
+start**, throwing `OutOfMemoryException` out of its own type initialiser. At
+that moment Cygwin's `/proc/meminfo` cheerfully reported 12 GB of RAM and 59 GB
+of 60 GB swap free, so **that file is not a usable signal here** and neither is
+`df`. Disk was back to 46 GB after a restart with nothing pruned.
+
+The cost is roughly one Aspire environment per agent: an api process, a web
+process and a Postgres container each. **Four is over the line. Three was not
+demonstrably safe either** — the second failure happened with three running and
+a fourth merely starting. Two is the number in use now, deliberately.
+
+**What to do about it**, since neither of the obvious meters tells you:
+
+- Treat a fork failure, a `hostfxr` load failure, or PowerShell refusing to
+  start as one symptom with one cause, and reduce the agent count rather than
+  retrying.
+- Tell agents to tear their environment down by explicit path the moment they
+  stop needing it, rather than when they finish. A running environment nobody is
+  using is the cheapest thing to give back.
+- Do not enumerate processes to diagnose it. Under commit exhaustion the tools
+  that would tell you are the tools that cannot start, and each attempt costs
+  more of what is missing.
+
+`bash.exe.stackdump` in the repo root is residue of the same thing and is not a
+repository problem.
 
 ## The one thing that is easy to get wrong here
 
