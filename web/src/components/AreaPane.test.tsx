@@ -113,6 +113,7 @@ function drawn(
       error=""
       tabs={{ home: nothing, library: nothing, scan: nothing, queue: nothing }}
       onBack={nothing}
+      onAskLeave={nothing}
       onName={nothing}
       onSaveName={nothing}
       onChange={nothing}
@@ -615,11 +616,38 @@ describe('being asked whether to remove an area', () => {
     expect(words(markup)).toMatch(/Take the bookcase 2 out of the room/)
   })
 
+  /**
+   * #430 item 4, which looks like a nicety and is a data-loss defect. Somebody
+   * typed a name for an area, pressed Back, and it was gone: no prompt, no
+   * trace, and nothing anywhere saying it had never been saved.
+   *
+   * The dialog quotes the word back and names the button that keeps it, because
+   * that button is under the field and Back is at the top of the screen, which
+   * is the right place for both.
+   */
+  it('quotes back the name Back was about to throw away', () => {
+    const markup = drawn({ kind: 'unsaved' }, {}, 'Cookery')
+
+    expect(title(markup)).toBe('Cookery has not been saved')
+    expect(words(markup)).toMatch(/Going back now throws it away/)
+    expect(words(markup)).toMatch(/Call it Cookery/)
+    expect(words(markup)).toMatch(/Go back without it/)
+  })
+
+  /** Clearing a name is a change too, and there is no word to quote. */
+  it('still asks where the name was typed out rather than in', () => {
+    const markup = drawn({ kind: 'unsaved' }, { name: 'Cookery' }, '')
+
+    expect(title(markup)).toBe('What you typed has not been saved')
+    expect(words(markup)).toMatch(/Call it nothing/)
+  })
+
   /** The safe answer is the one a thumb lands on without aiming. */
   it('puts the destructive answer first and the safe one beside it', () => {
     for (const asking of [
       { kind: 'merge', plan: plan() } as Asking,
       { kind: 'only', said: '' } as Asking,
+      { kind: 'unsaved' } as Asking,
     ]) {
       const markup = drawn(asking)
       const acts = markup.slice(markup.indexOf('class="wf-sure__acts"'))
@@ -772,6 +800,7 @@ describe('writing what belongs here', () => {
           claiming: 46,
           opens: false,
           losing: [],
+          alsoClaims: [],
         },
       }),
     ))

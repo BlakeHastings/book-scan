@@ -60,6 +60,7 @@ function drawn(
   piece = room.fixtures[0]!,
   books: AreaBook[] = [],
   sorting: Sorting = { open: false, chosen: 'inherit', effect: '', busy: false },
+  leaving = false,
 ): string {
   return renderToStaticMarkup(
     <FixturePane
@@ -73,7 +74,11 @@ function drawn(
       busy={false}
       error=""
       tabs={{ home: nothing, library: nothing, scan: nothing, queue: nothing }}
+      leaving={leaving}
+      unsaved={leaving}
       onBack={nothing}
+      onAskLeave={nothing}
+      onStay={nothing}
       onDraft={nothing}
       onSave={nothing}
       onChange={nothing}
@@ -287,5 +292,26 @@ describe('a piece whose areas were taken out with books still on them', () => {
 
   it('says nothing of the sort about a piece whose areas are all still there', () => {
     expect(words(drawn())).not.toMatch(/took out/)
+  })
+})
+
+/**
+ * #430 item 4, one screen over from where it was found.
+ *
+ * The area's page threw a typed name away on Back with no prompt and no trace.
+ * This page holds more: what the piece is called, what it is, and the order the
+ * room stands in, all of it in a draft until Save. Same defect, same sentence.
+ */
+describe('going back with a draft nobody has saved', () => {
+  it('quotes the name back and names the button that keeps it', () => {
+    const said = words(drawn(room.fixtures[0]!, [], undefined, true))
+
+    expect(said).toMatch(/has not been saved/)
+    expect(said).toMatch(/Going back now throws it away/)
+    expect(said).toMatch(/Go back without it/)
+  })
+
+  it('draws no dialog at all where nothing has been typed', () => {
+    expect(words(drawn())).not.toMatch(/has not been saved/)
   })
 })

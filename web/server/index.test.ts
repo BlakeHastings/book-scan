@@ -1147,6 +1147,64 @@ describe('shelving a book onto a bookcase', () => {
     expect(body.strip.placedIndex).toBeNull()
     expect(body.strip.gapIndex).toBe(0)
   })
+
+  /**
+   * #430 item 2. A run stops where the next run begins, so the new bookcase the
+   * cascade asks for cannot be a bookcase somebody else's rule stands on.
+   *
+   * It said it could and then did something else. The step read "take this book
+   * off 2B and put it on 3A" with `3A` naming the plank a rule had just been
+   * written on; the write reconciled the boundary list inside fiction's own
+   * band, which stops at that bookcase, so nothing went to `3A`, the last plank
+   * of fiction was retired with a book still on it, and that book was reported
+   * as moving backwards. `docs/shelving.md` settles it both ways: "A run runs
+   * from its rule's entry area until the next area any rule points at", and "a
+   * bookcase holds one run".
+   */
+  const claimBookcaseTwo = async () => {
+    const { body: added } = await post('/api/fixtures', { kind: 'bookshelf', position: 2 })
+    const { body: plank } = await post(`/api/fixtures/${added.fixture.id}/areas`, {})
+    const { status } = await post('/api/placement/rule', {
+      about: 'area',
+      placeId: plank.area.id,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: NON_FICTION_SLUG }] }],
+    })
+    expect(status).toBe(200)
+    return added.fixture.id as number
+  }
+
+  it('refuses a new bookcase on furniture another run stands on, and says why', async () => {
+    await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    await seed('The Dispossessed', 'Ursula K. Le Guin')
+    await claimBookcaseTwo()
+
+    const before = (await call('/api/shelves?range=fiction')).body
+    const { status, body } = await post('/api/shelves/overflow', {
+      range: 'fiction', areaId: await plankId('1A'), kind: 'shelf',
+    })
+
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/Bookcase 2 is where Non-fiction begins/)
+    expect(body.error).toMatch(/a bookcase holds one run/)
+    // Refused in ink and refused all the way down: no plank was retired and no
+    // book was reported as moving, which is what the old answer did instead.
+    expect((await call('/api/shelves?range=fiction')).body).toEqual(before)
+  })
+
+  it('still starts a new bookcase where the next number is nobody else\'s', async () => {
+    await seed('Rendezvous with Rama', 'Arthur C. Clarke')
+    const dispossessed = await seed('The Dispossessed', 'Ursula K. Le Guin')
+
+    const { status, body } = await post('/api/shelves/overflow', {
+      range: 'fiction', areaId: await plankId('1A'), kind: 'shelf',
+    })
+
+    expect(status).toBe(200)
+    expect(body.step.id).toBe(dispossessed)
+    expect(body.step.to).toBe('2A')
+    // A real plank on a real piece, rather than an address the write dropped.
+    expect(body.step.toAreaId).toBeGreaterThan(0)
+  })
 })
 
 /**

@@ -286,6 +286,25 @@ export const holdsSaid = (
 export const ruleName = (lines: readonly { operator: RuleOperator; tag: string }[]): string =>
   lines.map((line) => line.tag).filter(Boolean).join(' and ')
 
+/**
+ * What the place a rule points at reads as: the plank for an area rule, the
+ * piece for a fixture rule.
+ *
+ * Named because a second caller needs it, and the alternative is a second
+ * spelling of "the label, or the piece's label" (#430 item 1). A plan telling
+ * somebody that another place already asks for these books has to say which
+ * place, and it has to say it in the words that place's own card says.
+ *
+ * Empty for a rule pointing at furniture that is not standing, which is a rule
+ * whose plank left the face. That is its own defect and this does not invent a
+ * name to paper over it.
+ */
+export function placeSaid(rule: PlacementRule, order: readonly Slot[]): string {
+  const slot = order.find((one) => one.area.id === entryAreaOf(rule, order as Slot[]))
+  if (!slot) return ''
+  return rule.areaId !== null ? labelFor(slot) : fixtureLabel(slot.fixture)
+}
+
 function describeRule(
   rule: PlacementRule,
   order: readonly Slot[],
@@ -293,13 +312,11 @@ function describeRule(
   carried: Map<string, number>,
   range: ShelfRange | null,
 ): DescribedRule {
-  const entry = entryAreaOf(rule, order as Slot[])
-  const slot = order.find((one) => one.area.id === entry)
   return {
     id: rule.id,
     name: rule.name,
     about: rule.areaId !== null ? 'area' : 'fixture',
-    place: slot ? (rule.areaId !== null ? labelFor(slot) : fixtureLabel(slot.fixture)) : '',
+    place: placeSaid(rule, order),
     placeId: rule.areaId ?? rule.fixtureId,
     enabled: rule.enabled,
     conditions: conditionsOf(rule, labels, carried),

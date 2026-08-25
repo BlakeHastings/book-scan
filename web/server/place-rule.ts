@@ -46,9 +46,10 @@ import {
 } from '../infrastructure/shelving/areas'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
+import type { Slot } from '../domain/placement/geography'
 import { planPlacements, type PlacementPlan, type PlannableBook } from '../domain/placement/plan'
 import {
-  entryAreaOf, matches, RULE_OPERATORS,
+  claim, entryAreaOf, matches, RULE_OPERATORS,
   type PlacementRule, type RuleCondition, type RuleOperator,
 } from '../domain/placement/rules'
 import { GENRE_RANGES } from '../domain/tagging/genre'
@@ -58,7 +59,7 @@ import {
   AssignPlacementsHandler, type AssignableBook, type AssignmentReport,
 } from '../application/placement/assign-placements'
 import type { Db } from './driver'
-import { FURNITURE_LOCK, holdsSaid, ruleName, tagLabels } from './furniture'
+import { FURNITURE_LOCK, holdsSaid, placeSaid, ruleName, tagLabels } from './furniture'
 import { refuse, type Refused } from './refusal'
 
 /**
@@ -173,6 +174,41 @@ export interface RuleChangePlan extends PlacementPlan {
    * surprise.
    */
   losing: string[]
+  /**
+   * The other places whose rules ask for books these rules also ask for.
+   *
+   * **Two places wanting the same books is allowed and this does not make it an
+   * error.** It is the arrangement #430 item 1 was written about: somebody wrote
+   * "anything tagged Non-fiction" on a second piece of furniture, `claim` went on
+   * giving every one of those books to the rule that was already there, and the
+   * plan answered "no book would have to be carried" with nothing anywhere
+   * saying why. A rule that claims nothing reads as the app being broken; a rule
+   * that claims nothing **because another place asks for the same books and is
+   * tried first** is a room somebody can reason about.
+   *
+   * `keeps` is which way the tie went, and it is the half that matters. `claim`
+   * settles it by area rules before piece rules, then priority, then id, and
+   * neither answer is a warning: keeping means this draft changes nothing for
+   * those books, and losing means the other place is about to hand them over.
+   */
+  alsoClaims: AlsoClaims[]
+}
+
+/** One other place asking for books this draft's rules ask for. */
+export interface AlsoClaims {
+  /** What that place reads as: a plank for an area rule, a piece for a fixture. */
+  place: string
+  /** How many books both places ask for. */
+  books: number
+  /**
+   * How many of those that place keeps, because its rule is the one `claim`
+   * tries first.
+   *
+   * A count rather than a flag: `claim` settles a tie between two rules the same
+   * way for every book, but a third rule can win some of them, so "all of them"
+   * and "none of them" are not the only two answers this can honestly give.
+   */
+  keeps: number
 }
 
 export type PlannedRuleChange = { ok: true; plan: RuleChangePlan } | Refused
@@ -488,6 +524,7 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
     ok: true,
     plan: {
       ...planPlacements(books, ledger, wanted, order, await plankLabels(db)),
+      alsoClaims: alsoClaiming(books, wanted, written, order),
       holds: holdsSaid(written, labels),
       names,
       already: rulesOn(rules, draft).length,
@@ -500,6 +537,55 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
         .map(({ range }) => range),
     },
   }
+}
+
+/**
+ * The other places that ask for books this draft asks for, and how the tie went.
+ *
+ * **Two places wanting one tag is allowed and nothing here makes it an error.**
+ * What it is, is the one thing a count of books cannot say: #430 item 1 is
+ * somebody writing "anything tagged Non-fiction" on a second piece of furniture,
+ * the plan answering that no book would have to be carried, and nothing anywhere
+ * mentioning that another piece already asks for the same eight books and is
+ * tried first. A rule that claims nothing reads as the app being broken. A rule
+ * that claims nothing because somebody else got there first is a room a person
+ * can reason about.
+ *
+ * `claim` is asked rather than reimplemented, over the same prospective list the
+ * plan is built from, so who wins here is who wins in the carry list.
+ *
+ * Keyed on which place it is rather than on what it reads as, because two places
+ * really can read alike and folding them together by their labels is the hole
+ * five defects came out of.
+ */
+function alsoClaiming(
+  books: readonly PlannableBook[],
+  wanted: readonly PlacementRule[],
+  written: readonly PlacementRule[],
+  order: Slot[],
+): AlsoClaims[] {
+  const mine = new Set(written.map((rule) => rule.id))
+  const others = wanted.filter((rule) => !mine.has(rule.id))
+  const found = new Map<string, AlsoClaims>()
+
+  for (const book of books) {
+    if (!written.some((rule) => matches(rule, book))) continue
+    const won = claim(wanted as PlacementRule[], book)
+
+    for (const other of others) {
+      if (!matches(other, book)) continue
+      const where = `${other.areaId === null ? 'fixture' : 'area'}:${other.areaId ?? other.fixtureId}`
+      const row = found.get(where)
+        ?? { place: placeSaid(other, order), books: 0, keeps: 0 }
+      row.books += 1
+      if (won?.id === other.id) row.keeps += 1
+      found.set(where, row)
+    }
+  }
+
+  // A rule whose furniture is not standing has no name to print. It is a defect
+  // of its own and this sentence is not the place to guess one for it.
+  return [...found.values()].filter((one) => one.place !== '')
 }
 
 /**

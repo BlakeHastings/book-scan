@@ -61,6 +61,7 @@ import {
   places, plural, reaching, sampleOrdered, sortOptions,
 } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
+import { Unsaved } from './Unsaved'
 
 /** The three things this screen can change, before anybody presses Save. */
 export interface FixtureDraft {
@@ -84,7 +85,26 @@ interface Props {
   busy: boolean
   error: string
   tabs: Record<TabName, () => void>
+  /**
+   * Back was pressed with the draft changed and never saved (#430 item 4).
+   *
+   * The same defect the area's page had, one screen over and with more on it to
+   * lose: what a piece is called, what it is, and the order the room stands in
+   * are all held here until Save.
+   */
+  leaving: boolean
+  /**
+   * Whether the draft says anything the room does not.
+   *
+   * Worked out by the screen because the screen is what seeded the draft, and
+   * handed down because this is where the press it changes is drawn.
+   */
+  unsaved: boolean
   onBack: () => void
+  /** Back, with a draft nobody has saved. The two are told apart by `unsaved`. */
+  onAskLeave: () => void
+  /** Stay on the screen, with the draft and the Save still on it. */
+  onStay: () => void
   onDraft: (draft: FixtureDraft) => void
   onSave: () => void
   /** Move the whole stretch to other furniture: the other journey, demoted. */
@@ -99,8 +119,8 @@ interface Props {
 }
 
 export function FixturePane({
-  room, piece, draft, books, sorting, writing, removal, busy, error, tabs,
-  onBack, onDraft, onSave, onChange, onCarry,
+  room, piece, draft, books, sorting, writing, removal, busy, error, tabs, leaving, unsaved,
+  onBack, onAskLeave, onStay, onDraft, onSave, onChange, onCarry,
   onOpenSort, onChooseSort, onSaveSort, onCloseSort, onDelete,
 }: Props) {
   const top = (
@@ -109,7 +129,8 @@ export function FixturePane({
       sub={piece
         ? `${plural(piece.areas.length, 'area')}, ${plural(piece.books, 'book')}`
         : undefined}
-      onBack={onBack}
+      /* Two answers to one press: going back, and being asked first (#430 item 4). */
+      onBack={unsaved ? onAskLeave : onBack}
     />
   )
 
@@ -152,7 +173,13 @@ export function FixturePane({
   const { sample, more } = sampleOrdered(looking, books)
 
   return (
-    <RoomFrame top={top} tabs={tabs}>
+    <RoomFrame
+      top={top}
+      tabs={tabs}
+      over={leaving
+        ? <Unsaved typed={draft.name.trim()} keeping="Save" onLeave={onBack} onStay={onStay} />
+        : undefined}
+    >
       <Trouble said={error} />
 
       <Field

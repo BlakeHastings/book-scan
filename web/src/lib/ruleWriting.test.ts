@@ -138,6 +138,7 @@ const plan = (over: Partial<RuleChangePlan> = {}): RuleChangePlan => ({
   claiming: 41,
   opens: false,
   losing: [],
+  alsoClaims: [],
   ...over,
 })
 
@@ -230,6 +231,43 @@ describe('what a change comes to', () => {
     expect(said).toMatch(/Nothing would file here by rule any more/)
     expect(said).toMatch(/overflows from the area before it/)
     expect(said).not.toMatch(/no rule here to write/)
+  })
+
+  /**
+   * #430 item 1. "Anything tagged Non-fiction" written on a second piece of
+   * furniture previewed as "no book would have to be carried, 25 stay exactly
+   * where they are" and then as "Nothing changed about where the books belong".
+   * Both true, and neither said that seven non-fiction books were sitting on a
+   * bookcase whose rule is tried first, which is why nothing moved.
+   *
+   * Two places wanting one tag stays allowed. What it stops being is silent.
+   */
+  it('says which other place is asking for the same books, and who keeps them', () => {
+    const said = noteOf(plan({
+      claiming: 7,
+      alsoClaims: [{ place: '4', books: 7, keeps: 7 }],
+    }))
+
+    expect(said).toMatch(/4 asks for the same 7 books and is tried first, so they stay there\./)
+  })
+
+  it('says it the other way up when this place is the one that wins', () => {
+    const said = noteOf(plan({
+      claiming: 7,
+      alsoClaims: [{ place: 'Hall shelf · A', books: 7, keeps: 0 }],
+    }))
+
+    expect(said).toMatch(/Hall shelf · A asks for the same 7 books, and this is tried first/)
+    expect(said).toMatch(/so they come here\./)
+  })
+
+  it('counts a split rather than rounding it to one of the two answers', () => {
+    const said = noteOf(plan({ claiming: 7, alsoClaims: [{ place: '4', books: 7, keeps: 3 }] }))
+    expect(said).toMatch(/4 asks for the same 7 books, and 3 of them stay there/)
+  })
+
+  it('says nothing about other places when no other place asks', () => {
+    expect(noteOf(plan({ alsoClaims: [] }))).toBe('')
   })
 
   /**

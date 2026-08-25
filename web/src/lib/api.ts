@@ -685,6 +685,26 @@ export interface RuleChangePlan {
   opens: boolean
   /** Stretches of books that would be left with no rule anchoring them. */
   losing: string[]
+  /**
+   * The other places asking for books these rules ask for, and how the tie went.
+   *
+   * Two places wanting one tag is allowed. It is also the one thing the counts
+   * cannot say, and #430 item 1 is what its absence read like: a rule written on
+   * a second piece of furniture, a preview answering "no book would have to be
+   * carried", and nothing anywhere mentioning the piece that already asks for
+   * the same books and is tried first.
+   */
+  alsoClaims: AlsoClaims[]
+}
+
+/** One other place asking for books a draft's rules ask for. */
+export interface AlsoClaims {
+  /** What that place reads as: a plank for an area rule, a piece for a fixture. */
+  place: string
+  /** How many books both places ask for. */
+  books: number
+  /** How many of those that place keeps, because its rule is tried first. */
+  keeps: number
 }
 
 /*

@@ -154,4 +154,35 @@ describe('planning a run onto another bookcase', () => {
       { from: '4D', to: '3C', books: [{ id: 6, title: 'Book 6', authorFiling: 'Author, 6' }] },
     ])
   })
+  it('carries a book onto the twin bookcase standing on the same number', () => {
+    /*
+     * #430 item 1. Two pieces of furniture standing on one number is an
+     * arrangement `slotsInOrder` names as one this catalogue has, and both
+     * render `4A`. A plan that decided on the two strings called this book
+     * "staying exactly where it is" while the engine, which compares area ids,
+     * wrote an assignment moving it, and the carry list then read `4A` to `4A`.
+     *
+     * The preview and the engine have to be one answer, so this asks the plan
+     * for the answer the engine gives.
+     */
+    const twin = slotsInOrder(
+      [fixture(1, 1), fixture(4, 4), fixture(5, 4)],
+      [area(10, 1, 0), area(40, 4, 0), area(50, 5, 0)],
+    )
+    const onTwin = [onTag(1, 'genre/fiction', 1), {
+      ...onTag(2, 'genre/non-fiction', 5), areaId: 50, fixtureId: null,
+    }]
+
+    const plan = planPlacements(
+      [book(1, 'A')], [row(1, 'placed', 40)], onTwin, twin, LABELS(twin),
+    )
+
+    expect(labelFor(twin.find((slot) => slot.area.id === 40)!)).toBe('4A')
+    expect(labelFor(twin.find((slot) => slot.area.id === 50)!)).toBe('4A')
+    expect(plan.staying).toBe(0)
+    expect(plan.moving).toBe(1)
+    expect(plan.groups).toEqual([
+      { from: '4A', to: '4A', books: [{ id: 1, title: 'Book 1', authorFiling: 'Author, 1' }] },
+    ])
+  })
 })
