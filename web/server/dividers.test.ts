@@ -200,7 +200,7 @@ describe('removing the bookcase boundary', () => {
     const survivors = (await rows()).filter((row) => row.id !== doomed.id)
     const before = await shelves.layout('fiction')
 
-    await shelves.remove(line.separatorId)
+    await shelves.remove(line.separatorId, { theAreaGoes: true })
 
     // At the database: that boundary and no other, still opening at the books
     // they opened at.
@@ -252,7 +252,7 @@ describe('removing an area boundary', () => {
     const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
 
     const before = await shelves.layout('fiction')
-    await shelves.remove(line.separatorId)
+    await shelves.remove(line.separatorId, { theAreaGoes: true })
 
     // Bookcase 2 is still bookcase 2: only the plank break went, and it is
     // bookcase 1 that lost a plank. See the note on renumbering above.
@@ -274,7 +274,7 @@ describe('removing an area boundary', () => {
     const line = lineAbove(libraryRows(await shelves.groups('fiction')), '2B')
 
     const before = await shelves.layout('fiction')
-    await shelves.remove(line.separatorId)
+    await shelves.remove(line.separatorId, { theAreaGoes: true })
 
     expect(await openers()).toEqual(['area@Fay Ford', 'shelf@Hal Hale'])
     expect(await titlesOf(await shelves.movesSince('fiction', before))).toEqual([
@@ -282,6 +282,74 @@ describe('removing an area boundary', () => {
       { title: 'Kim Kent', from: '2B', to: '2A' },
     ])
     expect(line.notice).toBe('New area starts here')
+  })
+})
+
+/**
+ * The assent, at the act rather than at any of the three doors into it (#456).
+ *
+ * Every case here goes through `Shelves.remove`, which is one line over
+ * `RemoveSeparatorHandler`, because that is where the rule now lives. The route
+ * and the boundary move are tested where they are; what is pinned here is that
+ * the act itself will not do this for a caller that has not been asked, however
+ * it is reached and whoever writes the next caller.
+ */
+describe('removing a boundary asks first', () => {
+  it('refuses a caller that has not been asked, and leaves the run alone', async () => {
+    await twoBookcases()
+    const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
+    const before = { areas: await areas(), labels: await labels() }
+
+    const refused = await shelves.remove(line.separatorId)
+
+    expect(refused).toEqual({
+      ok: false, areaId: line.separatorId, range: 'fiction',
+    })
+    // Every plank still there, still anchored at the same book, and every book
+    // still on the plank it was on. Nothing was written and rolled back: the
+    // refusal happens before the statement.
+    expect(await areas()).toEqual(before.areas)
+    expect(await labels()).toEqual(before.labels)
+  })
+
+  it('will not be talked into it by anything but the word', async () => {
+    await twoBookcases()
+    const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
+    const before = await areas()
+
+    for (const said of [undefined, false]) {
+      // The shape a caller reaches for when it is trying to satisfy a
+      // parameter rather than answer a question.
+      const answer = await shelves.remove(
+        line.separatorId,
+        said === undefined ? undefined : { theAreaGoes: said },
+      )
+      expect(answer.ok, `theAreaGoes: ${String(said)} was taken as assent`).toBe(false)
+    }
+
+    expect(await areas()).toEqual(before)
+  })
+
+  /**
+   * The idempotence the handler's own header promises, kept across the change.
+   *
+   * A boundary somebody else has already removed comes back missing and the act
+   * does nothing. That has to stay an `ok`: a second tap on a screen drawn
+   * before the first one landed is a retry, and turning a retry into an error
+   * puts a refusal in front of somebody for a thing that is already done.
+   */
+  it('does nothing, rather than refusing, for a boundary already gone', async () => {
+    await twoBookcases()
+    const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
+
+    expect(await shelves.remove(line.separatorId, { theAreaGoes: true }))
+      .toEqual({ ok: true, removed: line.separatorId })
+    const after = await areas()
+
+    // The retry, and it does not carry the assent, because the screen that
+    // sends it has not asked anybody a second time.
+    expect(await shelves.remove(line.separatorId)).toEqual({ ok: true, removed: null })
+    expect(await areas()).toEqual(after)
   })
 })
 

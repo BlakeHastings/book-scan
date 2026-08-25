@@ -992,7 +992,7 @@ describe('the areas following the boundaries after a person moves a book', () =>
     const before = await areas(pool)
     const boundary = (await shelves.list('fiction'))[1]!
 
-    await shelves.remove(boundary.id)
+    await shelves.remove(boundary.id, { theAreaGoes: true })
 
     expect(await areas(pool)).toBe(before - 1)
     expect(await disagreements(pool)).toEqual([])
