@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import pg from 'pg'
 
 import { connectionConfig, describeConnection } from './support/database.js'
+import { describeCommitment } from './support/machine.js'
 
 import { WEB_ROOT } from './support/paths.js'
 import { BOOK_IN_HAND } from './support/books.js'
@@ -146,6 +147,12 @@ let stub: CatalogueStub | null = null
 async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
   const started = Date.now()
   const say = (message: string) => console.log(`[e2e] ${message}`)
+
+  // Said before anything is started rather than after something has failed,
+  // because it is the number that decides whether the rest of this run means
+  // anything, and after a crash there is nobody left to ask (#448).
+  const headroom = describeCommitment()
+  if (headroom) say(headroom)
 
   pruneOldRuns()
 
