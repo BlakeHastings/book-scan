@@ -226,3 +226,55 @@ describe('deleting a book', () => {
     expect(words(detail())).not.toContain('Delete this book and its photos')
   })
 })
+
+/**
+ * Saying what a book already on a shelf is (#433).
+ *
+ * The queue's check-the-details screen has had "Add a tag" since #377 and a
+ * rule has been able to name a tag nothing carries yet since #400. This is the
+ * third door and it was missing, so the only thing anybody could say about a
+ * book they already owned was which of two genres it was.
+ *
+ * The form is what these assert, because a catalogued book opens as a record
+ * and the fields are behind the pencil. `detail({ saved: false })` opens on the
+ * form, which is what a book fresh off the camera does.
+ */
+describe('the tags on the form that corrects a record', () => {
+  const form = (overrides: Partial<Parameters<typeof BookDetail>[0]> = {}) =>
+    detail({ saved: false, ...overrides })
+
+  it('draws what a person has already said, beside the two genres', () => {
+    const said = words(form({
+      tags: [{ slug: 'subject/gardening', label: 'Gardening', source: 'person' as const, confidence: 'high' }],
+      onAddTag: () => {},
+      onRemoveTag: () => {},
+    }))
+
+    expect(said).toContain('Fiction')
+    expect(said).toContain('Non-fiction')
+    expect(said).toContain('Gardening')
+  })
+
+  it('offers a way to say another one', () => {
+    expect(words(form({ onAddTag: () => {} }))).toContain('Add a tag')
+  })
+
+  /* Drawn from there being somewhere to write one rather than from the screen
+     deciding a book may be tagged, which is the shape `onDelete` already has.
+     A tag is written the moment it is said, so a screen with nothing to write
+     to must not offer the press. */
+  it('offers nothing where there is nowhere to write one', () => {
+    expect(words(form())).not.toContain('Add a tag')
+  })
+
+  /* The slug is the identity and the label is what a person reads, which is a
+     pinned rule and the reason this row draws labels. */
+  it('never draws the slug', () => {
+    const said = words(form({
+      tags: [{ slug: 'subject/gardening', label: 'Gardening', source: 'person' as const, confidence: 'high' }],
+      onAddTag: () => {},
+    }))
+
+    expect(said).not.toContain('subject/gardening')
+  })
+})

@@ -177,3 +177,36 @@ describe('a cover with nobody credited on it', () => {
     )
   })
 })
+
+/**
+ * One book is one book (#433).
+ *
+ * "1 books" was over every area a single book stands in, and over the whole
+ * collection on the day it held one. `plural` is what every other count in this
+ * app goes through and it existed the whole time; this row was written with a
+ * template string instead.
+ *
+ * Read as a call rather than rendered, the same way finding is above and for the
+ * same reason: `SpineView` is not exported, and what is actually being claimed
+ * is that these counts go through the one function that knows about the letter
+ * s, not that a particular markup came out today.
+ */
+describe('the counts on the library screen', () => {
+  it('says "1 book" over an area holding one, through the one plural there is', () => {
+    const spines = viewOf('LibraryPane.tsx', 'SpineView')
+
+    expect(spines, 'the area count is concatenated rather than counted').not.toMatch(
+      /\$\{run\.books\.length\} books/,
+    )
+    expect(spines).toMatch(/plural\(run\.books\.length, 'book'\)/)
+  })
+
+  it('says it over the collection too, which held one book on its first day', () => {
+    const library = source('LibraryPane.tsx')
+
+    expect(library).not.toMatch(/\$\{grouped\(counts\.total\)\} books/)
+    expect(library).not.toMatch(/\$\{grouped\(total\)\} books/)
+    expect(library).toMatch(/plural\(counts\.total, 'book'\)/)
+    expect(library).toMatch(/plural\(total, 'book'\)/)
+  })
+})
