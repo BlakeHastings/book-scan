@@ -1090,11 +1090,41 @@ When(
 
     const drawn = await page.locator('.divider').count()
     await line.getByRole('button', { name: 'Remove' }).click()
+    /*
+     * Two presses since #456, and that is the point rather than an
+     * inconvenience: removing a boundary takes an area off the furniture and
+     * hands its books to the area in front, so the first press asks and the
+     * second is the answer. The scenario below drives the first press on its
+     * own and backs out of it.
+     */
+    await page.getByRole('dialog').getByRole('button', { name: 'Remove it' }).click()
     // One line fewer, which is the redraw finishing. Waiting on the moves
     // panel instead would assume that a removal always moves a book.
     await expect(page.locator('.divider')).toHaveCount(drawn - 1)
   },
 )
+
+/** The first of the two presses, on its own, so the question can be read. */
+When(
+  'I press Remove on the boundary drawn above {string}',
+  async ({ page }, area: string) => {
+    const line = page.locator(
+      `xpath=//section[contains(@class,"shelfgroup")][@data-label=${JSON.stringify(area)}]`
+      + '/preceding-sibling::*[1]',
+    )
+    await expect(line, `nothing is drawn above ${area}`).toHaveClass(/divider/)
+    await line.getByRole('button', { name: 'Remove' }).click()
+  },
+)
+
+Then('I should be asked {string}', async ({ page }, question: string) => {
+  await expect(page.getByRole('dialog')).toHaveAttribute('aria-label', question)
+})
+
+When('I keep it', async ({ page }) => {
+  await page.getByRole('dialog').getByRole('button', { name: 'Keep it' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
 
 /**
  * The physical job the app hands back, in full.
