@@ -143,6 +143,26 @@ testing software:
 - It is fine, and expected sometimes, to find nothing worth reporting. Say
   that plainly rather than inventing severity.
 
+## Write findings to a file as you go
+
+Create `hunt-findings.md` in the worktree root and append to it **the moment
+something is found**, before going after the next thing. It is untracked and
+costs nothing.
+
+**This is not tidiness, it is the difference between a report and nothing.** A
+hunt's entire output is prose held in one context, which makes it the shape of
+agent most easily reduced to zero by an interruption. On 2026-08-24 three
+attempts at one lending-journey hunt were made. The first held everything in
+context, died with the harness process, and produced **nothing at all** — its
+worktree contained two files of `aspire describe` output. The second was told to
+write as it went, died just as early, and its one recorded line was still
+valuable enough to correct the next brief: it had noticed that
+`docs/reading-status.md` describes a feature nobody has built, which the brief
+had sent it looking for.
+
+Auditor-shaped agents on this project have died before reporting more than once.
+The file is what survives that.
+
 ## Report shape
 
 Whoever triages a pass reads this in order, so put the expensive-to-miss

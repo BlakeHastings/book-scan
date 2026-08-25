@@ -4,7 +4,17 @@ __pycache__/
 
 # Agent scratch space. Holds local git worktrees, so staging it would
 # pull another checkout's files into this one.
-.claude/
+#
+# The contents are excluded rather than the directory, because git cannot
+# re-include a file whose parent directory is excluded, and one file in here has
+# to be tracked: `settings.json` is where the PreToolUse guards are registered,
+# and a guard that is not registered in the checkout a session starts in is not
+# loaded for that session. An agent's session starts inside
+# `.claude/worktrees/<name>/`, so it reads that worktree's `.claude/`, and until
+# this file was tracked there was nothing there to read. See
+# `docs/process/working-an-issue.md` under merge discipline.
+.claude/*
+!.claude/settings.json
 
 # Scan output: the catalogue, the cover photos, and local overrides.
 books.db
@@ -13,7 +23,10 @@ books.db-shm
 books.csv
 captures/
 backups/
-settings.json
+# Anchored to the root, which is the local override file this line was written
+# for. Unanchored it also matched `.claude/settings.json`, which has to be
+# tracked so a worktree's session loads the guards.
+/settings.json
 node_modules/
 dist/
 .aspire/

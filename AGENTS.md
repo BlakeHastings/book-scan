@@ -537,6 +537,21 @@ Aspire assigns the ports, so nothing is fixed at 3001 or 5173. It also injects
 `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, which
 `web/instrumentation.ts` reads.
 
+**The web URL that `aspire ps` and `aspire describe` report does not serve the
+app.** They advertise a proxy port that answers nothing: `curl` gets
+`ERR_EMPTY_RESPONSE` and a browser gets a blank page. The real address is in
+`aspire logs web`, printed by Vite:
+
+```
+aspire logs web | grep -Eo 'https://localhost:[0-9]+' | head -1
+```
+
+Note it is **https**, and a different port from the one you were given. Observed
+2026-08-24 on Aspire 13.4.2, twice, each time costing a verification pass that
+looked like the app being broken. **`aspire wait web` reporting healthy in 0.0s
+does not mean the URL you were handed works** — it is answering about the
+resource, not about that address.
+
 Traces work. Verified 2026-08-03 by starting the AppHost, serving three
 requests, and running the command:
 

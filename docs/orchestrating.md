@@ -139,6 +139,52 @@ work on a branch with no upstream.
 **Measure with `du`, not PowerShell one-liners.** Escaping silently measured the
 wrong path twice and I reported both wrong numbers before catching it.
 
+**The ceiling on this machine is committed memory, and neither obvious meter
+shows it.** Added 2026-08-24, after hitting it twice in one evening while
+watching the wrong number.
+
+Disk falling from 45 GB to 20 GB with four worktrees is what prompted the first,
+wrong diagnosis. What actually broke was the Windows **commit limit**: forks
+refused with `STATUS_COMMITMENT_LIMIT`, `aspire` could not load `hostfxr.dll`
+(`0x800705AF`), and finally PowerShell itself would not start, throwing
+`OutOfMemoryException` out of its own type initialiser. Throughout, Cygwin's
+`/proc/meminfo` reported 12 GB of RAM and 59 of 60 GB of swap free, and `df`
+reported plenty of disk. **Neither file is a usable signal here.** After a
+restart, disk was back to 46 GB with nothing pruned.
+
+The cost is roughly one Aspire environment per agent — an api process, a web
+process and a Postgres container. **Four is over the line; three was not
+demonstrably safe either**, since the second failure came with three running and
+a fourth merely starting.
+
+Two consequences worth acting on rather than remembering:
+
+- Treat a fork failure, a `hostfxr` load failure, and PowerShell refusing to
+  start as one symptom with one cause, and reduce the agent count instead of
+  retrying.
+- **Do not enumerate processes to diagnose it.** Under commit exhaustion the
+  tools that would tell you are the tools that cannot start, and each attempt
+  spends more of what is missing.
+
+**Batch by the files an issue touches, not by how it is described.** #432 and
+#433 were dispatched together as "the camera and the cascade" and "the manage
+screen", which sound disjoint. Both reached `web/server/shelves.ts`. The rebase
+came through clean because they landed in different regions of it, which was
+luck rather than judgement. Before a wave, look at what each issue actually
+names.
+
+**Two orchestrators can now exist at once, and neither can see the other.** A
+forked session inherits the whole conversation, so both copies believe they own
+the same running agents and the same backlog. Met on 2026-08-24 with two
+sessions each holding the same two agent ids.
+
+Nothing in the machine prevents this, so the practice is: **run `ListAgents`
+before dispatching or merging**, and when a peer session appears, divide the
+work explicitly by issue and by file before either of you touches anything. The
+merge gate helps by refusing a stale base, so a double merge is caught rather
+than silently taken, but it does nothing about two agents dispatched against one
+issue. Say what you are taking, and say what you have merged.
+
 ## What is worth keeping about how this ran
 
 **Briefs carry a "watch out for" section**, and it is the part that pays. Not
