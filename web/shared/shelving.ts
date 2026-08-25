@@ -585,6 +585,52 @@ export function placementOnAPlank(
 }
 
 // ---------------------------------------------------------------------------
+// Where a book stands
+// ---------------------------------------------------------------------------
+
+/**
+ * The piece a book's area hangs on, and where the two of them stand in the room.
+ *
+ * The other half of `location`. A label answers "what does somebody read"; this
+ * answers "which place is it, where does that place stand among the others, and
+ * what is the piece holding it called", which are the three questions a drawing
+ * of the room has to ask and none of which a label can be asked without being
+ * taken apart again.
+ *
+ * **Taking a label apart is what this replaces.** The library's boards were cut
+ * where the label string changed and headed by a regular expression over it, so
+ * a book whose genre tag moved it into the other run while it went on standing
+ * where it always had drew a second copy of its bookcase in the middle of
+ * another one (#434). That is the fifth time a place has been answered twice and
+ * disagreed: #356, #380, #401 and #430 are the others, and every one of them was
+ * a rendering being read back as if it were an identity.
+ *
+ * The ordinals rather than the label for the ordering, for the reason
+ * `FiledBook.standing` gives: the walk goes in the order the furniture stands in
+ * the room, and a name sorts alphabetically. `fixtureId` beside the ordinal
+ * because two pieces really can stand on one number, which is an arrangement
+ * this catalogue has.
+ */
+export interface AreaStanding {
+  /** The piece the area hangs on, as itself rather than as its number. */
+  fixtureId: number
+  /** The piece's ordinal, 1-based, which is the `1` in `1A`. */
+  fixture: number
+  /**
+   * The area's ordinal on that piece, 0-based, which is the `A` in `1A`.
+   *
+   * The face it reads as, so an area somebody retired while books were still
+   * standing on it keeps the plank a person would walk to rather than the
+   * negative the row stores.
+   */
+  plank: number
+  /** What the owner called the piece. Empty when nobody has named it. */
+  name: string
+  /** The owner's word for what the piece is. Nothing branches on it. */
+  kind: string
+}
+
+// ---------------------------------------------------------------------------
 // Misfile detection
 // ---------------------------------------------------------------------------
 

@@ -29,6 +29,8 @@ function book(overrides: Partial<FiledBookRow> = {}): FiledBookRow {
     series_name: '',
     series_index: null,
     location: '1A',
+    area_id: 1,
+    standing: { fixtureId: 1, fixture: 1, plank: 0, name: '', kind: 'bookshelf' },
     shelf_range: 'fiction',
     classification_source: 'auto',
     classification_confidence: 'high',

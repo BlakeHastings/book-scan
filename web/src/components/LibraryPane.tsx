@@ -64,6 +64,7 @@ import { Shelf, type ShelfItem } from '../design/Shelf'
 import { TopBar } from '../design/Chrome'
 import { areaRuns } from '../lib/areaRuns'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
+import { plural } from '../lib/carryWords'
 import { grouped } from '../lib/say'
 import { useBrowsing } from '../app/browsing'
 import { useListing } from '../app/listing'
@@ -267,6 +268,13 @@ function ListView({ books, onOpen }: { books: FiledBookRow[]; onOpen: (book: Fil
  * on a bookcase is left out of them rather than drawn in one: the run has closed
  * up behind it, exactly as it has in the room. How many those are is said under
  * the boards, because something you cannot see belongs in words.
+ *
+ * **The listing decides which books, and the furniture decides the drawing.**
+ * The page arrives in filing order, which is the order the list and the covers
+ * are read in and is not where anything is standing; each book carries the area
+ * it is on and where that area stands, and `areaRuns` is what turns the one into
+ * the other. Cutting the boards where the listing's labels changed is what drew
+ * one bookcase twice, in two places, after a tag change (#434).
  */
 function SpineView({
   books, complete, onOpen,
@@ -277,13 +285,21 @@ function SpineView({
 }) {
   const { runs, off } = areaRuns(books, complete)
 
-  let piece = ''
+  /*
+   * The piece the last board was on, so the heading is drawn where the
+   * furniture changes and not over every board.
+   *
+   * The piece itself rather than what it says, because two pieces standing on
+   * one number are both called "Bookcase 4" until somebody names one of them,
+   * and they are still two bookcases with a heading each.
+   */
+  let piece = 0
 
   return (
     <div className="wf-bleed" style={{ display: 'grid', gap: 20 }}>
-      {runs.map((run, index) => {
-        const heading = run.piece === piece ? null : run.piece
-        piece = run.piece
+      {runs.map((run) => {
+        const heading = run.standing.fixtureId === piece ? null : run.piece
+        piece = run.standing.fixtureId
 
         const items: ShelfItem[] = (run.books as FiledBookRow[]).map((book) => ({
           kind: 'spine',
@@ -295,14 +311,18 @@ function SpineView({
         }))
 
         return (
-          <div key={`${run.label}-${index}`} style={{ display: 'grid', gap: 20 }}>
+          /* Keyed on the area, which is what the board is. It used to be the
+             label and the index, and both halves of that were the defect: a
+             label is a rendering two boards can share, and an index changes
+             under a board when the page before it grows. */
+          <div key={run.areaId} style={{ display: 'grid', gap: 20 }}>
             {heading && <p className="wf-heading">{heading}</p>}
             <Shelf
               label={run.label}
-              /* Only for a row that has finished loading. The last row of a page
-                 is usually half a plank, and a count over it would be wrong
-                 until somebody scrolled. */
-              note={run.closed ? `${run.books.length} books` : undefined}
+              /* Only once the listing has finished. A board is a place rather
+                 than a stretch of the filing order, so any of them can still
+                 gain a book from a later page. */
+              note={run.closed ? plural(run.books.length, 'book') : undefined}
               items={items}
             />
           </div>

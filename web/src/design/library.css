@@ -360,16 +360,43 @@ button.wf-spine {
 }
 button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
-/* The photograph of a spine, filling it. Cropped to the spine already, by the
-   detector, which is why it can be trusted to fill a 27px column. */
+/*
+ * The photograph of a spine, filling it.
+ *
+ * **`fill` rather than `cover`, and it is the same lie the width already tells.**
+ * A real spine is about eight times as tall as it is thick and it is drawn here
+ * about four times as tall as it is wide, because `Shelf.tsx` exaggerates the
+ * width on purpose: at true scale a 24mm spine is 14px and 14px is narrower than
+ * the type printed down it. A photograph cropped to fill that box therefore
+ * loses half its length, and it loses it off both ends at once, so the first
+ * letters of the title, which are the letters somebody scans a shelf for, are
+ * the first thing to go: "Persuasion" read "ersuasion" and "Silent Spring" read
+ * "t Spring" (#434). Fitting the whole spine into the drawn one squashes it
+ * along its length by exactly the factor the width was stretched by, and shows
+ * the whole title.
+ *
+ * **The box has to be the spine before any of that means anything**, which is
+ * the rule below.
+ */
 .wf-spine__photo {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: fill;
 }
-/* No padding under a photograph: the picture is the whole book. */
-.wf-spine:has(.wf-spine__photo) { padding: 0; }
+
+/*
+ * A spine that is a photograph is the photograph, and nothing else.
+ *
+ * No padding, because the picture is the whole book. And no grid: `.wf-spine`
+ * is a grid with `align-content: center` and one automatic row, so the row was
+ * sized to the picture's own proportions and `height: 100%` on the picture
+ * resolved against that row rather than against the spine. The picture came out
+ * 200px tall inside a 116px book, centred, with 42px hanging off each end into
+ * an `overflow: hidden`. Blocked, the height resolves against the spine, which
+ * is the definite 116 `Shelf.tsx` sets, and there is nothing left to centre.
+ */
+.wf-spine:has(.wf-spine__photo) { display: block; padding: 0; }
 
 .wf-spine__text {
   writing-mode: vertical-rl;

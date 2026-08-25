@@ -74,7 +74,7 @@ import { labelFor, type Area, type Fixture } from '../domain/placement/geography
 import { faceOf } from '../infrastructure/shelving/areas'
 import { CHECKED_OUT } from '../domain/books/state'
 import { areaIndex } from '../shared/layout'
-import { parseLocation } from '../shared/shelving'
+import { parseLocation, type AreaStanding } from '../shared/shelving'
 import {
   areaForLabel, areaForRecordedLabel, DrizzlePlacementLedger,
 } from '../infrastructure/placement/ledger-repository'
@@ -216,13 +216,23 @@ export interface PlacementFields {
    * off for every book on a named bookcase (#356).
    */
   area_id: number | null
+  /**
+   * Where that area stands, and what the piece holding it is called.
+   *
+   * The third thing a drawing of the room needs and the one it used to work out
+   * for itself: which boards come in which order, and what to write over the
+   * ones that share a piece. Null with `area_id`, for a book nobody has placed.
+   *
+   * `AreaStanding` says why it is here rather than read back out of `location`.
+   */
+  standing: AreaStanding | null
   /** Set while the book is off the shelf, null while it is on one. */
   checked_out_at: string | null
 }
 
 /** A book nowhere, which is every book nobody has put anywhere. */
 export const NOT_PLACED: PlacementFields = {
-  location: '', area_id: null, checked_out_at: null,
+  location: '', area_id: null, standing: null, checked_out_at: null,
 }
 
 interface PlacementRow {
@@ -231,6 +241,7 @@ interface PlacementRow {
   fixture_id: number | null
   fixture_position: number | null
   fixture_name: string | null
+  fixture_kind: string | null
   area_position: number | null
   area_name: string | null
   checked_out_at: string | null
@@ -249,7 +260,29 @@ function fieldsOf(row: PlacementRow): PlacementFields {
   return {
     location: labelOf(row),
     area_id: row.area_id === null ? null : Number(row.area_id),
+    standing: standingOn(row),
     checked_out_at: row.checked_out_at,
+  }
+}
+
+/**
+ * Where the joined fixture and area stand, or null when the book is on neither.
+ *
+ * The same three columns `labelOf` reads and the same `faceOf` decode, taken
+ * once so that what a drawing orders by and what a person reads cannot come
+ * from two different readings of one row.
+ */
+function standingOn(row: PlacementRow): AreaStanding | null {
+  if (row.fixture_id === null || row.fixture_position === null || row.area_position === null) {
+    return null
+  }
+
+  return {
+    fixtureId: Number(row.fixture_id),
+    fixture: Number(row.fixture_position),
+    plank: faceOf(Number(row.area_position)),
+    name: row.fixture_name ?? '',
+    kind: row.fixture_kind ?? '',
   }
 }
 
@@ -381,6 +414,7 @@ export async function withPlacements<Row extends { id: number }>(
   const found = await db.all<PlacementRow>(
     `SELECT b.id, b.current_area_id AS area_id,
             f.id AS fixture_id, f.position AS fixture_position, f.name AS fixture_name,
+            f.kind AS fixture_kind,
             a.position AS area_position, a.name AS area_name,
             CASE WHEN b.state = ? THEN
               (SELECT p.created_at FROM book_placement p
