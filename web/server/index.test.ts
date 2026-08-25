@@ -1039,7 +1039,9 @@ describe('shelving a book onto a bookcase', () => {
      * face. It is still the plank the book is recorded on, which is why the
      * receipt is read back with `areaOfRecordedLocation`.
      */
-    await post('/api/shelves/move', { range: 'fiction', id: dispossessed, direction: 'previous' })
+    await post('/api/shelves/move', {
+      range: 'fiction', id: dispossessed, direction: 'previous', theAreaGoes: true,
+    })
 
     expect((await misfiles()).outstandingMoves).toEqual([dispossessed])
 
@@ -1318,8 +1320,10 @@ describe('moving a book across an area boundary', () => {
     const preview = await post('/api/placement/preview', {
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, excludeId: dune,
     })
+    // `empties` is null because Dune's own plank keeps a book once he leaves
+    // it, which is the ordinary move: the offer costs nothing but the walk.
     expect(preview.body.strip.boundary.next).toEqual({
-      areaId: recorded?.area_id, label: 'Hall shelf · B',
+      areaId: recorded?.area_id, label: 'Hall shelf · B', empties: null,
     })
 
     // And what the move itself says, in the same two words and the same id.
@@ -1402,13 +1406,46 @@ describe('moving a book across an area boundary', () => {
   it('sends a book back the other way, and stays clean', async () => {
     const { dispossessed } = await threeOverTwoAreas()
 
+    // He is the only book on 1B, so this is the move that takes the area with
+    // him and the route refuses it without being told (#433). Pinned on its
+    // own below; here it is said so the rest of the claim can be made.
     const { body } = await post('/api/shelves/move', {
-      range: 'fiction', id: dispossessed, direction: 'previous',
+      range: 'fiction', id: dispossessed, direction: 'previous', theAreaGoes: true,
     })
     expect(body.move.from).toBe('1B')
     expect(body.move.to).toBe('1A')
 
     await patch(`/api/books/${body.move.id}/location`, { location: body.move.to })
+    expect((await misfiles()).misfiles).toEqual([])
+  })
+
+  /**
+   * The route will not remove furniture for a caller that has not been asked
+   * (#433).
+   *
+   * A book alone in an area is both the first and the last book of it, so both
+   * directions are offered and either leaves the area with no books to name.
+   * That is an area being removed, and #281 settled that removing one says what
+   * it will do and asks first. The dialog is the screen's; being unable to do it
+   * silently is this route's, for the same reason the edge rule is here rather
+   * than in the screen that draws the button.
+   */
+  it('refuses to take an area off the furniture unless the request says it knows', async () => {
+    const { dispossessed } = await threeOverTwoAreas()
+
+    const { status, body } = await post('/api/shelves/move', {
+      range: 'fiction', id: dispossessed, direction: 'previous',
+    })
+
+    expect(status).toBe(400)
+    expect(body.error).toContain('1B would have no books left on it')
+    // And it hands back what it refused to do, so a caller that asked without
+    // knowing can put the question in front of somebody rather than reading it
+    // back out of a sentence.
+    expect(body.empties).toEqual({ areas: ['1B'], becomes: [] })
+
+    // The room is exactly as it was.
+    expect((await running.store.getBook(dispossessed))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
