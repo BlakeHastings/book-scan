@@ -248,12 +248,21 @@ export const leaving = (skipped: readonly SkippedBooks[]): WouldLeave[] =>
 /**
  * What is true of this change beyond its counts, said in one line or not at all.
  *
- * Two facts qualify and both are consequences somebody would otherwise meet
- * afterwards. **An area gaining its first rule stops taking overflow**, because
- * an area a rule points at is where a stretch of books begins; and **a stretch
- * can be left with nothing anchoring it**, which is what taking the genre line
- * off the rule that serves fiction does. Neither is a refusal. They are his
- * rules and his room, and the app's job is to say so before rather than after.
+ * Three facts qualify and all three are consequences somebody would otherwise
+ * meet afterwards. **An area gaining its first rule stops taking overflow**,
+ * because an area a rule points at is where a stretch of books begins; **a
+ * stretch can be left with nothing anchoring it**, which is what taking the
+ * genre line off the rule that serves fiction does; and **another place can
+ * already be asking for these books**, which decides how many of them actually
+ * come here. None is a refusal. They are his rules and his room, and the app's
+ * job is to say so before rather than after.
+ *
+ * The third one is #430 item 1. Somebody wrote "anything tagged Non-fiction" on
+ * a second piece of furniture, read "no book would have to be carried, 25 stay
+ * exactly where they are", wrote it down, and was told "Nothing changed about
+ * where the books belong". Every one of those sentences was true. What none of
+ * them said was that seven non-fiction books were sitting on another bookcase
+ * whose rule is tried first, which is the whole reason nothing moved.
  */
 export function noteOf(plan: RuleChangePlan): string {
   const said: string[] = []
@@ -307,6 +316,28 @@ export function noteOf(plan: RuleChangePlan): string {
 
   if (plan.claiming === 0 && said.length === 0) {
     said.push('No book in the collection carries all of these, so nothing would file here.')
+  }
+
+  /*
+   * Said last, because it is about a rule that is otherwise fine and the reader
+   * has to have the rule in mind first. Never a refusal and never phrased as one:
+   * two places asking for one tag is a thing the owner is allowed to want, and
+   * what he cannot get anywhere else is which of them the books actually go to.
+   */
+  for (const other of plan.alsoClaims) {
+    const both = plural(other.books, 'book')
+    const it = other.books === 1 ? 'it' : 'they'
+
+    if (other.keeps === other.books) {
+      said.push(`${other.place} asks for the same ${both} and is tried first, `
+        + `so ${it} ${other.books === 1 ? 'stays' : 'stay'} there.`)
+    } else if (other.keeps === 0) {
+      said.push(`${other.place} asks for the same ${both}, and this is tried first, `
+        + `so ${it} ${other.books === 1 ? 'comes' : 'come'} here.`)
+    } else {
+      said.push(`${other.place} asks for the same ${both}, and ${other.keeps} of them `
+        + 'stay there because its rule is tried first.')
+    }
   }
 
   return said.join(' ')

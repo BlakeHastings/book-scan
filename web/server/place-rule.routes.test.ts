@@ -849,3 +849,66 @@ describe('naming a word where the rule is written', () => {
       .toEqual([{ slug: 'subject/manga', label: 'Manga' }])
   })
 })
+
+describe('two places asking for one tag, which is allowed and was silent', () => {
+  /**
+   * #430 item 1, both halves, over the room it was found in.
+   *
+   * A second piece of furniture was given "anything tagged Non-fiction". The
+   * preview said "No book would have to be carried, 25 stay exactly where they
+   * are", writing it down said "Nothing changed about where the books belong",
+   * and seven non-fiction books sitting on another bookcase were never
+   * mentioned. Two places asking for one tag is allowed and stays allowed; what
+   * it stops being is the app saying nothing about it.
+   */
+  it('names the place already asking for these books when its rule wins', async () => {
+    const piece = await nonFiction()
+    const { body: added } = await post('/api/fixtures', { kind: 'bookshelf' })
+    await post(`/api/fixtures/${added.fixture.id}/areas`, {})
+
+    const { body } = await post('/api/placement/rule/plan', {
+      about: 'fixture',
+      placeId: added.fixture.id,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: 'genre/non-fiction' }] }],
+    })
+
+    // Nothing moves, which was true before and is still true. What is new is
+    // that the plan says which place is keeping them and why.
+    expect(body.plan.moving).toBe(0)
+    expect(body.plan.claiming).toBe(8)
+    expect(body.plan.alsoClaims).toEqual([{ place: piece.label, books: 8, keeps: 8 }])
+  })
+
+  /**
+   * The same disagreement said as the two answers it produced: the preview
+   * counted the books whose label did not change, and the engine counted the
+   * books whose area did. Two pieces standing on one number is what pulls them
+   * apart, and it is an arrangement `slotsInOrder` says this catalogue has.
+   */
+  it('previews the same number of books the write then assigns', async () => {
+    const piece = await nonFiction()
+    const { body: added } = await post('/api/fixtures', {
+      kind: 'bookshelf', position: piece.position,
+    })
+    const { body: plank } = await post(`/api/fixtures/${added.fixture.id}/areas`, {})
+
+    // An area rule, because `claim` tries an area before a piece: this is the
+    // twin bookcase actually taking the books rather than asking for them and
+    // losing. Both planks read alike, which is the whole of the defect.
+    expect(plank.area.label).toBe(piece.areas[0].label)
+
+    const draftRule = {
+      about: 'area',
+      placeId: plank.area.id,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: 'genre/non-fiction' }] }],
+    }
+
+    const { body: planned } = await post('/api/placement/rule/plan', draftRule)
+    const { body: applied } = await post('/api/placement/rule', draftRule)
+
+    expect(planned.plan.moving).toBe(8)
+    // The two fiction books, which no part of this is about.
+    expect(planned.plan.staying).toBe(2)
+    expect(applied.wrote.assigned).toBe(planned.plan.moving)
+  })
+})

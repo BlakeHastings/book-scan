@@ -772,6 +772,7 @@ describe('writing what belongs here', () => {
           claiming: 46,
           opens: false,
           losing: [],
+          alsoClaims: [],
         },
       }),
     ))
