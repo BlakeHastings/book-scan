@@ -36,7 +36,21 @@ export interface OpenBook {
    * make every library tap wait for a book's whole history.
    */
   readonly viewBook: (id: number) => void
-  readonly openBook: (id: number, from?: Origin) => Promise<void>
+  /** Resolves true once the book is in hand, false when it could not be read. */
+  readonly openBook: (id: number, from?: Origin) => Promise<boolean>
+  /**
+   * Pick a book up in order to say where it now stands (#433).
+   *
+   * "It moved" on a book's own page used to open the form that corrects a
+   * record, which offers check out, edit, back to library and delete and no way
+   * at all to say where the book went. Nothing happened and nothing said why.
+   *
+   * There is one screen that places a book and this is the way to it, the same
+   * way a newly scanned book, a book coming back off the table and the notice
+   * saying this one is supposed to be moved all reach it. `docs/shelving.md`:
+   * "There is one way to say where a book is, not two."
+   */
+  readonly moveBook: (id: number) => Promise<void>
   readonly openCapture: (capture: Capture, anchor: QueueReturnAnchor) => void
   readonly openFromLibrary: (id: number, anchor: LibraryReturnAnchor) => void
   readonly openNeighbour: (id: number) => void
@@ -65,8 +79,13 @@ export function useOpenBook(): OpenBook {
    * `from` changes the way out and nothing else: back to the library listing
    * you were browsing, or back to the scanner for the next book off the pile.
    * Everything the page offers to do comes from the book itself.
+   *
+   * It answers whether the book actually came in, which `moveBook` below reads:
+   * a failure leaves the error banner and the screen the caller was on, and
+   * routing onwards from a book that was never picked up would put the shelving
+   * step in front of somebody with nothing in their hands.
    */
-  const openBook = async (id: number, from: Origin = 'library') => {
+  const openBook = async (id: number, from: Origin = 'library'): Promise<boolean> => {
     book.endReviewSession()
     setError('')
     book.setNotice('')
@@ -114,9 +133,16 @@ export function useOpenBook(): OpenBook {
       // says where that is.
       setQueueReturn(null)
       setRoute('review')
+      return true
     } catch (caught) {
       setError((caught as Error).message)
+      return false
     }
+  }
+
+  /** Pick a book up and go straight to the step that places one. See `moveBook`. */
+  const moveBook = async (id: number) => {
+    if (await openBook(id)) setRoute('shelve')
   }
 
   /**
@@ -196,5 +222,5 @@ export function useOpenBook(): OpenBook {
     void openBook(id, book.origin)
   }
 
-  return { viewBook, openBook, openCapture, openFromLibrary, openNeighbour }
+  return { viewBook, openBook, moveBook, openCapture, openFromLibrary, openNeighbour }
 }

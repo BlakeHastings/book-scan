@@ -64,7 +64,16 @@ export function ReviewScreen() {
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
 
-  const tagging = useTagging(bookId === null ? captureId : null)
+  /*
+   * The book being named, whichever kind it is (#433).
+   *
+   * It was the capture and nothing else, so the one screen that could say what a
+   * book is was the one a book passes through on the way to a shelf. A capture
+   * is a row in `books` from its first photograph, which is why the hook takes
+   * an id rather than a kind: the same call names a book that has been on a
+   * shelf for a year.
+   */
+  const tagging = useTagging(bookId ?? captureId)
 
   /**
    * Ask whether this capture's ISBN is already on a shelf (#435).
@@ -261,6 +270,19 @@ export function ReviewScreen() {
        * book fits, standing at the bookcase, on the screen that places books.
        */
       misfile={misfile}
+      /*
+       * The third door onto saying what a book is (#433). Same hook, same panel
+       * and the same immediate write as the queue's check-the-details screen:
+       * a person's tag is the one kind nothing else in this system may
+       * reproduce, so it is written when it is said rather than carried in a
+       * draft that a closed browser loses.
+       */
+      tags={tagging.tags}
+      vocabulary={tagging.vocabulary}
+      taggingBusy={tagging.busy}
+      taggingError={tagging.error}
+      onAddTag={tagging.add}
+      onRemoveTag={tagging.remove}
     />
   )
 }

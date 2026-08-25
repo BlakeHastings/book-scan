@@ -115,7 +115,22 @@ export function ArrangeScreen() {
     api.shelves(arranging)
       .then((shelves) => {
         setGroups(shelves.groups)
-        setBookcase(shelves.groups[0]?.shelf ?? 1)
+        /*
+         * The picker *starts* where the stretch stands, and "starts" is the
+         * whole of it.
+         *
+         * This read and the room's are two requests, and the destinations are
+         * drawn from the room's, so the buttons are pressable while this one is
+         * still in the air. Written flat, a late answer took back a choice
+         * somebody had already made and the screen then planned a move to the
+         * bookcase the books were already on. Found by a browser journey losing
+         * a press to it, twice, on the step that presses and then checks the
+         * choice stuck (#433).
+         *
+         * Zero is the value nobody can choose, so it is the one that means
+         * nobody has.
+         */
+        setBookcase((chosen) => chosen || shelves.groups[0]?.shelf || 1)
       })
       .catch((caught) => setError((caught as Error).message))
   }, [arranging, setError])

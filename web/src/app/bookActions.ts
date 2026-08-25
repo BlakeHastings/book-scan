@@ -366,8 +366,9 @@ export function useBookActions(): BookActions {
     range: ShelfRange,
     id: number,
     direction: 'next' | 'previous',
+    theAreaGoes: boolean,
   ) => {
-    await api.moveAcrossBoundary(range, id, direction)
+    await api.moveAcrossBoundary(range, id, direction, theAreaGoes)
     await openBook(id, 'move')
 
     /*
@@ -399,8 +400,16 @@ export function useBookActions(): BookActions {
    * and this is exactly that: an action available because of where this book
    * sits. `boundaryMoves` on the placement preview says which directions are
    * genuinely open; the server checks again on the write regardless.
+   *
+   * `theAreaGoes` is carried rather than worked out here, because it is not a
+   * fact about the shelves: it is whether somebody read what the move would take
+   * off the furniture and pressed the button that does it (#433). The screen is
+   * the only place that knows, and the server refuses without it.
    */
-  const startBoundaryMove = async (direction: 'next' | 'previous') => {
+  const startBoundaryMove = async (
+    direction: 'next' | 'previous',
+    theAreaGoes = false,
+  ) => {
     // A book no genre tag claims is in neither run, so there is no boundary of
     // one for it to cross (#304). Nothing offers this for such a book; the
     // guard is here because the range is what the write is addressed to.
@@ -409,7 +418,7 @@ export function useBookActions(): BookActions {
     setBoundaryMoving(true)
     setError('')
     try {
-      await moveAcrossBoundary(range, bookId, direction)
+      await moveAcrossBoundary(range, bookId, direction, theAreaGoes)
     } catch (caught) {
       setError((caught as Error).message)
     } finally {

@@ -931,6 +931,41 @@ function relabelling(
   return changes
 }
 
+/**
+ * Every label that reads differently once these areas come off their pieces.
+ *
+ * The half of an area removal that is about names rather than about books, and
+ * it exists because there is a second act that removes an area: a boundary move
+ * whose book was the only one on its plank (#433). That is not a merge, so
+ * `planAreaRemoval`'s answer is the wrong story to tell about it, and the books
+ * it would count have already been carried away by the person doing the moving.
+ *
+ * What the two share is the part #281 settled: removing one area renumbers every
+ * area after it, and a sentence claiming that is worth less than the rows
+ * showing it. So the rows are read from the same face the writer renumbers.
+ */
+export async function relabellingWithout(
+  db: Db,
+  areaIds: readonly number[],
+): Promise<LabelChange[]> {
+  const going = new Set(areaIds)
+  const pieces = new Set<number>()
+  for (const id of areaIds) {
+    const area = await areaOnAFace(db, id)
+    if (area) pieces.add(area.fixtureId)
+  }
+
+  const changes: LabelChange[] = []
+  for (const id of pieces) {
+    const fixture = await fixtureOnTheFloor(db, id)
+    if (!fixture) continue
+    const face = await faceOf(db, fixture)
+    const order = face.map((slot) => slot.area.id).filter((one) => !going.has(one))
+    changes.push(...relabelling(face, face, order))
+  }
+  return changes
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------

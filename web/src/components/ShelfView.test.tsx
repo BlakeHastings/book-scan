@@ -104,12 +104,45 @@ describe('the list of books that are not where they should be', () => {
    * there would move the furniture on the person's behalf and call it an undo.
    */
   it('offers it nowhere else', () => {
-    // The answers, not the paragraph over them: that sentence names both and
-    // is the same sentence whichever books are on the list.
+    // The answers, not the words around them, so this stays a claim about the
+    // buttons whatever the rows happen to say.
     const answers = (html: string) => html.split('wf-card__foot')[1] ?? ''
     expect(answers(drawn([misfile()], review([99])))).not.toContain('Undo the move')
     expect(answers(drawn([misfile()], review()))).not.toContain('Undo the move')
     expect(answers(drawn([misfile()], review([7])))).toContain('Undo the move')
+  })
+
+  /**
+   * The instruction over the list names the one answer every row has (#433).
+   *
+   * It named both, and "Undo the move" is on the rows the app made a move for
+   * and on no others, so on a list of misfiles the app did not make the words
+   * promised a button that was nowhere in the page. That is not a rendering to
+   * fix: docs/shelving.md settles it under "Taking the move back is not the
+   * opposite move", because a book pushed onto the next plank by a newcomer has
+   * no assignment behind it, and moving the boundary to close that would be a
+   * new decision about the furniture made on somebody's behalf wearing the word
+   * undo. So the promise went to the rows that can keep it, and the button did
+   * not move at all.
+   */
+  it('promises nothing over the list that a row on it may not offer', () => {
+    const said = drawn([misfile()], review())
+
+    expect(said).toContain('once the book is actually there.')
+    expect(said).not.toContain('Undo the move')
+    expect(said).not.toContain('if you never picked it up')
+  })
+
+  it('says on the row itself where the move can be put back', () => {
+    const html = drawn([misfile()], review([7]))
+
+    expect(html).toContain('The app made this move and nobody has picked the book up')
+    expect(html).toContain('Undo the move')
+  })
+
+  it('says it on no other row, because no other row can', () => {
+    expect(drawn([misfile()], review())).not.toContain('The app made this move')
+    expect(drawn([misfile()], review([99]))).not.toContain('The app made this move')
   })
 
   /* Both answers go quiet together while a write is in flight, so a second tap

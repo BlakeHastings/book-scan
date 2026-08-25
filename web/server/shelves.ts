@@ -14,6 +14,8 @@ import {
   type Plank, type RunPlanks,
 } from '../infrastructure/shelving/areas'
 import type { AreaFace } from '../domain/placement/carry'
+import type { LabelChange } from '../domain/placement/arrangement'
+import { relabellingWithout } from './furniture'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
@@ -110,6 +112,31 @@ const toFiled = (
 export interface Planks {
   from: Plank
   to: Plank
+}
+
+/**
+ * One direction a boundary move is open in, and what taking it costs.
+ *
+ * The plank half is #359's: the button says what the plank is called and sends
+ * the plank itself. `empties` is #433's, and it is here because the offer said
+ * nothing about the one move that removes furniture. A book alone in an area is
+ * both the first and the last book of it, so both directions are open to it
+ * (docs/shelving.md, "The only book in an area"), and taking either leaves the
+ * area with no books to name, which takes it off the piece. That is the same
+ * act #281 built a dialog for, arrived at from a different screen, and a screen
+ * cannot ask before it unless the offer says it is coming.
+ */
+export interface BoundaryOffer extends Plank {
+  /** Null for the ordinary move, which re-anchors a boundary and removes nothing. */
+  empties: Emptying | null
+}
+
+/** The areas a move takes off the furniture, and what reads differently after. */
+export interface Emptying {
+  /** What each of them is called today, in the order they sit. */
+  areas: string[]
+  /** Every label that reads differently once they are gone, old to new. */
+  becomes: LabelChange[]
 }
 
 /**
@@ -808,11 +835,21 @@ export class Shelves {
    * location like every other observation, by whoever just moved the book.
    * What changes here is the furniture: an area boundary, re-anchored one
    * book along.
+   *
+   * **Except when it is the whole area** (#433). Moving the only book off a
+   * plank leaves the area with no books to name, so the move takes the area off
+   * the piece, and #281 settled that removing an area says what it will do and
+   * asks first. `told` is that assent, and it is checked here rather than in the
+   * screen for the same reason the edge rule is: a control that only appears
+   * after a dialog is one caller away from being lost, and the caller after that
+   * is a tap that deletes furniture with nothing said. `boundaryOptions` is what
+   * lets a screen know the question is coming.
    */
   async moveAcrossBoundary(
     range: ShelfRange,
     bookId: number,
     direction: BoundaryDirection,
+    told: { theAreaGoes: boolean } = { theAreaGoes: false },
   ): Promise<{
     ok: boolean
     error?: string
@@ -820,6 +857,8 @@ export class Shelves {
     moves?: Move[]
     /** The two planks the book crossed between, identified and named. */
     planks?: Planks
+    /** What the refused move would have taken off the furniture. */
+    empties?: Emptying | null
   }> {
     /*
      * The read that decides the move is inside the transaction with the writes
@@ -847,6 +886,26 @@ export class Shelves {
           ? (await this.planks(range)).at(outcome.atAt).label || outcome.at
           : outcome.at
         return { ok: false, error: refusal(outcome.reason, said, direction) }
+      }
+
+      /*
+       * The one move that removes furniture, refused until somebody has been
+       * told it does.
+       *
+       * Nothing has been written at this point: the reads above decide, and the
+       * three statements that change anything are below. So a caller that has
+       * not asked gets the sentence and a room exactly as it was, which is what
+       * the old path could not offer, because by the time it could have said
+       * anything the area was gone.
+       */
+      if (outcome.move.remove.length > 0 && !told.theAreaGoes) {
+        const going = await this.emptying(range, outcome.move)
+        return {
+          ok: false,
+          error: `${going!.areas.join(' and ')} would have no books left on it, so `
+            + 'moving this one takes it off the furniture. Nothing has been changed.',
+          empties: going,
+        }
       }
 
       /*
@@ -904,21 +963,53 @@ export class Shelves {
    * location, so what it says has to come from the same `labelFor`; and #358
    * left `areasForSortKeys` answering where a run puts a key as a row rather
    * than as a string, which is the shape reused here.
+   *
+   * **And what the move costs, not only where it goes** (#433). A book alone in
+   * an area is offered both directions and either of them takes the area off the
+   * piece, which is the same act the furniture screen asks about before doing.
+   * The screen cannot ask about something the offer does not mention, so the
+   * offer mentions it, read from the same outcome the write path enforces.
    */
   async boundaryOptions(
     range: ShelfRange,
     bookId: number,
     /** The run's planks, when the caller has already read them. */
     known?: RunPlanks,
-  ): Promise<{ next: Plank | null; previous: Plank | null }> {
+  ): Promise<{ next: BoundaryOffer | null; previous: BoundaryOffer | null }> {
     const placed = await this.layout(range)
     const separators = await this.list(range)
     const planks = known ?? await this.planks(range)
     const next = boundaryMove(placed, separators, bookId, 'next')
     const previous = boundaryMove(placed, separators, bookId, 'previous')
+    const offer = async (outcome: typeof next): Promise<BoundaryOffer | null> =>
+      (outcome.ok
+        ? {
+            ...planks.at(outcome.move.toAt),
+            empties: await this.emptying(range, outcome.move, planks),
+          }
+        : null)
+
+    return { next: await offer(next), previous: await offer(previous) }
+  }
+
+  /**
+   * The areas a move takes off the furniture, or null when it takes none.
+   *
+   * Read off `move.remove`, which is the boundary list the write path is about
+   * to delete, and a boundary's id is the area it opens (`boundariesFrom`). So
+   * the question and the answer are the same rows rather than two readings of
+   * one room, which is the mistake `areaDisagreements` exists to catch.
+   */
+  private async emptying(
+    range: ShelfRange,
+    move: BoundaryMove,
+    known?: RunPlanks,
+  ): Promise<Emptying | null> {
+    if (move.remove.length === 0) return null
+    const planks = known ?? await this.planks(range)
     return {
-      next: next.ok ? planks.at(next.move.toAt) : null,
-      previous: previous.ok ? planks.at(previous.move.toAt) : null,
+      areas: move.remove.map((id) => planks.labelOf(id)).filter(Boolean),
+      becomes: await relabellingWithout(this.db, move.remove),
     }
   }
 

@@ -8,7 +8,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
-import { editFixture } from './furniture'
+import { addAreaTo, editFixture } from './furniture'
 import { UnknownPlank } from './placement-ledger'
 import { Shelves } from './shelves'
 import { Store, type DraftBook } from './store'
@@ -796,9 +796,21 @@ describe('moving a book across an area boundary', () => {
     return id
   }
 
-  /** The move, followed by the person saying the book is on the new plank. */
-  const carry = async (id: number, direction: 'next' | 'previous') => {
-    const result = await shelves.moveAcrossBoundary('fiction', id, direction)
+  /**
+   * The move, followed by the person saying the book is on the new plank.
+   *
+   * `theAreaGoes` is what somebody being asked looks like from here (#433): a
+   * move that leaves an area with no books on it takes the area off the piece,
+   * and the write path refuses to do that for a caller that has not said it
+   * knows. Passed by the tests whose subject is the move rather than the
+   * question, and pinned on its own below.
+   */
+  const carry = async (
+    id: number,
+    direction: 'next' | 'previous',
+    theAreaGoes = false,
+  ) => {
+    const result = await shelves.moveAcrossBoundary('fiction', id, direction, { theAreaGoes })
     if (result.ok && result.move) await store.setLocation(id, result.move.to)
     return result
   }
@@ -826,7 +838,7 @@ describe('moving a book across an area boundary', () => {
     await shelves.overflow('fiction', plank('1A'), 'area')
     await store.setLocation(cal, '1B')
 
-    expect((await carry(cal, 'previous')).ok).toBe(true)
+    expect((await carry(cal, 'previous', true)).ok).toBe(true)
     expect(await labels()).toEqual(['1A', '1A', '1A'])
     // Nothing was left for that boundary to start at, so it went.
     expect(await shelves.list('fiction')).toEqual([])
@@ -864,6 +876,113 @@ describe('moving a book across an area boundary', () => {
     expect(result.ok).toBe(false)
     expect(result.error).toContain('no area after 1B')
     expect(result.error).toContain('full')
+  })
+
+  /**
+   * The one boundary move that removes furniture, and the stop in front of it.
+   *
+   * A book alone in an area is both the first and the last book of it, so
+   * `boundaryOptions` answers both directions open, which docs/shelving.md
+   * allows on purpose under "The only book in an area". What it never said was
+   * that either direction leaves the area with no books to name, and an area
+   * with no books on it comes off the piece: one press retired a recorded area
+   * with nothing asked and nothing said (#433).
+   *
+   * #281 settled that removing an area says what it will do and asks first.
+   * This is the second path that removes one, so the rule lives on the write
+   * path rather than in the screen, for exactly the reason the edge rule does:
+   * a control that only appears after a dialog is one caller away from being
+   * lost, and the caller after that deletes furniture in silence.
+   */
+  it('refuses to empty an area for a caller that has not been told', async () => {
+    const ann = await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob alone on 1B
+    await store.setLocation(bob, '1B')
+    expect(await labels()).toEqual(['1A', '1B'])
+
+    const result = await shelves.moveAcrossBoundary('fiction', bob, 'previous')
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('1B would have no books left on it')
+    expect(result.error).toContain('off the furniture')
+    expect(result.error).toContain('Nothing has been changed')
+
+    // And the room is exactly as it was, which is the half of this the old path
+    // could not offer: by the time it could have said anything the area was
+    // already gone.
+    expect(await labels()).toEqual(['1A', '1B'])
+    expect(await shelves.list('fiction')).toHaveLength(1)
+    expect((await store.getBook(ann))?.location).toBe('1A')
+    expect((await store.getBook(bob))?.location).toBe('1B')
+  })
+
+  it('makes the move once it has been told, and takes the area with it', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    await shelves.overflow('fiction', plank('1A'), 'area')
+    await store.setLocation(bob, '1B')
+
+    const result = await shelves
+      .moveAcrossBoundary('fiction', bob, 'previous', { theAreaGoes: true })
+
+    expect(result.ok).toBe(true)
+    expect(await labels()).toEqual(['1A', '1A'])
+    expect(await shelves.list('fiction')).toEqual([])
+  })
+
+  /**
+   * The offer carries what it costs, because a screen cannot ask about
+   * something the offer does not mention.
+   *
+   * Read off the same outcome the write path enforces rather than worked out a
+   * second time: two readings of one room is the disagreement
+   * `areaDisagreements` exists to catch, at the scale of a button.
+   */
+  it('says which area a move would empty, and nothing for one that empties none', async () => {
+    const ann = await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
+    await store.setLocation(cal, '1B')
+
+    // Bob is the last book of 1A and Cal is still on 1B, so nothing empties.
+    const on = (await shelves.boundaryOptions('fiction', bob)).next
+    expect(on?.label).toBe('1B')
+    expect(on?.empties).toBeNull()
+
+    // Cal is the only book on 1B, so going back takes 1B with him.
+    const back = (await shelves.boundaryOptions('fiction', cal)).previous
+    expect(back?.label).toBe('1A')
+    expect(back?.empties?.areas).toEqual(['1B'])
+
+    // A book in the middle of its area is offered neither way, so there is
+    // nothing for either direction to cost.
+    expect(await shelves.boundaryOptions('fiction', ann))
+      .toEqual({ next: null, previous: null })
+  })
+
+  /**
+   * And every label that reads differently afterwards, which is #281's argument
+   * rather than a new one: removing an area renumbers the areas after it, and a
+   * sentence claiming that is worth less than the rows showing it.
+   *
+   * The area after the emptied one is reached exactly as the owner reaches it,
+   * which is the press that adds one to a piece (#381). Its anchor sits above
+   * every book standing in the run, so it is not one of the boundaries the move
+   * removes: it survives the move and comes forward a place.
+   */
+  it('names the labels that read differently once the area is gone', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob alone on 1B
+    await store.setLocation(bob, '1B')
+
+    expect((await addAreaTo(db, 1, {})).ok).toBe(true)           // a bare 1C
+
+    const back = (await shelves.boundaryOptions('fiction', bob)).previous
+    expect(back?.empties?.areas).toEqual(['1B'])
+    expect(back?.empties?.becomes).toEqual([{ from: '1C', to: '1B' }])
   })
 
   it('lets the only book in an area leave it, and empties the area', async () => {
@@ -1217,7 +1336,7 @@ describe('taking a boundary move back', () => {
     await store.setLocation(bob, '1B')
     expect(await shelves.list('fiction')).toHaveLength(1)
 
-    await shelves.moveAcrossBoundary('fiction', bob, 'previous')
+    await shelves.moveAcrossBoundary('fiction', bob, 'previous', { theAreaGoes: true })
     expect(await labels()).toEqual(['1A', '1A'])
     expect(await shelves.list('fiction')).toEqual([])
     expect((await shelves.boundaryOptions('fiction', bob)).next).toBeNull()

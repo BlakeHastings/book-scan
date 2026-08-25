@@ -540,7 +540,7 @@ export function ShelfView({
             {look === 'covers' && (
               <Card kind={note} title={group.label}>
                 <Covers
-                  label={`Area ${group.label}, ${group.books.length} books`}
+                  label={`Area ${group.label}, ${plural(group.books.length, 'book')}`}
                   items={group.books.map(({ book }): CoverItem => ({
                     id: book.id,
                     title: book.title,
@@ -617,10 +617,22 @@ export function Misfiled({
       <p className="wf-heading wf-heading--flush">
         Needs attention ({misfiles.length})
       </p>
+      {/*
+        The instruction over the list names the one answer every row has (#433).
+
+        It named both, and "Undo the move" is on the rows the app made a move
+        for and on no others, which is not a rendering to fix: a book pushed onto
+        the next plank by a newcomer has no assignment behind it, and moving the
+        boundary to close that would be a new decision about the furniture made
+        on somebody's behalf wearing the word undo. `docs/shelving.md` settles it
+        under "Taking the move back is not the opposite move". So the promise
+        went to the rows that can keep it, one line under each, and the button
+        did not move at all.
+      */}
       <Said>
         Where each book was last seen, against where the order now puts it.
         Nothing has been changed for you. Tap "Moved it" once the book is
-        actually there, or "Undo the move" if you never picked it up.
+        actually there.
       </Said>
 
       {misfiles.map((misfile) => {
@@ -660,6 +672,9 @@ export function Misfiled({
               <Said>
                 Last seen on {misfile.from}. The order now puts it on{' '}
                 <strong>{misfile.to}</strong>.
+                {undoable
+                  && ' The app made this move and nobody has picked the book up,'
+                    + ' so "Undo the move" puts it back.'}
               </Said>
             </Card>
           </div>
