@@ -218,6 +218,17 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/guard-merge.test.mjs
 
+      # The other guard, and the one whose failure is not recoverable. The merge
+      # guard protects a branch, which can be reverted; this one stands between
+      # an agent in a worktree and the live catalogue, which is somebody's
+      # afternoons and cannot be re-derived from anything but the books
+      # themselves. Most of its cases are allow cases, because the way a guard
+      # like this actually fails is by refusing ordinary work until somebody
+      # turns it off (#444).
+      - name: Live-data guard behaves
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/guard-live-data.test.mjs
+
       # The other half of the merge path. `guard-merge.mjs` decides which
       # commands may run; `merge-pr.mjs` decides whether a pull request may
       # land, and since #154 that includes whether its checks ran against the
