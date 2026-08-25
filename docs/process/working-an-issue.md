@@ -194,10 +194,23 @@ each is worth exactly what it covers:
    `settings.json` with it, so the repository shipped the script and nothing
    calling it. **A session loads hooks from the checkout it starts in, and an
    agent's session starts inside its own worktree**, where that file did not
-   exist — so this layer was almost certainly never loaded for the one
-   population it names. `.gitignore` now excludes `.claude/*` and re-includes
-   `.claude/settings.json`, and the commands in it use `$CLAUDE_PROJECT_DIR` so
-   each checkout runs its own copy.
+   exist — so this layer was never loaded for the one population it names.
+   Checked in two live agent worktrees on 2026-08-24 and by two people
+   independently: each held `settings.local.json` and no `settings.json`, and
+   `~/.claude/settings.json` named `guard-merge` zero times, so there was no
+   user-level fallback either. `.gitignore` now excludes `.claude/*` and
+   re-includes `.claude/settings.json`, and the commands use
+   `$CLAUDE_PROJECT_DIR` so each checkout runs its own copy.
+
+   **And the permission layer was open at the same time.** Those worktrees'
+   `settings.local.json` allow-lists contain `Bash(gh pr *)`, so a merge would
+   not have been stopped there either. **Nothing mechanical stood between a
+   dispatched agent and merging its own pull request — only the paragraph above
+   saying not to.** Both layers that were believed to cover it were absent at
+   once, which is worth stating in those words: "the guard was silent"
+   understates it. Nothing went wrong, because agents were told not to and did
+   not. An instruction that happens to be obeyed is not a control, and the only
+   reason this was found is that somebody went and looked at the file.
 
    **The wiring also names the shell tools it covers one by one.** On 2026-08-24
    it named `Bash` while the harness also had a PowerShell tool carrying its
@@ -209,6 +222,12 @@ each is worth exactly what it covers:
    process start. Ask the guard rather than the file:
    `node scripts/guard-live-data.mjs --probe` from inside a worktree should be
    **refused**; if it prints, nothing intercepted it.
+
+   That probe has **three** outcomes, not two, and the third is easy to mistake
+   for the second. Refused means loaded. Printing means registered but not
+   loaded. **A missing-file error means the worktree predates the change**, and
+   says nothing about either — so the measurement only means anything in a
+   worktree created after this landed.
 3. **`scripts/check-main-provenance.mjs`**, run on every push to the default
    branch. It asks the API whether each new commit belongs to a merged pull
    request and fails loudly when one does not.
