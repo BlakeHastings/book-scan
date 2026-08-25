@@ -168,6 +168,25 @@ export interface BoundaryOffer extends Plank {
   } | null
 }
 
+/**
+ * What removing the line between two areas costs, as the refusal carries it.
+ *
+ * The other half of the same act `BoundaryOffer.empties` describes (#456). A
+ * boundary move empties the area before it takes it, so nothing is standing on
+ * it; pressing Remove on the line itself takes an area with its books still on
+ * it, and they join the one above. Same act, different cost, so the dialog says
+ * a different thing.
+ */
+export interface AreaGoing {
+  /** The area coming off the furniture, named the way the screen names it. */
+  area: string
+  /** The area its books join. Empty when there are none to hand over. */
+  into: string
+  books: number
+  /** Every label that reads differently once it is gone. */
+  becomes: LabelChange[]
+}
+
 /** A single shelf seen end on, with the space the new book goes in. */
 export interface PlacementStrip {
   label: string
@@ -1829,9 +1848,19 @@ export const api = {
       body: JSON.stringify({ range, id }),
     }),
 
-  removeSeparator: (id: number, range: ShelfRange) =>
+  /**
+   * Take the line between two areas out, merging the one below into the one
+   * above it.
+   *
+   * `theAreaGoes` says somebody has been asked, and the server refuses without
+   * it (#456), the same way `moveAcrossBoundary` does for the same act reached
+   * from a book's own page. The refusal arrives as a `Refusal` carrying an
+   * `AreaGoing` as its `effect`, which is what the dialog reads: it is not a
+   * flag a caller may set to be rid of a question.
+   */
+  removeSeparator: (id: number, range: ShelfRange, theAreaGoes = false) =>
     request<{ groups: ShelfGroupDto[]; moves: Move[] }>(
-      `/api/shelves/${id}?range=${range}`, { method: 'DELETE' },
+      `/api/shelves/${id}?range=${range}&theAreaGoes=${theAreaGoes}`, { method: 'DELETE' },
     ),
 
   /** Books in this range that are not where they now belong. Read only. */

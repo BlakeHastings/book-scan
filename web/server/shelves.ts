@@ -20,7 +20,9 @@ import type { LabelChange } from '../domain/placement/arrangement'
 import { relabellingWithout } from './furniture'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
-import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
+import {
+  RemoveSeparatorHandler, type SeparatorRemoval,
+} from '../application/shelving/remove-separator'
 import type {
   OutstandingMove, OutstandingMoveRepository, SeparatorRepository,
 } from '../application/shelving/ports'
@@ -133,6 +135,25 @@ export interface BoundaryOffer extends Plank {
   empties: Emptying | null
 }
 
+/**
+ * What removing one boundary costs, said to whoever has to agree to it (#456).
+ *
+ * Not `Emptying`, which is about a move whose area has no books left in it by
+ * the time it goes. This one is a merge: the area comes off the piece and the
+ * books that were on it join the area in front. Same act, different cost, so
+ * different words.
+ */
+export interface AreaGoing {
+  /** The area coming off the furniture, named the way the screen names it. */
+  area: string
+  /** The area its books join, which is the one drawn above it. */
+  into: string
+  /** How many books are on it right now. */
+  books: number
+  /** Every label that reads differently once it is gone, old to new. */
+  becomes: LabelChange[]
+}
+
 /** The areas a move takes off the furniture, and what reads differently after. */
 export interface Emptying {
   /** What each of them is called today, in the order they sit. */
@@ -186,6 +207,22 @@ function refusal(
  * exception.
  */
 class RetractionRefused extends Error {}
+
+/**
+ * Thrown when the act refused to take an area off the furniture (#456).
+ *
+ * `moveAcrossBoundary` reaches that act partway through its own transaction,
+ * after the receipt and the re-anchoring are written, so a return value would
+ * leave the caller to unpick them by hand. The throw is what takes them back
+ * out: the savepoint rolls back, the outer transaction rolls back with it, and
+ * what the person is told about is a room exactly as it was. Caught outside the
+ * transaction, the way `RetractionRefused` already is.
+ */
+class AreaRemovalRefused extends Error {
+  constructor(readonly areaIds: readonly number[]) {
+    super('An area would come off the furniture and nobody has been asked.')
+  }
+}
 
 /**
  * Said when the shelves have changed since the move, so putting them back would
@@ -897,10 +934,10 @@ export class Shelves {
    * **Except when it is the whole area** (#433). Moving the only book off a
    * plank leaves the area with no books to name, so the move takes the area off
    * the piece, and #281 settled that removing an area says what it will do and
-   * asks first. `told` is that assent, and it is checked here rather than in the
-   * screen for the same reason the edge rule is: a control that only appears
-   * after a dialog is one caller away from being lost, and the caller after that
-   * is a tap that deletes furniture with nothing said. `boundaryOptions` is what
+   * asks first. `told` is that assent, and it is carried down to the act that
+   * removes the boundary rather than checked here (#456): this method used to
+   * decide for itself, which left `DELETE /api/shelves/:id` reaching the same
+   * act through a door with no assent on it at all. `boundaryOptions` is what
    * lets a screen know the question is coming.
    */
   async moveAcrossBoundary(
@@ -931,6 +968,39 @@ export class Shelves {
      * `remove` opens a transaction of its own and is called from inside this
      * one, which is the nesting `Db.tx` handles with a savepoint.
      */
+    try {
+      return await this.movedAcrossBoundary(range, bookId, direction, told)
+    } catch (caught) {
+      if (!(caught instanceof AreaRemovalRefused)) throw caught
+      /*
+       * The act refused, so the whole transaction above went back and the
+       * areas are where they were. That is what makes it safe to read them
+       * again here to say which ones the move would have taken.
+       */
+      const going = await this.emptyingOf(range, caught.areaIds)
+      return {
+        ok: false,
+        error: `${going!.areas.join(' and ')} would have no books left on it, so `
+          + 'moving this one takes it off the furniture. Nothing has been changed.',
+        empties: going,
+      }
+    }
+  }
+
+  /** `moveAcrossBoundary`'s transaction, so the refusal above can catch. */
+  private async movedAcrossBoundary(
+    range: ShelfRange,
+    bookId: number,
+    direction: BoundaryDirection,
+    told: { theAreaGoes: boolean },
+  ): Promise<{
+    ok: boolean
+    error?: string
+    move?: BoundaryMove
+    moves?: Move[]
+    planks?: Planks
+    empties?: Emptying | null
+  }> {
     return this.db.tx(async () => {
       const before = await this.layout(range)
       const boundaries = await this.list(range)
@@ -944,26 +1014,6 @@ export class Shelves {
           ? (await this.planks(range)).at(outcome.atAt).label || outcome.at
           : outcome.at
         return { ok: false, error: refusal(outcome.reason, said, direction) }
-      }
-
-      /*
-       * The one move that removes furniture, refused until somebody has been
-       * told it does.
-       *
-       * Nothing has been written at this point: the reads above decide, and the
-       * three statements that change anything are below. So a caller that has
-       * not asked gets the sentence and a room exactly as it was, which is what
-       * the old path could not offer, because by the time it could have said
-       * anything the area was gone.
-       */
-      if (outcome.move.remove.length > 0 && !told.theAreaGoes) {
-        const going = await this.emptying(range, outcome.move)
-        return {
-          ok: false,
-          error: `${going!.areas.join(' and ')} would have no books left on it, so `
-            + 'moving this one takes it off the furniture. Nothing has been changed.',
-          empties: going,
-        }
       }
 
       /*
@@ -982,7 +1032,15 @@ export class Shelves {
       // decided by its anchor, so applying them one at a time leaves the second
       // with nothing to do. See `reanchorAll`.
       await this.separators.reanchorAll(outcome.move.shift)
-      for (const id of outcome.move.remove) await this.remove(id)
+      for (const id of outcome.move.remove) {
+        /*
+         * The assent goes to the act rather than being spent here (#456). It
+         * refuses a removal nobody agreed to, and the throw is what takes the
+         * receipt and the re-anchoring above back out with it.
+         */
+        const removal = await this.remove(id, told)
+        if (!removal.ok) throw new AreaRemovalRefused(outcome.move.remove)
+      }
 
       return {
         ok: true,
@@ -1063,11 +1121,54 @@ export class Shelves {
     move: BoundaryMove,
     known?: RunPlanks,
   ): Promise<Emptying | null> {
-    if (move.remove.length === 0) return null
+    return this.emptyingOf(range, move.remove, known)
+  }
+
+  /**
+   * The same answer asked about the boundary ids on their own.
+   *
+   * `moveAcrossBoundary`'s refusal is raised from inside its transaction and
+   * caught after it has rolled back, so the `BoundaryMove` that planned the
+   * removal is out of scope by the time the sentence is written. The ids are
+   * what survive it.
+   */
+  private async emptyingOf(
+    range: ShelfRange,
+    areaIds: readonly number[],
+    known?: RunPlanks,
+  ): Promise<Emptying | null> {
+    if (areaIds.length === 0) return null
     const planks = known ?? await this.planks(range)
     return {
-      areas: move.remove.map((id) => planks.labelOf(id)).filter(Boolean),
-      becomes: await relabellingWithout(this.db, move.remove),
+      areas: areaIds.map((id) => planks.labelOf(id)).filter(Boolean),
+      becomes: await relabellingWithout(this.db, areaIds),
+    }
+  }
+
+  /**
+   * What removing this boundary takes off the run, before anybody agrees to it.
+   * Writes nothing.
+   *
+   * Read off `groups`, which is the same picture the shelves screen draws, so
+   * the area named here is the one under the line somebody pressed and the area
+   * its books join is the one drawn above it. #281 asked for the count and the
+   * destination rather than "books will be reassigned", and both are the rows
+   * rather than a claim about them.
+   *
+   * **An area nothing stands on is drawn nowhere**, so it has no group and its
+   * name comes off the furniture instead. `into` is empty for it, and that is
+   * not a missing answer: there are no books to hand over, so there is nothing
+   * for the area in front to be named in. A group of books always has one drawn
+   * above it, because the first area of a run opens with no boundary at all.
+   */
+  async removalCost(range: ShelfRange, separatorId: number): Promise<AreaGoing> {
+    const groups = await this.groups(range)
+    const at = groups.findIndex((group) => group.opensWith?.id === separatorId)
+    return {
+      area: at < 0 ? (await this.planks(range)).labelOf(separatorId) : groups[at]!.label,
+      into: at < 1 ? '' : groups[at - 1]!.label,
+      books: at < 0 ? 0 : groups[at]!.books.length,
+      becomes: await relabellingWithout(this.db, [separatorId]),
     }
   }
 
@@ -1274,9 +1375,16 @@ export class Shelves {
    * here went with them. This stays because `moveAcrossBoundary` below removes
    * boundaries as part of a larger move, and because the route and the tests
    * that already say `shelves.remove(id)` are not what this change is about.
+   *
+   * **`told` is not defaulted to yes and must not become so** (#456). Every
+   * door to this act is refused until somebody has been asked, and a caller
+   * that says nothing is a caller nobody asked.
    */
-  async remove(id: number): Promise<void> {
-    await this.removeSeparator.handle({ separatorId: id })
+  async remove(
+    id: number,
+    told: { theAreaGoes: boolean } = { theAreaGoes: false },
+  ): Promise<SeparatorRemoval> {
+    return this.removeSeparator.handle({ separatorId: id, theAreaGoes: told.theAreaGoes })
   }
 
   /**

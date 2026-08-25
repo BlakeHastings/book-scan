@@ -58,8 +58,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  api, type CheckedOutAt, type Counts, type Misfile, type Move, type ShelfGroupDto,
-  type ShelvingReviewResponse,
+  api, Refusal, type AreaGoing, type CheckedOutAt, type Counts, type Misfile,
+  type Move, type ShelfGroupDto, type ShelvingReviewResponse,
 } from '../lib/api'
 import { canTakeBack, notChecked, recordMoved, takeMoveBack } from '../lib/misfile'
 import { coverNote, coverOf, listOf, missingFrom, spineLabel, spineOf } from '../lib/shelfRow'
@@ -72,6 +72,7 @@ import { Covers, type CoverItem } from '../design/Covers'
 import { Filter } from '../design/Finding'
 import { List, Row } from '../design/List'
 import { Shelf, type ShelfItem } from '../design/Shelf'
+import { Sure } from '../design/Sure'
 import { pieceOf } from '../lib/areaRuns'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
 import { plural, saidBooks } from '../lib/carryWords'
@@ -152,6 +153,12 @@ export function ShelfView({
   const [off, setOff] = useState<CheckedOutAt[]>([])
   const [review, setReview] = useState<ShelvingReviewResponse | null>(null)
   const [moving, setMoving] = useState(0)
+  /*
+   * The line somebody has pressed Remove on and has not yet answered about,
+   * with the server's own sentence and rows. Null the rest of the time, which
+   * is every moment nothing is being asked.
+   */
+  const [going, setGoing] = useState<{ id: number; said: string; cost: AreaGoing } | null>(null)
   /*
    * The anchor this mount was born with, which is the only one that means
    * "you are coming back".
@@ -268,14 +275,34 @@ export function ShelfView({
     }
   }
 
-  const removeSeparator = async (id: number) => {
+  /**
+   * Press Remove on the line between two areas.
+   *
+   * **The first press is a question, never the act** (#456). The server refuses
+   * a removal nobody has been asked about and hands back what it would cost, so
+   * this asks with that rather than with anything it worked out for itself, and
+   * the second press is the answer. Before this, one tap took an area off the
+   * furniture and moved its books, and the only thing the person saw was the
+   * carry list drawn afterwards, which is a list of what has already happened.
+   *
+   * The refusal is the server's and not this screen's on purpose: a control
+   * that only appears after a dialog is one caller away from being lost, which
+   * is how this door stayed open while the other two were shut.
+   */
+  const removeSeparator = async (id: number, theAreaGoes = false) => {
     setError('')
     try {
-      const result = await api.removeSeparator(id, range)
+      const result = await api.removeSeparator(id, range, theAreaGoes)
       setGroups(result.groups)
       setMoves(result.moves)
+      setGoing(null)
     } catch (caught) {
+      if (caught instanceof Refusal && caught.effect) {
+        setGoing({ id, said: caught.message, cost: caught.effect as AreaGoing })
+        return
+      }
       setError((caught as Error).message)
+      setGoing(null)
     }
   }
 
@@ -583,6 +610,24 @@ export function ShelfView({
         <div className="wf-under">
           <Button tone="quiet" onPress={onFurniture}>See your fixtures</Button>
         </div>
+      )}
+
+      {/* The same dialog an area is removed through on the furniture screen and
+          a book's own page, because it is the same act reached from a third
+          door (#456). The title says what goes and the sentence is the
+          server's: whoever refuses is who knows what it costs. */}
+      {going && (
+        <Sure
+          title={going.cost.books === 0
+            ? `${going.cost.area} comes off the furniture`
+            : `${going.cost.area} comes off, and its `
+              + `${plural(going.cost.books, 'book')} join ${going.cost.into}`}
+          said={going.said}
+          becomes={going.cost.becomes}
+          act="Remove it"
+          onAct={() => removeSeparator(going.id, true)}
+          onKeep={() => setGoing(null)}
+        />
       )}
     </Frame>
   )
