@@ -50,10 +50,22 @@ export function FixtureScreen() {
   const [open, setOpen] = useState(false)
   const [chosen, setChosen] = useState<SortStrategyCode | null>(null)
   const [saving, setSaving] = useState(false)
+  const [leaving, setLeaving] = useState(false)
   const tabs = useRoomTabs()
   useDesignPage()
 
   const piece = room?.fixtures.find((one) => one.id === fixtureId) ?? null
+
+  /*
+   * Whether the draft says anything the room does not. Compared against the same
+   * three values the draft was seeded from, one place above, so a field somebody
+   * typed into and then typed back out of is not a change.
+   */
+  const unsaved = Boolean(piece && draft && (
+    draft.name !== piece.name
+    || draft.kind !== (piece.kind === 'bookshelf' ? '' : piece.kind)
+    || draft.order.some((at, index) => at !== index)
+  ))
 
   /* The rule under a thumb, by the same hook the area's page uses. */
   const place = useMemo(
@@ -169,7 +181,15 @@ export function FixtureScreen() {
       busy={busy}
       error={error}
       tabs={tabs}
-      onBack={() => back('furniture')}
+      leaving={leaving}
+      /*
+       * Back with the draft changed and never saved threw it away in silence,
+       * the same as the area's page did (#430 item 4). More is held here: the
+       * name, what the piece is, and the order the room stands in.
+       */
+      onBack={() => (unsaved ? setLeaving(true) : back('furniture'))}
+      onLeave={() => { setLeaving(false); back('furniture') }}
+      onStay={() => setLeaving(false)}
       onDraft={(next) => { setError(''); setDraft(next) }}
       onSave={save}
       onChange={() => { if (piece?.rule?.range) openArranging(piece.rule.range) }}

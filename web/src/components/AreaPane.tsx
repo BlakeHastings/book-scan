@@ -88,6 +88,7 @@ import {
 import { draftHolds, saidRules } from '../lib/ruleWriting'
 import { Changing, Refusing } from './Changing'
 import { RoomFrame, Trouble } from './RoomFrame'
+import { Unsaved } from './Unsaved'
 import type { Writing } from '../app/writing'
 
 /** What being asked to remove this area looks like, once the server has answered. */
@@ -95,6 +96,16 @@ export type Asking =
   | { kind: 'merge'; plan: AreaRemovalPlan }
   /** The only area on its piece: there is nowhere on it for the books to go. */
   | { kind: 'only'; said: string }
+  /**
+   * Back was pressed with a name typed into the field and never kept (#430
+   * item 4).
+   *
+   * Not a removal, and here beside the two that are because it is the same
+   * thing to this screen: one overlay slot, one place that decides what is over
+   * the page. A second piece of state for it would be two dialogs that can both
+   * be open.
+   */
+  | { kind: 'unsaved' }
 
 /** What the sort rule is doing while somebody is changing it. */
 export interface Sorting {
@@ -136,6 +147,8 @@ interface Props {
   onAsk: () => void
   onKeep: () => void
   onRemove: () => void
+  /** Go back and throw the typed name away, which is only ever answered out loud. */
+  onLeave: () => void
   /** The way out of the last state: the piece itself is what has to go. */
   onPiece: () => void
 }
@@ -173,7 +186,7 @@ export const holdsHere = (writing: Writing, standing: string): string => {
 
 export function AreaPane({
   room, piece, area, name, books, sorting, writing, asking, busy, error, tabs,
-  onBack, onName, onSaveName, onChange, onCarry,
+  onBack, onName, onSaveName, onChange, onCarry, onLeave,
   onOpenSort, onChooseSort, onSaveSort, onCloseSort,
   onClaimed, onAsk, onKeep, onRemove, onPiece,
 }: Props) {
@@ -265,7 +278,7 @@ export function AreaPane({
     + `${orphans.length === 1 ? 'matches' : 'match'} no rule at all`
 
   return (
-    <RoomFrame top={top} tabs={tabs} over={asked(asking, area, piece, onRemove, onKeep, onPiece)}>
+    <RoomFrame top={top} tabs={tabs} over={asked(asking, area, piece, name, onRemove, onKeep, onPiece, onLeave)}>
       <Trouble said={error} />
 
       <Field
@@ -479,11 +492,31 @@ function asked(
   asking: Asking | null,
   area: AreaDto,
   piece: FixtureDto,
+  name: string,
   onRemove: () => void,
   onKeep: () => void,
   onPiece: () => void,
+  onLeave: () => void,
 ): ReactElement | undefined {
   if (!asking) return undefined
+
+  /*
+   * Nothing about the area and everything about what is on the screen, so it
+   * is answered first and reads the field rather than the room. The words on
+   * the button it points at are built here from the same expression that draws
+   * that button, because a dialog naming a button that says something else is
+   * worse than no dialog.
+   */
+  if (asking.kind === 'unsaved') {
+    return (
+      <Unsaved
+        typed={name.trim()}
+        keeping={`Call it ${name.trim() || 'nothing'}`}
+        onLeave={onLeave}
+        onStay={onKeep}
+      />
+    )
+  }
 
   if (asking.kind === 'only') {
     const from = pieceSaid(piece).toLowerCase()
