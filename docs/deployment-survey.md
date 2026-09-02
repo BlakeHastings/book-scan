@@ -25,11 +25,12 @@ Line numbers are as of `58606cb`.
 | Question | The short answer |
 | --- | --- |
 | Configuration surface | **Not two variables. Twelve are read at runtime.** One must be set or the process exits. One carries a secret. Five default to origins on the public internet. |
-| The photographs | One directory of files addressed by bare filename, written by five code paths and read by six. A deployment must provide one writable directory that every process touching the catalogue shares, and back it up separately from Postgres. |
+| The photographs | One directory of files addressed by bare filename, written by six code paths, read by eight, deleted by one. A deployment must provide one writable directory that every process touching the catalogue shares, and back it up separately from Postgres. |
 | A production build | **The client has one and nothing serves it. The server has none at all**: every path that exists today runs the server from TypeScript source under `tsx`. |
 | The database | Schema is applied on **every server start**, inside `openPostgres`. An empty database silently becomes a complete, empty catalogue and the process reports success. |
 | `apphost.mts` | **A development orchestrator only.** It launches `npm run dev:server` and `npm run dev:client`. It is not a deployment mechanism. |
-| Windows-shaped | The backup toolchain and the secret-at-rest mechanism are PowerShell and DPAPI and do not survive Linux. The application code itself is not obviously Windows-bound. |
+| Windows-shaped | The application code is not: no `process.platform` branch exists under `web/`. The operational toolchain is entirely Windows, and **the launcher that runs the live catalogue is not in this repository**. |
+| What runs today | The live catalogue is served by `npm run dev`: `tsx watch` and the Vite dev server, started by a Windows scheduled task from two files outside version control. |
 
 ---
 
@@ -451,3 +452,158 @@ AppHost is doing today:
 
 Only items 1 to 5 have an existing implementation, and it is one that runs
 Docker on the developer's own machine.
+
+---
+
+## 6. What is Windows-shaped
+
+### The application code is not
+
+There is **no** `process.platform` branch anywhere under `web/`. The only one in
+the repository is `e2e/ux/prepare.mjs:38`, in the usability harness. There are no
+drive letters and no backslash path literals in `web/server/`, `web/src/` or
+`web/infrastructure/`; every path is built with `node:path`. The one place where
+a filename could have become a Windows-shaped path is guarded on purpose
+(`web/server/index.ts:996-998`, section 2).
+
+Two dependencies are native and platform-specific, `sharp` and
+`onnxruntime-node`, but they publish Linux builds and CI installs and runs them
+on `ubuntu-latest` (`.github/workflows/ci.yml:45`) on every pull request. **The
+app's own code moving to Linux is not the problem.**
+
+### The operational toolchain is entirely Windows
+
+None of this survives the move, and all of it is load-bearing today.
+
+| What | Where | Why it does not move |
+| --- | --- | --- |
+| The nightly backup wrapper | `scripts/backup-catalogue.ps1`, 229 lines | PowerShell throughout. DPAPI decrypt at `:100-111`, `robocopy /E /XO` for the photographs at `:219`, and a same-drive refusal that reads PSDrive letters at `:203-214` |
+| Installing the schedule | `scripts/install-backup-task.ps1` | `Register-ScheduledTask` at `:182`, `New-ScheduledTaskAction` at `:168`, `pwsh` falling back to `powershell.exe` at `:165-166`, `$env:LOCALAPPDATA` at `:111` |
+| The secret store | `scripts/write-connection-file.ps1` | DPAPI at `CurrentUser` scope: the file "decrypts only for the account that wrote it, on this machine" (`backup-catalogue.ps1:37-38`). Default path `$env:LOCALAPPDATA\book-scan\backup-connections.json` at `:119` |
+| The freshness check | `scripts/check-backup-freshness.mjs` | Portable JavaScript, but its whole argument is built on robocopy's timestamp behaviour (`:40-47`, `:278`). Its header records "1541 files on each side" as of 2026-08-25, which is where that count is written down in this repository |
+| The launcher | **Not in this repository at all** | AGENTS.md:233-236 records that the scheduled task `book-scan stable server` runs `run-stable.cmd` under `book-scan-production-data`, which hands off to `run-stable.ps1` beside it, and that those set the two variables and run `npm run dev` |
+
+That last row is the most important line in this section. **What runs the live
+catalogue today is two files that are not in version control, on a machine that
+was reset eight days ago.** They are also why section 3's finding is not
+theoretical: production today *is* `npm run dev`, which is `tsx watch` plus the
+Vite dev server behind a self-signed certificate.
+
+### Docker-shaped rather than Windows-shaped
+
+`web/server/backup-catalogue.ts` runs `pg_dump` and `pg_restore` in a `postgres:`
+container when the client tools are not on `PATH`, choosing between `local` and
+`docker` at `:243-252`. It rewrites a loopback host to `host.docker.internal`
+(`web/server/backup.ts:543`) and passes `--add-host
+host.docker.internal:host-gateway` (`backup-catalogue.ts:298`), which is the
+portable form of that and works on Linux Docker too. So the backup tool is not
+Windows-bound, but it does assume a container runtime wherever it runs, unless a
+`pg_dump` of a compatible major is installed: `backup-catalogue.ts:453-458`
+refuses a client older than the server.
+
+Three further variables belong to this toolchain rather than to the app:
+`BOOKSCAN_COVERS_DIR` and `BOOKSCAN_COVERS_SOURCE` alongside
+`BOOKSCAN_BACKUP_DIR` (`scripts/check-backup-freshness.mjs:134-140`), falling
+back to an uncommitted machine record at `.git/factory/backup-dirs.json`
+(`:143-157`). A deployment that keeps the freshness check has to tell it where
+the two directories are on the new host.
+
+---
+
+## 7. The requirements, collected
+
+Everything above as the list a deployment design starts from. Each line has its
+evidence in the section named.
+
+**Runtime**
+
+1. Node matching `^20.19.0 || ^22.13.0 || >=24` (`package.json:8`); CI proves 22
+   on Linux x64 (section 3).
+2. Postgres **18**, one database, one connection (`postgres-version.json`,
+   section 4). Collation is a decision, not a default.
+3. Outbound HTTPS to five external catalogues, or scanning identifies nothing
+   (section 1).
+4. A container runtime, **only** if the backup tool is to keep working the way it
+   works today (section 6).
+
+**Storage**
+
+5. One Postgres volume.
+6. One writable photographs directory, shared by the API and any backfill tool,
+   surviving container replacement, backed up separately from Postgres and
+   restorable to the same moment as the dump (section 2).
+
+**Configuration**
+
+7. `ConnectionStrings__bookscan`, mandatory, secret (section 1).
+8. `BOOKSCAN_DATA`, set explicitly. Not setting it is silent (section 1).
+9. `PORT`, if the platform assigns one.
+10. `BOOKSCAN_BACKUP_DIR`, set explicitly even to empty, so an inherited value
+    cannot decide what the process reads (section 5, `apphost.mts:218-221`).
+11. `GOOGLE_BOOKS_API_KEY`, secret, optional; its absence is visible in the
+    startup log and on `/api/health` (section 1).
+12. Something to replace DPAPI, keeping the shape that mechanism was built for: a
+    path travels, a value does not (sections 1 and 6).
+
+**Serving**
+
+13. A static server for the built client with an SPA fallback. Does not exist
+    today (section 3).
+14. `/api` reverse-proxied onto the **same origin** as the client, because the
+    client has no configurable API base (section 1).
+15. TLS, or the phone camera will not open (section 3).
+16. A change to `app.listen(PORT, '127.0.0.1', ...)`
+    (`web/server/index.ts:3984`), or a network namespace shared with the proxy
+    (section 3).
+
+**Procedure**
+
+17. A restore that puts rows in place **before** the app first starts against
+    that database, because a first start silently produces a furnished, empty,
+    healthy-looking catalogue (section 4).
+18. A replacement for `run-stable.cmd` and `run-stable.ps1`, which are not in
+    this repository (section 6).
+19. A replacement for the nightly backup, which today is PowerShell, DPAPI, Task
+    Scheduler and robocopy (section 6). `docs/backup-runbook.md` describes the
+    current arrangement, and #471 already notes that it does not survive this
+    change unedited.
+
+**Not required by anything here**
+
+20. Authentication. There is none in the code, and nothing in this survey changes
+    that. #471 item 3 is where that decision lives.
+
+---
+
+## 8. What this survey could not establish
+
+Named rather than guessed, as the issue asked.
+
+1. **Does `vite build` succeed today, and what does it produce?** Not run: this
+   worktree has no `node_modules`, and the machine was carrying other agents'
+   environments. Everything else about the build is established by reading. This
+   is one `npm ci && npm run build` in the main checkout, and it should be the
+   first thing the deployment work does (section 3).
+2. **Does restoring a `pg_dump` into a database the app has already started
+   against work?** The app writes migration bookkeeping and the `0013` furniture
+   rows on first start, and a restore over that is a state nothing in this
+   repository exercises. It matters because it is exactly the order somebody
+   under pressure would take (section 4).
+3. **Are any stored cover filenames case-variant?** Invisible on NTFS, missing
+   photographs on ext4. Establishing it means querying the live catalogue, which
+   agents may not do. It is one query for the owner (section 2).
+4. **How large is the photographs directory now?** 1541 files is recorded at
+   `scripts/check-backup-freshness.mjs:44` as of 2026-08-25, and AGENTS.md:448
+   records 1.1 GB of cover files copied during the stage H rehearsal. Neither is
+   a current measurement, and nothing here measured one, because the directory is
+   out of bounds (section 2).
+5. **What is the API's memory and CPU footprint under OCR?** The server runs
+   `onnxruntime-node`, `tesseract.js` and `ppu-paddle-ocr` in process on the
+   capture queue. Sizing a host for that needs the app running, which this survey
+   did not do.
+6. **Whether `aspire publish` or `aspire deploy` would produce anything usable
+   from this AppHost.** Not attempted, and not needed for the question. The
+   AppHost declares no target, no image and no compute environment, and the two
+   resources it does declare are a file watcher and a dev server (section 5). Any
+   answer from the Aspire CLI would be about what the CLI can generate, not about
+   what this repository deploys today.
