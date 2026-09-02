@@ -4,12 +4,20 @@ A survey for #472, under epic #471. It answers one question: **what does this
 repository actually require in order to run on a machine that is not Blake's
 Windows desktop?**
 
-It is a description, not a design. Nothing here recommends a host. Every claim
-is read out of the repository at a named file and line, or is marked as
-unestablished. The app was deliberately not booted for this survey, on the
-issue's instruction, because other agents were holding Aspire environments on
-the same machine at the time. Where something could not be established by
-reading, section 8 lists it as an open question rather than guessing.
+It is a description, not a design. Nothing here recommends a host. Every claim is
+read out of the repository at a named file and line, is attributed to whoever
+measured it, or is marked as unestablished. The app was deliberately not booted
+for this survey, on the issue's instruction, because other agents were holding
+Aspire environments on the same machine at the time. Where something could not be
+established by reading, section 8 lists it as an open question rather than
+guessing.
+
+**Three measurements come from the coordinator rather than from reading**, taken
+on 2026-09-02 in the main checkout and on the `E:` backup mirror, and each is
+attributed where it appears: that `npm run build` succeeds (section 3), the size
+and count of the photographs (section 2), and that no two cover filenames differ
+from each other only by case (section 2). Nothing in this survey read the live
+catalogue or the live covers directory.
 
 `docs/` in this repository holds arguments and specifications as well as
 descriptions. `docs/reading-status.md` says in its own third paragraph that
@@ -25,8 +33,8 @@ Line numbers are as of `58606cb`.
 | Question | The short answer |
 | --- | --- |
 | Configuration surface | **Not two variables. Twelve are read at runtime.** One must be set or the process exits. One carries a secret. Five default to origins on the public internet. |
-| The photographs | One directory of files addressed by bare filename, written by six code paths, read by eight, deleted by one. A deployment must provide one writable directory that every process touching the catalogue shares, and back it up separately from Postgres. |
-| A production build | **The client has one and nothing serves it. The server has none at all**: every path that exists today runs the server from TypeScript source under `tsx`. |
+| The photographs | One directory of files addressed by bare filename, 1541 files and about 1.4 GB, written by six code paths, read by eight, deleted by one. A deployment must provide one writable directory that every process touching the catalogue shares, and back it up separately from Postgres. |
+| A production build | **The client has one, it works, and nothing serves it. The server has none at all**: every path that exists today runs the server from TypeScript source under `tsx`. |
 | The database | Schema is applied on **every server start**, inside `openPostgres`. An empty database silently becomes a complete, empty catalogue and the process reports success. |
 | `apphost.mts` | **A development orchestrator only.** It launches `npm run dev:server` and `npm run dev:client`. It is not a deployment mechanism. |
 | Windows-shaped | The application code is not: no `process.platform` branch exists under `web/`. The operational toolchain is entirely Windows, and **the launcher that runs the live catalogue is not in this repository**. |
@@ -133,9 +141,9 @@ joining that filename onto one directory. There are two joins in the whole
 system and they compose: `<BOOKSCAN_DATA>` joined with `covers`
 (`web/server/index.ts:3935-3936`), and that joined with the filename.
 
-`#471` gives the count as 1541 files. That is the epic's number, not one
-measured here: the live directory is out of bounds to agents, so nothing in this
-survey counted them.
+There are **1541 of them, and about 1.4 GB**, measured on 2026-09-02 on the `E:`
+backup mirror rather than on the live directory, which agents may not read. The
+detail and the provenance are under "what a deployment has to provide" below.
 
 ### Every path that writes a file
 
@@ -190,14 +198,21 @@ file.
    gives rows naming files that are not there, and `express.static(...,
    { fallthrough: false })` turns every one of those into a 404 rather than
    anything the app explains.
-4. **Space that grows per book.** Fetched covers are re-encoded to at most
-   1000px wide JPEG at quality 82 (`web/server/covers.ts:73-75`); phone
-   photographs are stored as the camera produced them
-   (`web/server/index.ts:570-574`), with the request body limit at 12 MB
-   (`web/server/index.ts:967`). AGENTS.md line 448 records 1.1 GB of copied cover
-   files lost to one test run during the stage H rehearsal, which is the only
-   size figure written down in this repository. That is a claim from that
-   document, not a measurement made here.
+4. **About 1.4 GB, and it grows per book.** Measured on 2026-09-02 by the
+   coordinator, on the `E:` backup mirror rather than the live directory:
+   **1.4 GB across 1541 files**. The mirror is `robocopy /E /XO` of the live
+   covers directory (`scripts/backup-catalogue.ps1:219`), so it is a copy of
+   that directory rather than the directory itself, and it is the honest place
+   to have taken the number from: agents may not read the live one. It
+   supersedes both figures previously cited here, AGENTS.md:448's 1.1 GB from
+   the stage H rehearsal and the file count at
+   `scripts/check-backup-freshness.mjs:44`.
+
+   What makes it grow: fetched covers are re-encoded to at most 1000px wide
+   JPEG at quality 82 (`web/server/covers.ts:73-75`), and phone photographs are
+   stored as the camera produced them (`web/server/index.ts:570-574`), with the
+   request body limit at 12 MB (`web/server/index.ts:967`). Three photographs
+   per book, plus a fetched cover, plus derived crops.
 
 ### Is any of it Windows-shaped?
 
@@ -210,10 +225,16 @@ so this reads the same everywhere."
 
 The **filenames themselves** are the thing to check on a move, not the code. They
 are built from `Date.now()`, an ISBN, and a slot or hex suffix, so they hold no
-character that differs between filesystems. Case sensitivity is the residual risk
-and it is not established here: whether any name stored in Postgres differs from
-its on-disk spelling only by case has never mattered on NTFS and would matter on
-ext4. Section 8 records it as open.
+character that differs between filesystems.
+
+Case is the residual risk, and it is now half settled. **No two of the 1541
+filenames differ from each other only by case**, checked on the `E:` mirror on
+2026-09-02, so nothing collides when the directory lands on a case-sensitive
+filesystem. That is the half that could be answered without touching the
+catalogue. **The other half is still open**: whether a filename stored in
+Postgres differs in case from the file on disk. NTFS resolves that and ext4 does
+not, and answering it means querying the live catalogue, which is the owner's.
+Section 8 keeps it, narrowed.
 
 ---
 
@@ -235,13 +256,34 @@ not in `.github/workflows/ci.yml`, not in `.github/workflows/e2e.yml`, not in
 fixture in the guard's allow-list.
 
 `web/vite.config.ts:42-45` configures it: `outDir: 'dist'`, `sourcemap: true`.
-It would produce `web/dist`, which `.gitignore` excludes.
 
-**Whether `vite build` succeeds today is not established.** It was not run: this
-worktree has no `node_modules`, so running it would have meant a multi-gigabyte
-install on a machine other agents were holding environments on. Section 8 records
-it as the one question a deployment design should settle by running, and settling
-it is cheap.
+**It succeeds.** Run on 2026-09-02 in the main checkout, by the coordinator
+rather than by this survey: `npm run build` completed in 3.36 seconds,
+transformed 171 modules, and wrote `web/dist`, which `.gitignore` excludes.
+
+| File | Size | gzip | map |
+| --- | --- | --- | --- |
+| `dist/index.html` | 0.74 kB | 0.43 kB | |
+| `dist/assets/index-*.css` | 57.93 kB | 10.69 kB | |
+| `dist/assets/Gallery-*.js` | 71.87 kB | 17.06 kB | 316.82 kB |
+| `dist/assets/index-*.js` | 376.52 kB | 120.40 kB | 2,129.71 kB |
+
+Two things in that output want a decision rather than a shrug.
+
+**The gallery is already a separate chunk**, so code splitting exists. A static
+host is serving several hashed filenames rather than one bundle, which is what
+the cache headers in front of it have to be written for.
+
+**The production build emits source maps**, from `sourcemap: true` at
+`web/vite.config.ts:44`. That is about 2.4 MB of maps against about 450 kB of
+code, and it hands the client's original TypeScript to anyone who opens
+devtools. On a LAN-only deployment that is a convenience; on anything
+internet-facing it is a choice somebody should make on purpose. It is one line
+either way and nothing else in the repository reads it.
+
+This was the cheapest of the open questions to close, and running it stays the
+first thing the deployment work should do: three and a half seconds, and it
+turns "there is a build script" into "there is a client to serve".
 
 ### What does not exist
 
@@ -579,29 +621,30 @@ evidence in the section named.
 
 Named rather than guessed, as the issue asked.
 
-1. **Does `vite build` succeed today, and what does it produce?** Not run: this
-   worktree has no `node_modules`, and the machine was carrying other agents'
-   environments. Everything else about the build is established by reading. This
-   is one `npm ci && npm run build` in the main checkout, and it should be the
-   first thing the deployment work does (section 3).
-2. **Does restoring a `pg_dump` into a database the app has already started
+Three of the six this document opened with have since been answered by the
+coordinator, from the main checkout and the backup mirror, and are written into
+the sections they belong to rather than left here: `vite build` succeeds
+(section 3), the photographs are 1541 files and about 1.4 GB (section 2), and no
+two of those filenames differ from each other only by case (section 2). What is
+left is the four below, and none of them should be guessed at.
+
+1. **Does restoring a `pg_dump` into a database the app has already started
    against work?** The app writes migration bookkeeping and the `0013` furniture
    rows on first start, and a restore over that is a state nothing in this
    repository exercises. It matters because it is exactly the order somebody
    under pressure would take (section 4).
-3. **Are any stored cover filenames case-variant?** Invisible on NTFS, missing
-   photographs on ext4. Establishing it means querying the live catalogue, which
-   agents may not do. It is one query for the owner (section 2).
-4. **How large is the photographs directory now?** 1541 files is recorded at
-   `scripts/check-backup-freshness.mjs:44` as of 2026-08-25, and AGENTS.md:448
-   records 1.1 GB of cover files copied during the stage H rehearsal. Neither is
-   a current measurement, and nothing here measured one, because the directory is
-   out of bounds (section 2).
-5. **What is the API's memory and CPU footprint under OCR?** The server runs
+2. **Does any filename stored in the catalogue differ in case from the file on
+   disk?** Narrowed from what this document first asked. The filenames do not
+   collide with each other, which the mirror settled; what remains is whether a
+   row's spelling matches its file's. NTFS resolves that difference and ext4
+   does not, so it would show up as missing photographs on the day of the move
+   and not before. Answering it means querying the live catalogue, which agents
+   may not do. It is one query for the owner (section 2).
+3. **What is the API's memory and CPU footprint under OCR?** The server runs
    `onnxruntime-node`, `tesseract.js` and `ppu-paddle-ocr` in process on the
    capture queue. Sizing a host for that needs the app running, which this survey
    did not do.
-6. **Whether `aspire publish` or `aspire deploy` would produce anything usable
+4. **Whether `aspire publish` or `aspire deploy` would produce anything usable
    from this AppHost.** Not attempted, and not needed for the question. The
    AppHost declares no target, no image and no compute environment, and the two
    resources it does declare are a file watcher and a dev server (section 5). Any
