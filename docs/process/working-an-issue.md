@@ -40,6 +40,23 @@ If the issue conflicts with something you find in the code, say so on the issue
 rather than quietly picking one. **A stale issue is a normal thing to find**, and
 checking the premise is part of the job.
 
+**That goes for the brief you were dispatched with, and for the tests, not just
+for the issue.** Both are claims about the tree, and the tree is the authority.
+Two agents on 2026-09-02 contradicted something they had been handed and both
+were right:
+
+- One was told in its brief that #469 had landed and had deleted the function it
+  was about. `git log origin/master` said otherwise. It checked, said so, and
+  carried on; had it believed the brief it would have gone looking for code that
+  was not there.
+- The other found that `carry-placing.test.ts` **asserted the defect it was sent
+  to fix**. The test passed because of the bug, so the fix had to break it. An
+  agent that treats a green suite as the specification writes the bug back.
+
+So: **check the claim before you build on it**, and when it is wrong, say which
+claim and what the tree actually says. That is a finding, not a complaint, and
+it belongs in the pull request.
+
 ## The catalogue is not yours, and neither is `stable`
 
 There is a live catalogue on this machine holding somebody's real collection.
