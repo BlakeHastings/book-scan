@@ -275,19 +275,47 @@ describe('the placing screen is told where the trip goes', () => {
 
   /*
    * The half that says the divergence is real rather than assumed. Asked without
-   * being told, the same book is answered with a plank on the piece standing
-   * first, because that is where the rules put it now. Both readings are
-   * defensible and neither is this screen's to make: what the person is doing is
-   * walking a trip, and the trip already said where it goes.
+   * being told, the same book is answered somewhere else, because that is where
+   * the rules put it now. Both readings are defensible and neither is this
+   * screen's to make: what the person is doing is walking a trip, and the trip
+   * already said where it goes.
+   *
+   * **The divergence this used to rely on was itself a defect, and #463 is it.**
+   * The world already diverged when this file was written, and nobody had to do
+   * anything to make it: `bandsOf` picked the range's rule with `rules.find`
+   * over a `SELECT` with no `ORDER BY`, `applyRunMove` rewrites the non-fiction
+   * rule's row, and a rewritten row goes to the end of the heap. So the layout
+   * read the *other* non-fiction rule, the one on the landing, while `claim`
+   * read the one the move had just retargeted, and this test held that apart as
+   * the expected answer. It is one answer now, and both of them say `3A`.
+   *
+   * So the divergence is made rather than found, by the thing that makes one for
+   * real: **the rules change after the trip is written down.** Somebody says the
+   * non-fiction lives on the landing plank after all, which beats both fixture
+   * rules outright, and where the book belongs moves. The trip does not move
+   * with it, because a trip is a recorded assignment and not a recomputation,
+   * and that is the whole of #429.
    */
   it('is a different answer from the one the rules give unasked', async () => {
     const { trips } = await theList()
     const trip = trips[0]!
 
+    const wrote = await applyRuleChange(db, {
+      about: 'area',
+      placeId: landing.areaId,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: NON_FICTION_SLUG }] }],
+    }, new Date().toISOString())
+    if (!wrote.ok) throw new Error(wrote.error)
+
     const unasked = await whereItGoes(trip.books[0]!.id)
 
     expect(unasked.body.derivedLocation).toBe(landing.label)
     expect(unasked.body.derivedAreaId).toBe(landing.areaId)
+
+    // And told, it still names the plank the trip names, which is the point.
+    const asked = await whereItGoes(trip.books[0]!.id, trip.toAreaId)
+    expect(asked.body.derivedLocation).toBe(trip.to)
+    expect(asked.body.derivedAreaId).toBe(trip.toAreaId)
   })
 
   it('draws the plank as it stands, so the gap is among the books that are there',

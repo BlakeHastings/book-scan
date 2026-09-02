@@ -63,7 +63,8 @@ import {
 } from '../domain/placement/arrangement'
 import { assignmentFor, standingOf, type Placement } from '../domain/placement/ledger'
 import {
-  claim, entryAreaOf, entryAreas, type PlacementRule, type RuleOperator,
+  byPrecedence, claim, entryAreaOf, entryAreas,
+  type PlacementRule, type RuleOperator,
 } from '../domain/placement/rules'
 import { GENRE_RANGES } from '../domain/tagging/genre'
 import { shelfImage, type ShelfRange, type ShelfSlot } from '../shared/shelving'
@@ -208,12 +209,6 @@ export interface DescribedRule {
    */
   range: ShelfRange | null
 }
-
-/** Area rules beat fixture rules, then priority, then id: `claim`'s order. */
-const byPrecedence = (a: PlacementRule, b: PlacementRule): number =>
-  Number(b.areaId !== null) - Number(a.areaId !== null)
-  || a.priority - b.priority
-  || a.id - b.id
 
 /**
  * A rule's lines with the tags named, which is the one direction that is safe.

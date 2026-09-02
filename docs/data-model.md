@@ -861,6 +861,11 @@ the `genre/fiction` and `genre/non-fiction` slugs `0002` derived from
 bookcases is said: it names where the run begins and the run flows on through
 the areas after it until the next rule's entry point.
 
+**Two is what the migration wrote, not a limit.** Nothing stops a third row
+naming `genre/fiction`, and #430 item 1 says nothing should. Which of them
+serves the range is settled by `claim`'s precedence and by nothing else: see
+`ruleForRange`, and `docs/shelving.md`, "Two rules may name one genre".
+
 **Cut over by #232, and both tables are gone.** `shelf_ranges` was two rows
 saying which bookcase each run began on, which is a `placement_rule` pointing at
 a fixture: `bandsOf` in `web/infrastructure/shelving/areas.ts` asks the rules

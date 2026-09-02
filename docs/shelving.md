@@ -576,6 +576,26 @@ first and only book is that book, and nothing is displaced to get it there.
 This is the same answer `overflow` gives at the end of the run, and it is why
 the last area of the last bookcase needs no special handling of its own.
 
+## Two rules may name one genre, and one of them serves the range
+
+Two rules asking for the same tag is legitimate and stays legitimate
+([#430](https://github.com/BlakeHastings/book-scan/issues/430) item 1 settled
+that). When it happens, **the rule that serves the range is the one `claim`
+would hand a book carrying that genre**: area before fixture, then lower
+priority, then lower id, which is the one precedence in the app. So the run
+begins at that rule's entry area, and the run the books are filed into and the
+run the app draws are the same run.
+
+Before [#463](https://github.com/BlakeHastings/book-scan/issues/463) they were
+not. `bandsOf` took whichever rule the database handed back first and `claim`
+took it by the ladder, which agree while each genre has one rule and part
+company the moment one has two: an area rule on `2A` and a fixture rule on
+bookcase 1, both asking for Fiction, had every fiction book filed onto `2A` and
+the fiction run drawn from `1A`, and the misfile list reported nothing, because
+it draws the run the same way `bandsOf` does. `ruleForRange` in
+`web/infrastructure/shelving/areas.ts` is the one answer now, and `bandsOf` asks
+it rather than choosing again.
+
 ## Moving a run to another bookcase
 
 A run is the stretch of areas one placement rule claims books into: fiction
