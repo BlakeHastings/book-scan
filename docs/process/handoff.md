@@ -133,6 +133,47 @@ a fourth merely starting. Two is the number in use now, deliberately.
   that would tell you are the tools that cannot start, and each attempt costs
   more of what is missing.
 
+### The wipe made this worse, and there is now a meter that works
+
+**The reset reset the pagefile too, and nobody would notice until an agent
+died.** Measured 2026-09-02 with two agents running:
+
+```
+Commit limit   33.9 GB      Physical RAM   31.9 GB
+Commit used    23.6 GB      Pagefile        2.0 GB  (peak usage 0.1 GB)
+Commit free    10.3 GB
+```
+
+Before the wipe this machine had roughly 60 GB of pagefile, and the paragraphs
+above were written against a commit limit near 92 GB. **It is now 33.9 GB.** So
+every number above is more generous than this machine currently deserves: the
+count that hit the ceiling with a 92 GB limit is not the count that will hit it
+with a 34 GB one, and "two, deliberately" was calibrated on the old machine.
+
+**Two agents plus an orchestrator already sit at 23.6 GB of 33.9.** Treat a
+third Aspire environment as a decision rather than a default, and measure before
+taking it.
+
+**The meter, which the paragraph above says does not exist, does exist and is
+this one.** `/proc/meminfo` and `df` are still useless here, as recorded. This
+is not:
+
+```powershell
+$os = Get-CimInstance Win32_OperatingSystem
+$os.TotalVirtualMemorySize   # commit limit, KB
+$os.FreeVirtualMemory        # commit available, KB
+```
+
+It reports commit rather than physical, which is the thing that actually runs
+out, and it costs one call. Take it before dispatching a wave, not after
+something fails, because by then it is one of the tools that cannot start.
+
+**Windows will grow the pagefile under pressure if it is system-managed, and
+that is not a reason to relax.** Peak usage is 0.1 GB, so it has never yet been
+asked to. Growth is not instant, and every failure recorded above arrived
+abruptly. Raising it is the owner's, and it is the cheapest single thing that
+would restore the old headroom.
+
 `bash.exe.stackdump` in the repo root is residue of the same thing and is not a
 repository problem.
 
