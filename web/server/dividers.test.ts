@@ -25,6 +25,7 @@ import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { libraryRows, plankAt, type LibraryRow, type ShelfGroup } from '../shared/layout'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
+import { outstandingWork } from './carry'
 
 let db: Db
 let store: Store
@@ -317,13 +318,17 @@ describe('removing a boundary records where its books went', () => {
       [bookId],
     ))
 
-  /** The id of the area a label reads as, off the face. */
-  const areaLabelled = async (label: string) => {
-    const at = plankAt(label)!
-    const row = (await areas())
-      .find((one) => one.fixture_position === at.shelf && one.position === at.area)
-    return row?.id ?? null
-  }
+  /**
+   * The plank a board is drawn on, taken off the board (#469).
+   *
+   * Found by what the board says, the way every case in this file finds the line
+   * a person taps, and then read as a row. What it does not do is parse that
+   * label back into a bookcase and a plank: since #469 a board carries the area
+   * it is drawn on, so the identity is there to be asked for, and #447 closed
+   * the last place in the app that recovered one from a rendered string.
+   */
+  const areaOfBoard = async (label: string) =>
+    (await shelves.groups('fiction')).find((group) => group.label === label)?.areaId ?? null
 
   const bookNamed = async (title: string) =>
     (await shelves.layout('fiction')).find((placed) => placed.book.title === title)!.book.id
@@ -332,7 +337,7 @@ describe('removing a boundary records where its books went', () => {
     await twoBookcases()
 
     const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
-    const absorbing = await areaLabelled('1A')
+    const absorbing = await areaOfBoard('1A')
     const fay = await bookNamed('Fay Ford')
     const gil = await bookNamed('Gil Gray')
     const hal = await bookNamed('Hal Hale')
@@ -382,7 +387,7 @@ describe('removing a boundary records where its books went', () => {
     // boundary's id is the area it opens, so the group after this one names its
     // own row without anything here parsing a label.
     const at = groups.findIndex((group) => group.opensWith?.id === line.separatorId)
-    const below = groups[at + 1]!.opensWith!.id
+    const below = groups[at + 1]!.areaId
     const stayed = groups[at + 1]!.books[0]!.book.id
     const wasLabelled = groups[at + 1]!.label
 
@@ -400,8 +405,51 @@ describe('removing a boundary records where its books went', () => {
     // still the row it was: same id, one letter earlier.
     expect(rowsBefore.map((row) => row.id)).toContain(line.separatorId)
     expect((await areas()).map((row) => row.id)).not.toContain(line.separatorId)
-    expect(await areaLabelled(wasLabelled)).not.toBe(below)
-    expect(await areaLabelled('2B')).toBe(below)
+    expect(await areaOfBoard(wasLabelled)).not.toBe(below)
+    expect(await areaOfBoard('2B')).toBe(below)
+  })
+
+  /**
+   * The work a removal makes reaches both lists, which is #458.
+   *
+   * A hunting pass found the library saying "Needs attention (2)" while the
+   * first screen said "0 to carry" and the carry screen said "Every book is
+   * where the rules want it", straight after a boundary removal. The two are
+   * different reads by design — `review` recomputes from sort order and the
+   * furniture, `outstandingWork` folds the ledger — and only the first could see
+   * a removal, because the removal wrote nothing for the second to fold. That is
+   * not two screens to reconcile; it is one missing write.
+   *
+   * **The delta, not the two totals**, and the difference matters. The lists are
+   * not the same list and are not meant to be: the review catches a book whose
+   * plank changed under it for any reason, the carry list holds what the rules
+   * have asked for and nobody has done. Asserting they match whole would pin
+   * this fixture's own backlog — `twoBookcases` leaves Jo Jones and Kim Kent
+   * recorded on `1C` and derived onto `2B`, uncarried, before this test touches
+   * anything. What #458 is about is a removal adding to one and not the other.
+   *
+   * The sets, not the counts: two lists of one that name different books agree
+   * on a number and on nothing else.
+   */
+  it('puts the books a removal moves on both the review and the carry list', async () => {
+    await twoBookcases()
+
+    const reviewed = async () =>
+      (await shelves.review('fiction')).misfiles.map((one) => one.book.id)
+    const carrying = async () =>
+      (await outstandingWork(db)).trips.flatMap((trip) => trip.books.map((book) => book.id))
+
+    const wasReviewed = new Set(await reviewed())
+    const wasCarrying = new Set(await carrying())
+
+    const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
+    await shelves.remove(line.separatorId, { theAreaGoes: true })
+
+    const addedToReview = (await reviewed()).filter((id) => !wasReviewed.has(id))
+    const addedToCarry = (await carrying()).filter((id) => !wasCarrying.has(id))
+
+    expect(addedToReview.length).toBeGreaterThan(0)
+    expect([...addedToCarry].sort()).toEqual([...addedToReview].sort())
   })
 })
 
