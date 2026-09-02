@@ -91,7 +91,7 @@ import type { SortStrategy } from '../../domain/placement/strategies'
 import { GENRE_RANGES } from '../../domain/tagging/genre'
 import type { Db } from '../../server/driver'
 import type { PlankAt, RangeStart, Separator } from '../../shared/layout'
-import type { ShelfRange } from '../../shared/shelving'
+import type { AreaStanding, ShelfRange } from '../../shared/shelving'
 
 /** One area as the boundaries describe it: where it hangs and what it opens at. */
 export interface DerivedArea {
@@ -714,6 +714,20 @@ export interface RunPlanks {
   addressOf(areaId: number): PlankAt | null
   /** The plank at an address, identified and named. */
   at(where: PlankAt): Plank
+  /**
+   * The piece the plank at an address hangs on, and where it hangs on it.
+   *
+   * The structural half of `at`, taken off the same row and the same decode, so
+   * what a screen groups by and what it prints cannot come from two readings.
+   * `at` answers the string a person reads and this answers the furniture, which
+   * is the pair #446 put on the listing as `standing` and #447 brings here.
+   *
+   * Null only where there is no piece standing at that number at all, which is a
+   * run whose rule points at furniture that has been taken out. A plank the
+   * furniture has no row for still answers, because the piece is real and only
+   * the plank is proposed: that is the same case `at` names.
+   */
+  standingAt(where: PlankAt): AreaStanding | null
   /** What one plank is called, or '' when this collection has no such area. */
   labelOf(areaId: number): string
   /** What every plank of the run is called, in the order a book meets them. */
@@ -722,7 +736,7 @@ export interface RunPlanks {
 
 export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
   const run = await runAreasOf(db, range)
-  const faces = await areaFaces(db)
+  const areas = new Map((await areasStanding(db)).map((area) => [area.id, area]))
   /*
    * The pieces, for the one plank that has no row: a cascade that fills a
    * bookcase proposes a plank below the last one, and until somebody says they
@@ -735,9 +749,11 @@ export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
    * is what a second bookcase pushed into the same place looks like, and the run
    * is the one that was there.
    */
-  const pieces = new Map<number, { id: number; name: string }>()
-  for (const row of await db.all<{ id: number; position: number; name: string }>(
-    'SELECT id, position, name FROM fixture WHERE position >= 0 ORDER BY position, id',
+  const pieces = new Map<number, { id: number; name: string; kind: string }>()
+  for (const row of await db.all<{
+    id: number; position: number; name: string; kind: string
+  }>(
+    'SELECT id, position, name, kind FROM fixture WHERE position >= 0 ORDER BY position, id',
   )) {
     if (!pieces.has(row.position)) pieces.set(row.position, row)
   }
@@ -749,7 +765,7 @@ export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
     },
     at(where) {
       const area = areaAt(run, where)
-      if (area) return { areaId: area.id, label: faces.get(area.id)?.label ?? '' }
+      if (area) return { areaId: area.id, label: areas.get(area.id)?.label ?? '' }
 
       const piece = pieces.get(where.shelf)
       return {
@@ -758,7 +774,7 @@ export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
           fixture: {
             id: piece?.id ?? 0,
             position: where.shelf,
-            kind: '',
+            kind: piece?.kind ?? '',
             name: piece?.name ?? '',
             sortStrategy: 'inherit',
           },
@@ -773,11 +789,35 @@ export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
         }),
       }
     },
+    standingAt(where) {
+      const area = areaAt(run, where)
+      const standing = area && areas.get(area.id)
+      if (standing) {
+        return {
+          fixtureId: standing.fixtureId,
+          fixture: standing.fixturePosition,
+          plank: standing.areaPosition,
+          name: standing.fixtureName,
+          kind: standing.fixtureKind,
+        }
+      }
+
+      const piece = pieces.get(where.shelf)
+      return piece
+        ? {
+            fixtureId: piece.id,
+            fixture: where.shelf,
+            plank: where.area,
+            name: piece.name,
+            kind: piece.kind,
+          }
+        : null
+    },
     labelOf(areaId) {
-      return faces.get(areaId)?.label ?? ''
+      return areas.get(areaId)?.label ?? ''
     },
     labels() {
-      return run.map((area) => faces.get(area.id)?.label ?? '')
+      return run.map((area) => areas.get(area.id)?.label ?? '')
     },
   }
 }

@@ -50,7 +50,7 @@
  */
 
 import {
-  booksOnArea, carryWork,
+  booksOnArea, carryWork, sharedNumberOf,
   type CarryableBook, type CarryWork, type StandingBook,
 } from '../domain/placement/carry'
 import {
@@ -249,6 +249,8 @@ export interface TripAtAnArea {
   to: string
   fromAreaId: number
   toAreaId: number
+  /** See `CarryTrip.sharedNumber`: the walk this screen draws is the same walk. */
+  sharedNumber: number | null
   books: StandingBook[]
 }
 
@@ -299,6 +301,7 @@ export async function tripAtArea(
     to: to.label,
     fromAreaId,
     toAreaId,
+    sharedNumber: sharedNumberOf(from, to),
     books: booksOnArea(books, pages, ledger, fromAreaId, toAreaId),
   }
 }

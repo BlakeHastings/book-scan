@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { areaRuns, pieceOf } from './areaRuns'
+import { areaRuns } from './areaRuns'
 import type { AreaStanding } from '../../shared/shelving'
 
 /** A piece nobody has named, standing where it stands. */
@@ -147,21 +147,5 @@ describe('what the heading over a board says', () => {
   it('calls a crate a crate', () => {
     const { runs } = areaRuns([book(1, 10, '5A', at(5, 0, { kind: 'crate' }))], true)
     expect(runs[0]!.piece).toBe('Crate 5')
-  })
-})
-
-describe('the heading worked back out of a label, which the shelves screen still does', () => {
-  it('says which bookcase, where nobody has named one', () => {
-    expect(pieceOf('1A')).toBe('Bookcase 1')
-    expect(pieceOf('12C')).toBe('Bookcase 12')
-  })
-
-  it('says what somebody called it, where they have', () => {
-    expect(pieceOf('Hall shelf · Cookery')).toBe('Hall shelf')
-    expect(pieceOf('Hall shelf · B')).toBe('Hall shelf')
-  })
-
-  it('says the label back rather than inventing a bookcase for it', () => {
-    expect(pieceOf('somewhere')).toBe('somewhere')
   })
 })

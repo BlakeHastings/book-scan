@@ -68,16 +68,33 @@ export interface ListRow {
 export function listOf(group: ShelfGroupDto, checkedOut: CheckedOutAt[]): ListRow[] {
   const present: ListRow[] = group.books.map(({ book }, i) => ({ book, n: i + 1, here: true }))
   const absent: ListRow[] = checkedOut
-    .filter((entry) => entry.label === group.label)
+    .filter((entry) => onThisBoard(group, entry))
     .map((entry) => ({ book: entry.book, n: 0, here: false }))
 
   return [...present, ...absent].sort((a, b) =>
     a.book.sort_key < b.book.sort_key ? -1 : a.book.sort_key > b.book.sort_key ? 1 : 0)
 }
 
+/**
+ * Whether a book that is off the shelf belongs on this board.
+ *
+ * **The area, and the label only where there is no area** (#447). Both sides
+ * used to be labels, which is the comparison that hid 181 books in #356: a label
+ * is a rendering, and the day somebody names a bookcase the two sides can be
+ * rendered by different hands. They are one hand today and this does not depend
+ * on their staying that way.
+ *
+ * The fallback is a run whose rule points at furniture that has been taken out,
+ * where neither side has a plank to name and both are the ordinal walk's answer.
+ */
+const onThisBoard = (group: ShelfGroupDto, entry: CheckedOutAt): boolean =>
+  (group.areaId !== null && entry.areaId !== null
+    ? group.areaId === entry.areaId
+    : group.areaId === null && entry.areaId === null && group.label === entry.label)
+
 /** How many books belonging in this area are off the bookcase right now. */
-export function missingFrom(label: string, checkedOut: CheckedOutAt[]): number {
-  return checkedOut.filter((entry) => entry.label === label).length
+export function missingFrom(group: ShelfGroupDto, checkedOut: CheckedOutAt[]): number {
+  return checkedOut.filter((entry) => onThisBoard(group, entry)).length
 }
 
 /** One catalogued book as a tile in the gallery. */

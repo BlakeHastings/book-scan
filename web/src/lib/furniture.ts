@@ -22,6 +22,7 @@ import { labelFor } from '../../domain/placement/geography'
 import { orderBy } from '../../domain/placement/strategies'
 import type { OrderEnds, SampleBook } from '../design/Rules'
 import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto, SortStrategyCode } from './api'
+import type { AreaStanding } from '../../shared/shelving'
 
 /** A piece as the ordering column holds it while somebody drags it about. */
 export interface Standing {
@@ -155,6 +156,19 @@ export function kindSaid(kind: string): string {
  */
 export const pieceSaid = (piece: Pick<FixtureDto, 'name' | 'kind' | 'position'>): string =>
   piece.name.trim() || `${kindSaid(piece.kind)} ${piece.position}`
+
+/**
+ * The same answer, asked of the little of a piece that a placement carries.
+ *
+ * `AreaStanding` is the structural half of a placement (#446): the piece a plank
+ * hangs on, said in the four fields a drawing needs. Two screens draw a heading
+ * from one, the library's boards and the shelves screen's, and both used to
+ * spell the conversion out for themselves. A third spelling of "what is this
+ * piece called" is how one of them ends up saying something else, which is the
+ * whole of #447.
+ */
+export const pieceOn = (standing: AreaStanding): string =>
+  pieceSaid({ name: standing.name, kind: standing.kind, position: standing.fixture })
 
 /** Something a person reads as it reads now, and as it will read. */
 export interface Renaming {

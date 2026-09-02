@@ -284,6 +284,50 @@ describe('reading the room', () => {
 })
 
 /**
+ * The two routes somebody walks between while standing at the shelf, asked
+ * about the same planks in the same breath.
+ *
+ * This is #447 and it is the last of the family #356 opened. `/api/fixtures`
+ * names a plank from the furniture, through `labelFor`; `/api/shelves` named it
+ * from the ordinals the boundary walk counts, through `locationLabel`. Two
+ * renderings of one place, and naming the piece is all it takes to part them.
+ *
+ * The piece is a **crate** because the invented word is half the defect: the
+ * shelves screen worked its heading out of the label with a regular expression
+ * that says "Bookcase" whatever the owner actually owns.
+ */
+describe('the shelf and the furniture, asked about one piece', () => {
+  it('names a plank the same way on both routes', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const renamed = await patch(`/api/fixtures/${bookcase.id}`, {
+      name: 'Hall shelf', kind: 'crate',
+    })
+    expect(renamed.status).toBe(200)
+
+    const furniture = (await nonFiction()).areas.map((one: { label: string }) => one.label)
+    const shelved = (await get('/api/shelves?range=nonfiction')).body
+      .groups.map((one: { label: string }) => one.label)
+
+    // Written out rather than only compared, so what each route says is on the
+    // page: the shelves screen answered `4A`, `4B`, `4C` here.
+    expect(furniture).toEqual(['Hall shelf · A', 'Hall shelf · B', 'Hall shelf · C'])
+    expect(shelved).toEqual(furniture)
+  })
+
+  it('says which piece the planks hang on, and calls a crate a crate', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    await patch(`/api/fixtures/${bookcase.id}`, { kind: 'crate' })
+
+    const { body } = await get('/api/shelves?range=nonfiction')
+    expect(body.groups.map((one: { standing: { kind: string; fixtureId: number } | null }) =>
+      one.standing && [one.standing.fixtureId, one.standing.kind]))
+      .toEqual([[bookcase.id, 'crate'], [bookcase.id, 'crate'], [bookcase.id, 'crate']])
+  })
+})
+
+/**
  * The one settable thing about the collection itself (#350).
  *
  * `collection.default_sort_strategy` has been a real column since the furniture

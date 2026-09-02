@@ -141,6 +141,26 @@ export interface CarryTrip {
   from: string
   /** Where they are going. */
   to: string
+  /**
+   * The number two pieces stand on, when both ends of this trip read the same.
+   *
+   * **A trip whose two ends read alike is a trip nobody can walk**, and it is a
+   * real state rather than a bug in the arithmetic: two pieces standing on one
+   * number is an arrangement this catalogue has (`places` in `lib/furniture.ts`),
+   * and neither of them being named is what makes their planks render alike.
+   * `GET /api/carry` printed such a trip as `4A -> 4A` with the counts and the
+   * areas perfectly right (#447).
+   *
+   * The app cannot tell the two apart in words that a person could act on,
+   * because there is nothing to tell apart: naming one of the pieces is what
+   * fixes it and the screen says so. This is what the screen says it about.
+   *
+   * Null on every trip whose ends read differently, which is nearly all of them,
+   * and null where both ends are on **one** piece: two areas of one piece
+   * somebody has given one name read alike too, and "two pieces stand at 4"
+   * would be a false thing to say about that.
+   */
+  sharedNumber: number | null
   /** The books still to carry, in the order they stand on the area. */
   books: CarriedBook[]
   /**
@@ -320,6 +340,18 @@ export function lastCarry(rows: readonly Placement[]): Carry | null {
   return found
 }
 
+/**
+ * Whether these two ends of a walk read the same, and the number they stand on.
+ *
+ * One reading for both screens that draw a walk, because a note on one of them
+ * and silence on the other is the same disagreement this issue is about, one
+ * level up. See `CarryTrip.sharedNumber`.
+ */
+export function sharedNumberOf(from: AreaFace, to: AreaFace): number | null {
+  if (from.label !== to.label) return null
+  return from.fixtureId === to.fixtureId ? null : from.fixturePosition
+}
+
 /** The day part of a timestamp, which is as fine as "carried on Sunday" needs. */
 const dayOf = (at: string): string => at.slice(0, 10)
 
@@ -360,11 +392,13 @@ export function carryWork(
     const from = standing.area
 
     const at = key(from, to)
+    const ends = { from: where.get(from), to: where.get(to) }
     const trip = trips.get(at) ?? {
       fromAreaId: from,
       toAreaId: to,
-      from: where.get(from)?.label ?? '',
-      to: where.get(to)?.label ?? '',
+      from: ends.from?.label ?? '',
+      to: ends.to?.label ?? '',
+      sharedNumber: ends.from && ends.to ? sharedNumberOf(ends.from, ends.to) : null,
       books: [],
       carried: 0,
     }

@@ -52,11 +52,13 @@ function book(overrides: Partial<FiledBookRow> = {}): FiledBookRow {
   }
 }
 
-function group(books: FiledBookRow[], label = '1A'): ShelfGroupDto {
+function group(books: FiledBookRow[], areaId = 11, label = '1A'): ShelfGroupDto {
   return {
     area: 0,
     shelf: 1,
     label,
+    areaId,
+    standing: { fixtureId: 1, fixture: 1, plank: 0, name: '', kind: 'bookshelf' },
     books: books.map((b) => ({ book: b })),
     opensWith: null,
   }
@@ -190,7 +192,8 @@ describe('coverNote', () => {
 })
 
 describe('listOf', () => {
-  const off = (label: string, book: FiledBookRow): CheckedOutAt => ({ book, label })
+  const off = (areaId: number, book: FiledBookRow, label = '1A'): CheckedOutAt =>
+    ({ book, areaId, label })
 
   it('numbers the books on the bookcase in the order they stand', () => {
     const rows = listOf(
@@ -209,7 +212,7 @@ describe('listOf', () => {
         book({ id: 1, title: 'Amber', sort_key: 'a' }),
         book({ id: 3, title: 'Cider', sort_key: 'c' }),
       ]),
-      [off('1A', book({ id: 2, title: 'Bounty', sort_key: 'b' }))],
+      [off(11, book({ id: 2, title: 'Bounty', sort_key: 'b' }))],
     )
     expect(rows.map((r) => r.book.title)).toEqual(['Amber', 'Bounty', 'Cider'])
   })
@@ -220,7 +223,7 @@ describe('listOf', () => {
     // books either side of it are, because it never claimed to be a picture.
     const rows = listOf(
       group([book({ id: 1, title: 'Amber', sort_key: 'a' })]),
-      [off('1A', book({ id: 2, title: 'Bounty', sort_key: 'b' }))],
+      [off(11, book({ id: 2, title: 'Bounty', sort_key: 'b' }))],
     )
     expect(rows.map((r) => [r.book.title, r.n, r.here]))
       .toEqual([['Amber', 1, true], ['Bounty', 0, false]])
@@ -228,21 +231,45 @@ describe('listOf', () => {
 
   it('leaves books that are off a different plank out of this one', () => {
     const rows = listOf(
-      group([book({ id: 1, sort_key: 'a' })], '1A'),
-      [off('1B', book({ id: 2, title: 'Elsewhere', sort_key: 'b' }))],
+      group([book({ id: 1, sort_key: 'a' })], 11),
+      [off(12, book({ id: 2, title: 'Elsewhere', sort_key: 'b' }), '1B')],
     )
     expect(rows).toHaveLength(1)
+  })
+
+  /**
+   * #447, and behind it #356: the two sides used to be two strings, and a plank
+   * has two renderers. The absent book carries the area now, so the ordinal walk
+   * and the furniture disagreeing about what to call a plank cannot take a book
+   * out of the gap it belongs in.
+   */
+  it('files an absent book by its area, not by what the two sides call it', () => {
+    const rows = listOf(
+      group([book({ id: 1, title: 'Amber', sort_key: 'a' })], 11, 'Hall shelf · A'),
+      [off(11, book({ id: 2, title: 'Bounty', sort_key: 'b' }), '1A')],
+    )
+    expect(rows.map((r) => r.book.title)).toEqual(['Amber', 'Bounty'])
   })
 })
 
 describe('missingFrom', () => {
-  const off = (label: string, id: number): CheckedOutAt => ({ book: book({ id }), label })
+  const off = (areaId: number, id: number, label = '1A'): CheckedOutAt =>
+    ({ book: book({ id }), areaId, label })
 
   it('counts only the books belonging to this area', () => {
-    expect(missingFrom('1A', [off('1A', 1), off('1B', 2), off('1A', 3)])).toBe(2)
+    expect(missingFrom(group([], 11), [off(11, 1), off(12, 2, '1B'), off(11, 3)])).toBe(2)
   })
 
   it('is zero when the bookcase is whole', () => {
-    expect(missingFrom('1A', [])).toBe(0)
+    expect(missingFrom(group([], 11), [])).toBe(0)
+  })
+
+  /**
+   * Two pieces standing on one number is an arrangement this catalogue has, and
+   * both their top planks read `4A`. Counting by the label would put one piece's
+   * absent books in the other piece's board (#447).
+   */
+  it('does not count a book off the other piece standing on the same number', () => {
+    expect(missingFrom(group([], 11, '4A'), [off(99, 1, '4A')])).toBe(0)
   })
 })

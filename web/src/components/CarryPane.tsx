@@ -57,7 +57,8 @@ import { Trip, Trips } from '../design/Carrying'
 import { Sure } from '../design/Sure'
 import { WfScreen } from './WfScreen'
 import {
-  leftBooks, leftSaid, plural, said, saidBooks, skipSaid, stretchOf, whenSaid, words,
+  leftBooks, leftSaid, plural, said, saidBooks, sharedSaid, skipSaid, stretchOf,
+  whenSaid, words,
 } from '../lib/carryWords'
 import type { CarryTrip, CarryWork } from '../lib/api'
 
@@ -90,6 +91,9 @@ interface Props {
 
 /** What one row says under the two labels and the count. */
 function noteOn(trip: CarryTrip): string {
+  /* First, because a row whose two ends read the same is a row nobody can act
+     on, and the stretch of authors under it would read as though they could. */
+  if (trip.sharedNumber !== null) return sharedSaid(trip.from, trip.sharedNumber)
   if (trip.carried > 0) {
     const all = trip.carried + trip.books.length
     return `${said(trip.carried)} of the ${words(all)} are on ${trip.to} already`

@@ -67,6 +67,22 @@ export function plural(n: number, noun: string): string {
   return `${grouped(n)} ${noun}${n === 1 ? '' : 's'}`
 }
 
+/**
+ * Said over a walk whose two ends read the same string.
+ *
+ * Two pieces stand on one number, neither is named, and so their planks render
+ * alike: `4A` to `4A`, which is a trip nobody can walk. The counts and the areas
+ * behind it are right, and no wording the app could invent would tell the two
+ * pieces apart, because there is nothing to tell apart until somebody names one.
+ * So the sentence says what is true and what to do about it (#447).
+ *
+ * Here rather than in either pane because two screens draw this walk, and a note
+ * on one of them and silence on the other is the same disagreement one level up.
+ */
+export const sharedSaid = (label: string, at: number): string =>
+  `Both ends read ${label}: two pieces stand at ${at} and neither is named. `
+  + 'Name one of them to tell this trip apart.'
+
 /** What a filing name is called on a spine, which is the surname on its own. */
 export function surnameOf(filing: string): string {
   const name = filing.trim()
