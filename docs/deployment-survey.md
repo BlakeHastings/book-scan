@@ -223,7 +223,7 @@ ext4. Section 8 records it as open.
 
 `web/package.json:10`: `"build": "tsc --noEmit && vite build"`.
 
-The first half is exactly `npm run typecheck` (`web/package.json:11`), which CI
+The first half is exactly `npm run typecheck` (`web/package.json:12`), which CI
 runs on every non-documentation pull request
 (`.github/workflows/ci.yml:170-173`). That half is therefore proven green
 continuously.
@@ -276,7 +276,7 @@ Two things constrain that decision:
   "fetches its own binary during install, from a host that is not always
   reachable". An image has to be built for the target platform and architecture,
   and its install step needs network access to more than the npm registry.
-  `package.json:8` at the repository root pins `engines.node` to
+  `package.json:6-8` at the repository root pins `engines.node` to
   `^20.19.0 || ^22.13.0 || >=24`, and CI runs Node 22
   (`.github/workflows/ci.yml:121-124`).
 
@@ -324,7 +324,7 @@ migration step and no migration command.
 
 The chain is short. `web/server/index.ts:3974` awaits `openCatalogue()`;
 `openCatalogue` at `web/server/db.pg.ts:554-561` calls `openPostgres(url)`;
-`openPostgres` at `web/server/db.pg.ts:939-953` opens a `pg.Pool` and calls
+`openPostgres` at `web/server/db.pg.ts:947-956` opens a `pg.Pool` and calls
 `await applySchema(pool)` before it returns a `Db`, ending the pool and
 rethrowing if that fails. `applySchema` at `web/server/db.pg.ts:773-799` calls
 `migrateToLatest(pool)`, prints one line saying which of three things happened,
@@ -481,7 +481,7 @@ None of this survives the move, and all of it is load-bearing today.
 | Installing the schedule | `scripts/install-backup-task.ps1` | `Register-ScheduledTask` at `:182`, `New-ScheduledTaskAction` at `:168`, `pwsh` falling back to `powershell.exe` at `:165-166`, `$env:LOCALAPPDATA` at `:111` |
 | The secret store | `scripts/write-connection-file.ps1` | DPAPI at `CurrentUser` scope: the file "decrypts only for the account that wrote it, on this machine" (`backup-catalogue.ps1:37-38`). Default path `$env:LOCALAPPDATA\book-scan\backup-connections.json` at `:119` |
 | The freshness check | `scripts/check-backup-freshness.mjs` | Portable JavaScript, but its whole argument is built on robocopy's timestamp behaviour (`:40-47`, `:278`). Its header records "1541 files on each side" as of 2026-08-25, which is where that count is written down in this repository |
-| The launcher | **Not in this repository at all** | AGENTS.md:233-236 records that the scheduled task `book-scan stable server` runs `run-stable.cmd` under `book-scan-production-data`, which hands off to `run-stable.ps1` beside it, and that those set the two variables and run `npm run dev` |
+| The launcher | **Not in this repository at all** | AGENTS.md:234-236 records that the scheduled task `book-scan stable server` runs `run-stable.cmd` under `book-scan-production-data`, which hands off to `run-stable.ps1` beside it, and that those set the two variables and run `npm run dev` |
 
 That last row is the most important line in this section. **What runs the live
 catalogue today is two files that are not in version control, on a machine that
@@ -517,7 +517,7 @@ evidence in the section named.
 
 **Runtime**
 
-1. Node matching `^20.19.0 || ^22.13.0 || >=24` (`package.json:8`); CI proves 22
+1. Node matching `^20.19.0 || ^22.13.0 || >=24` (`package.json:6-8`); CI proves 22
    on Linux x64 (section 3).
 2. Postgres **18**, one database, one connection (`postgres-version.json`,
    section 4). Collation is a decision, not a default.
