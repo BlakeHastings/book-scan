@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bookCover, buildPlacement, buildSortKey, compareLocations, filingName,
+  bookCover, buildPlacement, buildSortKey, filingName,
   normalise, parseLocation, placementOnAPlank, reviewShelving, shelfImage, shelfPhoto,
   shelfPhotoSlot, titleFiling, type FiledBook, type Neighbour,
 } from './shelving'
@@ -165,7 +165,7 @@ describe('buildSortKey', () => {
   })
 })
 
-describe('parseLocation and compareLocations', () => {
+describe('parseLocation', () => {
   it('parses the accepted label forms', () => {
     expect(parseLocation('1A')).toEqual({ shelf: 1, section: 'A' })
     expect(parseLocation('S1A')).toEqual({ shelf: 1, section: 'A' })
@@ -174,29 +174,29 @@ describe('parseLocation and compareLocations', () => {
     expect(parseLocation('nowhere')).toBeNull()
   })
 
-  it('orders by shelf number, not by string', () => {
-    // The bug this guards against: '10A' < '2A' as plain strings.
-    expect(compareLocations('2A', '10A')).toBeLessThan(0)
-  })
-
-  it('sorts a bare shelf ahead of its sections', () => {
-    expect(compareLocations('S4', 'S4A')).toBeLessThan(0)
-  })
-
-  it('sorts unparseable labels last so they surface', () => {
-    expect(compareLocations('junk', '1A')).toBeGreaterThan(0)
+  it('does not understand a label with a piece\'s name in it, and should not', () => {
+    // Not a gap to close. This form is what somebody typed and what the ledger
+    // wrote down before pieces had names; a label a person reads today is
+    // rendered from a row, and the row is what says which plank it is. #468 is
+    // what happened when a decision was made from the null this returns.
+    expect(parseLocation('Hall shelf · A')).toBeNull()
   })
 })
 
 describe('buildPlacement', () => {
-  const neighbour = (id: number, title: string, location: string): Neighbour => ({
-    id, title, authorFiling: `Author ${id}`, authors: '', location, sortKey: String(id),
+  const neighbour = (
+    id: number,
+    title: string,
+    location: string,
+    areaId: number | null = null,
+  ): Neighbour => ({
+    id, title, authorFiling: `Author ${id}`, authors: '', location, areaId, sortKey: String(id),
     images: { front: '', back: '', edge: '' },
   })
 
   it('reports one location when both neighbours share it', () => {
     const result = buildPlacement(
-      'fiction', neighbour(1, 'Alpha', '1A'), neighbour(2, 'Beta', '1A'), '1A',
+      'fiction', neighbour(1, 'Alpha', '1A', 7), neighbour(2, 'Beta', '1A', 7), '1A',
     )
     expect(result.kind).toBe('between-same-location')
     expect(result.suggestedLocation).toBe('1A')
@@ -206,10 +206,49 @@ describe('buildPlacement', () => {
 
   it('flags the boundary when neighbours are on different shelves', () => {
     const result = buildPlacement(
-      'fiction', neighbour(1, 'Alpha', '2C'), neighbour(2, 'Beta', '2D'), '1A',
+      'fiction', neighbour(1, 'Alpha', '2C', 7), neighbour(2, 'Beta', '2D', 8), '1A',
     )
     expect(result.kind).toBe('between-different-locations')
     expect(result.instruction).toContain('boundary')
+  })
+
+  /*
+   * #468, and the reason a neighbour carries its area. The two labels are what
+   * a person reads off a piece they have named, `parseLocation` understands
+   * neither, and the ordering this used to ask reported two labels it could
+   * not parse equal. Deciding "same plank" from that told somebody standing at
+   * a bookcase to file a book between two books that are not both on the plank
+   * it named.
+   */
+  it('sees the boundary between two planks of a piece somebody has named', () => {
+    const result = buildPlacement(
+      'nonfiction',
+      neighbour(1, 'Alpha', 'Hall shelf · A', 2),
+      neighbour(2, 'Beta', 'Hall shelf · B', 7),
+      'Hall shelf · A',
+    )
+    expect(result.kind).toBe('between-different-locations')
+    expect(result.instruction).toContain('boundary')
+    expect(result.instruction).toContain('Hall shelf · A')
+    expect(result.instruction).toContain('Hall shelf · B')
+  })
+
+  /*
+   * The other half of the same claim: two pieces really can stand on one
+   * number, so one label can name two planks. `AreaStanding` says why.
+   */
+  it('keeps two planks apart when they read as the same label', () => {
+    const result = buildPlacement(
+      'fiction', neighbour(1, 'Alpha', '4A', 2), neighbour(2, 'Beta', '4A', 11), '1A',
+    )
+    expect(result.kind).toBe('between-different-locations')
+  })
+
+  it('does not call two books nobody has placed the same place', () => {
+    const result = buildPlacement(
+      'fiction', neighbour(1, 'Alpha', ''), neighbour(2, 'Beta', ''), '1A',
+    )
+    expect(result.kind).toBe('between-different-locations')
   })
 
   it('handles the very first book in a range', () => {
@@ -232,9 +271,9 @@ describe('buildPlacement', () => {
     // that is checked too. See #235.
     const uncredited: Neighbour = {
       id: 2, title: 'Beta', authorFiling: '', authors: 'J. R. R. Tolkien',
-      location: '1A', sortKey: '2', images: { front: '', back: '', edge: '' },
+      location: '1A', areaId: 7, sortKey: '2', images: { front: '', back: '', edge: '' },
     }
-    const result = buildPlacement('fiction', neighbour(1, 'Alpha', '1A'), uncredited, '1A')
+    const result = buildPlacement('fiction', neighbour(1, 'Alpha', '1A', 7), uncredited, '1A')
     expect(result.instruction).toContain('J. R. R. Tolkien')
     expect(result.instruction).not.toContain('Unknown author')
   })
@@ -242,9 +281,9 @@ describe('buildPlacement', () => {
   it('says "Unknown author" only once neither name is available', () => {
     const nameless: Neighbour = {
       id: 2, title: 'Beta', authorFiling: '', authors: '',
-      location: '1A', sortKey: '2', images: { front: '', back: '', edge: '' },
+      location: '1A', areaId: 7, sortKey: '2', images: { front: '', back: '', edge: '' },
     }
-    const result = buildPlacement('fiction', neighbour(1, 'Alpha', '1A'), nameless, '1A')
+    const result = buildPlacement('fiction', neighbour(1, 'Alpha', '1A', 7), nameless, '1A')
     expect(result.instruction).toContain('Unknown author')
   })
 })
@@ -261,7 +300,7 @@ describe('buildPlacement', () => {
  */
 describe('placementOnAPlank', () => {
   const neighbour = (id: number, title: string): Neighbour => ({
-    id, title, authorFiling: `Author ${id}`, authors: '', location: '3A', sortKey: String(id),
+    id, title, authorFiling: `Author ${id}`, authors: '', location: '3A', areaId: 3, sortKey: String(id),
     images: { front: '', back: '', edge: '' },
   })
 
@@ -296,7 +335,7 @@ describe('placementOnAPlank', () => {
   it('names a neighbour the way every other placement names one', () => {
     const uncredited: Neighbour = {
       id: 2, title: 'Beta', authorFiling: '', authors: 'J. R. R. Tolkien',
-      location: '3A', sortKey: '2', images: { front: '', back: '', edge: '' },
+      location: '3A', areaId: 3, sortKey: '2', images: { front: '', back: '', edge: '' },
     }
     const result = placementOnAPlank('fiction', '3A', neighbour(1, 'Alpha'), uncredited)
     expect(result.instruction).toContain('J. R. R. Tolkien')
@@ -306,7 +345,7 @@ describe('placementOnAPlank', () => {
 
 describe('shelfPhoto', () => {
   const withImages = (images: { front: string; back: string; edge: string }): Neighbour => ({
-    id: 1, title: 'T', authorFiling: 'A', authors: '', location: '1A', sortKey: '1', images,
+    id: 1, title: 'T', authorFiling: 'A', authors: '', location: '1A', areaId: 1, sortKey: '1', images,
   })
 
   it('prefers the spine, which is what you see on a shelf', () => {
@@ -594,7 +633,7 @@ describe('reviewShelving', () => {
 
 describe('shelfPhotoSlot', () => {
   const withImages = (images: { front: string; back: string; edge: string }): Neighbour => ({
-    id: 1, title: 'T', authorFiling: 'A', authors: '', location: '1A', sortKey: '1', images,
+    id: 1, title: 'T', authorFiling: 'A', authors: '', location: '1A', areaId: 1, sortKey: '1', images,
   })
 
   it('reports which photo shelfPhoto chose, so it can be framed for that side', () => {
