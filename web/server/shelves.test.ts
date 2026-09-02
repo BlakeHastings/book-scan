@@ -1420,15 +1420,26 @@ describe('taking a boundary move back', () => {
   })
 
   /**
-   * #468, folded in from the same sweep. The check that the book landed back
-   * where the receipt says compared a freshly drawn label against the label
-   * stored on the receipt, and naming the piece changes the first and not the
-   * second. So an undo that puts the book back exactly where the receipt names
-   * was refused, with a message telling somebody the shelves had changed when
-   * the only thing that had changed was what they call the bookcase.
+   * #468 predicted this was broken and it is not, so here is the proof rather
+   * than a fix.
    *
-   * The comparison is the planks now, which is the reading `GET /api/misfiles`
-   * already made of the same two labels and says why.
+   * The check above `outstanding.clear` compares `landed.label` with
+   * `receipt.from`, which reads like the family's signature: a label compared
+   * against a label. It is not. Both strings are `locationLabel(shelf, area)`,
+   * rendered by the pure arithmetic in shared/layout.ts, which knows ordinals
+   * and has never heard of a piece's name — `receipt.from` is `move.from`, and
+   * `move.from` is `placed.label`. So naming a bookcase moves neither side, and
+   * the comparison is "is the arrangement back as it was", asked in the one
+   * vocabulary the arrangement is expressed in.
+   *
+   * That is different from `GET /api/misfiles`, which reads the same receipt
+   * labels through `areaOfRecordedLocation` because its *other* side is an area
+   * id. Converting here would convert through the same position arithmetic and
+   * close nothing.
+   *
+   * This test is what says so. It was written expecting a failure, passed
+   * against the unchanged code, and is kept so that the next reader of that
+   * line does not have to work it out twice.
    */
   it('takes a move back on a piece somebody has named since the move', async () => {
     await shelve('Ann Author')
@@ -1449,9 +1460,13 @@ describe('taking a boundary move back', () => {
     const back = await shelves.retractMove('fiction', bob)
     expect(back.ok, back.error).toBe(true)
     expect(back.planks?.to.label).toBe('Hall shelf · A')
-    expect(await labels()).toEqual(['Hall shelf · A', 'Hall shelf · A', 'Hall shelf · B'])
-    // The receipt's own labels are left as they were written, which is the one
-    // thing `/api/misfiles` also refuses to rewrite.
+    // The arrangement is back where it was. `labels` is the ordinal form the
+    // layout arithmetic works in, which a name does not touch; what the name
+    // changes is `planks.to.label` above, and that is what the check compared.
+    expect(await labels()).toEqual(['1A', '1A', '1B'])
+    // The receipt's own labels are left as they were written, which is what
+    // `/api/misfiles` also refuses to rewrite. This is the pair the check
+    // compares, and neither half moved when the piece got its name.
     expect(back.move).toEqual({ from: '1B', to: '1A' })
   })
 
