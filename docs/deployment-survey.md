@@ -311,3 +311,143 @@ same machine talks to it. Where the reverse proxy is a different container or a
 different host, **this line has to change**, or the proxy has to share the
 network namespace. It is one of very few places where running this app somewhere
 else requires an application-code edit rather than configuration.
+
+---
+
+## 4. The database
+
+### How schema gets applied
+
+**On every server start, before the process listens.** There is no separate
+migration step and no migration command.
+
+The chain is short. `web/server/index.ts:3974` awaits `openCatalogue()`;
+`openCatalogue` at `web/server/db.pg.ts:554-561` calls `openPostgres(url)`;
+`openPostgres` at `web/server/db.pg.ts:939-953` opens a `pg.Pool` and calls
+`await applySchema(pool)` before it returns a `Db`, ending the pool and
+rethrowing if that fails. `applySchema` at `web/server/db.pg.ts:773-799` calls
+`migrateToLatest(pool)`, prints one line saying which of three things happened,
+and then runs three consistency reports.
+
+`migrateToLatest` at `web/infrastructure/db/migrate.ts:356-397` takes a Postgres
+advisory lock (`MIGRATION_LOCK`, `migrate.ts:72`) so two processes starting at
+once cannot both decide the database is empty, then classifies it into one of
+three states, documented as a table at `migrate.ts:29-33`:
+
+| The database it finds | What it does | Reported as |
+| --- | --- | --- |
+| Empty | Runs the baseline and everything after it | `created` |
+| Has the baseline tables, never migrated | Records the baseline as applied **without running it**, then migrates | `adopted` |
+| Already under migration control | Runs only what it has not seen | `migrated` |
+
+A fourth state, some of the baseline tables but not all, is refused by name
+(`migrate.ts:373-379`). The migrations themselves are the 30 `.sql` files in
+`web/infrastructure/db/migrations/`, read off disk at runtime (section 3).
+
+`web/drizzle.config.ts:7-13` explains why there is no `dbCredentials` block:
+`drizzle-kit push`, `pull` and `studio` all need a live server, and every one of
+them is a way to point a schema tool at a catalogue. `npm run db:generate`
+authors migrations from `schema.ts` and touches no database. **Applying them is
+the app's job and only the app's job.**
+
+### First boot against an empty database
+
+**It produces a working, empty catalogue, and says so quietly.** This is what
+#470 established and it is visible in the code:
+
+- `migrateToLatest` returns `created` (`migrate.ts:371`), and `applySchema`
+  prints `[db] postgres migrations: this database was empty, so the schema was
+  created from them` (`db.pg.ts:783`, wording at `migrate.ts:192`).
+- The catalogue is not merely empty tables. `0013_the_shelves_become_fixtures_
+  and_rules.sql` writes the collection, the fixtures, the areas and the two
+  placement rules, so a freshly created database has furniture and rules and
+  behaves like a catalogue somebody has just set up.
+- The three reports that follow (`db.pg.ts:796-798`) all pass on an empty
+  database: no book disagrees with its ledger, no rule disagrees with a shelf,
+  and no book is unclaimed, because there are no books.
+- `app.listen` then prints `[api] listening`, `[api] database postgres
+  host:port/name`, and the backup and Google-key lines
+  (`web/server/index.ts:3984-4017`).
+
+Everything that startup says is true, and none of it distinguishes **"a new
+deployment"** from **"the catalogue that has every book in it, pointed at the
+wrong database"**. #470 records the operational consequence directly: check
+whether the volume exists *before* starting the server, because `applySchema`
+will migrate an empty database into a valid-looking empty catalogue.
+
+**For a deployment this is the sharpest hazard in the survey.** Any restore
+procedure has to put the rows in place *before* the app is allowed to start
+against that database, or arrange for a first start to be recognisable as one. A
+deployment that starts the app first, discovers an empty catalogue, and then
+restores has already written a `drizzle.__drizzle_migrations` history and the
+`0013` furniture into the database the dump is about to be restored over.
+
+What is **not** established here: whether restoring a `pg_dump` of the live
+catalogue into a database the app has already created works, or conflicts on the
+rows `0013` wrote. Section 8.
+
+### What Postgres itself has to be
+
+Postgres **18**, from `postgres-version.json`, which is the single place the
+major version is written: `apphost.mts:40-42` reads it for the development
+container, `web/server/pgcontainer.ts` reads it for the test container, and
+`scripts/check-postgres-version.mjs` fails CI if `.github/workflows/ci.yml:75`
+disagrees with it. The file's own `why` field says the major "is a decision
+about what the suite proves, not a dependency to refresh", and the CI comment at
+`ci.yml:58-61` adds the reason a deployment cares: "collation behaviour is a
+property of the server and the libc it was built against". **Shelf order is
+collation.** A managed Postgres on a different libc is a decision to take
+deliberately, not a like-for-like swap.
+
+One database, one connection, no read replica and no second store: `db.pg.ts:
+539-548`.
+
+---
+
+## 5. The AppHost
+
+**`apphost.mts` is a development orchestrator. It is not a deployment
+mechanism.** That is what the file does, read line by line, rather than what
+Aspire is capable of in general.
+
+What it declares, and nothing else:
+
+| Line | Resource | What it actually starts |
+| --- | --- | --- |
+| `apphost.mts:159-164` | `postgres` / `bookscan` | A **local Postgres container**, image tag from `postgres-version.json`, with `withDataVolume({ name: volumeName })` where `volumeName` is a hash of *this checkout's path on this disk* (`:137`) |
+| `apphost.mts:194-199` | `npm-install` | An executable that runs `scripts/npm-install.mjs` in `./web` |
+| `apphost.mts:201-236` | `api` | `addNodeApp('api', './web', 'server/index.ts')` with `.withRunScript('dev:server')`, which is `tsx watch server/index.ts` |
+| `apphost.mts:238-254` | `web` | `addViteApp('web', './web', { runScriptName: 'dev:client' })`, which is the **Vite dev server** |
+
+Every one of those is a development fact. The api resource runs a file watcher.
+The web resource runs a dev server, not a built asset. The database is a
+container on a volume named after a local filesystem path, which is meaningless
+on any other machine. There is no compute environment, no container image, no
+registry, no publisher and no deployment target declared anywhere in the file,
+and `aspire.config.json` declares only the AppHost path, an SDK version and two
+hosting packages.
+
+The AppHost is also **not present in a checkout until it runs**: `apphost.mts:19`
+imports `createBuilder` from `./.aspire/modules/aspire.mjs`, which AGENTS.md
+records is generated and regenerated on every start and must never be
+hand-edited. `.aspire/` is untracked, and it does not exist in this worktree.
+
+So the answer the epic needs: **deploying means something else runs the two
+processes.** Whatever that something is, it has to do by itself everything the
+AppHost is doing today:
+
+1. provide Postgres and pass a connection as `ConnectionStrings__bookscan`
+   (`apphost.mts:226`, `.withReference(catalogue)`);
+2. set `BOOKSCAN_DATA` explicitly (`:212`) rather than letting the server's
+   `?? 'data'` default decide;
+3. set `BOOKSCAN_BACKUP_DIR` explicitly, even to empty (`:222`), for the reason
+   stated at `:218-221`: an inherited value must not decide what the process
+   reads off a disk;
+4. assign the API's port and pass it as `PORT` (`:211`);
+5. start the two processes in order, `api` after the database is reachable
+   (`:227`) and `web` after `api` (`:254`);
+6. and, unlike the AppHost, serve a **built** client rather than a dev server,
+   over TLS, on the same origin as the API (section 3).
+
+Only items 1 to 5 have an existing implementation, and it is one that runs
+Docker on the developer's own machine.
