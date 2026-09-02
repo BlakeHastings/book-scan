@@ -488,6 +488,13 @@ export function toNeighbour(row: FiledPlacedBook | undefined): Neighbour | null 
     authorFiling: row.author_filing,
     authors: row.authors,
     location: row.location,
+    /*
+     * The label's identity half, carried through rather than left behind. What
+     * reads it is `buildPlacement`, deciding whether two neighbours stand on one
+     * plank: it used to compare the two labels, and two labels on a named piece
+     * are two strings nothing that understands `4A` can tell apart (#468).
+     */
+    areaId: row.area_id,
     sortKey: row.sort_key,
     images: {
       front: row.front_image,

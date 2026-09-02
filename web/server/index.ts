@@ -36,7 +36,7 @@ import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
 import { rangeLock, Shelves, type Planks, type ShelvedBook } from './shelves'
-import { plankLabels, type RunPlanks } from '../infrastructure/shelving/areas'
+import { plankLabels, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
 // The two books a gap is between, said the one way the placing card says them.
 import { toNeighbour } from '../infrastructure/books/book-repository'
 import type { Move, PlankAt } from '../shared/layout'
@@ -92,7 +92,7 @@ import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
   bookCover, buildPlacement, formatLocation, parseLocation, placementOnAPlank,
   shelfImage,
-  type Placement, type ShelfRange, type ShelfSlot,
+  type Neighbour, type Placement, type ShelfRange, type ShelfSlot,
 } from '../shared/shelving'
 
 export type Slot = 'front' | 'back' | 'edge'
@@ -664,17 +664,25 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   ) {
     const layout = await shelves.layout(range)
     const planks = await shelves.planks(range)
-    const labelOf = (id: number | undefined) => {
+    /*
+     * The plank, name and id together, out of the one row (#468). Taking only
+     * the label here is what left `buildPlacement` with two strings to decide
+     * "same plank" from, and the id it needed was on the row the label was read
+     * off. `Plank` is that pair, so neither half can be fetched without the
+     * other.
+     */
+    const plankOf = (id: number | undefined): Plank => {
       const at = id === undefined ? undefined : layout.find((p) => p.book.id === id)
-      return at ? planks.at({ shelf: at.shelf, area: at.area }).label : ''
+      return at ? planks.at({ shelf: at.shelf, area: at.area }) : { areaId: null, label: '' }
     }
 
-    const predecessor = placement.predecessor
-      ? { ...placement.predecessor, location: labelOf(placement.predecessor.id) }
-      : null
-    const successor = placement.successor
-      ? { ...placement.successor, location: labelOf(placement.successor.id) }
-      : null
+    const on = (neighbour: Neighbour) => {
+      const plank = plankOf(neighbour.id)
+      return { ...neighbour, location: plank.label, areaId: plank.areaId }
+    }
+
+    const predecessor = placement.predecessor ? on(placement.predecessor) : null
+    const successor = placement.successor ? on(placement.successor) : null
 
     /*
      * The plank, and then its name. The other way round is what #356 was: a

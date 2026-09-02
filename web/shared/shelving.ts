@@ -252,7 +252,26 @@ export interface Neighbour {
    * a name a person can read even when nothing has been filed against it.
    */
   authors: string
+  /**
+   * Where this book stands, as a person reads it. Empty when nobody has said.
+   *
+   * **A rendering, and nothing is decided from it.** The same string is what
+   * `FiledBook.location` is, for the same reason: the label a plank reads as
+   * changes the moment somebody names the piece holding it, so two planks of
+   * one named piece are two labels that no longer look like `4A` and `4B` to
+   * anything reading them back. See `areaId`.
+   */
   location: string
+  /**
+   * The area `location` is a rendering of, or null when nobody has said.
+   *
+   * The identity half, and the half `buildPlacement` asks whether two
+   * neighbours are on one plank. It used to ask `compareLocations` about the
+   * two labels, which reports two labels it cannot parse equal, so on a named
+   * piece every pair of neighbours was "the same place" and the instruction
+   * somebody reads at a bookcase named one plank where there were two (#468).
+   */
+  areaId: number | null
   sortKey: string
   /**
    * Filenames of this book's photos, served from /api/covers.
@@ -477,9 +496,15 @@ export function buildPlacement(
   const label = RANGE_LABEL[range]
 
   if (predecessor && successor) {
+    /*
+     * On ids, never on the two labels (#468). `compareLocations` orders labels
+     * and answers 0 for two it cannot parse, which is every label on a piece
+     * somebody has named, so asking it this question said "one plank" about
+     * every boundary on a named bookcase. A label is a rendering; only the area
+     * says whether two books stand in the same place.
+     */
     const samePlace =
-      predecessor.location &&
-      compareLocations(predecessor.location, successor.location) === 0
+      predecessor.areaId !== null && predecessor.areaId === successor.areaId
 
     if (samePlace) {
       return {
