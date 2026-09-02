@@ -28,7 +28,9 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
 import type { Db } from '../../server/driver'
 import { DrizzleSeparatorRepository } from './separator-repository'
-import { areasOf, bandOf, boundariesFrom, runAreasOf, type DerivedArea } from './areas'
+import {
+  areaOfKey, areasOf, bandOf, boundariesFrom, runAreasOf, type DerivedArea,
+} from './areas'
 import type { NewSeparator } from '../../application/shelving/ports'
 import type { Separator, SeparatorKind } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
@@ -94,6 +96,32 @@ async function roundTrips(range: ShelfRange): Promise<void> {
 
   const rebuilt = walked.map((area, at) => ({ ...area, id: rows[at]!.id }))
   expect(boundariesFrom(range, rebuilt)).toEqual(boundaries)
+}
+
+/**
+ * Point the rule that serves fiction at one area, or back at a whole bookcase.
+ *
+ * Which rule that is comes from the tag it asks for, the same pairing
+ * `ruleForRange` reads out of `GENRE_RANGES`, so this moves the run's beginning
+ * exactly as "Say what belongs here" and "Have no rule here" do on a screen.
+ */
+async function fictionOpensAt(
+  at: { area: number } | { fixture: number },
+): Promise<void> {
+  await db.run(
+    `UPDATE placement_rule SET area_id = ?, fixture_id = ?
+      WHERE id IN (SELECT rule_id FROM rule_condition WHERE value = 'genre/fiction')`,
+    'area' in at ? [at.area, null] : [null, at.fixture],
+  )
+}
+
+/** The id of the bookcase standing at one position. */
+async function fixtureAt(position: number): Promise<number> {
+  const row = await db.get<{ id: number }>(
+    'SELECT id FROM fixture WHERE position = ? ORDER BY id LIMIT 1',
+    [position],
+  )
+  return row!.id
 }
 
 /** The id of the area a run begins in, which is furniture and not a boundary. */
@@ -257,6 +285,79 @@ describe('the areas and the boundaries being two readings of one run', () => {
       { fixture: 2, position: 0, starts_at: 'd' },
       { fixture: 4, position: 0, starts_at: '' },
     ])
+  })
+})
+
+/**
+ * #485, at the level the anchor is written.
+ *
+ * A plank the run happens to open at is still a plank, and the boundary above
+ * it is still where it was. Where the run **begins** is the rule's answer, asked
+ * through `ruleForRange` and `entryAreaOf`; the anchor says where an area is cut
+ * off from the one before it. `writeBoundaries` used to record the first answer
+ * in the second place, blanking the anchor of whichever plank the run opened at,
+ * and nothing took it back when the rule moved the entry somewhere else.
+ *
+ * What that left is one press away in the app: give an empty plank a rule, do
+ * anything that touches a boundary, then take the rule off again. The plank sat
+ * in the middle of the run holding a boundary anchored below every book, both
+ * walks that sort boundaries by anchor stepped it first, and the ordinal walk
+ * slid a plank along: a board drawn for a plank that does not exist, a bookcase
+ * holding twelve books not drawn at all, and three screens counting three
+ * different things.
+ */
+describe('a run that begins at a plank, and then does not', () => {
+  /** Bookcase 1 cut once, then bookcase 2 with a plank of its own. */
+  const twoBookcases = async (): Promise<void> => {
+    await repository.add(asked('fiction', 'area', 'b'))
+    await repository.add(asked('fiction', 'shelf', 'm'))
+    await repository.add(asked('fiction', 'area', 'p'))
+  }
+
+  it('leaves the anchor alone while the run opens there', async () => {
+    await twoBookcases()
+    await fictionOpensAt({ area: await firstAreaOf(2) })
+
+    // An ordinary boundary act, which is what carries a change into the areas.
+    await repository.add(asked('fiction', 'area', 'q'))
+
+    expect(await furniture()).toEqual([
+      { fixture: 1, position: 0, starts_at: '' },
+      { fixture: 1, position: 1, starts_at: 'b' },
+      // The plank the run now opens at. It is still cut off bookcase 1 at `m`,
+      // and it says so.
+      { fixture: 2, position: 0, starts_at: 'm' },
+      { fixture: 2, position: 1, starts_at: 'p' },
+      { fixture: 2, position: 2, starts_at: 'q' },
+      { fixture: 4, position: 0, starts_at: '' },
+    ])
+  })
+
+  it('is a boundary again, where it always was, once the run begins earlier', async () => {
+    await twoBookcases()
+    await fictionOpensAt({ area: await firstAreaOf(2) })
+    await repository.add(asked('fiction', 'area', 'q'))
+
+    // "Have no rule here": the run goes back to beginning on bookcase 1.
+    await fictionOpensAt({ fixture: await fixtureAt(1) })
+
+    expect(said(await repository.inRange('fiction')))
+      .toEqual(['area@b#0', 'shelf@m#1', 'area@p#2', 'area@q#3'])
+    await roundTrips('fiction')
+  })
+
+  it('files a book onto the plank whose anchor it has passed', async () => {
+    await twoBookcases()
+    await fictionOpensAt({ area: await firstAreaOf(2) })
+    await repository.add(asked('fiction', 'area', 'q'))
+    await fictionOpensAt({ fixture: await fixtureAt(1) })
+
+    // `n` is past `m` and short of `p`, so it belongs on the top plank of
+    // bookcase 2 and nowhere else. With the anchor blanked, `m` sorted below
+    // every key, the walk stepped that boundary before the one at `b`, and this
+    // book was filed back onto bookcase 1.
+    const run = await runAreasOf(db, 'fiction')
+    expect(areaOfKey(run, 'n')?.id).toBe(await firstAreaOf(2))
   })
 })
 

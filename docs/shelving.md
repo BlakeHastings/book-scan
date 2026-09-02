@@ -626,6 +626,40 @@ it draws the run the same way `bandsOf` does. `ruleForRange` in
 `web/infrastructure/shelving/areas.ts` is the one answer now, and `bandsOf` asks
 it rather than choosing again.
 
+## Where a run begins is a rule's answer, and an anchor never says it
+
+**One thing decides where a run begins: the rule that serves the range.**
+`ruleForRange` picks it, `entryAreaOf` resolves the area it points at, and
+`bandsOf` and `runFrom` are the two readers. Nothing else may hold that answer,
+and in particular no column may.
+
+An anchor answers a different question. `area.starts_at` is **the sort key of
+the first book on that plank**, which is where the plank is cut off from the one
+before it. The first area of a run has no plank before it and therefore no
+anchor: `boundariesFrom` gives it no boundary, `areaFor` takes the first slot of
+a run whatever it holds, and `areaOfKey` lands on the run's first area before it
+looks at an anchor at all. **The boundaries say where a run is cut, not where it
+starts.**
+
+The walk still needs to say "from the beginning" about the plank a book falls
+onto before it has passed any boundary, and `areasOf` says it with the empty
+string, which sorts below every sort key. That is a fact about the walk. It is
+not a fact about a plank, and it is not written to one.
+
+[#485](https://github.com/BlakeHastings/book-scan/issues/485) is what writing it
+cost. `writeBoundaries` blanked the anchor of whichever plank the run opened at,
+and nothing put it back when the rule moved the entry elsewhere, which is one
+press on "Have no rule here". The plank then stood in the middle of the run
+holding a boundary anchored below every book. Both walks that step boundaries in
+anchor order stepped that one first, so the ordinal walk slid a plank along: the
+shelves screen drew a board for a plank that does not exist, left a bookcase
+holding twelve books undrawn, and the carry list, the "needs attention" list and
+the first screen each counted something different about one state.
+
+An area therefore keeps its anchor through becoming a run's entry and through
+stopping being one. There is nothing to restore afterwards, because nothing was
+taken away.
+
 ## Moving a run to another bookcase
 
 A run is the stretch of areas one placement rule claims books into: fiction

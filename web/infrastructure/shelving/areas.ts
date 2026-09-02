@@ -99,7 +99,17 @@ export interface DerivedArea {
   fixturePosition: number
   /** The area's ordinal within it, 0-based, which is the `A` in `1A`. */
   position: number
-  /** The sort key of the first book on it. Empty on the first area of a run. */
+  /**
+   * The sort key of the first book on it. Empty on the first area of a run.
+   *
+   * **The empty one is the walk's, not the row's** (#485). It says "from the
+   * beginning" about the plank a book lands on before it has passed a boundary,
+   * and the first area of a run has no boundary above it to anchor. Where the
+   * run begins is the rule's answer, asked through `bandsOf`, and
+   * `writeBoundaries` does not copy it into `area.starts_at`: a row that held
+   * it went on holding it after the rule moved the entry elsewhere, and a
+   * boundary anchored below every book takes the whole ordinal walk with it.
+   */
   startsAt: string
 }
 
@@ -991,6 +1001,42 @@ export async function writeBoundaries(
   const derived = areasOf(band.start, separators)
     .filter((area) => band.limit === undefined || area.fixturePosition < band.limit)
 
+  /*
+   * The plank the run opens at, and the one row here does not write an anchor
+   * onto. **That is #485, and it is an invariant rather than a repair.**
+   *
+   * `areasOf` anchors this one at the empty string, which sorts below every
+   * sort key, because the walk needs to say "from the beginning" about the
+   * plank a book falls onto before it has passed any boundary. That is a fact
+   * about the walk. It is not a fact about the plank, and writing it onto the
+   * row records **where the run begins** in a column that says **where an area
+   * is cut off from the one before it**.
+   *
+   * Where a run begins is decided in one place: the rule that serves the range,
+   * through `ruleForRange` and `entryAreaOf`, which is what `bandsOf` above
+   * asks and what `runFrom` asks in the domain. Every walk over a run already
+   * reads it from there and never from an anchor: `areaFor` takes the first
+   * slot whatever it holds ("the boundaries say where the run is cut, not where
+   * it starts"), `areaOfKey` lands on `run[0]` before it looks at anything, and
+   * `boundariesFrom` does not give the first area a boundary at all. So the
+   * anchor on this row is read by nobody while the run opens here.
+   *
+   * It was read the moment the run stopped opening here. Taking the rule off an
+   * area is one press on "Change what belongs here", and it moved the entry
+   * without touching the furniture: the plank kept the empty anchor, `bandsOf`
+   * put it back in the middle of the run, and `areaOfKey` and `layoutRange`
+   * both sort the boundaries by anchor, so a boundary anchored below every book
+   * sorted to the front and the whole ordinal walk slid one plank along. The
+   * shelves route then drew a board for a plank that does not exist and left a
+   * bookcase holding twelve books undrawn, `areaDisagreements` reported the two
+   * readings disagreeing on every book, and three screens gave three counts.
+   *
+   * Not writing it is the whole fix. An area keeps the anchor it earned through
+   * becoming a run's entry and through stopping being one, so there is nothing
+   * to restore afterwards and no moment in between when the row is lying.
+   */
+  const opensTheRun = derived[0]
+
   const existing = await fixturesIn(db, band)
   const wanted = new Map<number, DerivedArea[]>()
   for (const area of derived) {
@@ -1020,8 +1066,12 @@ export async function writeBoundaries(
       const restored = fixture.retired.get(area.position)
       if (restored !== undefined && !fixture.areas.has(area.position)) {
         await db.run(
-          'UPDATE area SET position = ?, starts_at = ? WHERE id = ?',
-          [area.position, area.startsAt, restored],
+          area === opensTheRun
+            ? 'UPDATE area SET position = ? WHERE id = ?'
+            : 'UPDATE area SET position = ?, starts_at = ? WHERE id = ?',
+          area === opensTheRun
+            ? [area.position, restored]
+            : [area.position, area.startsAt, restored],
         )
         fixture.retired.delete(area.position)
         fixture.areas.set(area.position, restored)
@@ -1037,6 +1087,8 @@ export async function writeBoundaries(
         )
         continue
       }
+      // The run's own plank keeps the anchor it has. See `opensTheRun`.
+      if (area === opensTheRun) continue
       await db.run(
         'UPDATE area SET starts_at = ? WHERE id = ? AND starts_at IS DISTINCT FROM ?',
         [area.startsAt, id, area.startsAt],
@@ -1172,7 +1224,11 @@ export async function relocateRunTo(
       [destination.id, retiredPosition(0)],
     )
     if (retired) {
-      await db.run("UPDATE area SET position = 0, starts_at = '' WHERE id = ?", [retired.id])
+      // Position only. A plank coming back onto a face keeps its anchor, for
+      // the reason `opensTheRun` gives in `writeBoundaries`: this plank opens
+      // the run today and may not tomorrow, and blanking it here would leave
+      // exactly the row #485 is about.
+      await db.run('UPDATE area SET position = 0 WHERE id = ?', [retired.id])
     } else {
       await db.run(
         `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
