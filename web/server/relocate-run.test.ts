@@ -39,8 +39,8 @@ import { FileAliasHandler } from '../application/authorship/curate-authors'
 import { NON_FICTION_SLUG, FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 import { TagSlug } from '../domain/tagging/tags'
 import { standingOf } from '../domain/placement/ledger'
-import { furnitureIn } from '../infrastructure/shelving/areas'
-import { entryAreaOf } from '../domain/placement/rules'
+import { bandsOf, furnitureIn } from '../infrastructure/shelving/areas'
+import { claim, entryAreaOf } from '../domain/placement/rules'
 
 let db: Db
 let store: Store
@@ -654,5 +654,97 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
     // Nobody has carried anything, so nothing is standing on it yet, and that
     // is the honest nought: these two zeros are different facts.
     expect(three.books).toBe(0)
+  })
+})
+
+/**
+ * #463: two rules naming one genre, and where the run begins.
+ *
+ * **The arrangement is legal and stays legal.** #430 item 1 settled that two
+ * fixtures claiming one tag is something somebody is entitled to build, so
+ * nothing here may become an error, a warning, or a rule quietly ignored.
+ *
+ * What was not legal was the app answering "where does fiction begin" twice.
+ * `bandsOf` took the range's rule with `rules.find`, first row back from a
+ * `SELECT` with no `ORDER BY`, and `claim` took it by area-before-fixture, then
+ * priority, then id. With one rule per genre the two agree and nothing shows.
+ * With two they part company, and then the plank a book is filed onto and the
+ * plank the app draws it on are decided by two different rules.
+ *
+ * Seen live before it was fixed, on `GET /api/books/1/claim` answering
+ * `"wanted":{"areaId":3,"label":"2A"}` while `GET /api/shelves?range=fiction`
+ * drew the same book in a group labelled `1A`, and `GET /api/misfiles` answered
+ * an empty list, which reads as "everything is fine".
+ */
+describe('two rules naming one genre', () => {
+  /**
+   * Bookcase 2, one plank, and a second Fiction rule written on that plank.
+   *
+   * An **area** rule, because that is the half of the ladder `rules.find` could
+   * not see: it beats the fixture rule on bookcase 1 outright, whatever order
+   * the two come back in.
+   */
+  async function writeASecondFictionRule(): Promise<{ fixture: number; area: number }> {
+    const added = await addFixture(db, { position: 2 })
+    if (!added.ok) throw new Error(added.error)
+
+    const plank = await addAreaTo(db, added.fixture.id, {})
+    if (!plank.ok) throw new Error(plank.error)
+
+    const wrote = await applyRuleChange(db, {
+      about: 'area',
+      placeId: plank.area.id,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: FICTION_SLUG }] }],
+    }, new Date().toISOString())
+    if (!wrote.ok) throw new Error(wrote.error)
+
+    return { fixture: added.fixture.id, area: plank.area.id }
+  }
+
+  it('is accepted, and both rules stay on and keep claiming', async () => {
+    const { area } = await writeASecondFictionRule()
+
+    const { rules } = await furnitureIn(db)
+    const naming = rules.filter((rule) => rule.conditions.some((line) =>
+      line.field === 'tag' && line.value === FICTION_SLUG))
+
+    expect(naming).toHaveLength(2)
+    expect(naming.every((rule) => rule.enabled)).toBe(true)
+    expect(naming.map((rule) => rule.areaId)).toContain(area)
+  })
+
+  it('begins the run where claim begins it, and not where the rows happen to sort', async () => {
+    const { area } = await writeASecondFictionRule()
+
+    const { order, rules } = await furnitureIn(db)
+    const won = claim(rules, { tagSlugs: [FICTION_SLUG] })
+    expect(won?.areaId).toBe(area)
+
+    const entry = entryAreaOf(won!, order)
+    const slot = order.find((one) => one.area.id === entry)!
+
+    const band = (await bandsOf(db)).get('fiction')
+    expect(band?.start).toEqual({ shelf: slot.fixture.position, area: slot.area.position })
+    expect(band?.start).toEqual({ shelf: 2, area: 0 })
+  })
+
+  it('draws every fiction book on the plank the rules file it onto', async () => {
+    await writeASecondFictionRule()
+
+    // Three books, shelved on 1A while the fixture rule was the only Fiction
+    // rule. The area rule now claims all three, so 2A is where they belong and
+    // 1A is where they physically are: a misfile, which is the answer that
+    // sends somebody to carry them, and it was an empty list before #463.
+    const drawn = await shelves.layout('fiction')
+    expect(drawn).not.toEqual([])
+    expect([...new Set(drawn.map((placed) => placed.label))]).toEqual(['2A'])
+  })
+
+  it('still stops the run where the next one begins', async () => {
+    await writeASecondFictionRule()
+
+    // Non-fiction is on bookcase 4 and nothing has changed about that. Moving
+    // fiction's start to bookcase 2 must not let its band reach across it.
+    expect((await bandsOf(db)).get('fiction')?.limit).toBe(4)
   })
 })
