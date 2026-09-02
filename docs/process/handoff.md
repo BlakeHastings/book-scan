@@ -7,31 +7,34 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up 2026-08-25 at `4d6ce22` (`master`, after #460).**
+**Written 2026-08-24, topped up 2026-09-02 at `a4c0b1a` (`master`, after #466).**
 It rots quickly. Three merges from now, distrust the "in flight" section entirely
 and read `gh pr list` instead.
 
 ## In flight
 
-**One agent running, one paused, and the pause is about the machine rather than
-the work.**
+**Nothing is running, and nothing can be until a container runtime is back on
+this machine.** That is not a scheduling choice; see the section below. The
+agents this file described on 2026-08-25 are gone with the session that owned
+them, and their work is landed or open as a pull request.
 
-| Issue | Branch | State |
-| --- | --- | --- |
-| #447 | `shelving/447-shelves-standing` | running, two commits: the shelves route carries the piece, and a carry trip with two ends reading the same is named |
-| #448 | `e2e/448-leaving-books-flake` | **paused by me**, one commit: the feature measured in a loop rather than argued about |
+| Issue | Where it got to |
+| --- | --- |
+| #447 | landed as **PR #469**, open and green, waiting on a verification that needs the app |
+| #448 | never opened a pull request; branch `e2e/448-leaving-books-flake` and its worktree still hold one commit, and the issue is open and unclaimed |
 
-**#448 was stopped deliberately.** Its work is committed and safe and it can be
-resumed with a message. It runs browser journeys in a loop, which is the
-heaviest thing on this machine, and the machine started refusing to spawn
-processes (`EUNKNOWN: uv_spawn`) while it and #447 ran together. Shedding it kept
-#447 alive. **Resume it when nothing else is running**, not alongside another
-agent.
+**#469 has passed two of the three lenses without the app**: the diff does what
+it says (the shelves route joins each board to its plank **from the address
+rather than from the books standing on it**, which is the mistake #434 was), and
+`npm run typecheck` is clean. What is outstanding is the functional lens — the
+two endpoints agreeing on a named piece — and that needs Postgres.
 
-**Nine pull requests merged across 2026-08-24 and 25**: #443, #445, #446, #449,
-#450, #453, #455, #460, #461, #462, #464. Every code one was verified in the
-running app before merging, and each carries a review record saying what was
-checked and what was taken on trust.
+**#466 is merged**, verified by execution rather than accepted: silent against
+this machine's real disks, and loud on both failure paths driven through a
+scratch fixture. Its review record is on the pull request.
+
+**Briefs for #468 and #463 are already written into those issues** and are ready
+to dispatch the moment the app can run.
 
 ## What the fixes keep turning out to be
 
@@ -135,6 +138,96 @@ worktree on `origin/master`. A brief written from the stale tree describes code
 that is not there. This cost nothing that day only because the issues were read
 from `gh` rather than from the working tree.
 
+## The container runtime went away, and it takes everything with it
+
+Found 2026-09-02, at the start of a session, by trying to verify a pull request
+in the running app.
+
+**There is no container runtime on this machine.** No `docker` and no `podman`
+on either shell's PATH, no Docker Desktop install directory, and no WSL. What
+survives is `C:\Users\Blake\.docker`, the configuration directory, last written
+2026-08-24. Aspire says it plainly once you ask the right resource:
+
+```
+aspire logs postgres
+[postgres] Container runtime 'docker' could not be found.
+[postgres] exec: "docker": executable file not found in %PATH%
+```
+
+**`aspire start` still reports success**, which is the trap. The AppHost starts,
+prints a dashboard URL and exits 0. It is `describe` that shows `postgres` and
+`bookscan` as `RuntimeUnhealthy` with `api` and `web` stuck at `Waiting`
+forever. A green start line means the AppHost launched, not that the app came
+up.
+
+**The whole test suite is gated on it, not just the database half.** This is the
+part worth knowing before you conclude a branch is untestable:
+
+```
+npm test
+No test files found, exiting with code 1
+Error: Could not find a working container runtime strategy
+  ❯ Object.setup server/pgcontainer.ts:26:15
+  ❯ TestProject._initializeGlobalSetup
+```
+
+`server/pgcontainer.ts` is a vitest **globalSetup**, so it starts a Postgres
+testcontainer before a single test file is loaded. With no runtime, `areaRuns`
+and `carryWords` and every other pure unit test never run either. **`npm test`
+reporting "No test files found" here does not mean what it says.**
+
+`npm run typecheck` is the one local lens that still works, and it is not a
+substitute for either of the other two.
+
+**So with no runtime nothing can be verified locally and no agent can be
+usefully dispatched**, because the first thing every brief asks for is a
+reproduction in the running app. CI is unaffected: the GitHub runners have their
+own runtime, so pull requests still go green while nothing on this machine can
+run.
+
+### What it means for the catalogue, which is the part to be careful about
+
+`AGENTS.md:32` says the catalogue is a Postgres database in `book-scan-live-pg`
+**on the named volume `book-scan-live-pgdata`**. A named volume lives inside the
+runtime's own storage, so if the runtime was removed the volume went with it.
+
+**Do not assume that means the catalogue is lost, and do not assume it is fine.**
+What is established:
+
+- The **photographs are safe**, which is the expensive half: 1541 covers at
+  `...\book-scan-production-data\live\covers`, mirrored to `E:\book-scan-covers`.
+  Nothing has been photographed since 2026-08-07.
+- The **catalogue to 2026-08-19 06:58 UTC is safe**: `bookscan-20260819T065827Z.dump`
+  on `E:`, whose manifest reads `"ok": true, "differences": []`. Fourteen dumps.
+- `stable-server.log` ends **2026-08-26 19:58** with `ECONNREFUSED 127.0.0.1:5433`
+  out of `openCatalogue`. By that evening the catalogue was already unreachable,
+  and somebody Ctrl-C'd out of the attempt.
+
+So what a reinstall puts at risk is **edits between 2026-08-19 and the last time
+Postgres actually ran** — moves, lendings, corrections. Not scans. That is
+exactly the blind spot `check-backup-freshness.mjs` names in its own header and
+cannot see, because an edit writes no file.
+
+**The sequence after reinstalling a runtime, and the order matters.** Check
+whether `book-scan-live-pgdata` still exists *before* starting the stable
+server. If it does, nothing was lost. If it does not, restore a dump into it
+rather than letting the server reach an empty database, because `applySchema`
+will migrate one into a valid-looking empty catalogue without complaining. **It
+is the owner's call either way**, and no agent may go near it.
+
+### Two smaller things found the same way
+
+- **`aspire` is not on the shells' PATH.** It is at
+  `C:\Users\Blake\.aspire\bin\aspire.exe`, and `aspire start` from a bare
+  `aspire` fails with exit 127 and no message worth reading. Call it by full
+  path.
+- **The orchestrator's shell keeps its working directory between calls**, and a
+  `cd` into an agent worktree earlier in a session is still in effect much
+  later. `guard-live-data.mjs` reads that directory, so it correctly refuses the
+  *orchestrator* as though it were an agent. That is the guard working, not a
+  false positive: from that directory you are indistinguishable from one. `cd`
+  back to the main checkout rather than reaching for a way around it.
+
 ## The sequence, with the traps beside it
 
 ```bash
@@ -216,13 +309,13 @@ workaround while it stands is `--body-file`, or a non-shell write tool.
 
 ## Open, as of this writing
 
-No pull requests open. **#447 and #448 are being worked**; everything else below
-is an issue nobody is holding.
+**One pull request open: #469**, which is #447 and is green and two-thirds
+reviewed. Everything else below is an issue nobody is holding.
 
 **The label-parser family, which is the expensive one.** Seven defects have come
 out of one question answered twice, and three fixes for it landed on 2026-08-24.
 
-- **#447** — `pieceOf`, the last reader of a parsed label. Being worked. Its
+- **#447** — `pieceOf`, the last reader of a parsed label. **Landed as PR #469**, awaiting the app. Its
   brief asks the agent to say plainly whether any place is left that reads a
   rendered label back as a fact, so **its report is the test of whether the
   family is closed.** #430 item 3 is tracked only here now.
@@ -287,6 +380,14 @@ line rather than two plausible ones.
 machine disagree, ask the machine.** The runbook was right about what the owner
 decided; the scheduler was right about what is true. Reading either alone
 produces the wrong fix.
+
+**Read that alongside the container-runtime section above, which is the third
+report about this backup and the first that was not an overstatement.** The
+check was right to be silent and is still right: nothing has been photographed
+since 2026-08-07, so no dump is owed. What it cannot see, and says so in its own
+header, is that the database those dumps are taken *from* is no longer reachable.
+A freshness check watches whether a backup is owed, never whether the thing it
+backs up is still there.
 
 ## Merging works, and it did not for the first three hours
 
