@@ -59,15 +59,49 @@ const check = (name, actual, expected) => {
   check('fresh and verified says nothing', said.length, 0)
 }
 
-// --- Just inside and just outside the threshold.
+// --- An age on its own is never a complaint. #241 replaced the schedule with
+// --- "back up before the operation", so there is no clock to be late against,
+// --- and an old dump on a week when nobody touched anything is correct.
 {
-  const said = complaints({ dumps: dumpsDir('edge-in', 35), covers: coversDir('edge-in-c', 35), coversSource: coversDir('edge-in-s', 35) }, NOW)
-  check('35 hours is still fine', said.length, 0)
+  // The real state of this machine on 2026-08-25: dump six days old, nothing
+  // scanned for seventeen. The version of this check that shipped said "the
+  // newest catalogue dump is 5.9 days old" every session. It was wrong.
+  const said = complaints({
+    dumps: dumpsDir('quiet-old', 24 * 6),
+    covers: coversDir('quiet-old-c', 24 * 17),
+    coversSource: coversDir('quiet-old-s', 24 * 17),
+  }, NOW)
+  check('an old dump with nothing scanned since says nothing', said.length, 0)
 }
 {
-  const said = complaints({ dumps: dumpsDir('edge-out', 37), covers: coversDir('edge-out-c', 6), coversSource: coversDir('edge-out-s', 6) }, NOW)
-  check('37 hours complains', said.length, 1)
-  check('and says it is a dump', /dump is 1\.5 days old/.test(said[0]), true)
+  const said = complaints({
+    dumps: dumpsDir('ancient', 24 * 90),
+    covers: coversDir('ancient-c', 24 * 120),
+    coversSource: coversDir('ancient-s', 24 * 120),
+  }, NOW)
+  check('and age alone never complains, however old', said.length, 0)
+}
+
+// --- What the disk can prove: somebody photographed a book after the last
+// --- dump, so there is work no backup holds.
+{
+  const said = complaints({
+    dumps: dumpsDir('unbacked', 24 * 3),
+    covers: coversDir('unbacked-c', 20),
+    coversSource: coversDir('unbacked-s', 20),
+  }, NOW)
+  check('scanning newer than the dump complains', said.length, 1)
+  check('and names both ages', /newest is 0\.8 days old and the newest dump is 3\.0 days old/.test(said[0]), true)
+}
+{
+  // One hour either side of the dump, so the rule is the comparison and not a
+  // tolerance somebody could tune.
+  const said = complaints({
+    dumps: dumpsDir('just-after', 24),
+    covers: coversDir('just-after-c', 25),
+    coversSource: coversDir('just-after-s', 25),
+  }, NOW)
+  check('scanning just before the dump is covered by it', said.length, 0)
 }
 
 // --- The covers are a comparison, not an age. This is the defect this file

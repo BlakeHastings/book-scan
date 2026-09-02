@@ -88,33 +88,46 @@ written down here. What is not fine is nobody having decided.
 
 ## There is no schedule any more, and that is a decision
 
-> **This heading is false as of 2026-08-25 and is kept only because the
-> reasoning under it is still worth reading.** A scheduled task exists, it fires
-> nightly, and it has been failing. Measured rather than assumed:
+> **This section is right, and a dead task object is still registered.** Both
+> halves matter and an earlier version of this note got the balance wrong, so
+> here is the measurement rather than the argument.
+>
+> A task exists and fires nightly:
 >
 > ```
-> TaskName    : book-scan catalogue backup
-> State       : Ready
-> LastRunTime : 2026-08-24 03:30:01
+> TaskName      : book-scan catalogue backup
+> State         : Ready
+> LastRunTime   : 2026-08-24 03:30:01
 > LastTaskResult: 2147942402   (0x80070002, ERROR_FILE_NOT_FOUND)
-> NextRunTime : 2026-08-25 03:30:00
+> NextRunTime   : 2026-08-25 03:30:00
 > ```
 >
-> So the task was retired by #241 and something registered it again, and this
-> section was never updated. `ERROR_FILE_NOT_FOUND` is #454: the registration
-> names a version-pinned `pwsh` path that stopped existing when PowerShell
-> updated, so the task starts, cannot find its interpreter, and dies in under a
-> second every night.
+> **And it has never produced a backup.** All fourteen dumps on `E:` were
+> written at irregular local times — 16:14, 10:47, 13:14, 22:32, 08:28, 00:05,
+> 20:21 — and **not one at 03:30**, checked across the whole directory. They are
+> people taking a dump before an operation, which is exactly what this section
+> asks for. `ERROR_FILE_NOT_FOUND` is #454: the registration names a
+> version-pinned `pwsh` path that stopped existing when PowerShell updated.
 >
-> **This stale section nearly cost the alarm that found it.** Reading "there is
-> no schedule any more", the honest conclusion is that a five-day-old dump is the
-> documented, intended state and the check reporting it is noise. It took asking
-> the machine to find out that the opposite was true. A document describing a
-> decision that has since been undone is worse than no document, because it
-> argues confidently against the evidence in front of you.
+> So the schedule really is retired as a mechanism, and what remains is a
+> leftover that fails at 03:30 every night and writes nothing. **That is this
+> section's own sentence turned on itself**: a task that exists and fails is
+> worse than no task, because it looks like protection. Removing it is the fix,
+> not repairing it.
 >
-> Whoever fixes #454 should rewrite this section to match whatever is then true,
-> and say which of the two the owner actually wants.
+> **And the caution worth keeping is the opposite of the one first written
+> here.** On 2026-08-25 a freshness check reported the newest dump as 5.9 days
+> old and it read as an emergency. It was not: nothing had been scanned since
+> 2026-08-08 and no operation had touched the catalogue since 08-19, so under
+> the rule above there was nothing to back up. The document was right and the
+> alarm was measuring against a schedule the owner had already decided not to
+> have.
+>
+> **The live question for the owner is this section's own trigger.** It says the
+> accepted gap is worth revisiting "if a fortnight of scanning ever sits between
+> operations". It is now seventeen days since anything was scanned, which is his
+> condition, met. That is a decision about whether to bring a schedule back, not
+> a repair.
 
 **The owner retired the scheduled task on 2026-08-11.** Backups are taken before
 any operation that touches the catalogue, by whoever is doing the operation, and
@@ -790,9 +803,24 @@ destination's newest is at least as new as the source's, at any age. False the
 moment a copy is missed, and silent through a quiet fortnight. Where the source
 cannot be read it says so rather than falling back to an age.
 
-**The dumps are still checked by age**, because a run produces a new file every
-night, so age there really is time-since-last-success. Two clocks, two kinds of
-question.
+**The dumps are not checked by age either, and that is the correction after
+this one.** Ageing them assumes a nightly run to be late against, and there is
+no nightly run: #241 retired the schedule and the fourteen dumps on the disk are
+at irregular times because people took them before operations. A five-day-old
+dump on a week when nobody touched the catalogue is correct, and the version of
+the check that said so read as an emergency.
+
+So what the check asks about timing is the one thing the disk can prove:
+**has anything been photographed since the newest dump was taken?** If yes,
+there is work no backup holds and it says so. If no, it is silent whatever the
+age.
+
+**What that cannot see** is a week of edits — moving a book, lending one,
+correcting a record — none of which write a file. Under #241 the only thing
+covering those is the person doing the operation taking a dump first, which is a
+procedural guarantee that nothing on disk can detect the absence of. Said out
+loud here because a check that looks like it watches the catalogue and in fact
+watches the camera is exactly the shape of thing this project keeps finding.
 
 ### Where the answer goes
 
