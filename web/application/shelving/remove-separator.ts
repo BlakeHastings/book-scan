@@ -47,7 +47,17 @@ export interface RemoveSeparator {
  */
 export type SeparatorRemoval =
   | { ok: true; removed: number | null }
-  | { ok: false; areaId: number; range: ShelfRange }
+  /** Nobody has been told the area comes off the furniture (#456). */
+  | { ok: false; reason: 'not-assented'; areaId: number; range: ShelfRange }
+  /**
+   * The act itself would not do it, and said why in a sentence for a person.
+   *
+   * The one case today is an area that is the only one on its piece: its books
+   * have nowhere on that piece to join, and taking the piece away is a
+   * different question asked somewhere else. Before #465 this door emptied the
+   * piece instead and answered `ok`.
+   */
+  | { ok: false; reason: 'refused'; status: number; error: string }
 
 export class RemoveSeparatorHandler {
   constructor(
@@ -88,6 +98,21 @@ export class RemoveSeparatorHandler {
    * remember, which is the same reason the placement ledger sits on the
    * statements that write a location (#185) and not on the routes above them.
    *
+   * ## It decides whether, and the port does what (#465)
+   *
+   * Removing a boundary and removing an area are one act: an area comes off the
+   * furniture and its books join the one in front. They were two write paths,
+   * and only `dropArea` behind `DELETE /api/areas/:id` wrote the placement that
+   * says where the books went; this one deleted the row and wrote nothing, so
+   * every book on the plank was left naming an area the run no longer had and
+   * the shelving review reported a trip for each of them. That is #185's rule
+   * again, and the same one #464 applied to the assent on this route: **the
+   * recording belongs on the statement that writes, not on the caller.**
+   *
+   * So there is no ledger write here to keep in step with the other door.
+   * `SeparatorRepository.remove` *is* the act, its one implementation calls
+   * `dropArea`, and a third caller cannot forget a step it never had.
+   *
    * **The order of the two checks is the rule about retries.** A boundary this
    * range no longer has is answered `{ ok: true, removed: null }`, not refused:
    * a request to remove a line somebody else already removed has got what it
@@ -106,9 +131,20 @@ export class RemoveSeparatorHandler {
 
       // Before the write and not after it, so a caller that has not asked gets
       // the refusal and a room exactly as it was.
-      if (command.theAreaGoes !== true) return { ok: false, areaId: removal.id, range }
+      if (command.theAreaGoes !== true) {
+        return { ok: false, reason: 'not-assented', areaId: removal.id, range }
+      }
 
-      await this.separators.remove(removal.id)
+      /*
+       * The one act (#465). `remove` takes the area off the furniture, hands its
+       * books to the area in front and writes the `assigned` row that says so;
+       * this handler decides *whether*, and no longer has a second opinion about
+       * *what*.
+       */
+      const taken = await this.separators.remove(removal.id)
+      if (!taken.ok) {
+        return { ok: false, reason: 'refused', status: taken.status, error: taken.error }
+      }
       return { ok: true, removed: removal.id }
     })
   }

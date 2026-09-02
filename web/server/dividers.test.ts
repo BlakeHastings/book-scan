@@ -25,6 +25,7 @@ import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { libraryRows, plankAt, type LibraryRow, type ShelfGroup } from '../shared/layout'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
+import { outstandingWork } from './carry'
 
 let db: Db
 let store: Store
@@ -192,7 +193,23 @@ describe('the lines drawn between areas', () => {
 })
 
 describe('removing the bookcase boundary', () => {
-  it('deletes the row that starts the bookcase named beneath it', async () => {
+  /**
+   * **What this used to assert is what #465 found and changed.**
+   *
+   * Remove on this line used to fold bookcase 2 back into bookcase 1: the
+   * boundary list came out one entry shorter, `areasOf` walked it without a
+   * bookcase break, and the rows were reconciled by position. So bookcase 1
+   * gained two planks it had never had, bookcase 2 was left standing with none
+   * on its face, and four books changed plank with nothing written down. That
+   * outcome contradicted `docs/shelving.md` in the sentence this act is
+   * specified by: "Removing a boundary takes **that area** off the furniture
+   * and hands its books to the area in front" — one area, not a bookcase.
+   *
+   * Both doors go through `dropArea` now, so the plank the line opens is the
+   * plank that goes, every row after it keeps its identity, and the piece keeps
+   * standing with the planks it really has.
+   */
+  it('takes the plank the line opens off the bookcase, and leaves the bookcase', async () => {
     await twoBookcases()
 
     const line = lineAbove(libraryRows(await shelves.groups('fiction')), '2A')
@@ -202,41 +219,34 @@ describe('removing the bookcase boundary', () => {
 
     await shelves.remove(line.separatorId, { theAreaGoes: true })
 
-    // At the database: that boundary and no other, still opening at the books
-    // they opened at.
+    // At the database: that boundary and no other, and the run is a plank
+    // shorter rather than a bookcase shorter.
     const after = await rows()
     expect(after.map((row) => row.id)).not.toContain(doomed.id)
-    expect(after.map((row) => row.starts_at)).toEqual(survivors.map((row) => row.starts_at))
-    expect(await openers()).toEqual(['area@Fay Ford', 'area@Jo Jones'])
+    expect(await openers()).toEqual(['area@Fay Ford', 'shelf@Hal Hale'])
+    expect(await planks()).toEqual(['1:0', '1:1', '2:0'])
 
-    // Only the first surviving row is the row it was, and that is genuinely
-    // different since #232: a boundary is the plank it opens, so folding
-    // bookcase 2 back into bookcase 1 moves the boundary below the removed one
-    // onto a plank of bookcase 1, which is another row. What it opens at is the
-    // fact that has to survive, and it does, above.
-    expect(after[0]!.id).toBe(survivors[0]!.id)
-    expect(after[1]!.id).not.toBe(survivors[1]!.id)
+    // **Every surviving row is the row it was**, which is the half that used to
+    // be false. A book recorded on the plank below the removed one is still
+    // recorded on that row; what changed is the letter it reads as, and
+    // `becomes` is how somebody is told that.
+    expect(after.map((row) => row.id)).toEqual(survivors.map((row) => row.id))
 
-    // The old assertion here was that `separators.position` was renumbered so
-    // the column stayed contiguous. A boundary's position is where its plank
-    // sits in the run now, so it is contiguous by construction and there is
-    // nothing left to renumber (see DrizzleSeparatorRepository). What can still
-    // go wrong is the furniture underneath: a bookcase numbers its planks from
-    // zero without a gap, or a label names a plank that is not there.
-    expect(await planks()).toEqual(['1:0', '1:1', '1:2'])
+    // The plank that came forward took the removed one's anchor, so the books
+    // that were on it are the books it now opens at.
+    expect(after[1]!.starts_at).toBe(doomed.starts_at)
 
-    // And exactly these books changed plank. The bookcase break is gone, so
-    // bookcase 2 folds back into bookcase 1 and every plank past it shifts one
-    // letter earlier. Nothing on 1A or 1B moved at all.
-    const moved = await shelves.movesSince('fiction', before)
-    expect(await titlesOf(moved)).toEqual([
-      { title: 'Hal Hale', from: '2A', to: '1B' },
-      { title: 'Ida Innes', from: '2A', to: '1B' },
-      { title: 'Jo Jones', from: '2B', to: '1C' },
-      { title: 'Kim Kent', from: '2B', to: '1C' },
+    // Only Jo and Kim read a different letter, and neither changed row: the
+    // books that have to be carried are Hal and Ida, off the plank that went,
+    // and they are on the carry list rather than in this diff. See the ledger
+    // case below, and note that `movesSince` compares labels rather than
+    // planks, which is why it names two books nobody has to move (#465).
+    expect(await titlesOf(await shelves.movesSince('fiction', before))).toEqual([
+      { title: 'Jo Jones', from: '2B', to: '2A' },
+      { title: 'Kim Kent', from: '2B', to: '2A' },
     ])
     expect(await labels()).toEqual([
-      '1A', '1A', '1A', '1A', '1A', '1B', '1B', '1B', '1B', '1C', '1C',
+      '1A', '1A', '1A', '1A', '1A', '1B', '1B', '2A', '2A', '2A', '2A',
     ])
 
     // Asserted last, and separately: what the line said is the visible half,
@@ -286,6 +296,164 @@ describe('removing an area boundary', () => {
 })
 
 /**
+ * The ledger, at the act rather than at one of the two doors into it (#465).
+ *
+ * `DELETE /api/areas/:id` wrote an `assigned` row per book naming the area that
+ * took them in, and `DELETE /api/shelves/:id` wrote none, for the same act. Two
+ * things followed from that, and both are asserted here rather than described:
+ * the books on the plank that went were left with no record of where they now
+ * belong, and the plank *after* the removed one was the row that got retired,
+ * so a book nobody had to carry anywhere was reported as a trip.
+ *
+ * These read `book_placement` directly, the way the cases above read `area`.
+ * What a route answers is somebody else's test; what is pinned here is what is
+ * written down, because that is the half that outlives the request.
+ */
+describe('removing a boundary records where its books went', () => {
+  /** Every `assigned` row this book has, newest last, as area ids. */
+  const assignedTo = async (bookId: number) =>
+    (await db.all<{ area_id: number; actor: string; reason: string }>(
+      `SELECT area_id, actor, reason FROM book_placement
+        WHERE book_id = ? AND kind = 'assigned' ORDER BY id`,
+      [bookId],
+    ))
+
+  /**
+   * The plank a board is drawn on, taken off the board (#469).
+   *
+   * Found by what the board says, the way every case in this file finds the line
+   * a person taps, and then read as a row. What it does not do is parse that
+   * label back into a bookcase and a plank: since #469 a board carries the area
+   * it is drawn on, so the identity is there to be asked for, and #447 closed
+   * the last place in the app that recovered one from a rendered string.
+   */
+  const areaOfBoard = async (label: string) =>
+    (await shelves.groups('fiction')).find((group) => group.label === label)?.areaId ?? null
+
+  const bookNamed = async (title: string) =>
+    (await shelves.layout('fiction')).find((placed) => placed.book.title === title)!.book.id
+
+  it('writes an assigned row per book, naming the area that took them in', async () => {
+    await twoBookcases()
+
+    const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
+    const absorbing = await areaOfBoard('1A')
+    const fay = await bookNamed('Fay Ford')
+    const gil = await bookNamed('Gil Gray')
+    const hal = await bookNamed('Hal Hale')
+
+    expect(await assignedTo(fay)).toEqual([])
+
+    await shelves.remove(line.separatorId, { theAreaGoes: true })
+
+    // The two books that were standing on the plank that went, and the area
+    // that took them in, said as a row rather than as a label.
+    for (const id of [fay, gil]) {
+      const rows = await assignedTo(id)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.area_id).toBe(absorbing)
+      expect(rows[0]!.actor).toBe('rules')
+      expect(rows[0]!.reason).toBe('1B was removed')
+    }
+
+    // And nothing for a book the removal was not about. `assigned` rows are
+    // written only where the answer differs from where the book already is,
+    // which is `assignmentFor`, and writing one for every book in the range
+    // would make the ledger useless as history.
+    expect(await assignedTo(hal)).toEqual([])
+  })
+
+  /**
+   * The trip nobody had to walk, which is what this defect actually cost.
+   *
+   * The boundary list rewrite retired the **last** row of the run and left
+   * every row between the removal and the end holding an id that had come to
+   * mean a different plank. So the book on the plank below the removed one was
+   * recorded on a row it was no longer standing on, and the shelving review
+   * read that as a book to carry. Nobody had to carry it: its plank simply
+   * reads a letter earlier now, which is what `becomes` is for.
+   */
+  it('leaves the plank below alone, so nobody is sent to carry a book that has not moved', async () => {
+    await twoBookcases()
+    // A third plank on bookcase 2, so there is a row *after* the one being
+    // removed and still on its piece. Without it the removed plank is the tail
+    // of its fixture and the two write paths cannot be told apart.
+    await fillUp('2A', 'area')
+    await fillUp('2B', 'area')
+
+    const groups = await shelves.groups('fiction')
+    const line = lineAbove(libraryRows(groups), '2B')
+    // The plank below the one that is going, and a book standing on it. A
+    // boundary's id is the area it opens, so the group after this one names its
+    // own row without anything here parsing a label.
+    const at = groups.findIndex((group) => group.opensWith?.id === line.separatorId)
+    const below = groups[at + 1]!.areaId
+    const stayed = groups[at + 1]!.books[0]!.book.id
+    const wasLabelled = groups[at + 1]!.label
+
+    const rowsBefore = await areas()
+    await shelves.remove(line.separatorId, { theAreaGoes: true })
+
+    // Nobody is asked to carry it, and nothing claims it belongs elsewhere.
+    // This is the assertion the issue is about; the two below it are the
+    // mechanism that makes it true.
+    const review = await shelves.review('fiction')
+    expect(review.misfiles.map((one) => one.book.id)).not.toContain(stayed)
+    expect(await assignedTo(stayed)).toEqual([])
+
+    // The row that went is the one the line opened, and the row below it is
+    // still the row it was: same id, one letter earlier.
+    expect(rowsBefore.map((row) => row.id)).toContain(line.separatorId)
+    expect((await areas()).map((row) => row.id)).not.toContain(line.separatorId)
+    expect(await areaOfBoard(wasLabelled)).not.toBe(below)
+    expect(await areaOfBoard('2B')).toBe(below)
+  })
+
+  /**
+   * The work a removal makes reaches both lists, which is #458.
+   *
+   * A hunting pass found the library saying "Needs attention (2)" while the
+   * first screen said "0 to carry" and the carry screen said "Every book is
+   * where the rules want it", straight after a boundary removal. The two are
+   * different reads by design — `review` recomputes from sort order and the
+   * furniture, `outstandingWork` folds the ledger — and only the first could see
+   * a removal, because the removal wrote nothing for the second to fold. That is
+   * not two screens to reconcile; it is one missing write.
+   *
+   * **The delta, not the two totals**, and the difference matters. The lists are
+   * not the same list and are not meant to be: the review catches a book whose
+   * plank changed under it for any reason, the carry list holds what the rules
+   * have asked for and nobody has done. Asserting they match whole would pin
+   * this fixture's own backlog — `twoBookcases` leaves Jo Jones and Kim Kent
+   * recorded on `1C` and derived onto `2B`, uncarried, before this test touches
+   * anything. What #458 is about is a removal adding to one and not the other.
+   *
+   * The sets, not the counts: two lists of one that name different books agree
+   * on a number and on nothing else.
+   */
+  it('puts the books a removal moves on both the review and the carry list', async () => {
+    await twoBookcases()
+
+    const reviewed = async () =>
+      (await shelves.review('fiction')).misfiles.map((one) => one.book.id)
+    const carrying = async () =>
+      (await outstandingWork(db)).trips.flatMap((trip) => trip.books.map((book) => book.id))
+
+    const wasReviewed = new Set(await reviewed())
+    const wasCarrying = new Set(await carrying())
+
+    const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
+    await shelves.remove(line.separatorId, { theAreaGoes: true })
+
+    const addedToReview = (await reviewed()).filter((id) => !wasReviewed.has(id))
+    const addedToCarry = (await carrying()).filter((id) => !wasCarrying.has(id))
+
+    expect(addedToReview.length).toBeGreaterThan(0)
+    expect([...addedToCarry].sort()).toEqual([...addedToReview].sort())
+  })
+})
+
+/**
  * The assent, at the act rather than at any of the three doors into it (#456).
  *
  * Every case here goes through `Shelves.remove`, which is one line over
@@ -303,7 +471,7 @@ describe('removing a boundary asks first', () => {
     const refused = await shelves.remove(line.separatorId)
 
     expect(refused).toEqual({
-      ok: false, areaId: line.separatorId, range: 'fiction',
+      ok: false, reason: 'not-assented', areaId: line.separatorId, range: 'fiction',
     })
     // Every plank still there, still anchored at the same book, and every book
     // still on the plank it was on. Nothing was written and rolled back: the

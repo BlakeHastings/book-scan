@@ -530,6 +530,36 @@ and the area that takes them in.
 **The carry list drawn afterwards is not the asking.** "Nothing has moved.
 Dismiss this once they have" is a list of what has already happened.
 
+### Removing a boundary and removing an area are one act (#465)
+
+`DELETE /api/shelves/:id` is a person saying two areas are one and
+`DELETE /api/areas/:id` is a person saying a plank is gone. They read as two
+sentences and they are one act, because the sentence above settles what the act
+is: **removing a boundary takes that area off the furniture and hands its books
+to the area in front.** So both go through `dropArea`, which is the one place
+that knows what that costs: the area is retired rather than deleted whenever the
+ledger names it, the planks after it are renumbered so each keeps the identity a
+placement points at, and an `assigned` row is written per book naming the area
+that took them in.
+
+They were two write paths and only one of them recorded, which is #465 and is
+the seventh defect this project has had from one question answered in two
+places. The recording is not on either caller now, so a third caller cannot
+forget it: it is on the act, the same way the assent above is (#456) and the
+same way #185 put the placement on the statement that writes a location.
+
+**What that changed for a bookcase break.** Removing the line above the first
+plank of a bookcase used to fold the whole bookcase into the one before it: the
+boundary list came out one entry shorter, the areas were re-derived from it by
+position, and the result was planks invented on a piece that had never had them
+and a piece left standing with nothing on its face — the state #391 and #420 are
+about. What goes now is the plank the line opens, which is what this section has
+always said, and the bookcase keeps standing with the planks it really has.
+
+**And it can refuse.** An area that is the only one on its piece has nothing
+there for its books to join, so the act says so and says that removing the piece
+is the way to move them; the boundary path used to strip the piece instead.
+
 ## Placing a book on a plank that is full
 
 Capacity is not modelled and never will be (decision 2), so the only signal

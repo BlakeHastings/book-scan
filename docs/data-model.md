@@ -181,6 +181,17 @@ because they are properties of these two rows:
   counted. `PATCH /api/books/:id/location` remains the only route that changes
   where the catalogue thinks a book is.
 
+  **`DELETE /api/shelves/:id` is that same act and not a second one** (#465).
+  Removing the boundary that opens an area takes that area off the furniture, so
+  it goes through `dropArea` like the route above it rather than beside it. It
+  did not until #465: it rewrote the boundary list, which retired the *last*
+  plank of the run instead of the one that went, left every plank between the
+  removal and the end holding an id that had come to mean a different plank, and
+  wrote no placement at all. So a book was recorded on a plank it was not
+  standing on, the shelving review named a trip nobody had to walk, and the
+  work that was real never reached the carry list, which reads the ledger.
+  There is one writer for this now and no caller has a step to remember.
+
 ### SortStrategy
 
 `sort_strategy(code, label, is_inherit, available, note)`

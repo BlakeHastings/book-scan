@@ -18,6 +18,8 @@ import { areaFaces } from '../infrastructure/shelving/areas'
 import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
+import { needsAttention, standingOf } from '../domain/placement/ledger'
+import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let store: Store
@@ -1321,6 +1323,9 @@ describe('taking a boundary move back', () => {
   const locations = async (...ids: number[]) =>
     Promise.all(ids.map(async (id) => (await store.getBook(id))?.location))
 
+  /** One book's ledger, so a claim can be made about what is standing. */
+  const placementsOf = async (id: number) => new DrizzlePlacementLedger(db).forBooks([id])
+
   it('puts the boundary back, and says which way the book came', async () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
@@ -1417,6 +1422,38 @@ describe('taking a boundary move back', () => {
     // Contiguous positions, or `list`'s ORDER BY position stops describing the
     // shelves. See RangeSeparators.
     expect((await shelves.list('fiction')).map((one) => one.position)).toEqual([0])
+  })
+
+  /**
+   * The half of the undo that #465 made necessary.
+   *
+   * A move that empties an area takes it off the furniture, which is the act
+   * `dropArea` performs, and that act writes an `assigned` row per book naming
+   * the plank that took them in — because those books really do have to be
+   * carried. Putting the plank back means they do not, so the retraction has to
+   * take the assignment back as well as the boundary. Left standing it is a trip
+   * on the carry list for a move that was taken back, which is the same defect
+   * #465 is about seen from the other end.
+   *
+   * Before #465 the removal wrote nothing, so this was symmetric by accident.
+   */
+  it('takes the assignment back too, so nothing is left on the carry list', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob alone on 1B
+    await store.setLocation(bob, '1B')
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'previous', { theAreaGoes: true })
+    // The act recorded where Bob now belongs, which is the fix in #465.
+    expect(needsAttention(standingOf(await placementsOf(bob)))).toBe(true)
+
+    expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
+
+    // And the retraction took it back: Bob is on the plank the catalogue
+    // records him on, and no rule is asking for him anywhere else.
+    expect(await labels()).toEqual(['1A', '1B'])
+    expect(needsAttention(standingOf(await placementsOf(bob)))).toBe(false)
+    expect((await shelves.review('fiction')).misfiles).toEqual([])
   })
 
   /**

@@ -205,24 +205,58 @@ describe('the areas and the boundaries being two readings of one run', () => {
     await roundTrips('fiction')
   })
 
+  /**
+   * **What this asserted before #465 was a bookcase disappearing.**
+   *
+   * `remove` used to write the boundary list back without one entry and let
+   * `areasOf` re-walk it, so taking out a bookcase break folded bookcase 2 into
+   * bookcase 1: bookcase 1 grew a plank it had never had, and bookcase 2 was
+   * left standing with none. Removing a boundary takes *that area* off the
+   * furniture (`docs/shelving.md`), so it is `dropArea` now, and what goes is
+   * the plank the boundary opened.
+   */
   it('round-trips what a removal wrote', async () => {
     await repository.add(asked('fiction', 'area', 'b'))
     await repository.add(asked('fiction', 'shelf', 'd'))
     await repository.add(asked('fiction', 'area', 'f'))
 
     const boundaries = await repository.inRange('fiction')
-    await repository.remove(boundaries[1]!.id)
+    expect(await repository.remove(boundaries[1]!.id)).toEqual({ ok: true })
 
-    // The bookcase break went, so what was on bookcase 2 folds back into
-    // bookcase 1 and the plank break after it becomes an ordinary one.
-    expect(said(await repository.inRange('fiction'))).toEqual(['area@b#0', 'area@f#1'])
+    // The first plank of bookcase 2 went and the one below it came forward,
+    // taking over its anchor: the piece keeps standing, one plank shorter, and
+    // the bookcase break is still where the bookcase still starts.
+    expect(said(await repository.inRange('fiction'))).toEqual(['area@b#0', 'shelf@d#1'])
     expect(await furniture()).toEqual([
       { fixture: 1, position: 0, starts_at: '' },
       { fixture: 1, position: 1, starts_at: 'b' },
-      { fixture: 1, position: 2, starts_at: 'f' },
+      { fixture: 2, position: 0, starts_at: 'd' },
       { fixture: 4, position: 0, starts_at: '' },
     ])
     await roundTrips('fiction')
+  })
+
+  /**
+   * The one refusal this method has, and it is new (#465).
+   *
+   * An area that is the only one on its piece has nothing there for its books
+   * to join, so `removeArea` refuses and says what to do instead. The boundary
+   * list rewrite had no such answer: it took every plank off the piece and left
+   * it standing empty, which is the state #391 and #420 are about.
+   */
+  it('refuses to take the only plank off a piece, and leaves it standing', async () => {
+    await repository.add(asked('fiction', 'shelf', 'd'))
+
+    const [boundary] = await repository.inRange('fiction')
+    const refused = await repository.remove(boundary!.id)
+
+    expect(refused.ok).toBe(false)
+    expect(refused.ok === false && refused.error).toMatch(/only one on this piece/)
+    expect(await furniture()).toEqual([
+      { fixture: 1, position: 0, starts_at: '' },
+      { fixture: 2, position: 0, starts_at: 'd' },
+      { fixture: 4, position: 0, starts_at: '' },
+    ])
   })
 })
 
