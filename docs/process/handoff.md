@@ -7,42 +7,59 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up 2026-09-02 at `58606cb` (`master`, after #470),
+**Written 2026-08-24, topped up 2026-09-02 at `9a69d2a` (`master`, after #478),
 on the far side of a machine wipe.** It rots quickly. Three merges from now,
 distrust the "in flight" section entirely and read `gh pr list` instead.
 
 ## In flight
 
-**Three agents are running, and the loop is unblocked again.** The runtime is
-back, so the sentence this section carried a few hours ago — that nothing could
-run — is no longer true. Read the wipe section below before trusting anything
-here about the machine.
+**Two agents running, and the loop is fully unblocked.** The runtime came back
+on 2026-09-02 and five pull requests landed the same day.
 
 | Issue | Who has it |
 | --- | --- |
-| #468 | an agent, in a worktree. The placing instruction reading a label back |
-| #463 | an agent, in a worktree. Two rules on one genre, two answers |
-| #472 | an agent, read-only. What the app needs to run somewhere else, feeding epic #471 |
+| #447 | an agent, rebasing **PR #469** across #477 and #478 and then driving it, which has never been done. Its brief is a comment on the pull request rather than here |
+| #465 | an agent, in a worktree. Removing a boundary writes no placements |
 
-**PR #469 is open and green and is not being worked by anybody.** It came out of
-#447 and it has passed two of the three lenses: the diff does what it says (the
-shelves route joins each board to its plank **from the address rather than from
-the books standing on it**, which is the mistake #434 was), and
-`npm run typecheck` is clean. **The functional lens is what is outstanding**,
-the two endpoints agreeing on a named piece, and that needed Postgres, which is
-why it has waited. It can be verified now. Rebase it first; it is behind.
+**Landed 2026-09-02**: #473 and #476 (this file), #474 (the deployment survey),
+#477 (issue #468) and #478 (issue #463). Every code one was driven in the running
+app by the orchestrator before merging, and each carries a review record saying
+what was checked and what was taken on trust.
 
-**#448 never opened a pull request.** Branch `e2e/448-leaving-books-flake` and
-its worktree still hold one commit, and the issue is open and unclaimed. It runs
-browser journeys in a loop and is the heaviest thing on this machine. Give it a
-session with nothing else running.
+**#448 is still unclaimed.** Branch `e2e/448-leaving-books-flake` and its
+worktree hold two commits: a loop harness under `e2e/loop/` and `e2e/support/`
+that measures the flake rather than arguing about it, and a change making the
+suite say when the machine refused it memory. Nothing is pushed as a pull
+request. It runs browser journeys in a loop and is the heaviest thing on this
+machine, which now has a third of the commit limit it had. **Give it a session
+with nothing else running**, and read the pagefile section before starting.
 
-**#471 is new and it is the owner's.** It is the epic for deploying the
-catalogue somewhere that is not this desktop, opened because the wipe is the
-concrete form of the risk it exists to end. Four questions in it are Blake's and
-two of them decide the size of the work: whether it is reachable from outside the
-house, and therefore whether authentication has to exist first. #472 is the half
-of it that needs nobody.
+**#471 is the owner's and it is the largest thing open.** The epic for deploying
+the catalogue somewhere that is not this desktop, opened because the wipe is the
+concrete form of the risk it exists to end. `docs/deployment-survey.md` is the
+half that needed nobody and it is merged; read it before touching the epic,
+because it changes what the work is. Four questions in the epic are Blake's and
+two decide its size: whether the app is reachable from outside the house, and
+therefore whether authentication has to exist first.
+
+## What the deployment survey found, which nobody expected
+
+Kept here rather than only in the document, because it is the fact most likely
+to be assumed wrong by somebody who has not read it:
+
+**This application has never been built for production.** The live catalogue is
+served by `npm run dev` — `tsx watch` and the Vite dev server behind a
+self-signed certificate — started by a Windows scheduled task from two files
+that are not in this repository (#475). There is no server build at all. The
+client has one and **nothing in the repository or CI has ever run it**; it does
+work, and produces a servable bundle in about three seconds.
+
+`apphost.mts` is a development orchestrator and not a deployment mechanism. It
+declares no image, no registry and no target.
+
+The configuration surface is **twelve** environment variables, not the two
+`AGENTS.md` names, and five of them default to origins on the public internet.
+
 ## What the fixes keep turning out to be
 
 Worth carrying forward, because it has now happened five times and it changes
@@ -57,11 +74,25 @@ how to write a brief:
   was in the right place. It was one level too high.
 - **#454** was overstated by me twice, and the second correction inverted the
   fix: the schedule was retired on purpose and the failing task has never worked.
+- **#463** turned out to be held in place by a test that asserted it. The world
+  in `carry-placing.test.ts` diverged for free, because a rewritten rule row goes
+  to the end of the Postgres heap and `rules.find` then returned the other rule.
+  So a passing test was the defect written down, and any correct fix broke it.
 
 **Reproduce before fixing, read the specification before deciding what correct
 is, and when a document and a machine disagree, ask the machine.** All three are
 now in `docs/process/working-an-issue.md` rather than in whichever brief somebody
 remembered to put them in.
+
+**A fourth, learned twice on 2026-09-02 and not yet routed anywhere: an agent
+should check its brief against `origin/master` rather than believe it.** Both
+agents that day contradicted something they were handed, and both were right.
+One was told #469 had landed and found it open, so the code it was sent to read
+was not there. The other found the test above asserting the thing it was sent to
+fix. **A brief is a claim about the tree, and the tree is the authority.** The
+existing warning in this file is aimed at the orchestrator writing from a stale
+checkout; this is the same failure caught from the other end, and the agent is
+the cheaper place to catch it.
 
 ## The harness process exited, and took every agent with it
 
@@ -328,10 +359,15 @@ Traps, each of which has actually bitten:
   outside the house, and therefore whether authentication has to be built before
   anything ships. There is no login today and #171 is `shaping`. **LAN-only can
   ship without touching that; internet-facing cannot.** #472 is the part of the
-  epic that needs nobody and is being surveyed now.
+  epic that needed nobody. It is done and merged as
+  `docs/deployment-survey.md`, and it changes what this epic is: production
+  today is a dev server and there is no server build at all.
 - **Restoring the catalogue** — the recovered volume is on disk and so is a dump
   that agrees with it. Putting either back into a live `book-scan-live-pgdata`
   is the owner's, and no agent may do it. Nothing in development needs it.
+- **#479** — which of two hardcoded fallbacks is right for where a range begins
+  when no rule claims it. Neither has a reason written down and the values
+  disagree. Escalated by an agent rather than guessed at, which was correct.
 - **#348** — the second catalogue has never answered, because there is no
   Google Books API key. **Only Blake can supply the key.** Everything else in
   that issue can be built without it: saying when a source did not answer is the
@@ -371,20 +407,30 @@ workaround while it stands is `--body-file`, or a non-shell write tool.
 
 ## Open, as of this writing
 
-**One pull request open: #469**, which is #447 and is green and two-thirds
-reviewed. Everything else below is an issue nobody is holding.
+**One pull request open: #469**, being rebased and driven by an agent. Two issues
+are held by agents (#447 through that pull request, and #465). Everything else
+below is an issue nobody is holding.
 
-**The label-parser family, which is the expensive one.** Seven defects have come
-out of one question answered twice, and three fixes for it landed on 2026-08-24.
+**The label-parser family, and it is nearly closed.** Eight defects have come out
+of one question answered twice. Three fixes landed 2026-08-24 and two more on
+2026-09-02.
 
-- **#447** — `pieceOf`, the last reader of a parsed label. **Landed as PR #469**, awaiting the app. Its
-  brief asks the agent to say plainly whether any place is left that reads a
-  rendered label back as a fact, so **its report is the test of whether the
-  family is closed.** #430 item 3 is tracked only here now.
-- **#463** — `bandsOf` picks a range's rule with `rules.find(...)` while `claim`
-  picks by area-before-fixture, priority, id. With two rules on one genre they
-  disagree about where a run begins. Seen live. **Upstream of the cascade**, so
-  it is the most valuable one left after #447.
+- **#468** — `buildPlacement` compared two rendered labels, and on a named piece
+  said two planks were one in the sentence somebody acts on. **Fixed and merged
+  as #477**, which also deleted `compareLocations`, whose contract was the
+  family's trap written down as a function.
+- **#463** — `bandsOf` chose a range's rule with `rules.find` while `claim` chose
+  by precedence. **Fixed and merged as #478**, which made `ruleForRange` the one
+  answer and moved the precedence ladder into `domain/placement/rules.ts` as
+  `byPrecedence`. It had been written out three times.
+- **#447** — `pieceOf` (`web/src/lib/areaRuns.ts`), reached from `ShelfView`.
+  **The last known reader of a rendered label**, and #477's sweep of eight search
+  lines found no other. PR #469 is what closes it, and its report is the test of
+  whether the family is closed. #430 item 3 is tracked only here now.
+- **#479** — new, and the eighth. Two hardcoded fallbacks for where a range
+  begins when no rule claims it: `shelves.ts:338` says bookcase 1 for any range,
+  `store.ts:349` says 4 for non-fiction. **Neither has a reason written down**,
+  so which is right is the owner's and it was escalated rather than guessed.
 - **#458** — Today says "0 to carry" while the manage screen says "Needs
   attention (2)", on the count that tells the owner whether there is work
   outstanding. Same family, worst placement.
@@ -395,18 +441,28 @@ out of one question answered twice, and three fixes for it landed on 2026-08-24.
   books to be moved by mistake.
 - **#459** — nothing records who has a lent book, and the date is on a screen
   reached by a misfile label. Item 4 of it needs the owner.
-- **#465** — removing a boundary moves books and writes no placements, so they
-  end up pointing at an area that no longer exists. Confirmed live.
+- **#465** — removing a boundary moves books and writes no placements. Being
+  worked.
+
+**The deployment epic #471**, and under it **#475**: the launcher that starts the
+live catalogue is two files in no version control, in the same directory as the
+data. The wipe kept the profile, so they survived by luck. #472 is done and
+merged as `docs/deployment-survey.md`.
 
 **Process and housekeeping:** #444 (the merge guard reads text it should not, and
-cannot say whether it is loaded — workaround is `--body-file`), #451 (a message
-faint in both themes, and a dead header frame the orphan test cannot see), #452
-(making a tag no book carries yet).
+cannot say whether it is loaded — the repo's copy still has no `--probe`, checked
+2026-09-02, so the workaround is `--body-file`), #451 (a message faint in both
+themes, and a dead header frame the orphan test cannot see), #452 (making a tag
+no book carries yet), #448 (the e2e flake, with a loop harness already committed
+on its branch and no pull request).
 
-**Needs the owner, not an agent:** #454 (remove the failing task or restore the
-schedule, and whether to arm `BOOKSCAN_BACKUP_DIR` on the stable launcher), #440
-(a design question wanting a gallery drawing first), #348 (needs an API key for
-the smaller half). The two `shaping` epics #171 and #139 are never dispatched.
+**Needs the owner, not an agent:** #471 (where this deploys, and whether it is
+reachable from outside the house), #479 (which fallback is right), #454 (remove
+the failing task or restore the schedule, and whether to arm
+`BOOKSCAN_BACKUP_DIR` on the stable launcher), #440 (a design question wanting a
+gallery drawing first), #348 (needs an API key for the smaller half). Restoring
+the recovered catalogue is also the owner's. The two `shaping` epics #171 and
+#139 are never dispatched.
 
 ## The backup, which was reported wrongly twice and is worth reading carefully
 
