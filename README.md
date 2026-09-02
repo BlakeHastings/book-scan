@@ -33,6 +33,7 @@ setup, including why the certificate warning appears and how to get rid of it.
 | [`docs/shelving.md`](docs/shelving.md) | The shelving specification, and the authority on filing rules |
 | [`e2e/README.md`](e2e/README.md) | The browser end to end suite, and how the camera is faked |
 | [`docs/postgres-migration.md`](docs/postgres-migration.md) | The staged plan for moving off SQLite, and the decisions behind it |
+| [`docs/deployment-survey.md`](docs/deployment-survey.md) | What this app requires in order to run somewhere that is not one desktop |
 | [`AGENTS.md`](AGENTS.md) | Instructions for coding agents, including data safety |
 
 ## Your catalogue is not in this repository
