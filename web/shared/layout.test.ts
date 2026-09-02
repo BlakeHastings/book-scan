@@ -48,7 +48,7 @@ describe('labels', () => {
 
   it('has no index for a bookcase with no plank on it', () => {
     // `S4` parses as a location and names no plank, so it is not plank A. Two
-    // different places, and `compareLocations` already sorts them apart.
+    // different places, and `areaIndex` is what tells them apart.
     expect(areaIndex('')).toBe(-1)
     expect(areaIndex('4A')).toBe(-1)
     expect(areaIndex(' A')).toBe(-1)

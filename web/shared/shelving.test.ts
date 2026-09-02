@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bookCover, buildPlacement, buildSortKey, compareLocations, filingName,
+  bookCover, buildPlacement, buildSortKey, filingName,
   normalise, parseLocation, placementOnAPlank, reviewShelving, shelfImage, shelfPhoto,
   shelfPhotoSlot, titleFiling, type FiledBook, type Neighbour,
 } from './shelving'
@@ -165,7 +165,7 @@ describe('buildSortKey', () => {
   })
 })
 
-describe('parseLocation and compareLocations', () => {
+describe('parseLocation', () => {
   it('parses the accepted label forms', () => {
     expect(parseLocation('1A')).toEqual({ shelf: 1, section: 'A' })
     expect(parseLocation('S1A')).toEqual({ shelf: 1, section: 'A' })
@@ -174,17 +174,12 @@ describe('parseLocation and compareLocations', () => {
     expect(parseLocation('nowhere')).toBeNull()
   })
 
-  it('orders by shelf number, not by string', () => {
-    // The bug this guards against: '10A' < '2A' as plain strings.
-    expect(compareLocations('2A', '10A')).toBeLessThan(0)
-  })
-
-  it('sorts a bare shelf ahead of its sections', () => {
-    expect(compareLocations('S4', 'S4A')).toBeLessThan(0)
-  })
-
-  it('sorts unparseable labels last so they surface', () => {
-    expect(compareLocations('junk', '1A')).toBeGreaterThan(0)
+  it('does not understand a label with a piece\'s name in it, and should not', () => {
+    // Not a gap to close. This form is what somebody typed and what the ledger
+    // wrote down before pieces had names; a label a person reads today is
+    // rendered from a row, and the row is what says which plank it is. #468 is
+    // what happened when a decision was made from the null this returns.
+    expect(parseLocation('Hall shelf · A')).toBeNull()
   })
 })
 
@@ -220,9 +215,10 @@ describe('buildPlacement', () => {
   /*
    * #468, and the reason a neighbour carries its area. The two labels are what
    * a person reads off a piece they have named, `parseLocation` understands
-   * neither, and `compareLocations` reports two labels it cannot parse equal.
-   * Deciding "same plank" from that told somebody standing at a bookcase to
-   * file a book between two books that are not both on the plank it named.
+   * neither, and the ordering this used to ask reported two labels it could
+   * not parse equal. Deciding "same plank" from that told somebody standing at
+   * a bookcase to file a book between two books that are not both on the plank
+   * it named.
    */
   it('sees the boundary between two planks of a piece somebody has named', () => {
     const result = buildPlacement(

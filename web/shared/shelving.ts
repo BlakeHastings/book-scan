@@ -219,20 +219,16 @@ export function formatLocation(location: ParsedLocation): string {
   return `${location.shelf}${location.section}`
 }
 
-/**
- * Order two locations. Shelf first, then section, with a bare shelf (`S4`)
- * sorting ahead of any section on it (`S4A`).
- * Unparseable labels sort last so they surface rather than hide.
+/*
+ * `compareLocations` stood here: an ordering over two labels that answered 0
+ * for two it could not parse, which is every label on a piece somebody has
+ * named. Its last caller was `buildPlacement`, asking it whether two
+ * neighbours stand in the same place, and #468 is what that answered. Deleted
+ * with that caller rather than left for the next one, because a comparison
+ * over renderings has no reader here that is not eventually asking about
+ * identity, and identity is the area's id. Nothing orders planks by label:
+ * the layout walks the run in the order the furniture stands in the room.
  */
-export function compareLocations(a: string, b: string): number {
-  const left = parseLocation(a)
-  const right = parseLocation(b)
-  if (!left && !right) return 0
-  if (!left) return 1
-  if (!right) return -1
-  if (left.shelf !== right.shelf) return left.shelf - right.shelf
-  return left.section < right.section ? -1 : left.section > right.section ? 1 : 0
-}
 
 // ---------------------------------------------------------------------------
 // Placement
@@ -266,8 +262,8 @@ export interface Neighbour {
    * The area `location` is a rendering of, or null when nobody has said.
    *
    * The identity half, and the half `buildPlacement` asks whether two
-   * neighbours are on one plank. It used to ask `compareLocations` about the
-   * two labels, which reports two labels it cannot parse equal, so on a named
+   * neighbours are on one plank. It used to compare the two labels, through an
+   * ordering that reported two labels it could not parse equal, so on a named
    * piece every pair of neighbours was "the same place" and the instruction
    * somebody reads at a bookcase named one plank where there were two (#468).
    */
@@ -497,11 +493,12 @@ export function buildPlacement(
 
   if (predecessor && successor) {
     /*
-     * On ids, never on the two labels (#468). `compareLocations` orders labels
-     * and answers 0 for two it cannot parse, which is every label on a piece
-     * somebody has named, so asking it this question said "one plank" about
-     * every boundary on a named bookcase. A label is a rendering; only the area
-     * says whether two books stand in the same place.
+     * On ids, never on the two labels (#468). This asked an ordering over
+     * labels, which answered "equal" for two labels it could not parse: every
+     * label on a piece somebody has named. So it said "one plank" about every
+     * boundary on a named bookcase, in the sentence a person acts on standing
+     * at it. A label is a rendering; only the area says whether two books
+     * stand in the same place.
      */
     const samePlace =
       predecessor.areaId !== null && predecessor.areaId === successor.areaId

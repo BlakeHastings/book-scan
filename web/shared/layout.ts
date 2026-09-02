@@ -84,7 +84,7 @@ export function areaLabel(index: number): string {
  * -1 for anything that is not a run of letters, which includes the empty string.
  * A bare bookcase (`S4`) parses as a location and names no plank, so it has no
  * index rather than index zero: `4` and `4A` are not the same place, and
- * `compareLocations` already sorts them apart.
+ * `parseLocation` reads both and `areaIndex` is what tells them apart.
  */
 export function areaIndex(section: string): number {
   if (!/^[A-Za-z]+$/.test(section)) return -1
