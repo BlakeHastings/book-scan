@@ -383,11 +383,18 @@ describe('removing a boundary records where its books went', () => {
     // own row without anything here parsing a label.
     const at = groups.findIndex((group) => group.opensWith?.id === line.separatorId)
     const below = groups[at + 1]!.opensWith!.id
-    const stayed = groups[at + 1]!.books[0]!.id
+    const stayed = groups[at + 1]!.books[0]!.book.id
     const wasLabelled = groups[at + 1]!.label
 
     const rowsBefore = await areas()
     await shelves.remove(line.separatorId, { theAreaGoes: true })
+
+    // Nobody is asked to carry it, and nothing claims it belongs elsewhere.
+    // This is the assertion the issue is about; the two below it are the
+    // mechanism that makes it true.
+    const review = await shelves.review('fiction')
+    expect(review.misfiles.map((one) => one.book.id)).not.toContain(stayed)
+    expect(await assignedTo(stayed)).toEqual([])
 
     // The row that went is the one the line opened, and the row below it is
     // still the row it was: same id, one letter earlier.
@@ -395,12 +402,6 @@ describe('removing a boundary records where its books went', () => {
     expect((await areas()).map((row) => row.id)).not.toContain(line.separatorId)
     expect(await areaLabelled(wasLabelled)).not.toBe(below)
     expect(await areaLabelled('2B')).toBe(below)
-
-    // So the book on it is where the catalogue says it is, and the review has
-    // nothing to say about it.
-    expect(await assignedTo(stayed)).toEqual([])
-    const review = await shelves.review('fiction')
-    expect(review.misfiles.map((one) => one.book.id)).not.toContain(stayed)
   })
 })
 

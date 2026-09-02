@@ -18,6 +18,9 @@ import { byPrecedence, entryAreaOf, entryAreas } from '../domain/placement/rules
 import type { AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
 import { relabellingWithout } from './furniture'
+import { booksNaming } from '../infrastructure/shelving/furniture'
+import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
+import { assignmentFor, standingOf, type Placement } from '../domain/placement/ledger'
 import { CHECKED_OUT } from '../domain/books/state'
 import { RangeSeparators } from '../domain/shelving/separators'
 import {
@@ -1319,6 +1322,9 @@ export class Shelves {
         }
 
         const before = await this.layout(range)
+        // Read before the restore so the planks it brings back can be told from
+        // the ones that were never away. See `takeTheAssignmentsBack`.
+        const standing = new Set((await this.list(range)).map((one) => one.id))
 
         // The whole receipt at once, for the reason the move applies its shifts
         // at once: a move that emptied an area left two boundaries on one
@@ -1343,6 +1349,10 @@ export class Shelves {
         }
 
         await this.outstanding.clear(bookId)
+        await this.takeTheAssignmentsBack(
+          range,
+          (await this.list(range)).map((one) => one.id).filter((id) => !standing.has(id)),
+        )
 
         /*
          * Both planks read off the layout rather than out of the receipt: the
@@ -1377,6 +1387,73 @@ export class Shelves {
     } catch (error) {
       if (error instanceof RetractionRefused) return { ok: false, error: error.message }
       throw error
+    }
+  }
+
+  /**
+   * The other half of putting a plank back: the assignments that came off it.
+   *
+   * **A retraction has to undo both sides of the act it takes back** (#465).
+   * Taking a plank off the furniture writes an `assigned` row per book naming
+   * the plank that took them in, because those books really do have to be
+   * carried. Putting the plank back means they do not, and an assignment left
+   * standing is a trip on the carry list that nobody has to walk — which is the
+   * defect #465 is about, arrived at from the other end.
+   *
+   * It was symmetric before #465 only because the removal wrote nothing.
+   *
+   * **What is written is what the run says now**, not the opposite of what the
+   * move wrote. `areasForSortKeys` is the same walk `review` compares against,
+   * so a book whose plank is back in the run gets an assignment naming it and
+   * agrees with itself again; a book the run genuinely puts somewhere else
+   * keeps the work it has. `assignmentFor` is what decides, so a book already in
+   * agreement gets no row at all and the ledger does not fill up with rows
+   * saying nothing changed.
+   *
+   * Scoped to the planks this retraction brought back, and to the books that
+   * name them, because those are the books whose assignment the removal can
+   * have written. A wider sweep would re-derive assignments the retraction has
+   * nothing to do with.
+   */
+  private async takeTheAssignmentsBack(
+    range: ShelfRange,
+    restored: readonly number[],
+  ): Promise<void> {
+    if (!restored.length) return
+
+    const ids = [...new Set(
+      (await Promise.all(restored.map((id) => booksNaming(this.db, id)))).flat(),
+    )]
+    if (!ids.length) return
+
+    const ledger = new DrizzlePlacementLedger(this.db)
+    const history = new Map<number, Placement[]>()
+    for (const row of await ledger.forBooks(ids)) {
+      const existing = history.get(row.bookId)
+      if (existing) existing.push(row)
+      else history.set(row.bookId, [row])
+    }
+
+    const keyed = await this.db.all<{ id: number; sort_key: string }>(
+      `SELECT id, sort_key FROM books WHERE id IN (${ids.map(() => '?').join(', ')})`,
+      ids,
+    )
+    const wanted = await this.areasForSortKeys(range, keyed.map((row) => row.sort_key))
+
+    const now = new Date().toISOString()
+    for (const [at, row] of keyed.entries()) {
+      const id = Number(row.id)
+      const to = assignmentFor(standingOf(history.get(id) ?? []), wanted[at] ?? null)
+      if (to === null) continue
+      await ledger.record({
+        bookId: id,
+        kind: 'assigned',
+        areaId: to,
+        sortKey: row.sort_key,
+        actor: 'rules',
+        reason: 'the move was taken back',
+        createdAt: now,
+      })
     }
   }
 
@@ -1469,13 +1546,18 @@ export class Shelves {
   }
 
   /**
-   * Remove a boundary and renumber the rest so positions stay contiguous.
+   * Take the area a boundary opens off the furniture.
    *
    * The rule and the transaction now live in
    * `application/shelving/remove-separator.ts`, where the prose that used to be
    * here went with them. This stays because `moveAcrossBoundary` below removes
    * boundaries as part of a larger move, and because the route and the tests
    * that already say `shelves.remove(id)` are not what this change is about.
+   *
+   * **It is the same act as `DELETE /api/areas/:id` and goes through the same
+   * function** (#465). It used to rewrite the boundary list instead, which
+   * retired the wrong plank and recorded nothing, so the books it moved were
+   * left naming a plank they were not standing on.
    *
    * **`told` is not defaulted to yes and must not become so** (#456). Every
    * door to this act is refused until somebody has been asked, and a caller

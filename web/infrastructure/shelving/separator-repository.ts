@@ -30,6 +30,15 @@
  * **derived** here: it is where the area sits in the run, so the numbering is
  * contiguous by construction and there is nothing to renumber. The port lost the
  * method rather than keeping one that could only ever be a no-op.
+ *
+ * ## `remove` is not shaped like the other two, and that is #465
+ *
+ * `add` and `reanchor` are read-change-write over this range's boundaries.
+ * `remove` is not: removing a boundary takes an area off the furniture and hands
+ * its books to the area in front, which is an act with a ledger row in it, and
+ * writing the boundary list back without one entry is only the half of it that
+ * shows on a screen. It calls `dropArea`, which is the same function
+ * `DELETE /api/areas/:id` calls, so there is one writer for one act.
  */
 
 import type {
