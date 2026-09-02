@@ -7,35 +7,42 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up 2026-09-02 at `a4c0b1a` (`master`, after #466).**
-It rots quickly. Three merges from now, distrust the "in flight" section entirely
-and read `gh pr list` instead.
+**Written 2026-08-24, topped up 2026-09-02 at `58606cb` (`master`, after #470),
+on the far side of a machine wipe.** It rots quickly. Three merges from now,
+distrust the "in flight" section entirely and read `gh pr list` instead.
 
 ## In flight
 
-**Nothing is running, and nothing can be until a container runtime is back on
-this machine.** That is not a scheduling choice; see the section below. The
-agents this file described on 2026-08-25 are gone with the session that owned
-them, and their work is landed or open as a pull request.
+**Three agents are running, and the loop is unblocked again.** The runtime is
+back, so the sentence this section carried a few hours ago — that nothing could
+run — is no longer true. Read the wipe section below before trusting anything
+here about the machine.
 
-| Issue | Where it got to |
+| Issue | Who has it |
 | --- | --- |
-| #447 | landed as **PR #469**, open and green, waiting on a verification that needs the app |
-| #448 | never opened a pull request; branch `e2e/448-leaving-books-flake` and its worktree still hold one commit, and the issue is open and unclaimed |
+| #468 | an agent, in a worktree. The placing instruction reading a label back |
+| #463 | an agent, in a worktree. Two rules on one genre, two answers |
+| #472 | an agent, read-only. What the app needs to run somewhere else, feeding epic #471 |
 
-**#469 has passed two of the three lenses without the app**: the diff does what
-it says (the shelves route joins each board to its plank **from the address
-rather than from the books standing on it**, which is the mistake #434 was), and
-`npm run typecheck` is clean. What is outstanding is the functional lens — the
-two endpoints agreeing on a named piece — and that needs Postgres.
+**PR #469 is open and green and is not being worked by anybody.** It came out of
+#447 and it has passed two of the three lenses: the diff does what it says (the
+shelves route joins each board to its plank **from the address rather than from
+the books standing on it**, which is the mistake #434 was), and
+`npm run typecheck` is clean. **The functional lens is what is outstanding**,
+the two endpoints agreeing on a named piece, and that needed Postgres, which is
+why it has waited. It can be verified now. Rebase it first; it is behind.
 
-**#466 is merged**, verified by execution rather than accepted: silent against
-this machine's real disks, and loud on both failure paths driven through a
-scratch fixture. Its review record is on the pull request.
+**#448 never opened a pull request.** Branch `e2e/448-leaving-books-flake` and
+its worktree still hold one commit, and the issue is open and unclaimed. It runs
+browser journeys in a loop and is the heaviest thing on this machine. Give it a
+session with nothing else running.
 
-**Briefs for #468 and #463 are already written into those issues** and are ready
-to dispatch the moment the app can run.
-
+**#471 is new and it is the owner's.** It is the epic for deploying the
+catalogue somewhere that is not this desktop, opened because the wipe is the
+concrete form of the risk it exists to end. Four questions in it are Blake's and
+two of them decide the size of the work: whether it is reachable from outside the
+house, and therefore whether authentication has to exist first. #472 is the half
+of it that needs nobody.
 ## What the fixes keep turning out to be
 
 Worth carrying forward, because it has now happened five times and it changes
@@ -138,82 +145,74 @@ worktree on `origin/master`. A brief written from the stale tree describes code
 that is not there. This cost nothing that day only because the issues were read
 from `gh` rather than from the working tree.
 
-## The container runtime went away, and it takes everything with it
+## The machine was wiped, the runtime went with it, and the catalogue came back
 
-Found 2026-09-02, at the start of a session, by trying to verify a pull request
-in the running app.
+The whole of this section replaces one written earlier the same day, which
+described the runtime as simply absent. It was absent because **Blake reset this
+Windows machine on 2026-08-26 at 22:26**, which is a fact no amount of reading
+the repository would have produced and which explains everything the earlier
+section found.
 
-**There is no container runtime on this machine.** No `docker` and no `podman`
-on either shell's PATH, no Docker Desktop install directory, and no WSL. What
-survives is `C:\Users\Blake\.docker`, the configuration directory, last written
-2026-08-24. Aspire says it plainly once you ask the right resource:
+The reset kept the user profile. `C:\Users\Blake\source\repos\book-scan` and
+`C:\Users\Blake\book-scan-production-data` were never touched, which is why the
+photographs and the dumps were fine and why the earlier session found a
+repository that looked entirely normal. What it removed was Docker Desktop, and
+a named volume lives inside the runtime's own storage.
+
+**Docker Desktop is installed again and the daemon is up**, version 29.7.2. It
+came back completely empty: no volumes, no containers, no images. `postgres:18`
+has been pulled since, so the first `aspire start` after this does not also wait
+on a download.
+
+### The catalogue was recovered, and nothing was lost
+
+A Windows reset moves the old system to `C:\Windows.old`, **and Windows deletes
+that directory ten days later**. The catalogue was found there with three days
+left:
 
 ```
-aspire logs postgres
-[postgres] Container runtime 'docker' could not be found.
-[postgres] exec: "docker": executable file not found in %PATH%
+C:\Windows.old\Users\Blake\AppData\Local\Docker\wsl\disk\docker_data.vhdx
+20.4 GB, last written 2026-08-26 21:49
 ```
 
-**`aspire start` still reports success**, which is the trap. The AppHost starts,
-prints a dashboard URL and exits 0. It is `describe` that shows `postgres` and
-`bookscan` as `RuntimeUnhealthy` with `api` and `web` stuck at `Waiting`
-forever. A green start line means the AppHost launched, not that the app came
-up.
+Copied out first and inspected afterwards, which is the right order when the
+thing you are inspecting is on a countdown. Mounted read-only in WSL, the copy
+holds `data/docker/volumes/book-scan-live-pgdata/_data/18/docker`, intact, with
+the `bookscan` database at `base/16384`.
 
-**The whole test suite is gated on it, not just the database half.** This is the
-part worth knowing before you conclude a branch is untestable:
+**The claim that nothing was lost rests on one comparison, and it is worth
+stating precisely because the previous section could not make it.** The newest
+write to any data file in the recovered volume is **2026-08-18 23:17**. The last
+verified dump was taken at **2026-08-19 06:58 UTC**, and its manifest reads
+`"ok": true, "differences": []`. Under either reading of the volume's timezone
+the dump is later, so the dump is not behind the volume. The two agree, and the
+window the earlier section worried about — edits between 08-19 and the last time
+Postgres ran — turns out to be empty. Postgres did start once more, on 08-24 at
+19:30, and wrote nothing but its own startup files.
 
-```
-npm test
-No test files found, exiting with code 1
-Error: Could not find a working container runtime strategy
-  ❯ Object.setup server/pgcontainer.ts:26:15
-  ❯ TestProject._initializeGlobalSetup
-```
+That also settles what `check-backup-freshness.mjs` cannot see. It names edits
+as its blind spot because an edit writes no file. Here the volume's own mtimes
+were the missing witness, and they said there were none.
 
-`server/pgcontainer.ts` is a vitest **globalSetup**, so it starts a Postgres
-testcontainer before a single test file is loaded. With no runtime, `areaRuns`
-and `carryWords` and every other pure unit test never run either. **`npm test`
-reporting "No test files found" here does not mean what it says.**
+### Where the recovered copies are
 
-`npm run typecheck` is the one local lens that still works, and it is not a
-substitute for either of the other two.
+`Windows.old` is still the original and still expires. These do not:
 
-**So with no runtime nothing can be verified locally and no agent can be
-usefully dispatched**, because the first thing every brief asks for is a
-reproduction in the running app. CI is unaffected: the GitHub runners have their
-own runtime, so pull requests still go green while nothing on this machine can
-run.
+| Where | What |
+| --- | --- |
+| `C:\book-scan-recovery\docker-wsl\docker_data.vhdx` | the whole 20.4 GB disk, byte-identical to the original |
+| `C:\book-scan-recovery\book-scan-live-pgdata-20260826.tar.gz` | 11.5 MB, just the volume, gzip-verified |
+| `E:\book-scan-backups\recovered-volume\` | the same tarball, second physical disk |
 
-### What it means for the catalogue, which is the part to be careful about
+The tarball is the one that matters. Twenty gigabytes of disk image was worth
+taking while the clock was running, but eleven megabytes is what actually holds
+the catalogue, and it sits beside the dumps that agree with it.
 
-`AGENTS.md:32` says the catalogue is a Postgres database in `book-scan-live-pg`
-**on the named volume `book-scan-live-pgdata`**. A named volume lives inside the
-runtime's own storage, so if the runtime was removed the volume went with it.
-
-**Do not assume that means the catalogue is lost, and do not assume it is fine.**
-What is established:
-
-- The **photographs are safe**, which is the expensive half: 1541 covers at
-  `...\book-scan-production-data\live\covers`, mirrored to `E:\book-scan-covers`.
-  Nothing has been photographed since 2026-08-07.
-- The **catalogue to 2026-08-19 06:58 UTC is safe**: `bookscan-20260819T065827Z.dump`
-  on `E:`, whose manifest reads `"ok": true, "differences": []`. Fourteen dumps.
-- `stable-server.log` ends **2026-08-26 19:58** with `ECONNREFUSED 127.0.0.1:5433`
-  out of `openCatalogue`. By that evening the catalogue was already unreachable,
-  and somebody Ctrl-C'd out of the attempt.
-
-So what a reinstall puts at risk is **edits between 2026-08-19 and the last time
-Postgres actually ran** — moves, lendings, corrections. Not scans. That is
-exactly the blind spot `check-backup-freshness.mjs` names in its own header and
-cannot see, because an edit writes no file.
-
-**The sequence after reinstalling a runtime, and the order matters.** Check
-whether `book-scan-live-pgdata` still exists *before* starting the stable
-server. If it does, nothing was lost. If it does not, restore a dump into it
-rather than letting the server reach an empty database, because `applySchema`
-will migrate one into a valid-looking empty catalogue without complaining. **It
-is the owner's call either way**, and no agent may go near it.
+**The catalogue has not been restored, and that is deliberate.** Docker is empty
+and there is no `book-scan-live-pgdata` on it. Restoring is the owner's call, it
+can be done from either the tarball or the 2026-08-19 dump, and no agent may go
+near it. Development and testing do not need it: the AppHost starts a Postgres
+of its own per checkout.
 
 ### Two smaller things found the same way
 
@@ -228,6 +227,18 @@ is the owner's call either way**, and no agent may go near it.
   false positive: from that directory you are indistinguishable from one. `cd`
   back to the main checkout rather than reaching for a way around it.
 
+### What the earlier section got right, and keep
+
+Two of its findings are about the code rather than the machine, and they stay
+true the next time a runtime is missing for any reason:
+
+- **`aspire start` reports success and exits 0 with no runtime.** It is
+  `describe` that shows `postgres` unhealthy and `api` waiting forever. A green
+  start line means the AppHost launched, not that the app came up.
+- **The whole vitest suite is gated on the runtime, not just the database half.**
+  `server/pgcontainer.ts` is a globalSetup, so with no runtime even the pure unit
+  tests never load and `npm test` says "No test files found", which is not what
+  it means.
 ## The sequence, with the traps beside it
 
 ```bash
@@ -270,6 +281,16 @@ Traps, each of which has actually bitten:
 
 ## What needs the owner, and what does not
 
+- **#471** — where the catalogue gets deployed, and it is the largest open
+  question in the project now. Four things in it are Blake's, and two of them
+  decide the size of everything under it: whether the app is reachable from
+  outside the house, and therefore whether authentication has to be built before
+  anything ships. There is no login today and #171 is `shaping`. **LAN-only can
+  ship without touching that; internet-facing cannot.** #472 is the part of the
+  epic that needs nobody and is being surveyed now.
+- **Restoring the catalogue** — the recovered volume is on disk and so is a dump
+  that agrees with it. Putting either back into a live `book-scan-live-pgdata`
+  is the owner's, and no agent may do it. Nothing in development needs it.
 - **#348** — the second catalogue has never answered, because there is no
   Google Books API key. **Only Blake can supply the key.** Everything else in
   that issue can be built without it: saying when a source did not answer is the
