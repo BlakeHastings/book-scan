@@ -365,6 +365,17 @@ export async function bandOf(db: Db, range: ShelfRange): Promise<RangeBand | nul
  * tree into both ranges' rule at once. Which rules are candidates stays what it
  * has always been — the ones naming this range's slug — and only the choice
  * among them is now made in one place.
+ *
+ * **A switched-off rule is tried last rather than left out**, which is the one
+ * place this deliberately answers where `claim` answers nothing, and it is
+ * written down here because the next person will otherwise delete it. `claim`
+ * refuses a disabled rule outright: it files no books, so it wins none. This
+ * cannot, for the reason `entryAreas` keeps disabled rules: turning a rule off
+ * stops it claiming books and **does not merge its run into the one before it**,
+ * so a range whose only rule is off still has a run, still empty, standing where
+ * it stood. Ordering enabled first is what keeps the two together where it
+ * matters: when a range has one rule on and one off, the one that files the
+ * books is the one the run begins at, and `claim` and this agree again.
  */
 export function ruleForRange(rules: PlacementRule[], range: ShelfRange): PlacementRule | null {
   const slug = GENRE_RANGES.find((pair) => pair.range === range)?.slug
@@ -373,7 +384,7 @@ export function ruleForRange(rules: PlacementRule[], range: ShelfRange): Placeme
   return rules
     .filter((rule) => rule.conditions.some((condition) =>
       condition.field === 'tag' && condition.value === slug.value))
-    .sort(byPrecedence)[0] ?? null
+    .sort((a, b) => Number(b.enabled) - Number(a.enabled) || byPrecedence(a, b))[0] ?? null
 }
 
 /** The same, for a caller that has not already read the furniture. */

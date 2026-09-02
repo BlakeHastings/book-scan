@@ -14,7 +14,7 @@ import {
   type Plank, type RunPlanks,
 } from '../infrastructure/shelving/areas'
 import { fixtureLabel } from '../domain/placement/geography'
-import { entryAreaOf, entryAreas } from '../domain/placement/rules'
+import { byPrecedence, entryAreaOf, entryAreas } from '../domain/placement/rules'
 import type { AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
 import { relabellingWithout } from './furniture'
@@ -704,8 +704,17 @@ export class Shelves {
     const standing = order.find((slot) =>
       slot.fixture.position === band.limit && entries.has(slot.area.id))
     const piece = standing ? fixtureLabel(standing.fixture) : String(band.limit)
+    /*
+     * **More than one rule can open one plank** ("Plural since #384", see
+     * `runOwners`), so which of them this sentence names is the same question
+     * #463 was about, one rung down: a name in a refusal rather than a plank a
+     * book lands on. `find` over the rows would name whichever the database
+     * handed back, which is nothing anybody chose. `byPrecedence` is the ladder
+     * the app decides by, so the rule named here is the rule that wins.
+     */
     const held = standing
-      ? rules.find((rule) => entryAreaOf(rule, order) === standing.area.id)?.name ?? ''
+      ? [...rules].sort(byPrecedence)
+        .find((rule) => entryAreaOf(rule, order) === standing.area.id)?.name ?? ''
       : ''
 
     return `There is no room for another bookcase here. Bookcase ${piece} is where `

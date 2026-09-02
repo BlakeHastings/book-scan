@@ -747,4 +747,47 @@ describe('two rules naming one genre', () => {
     // fiction's start to bookcase 2 must not let its band reach across it.
     expect((await bandsOf(db)).get('fiction')?.limit).toBe(4)
   })
+
+  /**
+   * The one place the two questions come apart, and it is on purpose.
+   *
+   * `claim` refuses a switched-off rule: it files no books, so it wins none.
+   * `bandsOf` cannot refuse one outright, because a rule being off does not merge
+   * its run into the one before it. So the range's rule is the enabled one where
+   * there is an enabled one, and the switched-off one only when there is nothing
+   * else — which is where the run still stands, empty.
+   */
+  describe('and one of them switched off', () => {
+    const switchOff = (id: number) =>
+      db.run('UPDATE placement_rule SET enabled = false WHERE id = ?', [id])
+
+    it('begins the run at the rule that is still on, which is the one filing books', async () => {
+      const { area } = await writeASecondFictionRule()
+
+      const before = await furnitureIn(db)
+      const winner = claim(before.rules, { tagSlugs: [FICTION_SLUG] })!
+      expect(winner.areaId).toBe(area)
+      await switchOff(winner.id)
+
+      const { rules } = await furnitureIn(db)
+      const now = claim(rules, { tagSlugs: [FICTION_SLUG] })
+      expect(now?.id).not.toBe(winner.id)
+
+      // Back on bookcase 1, with the fixture rule, which is where the books go.
+      expect((await bandsOf(db)).get('fiction')?.start).toEqual({ shelf: 1, area: 0 })
+    })
+
+    it('keeps the run standing when every rule for it is off', async () => {
+      const { rules } = await furnitureIn(db)
+      for (const rule of rules.filter((one) => one.conditions.some((line) =>
+        line.field === 'tag' && line.value === FICTION_SLUG))) {
+        await switchOff(rule.id)
+      }
+
+      // Nothing claims a fiction book any more, and the run has not moved or
+      // merged into anything: it is a shelf with nothing on it.
+      expect(claim((await furnitureIn(db)).rules, { tagSlugs: [FICTION_SLUG] })).toBeNull()
+      expect((await bandsOf(db)).get('fiction')?.start).toEqual({ shelf: 1, area: 0 })
+    })
+  })
 })
