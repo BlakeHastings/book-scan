@@ -1419,6 +1419,42 @@ describe('taking a boundary move back', () => {
     expect((await shelves.list('fiction')).map((one) => one.position)).toEqual([0])
   })
 
+  /**
+   * #468, folded in from the same sweep. The check that the book landed back
+   * where the receipt says compared a freshly drawn label against the label
+   * stored on the receipt, and naming the piece changes the first and not the
+   * second. So an undo that puts the book back exactly where the receipt names
+   * was refused, with a message telling somebody the shelves had changed when
+   * the only thing that had changed was what they call the bookcase.
+   *
+   * The comparison is the planks now, which is the reading `GET /api/misfiles`
+   * already made of the same two labels and says why.
+   */
+  it('takes a move back on a piece somebody has named since the move', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
+    await store.setLocation(cal, '1B')
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+    expect((await shelves.outstandingMoves('fiction')).map((m) => [m.from, m.to]))
+      .toEqual([['1A', '1B']])
+
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    expect((await editFixture(db, fixture!.id, { name: 'Hall shelf' })).ok).toBe(true)
+
+    const back = await shelves.retractMove('fiction', bob)
+    expect(back.ok, back.error).toBe(true)
+    expect(back.planks?.to.label).toBe('Hall shelf · A')
+    expect(await labels()).toEqual(['Hall shelf · A', 'Hall shelf · A', 'Hall shelf · B'])
+    // The receipt's own labels are left as they were written, which is the one
+    // thing `/api/misfiles` also refuses to rewrite.
+    expect(back.move).toEqual({ from: '1B', to: '1A' })
+  })
+
   it('refuses a book with nothing outstanding on it', async () => {
     const ann = await shelve('Ann Author')
 

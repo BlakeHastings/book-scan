@@ -8,7 +8,9 @@
 import type { FiledBookRow } from './db.pg'
 import type { Db } from './driver'
 import { withPhotographs, type FiledPhotographedBook } from './photographs'
-import { withPlacements, type PlacementFields } from './placement-ledger'
+import {
+  areaOfRecordedLocation, withPlacements, type PlacementFields,
+} from './placement-ledger'
 import {
   areaFaces, areaOfKey, bandOf, furnitureIn, planksOf, runAreasOf,
   type Plank, type RunPlanks,
@@ -1237,7 +1239,26 @@ export class Shelves {
         }
 
         const landed = (await this.layout(range)).find((placed) => placed.book.id === bookId)
-        if (!landed || landed.label !== receipt.from) {
+        const planks = await this.planks(range)
+
+        /*
+         * The plank it landed on against the plank the receipt names, as two
+         * areas rather than two labels (#468).
+         *
+         * This compared `landed.label` with `receipt.from`, which is the
+         * comparison the paragraph below already refuses to make and for the
+         * reason it gives: the receipt holds a label drawn when the move was
+         * made, and the piece may have been named since, so an undo that would
+         * have put the book back exactly where the receipt says was refused
+         * because `Hall shelf · A` is not the string `4A`. The other way round,
+         * two pieces standing on one number both render `4A`, and two different
+         * planks passed as one. `GET /api/misfiles` reads the same two receipt
+         * labels back to areas before comparing and says why; this is that
+         * reading, in the one place that acts on the answer.
+         */
+        const cameFrom = await areaOfRecordedLocation(this.db, receipt.from)
+        const back = landed ? planks.at({ shelf: landed.shelf, area: landed.area }).areaId : null
+        if (!landed || back === null || back !== cameFrom) {
           throw new RetractionRefused(SHELVES_MOVED_ON)
         }
 
@@ -1252,7 +1273,6 @@ export class Shelves {
          * way every other screen names them.
          */
         const was = before.find((placed) => placed.book.id === bookId)
-        const planks = await this.planks(range)
 
         return {
           ok: true,
