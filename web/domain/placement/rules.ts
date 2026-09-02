@@ -97,6 +97,29 @@ export function matches(rule: PlacementRule, book: Claimable): boolean {
 }
 
 /**
+ * Which of two rules is tried first: area before fixture, then priority, then
+ * id. **The one precedence in this app**, and every place that has to pick one
+ * rule out of several sorts by this.
+ *
+ * It was written out four times before #463: here inside `claim`, again in
+ * `server/claim.ts` to list the losers in the order the winner was chosen, again
+ * in `server/furniture.ts` to say which rule a plank reads under, and not at all
+ * in `bandsOf` and `ruleForRange`, which took whichever rule the database handed
+ * back first. Three copies of one ladder agreed by inspection and the fourth
+ * site did not agree at all, which is #463: with two rules naming one genre,
+ * `claim` filed a book by the area rule and `bandsOf` drew the run from the
+ * fixture rule, and the app answered "where does fiction begin" twice.
+ *
+ * A comparator rather than a sorted list, because the callers are sorting
+ * different sets: every rule that claims a book, every rule written on one
+ * plank, every rule naming one genre.
+ */
+export const byPrecedence = (a: PlacementRule, b: PlacementRule): number =>
+  Number(b.areaId !== null) - Number(a.areaId !== null)
+  || a.priority - b.priority
+  || a.id - b.id
+
+/**
  * The rule that claims this book, or null when none does.
  *
  * Null is a real answer and not a gap to be papered over: a book no rule claims
@@ -108,10 +131,7 @@ export function claim(rules: PlacementRule[], book: Claimable): PlacementRule | 
   const claimants = rules.filter((rule) => matches(rule, book))
   if (!claimants.length) return null
 
-  return claimants.sort((a, b) =>
-    Number(b.areaId !== null) - Number(a.areaId !== null)
-    || a.priority - b.priority
-    || a.id - b.id)[0]!
+  return claimants.sort(byPrecedence)[0]!
 }
 
 /**

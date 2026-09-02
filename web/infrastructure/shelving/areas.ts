@@ -81,7 +81,8 @@
 
 import type { AreaFace } from '../../domain/placement/carry'
 import {
-  entryAreaOf, nextRunStartAfter, type PlacementRule, type RuleOperator,
+  byPrecedence, entryAreaOf, nextRunStartAfter,
+  type PlacementRule, type RuleOperator,
 } from '../../domain/placement/rules'
 import {
   labelFor, slotsInOrder, type Area, type Fixture, type Slot,
@@ -274,6 +275,16 @@ export async function furnitureIn(
  * so asking it here is what stops "which bookcase does non-fiction start on"
  * having a second answer.
  *
+ * **Which of them, when two rules name one genre, is `ruleForRange`'s answer and
+ * not a second one made here.** This picked with `rules.find`, first row back
+ * from a `SELECT` with no `ORDER BY`, while `claim` picked by area-before-
+ * fixture, then priority, then id, and two rules on one genre is an arrangement
+ * #430 item 1 deliberately kept legal. So an area rule on `2A` and a fixture
+ * rule on bookcase 1, both asking for Fiction, had `claim` file every fiction
+ * book at `2A` and had this draw the fiction run from `1A`: one question, two
+ * answers, and the book left standing where neither the misfile list nor the
+ * carry list would name it. That is #463.
+ *
  * A disabled rule still says where its run begins, for the reason `entryAreas`
  * counts one: turning a rule off stops it claiming books and does not merge its
  * run into the one before it.
@@ -282,9 +293,8 @@ export async function bandsOf(db: Db): Promise<Map<ShelfRange, RangeBand>> {
   const { order, rules } = await furnitureIn(db)
 
   const starts: { range: ShelfRange; start: RangeStart }[] = []
-  for (const { slug, range } of GENRE_RANGES) {
-    const rule = rules.find((one) => one.conditions.some((condition) =>
-      condition.field === 'tag' && condition.value === slug.value))
+  for (const { range } of GENRE_RANGES) {
+    const rule = ruleForRange(rules, range)
     if (!rule) continue
 
     const areaId = entryAreaOf(rule, order)
@@ -332,18 +342,38 @@ export async function bandOf(db: Db, range: ShelfRange): Promise<RangeBand | nul
 }
 
 /**
- * The rule that serves a range, asked the way `bandsOf` asks it.
+ * The rule that serves a range. **The one answer to which rule that is**, and
+ * `bandsOf` asks it rather than choosing again.
  *
  * `GENRE_RANGES` is the one place a genre slug and a shelf range are the same
  * fact, so a second way of finding "the non-fiction rule" would be a second
  * answer to which run is which.
+ *
+ * **Two rules may name one genre**, which #430 item 1 established and nothing
+ * here makes an error. When they do, this is the one that wins, and it is the
+ * one `claim` would hand a book carrying that genre: `byPrecedence` is the
+ * ladder `claim` sorts by, imported rather than copied. Before #463 this took
+ * whichever row came back first — no `ORDER BY`, so insertion order in practice
+ * and nothing in principle — and the run a book was filed into and the run the
+ * app drew were two different runs.
+ *
+ * **It is the ordering that is shared, not the question.** `claim` is asked of a
+ * book and this is asked of a range, and putting a synthetic book carrying the
+ * genre slug through `claim` would answer a third question: `matches` needs
+ * *every* condition to hold, so a rule reading "Fiction and Signed" would stop
+ * being fiction's rule, and `under` would make a rule about the whole `genre`
+ * tree into both ranges' rule at once. Which rules are candidates stays what it
+ * has always been — the ones naming this range's slug — and only the choice
+ * among them is now made in one place.
  */
 export function ruleForRange(rules: PlacementRule[], range: ShelfRange): PlacementRule | null {
   const slug = GENRE_RANGES.find((pair) => pair.range === range)?.slug
   if (!slug) return null
 
-  return rules.find((rule) => rule.conditions.some((condition) =>
-    condition.field === 'tag' && condition.value === slug.value)) ?? null
+  return rules
+    .filter((rule) => rule.conditions.some((condition) =>
+      condition.field === 'tag' && condition.value === slug.value))
+    .sort(byPrecedence)[0] ?? null
 }
 
 /** The same, for a caller that has not already read the furniture. */

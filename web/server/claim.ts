@@ -13,7 +13,9 @@
  * That order is `claim`'s and not a second opinion about it: area beats fixture,
  * then lower priority, then lower id. A screen sorting them itself would be a
  * second precedence rule, drawn beside the real one, agreeing until somebody
- * changed one of them.
+ * changed one of them. Until #463 it was written out again here, which is a copy
+ * of the ladder rather than an opinion of its own but is the same thing one edit
+ * later; it is `byPrecedence` from `domain/placement/rules.ts` now.
  *
  * ## A book no rule claims is a real answer
  *
@@ -46,7 +48,9 @@
 import { WITHDRAWN } from '../domain/books/state'
 import { labelFor, type Slot } from '../domain/placement/geography'
 import { standingOf } from '../domain/placement/ledger'
-import { claim, matches, placementOf, type PlacementRule } from '../domain/placement/rules'
+import {
+  byPrecedence, claim, matches, placementOf, type PlacementRule,
+} from '../domain/placement/rules'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { furnitureIn, plankLabels } from '../infrastructure/shelving/areas'
 import {
@@ -104,12 +108,6 @@ interface BookRow {
  */
 const wants = (rule: PlacementRule, tagSlugs: readonly string[]): boolean =>
   matches({ ...rule, enabled: true }, { tagSlugs })
-
-/** `claim`'s order, so the list reads down the way the decision was made. */
-const byPrecedence = (a: PlacementRule, b: PlacementRule): number =>
-  Number(b.areaId !== null) - Number(a.areaId !== null)
-  || a.priority - b.priority
-  || a.id - b.id
 
 const SMALLER_PLACE =
   'It fits too, but a rule about one area beats a rule about a whole piece of furniture.'
