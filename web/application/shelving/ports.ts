@@ -83,8 +83,35 @@ export interface SeparatorRepository {
    */
   reanchorAll(shifts: readonly { id: number; startsAt: string }[]): Promise<void>
 
-  remove(id: number): Promise<void>
+  /**
+   * Take the area this boundary opens off the furniture.
+   *
+   * **The whole act, not the row** (#465). Removing a boundary hands that
+   * area's books to the area in front and records where they went, and this
+   * method means all of it: the retirement, the renumbering and the `assigned`
+   * row per book. It said "delete the row" until #465, which is how one door
+   * into this act wrote the ledger and the other wrote nothing, and every book
+   * that came through the second door was left naming a plank the run no longer
+   * had. There is one implementation and it is the same function
+   * `DELETE /api/areas/:id` calls, so there is no longer a second writer to keep
+   * in step.
+   *
+   * It can refuse, which `reanchor` and `add` cannot: an area that is the only
+   * one on its piece has nothing for its books to join, and the answer says so
+   * rather than emptying the piece quietly.
+   */
+  remove(id: number): Promise<BoundaryRemoved>
 }
+
+/**
+ * What became of the area a boundary opened.
+ *
+ * A refusal is the act's own, worded for a person, and it carries the status a
+ * route should answer with. Nothing is written when one comes back.
+ */
+export type BoundaryRemoved =
+  | { ok: true }
+  | { ok: false; status: number; error: string }
 
 /**
  * A boundary move that has been made and that nobody has acted on yet.

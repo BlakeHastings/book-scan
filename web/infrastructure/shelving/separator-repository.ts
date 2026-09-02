@@ -32,11 +32,14 @@
  * method rather than keeping one that could only ever be a no-op.
  */
 
-import type { NewSeparator, SeparatorRepository } from '../../application/shelving/ports'
+import type {
+  BoundaryRemoved, NewSeparator, SeparatorRepository,
+} from '../../application/shelving/ports'
 import type { Separator } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
 import type { Db } from '../../server/driver'
 import { boundariesOf, writeBoundaries } from './areas'
+import { dropArea } from '../../server/furniture'
 import { GENRE_RANGES } from '../../domain/tagging/genre'
 
 /**
@@ -114,8 +117,32 @@ export class DrizzleSeparatorRepository implements SeparatorRepository {
       }))
   }
 
-  async remove(id: number): Promise<void> {
-    await this.change(id, (separators) => separators.filter((one) => one.id !== id))
+  /**
+   * Take the area this boundary opens off the furniture, books and all.
+   *
+   * **One line, and it is the point of #465.** This used to write the boundary
+   * list back without the removed entry, which is a read-modify-write of
+   * `area` and nothing else: the run came out one plank shorter, the *last*
+   * row of the run was the one retired, and every row between the removal and
+   * the end kept its id while coming to mean a different plank. So a book
+   * recorded on `2C` was left pointing at a retired row while the plank it was
+   * really on had become `2B`, the shelving review named a trip for it, and
+   * nobody had to carry it anywhere. `dropArea` retires the row that actually
+   * went, renumbers the rest so a later plank keeps its identity, and writes
+   * the `assigned` row per book that says which area took them in.
+   *
+   * It also refuses where the old statement quietly went ahead: an area that is
+   * the only one on its piece has nothing there for its books to join, and the
+   * boundary list rewrite answered that by taking every plank off the piece and
+   * leaving it standing empty, which is the state #391 and #420 are about.
+   *
+   * The clock is read here rather than taken from the caller, because the
+   * application layer has no clock and `Shelves` reads the same one a line
+   * above `outstanding.record`.
+   */
+  async remove(id: number): Promise<BoundaryRemoved> {
+    const dropped = await dropArea(this.db, id, new Date().toISOString())
+    return dropped.ok ? { ok: true } : { ok: false, status: dropped.status, error: dropped.error }
   }
 
   /**

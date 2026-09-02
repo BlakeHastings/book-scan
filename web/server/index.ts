@@ -2178,6 +2178,18 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
 
     if (!removal.ok) {
+      /*
+       * The act would not do it at all, which is not the same answer as "nobody
+       * has been asked" and must not be dressed up as one (#465). Its sentence
+       * already names the area and says what to do instead, so it is passed on
+       * whole rather than rebuilt from a cost this route would have to read a
+       * second time.
+       */
+      if (removal.reason === 'refused') {
+        refused(res, refuse(removal.status, removal.error))
+        return
+      }
+
       // The boundary's own range rather than the one asked for, so the labels
       // are of the run the area actually stands in.
       const going = await shelves.removalCost(removal.range, separatorId)

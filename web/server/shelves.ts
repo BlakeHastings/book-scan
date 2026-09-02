@@ -255,6 +255,21 @@ class AreaRemovalRefused extends Error {
 }
 
 /**
+ * Thrown when the act itself would not take the area, whatever anybody agreed
+ * to (#465).
+ *
+ * A different answer from the one above and it has to stay different: that one
+ * is a question the person has not been asked yet, this one is a sentence about
+ * the furniture that asking would not change. Carried out of the transaction the
+ * same way and for the same reason.
+ */
+class AreaRemovalImpossible extends Error {
+  constructor(readonly said: string) {
+    super(said)
+  }
+}
+
+/**
  * Said when the shelves have changed since the move, so putting them back would
  * not put the book back.
  *
@@ -1049,6 +1064,11 @@ export class Shelves {
     try {
       return await this.movedAcrossBoundary(range, bookId, direction, told)
     } catch (caught) {
+      // The act's own sentence, passed on rather than reworded: it is about the
+      // furniture and this method has nothing to add to it.
+      if (caught instanceof AreaRemovalImpossible) {
+        return { ok: false, error: `${caught.said} Nothing has been changed.` }
+      }
       if (!(caught instanceof AreaRemovalRefused)) throw caught
       /*
        * The act refused, so the whole transaction above went back and the
@@ -1117,7 +1137,10 @@ export class Shelves {
          * receipt and the re-anchoring above back out with it.
          */
         const removal = await this.remove(id, told)
-        if (!removal.ok) throw new AreaRemovalRefused(outcome.move.remove)
+        if (!removal.ok) {
+          if (removal.reason === 'refused') throw new AreaRemovalImpossible(removal.error)
+          throw new AreaRemovalRefused(outcome.move.remove)
+        }
       }
 
       return {
