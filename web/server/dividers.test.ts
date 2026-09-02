@@ -319,6 +319,24 @@ describe('removing a boundary records where its books went', () => {
     ))
 
   /**
+   * What the removal added, rather than what the book has ever been asked.
+   *
+   * `fillUp` says a plank is full, and since #487 that act records where the
+   * run then puts the book it pushed along, exactly as this act does — so the
+   * fixture no longer arrives with an empty ledger and the claim below has to
+   * be about the delta. It is the same claim: these cases are about what
+   * removing a boundary writes, and the rows a full plank wrote earlier belong
+   * to a different act that has already been carried out and recorded.
+   */
+  const assignedSince = async (bookId: number, was: Map<number, number>) =>
+    (await assignedTo(bookId)).slice(was.get(bookId) ?? 0)
+
+  /** How many answers each of these books already has, before the act. */
+  const asked = async (...ids: number[]) => new Map(await Promise.all(
+    ids.map(async (id) => [id, (await assignedTo(id)).length] as const),
+  ))
+
+  /**
    * The plank a board is drawn on, taken off the board (#469).
    *
    * Found by what the board says, the way every case in this file finds the line
@@ -342,14 +360,14 @@ describe('removing a boundary records where its books went', () => {
     const gil = await bookNamed('Gil Gray')
     const hal = await bookNamed('Hal Hale')
 
-    expect(await assignedTo(fay)).toEqual([])
+    const was = await asked(fay, gil, hal)
 
     await shelves.remove(line.separatorId, { theAreaGoes: true })
 
     // The two books that were standing on the plank that went, and the area
     // that took them in, said as a row rather than as a label.
     for (const id of [fay, gil]) {
-      const rows = await assignedTo(id)
+      const rows = await assignedSince(id, was)
       expect(rows).toHaveLength(1)
       expect(rows[0]!.area_id).toBe(absorbing)
       expect(rows[0]!.actor).toBe('rules')
@@ -360,7 +378,7 @@ describe('removing a boundary records where its books went', () => {
     // written only where the answer differs from where the book already is,
     // which is `assignmentFor`, and writing one for every book in the range
     // would make the ledger useless as history.
-    expect(await assignedTo(hal)).toEqual([])
+    expect(await assignedSince(hal, was)).toEqual([])
   })
 
   /**
@@ -392,6 +410,7 @@ describe('removing a boundary records where its books went', () => {
     const wasLabelled = groups[at + 1]!.label
 
     const rowsBefore = await areas()
+    const was = await asked(stayed)
     await shelves.remove(line.separatorId, { theAreaGoes: true })
 
     // Nobody is asked to carry it, and nothing claims it belongs elsewhere.
@@ -399,7 +418,7 @@ describe('removing a boundary records where its books went', () => {
     // mechanism that makes it true.
     const review = await shelves.review('fiction')
     expect(review.misfiles.map((one) => one.book.id)).not.toContain(stayed)
-    expect(await assignedTo(stayed)).toEqual([])
+    expect(await assignedSince(stayed, was)).toEqual([])
 
     // The row that went is the one the line opened, and the row below it is
     // still the row it was: same id, one letter earlier.
