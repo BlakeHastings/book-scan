@@ -53,14 +53,14 @@ RUN npm run build
 # A stage of its own rather than two more `RUN` lines, so that `--target build`
 # above stays a complete checkout with `tsx` and `vitest` still in it. That is
 # worth having: it is how the suite was run for this change on a machine whose
-# worktree had no `node_modules`, against a Postgres started beside it —
+# worktree had no `node_modules`, against a Postgres started beside it:
 #
 #     docker build --target build -t book-scan:build .
 #     docker run --rm --network <net> \
 #       -e BOOKSCAN_TEST_DATABASE_URL=postgres://...@<pg>:5432/postgres \
 #       book-scan:build npm test
 #
-# which is the same arrangement CI uses, and it costs the final image nothing
+# That is the same arrangement CI uses, and it costs the final image nothing,
 # because nothing is copied from that stage.
 FROM build AS production-tree
 
@@ -120,7 +120,7 @@ COPY --from=production-tree /app/web/package.json ./package.json
 # The photographs are a mount, not image content: 1541 files and about 1.4 GB,
 # addressed by bare filename joined onto this directory at read time, written by
 # six code paths and read by eight. A container that loses this loses every
-# photograph, and there is no second copy in the app — the names are in Postgres
+# photograph, and there is no second copy in the app. The names are in Postgres
 # and the bytes are not.
 #
 # The default is set rather than left absent because absent is the hazard:
@@ -153,8 +153,8 @@ USER node
 # `docs/the-image.md`: the server binds `127.0.0.1` inside this container, which
 # #520 left deliberately and this issue does not change. Publishing this port
 # reaches nothing on its own. What a deployment puts in front of it has to be in
-# the same network namespace — a tunnel daemon as a sidecar, or a proxy joined
-# to it — which is exactly the decision that is still open.
+# the same network namespace: a tunnel daemon as a sidecar, or a proxy joined to
+# it. That is exactly the decision that is still open.
 EXPOSE 3001
 
 # No HEALTHCHECK, and that is a decision. Since #521 `GET /api/health` answers

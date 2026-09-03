@@ -52,9 +52,9 @@ $ docker run --rm --network <net> \
       Tests  2755 passed (2756)
 ```
 
-That is the arrangement CI already uses — `BOOKSCAN_TEST_DATABASE_URL` points
-the harness at a Postgres somebody else started and no testcontainer starts —
-and it costs the shipped image nothing, because nothing is copied from that
+That is the arrangement CI already uses (`BOOKSCAN_TEST_DATABASE_URL` points the
+harness at a Postgres somebody else started, so no testcontainer starts), and it
+costs the shipped image nothing, because nothing is copied from that
 stage.
 
 *(The one file that did not pass in that first run was `src/styles.test.ts`,
@@ -132,7 +132,7 @@ thumbnail door answering `200 image/jpeg` for `?w=160`, which is
 sets `HOME=/home/node`: `USER` does not set it, and unset, the first OCR of a
 container's life writes wherever Node resolves instead. That cache is inside the
 container, so a replaced container downloads the models again. It is a few
-megabytes and it is not data, so nothing is lost — but a deployment that
+megabytes and it is not data, so nothing is lost. But a deployment that
 restarts often may want `/home/node/.cache` mounted too. It is deliberately not
 in `BOOKSCAN_DATA`: `web/server/identify.ts` says why, and it is the same reason
 here.
@@ -178,7 +178,7 @@ Two things follow, and only one of them is obvious.
 `ENV BOOKSCAN_DATA=/data` and `VOLUME ["/data"]` are the obvious one: the
 requirement is in the image's own metadata rather than only in a document. The
 default is **set** rather than left absent because absent is the hazard the
-survey measured — a server with no `BOOKSCAN_DATA` resolves `./data`, creates it,
+survey measured: a server with no `BOOKSCAN_DATA` resolves `./data`, creates it,
 and comes up reporting success while serving a catalogue whose every photograph
 is a 404.
 
@@ -243,9 +243,9 @@ with handler: docker stop --time 10 took 0.24s, exit 0
 [api] stopped
 ```
 
-The handler closes the listener, closes idle keep-alive connections — a phone
+The handler closes the listener, closes idle keep-alive connections (a phone
 sitting on a shelf holds one open, and without this the close waits for it and
-the ten seconds are spent anyway — then closes the pool, which is what actually
+the ten seconds are spent anyway), then closes the pool, which is what actually
 lets the process exit, since idle Postgres clients hold the event loop open on
 their own. It is bounded: a shutdown that hangs is worse than a hard kill,
 because it looks like a working one.
@@ -266,8 +266,9 @@ or deferred rather than discovered later. **It is answered, and the answer is
 that it was already handled.**
 
 `web/infrastructure/db/migrate.ts:60-71` takes a session-scoped advisory lock
-around the whole of it — the "has this ever been migrated" check, the adoption
-decision and Drizzle's migrator — for exactly this reason, in its own words:
+around the whole of it, over the "has this ever been migrated" check, the
+adoption decision and Drizzle's migrator alike, for exactly this reason, in its
+own words:
 *"One advisory lock, so two processes starting at once do not both decide the
 database is empty."*
 
@@ -293,7 +294,7 @@ $ psql -c "select count(*) from information_schema.tables
 ```
 
 One created it, two waited and found it done, all three came up, and the
-bookkeeping holds 32 rows — one per migration the build copied, not 96. **So
+bookkeeping holds 32 rows, one per migration the build copied, not 96. **So
 scaling to more than one container is safe as far as schema goes.**
 
 Three things that are *not* settled by that, kept here so nobody reads this
@@ -303,8 +304,8 @@ section as more than it is:
    not corrupt anything; it makes every other container's start hang behind it,
    which will look like a deployment that is up and never answers.
 2. **The lock says nothing about which database was opened.** The survey's real
-   hazard — a first boot against an *empty but wrong* database producing a
-   complete, empty catalogue and reporting success — is untouched by this and
+   hazard, a first boot against an *empty but wrong* database producing a
+   complete, empty catalogue and reporting success, is untouched by this and
    untouched by anything in this issue. The line `[db] postgres migrations: this
    database was empty, so the schema was created from them` is the one to read on
    a deployment's first start, and reading it on the *second* start is the
@@ -340,13 +341,13 @@ it is the ordinary shape of both options the owner is choosing between:
   container. Whether that arrives on loopback or on an interface address is a
   property of the platform, and **it is the one question that has to be answered
   before this image runs there.** If it arrives on an interface address, this
-  bind is the change to make, and it is one line — in that issue, with the gate
+  bind is the change to make, and it is one line, in that issue, with the gate
   and the tunnel decision in hand.
 
 For the verification below, that role was played by the smallest honest thing: a
 second container joined to the app container's network namespace, forwarding
 `0.0.0.0:8531` to `127.0.0.1:3001`. It is fifteen lines of `node:net` and it is
-not in this repository, because it is not part of the image — it is a stand-in
+not in this repository, because it is not part of the image: it is a stand-in
 for the decision that has not been taken.
 
 ---
@@ -356,7 +357,7 @@ for the decision that has not been taken.
 `docs/the-gate.md` decided that who is allowed in is settled outside the app by
 `web/scripts/enable-user.ts`, and gave the reason: a route that admits somebody
 needs a role, and #171 has not decided one. It also names the bootstrap that
-makes a script the only answer — **the first user cannot be enabled by an enabled
+makes a script the only answer. **The first user cannot be enabled by an enabled
 user, because there is not one.**
 
 That script runs under `tsx`, which a runtime image does not carry. So an image
@@ -364,7 +365,8 @@ that could not run it would be a login screen with nothing behind it, on any
 deployment where the database is not reachable from the owner's own machine.
 
 It is now bundled beside the server by `scripts/build-server.mjs`, as a second
-esbuild call rather than a second entry point in the same one — esbuild derives
+esbuild call rather than a second entry point in the same one, because esbuild
+derives
 output paths from the common ancestor of its entry points, so one call with both
 would have written `dist-server/server/index.js` and broken the `../dist/`
 sibling relationship the client serving depends on. `smoke-built-server.mjs`
@@ -455,7 +457,7 @@ GET /api/covers/anything.jpg -> 403
 and enabled again, on the same cookie, with no second sign-in: `admitted`, and
 `/api/health` back to `200`.
 
-*(The development door admits on sight — `admitsOnSight: true` in
+*(The development door admits on sight, `admitsOnSight: true` in
 `web/server/auth/providers.ts`, because a checkout has no owner sitting beside it
 to run the enable script. So the waiting state is reached with `--disable`, which
 is the same order `docs/the-gate.md` drove it in. On a real deployment the
@@ -464,7 +466,7 @@ sign-in lands on `waiting` with no script run at all.)*
 
 **In a browser, which is the part a `curl` transcript cannot claim:** the app was
 opened at the forwarded port, signed in through the development door, and it
-loaded — the header, the five counts, the search card, the four tabs, and
+loaded: the header, the five counts, the search card, the four tabs, and
 **0 console errors and 0 warnings**. Disabled by the script and reloaded, the
 same browser got the waiting screen: *"You are signed in, and not in yet."* with
 the sign-out button under it. Enabled again and reloaded, the app came back. All
