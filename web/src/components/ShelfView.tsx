@@ -395,7 +395,7 @@ export function ShelfView({
         See `driftOnShelves`: #485 was three screens giving three counts of one
         thing, and scoping this to the visible half would rebuild that.
       */}
-      {drift && drift.total > 0 && <Drifted drift={drift} />}
+      {drift && drift.total > 0 && <Drifted drift={drift} onOpen={open} />}
 
       {/* Louder than a hint, and above the list rather than below it, because
           it is the one line that says the list underneath is not the whole
@@ -825,16 +825,21 @@ export function Misfiled({
  * nothing to write to on the server either, and the sentence says so where the
  * reader can see it rather than in a comment they will never read.
  *
- * **The rows do not open a book for the same reason.** There is nothing to do
- * to one of these books individually, and a row leading to a page offering to
- * move it is a door pointing at exactly the act this card asks somebody not to
- * make. What settles one of these is finding out which of the two readings is
- * wrong, and that is not a thing anybody does from a phone.
+ * **A row opens the book and does nothing else**, which is what every other
+ * list of books in this app does and is the reason it is not spelled out as an
+ * exception: a row that led nowhere would be a target that does nothing, and
+ * looking at a book is not moving it. What is absent is any control here that
+ * writes, and its absence is checked rather than described.
  *
  * Split out and holding no state, like `Misfiled` above, so what it says can be
  * held to a claim in a test rather than only looked at.
  */
-export function Drifted({ drift }: { drift: { books: DriftingBook[]; total: number } }) {
+export function Drifted({
+  drift, onOpen,
+}: {
+  drift: { books: DriftingBook[]; total: number }
+  onOpen: (id: number) => void
+}) {
   const said = driftOnShelves(drift.total)
   /*
    * Bounded, and by a screen rather than by the wire. The route answers up to
@@ -866,13 +871,13 @@ export function Drifted({ drift }: { drift: { books: DriftingBook[]; total: numb
                 ? `drawn in ${one.fromLayout}, claimed into ${one.fromRules}`
                 : `drawn in ${one.fromLayout}, and no rule claims it`}
               cloth={clothFor(one.bookId)}
-              onward={false}
+              onPress={() => onOpen(one.bookId)}
             />
           ))}
         </List>
         {rest > 0 && (
           <Said>
-            And {plural(rest, 'book')} more, not named here: a list this long is
+            And {plural(rest, 'more book')}, not named here: a list this long is
             a rule that has stopped claiming a whole stretch of the collection
             rather than a handful of books to go and look at.
           </Said>
