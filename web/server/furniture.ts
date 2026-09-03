@@ -78,9 +78,9 @@ import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import {
   anyArea, areaOnAFace, areasOnFaces, booksNaming, collectionId, collectionStrategy,
   everyArea, fixtureOnTheFloor, fixturesOnTheFloor, insertArea, insertFixture,
-  nextFixturePosition, offerableStrategies, removeFixtureIfUnused, resequenceFace, updateArea,
-  updateCollectionStrategy, updateFixture,
-  whatHoldsFixture, type AreaRow, type FixtureRow,
+  nextFixturePosition, offerableStrategies, removeFixtureIfUnused, resequenceFace, retireFixture,
+  updateArea, updateCollectionStrategy, updateFixture,
+  whatHoldsFixture, type AreaRow, type FixtureHolds, type FixtureRow,
 } from '../infrastructure/shelving/furniture'
 import type { Db } from './driver'
 import { withPhotographs, type PhotographFields } from './photographs'
@@ -1164,13 +1164,20 @@ export async function editFixture(
 }
 
 export interface FixtureRemoval {
-  /** How many books are standing on it, which is what has to leave first. */
+  /**
+   * How many books the piece is still about, which is what has to leave first.
+   *
+   * Standing on one of its planks, or assigned to one and not carried yet. See
+   * `whatHoldsFixture`, and #484 for what counting only the first half cost.
+   */
   books: number
+  /** How many of `books` are on their way to it rather than standing on it. */
+  assigned: number
   areas: number
   /** How many placement rules point at it or at one of its areas. */
   rules: number
   /**
-   * Whether the row will stay behind with nothing on its face.
+   * Whether the row will stay behind, off the floor, rather than being deleted.
    *
    * A piece whose areas a book was ever placed in cannot be deleted:
    * `book_placement.area_id` is ON DELETE RESTRICT so the history pins the
@@ -1178,8 +1185,36 @@ export interface FixtureRemoval {
    * piece is taken off the floor rather than out of the catalogue, which is the
    * same answer an area gets, and saying so beats a delete that quietly did
    * something else.
+   *
+   * **It is true of the rows now.** It used to be true only of the sentence:
+   * nothing wrote `fixture.position`, so the piece went on standing in the room
+   * with an empty face while this said it had gone (#484). `retireFixture` is
+   * what makes it so.
    */
   retires: boolean
+}
+
+/**
+ * Why a piece cannot go yet, said as the two different jobs it would take.
+ *
+ * Books standing on it have to be carried off it; books the carry list is still
+ * sending to it have to be carried or left where they are. One number covering
+ * both would tell somebody looking at an empty bookcase that it has a book on
+ * it, which is the confusion #484's refusal has to avoid rather than create.
+ */
+function stillHolds(holds: FixtureHolds): string {
+  const standing = holds.books - holds.assigned
+  const said = [
+    standing
+      ? `its ${standing} book${standing === 1 ? '' : 's'} move to other furniture first`
+      : '',
+    holds.assigned
+      ? `the carry list is still sending ${holds.assigned} `
+        + `book${holds.assigned === 1 ? '' : 's'} to it`
+      : '',
+  ].filter(Boolean).join(', and ')
+
+  return `${said.charAt(0).toUpperCase()}${said.slice(1)}.`
 }
 
 export type RemovedFixture = { ok: true; removed: FixtureRemoval } | Refused
@@ -1213,13 +1248,7 @@ export async function dropFixture(db: Db, id: number): Promise<RemovedFixture> {
     if (!fixture) return refuse(404, 'No such piece of furniture.')
 
     const holds = await whatHoldsFixture(tx, id)
-    if (holds.books) {
-      return refuse(
-        409,
-        `Its ${holds.books} book${holds.books === 1 ? '' : 's'} move to other furniture first.`,
-        holds,
-      )
-    }
+    if (holds.books) return refuse(409, stillHolds(holds), holds)
     if (holds.rules) {
       return refuse(
         409,
@@ -1230,15 +1259,15 @@ export async function dropFixture(db: Db, id: number): Promise<RemovedFixture> {
     }
 
     // The areas go before the piece can, and one a book was ever placed in
-    // cannot go at all. Such a piece keeps standing with nothing on its face,
-    // which is `retires` and is reported rather than treated as a failure: the
-    // piece is off the floor either way, and the history it carries is the
-    // reason the row survives.
+    // cannot go at all. Such a piece is retired instead, which is `retires`: it
+    // comes off the floor either way, and the history it carries is the reason
+    // the row survives.
     for (const slot of await faceOf(tx, fixture)) {
       await retireOrRemove(tx, slot.area.id, slot.area.position)
     }
 
     const gone = await removeFixtureIfUnused(tx, id)
+    if (!gone) await retireFixture(tx, id, fixture.position)
     return { ok: true as const, removed: { ...holds, retires: !gone } }
   }, { serialiseOn: FURNITURE_LOCK })
 }

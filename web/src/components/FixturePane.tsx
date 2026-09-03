@@ -58,7 +58,7 @@ import type {
 } from '../lib/api'
 import {
   collectionOrdering, fixtureSettled, labelsIfNamed, orderEnds, orderingSaid, pieceSaid,
-  places, plural, reaching, sampleOrdered, sortOptions,
+  places, plural, reaching, sampleOrdered, sortOptions, stillHolds,
 } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 import { Unsaved } from './Unsaved'
@@ -319,13 +319,12 @@ export function FixturePane({
         The reassurance went and the guarantee did not. What replaces "the books
         do not vanish with it" is the fact of what pressing it does, said in a
         count: a piece with books on it cannot be taken out of the room until
-        they have been carried off it.
+        they have been carried off it. A piece the carry list is still sending
+        books to cannot either, and says so in the same place (#484).
       */}
       <Card
         weight="quiet"
-        kind={removal && removal.books > 0
-          ? `Its ${plural(removal.books, 'book')} move to other furniture first`
-          : undefined}
+        kind={stillHolds(removal)}
         foot={
           <Button tone="danger" block onPress={busy ? undefined : onDelete}>
             Delete fixture

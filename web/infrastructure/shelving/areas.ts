@@ -479,7 +479,14 @@ export async function areasStanding(db: Db): Promise<StandingArea[]> {
     const position = faceOf(Number(row.position))
     const fixture: Fixture = {
       id: Number(row.fixture_id),
-      position: Number(row.fixture_position),
+      /*
+       * `faceOf` on this side too, and for the plank's reason one line down: a
+       * piece can be off the floor with books still recorded on its planks, and
+       * a retired piece's position is `-(bookcase + 1)` (`retireFixture`). What
+       * somebody wrote down is still "4A", so the number has to decode before it
+       * reaches a label.
+       */
+      position: faceOf(Number(row.fixture_position)),
       kind: row.fixture_kind,
       name: row.fixture_name,
       sortStrategy: 'inherit',

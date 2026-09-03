@@ -165,6 +165,11 @@ export async function areaForLabel(
  * A plank on the face wins over one retired from the same position, which is the
  * only way two rows can read as one label.
  *
+ * **The piece can be off the floor too**, and is asked for the same two ways
+ * round: deleting a bookcase whose planks the ledger names retires the piece to
+ * `-(bookcase + 1)` rather than deleting the row (`retireFixture`), and a
+ * receipt naming `4A` is about the room somebody was standing in.
+ *
  * Not offered to the write path, and that is deliberate: recording a book onto a
  * plank the collection has taken out stays refused.
  */
@@ -175,9 +180,9 @@ export async function areaForRecordedLabel(
 ): Promise<number | null> {
   const row = await db.get<{ id: number }>(
     `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
-      WHERE f.position = ? AND (a.position = ? OR a.position = ?)
-      ORDER BY (a.position >= 0) DESC, f.id, a.id LIMIT 1`,
-    [fixturePosition, areaPosition, -(areaPosition + 1)],
+      WHERE (f.position = ? OR f.position = ?) AND (a.position = ? OR a.position = ?)
+      ORDER BY (f.position >= 0) DESC, (a.position >= 0) DESC, f.id, a.id LIMIT 1`,
+    [fixturePosition, -(fixturePosition + 1), areaPosition, -(areaPosition + 1)],
   )
   return row ? Number(row.id) : null
 }

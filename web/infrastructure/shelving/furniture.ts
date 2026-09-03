@@ -38,9 +38,11 @@
  * one back onto the face. See `retiredPosition` and `faceOf` in `areas.ts`.
  */
 
+import { standingOf, type Placement } from '../../domain/placement/ledger'
 import type { SortStrategy } from '../../domain/placement/strategies'
 import type { Db } from '../../server/driver'
-import { areasStanding } from './areas'
+import { DrizzlePlacementLedger } from '../placement/ledger-repository'
+import { areasStanding, retiredPosition } from './areas'
 
 /** A fixture as the rows hold it. */
 export interface FixtureRow {
@@ -373,7 +375,16 @@ export async function resequenceFace(
 /** What still names a fixture, which is what stands between it and deletion. */
 export interface FixtureHolds {
   areas: number
+  /**
+   * Every book the piece is still about: standing on one of its planks, or
+   * assigned to one and not carried yet.
+   */
   books: number
+  /**
+   * How many of `books` are not on the piece at all and are on their way to it,
+   * because the rules put them on one of its planks and nobody has walked it.
+   */
+  assigned: number
   rules: number
   /**
    * True when the row will outlive the removal because the ledger names one of
@@ -382,26 +393,88 @@ export interface FixtureHolds {
   retires: boolean
 }
 
+/**
+ * What still names a fixture, which is what stands between it and deletion.
+ *
+ * **`books` is the question `booksNaming` answers, asked of a whole piece**, and
+ * #484 is what asking a narrower one cost. It counted `books.current_area_id`
+ * alone, which follows only what somebody has said they carried: a book the
+ * rules had assigned to a plank on this piece and nobody had moved yet was
+ * standing somewhere else, so it counted for nothing, so the refusal did not
+ * fire. Every plank was then retired and the assignment left naming one that is
+ * off every face, which is precisely the state `booksNaming` exists to prevent
+ * and which `dropArea` has always asked about.
+ *
+ * **The standing half comes out of `areasStanding`, through `everyArea`, rather
+ * than out of a count of its own.** That is #401: there is one statement in this
+ * app that counts the books standing on an area, and this is not allowed to
+ * become a second.
+ */
 export async function whatHoldsFixture(db: Db, id: number): Promise<FixtureHolds> {
-  const row = await db.get<{ areas: number; books: number; rules: number; recorded: number }>(
+  const row = await db.get<{ areas: number; rules: number; recorded: number }>(
     `SELECT
        (SELECT count(*) FROM area a WHERE a.fixture_id = ? AND a.position >= 0) AS areas,
-       (SELECT count(*) FROM books b JOIN area a ON a.id = b.current_area_id
-         WHERE a.fixture_id = ?) AS books,
        (SELECT count(*) FROM placement_rule r
           LEFT JOIN area a ON a.id = r.area_id
          WHERE r.fixture_id = ? OR a.fixture_id = ?) AS rules,
        (SELECT count(*) FROM area a
          WHERE a.fixture_id = ?
            AND EXISTS (SELECT 1 FROM book_placement p WHERE p.area_id = a.id)) AS recorded`,
-    [id, id, id, id, id],
+    [id, id, id, id],
   )
+
+  // Every plank, retired ones included: a book left standing on a plank a
+  // boundary took out is still a book on this piece.
+  const planks = (await everyArea(db)).filter((area) => area.fixtureId === id)
+  const standing = planks.reduce((count, area) => count + area.books, 0)
+  const assigned = await booksOnTheirWayTo(db, planks.map((area) => area.id))
+
   return {
     areas: Number(row?.areas ?? 0),
-    books: Number(row?.books ?? 0),
+    books: standing + assigned,
+    assigned,
     rules: Number(row?.rules ?? 0),
     retires: Number(row?.recorded ?? 0) > 0,
   }
+}
+
+/**
+ * How many books the rules have sent to one of these planks and nobody has
+ * carried, counting only the ones not standing on one of them already.
+ *
+ * The same two steps `planAreaRemoval` takes for a single plank. `booksNaming`
+ * answers every book a plank has ever been about, which includes the ones that
+ * only passed through, and the ledger is what says which of those the plank is
+ * still about today — so a piece that once held books but holds none and is
+ * owed none goes, and a piece somebody is still being told to carry a book to
+ * does not.
+ *
+ * Not added to the standing count until it is narrowed: a book standing on one
+ * plank of a piece and assigned to another is one book, and counting it twice
+ * would put a number on a screen that nothing in the room matches.
+ */
+async function booksOnTheirWayTo(db: Db, planks: readonly number[]): Promise<number> {
+  if (!planks.length) return 0
+
+  const naming = [...new Set(
+    (await Promise.all(planks.map((plank) => booksNaming(db, plank)))).flat(),
+  )]
+  if (!naming.length) return 0
+
+  const history = new Map<number, Placement[]>()
+  for (const row of await new DrizzlePlacementLedger(db).forBooks(naming)) {
+    const rows = history.get(row.bookId)
+    if (rows) rows.push(row)
+    else history.set(row.bookId, [row])
+  }
+
+  const on = new Set(planks)
+  return naming.filter((book) => {
+    const standing = standingOf(history.get(book) ?? [])
+    return standing.assigned !== null
+      && on.has(standing.assigned)
+      && !(standing.area !== null && on.has(standing.area))
+  }).length
 }
 
 /**
@@ -421,6 +494,32 @@ export async function removeFixtureIfUnused(db: Db, id: number): Promise<boolean
     [id],
   )
   return changes > 0
+}
+
+/**
+ * Take a piece off the floor without deleting it.
+ *
+ * The fixture's answer to `retireArea`, and deliberately the same encoding:
+ * `-(position + 1)`, so bookcase 4 goes to -5 and still names the bookcase it
+ * was. Every read that draws the room already filters `position >= 0`, so the
+ * piece leaves the floor, stops taking a number from `nextFixturePosition` and
+ * stops falling inside any range's band; every read that turns a stored position
+ * into a label decodes it back through `faceOf`, so a book recorded on `4A`
+ * still reads as `4A`.
+ *
+ * **It is needed because the row cannot always go.** `book_placement.area_id` is
+ * ON DELETE RESTRICT, so a piece whose planks a book was ever placed on keeps
+ * every one of them and therefore keeps itself. #484 is what leaving it at that
+ * cost: the answer said the piece was retired and nothing wrote it, so a
+ * bookcase somebody had just deleted went on standing in the room with nothing
+ * on its face, which is the state #391 and #420 are about.
+ *
+ * No collision to handle, unlike `retireArea`. `fixture.position` carries no
+ * unique index, deliberately (`updateFixture` says why), so two pieces retired
+ * from one number is a thing the rows can hold.
+ */
+export async function retireFixture(db: Db, id: number, position: number): Promise<void> {
+  await db.run('UPDATE fixture SET position = ? WHERE id = ?', [retiredPosition(position), id])
 }
 
 /**

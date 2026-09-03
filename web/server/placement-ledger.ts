@@ -279,7 +279,7 @@ function standingOn(row: PlacementRow): AreaStanding | null {
 
   return {
     fixtureId: Number(row.fixture_id),
-    fixture: Number(row.fixture_position),
+    fixture: faceOf(Number(row.fixture_position)),
     plank: faceOf(Number(row.area_position)),
     name: row.fixture_name ?? '',
     kind: row.fixture_kind ?? '',
@@ -300,7 +300,9 @@ function labelOf(row: {
 
   const fixture: Fixture = {
     id: row.fixture_id,
-    position: row.fixture_position,
+    // The same decode as the plank below, because a piece can be off the floor
+    // with books still recorded on it. See `retireFixture`.
+    position: faceOf(row.fixture_position),
     kind: '',
     name: row.fixture_name ?? '',
     sortStrategy: 'inherit',

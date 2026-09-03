@@ -1130,7 +1130,10 @@ export interface FurnitureDto {
 
 /** What a piece still holds, which is what has to leave before it can go. */
 export interface FixtureRemoval {
+  /** Standing on one of its planks, or assigned to one and not carried yet. */
   books: number
+  /** How many of `books` are on their way to it rather than standing on it. */
+  assigned: number
   areas: number
   rules: number
   /** True when the row stays behind, off the floor, because history names it. */
