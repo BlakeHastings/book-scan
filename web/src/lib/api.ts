@@ -2,6 +2,7 @@ import type {
   AreaStanding, Excluded, ExcludedReason, Misfile, Placement, ShelfRange, ShelfSlot,
   ShelvingReview,
 } from '../../shared/shelving'
+import type { AuthState, SessionAnswer, SignInProvider } from '../../shared/auth'
 import type { FailureCounts } from '../../shared/captureFailure'
 import { genreOfRange, type GenreSlug } from '../../domain/tagging/genre'
 import type { BookState } from '../../domain/books/state'
@@ -1388,10 +1389,60 @@ export class Refusal extends Error {
     message: string,
     readonly status: number,
     readonly effect: unknown,
+    /**
+     * Which of the three states the gate said this caller is in, when the gate
+     * is what refused (#524).
+     *
+     * Absent on every other refusal, because every other refusal is about the
+     * request rather than about who made it. It is carried rather than inferred
+     * from `status`: 401 and 403 are the gate's two answers today and reading
+     * the word the server wrote is what keeps this client from deciding for
+     * itself that a 403 somewhere else means somebody is on the waiting list.
+     */
+    readonly authState?: AuthState,
   ) {
     super(message)
     this.name = 'Refusal'
   }
+}
+
+/**
+ * Who to tell when the gate refuses, and why the notice exists at all.
+ *
+ * Every request in this app goes through `request` below, and any of them can
+ * be the one that finds out the session has died or that this person has just
+ * been disabled. The screen that has to change is not the screen that made the
+ * request: it is the whole app. So the answer travels out of here rather than
+ * back to the caller, and `app/gate.tsx` is the one listener.
+ *
+ * A set of callbacks rather than one, because `StrictMode` mounts an effect
+ * twice in development and a single slot would have the second mount silently
+ * replace the first.
+ */
+const watchers = new Set<(state: AuthState) => void>()
+
+/**
+ * Hear about it when the server says this caller is not admitted.
+ *
+ * Returns the way to stop listening. Called by the gate provider and by
+ * nothing else: two listeners deciding what the app draws would be two
+ * answers to a question the server answers once.
+ */
+export function whenTheGateRefuses(watcher: (state: AuthState) => void): () => void {
+  watchers.add(watcher)
+  return () => { watchers.delete(watcher) }
+}
+
+/** Say so, to whoever is listening. Never throws into the request that found it. */
+export function theGateSaid(state: AuthState): void {
+  for (const watcher of watchers) watcher(state)
+}
+
+/** The word in a refusal body, when it is one of the three the gate writes. */
+function stateIn(body: { state?: unknown }): AuthState | undefined {
+  return body.state === 'anonymous' || body.state === 'waiting' || body.state === 'admitted'
+    ? body.state
+    : undefined
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -1418,11 +1469,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await response.json().catch(() => ({}))) as {
       error?: string
       effect?: unknown
+      state?: unknown
     }
+    const state = stateIn(body)
+    /*
+     * The gate refused, so the app is on the wrong screen and the screen that
+     * asked is not the one to fix it. Told before the throw, so the app has
+     * already begun changing by the time whichever caller this was decides what
+     * to do with its own error.
+     */
+    if (state && state !== 'admitted') theGateSaid(state)
     throw new Refusal(
       body.error ?? `${response.status} ${response.statusText}`,
       response.status,
       body.effect,
+      state,
     )
   }
   return (await response.json()) as T
@@ -2326,6 +2387,56 @@ export const api = {
    * `server/backup-watch.ts`.
    */
   backup: () => request<BackupWatch>('/api/backup'),
+
+  /**
+   * The three doors in front of the gate this client needs (#524).
+   *
+   * They are the only calls here that answer to somebody with no session, and
+   * they are grouped so that is visible: everything else on this object is
+   * behind the gate and answers `401` or `403` to the same caller.
+   */
+  auth: {
+    /**
+     * Which of the three states this browser is in, asked of the server.
+     *
+     * **The client never decides this and never remembers it.** #524: "a client
+     * that remembers being admitted is a client that will show the app to
+     * somebody who has just been disabled." The gate reads `enabled` off the
+     * user row on every request precisely so that disabling somebody takes
+     * effect on their next one, and a cached answer here would throw that away.
+     */
+    session: () => request<SessionAnswer>('/api/auth/session'),
+
+    /**
+     * The ways in, as the server lists them.
+     *
+     * What makes adding a provider a configuration change: the sign-in screen
+     * draws this answer rather than a list written into it. The development
+     * door is in here like any other and is deliberately not told apart.
+     */
+    providers: () => request<{ providers: SignInProvider[] }>('/api/auth/providers'),
+
+    /**
+     * Give up the session in this browser's cookie.
+     *
+     * Not `request`, because this answers `204` with no body and `request`
+     * parses one. The one thing the waiting screen can offer a person who
+     * signed in as the wrong somebody.
+     */
+    signOut: async (): Promise<void> => {
+      const response = await fetch('/api/auth/signout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+      if (!response.ok) {
+        throw new Refusal(
+          `${response.status} ${response.statusText}`,
+          response.status,
+          undefined,
+        )
+      }
+    },
+  },
 }
 
 export const emptyDraft: Draft = {

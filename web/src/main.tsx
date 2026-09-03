@@ -1,6 +1,7 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { GateProvider } from './app/gate'
 import { galleryRoute } from './design/gallery/route'
 import './styles.css'
 /*
@@ -51,7 +52,25 @@ function Root() {
   }, [])
 
   const route = galleryRoute(hash)
-  if (!route) return <App />
+  /*
+   * The gate is around the app and not around the gallery (#524).
+   *
+   * The app is the collection: every screen of it draws somebody's books, and
+   * every one of those rows and photographs comes from behind the gate. The
+   * gallery is a drawing. It fetches nothing, holds nobody's rows, and is
+   * reachable in the running app so the owner can walk it on a phone, which is
+   * what `docs/process/designing-a-screen.md` asks of it. What it discloses is
+   * the shape of this app's screens, which is the same thing the client's own
+   * files disclose to a stranger who loads the login page at all, and
+   * `docs/the-gate.md` weighed that trade for those files already.
+   */
+  if (!route) {
+    return (
+      <GateProvider>
+        <App />
+      </GateProvider>
+    )
+  }
 
   return (
     <Suspense fallback={null}>

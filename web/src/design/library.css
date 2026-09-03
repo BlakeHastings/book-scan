@@ -3910,6 +3910,31 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-corner__way .wf-cat,
 .wf-corner__way svg { flex: none; margin-left: auto; color: var(--ink-2); }
 
+/*
+ * Signing out (#524): the one thing on this sheet that does not open a room.
+ *
+ * Drawn under the ways with a rule between, no filled well and no chevron, so
+ * it does not read as a third door. Not red either: `Button`'s note about the
+ * danger tone applies here for the same reason, and this is reversible by
+ * signing in again.
+ */
+.wf-corner__out {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  margin-top: var(--s3);
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  width: 100%;
+}
+.wf-corner__out:active { background: var(--paper-sunk); }
+.wf-corner__out:focus-visible { outline: none; box-shadow: var(--focus); }
+
 .wf-corner__word {
   font-size: var(--size-body);
   line-height: var(--lh-tight);
@@ -4039,6 +4064,80 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   text-transform: uppercase;
   color: var(--ink-2);
   margin: 0;
+}
+
+/* --- The way in, and the waiting list ------------------------------------- */
+
+/*
+ * The two screens somebody sees before the app (#524). See `Gate.tsx`.
+ *
+ * No top bar and no tab bar, so this is not `.wf-screen`: the frame's whole job
+ * is to say where you are among four places, and a person who is not in yet has
+ * none of them. What is left is one centred column, which is the arrangement
+ * `.wf-screen--camera` already takes for the other screen wearing no chrome.
+ *
+ * Centred rather than stacked from the top, because there are four things on
+ * either of these screens and a phone-height column of air under them reads as
+ * a page that failed to load.
+ */
+.wf-gate {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--s5) var(--s4) calc(var(--s6) + env(safe-area-inset-bottom));
+  background: var(--paper);
+}
+
+/* Under the gallery's own bar, the way `.wf-screen--camera` is. */
+.wf-frame ~ .wf-gate { min-height: calc(100dvh - 38px); }
+
+.wf-gate__inner {
+  width: 100%;
+  max-width: 22rem;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: var(--s3);
+}
+
+/*
+ * The line that carries the news, in the book face and balanced.
+ *
+ * `text-wrap: balance` matters here for the reason it does on
+ * `.wf-instruction`: this is the sentence the whole screen exists to say, and
+ * a two-word orphan line under it is what it looked like before.
+ */
+.wf-gate__title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-title);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.wf-gate__said {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--size-body);
+  line-height: var(--lh-body);
+}
+
+/* The buttons, and the quiet lines that belong with them. */
+.wf-gate__acts {
+  width: 100%;
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+
+/* An address is one long word to a line breaker, so it is told it may break. */
+.wf-gate__quiet {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--size-small);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
 }
 
 @media (prefers-reduced-motion: reduce) {

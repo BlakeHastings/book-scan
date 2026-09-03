@@ -48,6 +48,7 @@ import {
   type Look,
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Nest, Order } from '../Furniture'
+import { WaitingList, WayIn } from '../Gate'
 import {
   FilterRule, MoveBooks, SortRule, WouldHappen,
   type OrderEnds, type RuleEditing, type RuleSaid, type WouldMove,
@@ -2554,6 +2555,11 @@ function RoomMenu(go: Go) {
           onPress: () => go('settings'),
         },
       ]}
+      /* The way out, since #524. Under the two ways rather than beside them,
+         because it opens nothing, and carrying the address the session says
+         this browser is signed in as: on a shared machine it is the only line
+         anywhere in the app that says which person is being shown the books. */
+      out={{ word: 'Sign out', note: 'alex@example.com', onPress: () => go('wayin') }}
       onClose={() => go('home')}
     />,
   )
@@ -5412,7 +5418,63 @@ function UnclaimedNone(go: Go) {
   )
 }
 
+/**
+ * The way in, with one door on it.
+ *
+ * This is what a development checkout draws, because the only provider it
+ * carries is the one `apphost.mts` configures. It is here as the ordinary case
+ * rather than as a special one: the buttons are whatever
+ * `GET /api/auth/providers` listed, and the development door is in that answer
+ * like any other and is deliberately not told apart by the client (#524).
+ */
+function WayInOne() {
+  return (
+    <WayIn
+      ways={[{ id: 'google', label: 'Google' }]}
+      said="These are somebody's own books. Sign in, and the person whose books they are can let you in."
+    />
+  )
+}
+
+/**
+ * The same screen with a second door on it, which is the point of drawing it
+ * twice.
+ *
+ * A list rather than a button is what makes adding a provider a configuration
+ * change instead of a screen change, and the way to see whether that holds up
+ * as a drawing is to look at it holding two. `docs/the-gate.md` says why the
+ * second one is not Microsoft yet.
+ */
+function WayInTwo() {
+  return (
+    <WayIn
+      ways={[
+        { id: 'google', label: 'Google' },
+        { id: 'dev', label: 'this machine' },
+      ]}
+      said="These are somebody's own books. Sign in, and the person whose books they are can let you in."
+    />
+  )
+}
+
+/**
+ * Signed in, and not let in. The screen the owner asked for by name.
+ *
+ * Drawn with an address on it, because the address is the whole worth of the
+ * button under it: somebody who arrived on the wrong account can see that they
+ * did, and signing out is the one act on this screen that is theirs.
+ */
+function WaitingScreen() {
+  return <WaitingList email="alex@example.com" />
+}
+
 export const SCREENS: Screen[] = [
+  /* The three states the gate answers, in the order somebody meets them. The
+     third is the whole of the rest of this gallery, so it is not a screen here:
+     being let in is the app. */
+  { id: 'wayin', name: 'A way in', group: 'Getting in', render: WayInOne },
+  { id: 'wayintwo', name: 'Two ways in', group: 'Getting in', render: WayInTwo },
+  { id: 'waiting', name: 'Signed in, not in yet', group: 'Getting in', render: WaitingScreen },
   { id: 'home', name: 'Today', group: 'Every day', render: Home },
   /* Short names. The viewer's own bar gives a name about twenty-four
      characters before it truncates, and three of these were being cut off in
@@ -5678,6 +5740,10 @@ export const SCREENS: Screen[] = [
  * `AreaScreen` all go together the day the question is answered.**
  */
 export const GROUPS = [
+  /* First, because it is what a person meets first and because two of the
+     three screens under it are ones nobody who already lives in this app will
+     ever see again (#524). */
+  'Getting in',
   'Every day',
   'Finding a book',
   'Cataloguing',

@@ -167,9 +167,29 @@ export const FIXTURES_WORD = 'Your fixtures'
  * An account menu opens with who you are signed in as. This one opens with
  * what you have, because that is the honest answer to the same question, and
  * because a menu that simply started with two rows would leave the ring above
- * it looking like a login somebody forgot to build. There is no "sign out",
- * not greyed out and not "coming soon": #171 is a decision nobody has made,
- * and drawing a door for it here would be this wireframe making it.
+ * it looking like a login somebody forgot to build.
+ *
+ * ## There is a sign-out now, and this paragraph used to say the opposite
+ *
+ * It said: "There is no 'sign out', not greyed out and not 'coming soon': #171
+ * is a decision nobody has made, and drawing a door for it here would be this
+ * wireframe making it." That was right on the day it was written and it stopped
+ * being true when #521 built the gate: there is a session now, in Postgres,
+ * addressed by a cookie, and `POST /api/auth/signout` destroys it. Drawing the
+ * door is no longer this deciding anything, and **not** drawing it would leave
+ * a signed-in person with no way to stop being signed in.
+ *
+ * Everything the old paragraph was protecting is still protected. #171 is still
+ * undecided, and this is still not an account menu: there is no name, no
+ * profile, no second provider to link and nothing to change about the person.
+ * The sentence above about the collection standing where a name would be is
+ * untouched, and `out` below is one act rather than a room somebody walks into.
+ *
+ * It is drawn apart from the ways, without a chevron, because it is the one
+ * thing on this sheet that does not open anything. `docs/the-gate.md` is why it
+ * has to be reachable at all: the session belongs to whoever holds the cookie,
+ * and the person who signed in as the wrong somebody has exactly one way to fix
+ * that.
  *
  * ## Two ways in, and why not three
  *
@@ -207,11 +227,20 @@ export const FIXTURES_WORD = 'Your fixtures'
 export function Corner({
   said,
   ways,
+  out,
   onClose,
 }: {
   /** What the collection is, said where a person's name would be. */
   said: string
   ways: { word: string; note?: string; onPress?: () => void }[]
+  /**
+   * The one thing here that leaves rather than opens: signing out (#524).
+   *
+   * Optional, because the gallery draws this sheet in a checkout where the
+   * note under it is a made-up address, and because a sheet with nothing to
+   * sign out of should draw nothing rather than a dead row.
+   */
+  out?: { word: string; note?: string; onPress?: () => void }
   onClose?: () => void
 }) {
   return (
@@ -247,6 +276,15 @@ export function Corner({
             </button>
           ))}
         </div>
+
+        {out && (
+          <button type="button" className="wf-corner__out" onClick={out.onPress}>
+            <span className="wf-corner__lines">
+              <span className="wf-corner__word">{out.word}</span>
+              {out.note && <span className="wf-corner__note">{out.note}</span>}
+            </span>
+          </button>
+        )}
       </div>
     </div>
   )

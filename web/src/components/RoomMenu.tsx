@@ -54,10 +54,24 @@
  * Your tags is deliberately not a third row: it is already one press from the
  * top of every library screen, and a second door to a room the screen already
  * opens is the fault the first screen had its camera card taken off for.
+ *
+ * ## And the way out, which is not a third row either
+ *
+ * Signing out is here since #524, under the two ways rather than beside them,
+ * because it opens nothing. The corner is where somebody looks for it:
+ * `Portrait` in `Chrome.tsx` said as much while there was nothing to find,
+ * "the first tap goes looking for 'Sign out' and finds furniture". There is a
+ * session to end now, so there is something to find.
+ *
+ * The address under it is what the session says this browser is signed in as.
+ * It is the fact that makes the press worth offering: on a shared machine, or
+ * after picking the wrong account at Google, it is the only thing on any screen
+ * of this app that says which person the collection is being shown to.
  */
 
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { Corner, FIXTURES_WORD, Portrait } from '../design/Chrome'
+import { useGate } from '../app/gate'
 import { useNavigation } from '../app/navigation'
 import { useSummary } from '../app/summary'
 import { api, type FurnitureDto } from '../lib/api'
@@ -88,10 +102,31 @@ export function roomLine(books: number | null, pieces: number | null): string {
   return said ? `${said}, ${fixtures}` : fixtures
 }
 
+/**
+ * What the line under **Sign out** says, given who is signed in and how the
+ * last press went.
+ *
+ * Exported for its test, like `roomLine` above, and for the same reason: every
+ * branch is a real state. The address is empty when the provider sent none, the
+ * press is in flight for as long as one request takes, and it can fail, at
+ * which point saying nothing would leave somebody pressing a button that has
+ * already refused them once.
+ */
+export function signOutNote(email: string, going: Going): string | undefined {
+  if (going === 'going') return 'Signing out.'
+  if (going === 'refused') return 'That did not work. Try again.'
+  return email || undefined
+}
+
+/** Where the sign-out press has got to. */
+type Going = 'no' | 'going' | 'refused'
+
 export function useRoomMenu(): RoomMenu {
   const { openRoom } = useNavigation()
   const { counts } = useSummary()
+  const { answer, signOut } = useGate()
   const [open, setOpen] = useState(false)
+  const [going, setGoing] = useState<Going>('no')
   const [room, setRoom] = useState<FurnitureDto | null>(null)
 
   /*
@@ -140,6 +175,17 @@ export function useRoomMenu(): RoomMenu {
             onPress: () => { setOpen(false); openRoom('settings') },
           },
         ]}
+        out={{
+          word: 'Sign out',
+          note: signOutNote(answer?.user?.email ?? '', going),
+          onPress: () => {
+            setGoing('going')
+            /* The sheet is deliberately not closed first. A press that succeeds
+               replaces this whole screen with the way in, and a press that does
+               not has to leave somebody looking at the thing that refused. */
+            void signOut().catch(() => setGoing('refused'))
+          },
+        }}
         onClose={() => setOpen(false)}
       />
     ),
