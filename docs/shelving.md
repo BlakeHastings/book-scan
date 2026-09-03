@@ -701,17 +701,29 @@ things that both read as "move non-fiction to bookcase 3":
 - Setting `fixture.position` from 4 to 3 renumbers the bookcase. Every area
   keeps its id, so every book keeps the area it was placed in, and because a
   label is [derived at read time](data-model.md) the recorded location of every
-  book on it changes from `4A` to `3A` along with the furniture. Nothing needs
-  carrying, because nothing moved: that is renaming a bookcase.
+  book on it changes from `4A` to `3A` along with the furniture. **That much is
+  renaming a bookcase. The number is not only a name, though**, and this
+  document used to stop here and say nothing needs carrying, which was wrong:
+  the run walks the room in `fixture.position` order (`runAreasOf`), so
+  renumbering a piece re-orders the planks a run owns, and where a second piece
+  already stands at that number it takes one of them out of the run altogether,
+  since `fixture.position` is deliberately not unique. Books past the moved
+  piece then derive onto different planks and **do** need carrying.
+  [#491](https://github.com/BlakeHastings/book-scan/issues/491) is what the
+  sentence cost: one `PATCH /api/fixtures/:id {"position":1}` on a clean seed
+  put six books on the needs-attention list with nothing on the carry list,
+  because the route believed this paragraph and wrote nothing. It records now,
+  through the same `recordWhatMoved` every boundary write goes through.
 - Pointing the rule at another bookcase, and giving that bookcase the run's own
   cuts, makes the destination planks **different rows**. The books stay on the
   planks they are physically on, the rules want them elsewhere, and the
   difference between the two is the list of books to carry.
 
-Only the second produces a book in somebody's hands, so it is what
-`POST /api/placement/run` does. `domain/placement/relocate.ts` is the
+Only the second is what somebody means by "move non-fiction to bookcase 3", so
+it is what `POST /api/placement/run` does. `domain/placement/relocate.ts` is the
 arithmetic and `relocateRunTo` in `infrastructure/shelving/areas.ts` is the
-write.
+write. The first can produce books in somebody's hands as well, incidentally
+rather than as the request, which is why it writes them down.
 
 ### A run stops where the next run begins, and a move stops a piece earlier
 

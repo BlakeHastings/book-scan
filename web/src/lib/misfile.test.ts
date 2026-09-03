@@ -28,6 +28,7 @@ const flagged = (id: number, from: string, to: string): Misfile => ({
   to,
   toAreaId: id * 10 + 1,
   instruction: `Move Book ${id} from ${from} to ${to}`,
+  sharedNumber: null,
 })
 
 const review = (...misfiles: Misfile[]): ShelvingReview => ({ misfiles, excluded: [] })

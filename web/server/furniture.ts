@@ -85,6 +85,7 @@ import {
 import type { Db } from './driver'
 import { withPhotographs, type PhotographFields } from './photographs'
 import { tagCounts } from '../infrastructure/books/tag-counts'
+import { recordWhatMoved, whereTheRunPutsThem } from './what-moved'
 
 /*
  * The refusal, and how one is said, moved out to `server/refusal.ts` (#332).
@@ -1106,16 +1107,42 @@ export type EditedFixture =
  * Rename a piece, renumber it, say what kind of thing it is, or change how it
  * orders what it holds.
  *
- * **Renumbering a piece is renaming it, and it moves nothing.** Every area keeps
- * its id, so every book keeps the area it was placed in and its recorded
- * location follows the furniture: what changes is the label, which is derived
- * from the number. Pointing a run at a different piece is the other thing, it is
- * the one that produces books in somebody's hands, and it lives in
- * `relocate-run.ts`. See `domain/placement/relocate.ts` for why the two are not
- * the same request.
+ * **Renaming a piece moves nothing. Renumbering it moves books, and this writes
+ * down which** (#491). The two halves used to be one sentence here, and the
+ * sentence was false: it said "renumbering a piece is renaming it, and it moves
+ * nothing", which is true of `book_placement` and of `books.current_area_id`
+ * and is not true of the derivation. `runAreasOf` orders the run by
+ * `f.position, f.id, a.position`, so the number is not decoration on a plank —
+ * it is the order the run walks the room in. Setting it puts a piece's planks
+ * somewhere else in that walk, and where a second piece already stands at the
+ * number, it takes the loser's planks out of the run altogether, since the run
+ * keeps one fixture per position (`runAreasOf`, and `fixture.position` is
+ * deliberately not unique: see `schema.ts`). Either way, books past the moved
+ * piece derive onto different planks.
  *
- * `becomes` is therefore the whole answer: every label on the piece that reads
- * differently now.
+ * Driven on a clean seed, three pieces at 1, 2 and 4 with fiction running over
+ * the first two, one `PATCH /api/fixtures/:id {"position":1}` took the app from
+ * `review 0 carry 0` to **`review 6 carry 0`**: six books the shelves said were
+ * misfiled and a first screen saying there was nothing to carry, which is #458's
+ * shape. `recordWhatMoved` is the answer, the same one #492 gave the boundary
+ * writes, and for the same reason: `docs/data-model.md` says an `assigned` row
+ * is what the rules want and a `placed` row is what somebody did, and these two
+ * disagreeing is exactly what a book needing attention is.
+ *
+ * **What it is still not.** Pointing a run at a different piece is the other
+ * request: it makes the destination planks different rows, and it lives in
+ * `relocate-run.ts`. See `domain/placement/relocate.ts` for why the two are not
+ * the same request. What has changed is only that renumbering is no longer free.
+ *
+ * **Only a renumber records**, because only a renumber moves the run. A name, a
+ * kind and a note are not read by any derivation; a `sortStrategy` orders books
+ * inside a run without changing which plank a sort key lands on, which #492
+ * checked at the running app for the area-level strategy and could not make
+ * disagree. The snapshot is skipped for those, so renaming a bookcase costs the
+ * two reads it always did.
+ *
+ * `becomes` is still every label on the piece that reads differently now. It is
+ * no longer the whole answer.
  */
 export async function editFixture(
   db: Db,
@@ -1148,6 +1175,24 @@ export async function editFixture(
       face.map((slot) => slot.area.id),
     )
 
+    /*
+     * **Every range, not the one this piece is on.** A piece has no range of its
+     * own: which run owns its planks is decided by where the rules' entries
+     * stand and where the next run begins, both of which are read off the very
+     * numbers this write changes. Moving a piece past non-fiction's entry hands
+     * its planks to non-fiction, so asking "which range was it in" before the
+     * write answers about a room that is about to stop existing. Two ranges is
+     * the whole list (`GENRE_RANGES`), and the comparison writes nothing for a
+     * range whose run did not move.
+     */
+    const renumbering = position !== undefined && position !== before.position
+    const was = new Map<ShelfRange, Awaited<ReturnType<typeof whereTheRunPutsThem>>>()
+    if (renumbering) {
+      for (const { range } of GENRE_RANGES) {
+        was.set(range, await whereTheRunPutsThem(tx, range))
+      }
+    }
+
     await updateFixture(tx, id, {
       kind: asText(input.kind),
       name,
@@ -1155,6 +1200,24 @@ export async function editFixture(
       sortStrategy: strategy,
       note: asText(input.note),
     })
+
+    /*
+     * After the write and inside the same transaction, so a renumber that fails
+     * to write leaves no assignment behind either. The lock is `FURNITURE_LOCK`
+     * rather than the range's, which is what every write in this file takes and
+     * what `applyRuleChange` takes to write assignments of its own: a renumber
+     * is a statement about the room, and two people rearranging one room queue.
+     */
+    const now = new Date().toISOString()
+    for (const [range, snapshot] of was) {
+      await recordWhatMoved(
+        tx,
+        range,
+        snapshot,
+        `${fixtureLabel(asFixture(before))} was renumbered`,
+        now,
+      )
+    }
 
     const fixture = await describeFixture(tx, id)
     return fixture

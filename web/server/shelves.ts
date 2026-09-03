@@ -15,7 +15,7 @@ import {
 } from '../infrastructure/shelving/areas'
 import { fixtureLabel } from '../domain/placement/geography'
 import { byPrecedence, entryAreaOf, entryAreas } from '../domain/placement/rules'
-import type { AreaFace } from '../domain/placement/carry'
+import { sharedNumberOf, type AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
 import { relabellingWithout } from './furniture'
 import {
@@ -779,8 +779,12 @@ export class Shelves {
    * The bound is `bandOf`, which is `nextRunStartAfter` read as furniture, so
    * this is the same cut `runFrom` and `relocateRun` make rather than a fourth
    * opinion about where a run ends. Renumbering is offered as the way on because
-   * it is the one move that costs nothing: `editFixture` says a renumber moves
-   * no books, only what the planks are called.
+   * it is the move that says what this refusal is about — where the pieces
+   * stand — rather than a rule retarget, which is a different request
+   * (`relocate-run.ts`). **It is not free**, which this used to say it was:
+   * renumbering changes the order the run walks the room in, so books past the
+   * moved piece derive elsewhere and `editFixture` writes the assignments for
+   * them (#491).
    */
   private async offTheRun(range: ShelfRange, to: PlankAt): Promise<string> {
     const band = await bandOf(this.db, range)
@@ -1543,7 +1547,29 @@ export class Shelves {
       ))
     ).map((row) => toFiled(row, row.area_id, null, faces, true))
 
-    return reviewShelving([...onShelf, ...off])
+    const review = reviewShelving([...onShelf, ...off])
+
+    /*
+     * **The same note the carry screen has drawn since #447**, on the list that
+     * sends somebody to the shelf in the first place. A row reading "last seen
+     * on 1B, now puts it on 1B" is two planks wearing one letter, which is legal
+     * (`fixture.position` is not unique) and which #491 produces five of from a
+     * single renumber. `sharedNumberOf` is the one reading of it, so a note on
+     * one screen and silence on the other is not a thing this can drift into.
+     */
+    return {
+      ...review,
+      misfiles: review.misfiles.map((misfile) => {
+        const ends = {
+          from: misfile.book.areaId === null ? undefined : faces.get(misfile.book.areaId),
+          to: faces.get(misfile.toAreaId),
+        }
+        return {
+          ...misfile,
+          sharedNumber: ends.from && ends.to ? sharedNumberOf(ends.from, ends.to) : null,
+        }
+      }),
+    }
   }
 
   /**

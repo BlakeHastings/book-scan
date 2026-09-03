@@ -55,6 +55,7 @@ const misfile: Misfile = {
   to: 'B2',
   toAreaId: 22,
   instruction: 'Move Dune from A1 to B2',
+  sharedNumber: null,
 }
 
 /** A catalogued book, opened to look at rather than to correct. */
