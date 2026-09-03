@@ -21,7 +21,9 @@
 import { labelFor } from '../../domain/placement/geography'
 import { orderBy } from '../../domain/placement/strategies'
 import type { OrderEnds, SampleBook } from '../design/Rules'
-import type { AreaBook, AreaDto, FixtureDto, FurnitureDto, RuleDto, SortStrategyCode } from './api'
+import type {
+  AreaBook, AreaDto, FixtureDto, FixtureRemoval, FurnitureDto, RuleDto, SortStrategyCode,
+} from './api'
 import type { AreaStanding } from '../../shared/shelving'
 
 /** A piece as the ordering column holds it while somebody drags it about. */
@@ -117,6 +119,32 @@ export function counted(n: number, one: string, many = `${one}s`): string {
 /** The same, with digits, for the places a count is the point rather than prose. */
 export const plural = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`
+
+/**
+ * Why a piece cannot be taken out of the room yet, in the words the server
+ * refuses in.
+ *
+ * Two clauses because they are two different jobs. A book standing on the piece
+ * has to be carried off it; a book the carry list is still sending to it has to
+ * be carried or left where it is, and it is not on the piece at all, so a single
+ * number covering both would put a count on a screen that nothing on the shelf
+ * in front of somebody matches (#484).
+ *
+ * Empty when nothing holds it, which is the card having nothing to say.
+ */
+export function stillHolds(removal: FixtureRemoval | null): string | undefined {
+  if (!removal || removal.books <= 0) return undefined
+
+  const standing = removal.books - removal.assigned
+  const said = [
+    standing ? `its ${plural(standing, 'book')} move to other furniture first` : '',
+    removal.assigned
+      ? `the carry list is still sending ${plural(removal.assigned, 'book')} to it`
+      : '',
+  ].filter(Boolean).join(', and ')
+
+  return said.charAt(0).toUpperCase() + said.slice(1)
+}
 
 /** What the whole room adds up to, as the line under "Your fixtures". */
 export function roomSaid(fixtures: readonly FixtureDto[]): string {

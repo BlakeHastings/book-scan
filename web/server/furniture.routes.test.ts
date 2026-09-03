@@ -904,6 +904,84 @@ describe('removing a piece of furniture', () => {
     expect((await get(`/api/fixtures/${id}`)).status).toBe(404)
     expect(await db.get('SELECT id FROM fixture WHERE id = ?', [id])).toBeUndefined()
   })
+
+  /**
+   * #484. The refusal counted `books.current_area_id`, which follows only what
+   * somebody has said they carried, so a piece holding nothing but work the
+   * carry list had not been walked yet passed it: every plank was retired and
+   * the assignment left naming one that is off every face, which is the trip the
+   * list goes on offering.
+   */
+  it('refuses while the carry list is still sending books to it', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const id = (await post('/api/fixtures', { kind: 'crate' })).body.fixture.id
+    const first = (await post(`/api/fixtures/${id}/areas`, {})).body.area.id
+    const second = (await post(`/api/fixtures/${id}/areas`, {})).body.area.id
+
+    // A book stands on the second plank, and taking that plank off assigns it to
+    // the first. Nobody has carried it.
+    const book = (await db.all<{ id: number }>('SELECT id FROM books ORDER BY id LIMIT 1'))[0]!.id
+    expect((await patch(`/api/books/${book}/location`, { areaId: second })).status).toBe(200)
+    expect((await remove(`/api/areas/${second}`)).status).toBe(200)
+
+    // Then it is carried away to another piece entirely, which satisfies nothing:
+    // the rules still want it on the first plank of this one.
+    expect((await patch(`/api/books/${book}/location`, { areaId: bookcase.areas[0].id })).status)
+      .toBe(200)
+    expect((await get('/api/carry')).body.trips.map((trip: { toAreaId: number }) => trip.toAreaId))
+      .toContain(first)
+
+    const planned = await get(`/api/fixtures/${id}/removal`)
+    expect(planned.body.removal).toMatchObject({ books: 1, assigned: 1 })
+
+    const refused = await remove(`/api/fixtures/${id}`)
+    expect(refused.status).toBe(409)
+    expect(refused.body.error).toBe('The carry list is still sending 1 book to it.')
+
+    // Nothing was written on the refusal, so the trip still leads somewhere.
+    expect((await get(`/api/fixtures/${id}`)).body.fixture.areas).toHaveLength(1)
+    expect((await get('/api/carry')).body.moving).toBe(1)
+  })
+
+  /**
+   * The other half of #484: `retires` was true of the sentence and not of the
+   * rows, so a piece somebody had just deleted stood in the room with an empty
+   * face, still taking a number and still inside every range's band.
+   */
+  it('takes a piece its history keeps off the floor, and it still names its number',
+    async () => {
+      await buildWorld()
+      const bookcase = await nonFiction()
+      const made = await post('/api/fixtures', { kind: 'crate' })
+      const id = made.body.fixture.id
+      const position = made.body.fixture.position
+      const plank = (await post(`/api/fixtures/${id}/areas`, {})).body.area.id
+
+      // A book stood there and has since been carried off, so `book_placement`
+      // names the plank, the plank cannot be deleted and neither can the piece.
+      const book = (await db.all<{ id: number }>('SELECT id FROM books ORDER BY id LIMIT 1'))[0]!.id
+      await patch(`/api/books/${book}/location`, { areaId: plank })
+      await patch(`/api/books/${book}/location`, { areaId: bookcase.areas[0].id })
+
+      const removed = await remove(`/api/fixtures/${id}`)
+      expect(removed.status).toBe(200)
+      expect(removed.body.removed.retires).toBe(true)
+
+      // The row survives, and it is off the floor at `-(bookcase + 1)`.
+      const row = await db.get<{ position: number }>(
+        'SELECT position FROM fixture WHERE id = ?', [id],
+      )
+      expect(Number(row!.position)).toBe(-(position + 1))
+      expect((await get(`/api/fixtures/${id}`)).status).toBe(404)
+      expect((await get('/api/fixtures')).body.fixtures
+        .some((one: { id: number }) => one.id === id)).toBe(false)
+
+      // And what the book's history says about where it was still reads as the
+      // bookcase somebody was standing in front of.
+      const been = (await get(`/api/books/${book}/placements`)).body.been
+      expect(been.map((row: { location: string }) => row.location)).toContain(`${position}A`)
+    })
 })
 
 describe('giving an area an order of its own', () => {
