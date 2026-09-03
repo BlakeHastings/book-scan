@@ -12,10 +12,10 @@ import { moveWithin } from '../design/Furniture'
 import {
   addAreaSaid, areaSettled, counted, fixtureSettled, inOrder, kindSaid, labelsIfNamed,
   orderEnds, orderingSaid, orderingWarning, pieceNote, pieceOn, pieceSaid, places, plural,
-  renamings, renumbering, roomSaid, skippedSaid,
+  renamings, renumbering, roomSaid, skippedSaid, stillHolds,
   type Standing,
 } from './furniture'
-import type { AreaBook, AreaDto, FixtureDto } from './api'
+import type { AreaBook, AreaDto, FixtureDto, FixtureRemoval } from './api'
 
 const standing = (id: number, position: number, name = ''): Standing =>
   ({ id, name, position })
@@ -150,6 +150,36 @@ describe('counting', () => {
       { areas: [{}, {}] }, { areas: [{}] },
     ] as unknown as FixtureDto[]
     expect(roomSaid(fixtures)).toBe('Two pieces, three areas')
+  })
+})
+
+describe('why a piece cannot be taken out of the room', () => {
+  const holding = (books: number, assigned = 0): FixtureRemoval =>
+    ({ books, assigned, areas: 2, rules: 0, retires: false })
+
+  it('says nothing at all about a piece nothing holds', () => {
+    expect(stillHolds(holding(0))).toBeUndefined()
+    expect(stillHolds(null)).toBeUndefined()
+  })
+
+  it('counts the books standing on it', () => {
+    expect(stillHolds(holding(6))).toBe('Its 6 books move to other furniture first')
+  })
+
+  /**
+   * The half #484 is about. A book the rules have sent here and nobody has
+   * carried is not on the piece, so "its 1 book" would be a count of something
+   * a person looking at the shelf cannot see.
+   */
+  it('says the carry list is still sending books to a piece nothing stands on', () => {
+    expect(stillHolds(holding(1, 1)))
+      .toBe('The carry list is still sending 1 book to it')
+  })
+
+  it('says both when both are true', () => {
+    expect(stillHolds(holding(5, 2)))
+      .toBe('Its 3 books move to other furniture first, and the carry list is still '
+        + 'sending 2 books to it')
   })
 })
 
