@@ -23,6 +23,14 @@
  * error, so it is parsed defensively: a row that does not read back as a receipt
  * is reported as no receipt at all, which leaves the move outstanding and the
  * person with the "Moved it" they always had.
+ *
+ * ## The two planks are two fields each, and nothing here reads one back
+ *
+ * `from`/`to` are what the planks were called and `fromArea`/`toArea` are which
+ * planks they were (#481). This hydrates both and parses neither: the whole
+ * point of the ids is that a receipt no longer has to be read as an address, and
+ * a lookup added here would put that back. See `schema.ts` for why they are not
+ * a foreign key, which is the same argument `restore` makes above.
  */
 
 import { eq, sql } from 'drizzle-orm'
@@ -40,6 +48,8 @@ interface OutstandingMoveRow {
   shelf_range: ShelfRange
   from_label: string
   to_label: string
+  from_area_id: number | null
+  to_area_id: number | null
   restore: string
   made_at: string
 }
@@ -72,11 +82,24 @@ function parseRestore(value: string): Restore {
   }
 }
 
+/**
+ * A plank id as the driver hands it back, which is not always a number.
+ *
+ * `node-postgres` returns `bigint`-shaped columns as strings, and every other
+ * read of an area id in this repository puts a `Number` around it for that
+ * reason. Null stays null: it is the one answer this column has that is not an
+ * id, and turning it into 0 would be a receipt naming a plank nobody has.
+ */
+const plank = (value: number | null): number | null =>
+  value === null || value === undefined ? null : Number(value)
+
 const toMove = (row: OutstandingMoveRow): OutstandingMove => ({
   bookId: row.book_id,
   range: row.shelf_range,
   from: row.from_label,
   to: row.to_label,
+  fromArea: plank(row.from_area_id),
+  toArea: plank(row.to_area_id),
   ...parseRestore(row.restore),
 })
 
@@ -87,6 +110,10 @@ const toMove = (row: OutstandingMoveRow): OutstandingMove => ({
  * where things were the last time this book and its shelf agreed, and the older
  * one is the only entry that still points there. `from` is older for the same
  * reason: it is where the book physically is, and no move changes that.
+ *
+ * **`fromArea` travels with `from` and is not decided separately.** They are the
+ * address and the identity of one plank, and a receipt whose two halves came
+ * from different moments would name two places (#481).
  */
 function merged(existing: OutstandingMove | undefined, made: OutstandingMove): OutstandingMove {
   if (!existing) return made
@@ -95,6 +122,7 @@ function merged(existing: OutstandingMove | undefined, made: OutstandingMove): O
   return {
     ...made,
     from: existing.from,
+    fromArea: existing.fromArea,
     reanchor: [
       ...existing.reanchor,
       ...made.reanchor.filter((one) => !already.has(one.id)),
@@ -119,6 +147,8 @@ export class DrizzleOutstandingMoveRepository implements OutstandingMoveReposito
       [outstandingMove.shelfRange.name]: receipt.range,
       [outstandingMove.fromLabel.name]: receipt.from,
       [outstandingMove.toLabel.name]: receipt.to,
+      [outstandingMove.fromAreaId.name]: receipt.fromArea,
+      [outstandingMove.toAreaId.name]: receipt.toArea,
       [outstandingMove.restore.name]: JSON.stringify({
         reanchor: receipt.reanchor,
         recreate: receipt.recreate,

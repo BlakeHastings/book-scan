@@ -1470,10 +1470,12 @@ describe('taking a boundary move back', () => {
    * the comparison is "is the arrangement back as it was", asked in the one
    * vocabulary the arrangement is expressed in.
    *
-   * That is different from `GET /api/misfiles`, which reads the same receipt
-   * labels through `areaOfRecordedLocation` because its *other* side is an area
-   * id. Converting here would convert through the same position arithmetic and
-   * close nothing.
+   * That is different from `GET /api/misfiles`, whose *other* side is an area
+   * id: it used to read the receipt's labels back through
+   * `areaOfRecordedLocation` and now reads the ids the receipt records (#481).
+   * Converting here would convert through the same position arithmetic and close
+   * nothing, which is why #481 left this line alone: the receipt's ids exist
+   * beside it and this check does not read them.
    *
    * This test is what says so. It was written expecting a failure, passed
    * against the unchanged code, and is kept so that the next reader of that
@@ -1576,6 +1578,151 @@ describe('taking a boundary move back', () => {
     expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
     expect(await labels()).toEqual(['1A', '1B', '1C'])
     expect(await locations(ann, bob, cal)).toEqual(['1A', '1B', '1C'])
+  })
+})
+
+/**
+ * Which planks a receipt is about, as against what they were called (#481).
+ *
+ * `outstanding_move` said where a move went as an ordinal address, `4B`, so
+ * every reader parsed it back into a plank. That was the residue #447 left
+ * behind, and it is a smaller claim than #356's: no name can reach these
+ * strings, because the layout arithmetic that writes them has never heard of a
+ * piece's name, and `parseLocation` answers null on the named form anyway.
+ *
+ * **The claim that is true is about position, not about names.** An address is a
+ * statement about where a plank stands, and where a plank stands is exactly what
+ * a boundary write changes. Two rows can read as one address — the code that
+ * used to do the reading said so itself, ordering a plank on the face above one
+ * retired from the same position — and a reader parsing the address gets
+ * whichever row answers to it today.
+ *
+ * So the receipt records which planks, beside what they were called. These are
+ * the tests for the "which", and the pair either side of them is the point: the
+ * ids go on naming the same two rows through a retirement and a renumbering that
+ * both move the addresses.
+ */
+describe('what a move receipt says about where the move went', () => {
+  const shelve = async (author: string, title = 'Book') => {
+    const id = await add(author, title)
+    await store.setLocation(id, await shelves.labelFor('fiction', id))
+    return id
+  }
+
+  const receiptFor = async (bookId: number) =>
+    (await shelves.outstandingMoves('fiction')).find((move) => move.bookId === bookId)
+
+  /** Every row that reads as this address, on the face or off it, newest last. */
+  const rowsReading = async (label: string) => {
+    const at = plank(label)
+    return (await db.all<{ id: number }>(
+      `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
+        WHERE (f.position = ? OR f.position = ?) AND (a.position = ? OR a.position = ?)
+        ORDER BY a.id`,
+      [at.shelf, -(at.shelf + 1), at.area, -(at.area + 1)],
+    )).map((row) => Number(row.id))
+  }
+
+  it('names the two planks the book crossed between, and not just their labels', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
+    await store.setLocation(cal, '1B')
+
+    const planks = await shelves.planks('fiction')
+    const wasOn = planks.at(plank('1A')).areaId
+    const wentTo = planks.at(plank('1B')).areaId
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+
+    const receipt = await receiptFor(bob)
+    expect([receipt?.from, receipt?.to]).toEqual(['1A', '1B'])
+    expect([receipt?.fromArea, receipt?.toArea]).toEqual([wasOn, wentTo])
+  })
+
+  /**
+   * The case `areaForRecordedLabel` was written for, asked the other way round.
+   *
+   * A move that takes the only book off the last plank of a run takes that
+   * plank off the furniture with it, and the plank is retired rather than
+   * deleted because the catalogue still records Cal on it. That much was already
+   * handled: the reading that used to happen here reached a retired plank on
+   * purpose, "because the move that wrote the receipt is the thing that retired
+   * it".
+   *
+   * What it could not handle is somebody adding a plank back. There are then two
+   * rows on that piece reading `1B`, the retired one the receipt is about and a
+   * live one that has never held anything, and the reading preferred the live
+   * one — a plank on the face won over one retired from the same position, which
+   * it had to, since that is the ordinary way a label is read. So the receipt
+   * said `1B` and `1B` meant somewhere else.
+   *
+   * The id does not move. It is the same row before and after, retired or not.
+   */
+  it('goes on naming the retired plank after another one takes its address', async () => {
+    await shelve('Ann Author')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal alone on 1B
+    await store.setLocation(cal, '1B')
+
+    const wasOn = (await shelves.planks('fiction')).at(plank('1B')).areaId
+    expect(await rowsReading('1B')).toEqual([wasOn])
+
+    await shelves.moveAcrossBoundary('fiction', cal, 'previous', { theAreaGoes: true })
+    expect(await labels()).toEqual(['1A', '1A'])
+    expect((await receiptFor(cal))?.fromArea).toBe(wasOn)
+
+    // The person puts a plank back on the piece from the furniture screen. It is
+    // a new row, and it is the one on the face, so it is the one the address
+    // answers to now.
+    const fixture = await db.get<{ id: number }>(
+      'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
+    )
+    expect((await addAreaTo(db, fixture!.id, {})).ok).toBe(true)
+
+    const reading = await rowsReading('1B')
+    expect(reading).toHaveLength(2)
+    expect(reading).toContain(wasOn)
+
+    // Two rows, one address, and the receipt is unambiguous about which of them
+    // the move was about. That is the whole of #481.
+    const receipt = await receiptFor(cal)
+    expect(receipt?.from).toBe('1B')
+    expect(receipt?.fromArea).toBe(wasOn)
+  })
+
+  /**
+   * A second move keeps the older `from`, and the id has to travel with it.
+   *
+   * `merged` says why the older one wins: the receipt describes the arrangement
+   * as it stood the last time this book and its shelf agreed. A receipt whose
+   * address came from one moment and whose id came from another would name two
+   * places, which is a worse answer than the one field it replaced.
+   */
+  it('keeps the older plank and the older address together when a move is merged', async () => {
+    const ann = await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Cal on to 1B
+    await store.setLocation(cal, '1B')
+    await shelves.overflow('fiction', plank('1A'), 'area')       // Bob joins him
+    await store.setLocation(bob, '1B')
+    await shelves.overflow('fiction', plank('1B'), 'area')       // Cal on to 1C
+    await store.setLocation(cal, '1C')
+    expect(await labels()).toEqual(['1A', '1B', '1C'])
+
+    const planks = await shelves.planks('fiction')
+    const cameOff = planks.at(plank('1B')).areaId
+    const endedOn = planks.at(plank('1A')).areaId
+    expect(ann).toBeGreaterThan(0)
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+    await shelves.moveAcrossBoundary('fiction', bob, 'previous')
+
+    const receipt = await receiptFor(bob)
+    expect([receipt?.from, receipt?.to]).toEqual(['1B', '1A'])
+    expect([receipt?.fromArea, receipt?.toArea]).toEqual([cameOff, endedOn])
   })
 })
 

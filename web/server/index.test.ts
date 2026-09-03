@@ -1019,11 +1019,15 @@ describe('shelving a book onto a bookcase', () => {
   /**
    * Which misfiles the app opened, which is what puts "Undo the move" on a row.
    *
-   * The receipt holds the two labels the layout drew when the move was made, and
-   * a label is a rendering, so it is read back as the planks it names before
-   * anything is compared with it (#356). Comparing the receipt's strings against
-   * a row's would take the button away the moment somebody named a bookcase, and
-   * the only way out of a mistapped move would be to claim a walk.
+   * The receipt names the two planks the move was between, and the row it is
+   * matched against names one too, so the comparison is four ids and no
+   * rendering (#481). Comparing the receipt's strings against a row's would take
+   * the button away the moment somebody named a bookcase, and the only way out
+   * of a mistapped move would be to claim a walk.
+   *
+   * It used to hold only the two labels the layout drew and parse them back on
+   * every read, which answered the same thing here and answered it out of the
+   * furniture as it stands rather than as it stood.
    */
   it('names the misfile it opened, so the row can offer to take it back', async () => {
     await seed('Rendezvous with Rama', 'Arthur C. Clarke')
@@ -1035,9 +1039,10 @@ describe('shelving a book onto a bookcase', () => {
 
     /*
      * Moving the only book of the last area back takes that area's boundary out
-     * with it, so the receipt's `1B` names a plank that is no longer on the
-     * face. It is still the plank the book is recorded on, which is why the
-     * receipt is read back with `areaOfRecordedLocation`.
+     * with it, so the plank the receipt is about is no longer on the face. It is
+     * still the plank the book is recorded on, and the receipt names it by its
+     * id, which a retirement does not touch. This used to be read back out of
+     * the receipt's `1B` by a lookup written to reach a retired plank on purpose.
      */
     await post('/api/shelves/move', {
       range: 'fiction', id: dispossessed, direction: 'previous', theAreaGoes: true,

@@ -1115,6 +1115,22 @@ changed, checked afterwards and refused rather than approximated when the
 shelves have moved on. There is state to restore, one book at a time, and
 `outstanding_move` exists to hold it.
 
+**A receipt names the two planks the move was between, and says what they were
+called beside them** (#481). Those are two different facts and the second one
+stops being true: a plank's label is derived from where its piece stands and
+where the plank stands on that piece, and a boundary write moves both — taking an
+area off a face renumbers the areas after it, so the row that read `1C` reads
+`1B` afterwards, and two pieces can stand on one number. Anything deciding
+whether a receipt is about the plank in front of it reads the ids; the labels are
+kept because they are what somebody read that day, and because the retraction's
+own check is arithmetic against arithmetic in the ordinal vocabulary the
+arrangement is expressed in.
+
+The ids are **not** a foreign key to `area`, and the reason is the sentence above
+about what a move does: the move that writes a receipt is what retires the plank
+it names, and a plank nothing else names is deleted outright rather than retired.
+A receipt is a record of what happened, not a reference to what exists.
+
 Leaving a carry list undone restores nothing. **The rules' answer was never
 acted on, so there is nothing to put back**: what is withdrawn is the wanted
 answer itself, one `released` row per book, at whatever scale the person decided

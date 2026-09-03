@@ -859,6 +859,45 @@ export const currentPhotograph = pgView('current_photograph', {
  * receipt that could not mention them would be a receipt for the wrong subset.
  * Nothing reads this except the retraction, which checks the shelves afterwards
  * and refuses rather than trusting what it found here.
+ *
+ * ## The two planks are said twice, and only one of the two is an identity
+ *
+ * `from_area_id` and `to_area_id` are which planks (#481). `from_label` and
+ * `to_label` are what they were called when the move was made, kept because the
+ * retraction compares its own arithmetic against them and because a receipt
+ * saying what somebody read that day is worth keeping.
+ *
+ * **An address is a statement about position, and position is what a boundary
+ * move changes**, which is why the labels alone were not enough. A plank's label
+ * is derived from where its piece stands and where it stands on that piece, and
+ * both of those move: `resequenceFace` renumbers a face when an area comes off
+ * it, so the row that read `1C` reads `1B` afterwards, and `editFixture` renumbers
+ * a piece, so two pieces can stand on one number, which is what `AreaStanding`
+ * exists to say. A reader parsing `4B` back gets whichever row answers to that
+ * address **today**, and the receipt is about the room somebody was standing in
+ * then.
+ *
+ * ## Why these are not a foreign key to `area`, and neither is nullable-for-fun
+ *
+ * The receipt has to be readable **after the plank it names is gone**, because
+ * the move that wrote it is what retired the plank. Retirement leaves the row
+ * (`retiredPosition`), so a foreign key would survive that much. What it would
+ * not survive is `removeAreaIfUnused`, which **deletes** an area outright when
+ * no placement, no projection and no rule names it. A foreign key here would
+ * make an outstanding receipt a fourth such reference: either it blocks a
+ * boundary removal somebody is making at a shelf, or it cascades and destroys
+ * the receipt, or it nulls the ids and calls that a record. All three are worse
+ * than a plain integer that names a row which may since have gone.
+ *
+ * That is the same argument `restore` already makes about separator ids one
+ * paragraph up. **A receipt is a record of what happened, not a reference to
+ * what exists**, and a dangling id is the honest failure: it answers nothing,
+ * where a dangling address answers whichever plank has taken that number over.
+ *
+ * Null means one thing, and only rows written before #481 can carry it: the
+ * receipt was migrated from its address alone and that address named no plank
+ * this collection has, retired or not. `0030` is where that is decided, once,
+ * and every row written since carries both ids.
  */
 export const outstandingMove = pgTable('outstanding_move', {
   bookId: integer('book_id').primaryKey(),
@@ -867,6 +906,10 @@ export const outstandingMove = pgTable('outstanding_move', {
   fromLabel: text('from_label').notNull(),
   /** The plank the move assigned it to, and where the layout now draws it. */
   toLabel: text('to_label').notNull(),
+  /** Which plank `from_label` was a rendering of. See above. */
+  fromAreaId: integer('from_area_id'),
+  /** Which plank `to_label` was a rendering of. See above. */
+  toAreaId: integer('to_area_id'),
   /** The boundaries this move touched, as JSON. See `OutstandingMove`. */
   restore: text('restore').notNull(),
   // text, not timestamp, for the reason written out on books.cover_checked_at.
