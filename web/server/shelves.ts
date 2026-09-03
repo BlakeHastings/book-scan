@@ -449,25 +449,68 @@ export class Shelves {
    * identity off its first book is exactly the phantom bookcase #434 drew.
    */
   async groups(range: ShelfRange): Promise<StandingGroup<ShelvedBook>[]> {
+    const separators = await this.list(range)
     return this.standing(
       await this.planks(range),
-      groupByShelf(await this.layout(range), await this.list(range)),
+      groupByShelf(await this.layout(range), separators),
+      separators,
     )
   }
 
-  /** `groupByShelf`'s ordinals, said as the furniture they are drawn on. */
+  /**
+   * The run's planks, said as the furniture they are, with what stands on each.
+   *
+   * **The run is the furniture's list and not the books'** (#457). It used to be
+   * `groupByShelf`'s, which emits a board per run of books and therefore emits
+   * none at all for a plank nothing is standing on: lending the only book on an
+   * area took that area, its heading and its `Remove` off the one screen that
+   * manages areas, while `/api/fixtures` went on reporting it at nought books.
+   * A lent book is a fact about a house and a plank is a fact about a room, and
+   * `docs/shelving.md` is explicit that the boundaries are the owner's decision
+   * rather than the catalogue's contents.
+   *
+   * **A boundary is paired to its plank by identity, not by an anchor.** A
+   * separator's id is the id of the area it opens (`boundariesFrom`), so that
+   * pairing is a lookup. `groupByShelf` instead compares the separator's anchor
+   * with the sort key of the board's first book, which is the same answer only
+   * while the book that anchored the boundary is still standing there: lend it,
+   * and the line and its `Remove` disappear from an area that still has books
+   * on it. That is what put the wrong `Remove` under somebody's thumb.
+   *
+   * What has not changed is that the identity comes off the address rather than
+   * off the first book standing at it. Taking a board's identity off its books
+   * is the phantom bookcase #434 drew, and it stays out of here.
+   *
+   * The fallback is `groupByShelf`'s own list, for a run the furniture has no
+   * planks for at all: a range whose rule points at a piece that has been taken
+   * out lays its books out from `{ shelf: 1, area: 0 }`, and drawing them is a
+   * better answer than drawing nothing.
+   */
   private standing<T extends LayoutInput>(
     planks: RunPlanks,
     groups: ShelfGroup<T>[],
+    separators: readonly Separator[],
   ): StandingGroup<T>[] {
-    return groups.map((group) => {
+    const address = (where: PlankAt) => `${where.shelf}:${where.area}`
+    const standingThere = new Map(groups.map((group) => [address(group), group]))
+    const opens = new Map(separators.map((separator) => [separator.id, separator]))
+
+    const run = planks.every()
+    const boards = run.length
+      ? run.map((where) => standingThere.get(address(where))
+        ?? { ...where, label: '', books: [] as Placed<T>[], opensWith: null })
+      : groups
+
+    return boards.map((group) => {
       const where = { shelf: group.shelf, area: group.area }
       const plank = planks.at(where)
+      const opener = plank.areaId === null ? undefined : opens.get(plank.areaId)
       return {
         ...group,
         label: plank.label,
         areaId: plank.areaId,
         standing: planks.standingAt(where),
+        opensWith: opener ? { id: opener.id, kind: opener.kind } : null,
       }
     })
   }
@@ -504,7 +547,7 @@ export class Shelves {
       await this.startOf(range),
     )
     const planks = await this.planks(range)
-    const groups = this.standing(planks, groupByShelf(placed, separators))
+    const groups = this.standing(planks, groupByShelf(placed, separators), separators)
     // `shelfLoads` is `groupByShelf` and a count, so the count is taken off the
     // groups already in hand rather than by grouping the same layout again.
     return {
@@ -1330,11 +1373,14 @@ export class Shelves {
    * destination rather than "books will be reassigned", and both are the rows
    * rather than a claim about them.
    *
-   * **An area nothing stands on is drawn nowhere**, so it has no group and its
-   * name comes off the furniture instead. `into` is empty for it, and that is
-   * not a missing answer: there are no books to hand over, so there is nothing
-   * for the area in front to be named in. A group of books always has one drawn
-   * above it, because the first area of a run opens with no boundary at all.
+   * **An area nothing stands on is drawn as a bare plank now** (#457), so it has
+   * a board like any other and both halves come off it. That paragraph used to
+   * say the opposite, and the fallbacks below are what it left behind: they are
+   * kept because a separator id that names no plank of this run at all is still
+   * possible, from a screen drawn before somebody else's removal landed.
+   *
+   * `into` is empty only for the first board of a run, which opens with no
+   * boundary and therefore has nothing drawn above it to hand books to.
    */
   async removalCost(range: ShelfRange, separatorId: number): Promise<AreaGoing> {
     const groups = await this.groups(range)
