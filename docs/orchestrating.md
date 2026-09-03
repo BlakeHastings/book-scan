@@ -9,9 +9,14 @@ Read first, in this order: `AGENTS.md`, then `docs/data-model.md` and
 ## Where things stand
 
 **The Postgres migration is finished.** All nine stages. The catalogue is a
-Postgres database in the container `book-scan-live-pg`; the SQLite file is
-retained as history until at least 2026-09-06 and nothing in this repository can
-open it.
+Postgres database, `bookscan`, which normally lives in the container
+`book-scan-live-pg`; the SQLite file is retained as history until at least
+2026-09-06 and nothing in this repository can open it.
+
+**It is not running as of 2026-09-02**, because the machine was wiped on
+2026-08-26 and Docker went with it. The rows were recovered and nothing was
+lost; `AGENTS.md` has the rule and `docs/process/handoff.md` has the evidence.
+Putting them back is the owner's act.
 
 **The remodel is built and it is read. Both epics are finished.**
 `docs/data-model.md` specifies fourteen tables. Landed: `tag` and `book_tag`
@@ -101,6 +106,35 @@ When he asks a question about your work, answer the question. Twice I read a
 question as a criticism and re-audited something that was fine.
 
 ## Things that will bite you
+
+**There are two families of defect here and both are one sentence.**
+
+The first: **a question with two answers that part company.** Nine instances by
+2026-09-02, from #356 hiding 181 books to #490 drawing a run on furniture it did
+not own. It hides because the two answers agree until an arrangement somebody is
+entitled to create pulls them apart, and then nobody notices, because both sides
+still look sensible on their own screen.
+
+The second, found on 2026-09-02: **an act that changes where a book belongs and
+tells the ledger nothing.** Four sites in one day, each written independently:
+removing a boundary, deleting a bookcase, overflow with the boundary move, and
+renumbering a piece. The symptom is always the same and always mild-looking —
+one screen counts work and another says there is none.
+
+**The method that found the last two of those is repeatable and is the thing to
+copy.** Take an act's primitives, list every ledger writer, take the complement,
+then walk every call site to its route. Two agents did that on the same day and
+both found something real. Then say what the sweep cannot see, which for that
+one is: a writer that writes the *wrong* area id rather than none (the
+complement test passes either way, and that was one defect's actual bug), a
+writer whose scope is narrower than its effect, and the other side of the
+comparison entirely.
+
+**And a passing test is not evidence here.** Three separate tests on 2026-09-02
+turned out to be asserting the defect the agent had been sent to fix. Each one
+passed for years. When a fix looks correct and a test disagrees, read the test
+before believing it, because in this repository the test has been the bug three
+times in one day.
 
 **Stable is a live system and it is not yours.** `AGENTS.md` has the rule and
 the reason: it was written after I fast-forwarded it and restarted the server on
@@ -229,12 +263,33 @@ reusing. For the defects beside them, read the issues rather than this list.
 what that gives up written beside it. Read that note before designing
 `book_placement`, and in particular do not solve tag retraction by widening it.
 
-**Not urgent but real:** the backups live on a different disk from the catalogue
-but in the same machine, so they cover a dropped table, a bad migration and a
-dead `C:` drive, and not a fire. `docs/backup-runbook.md` step 6 is the one that
-is still open. And `install-backup-task.ps1` needs an elevated shell for
-machine-scope variables, but registers the task first, so it half-succeeds.
-User-scope works because the task runs as Blake.
+**This was written as "not urgent but real" and it stopped being either on
+2026-08-26.** The sentence was: the backups live on a different disk from the
+catalogue but in the same machine, so they cover a dropped table, a bad
+migration and a dead `C:` drive, and not a fire.
+
+What arrived was not a fire. It was a Windows reset, which is the same shape:
+the machine went and took the container runtime with it, and the catalogue's
+named volume lived inside that runtime. **The backups did their job** — the
+photographs were untouched, the dumps were on `E:`, and the recovered volume
+agreed with the last verified dump to the row. Nothing was lost.
+
+But the running system was one desktop, and the recovery ran on a directory
+Windows had already scheduled to delete, with three days to spare. That is now
+epic **#471**, and `docs/deployment-survey.md` answers the half of it that
+needed nobody. Two of the four questions in it are the owner's and one of them
+decides the size of everything else.
+
+The rest of the old paragraph still stands: `docs/backup-runbook.md` step 6 is
+open, and `install-backup-task.ps1` needs an elevated shell for machine-scope
+variables but registers the task first, so it half-succeeds. User-scope works
+because the task runs as Blake.
+
+**The lesson worth keeping is not "back things up".** It is that the paragraph
+was right, sat here correctly labelled, and was read as a note rather than as
+work for three weeks. A risk somebody has written down and nobody has scheduled
+is indistinguishable from one nobody has noticed, right up until the morning it
+is not.
 
 ## The thing to keep if you keep nothing else
 
