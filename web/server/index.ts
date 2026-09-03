@@ -69,6 +69,11 @@ import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repo
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { filesOf } from './photographs'
 import { PAGE_LIMIT, Store, type DraftBook } from './store'
+// The gate (#521). One mount covers every route below it and both cover doors;
+// the five open doors are registered immediately above it. See server/auth/.
+import { mountGate, mountSignIn } from './auth/gate'
+import { describeSignIn, signInFrom, type SignInConfig } from './auth/providers'
+import { AuthStore } from '../infrastructure/auth/auth-store'
 // The two steps every save takes, lifted out so the seed takes the same ones
 // (#237). What a book's shelf range and filing name are derived from.
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
@@ -372,6 +377,26 @@ export interface CreateAppOptions {
    * be exactly the kind of real network dependency the suite must not have.
    */
   startBackgroundWork?: boolean
+  /**
+   * The ways in, and the whole of what configuration decides about the gate
+   * (#521).
+   *
+   * **There is deliberately no option here that turns the gate off.** Absent
+   * means "no way to sign in has been configured", which is a server every
+   * request is refused by rather than one that lets everybody through: with no
+   * provider nobody can obtain a session, and with no session every route under
+   * `/api` answers `401`. That is the correct default for a thing whose failure
+   * mode is a door nobody tried.
+   *
+   * Where the list comes from is `server/auth/providers.ts`, which reads the
+   * environment and refuses rather than guesses. See `docs/the-gate.md`.
+   */
+  signIn?: SignInConfig
+  /**
+   * The clock the gate and the sign-in read, injected so a test can drive an
+   * expiry without waiting thirty days for one. Defaults to the real one.
+   */
+  now?: () => Date
 }
 
 /**
@@ -999,6 +1024,46 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const app = express() as BookScanApp
   app.settled = settled
   app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
+
+  /*
+   * ===========================================================================
+   * The gate, and the five doors in front of it (#521).
+   * ===========================================================================
+   *
+   * `docs/auth-surface.md` counted seventy-two ways into this app and found not
+   * one of them locked: an unauthenticated `GET` of a known cover filename
+   * answered `200` with the photograph, and an unauthenticated
+   * `POST /api/fixtures` answered `201` and created the row, both from the LAN
+   * address. It also found that all seventy-two are routes on this one app, in
+   * this one factory, with nothing between the body parser above and the
+   * handlers below — so there is exactly one place a check has to go, and this
+   * is it.
+   *
+   * **The order of these two calls is the design, and it is the whole of the
+   * open set.** What `mountSignIn` registers is above the gate and is open.
+   * Everything registered after `mountGate` is under `/api` and is behind it:
+   * all seventy-one handlers, the thumbnail route, the `express.static` mount
+   * over the photographs, and the `/api` catch-all 404. Nothing has to remember
+   * to be gated, because being gated is a property of where a path is rather
+   * than of a list somebody maintains.
+   *
+   * `server/gate.routes.test.ts` walks this app's router stack, counts what is
+   * on each side of the mount, and fails if anything but those five doors is
+   * above it. That is the count in `docs/the-gate.md` kept honest by the suite
+   * rather than restated by a person.
+   *
+   * The client's own files are *not* under `/api` and are therefore open, which
+   * is deliberate and is the login screen: see the mounts at the bottom of this
+   * file.
+   */
+  const signInConfig = options.signIn ?? { providers: [], publicOrigin: '' }
+  const signInDeps = {
+    store: new AuthStore(db),
+    config: signInConfig,
+    now: options.now,
+  }
+  mountSignIn(app, signInDeps)
+  mountGate(app, signInDeps)
 
   /**
    * Ask for a picture smaller than the one on disk.
@@ -4227,6 +4292,23 @@ if (isMainModule) {
   const CLIENT_DIR = fileURLToPath(new URL('../dist/', import.meta.url))
   const CLIENT_BUILT = existsSync(join(CLIENT_DIR, 'index.html'))
 
+  /*
+   * The ways in (#521), read once, here, and refused rather than guessed at.
+   *
+   * `signInFrom` throws for the three configurations that would otherwise
+   * produce a server nobody can sign into, or one whose development door is
+   * open on a deployment. It is evaluated before `bootstrap` so the process
+   * exits at start with the variable named, in front of whoever is watching it
+   * start, rather than on the first person's first sign-in.
+   *
+   * Unset is a supported state and is what a checkout with no
+   * `BOOKSCAN_DEV_SIGN_IN` gets: nobody can obtain a session, so every route
+   * under `/api` answers `401` and the client shows a login screen with no
+   * buttons on it. That is a server with no way in rather than a server with no
+   * gate, and the startup lines below say which it is.
+   */
+  const SIGN_IN = signInFrom(process.env)
+
   mkdirSync(COVER_DIR, { recursive: true })
 
   // Connecting is asynchronous where opening a file was not, so the wiring
@@ -4243,6 +4325,7 @@ if (isMainModule) {
       dbLabel: label,
       backupDir: BACKUP_DIR,
       clientDir: CLIENT_BUILT ? CLIENT_DIR : undefined,
+      signIn: SIGN_IN,
     })
 
     app.listen(PORT, '127.0.0.1', () => {
@@ -4284,6 +4367,14 @@ if (isMainModule) {
        *
        * Whether there is a key, never the key. See server/secrets.ts.
        */
+      /*
+       * Said on every start, both ways round, for exactly the reason the three
+       * lines above are (#521). Which doors are open is the one thing about
+       * this process that is invisible from outside it and catastrophic to get
+       * wrong, and "the development door is shut" and "the development door is
+       * open" look identical from a browser that is already signed in.
+       */
+      for (const line of describeSignIn(SIGN_IN)) console.log(line)
       console.log(
         googleBooksKeyConfigured()
           ? '[api] Google Books: a key is configured'
