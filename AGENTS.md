@@ -475,8 +475,25 @@ npm ci             # install
 npm run dev        # server on :3001 and client on :5173, over HTTPS
 npm run typecheck  # tsc --noEmit
 npm test           # vitest run
-npm run build      # typecheck then vite build
+npm run build      # typecheck, then the client, then the server
+npm start          # run the built server, no tsx and no watcher
 ```
+
+**There is a build now, and it is the only thing that runs without a watcher**
+(#512). `npm run build` writes the client to `web/dist` and bundles the server
+to `web/dist-server/index.js`, and `npm start` runs that one process, which
+serves the built client on the same origin as `/api`. CI runs the build and then
+checks that what it built loads.
+
+**That changes nothing about development.** `aspire start` still runs `tsx watch`
+for the api and the Vite dev server for the client, and Vite still proxies
+`/api`, which is what lets several worktrees run at once. The api serves the
+built client only when there is one beside it, and it says which on every start.
+
+Why a bundler and not a `tsc` emit, why the API serves the client rather than a
+proxy, and what was decided about source maps: `docs/running-from-a-build.md`.
+Three things a deployment still needs are named at the bottom of it, including
+the loopback bind, which is deliberately still there.
 
 `npm run dev` binds `0.0.0.0:5173` with a self-signed certificate. That is
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
@@ -841,6 +858,8 @@ teach people to skim past it.
 | `web/instrumentation.ts` | OpenTelemetry setup, preloaded with `--import` |
 | `e2e/` | Gherkin features and the browser suite that runs them |
 | `docs/shelving.md` | The shelving specification |
+| `web/scripts/build-server.mjs` | The server build, and why it is a bundle rather than a `tsc` emit |
+| `docs/running-from-a-build.md` | How this app runs without a watcher, and the three decisions that took |
 | `docs/orchestrating.md` | For whoever is running the backlog: where things stand, what bites, and where to go next |
 
 ### The layering, and the tables that go through it

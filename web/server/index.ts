@@ -19,8 +19,8 @@ import '../instrumentation'
 
 import express from 'express'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { basename, join, resolve, sep } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
@@ -344,6 +344,24 @@ export interface CreateAppOptions {
    * `docs/backup-runbook.md`.
    */
   backupDir?: string
+  /**
+   * The built client, served from this same origin (#512).
+   *
+   * Absent means this process answers `/api` and nothing else, which is every
+   * test and every development run: under `aspire start` the Vite dev server
+   * serves the client and proxies `/api` here, and that arrangement is what
+   * lets several worktrees run at once.
+   *
+   * Present means one process serves both halves. That is the deployment
+   * arrangement and it is a decision about more than convenience: the client
+   * addresses the API with same-origin relative paths and has no configurable
+   * base, and a session cookie set by this process is therefore sent with the
+   * request for a page, for a script and for a photograph alike. One gate over
+   * this app covers all three. A static host or a proxy serving the client
+   * instead would put the client outside anything written here, and the gate
+   * would have to exist twice. See `docs/running-from-a-build.md`.
+   */
+  clientDir?: string
   /**
    * Resume any pending capture, warm the OCR engine, and start the background
    * hash/cover-backfill loops.
@@ -3951,15 +3969,78 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * words are the error handler's own, because a path that matched nothing and a
    * cover file that is not there are the same answer to the same question.
    *
-   * Registered last of all the routes and before the error handler, which is the
-   * only place it can go: earlier and it would swallow whatever came after it,
-   * later and it would never run. It is scoped to `/api` on purpose. Everything
-   * else this server does not answer belongs to Vite in development, and the
-   * client's own routing is not this file's to 404.
+   * Registered last of all the API routes, and before both the client mount and
+   * the error handler, which is the only place it can go: earlier and it would
+   * swallow whatever came after it, later and the single-page fallback below
+   * would answer a mistyped `/api` path with the app shell. It is scoped to
+   * `/api` on purpose. Everything else this server does not answer belongs to
+   * Vite in development and to the client's own routing in a deployment, and
+   * neither is this line's to 404.
    */
   app.use('/api', (_req: express.Request, res: express.Response) => {
     res.status(404).json({ error: 'Not found.' })
   })
+
+  /*
+   * The built client, on this origin, behind whatever this app becomes (#512).
+   *
+   * Registered *after* the `/api` catch-all above and before the error handler,
+   * and the order is the whole design rather than a tidiness. A single-page
+   * fallback answers any path it is asked for, so mounting it earlier would
+   * hand `index.html` to a mistyped `/api/...` request and the client's fetch
+   * wrapper would report a JSON parse failure instead of the 404 above. After
+   * it, `/api` can never reach here at all.
+   *
+   * Two mounts, because the two halves of a Vite build want opposite cache
+   * policies and getting that wrong is how a deployment serves yesterday's
+   * app. Everything under `assets/` carries a content hash in its filename, so
+   * it can be cached for a year and never revalidated. `index.html` names those
+   * hashes and is the one file that must not be cached, or a phone keeps asking
+   * for a bundle that is no longer there.
+   */
+  if (options.clientDir) {
+    const clientDir = resolve(options.clientDir)
+    const indexHtml = join(clientDir, 'index.html')
+    if (!existsSync(indexHtml)) {
+      // At construction rather than per request. A process told to serve a
+      // client it does not have should say so while somebody is still watching
+      // it start, not answer 500 to the first person who opens the app.
+      throw new Error(`No built client at ${clientDir}: run \`npm run build\` in web/.`)
+    }
+
+    app.use(express.static(clientDir, {
+      index: false,
+      setHeaders: (res, path) => {
+        res.setHeader(
+          'Cache-Control',
+          path.startsWith(join(clientDir, 'assets') + sep)
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+        )
+      },
+    }))
+
+    /*
+     * Everything left is the client's own routing.
+     *
+     * `/library/anything` is a screen, not a file, and the browser asks this
+     * server for it on a reload or a shared link. Vite's dev server answers
+     * those with the app shell; in a deployment there is no Vite, and without
+     * this a refresh anywhere but `/` is a 404.
+     *
+     * GET and HEAD only. A POST to a path nothing answers is a mistake, and
+     * handing it an HTML page instead of a 404 hides it.
+     */
+    app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next()
+      // The header goes through sendFile's own options rather than res.set:
+      // `send` writes its own Cache-Control as it streams, and applies these
+      // afterwards, so anything set beforehand is overwritten.
+      res.sendFile(indexHtml, { headers: { 'Cache-Control': 'no-cache' } }, (error) => {
+        if (error) next(error)
+      })
+    })
+  }
 
   // Express identifies error-handling middleware solely by arity: a function
   // of exactly four parameters. Dropping the unused `next` here would
@@ -4122,6 +4203,30 @@ if (isMainModule) {
    */
   const BACKUP_DIR = process.env.BOOKSCAN_BACKUP_DIR ?? ''
 
+  /*
+   * The built client, if there is one beside this process (#512).
+   *
+   * **Not an environment variable, on purpose.** Where the client is has one
+   * right answer and no deployment should have to know it, and every variable
+   * this process reads is another thing an inherited value can decide. The
+   * build writes the client to `web/dist` and the server bundle to
+   * `web/dist-server/index.js`, so this expression names `web/dist` from either
+   * of the two files that can be the entry point: `web/server/index.ts` under
+   * tsx, and `web/dist-server/index.js` under `npm start`. Both are one
+   * directory below `web/`. That is a constraint on where the build may put the
+   * bundle, and `scripts/build-server.mjs` says so where it chooses the path.
+   *
+   * Absent is the ordinary development state and it is not a failure: under
+   * `aspire start` the Vite dev server serves the client and proxies `/api`
+   * here, and nothing should serve a stale `dist` in its place. Which of the
+   * two happened is said out loud on every start, for the reason the backup
+   * line below is: "the client is not built" and "the client is built and being
+   * served" are invisible from the outside and look identical when something is
+   * wrong.
+   */
+  const CLIENT_DIR = fileURLToPath(new URL('../dist/', import.meta.url))
+  const CLIENT_BUILT = existsSync(join(CLIENT_DIR, 'index.html'))
+
   mkdirSync(COVER_DIR, { recursive: true })
 
   // Connecting is asynchronous where opening a file was not, so the wiring
@@ -4137,6 +4242,7 @@ if (isMainModule) {
       googleApiKey: GOOGLE_API_KEY,
       dbLabel: label,
       backupDir: BACKUP_DIR,
+      clientDir: CLIENT_BUILT ? CLIENT_DIR : undefined,
     })
 
     app.listen(PORT, '127.0.0.1', () => {
@@ -4154,6 +4260,19 @@ if (isMainModule) {
         BACKUP_DIR
           ? `[api] watching ${BACKUP_DIR} for backups of this catalogue`
           : '[api] no backup directory watched; set BOOKSCAN_BACKUP_DIR to watch one',
+      )
+      /*
+       * Said on every start, both ways round, for the same reason as the line
+       * above (#512). One process serving both halves is the arrangement a
+       * deployment runs and a development checkout does not, and the difference
+       * is invisible from the outside until somebody loads the app and gets
+       * whatever Vite happened to be serving.
+       */
+      console.log(
+        CLIENT_BUILT
+          ? `[api] serving the built client from ${CLIENT_DIR}`
+          : '[api] no built client here; run `npm run build` in web/ to serve one. '
+            + 'In development the Vite dev server serves it and proxies /api here.',
       )
       /*
        * Said on every start, both ways round, for exactly the reason the line

@@ -204,6 +204,32 @@ jobs:
         env:
           BOOKSCAN_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
+      # The build, which until #512 nothing in this repository had ever run.
+      # `vite build` was in `package.json` and in no workflow, no script and no
+      # AppHost, so the one artefact a deployment needs was proved by nobody;
+      # `docs/deployment-survey.md` section 3 is where that was written down. It
+      # now also builds the server, which did not exist as a build at all.
+      #
+      # `npm run build` and not its two halves, deliberately: the script a
+      # deployment runs is the script this proves. It typechecks a second time
+      # as a result, about ten seconds, which buys the guarantee that the whole
+      # command works rather than the two pieces somebody wired into it.
+      - name: Build
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
+        run: npm run build
+
+      # And a build that compiles is not a build that runs. This starts the
+      # bundle with no connection string and requires it to exit 1 naming the
+      # variable, which is the whole load path: every external package resolved
+      # against the installed tree, the entry module evaluated, and execution as
+      # far as the one refusal this app makes on purpose. See the header of the
+      # script for what it deliberately does not prove.
+      - name: The built server loads
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
+        run: node scripts/smoke-built-server.mjs
+
       # Four script suites, none of which needs a dependency tree. They run
       # here rather than in jobs of their own because a job is billed rounded up
       # to a whole minute and these take about a second between them.
