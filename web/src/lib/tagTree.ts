@@ -15,6 +15,21 @@
 
 import type { TagRow } from './api'
 
+/**
+ * The two halves, and nothing else about a tag.
+ *
+ * What the questions about words and nesting actually need. A screen naming a
+ * tag the collection has not got yet holds one of these rather than a row: it
+ * has an identity and something to read, and no count, no note and nothing about
+ * whether a rule asks for it, because none of that exists until the tag does.
+ * Asking for a whole `TagRow` there made those callers invent the missing halves
+ * and then keep inventing each new one (#452 added `ruled` and found two).
+ */
+export interface Named {
+  slug: string
+  label: string
+}
+
 /** Words out of a slug segment, for a name nobody has written down. */
 function wordsOf(segment: string): string {
   const words = segment.replace(/-/g, ' ').trim()
@@ -28,12 +43,12 @@ function wordsOf(segment: string): string {
  * identity turned back into words. Never the identity itself: `genre/fantasy` on
  * a screen is the same mistake as showing somebody a row id.
  */
-export function labelOf(tag: TagRow): string {
+export function labelOf(tag: Named): string {
   return tag.label || wordsOf(tag.slug.split('/').pop() ?? tag.slug)
 }
 
 /** How deep a tag sits: 0 for a namespace, 1 for a tag in it, 2 for one under that. */
-export function depthOf(tag: TagRow): number {
+export function depthOf(tag: Named): number {
   return tag.slug.split('/').length - 1
 }
 

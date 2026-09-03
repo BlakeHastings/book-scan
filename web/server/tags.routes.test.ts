@@ -471,6 +471,189 @@ describe('the vocabulary', () => {
   })
 })
 
+/**
+ * The third door: a word made with nothing standing under it (#452).
+ *
+ * The other two doors are `POST /api/books/:id/tags`, tested above, and both of
+ * them start with a book. #400 let a placement rule ask for a tag nothing
+ * carries, so the rules have accepted a word that does not exist ever since and
+ * there was no way to make one deliberately.
+ *
+ * The rules in these tests are the ones the migration wrote, reached the way
+ * `place-rule.routes.test.ts` reaches them, because a rule naming a tag is half
+ * of what this door has to answer and a hand-built one would be this file
+ * deciding what a rule looks like.
+ */
+describe('making a tag with no book in your hand', () => {
+  /** Every row in `tag` with this slug, so "one and not two" is countable. */
+  const rowsFor = (slug: string) =>
+    db.all<{ id: number }>('SELECT id FROM tag WHERE slug = ?', [slug])
+
+  /** One area of the room the migration furnished, to hang a rule on. */
+  async function anArea(): Promise<number> {
+    const { body } = await call('/api/fixtures')
+    const piece = (body.fixtures as { areas: { id: number }[] }[])
+      .find((one) => one.areas.length > 0)
+    return piece!.areas[0]!.id
+  }
+
+  /** A rule that asks for one tag, written the way the rules screen writes one. */
+  async function aRuleAsking(slug: string): Promise<void> {
+    await post('/api/placement/rule', {
+      about: 'area',
+      placeId: await anArea(),
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: slug }] }],
+    })
+  }
+
+  it('makes it, and the vocabulary answers it with nothing under it', async () => {
+    const { status, body } = await post('/api/tags', {
+      slug: 'subject/japanese-literature', label: 'Japanese literature',
+    })
+
+    expect(status).toBe(201)
+    expect(body.tag).toEqual({
+      slug: 'subject/japanese-literature',
+      label: 'Japanese literature',
+      note: '',
+      books: 0,
+      ruled: false,
+    })
+
+    // The evidence the person who made it has, which is the whole reason the
+    // count comes back: the list they are looking at now holds the word.
+    const { body: listed } = await call('/api/tags')
+    expect((listed.tags as { slug: string; books: number }[])
+      .find((tag) => tag.slug === 'subject/japanese-literature'))
+      .toEqual(expect.objectContaining({ books: 0 }))
+  })
+
+  /**
+   * The one an unwary implementation gets wrong, and #452 named it: a rule may
+   * already carry the slug as a string, and making that tag for real has to
+   * produce the row that string already meant. A second row would be a rule
+   * beginning to match something new without anybody asking for it.
+   */
+  it('answers the row that is already there rather than making a second', async () => {
+    const id = await aBook()
+    await post(`/api/books/${id}/tags`, { slug: 'subject/comic-book', label: 'Comic book' })
+
+    const { status, body } = await post('/api/tags', {
+      slug: 'subject/comic-book', label: 'Comics',
+    })
+
+    expect(status).toBe(201)
+    // The label already on it wins, which is `define`'s rule and not this
+    // route's: a label is changed by somebody deciding to, through PATCH.
+    expect(body.tag.label).toBe('Comic book')
+    expect(await rowsFor('subject/comic-book')).toHaveLength(1)
+    // And the book that carried it still does.
+    expect(await tagsOf(id)).toContain('subject/comic-book:person')
+  })
+
+  it('refuses something that is not a tag', async () => {
+    const { status } = await post('/api/tags', { slug: '???', label: '???' })
+    expect(status).toBe(400)
+  })
+
+  it('says which tags a rule asks for, whether or not anything carries them', async () => {
+    await post('/api/tags', { slug: 'subject/hydrology', label: 'Hydrology' })
+    await aRuleAsking('subject/hydrology')
+
+    const { body } = await call('/api/tags')
+    const tags = body.tags as { slug: string; books: number; ruled: boolean }[]
+
+    // The two empty words that look identical in the table, told apart.
+    expect(tags.find((tag) => tag.slug === 'subject/hydrology'))
+      .toEqual(expect.objectContaining({ books: 0, ruled: true }))
+  })
+})
+
+describe('sweeping a tag away', () => {
+  const rowsFor = (slug: string) =>
+    db.all<{ id: number }>('SELECT id FROM tag WHERE slug = ?', [slug])
+
+  async function anArea(): Promise<number> {
+    const { body } = await call('/api/fixtures')
+    const piece = (body.fixtures as { areas: { id: number }[] }[])
+      .find((one) => one.areas.length > 0)
+    return piece!.areas[0]!.id
+  }
+
+  it('takes a word nothing carries and no rule asks for', async () => {
+    /*
+     * Its own word, and not the one the tests above write a rule against.
+     *
+     * **This file's reset does not cover the rules**, and a test writing one is
+     * new with #452. The `beforeEach` truncates a hand-written list of tables
+     * that stops at `author_alias`, so `placement_rule` and `rule_condition`
+     * carry from one test in this file into the next: written with the same slug
+     * as the test above, this one asked to sweep a word a rule left over from
+     * two tests ago was still asking for, and was refused. AGENTS.md names that
+     * shape by itself — a reset the schema outgrew, which nothing reports
+     * because nothing is wrong until a test writes the table nobody listed.
+     */
+    await post('/api/tags', { slug: 'subject/thatching', label: 'Thatching' })
+
+    const { status } = await call('/api/tags?slug=subject/thatching', { method: 'DELETE' })
+
+    expect(status).toBe(200)
+    expect(await rowsFor('subject/thatching')).toEqual([])
+  })
+
+  /**
+   * The one this guard exists for, and it is not a refusal you can add later.
+   *
+   * `book_tag.tag_id` is `ON DELETE CASCADE`, so a delete that is merely checked
+   * before it runs does not fail against a tag somebody is using: it takes that
+   * tag off every book carrying it and answers as though it worked. The check is
+   * inside the statement, and this is what says so — the refusal and the book
+   * still wearing the word, asserted together.
+   */
+  it('refuses a word books are under, and leaves every one of them wearing it', async () => {
+    const id = await aBook()
+    await post(`/api/books/${id}/tags`, { slug: 'subject/comic-book', label: 'Comic book' })
+
+    const { status, body } = await call('/api/tags?slug=subject/comic-book', {
+      method: 'DELETE',
+    })
+
+    expect(status).toBe(409)
+    expect(body.error).toContain('Books are under this tag')
+    expect(await rowsFor('subject/comic-book')).toHaveLength(1)
+    expect(await tagsOf(id)).toContain('subject/comic-book:person')
+  })
+
+  /**
+   * A word nothing carries that a rule does name is not litter, it is somebody
+   * setting up a bookcase for a subject before they own anything in it. That is
+   * their judgement and nothing here retracts one.
+   */
+  it('refuses a word a rule asks for, and says that is why', async () => {
+    await post('/api/tags', { slug: 'subject/geodesy', label: 'Geodesy' })
+    await post('/api/placement/rule', {
+      about: 'area',
+      placeId: await anArea(),
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: 'subject/geodesy' }] }],
+    })
+
+    const { status, body } = await call('/api/tags?slug=subject/geodesy', {
+      method: 'DELETE',
+    })
+
+    expect(status).toBe(409)
+    expect(body.error).toContain('A rule asks for this tag')
+    expect(await rowsFor('subject/geodesy')).toHaveLength(1)
+  })
+
+  it('is 404 on a word nobody has made', async () => {
+    const { status } = await call('/api/tags?slug=subject/nothing-like-this', {
+      method: 'DELETE',
+    })
+    expect(status).toBe(404)
+  })
+})
+
 describe('re-running the catalogue lookup', () => {
   it('turns the headings the catalogues sent into tags', async () => {
     const id = await aBook()

@@ -83,6 +83,23 @@ export interface TagRepository {
    * asking for it to be gone means.
    */
   retract(bookId: number, slugs: readonly TagSlug[], source?: TagSource): Promise<void>
+
+  /**
+   * Take a word out of the vocabulary, and only while nothing carries it.
+   *
+   * Answers whether it went. **The "nothing carries it" is part of the
+   * statement, not a question asked before it**, for the same reason `retract`
+   * puts `source` in the `where`: `book_tag` cascades from `tag`, so a delete
+   * that was merely checked first is a delete that can take a person's tag off
+   * every book they put it on if the check and the delete disagree. Making it
+   * one statement means the worst outcome is that nothing happens.
+   *
+   * A rule naming the slug is the other refusal and it is **not** here: a rule
+   * is placement's, this port is the vocabulary's, and a repository reaching
+   * into `rule_condition` would be this layer knowing how a rule stores a tag.
+   * `ForgetTagHandler` is where the two refusals meet.
+   */
+  remove(slug: TagSlug): Promise<boolean>
 }
 
 /**

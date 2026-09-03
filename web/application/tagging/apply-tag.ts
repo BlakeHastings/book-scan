@@ -21,7 +21,7 @@
  */
 
 import { TagSlug, type TagConfidence } from '../../domain/tagging/tags'
-import type { TagRepository } from './ports'
+import type { Tag, TagRepository } from './ports'
 
 /** Somebody put this book under this tag. */
 export interface ApplyTag {
@@ -50,6 +50,93 @@ export class ApplyTagHandler {
       confidence: command.confidence ?? 'high',
       addedAt: command.now,
     }])
+  }
+}
+
+/**
+ * Somebody made a word, with no book in their hand.
+ *
+ * The third door, and the only one where the tag is the whole point rather than
+ * a thing said about a book (#452). #377 named a tag while cataloguing one and
+ * #433 named one on a book already shelved; both of those are `ApplyTag`, which
+ * defines the tag on the way past because a book is what they are about.
+ *
+ * **This is the same `define` and deliberately nothing else.** `ApplyTag` minus
+ * its second statement, so a word made here and a word made with a book in hand
+ * are the same row written the same way, and the only difference between the
+ * three doors is whether anything is standing under the word afterwards.
+ *
+ * Idempotent, because `define` is: naming a word a rule already asks for finds
+ * the row rather than making a second one, which is what stops a rule quietly
+ * beginning to match something new.
+ */
+export interface DefineTag {
+  slug: TagSlug
+  label: string
+}
+
+export class DefineTagHandler {
+  constructor(private readonly tags: TagRepository) {}
+
+  async handle(command: DefineTag): Promise<Tag> {
+    return this.tags.define(command.slug, command.label)
+  }
+}
+
+/**
+ * Somebody unmade a word, and the two things that stop them.
+ *
+ * A word nothing carries is either litter or a setup, and the difference is
+ * whether a rule asks for it. #400 lets a rule name a tag nothing carries, so a
+ * word with no books on it that a rule points at is the deliberate half of
+ * exactly the thing #452 built the door for: somebody laying out a bookcase for
+ * a subject before they own anything in it. Taking that away would retract
+ * somebody's judgement, and nothing here retracts anybody's judgement.
+ *
+ * So both refusals, and they are refusals rather than cascades:
+ *
+ * - a book carries it, which `TagRepository.remove` answers by not removing it
+ * - a rule asks for it, which is asked here because a rule is not this
+ *   vocabulary's business and a tag repository reading `rule_condition` would
+ *   be the tagging side knowing how placement stores a tag
+ *
+ * The answer says which, because "it could not be removed" sends somebody
+ * hunting and "a rule asks for this one" is the whole explanation.
+ */
+export interface ForgetTag {
+  slug: TagSlug
+}
+
+export type Forgetting =
+  | { kind: 'gone' }
+  /** A rule asks for it, so it is somebody's setup rather than litter. */
+  | { kind: 'ruled' }
+  /** Books carry it, so it is not an empty word at all. */
+  | { kind: 'carried' }
+  /** There was no such word to begin with. */
+  | { kind: 'unknown' }
+
+export class ForgetTagHandler {
+  constructor(
+    private readonly tags: TagRepository,
+    /** Every slug a placement rule asks for. See `tagsRulesName`. */
+    private readonly ruled: () => Promise<Set<string>>,
+  ) {}
+
+  async handle(command: ForgetTag): Promise<Forgetting> {
+    if ((await this.ruled()).has(command.slug.value)) return { kind: 'ruled' }
+    if (await this.tags.remove(command.slug)) return { kind: 'gone' }
+
+    /*
+     * It did not go, and the statement cannot say why: the same `where` covers
+     * "no such row" and "a book carries it". Asked afterwards rather than
+     * before, so the guard stays one statement and this is only about the words
+     * somebody reads.
+     */
+    const still = await this.tags.vocabulary(command.slug)
+    return still.some((one) => one.slug.equals(command.slug))
+      ? { kind: 'carried' }
+      : { kind: 'unknown' }
   }
 }
 

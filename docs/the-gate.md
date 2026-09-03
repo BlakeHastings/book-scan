@@ -192,9 +192,9 @@ than a list, so this section cannot drift without the suite going red.
 
 | | |
 | --- | --- |
-| Hand-declared handlers **behind** the gate | **71** |
+| Hand-declared handlers **behind** the gate | **73** |
 | Static mounts **behind** the gate | **1** (the photographs) |
-| **Total behind the gate** | **72** |
+| **Total behind the gate** | **74** |
 | Handlers registered **above** the gate, and therefore open | **5** |
 | Mounts **outside `/api`**, and therefore open | **2**, and only when a client has been built: `express.static` over `web/dist` and the single-page fallback |
 
@@ -203,6 +203,14 @@ of the gate" in the stack — they are registered below it, and they are open
 because they are not under `/api`. That is the same fact said the other way
 round, and it is why the gate is mounted on a path rather than at the top: the
 client's files have to be reachable by somebody who cannot sign in yet.
+
+**Seventy-one of those handlers are `docs/auth-surface.md`'s survey, and two
+arrived after it.** #452 added `POST /api/tags` and `DELETE /api/tags`, and they
+needed nothing done to them: a route added at the bottom of `server/index.ts` is
+covered because of its path, which is the property this arrangement was built
+for and the first time since it landed that anything has tested it by being
+written. `docs/auth-surface.md` is a survey of one day and is left at its own
+count; this table is the live one, and the suite is what keeps it true.
 
 **Every one of `docs/auth-surface.md`'s seventy-two doors is behind the gate.**
 The five in front of it did not exist when that survey was taken; they are the

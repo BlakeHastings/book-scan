@@ -39,7 +39,7 @@ const applied = (slug: string, label: string): AppliedTag =>
   ({ slug, label, source: 'person', confidence: 'high' })
 
 const known = (slug: string, label: string, books = 3): TagRow =>
-  ({ slug, label, note: '', books })
+  ({ slug, label, note: '', books, ruled: false })
 
 function drawn(over: {
   draft?: Partial<Draft>

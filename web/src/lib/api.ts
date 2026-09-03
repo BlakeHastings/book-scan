@@ -411,6 +411,17 @@ export interface TagRow {
   label: string
   note: string
   books: number
+  /**
+   * A placement rule asks for this tag (#452).
+   *
+   * The only thing that separates two tags with no books on them. One is a word
+   * somebody made and never used, and the other is a bookcase set up for a
+   * subject before anything was bought for it, which is a thing #400 made
+   * possible and this app could not previously see. A screen offering to tidy
+   * empty tags away has to be able to tell them apart, and so does a person
+   * reading the list.
+   */
+  ruled: boolean
 }
 
 /** A tag on one book, drawn as firmly as whoever said it. */
@@ -1911,6 +1922,36 @@ export const api = {
       `/api/books/${id}/tags?slug=${encodeURIComponent(slug)}`,
       { method: 'DELETE' },
     ),
+
+  /**
+   * Making a word with no book in your hand (#452).
+   *
+   * The same body `applyTag` sends and the same decision behind it: which slug
+   * and which label are `domain/tagging/naming.ts`, before either of these is
+   * called, so the three doors onto naming a tag cannot drift into three ideas
+   * of what "comic books" means.
+   *
+   * It answers the tag, with its count of nought on it, because that count is
+   * the whole evidence that anything happened.
+   */
+  defineTag: (tag: { slug: string; label: string }) =>
+    request<{ tag: TagRow }>('/api/tags', {
+      method: 'POST',
+      body: JSON.stringify(tag),
+    }),
+
+  /**
+   * Unmaking one, which the server allows only while nothing depends on it.
+   *
+   * Refused with a 409 and a sentence when a book carries it or a rule asks for
+   * it. The screen draws that sentence rather than working the reason out again
+   * from the row it happens to be holding, which would be a second opinion about
+   * what may be removed.
+   */
+  forgetTag: (slug: string) =>
+    request<{ removed: string }>(`/api/tags?slug=${encodeURIComponent(slug)}`, {
+      method: 'DELETE',
+    }),
 
   /**
    * Where a book has been, newest first.

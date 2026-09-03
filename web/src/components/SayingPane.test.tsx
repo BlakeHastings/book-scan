@@ -45,9 +45,9 @@ const record = (over: Partial<BookRow> = {}): BookRow => ({
 } as BookRow)
 
 const vocabulary: TagRow[] = [
-  { slug: FICTION_SLUG, label: 'Fiction', note: '', books: 19 },
-  { slug: NON_FICTION_SLUG, label: 'Non-fiction', note: '', books: 8 },
-  { slug: 'subject/crime', label: 'Crime', note: '', books: 9 },
+  { slug: FICTION_SLUG, label: 'Fiction', note: '', books: 19, ruled: false },
+  { slug: NON_FICTION_SLUG, label: 'Non-fiction', note: '', books: 8, ruled: false },
+  { slug: 'subject/crime', label: 'Crime', note: '', books: 9, ruled: false },
 ]
 
 const applied = (slug: string, label: string): AppliedTag =>
@@ -97,7 +97,7 @@ describe('saying what one book is', () => {
     // The slug is the identity and the label is what a person reads, so a
     // collection that calls it something else is drawn saying that.
     const said = words(drawn({
-      vocabulary: [{ slug: FICTION_SLUG, label: 'Made up', note: '', books: 3 }],
+      vocabulary: [{ slug: FICTION_SLUG, label: 'Made up', note: '', books: 3, ruled: false }],
     }))
 
     expect(said).toContain('Made up')

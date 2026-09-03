@@ -36,7 +36,7 @@ import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
 import { rangeLock, Shelves, type Planks, type ShelvedBook } from './shelves'
-import { plankLabels, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
+import { plankLabels, tagsRulesName, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
 // The two books a gap is between, said the one way the placing card says them.
 import { toNeighbour } from '../infrastructure/books/book-repository'
 import {
@@ -47,7 +47,7 @@ import { RemoveSeparatorHandler } from '../application/shelving/remove-separator
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DbTransactions } from '../infrastructure/shelving/transactions'
 import {
-  ApplyTagHandler, RelabelTagHandler, RemoveTagHandler,
+  ApplyTagHandler, DefineTagHandler, ForgetTagHandler, RelabelTagHandler, RemoveTagHandler,
 } from '../application/tagging/apply-tag'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { ReidentifyBookHandler } from '../application/tagging/reidentify-book'
@@ -561,6 +561,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const applyTag = new ApplyTagHandler(tags)
   const removeTag = new RemoveTagHandler(tags)
   const relabelTag = new RelabelTagHandler(tags)
+  const defineTag = new DefineTagHandler(tags)
+  /* The rules are read per request rather than once, because a rule naming a
+     tag is exactly what changes between one of these and the next. */
+  const forgetTag = new ForgetTagHandler(tags, () => tagsRulesName(db))
 
   // Every catalogue has the tag tables now. #188 gated this on the driver,
   // because `tag` and `book_tag` arrive in a migration and there were
@@ -2527,13 +2531,124 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * question about `catalogued_books`, which is what `Store` is for.
      */
     const counts = new Map((await store.tagCounts()).map((one) => [one.slug, one.books]))
+    /*
+     * Which of these a placement rule asks for (#452).
+     *
+     * A tag with no books on it has always been possible and is now something
+     * somebody can make on purpose, and the issue's question was what tells the
+     * two empty tags apart: a word nothing carries and nothing points at is
+     * litter, and a word nothing carries that a rule asks for is somebody
+     * setting up a bookcase for a subject before they own anything in it. They
+     * are the same row and the same count, so nothing in the table could
+     * separate them and the screen had to guess.
+     *
+     * It is the truth about every tag rather than only the empty ones, because a
+     * flag that meant something different depending on the count beside it is a
+     * flag two readers will read two ways.
+     */
+    const ruled = await tagsRulesName(db)
     res.json({
       tags: vocabulary.map((one) => ({
         slug: one.slug.value,
         label: one.label,
         note: one.note,
         books: counts.get(one.slug.value) ?? 0,
+        ruled: ruled.has(one.slug.value),
       })),
+    })
+  }))
+
+  /**
+   * Somebody makes a word, with no book in their hand (#452).
+   *
+   * The third door. #377 named a tag while cataloguing a book and #433 named one
+   * on a book already shelved; both of those are `POST /api/books/:id/tags`,
+   * which defines the tag on the way to putting a book under it. This is the
+   * same act with the book taken out, and it exists because #400 already lets a
+   * placement rule ask for a tag nothing carries: the rules accepted a word that
+   * did not exist and there was no way to make one on purpose.
+   *
+   * **The body is the shape the book route takes**, read the same way by the
+   * same `slugFrom`, so the three doors normalise a typed word identically. A
+   * fourth spelling of that would be the thing `domain/tagging/naming.ts` exists
+   * to prevent, arrived at from the server side.
+   *
+   * `define` is idempotent, so naming a word that already exists answers the row
+   * that is there rather than making a second one, and the label already on it
+   * wins. That is what stops a rule quietly beginning to match something new: a
+   * rule names `subject/japanese-literature` as a string, and making that tag
+   * for real has to produce the row that string already meant.
+   */
+  app.post('/api/tags', asyncRoute(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const typed = String(body.slug ?? body.label ?? '')
+    const slug = slugFrom(typed, res)
+    if (!slug) return
+
+    const made = await defineTag.handle({
+      slug,
+      label: String(body.label ?? typed).trim() || slug.value,
+    })
+
+    /*
+     * Answered with the count on it, which is nought, and whether a rule asks
+     * for it. Both because this is the one door whose whole result is a word
+     * nothing is standing under: a 201 with no body would leave the person who
+     * just made one with nothing but the screen's own optimism, which is the
+     * issue's first question and the reason the tags list shows it at all.
+     */
+    res.status(201).json({
+      tag: {
+        slug: made.slug.value,
+        label: made.label,
+        note: made.note,
+        books: 0,
+        ruled: (await tagsRulesName(db)).has(made.slug.value),
+      },
+    })
+  }))
+
+  /**
+   * Somebody unmakes a word, and the two answers that are not "gone".
+   *
+   * Making without removing leaves a screen that only accumulates, so this is
+   * the other half of the door above. It is deliberately narrower than the door
+   * it undoes: **only a word nothing carries and no rule asks for.**
+   *
+   * A book carrying it means this is not an empty word at all, and `book_tag`
+   * cascades from `tag`, so an unguarded delete would take somebody's tag off
+   * every book they had put it on rather than failing. A rule asking for it
+   * means somebody laid it out on purpose, which is a person's judgement, and
+   * nothing here retracts one of those.
+   *
+   * `seed-world.ts` already refuses on exactly this pair, in SQL of its own,
+   * for exactly this reason. That predicate was written for a world being reset
+   * and it turns out to be the same question a person asks from the tags screen.
+   */
+  app.delete('/api/tags', asyncRoute(async (req, res) => {
+    const slug = slugFrom(req.query.slug, res)
+    if (!slug) return
+
+    const answer = await forgetTag.handle({ slug })
+    if (answer.kind === 'gone') {
+      res.json({ removed: slug.value })
+      return
+    }
+    if (answer.kind === 'unknown') {
+      res.status(404).json({ error: 'No such tag.' })
+      return
+    }
+
+    /*
+     * 409 and not 400: nothing is wrong with the request, and the same one will
+     * work once the last book comes off the tag or the rule stops asking. The
+     * words say which of the two it is, because "it could not be removed" sends
+     * somebody hunting through their rules and their shelves at once.
+     */
+    res.status(409).json({
+      error: answer.kind === 'ruled'
+        ? 'A rule asks for this tag, so it is kept even with no books on it.'
+        : 'Books are under this tag. Take them out of it first.',
     })
   }))
 

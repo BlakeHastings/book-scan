@@ -105,7 +105,7 @@ export function making(
   const answer = nameTag(query, known)
   const under = labelOf(
     vocabulary.find((one) => one.slug === NAMED_UNDER.value)
-    ?? { slug: NAMED_UNDER.value, label: '', note: '', books: 0 },
+    ?? { slug: NAMED_UNDER.value, label: '' },
   )
 
   if (answer.kind === 'new') {

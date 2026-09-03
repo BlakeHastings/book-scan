@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depthOf, groupsOf, labelOf, saysCount, underOf } from './tagTree'
 import type { TagRow } from './api'
 
-const tag = (slug: string, label = '', books = 0): TagRow => ({ slug, label, note: '', books })
+const tag = (slug: string, label = '', books = 0): TagRow => ({ slug, label, note: '', books, ruled: false })
 
 describe('what a person reads for a tag', () => {
   it('is the label somebody gave it', () => {

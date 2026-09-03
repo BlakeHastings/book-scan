@@ -20,6 +20,9 @@ Feature: Saying what a book is, when the tag does not exist yet
   refuses, and what it refuses is drawn: the tag they already keep is offered and
   there is no way to make a second one.
 
+  The third is the door that does not start with a book at all (#452), and it is
+  the same panel: making a word from the tags screen, and sweeping it away again.
+
   Background:
     Given the catalogue is empty
     And the catalogue service knows about "Dune"
@@ -61,6 +64,30 @@ Feature: Saying what a book is, when the tag does not exist yet
     When I add the tag it offers
     Then the book should be tagged "Comic book"
     And the collection should keep one tag reading "Comic book"
+
+  # The third door (#452). The two above both start with a book in your hand;
+  # this one starts with nothing, which is the whole point of it: #400 lets a
+  # placement rule ask for a tag nothing carries, so somebody setting up a
+  # bookcase for a subject before they own a book for it was doing exactly what
+  # the rules already support and had no way to say it.
+  #
+  # Worth driving a browser for the same reason the two above are: what has to be
+  # true is a row, and the screen cannot be asked whether one exists. The word is
+  # made with no book anywhere near it, the collection is asked, and then it is
+  # swept away again, because making without removing leaves a screen that only
+  # accumulates.
+  Scenario: A word is made with no book in your hand, and swept away again
+    When I open the app
+    And I open my tags
+    And I make a new tag "Hydrology"
+
+    Then the collection should keep one tag reading "Hydrology"
+    # The evidence the person who just made one has. A word nothing carries and
+    # no rule asks for is litter, and the screen says so by offering to sweep it.
+    And my tags should offer to sweep away "Hydrology"
+
+    When I sweep away "Hydrology"
+    Then the collection should keep no tag reading "Hydrology"
 
   Scenario: The box will not write a genre, whatever is typed into it
     When I open the app
