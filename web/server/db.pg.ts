@@ -25,7 +25,7 @@ import pg from 'pg'
 import type { BookState } from '../domain/books/state'
 import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/migrate'
 import {
-  countProjectionDisagreements, projectionDisagreements,
+  countProjectionDisagreements, projectionDisagreements, REBUILD_COMMAND,
 } from '../infrastructure/placement/projection'
 import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
 import { booksNoRuleClaims } from './claim'
@@ -932,6 +932,13 @@ async function sayWhetherEveryBookIsClaimed(db: Db): Promise<void> {
  * nothing reads yet, which is the wrong trade in the other direction.
  * `rebuildProjection` is the repair, and running it is a decision somebody makes
  * having read this line.
+ *
+ * **This line is no longer the only reader, and it was never a sufficient one**
+ * (#505). It is printed once, at startup, so a writer that stops recording at
+ * four o'clock goes unreported until the next restart. `GET /api/health` asks
+ * the same question live and answers `ok: false`. The line stays because it is
+ * what `aspire logs api` shows, and because it says the good outcome out loud
+ * where the endpoint only says `ok: true`.
  */
 async function sayWhetherThePlacementProjectionHolds(db: Db): Promise<void> {
   const disagreeing = await countProjectionDisagreements(db)
@@ -944,8 +951,8 @@ async function sayWhetherThePlacementProjectionHolds(db: Db): Promise<void> {
   console.error(
     `[placement] ${disagreeing} books have a current area their ledger does not ` +
     'agree with, so something wrote a placement without recording it. ' +
-    'rebuildProjection() in infrastructure/placement/projection.ts folds the ' +
-    'ledger again; find the writer first. ' +
+    `Find the writer first; ${REBUILD_COMMAND} folds the ledger again. ` +
+    'GET /api/health answers the same question while this process runs. ' +
     named.map((one) => `#${one.bookId} ${one.title}: column ${one.projected ?? 'nowhere'}, ` +
       `ledger ${one.fromLedger ?? 'nowhere'}`).join('; '),
   )

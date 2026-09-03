@@ -39,6 +39,9 @@ import { rangeLock, Shelves, type Planks, type ShelvedBook } from './shelves'
 import { plankLabels, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
 // The two books a gap is between, said the one way the placing card says them.
 import { toNeighbour } from '../infrastructure/books/book-repository'
+import {
+  countProjectionDisagreements, projectionDisagreements, REBUILD_COMMAND,
+} from '../infrastructure/placement/projection'
 import type { Move, PlankAt } from '../shared/layout'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
@@ -3861,15 +3864,55 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * `web/src/lib/api.ts` types this response as `{ ok, counts, db }` and reads
    * only `counts`. That is left alone deliberately: this is a fact for whoever
    * curls the server, and the interface has no screen it belongs on.
+   *
+   * ## `placement.projection`, and the one thing here that moves `ok` (#505)
+   *
+   * `books.current_area_id` is a projection of `book_placement`, and a book whose
+   * column and whose rows disagree means **some act changed where a book belongs
+   * and did not record it**. `applySchema` has printed that count on every start
+   * since the projection landed and nothing has ever read the line.
+   *
+   * A startup line cannot be the reader, and not only because nobody looks at
+   * it: it is printed **once**, and a writer goes missing while the process is
+   * running. Asked here, the question is answered about now rather than about
+   * whenever this process happened to come up.
+   *
+   * **This is the one condition that makes `ok` false, and the rule is narrow on
+   * purpose.** A catalogue being quiet leaves `ok` true because somebody can
+   * still catalogue a book; so does a shelf that has drifted from the rules, and
+   * so does a book no rule claims, because both are states a person resolves by
+   * carrying books. A disagreement here is not a state of the collection at all.
+   * It is this server having written something it cannot account for, which is
+   * the only kind of bad news on this endpoint that a person cannot fix by
+   * walking to a shelf, and `ok` is the field a machine reads without knowing
+   * the shape of the rest.
+   *
+   * **There is no repair here and there will not be one.** No `POST`, no button,
+   * and `repair` is a command a person runs deliberately having read the names,
+   * because a projection rebuilt on sight erases the evidence of which writer is
+   * missing. See `infrastructure/placement/projection.ts`.
    */
   app.get('/api/health', asyncRoute(async (_req, res) => {
+    const disagreeing = await countProjectionDisagreements(db)
+
     res.json({
-      ok: true,
+      ok: disagreeing === 0,
       counts: await store.counts(),
       db: options.dbLabel ?? '',
       lookups: {
         googleBooksKeyConfigured: googleApiKey.length > 0,
         sources: sourceStandings(),
+      },
+      placement: {
+        projection: {
+          disagreeing,
+          // Bounded and newest first, the same page the startup line names, for
+          // the same reason: a list of every book is not a report.
+          books: disagreeing === 0 ? [] : await projectionDisagreements(db),
+          // Empty when there is nothing to repair, so the answer never suggests
+          // running a write against a catalogue that does not need one.
+          repair: disagreeing === 0 ? '' : REBUILD_COMMAND,
+        },
       },
     })
   }))

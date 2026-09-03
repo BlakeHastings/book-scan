@@ -32,6 +32,30 @@
  * disagreed, in the same way a recorded location is never corrected on a book's
  * behalf. Repairing on sight would destroy the evidence of how it happened,
  * which is the only thing that says whether a writer is missing.
+ *
+ * ## Who reads it (#505)
+ *
+ * For its first weeks the only reader was `console.error` in `applySchema`, and
+ * that reader has a hole in it no amount of reading fixes: **the line is printed
+ * once, at startup, and a writer goes missing while the process runs.** A
+ * projection that agreed at boot and stopped agreeing at four o'clock says so on
+ * the next restart, whenever that is.
+ *
+ * So `GET /api/health` asks this question live, and answers `ok: false` when the
+ * answer is bad. That is deliberately not a card on the owner's phone, which is
+ * what #504 gave the drift check: a drift between the shelf and the rules is
+ * resolved by carrying books, and a disagreement here is resolved by finding the
+ * writer that did not record itself. Telling the owner would be telling somebody
+ * about a defect he cannot act on.
+ *
+ * ## What it cannot see, which is #518
+ *
+ * This compares two answers, so an act that writes to **neither** of them leaves
+ * them agreeing while both are wrong. All four of the 2026-09-02 defects were
+ * that shape (#465, #484, #487, #491) and this reported healthy through every
+ * one. Catching those needs a third thing to compare against, which is the
+ * furniture; that is a different check and it is filed as #518 rather than bolted
+ * on here.
  */
 
 import { KINDS_ABOUT_THE_ANSWER } from '../../domain/placement/ledger'
@@ -45,6 +69,18 @@ import type { Db } from '../../server/driver'
  */
 const NOT_ABOUT_A_PLACE = `p.kind NOT IN (${
   KINDS_ABOUT_THE_ANSWER.map((kind) => `'${kind}'`).join(', ')})`
+
+/**
+ * How a person runs the repair, in one string, because three places say it.
+ *
+ * The startup line, the `/api/health` answer and the script's own usage all name
+ * the same command, and they name it from here rather than each spelling it out.
+ * The line this replaces told its reader to call `rebuildProjection()` in a
+ * named file, which is an instruction to open an editor rather than a thing to
+ * run.
+ */
+export const REBUILD_COMMAND =
+  "npm run rebuild-projection -- --target '<connection>' --repair"
 
 /** One book whose column and whose rows do not say the same thing. */
 export interface ProjectionDisagreement {
@@ -133,6 +169,12 @@ export async function countProjectionDisagreements(db: Db): Promise<number> {
  * Deliberately not called by anything that runs on its own. Rebuilding on sight
  * would destroy the evidence that says whether a writer is missing, which is
  * the question a disagreement actually asks.
+ *
+ * **It is not dead, and it now has a way to be run** (#505). `REBUILD_COMMAND`
+ * above is that way: `web/scripts/rebuild-projection.ts` names its target on its
+ * own command line, prints the disagreements, and writes only when asked a
+ * second time with `--repair`. Nothing on the startup path, no route and no
+ * button reaches this function, and there is a test for each of those absences.
  */
 export async function rebuildProjection(db: Db): Promise<number> {
   const { changes } = await db.run(

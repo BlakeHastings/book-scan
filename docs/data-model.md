@@ -1095,6 +1095,31 @@ moment it writes the projection. Neither repairs: `rebuildProjection` is the
 repair and running it is a decision somebody makes having read the line, because
 a projection rebuilt on sight destroys the evidence of which writer is missing.
 
+**And it is asked live, because a startup line is answered once** (#505).
+`GET /api/health` runs the same count on every request and answers `ok: false`
+when it is not nought, naming the books and the command to run. That is the only
+condition on that endpoint which moves `ok`, and the rule is narrow deliberately:
+a catalogue that has gone quiet, a shelf drifted from the rules and a book no rule
+claims all leave it `true`, because each is a state of the collection that a person
+resolves by carrying books or writing a rule. A disagreement here is not a state
+of the collection at all. It means an act changed where a book belongs and did not
+record it, which is a defect in this code, so the reader is whoever curls the
+server rather than the owner holding a phone: **a card would tell him about
+something he cannot act on.**
+
+The repair has a way to be run and only one: `npm run rebuild-projection --
+--target '<connection>'`, which prints what disagrees and writes nothing, and
+`--repair` on top of that, which is a second decision made after somebody has gone
+looking for the writer. Nothing on a startup path, a schedule or a route reaches
+it. See `web/scripts/rebuild-projection.ts`.
+
+**What this check cannot see, and it is the family it looks like it exists for.**
+It compares the projection against the ledger, so an act that writes to neither
+side leaves the two agreeing while both are wrong about the furniture. All four of
+the 2026-09-02 defects were that shape (#465, #484, #487, #491) and this check
+reported healthy through every one. Catching those needs a third thing to compare
+against, which is the furniture, and that is #518 rather than this.
+
 **The wire vocabulary did not move.** `GET /api/captures` still answers with
 `pending`, `ready`, `failed` and `done`, so the client, the queue badge and the
 browser suite are unchanged. `domain/books/state.ts` holds the pairing and
