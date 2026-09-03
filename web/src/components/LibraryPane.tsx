@@ -63,7 +63,7 @@ import { Nothing } from '../design/Card'
 import { Shelf, type ShelfItem } from '../design/Shelf'
 import { TopBar } from '../design/Chrome'
 import { areaRuns, type OffTheBookcase } from '../lib/areaRuns'
-import { CHECKED_OUT, type BookState } from '../../domain/books/state'
+import { CHECKED_OUT, SHELVED, type BookState } from '../../domain/books/state'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
 import { plural } from '../lib/carryWords'
 import { grouped } from '../lib/say'
@@ -143,6 +143,27 @@ export function LibraryPane() {
   const narrowed = narrowing.length > 0 || showing !== null
 
   /*
+   * **A picture of a bookcase cannot draw a book that is not on one.**
+   *
+   * The boards are cut from the areas the books stand in, so a library narrowed
+   * to the books that are out of the house draws no board at all: found by
+   * looking at it, on the very press this change is for, and the screen was a
+   * count of two over an empty page. The list is the one view that can say
+   * where a book that is not on a bookcase belongs, and `ShelfView` has said so
+   * since #405 in the same words: a spine row and a wall of covers are pictures
+   * of a bookcase, and a line of text is not a picture.
+   *
+   * The covers survive the narrowing, because a lent book still has a front. So
+   * the switcher offers two rather than three, which is the `looks` prop's own
+   * reason for existing (the queue offers two of these three), and a view
+   * somebody chose earlier that this narrowing cannot draw falls back to the
+   * list rather than to nothing.
+   */
+  const standing = showing === null || showing === SHELVED
+  const looks = standing ? undefined : (['covers', 'list'] as const)
+  const drawn = standing || look !== 'spines' ? look : 'list'
+
+  /*
    * Nothing has come back yet.
    *
    * Every number on this screen is about somebody's collection, so until one
@@ -181,7 +202,8 @@ export function LibraryPane() {
         note={counts ? plural(total, 'book') : ''}
         onTags={() => setRoute('tags')}
         onFind={() => setRoute('find')}
-        look={look}
+        look={drawn}
+        looks={looks}
         onLook={setLook}
       />
 
@@ -221,9 +243,9 @@ export function LibraryPane() {
         </Nothing>
       )}
 
-      {look === 'covers' && <CoverView books={books} onOpen={open} />}
-      {look === 'list' && <ListView books={books} onOpen={open} />}
-      {look === 'spines' && (
+      {drawn === 'covers' && <CoverView books={books} onOpen={open} />}
+      {drawn === 'list' && <ListView books={books} onOpen={open} />}
+      {drawn === 'spines' && (
         <SpineView
           books={books}
           complete={complete}

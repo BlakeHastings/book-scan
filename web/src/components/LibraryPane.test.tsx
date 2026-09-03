@@ -252,6 +252,31 @@ describe('a library narrowed to one state a book is in', () => {
     expect(library).toContain('Show every book')
     expect(library).toMatch(/onPress=\{\(\) => setShowing\(null\)\}/)
   })
+
+  /**
+   * Found by looking at it, on the press this change is for.
+   *
+   * The boards are cut from the areas books stand in, so a library narrowed to
+   * the books that are *not* on a bookcase drew no board at all: a header
+   * reading "2 of 27 books" over an empty page, for somebody who had just
+   * pressed a count of two. The chip kept the promise and the drawing broke it,
+   * which is the same defect one layer down.
+   */
+  it('does not draw a picture of a bookcase for books that are not on one', () => {
+    const library = source('LibraryPane.tsx')
+
+    // The view is decided rather than taken, and every drawing reads the
+    // decision. A view left reading `look` here is a view the narrowing cannot
+    // turn off.
+    expect(library).toMatch(/const drawn = standing \|\| look !== 'spines' \? look : 'list'/)
+    for (const view of ['covers', 'list', 'spines']) {
+      expect(library, `the ${view} view still draws on the chosen look`)
+        .toMatch(new RegExp(`drawn === '${view}'`))
+    }
+    // And the switcher stops offering it, rather than offering a press that
+    // redraws the same thing.
+    expect(library).toMatch(/looks=\{looks\}/)
+  })
 })
 
 /**
