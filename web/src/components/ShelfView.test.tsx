@@ -40,6 +40,7 @@ function misfile(overrides: Partial<Misfile['book']> = {}, from = '1A', to = '2B
     to,
     toAreaId: 22,
     instruction: `Move Dune from ${from} to ${to}`,
+    sharedNumber: null,
   }
 }
 
@@ -70,6 +71,27 @@ describe('the list of books that are not where they should be', () => {
     expect(html).toContain('Herbert, Frank')
     expect(html).toContain('Last seen on 1A')
     expect(html).toContain('2B')
+  })
+
+  /**
+   * The row that reads "last seen on 1B, now puts it on 1B" (#491).
+   *
+   * Two pieces standing at one number is legal (`fixture.position` carries no
+   * unique index) and draws two planks with one letter, so this really is an
+   * instruction to carry a book from a plank to itself unless something says
+   * which two planks they are. The carry screen has said it since #447 through
+   * `sharedSaid`; this list said nothing at all, and one renumber puts five of
+   * these in front of somebody holding a phone.
+   */
+  it('says so when both planks read the same', () => {
+    const html = drawn([{ ...misfile({}, '1B', '1B'), sharedNumber: 1 }], review())
+
+    expect(html).toContain('Last seen on 1B')
+    expect(html).toContain('Both ends read 1B: two pieces stand at 1 and neither is named.')
+  })
+
+  it('says nothing of the sort on an ordinary row', () => {
+    expect(drawn([misfile()], review())).not.toContain('Both ends read')
   })
 
   it('counts itself, because an unread list is a list nobody scrolls', () => {

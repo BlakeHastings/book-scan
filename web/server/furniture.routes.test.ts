@@ -156,6 +156,26 @@ async function everyPlacement(): Promise<{ id: number; area_id: number | null }[
 }
 
 /**
+ * What somebody said they did, which no furniture edit may ever rewrite.
+ *
+ * Split out of `everyPlacement` by #491: a renumber writes `assigned` rows now,
+ * so "the whole ledger is unchanged" stopped being the way to say "nothing a
+ * person recorded was touched" and started hiding the thing that was missing.
+ */
+async function placedRows(): Promise<{ id: number; area_id: number | null }[]> {
+  return db.all(
+    `SELECT id, area_id FROM book_placement WHERE kind <> 'assigned' ORDER BY id`,
+  )
+}
+
+/** The assignments, newest last, with the sentence saying what wrote them. */
+async function assignedRows(): Promise<{ area_id: number | null; reason: string }[]> {
+  return db.all(
+    `SELECT area_id, reason FROM book_placement WHERE kind = 'assigned' ORDER BY id`,
+  )
+}
+
+/**
  * This file used to capture the furniture in its first `beforeEach` and write
  * it back in every later one, because `openTestDatabase` restored the *shape*
  * of the seeded furniture and nothing else, and this is the file that renames a
@@ -454,11 +474,26 @@ describe('describing a piece of furniture that has never existed', () => {
       .toEqual([2, 2, 2])
   })
 
-  it('renumbers a piece without moving a book, and says who else is on that number',
+  /**
+   * **This case used to be called "renumbers a piece without moving a book" and
+   * the claim was false** (#491). It asserted that the whole of `book_placement`
+   * was byte-for-byte what it had been, which is two claims at once: that
+   * nothing a person recorded was rewritten, and that the renumber cost nobody
+   * anything. The first is true and is why the assertion is now on the `placed`
+   * rows alone. The second was the defect: the run walks the room in
+   * `fixture.position` order, so standing this piece on number 1 hands its
+   * planks to the piece already standing there and every book on it derives
+   * somewhere else. The review said so and the ledger said nothing, which is the
+   * shape of #458.
+   *
+   * The test passing was what made the defect invisible, which is the reason it
+   * is rewritten here rather than deleted: a green suite is not a specification.
+   */
+  it('renumbers a piece, records where that put its books, and says who else is on that number',
     async () => {
       await buildWorld()
       const bookcase = await nonFiction()
-      const before = await everyPlacement()
+      const before = await placedRows()
 
       const moved = await patch(`/api/fixtures/${bookcase.id}`, { position: 1 })
       expect(moved.status).toBe(200)
@@ -467,13 +502,38 @@ describe('describing a piece of furniture that has never existed', () => {
         { from: '4B', to: '1B' },
         { from: '4C', to: '1C' },
       ])
-      expect(await everyPlacement()).toEqual(before)
+
+      // Nothing a person put on a shelf was rewritten. That half always held and
+      // is the half worth keeping: the recorded location is the record of where
+      // the book physically is.
+      expect(await placedRows()).toEqual(before)
+
+      // And the other half, which nothing wrote before. Every non-fiction book
+      // now derives onto a plank of the piece that was already standing at 1,
+      // so every one of them has an assignment saying so.
+      const assigned = await assignedRows()
+      expect(assigned).toHaveLength(6)
+      expect(new Set(assigned.map((row) => row.reason))).toEqual(new Set(['4 was renumbered']))
 
       // Bookcase 1 is where fiction already stands, and two pieces on one number
       // is an arrangement this catalogue has to be able to record rather than
       // one to refuse. It is reported instead.
       expect(moved.body.fixture.sharing).toHaveLength(1)
     })
+
+  it('writes nothing for a rename, which really does move no book', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const before = await everyPlacement()
+
+    const renamed = await patch(`/api/fixtures/${bookcase.id}`, { name: 'Hall shelf' })
+    expect(renamed.status).toBe(200)
+
+    // The whole ledger this time, assignments included: a name is read by no
+    // derivation, so there is nothing for the comparison to find and the
+    // snapshot is not even taken.
+    expect(await everyPlacement()).toEqual(before)
+  })
 })
 
 /**

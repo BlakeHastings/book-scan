@@ -748,6 +748,22 @@ export interface Misfile {
   toAreaId: number
   /** One line, ready to read standing in front of the shelves. */
   instruction: string
+  /**
+   * The number both ends stand at when the two planks read the same, else null.
+   *
+   * "Last seen on 1B. The order now puts it on 1B." is a sentence somebody
+   * carries out and changes nothing, and it is a real state rather than a
+   * rendering fault: `fixture.position` is deliberately not unique (`schema.ts`)
+   * and two pieces standing at one number draw two planks with one letter. The
+   * carry screen has said so since #447; this row said nothing, and #491 is the
+   * defect that produces five of them at once.
+   *
+   * Filled in by the caller rather than here, because working it out needs the
+   * pieces the two planks hang on and `shared/` may not reach the furniture.
+   * `sharedNumberOf` in `domain/placement/carry.ts` is the one reading, so the
+   * two screens cannot end up disagreeing about when to say it.
+   */
+  sharedNumber: number | null
 }
 
 export interface ShelvingReview {
@@ -844,6 +860,9 @@ export function reviewShelving(books: FiledBook[]): ShelvingReview {
       from,
       to,
       toAreaId: book.derivedAreaId,
+      // Null until a caller that can see the furniture says otherwise. See
+      // `Misfile.sharedNumber`, and `Shelves.review` for the one that does.
+      sharedNumber: null,
       instruction:
         `${book.title} (${bestKnownAuthor(book.authorFiling, book.authors) || 'unknown author'}) is at ` +
         `${from} and belongs at ${to}.`,

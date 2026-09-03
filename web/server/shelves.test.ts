@@ -1980,3 +1980,118 @@ describe('the drift check the app makes about itself on every start', () => {
     expect((await areaDisagreements(db)).map(describeAreaDisagreement)).toEqual([])
   })
 })
+
+/**
+ * Renumbering a piece of furniture, which is the fourth door onto #458 (#491).
+ *
+ * The file this drives said, above the function, "renumbering a piece is
+ * renaming it, and it moves nothing". Every clause of that is true of
+ * `book_placement` and false of the derivation: `runAreasOf` walks the run in
+ * `fixture.position` order, so a piece standing at a different number puts its
+ * planks somewhere else in the walk, and where a second piece already stands
+ * there it takes one of them out of the run altogether. Six books derived
+ * elsewhere and the ledger said nothing.
+ *
+ * `bothLists` is the instrument, because the two lists disagreeing is the whole
+ * defect: the review derives its answer and the carry list reads the ledger.
+ */
+describe('what renumbering a piece of furniture records', () => {
+  const shelve = async (author: string, title = 'Book') => {
+    const id = await add(author, title)
+    await store.setLocation(id, await shelves.labelFor('fiction', id))
+    return id
+  }
+
+  const bothLists = async () => ({
+    review: (await shelves.review('fiction')).misfiles.map((m) => m.book.id).sort(),
+    carry: (await outstandingWork(db)).trips
+      .flatMap((trip) => trip.books.map((book) => book.id)).sort(),
+  })
+
+  const pieceAt = async (position: number) => (await db.get<{ id: number }>(
+    'SELECT id FROM fixture WHERE position = ? ORDER BY id LIMIT 1', [position],
+  ))!.id
+
+  /** A run over two pieces, with a book standing on the second one. */
+  const twoPieces = async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    await shelves.overflow('fiction', plank('1A'), 'shelf')
+    await store.setLocation(bob, '2A')
+    return bob
+  }
+
+  /**
+   * The issue's own shape: a run over two pieces, and the second one stood on
+   * the first one's number.
+   *
+   * Bookcase 2 stops being part of the walk, because the run keeps one fixture
+   * per position and bookcase 1 was there first, so the book on it derives back
+   * onto bookcase 1.
+   */
+  it("reaches the carry list when a piece is stood on another piece's number", async () => {
+    const bob = await twoPieces()
+    expect(await bothLists()).toEqual({ review: [], carry: [] })
+
+    const renumbered = await editFixture(db, await pieceAt(2), { position: 1 })
+    expect(renumbered.ok).toBe(true)
+
+    // Before this, the review named Bob and the carry list said there was
+    // nothing to do, which is #458's sentence.
+    expect(await bothLists()).toEqual({ review: [bob], carry: [bob] })
+  })
+
+  /**
+   * And the row names the plank rather than the letter over it.
+   *
+   * This is the case #356 was always going to bite last: two pieces standing at
+   * one number draw two planks reading `1A`, so an answer taken in labels would
+   * have said the book had not moved.
+   */
+  it('names the plank the run now puts the book on, not the letter', async () => {
+    const bob = await twoPieces()
+    const wasOn = await shelves.areaOf('fiction', bob)
+
+    await editFixture(db, await pieceAt(2), { position: 1 })
+
+    const standing = standingOf(await new DrizzlePlacementLedger(db).forBooks([bob]))
+    expect(standing.assigned).toBe(await shelves.areaOf('fiction', bob))
+    expect(standing.assigned).not.toBe(wasOn)
+    expect(needsAttention(standing)).toBe(true)
+  })
+
+  /** A renumber that changes no order changes nothing, so it writes nothing. */
+  it('writes nothing when the walk comes out the same', async () => {
+    await twoPieces()
+
+    // Onto a number nothing stands at, and still after bookcase 1, so the run
+    // meets exactly the planks it met before.
+    const renumbered = await editFixture(db, await pieceAt(2), { position: 3 })
+    expect(renumbered.ok).toBe(true)
+    expect(await bothLists()).toEqual({ review: [], carry: [] })
+  })
+
+  /**
+   * The whole room reordered one call at a time, which is what the two screens
+   * that offer this actually send.
+   *
+   * `FurnitureScreen.saveOrder` and `FixtureScreen` both loop
+   * `api.editFixture(one.id, { position })`, so the intermediate states are
+   * rooms with two pieces on one number. Each step records what it moved and the
+   * last step records the answer that stands, because `assignmentFor` compares
+   * against the standing assignment rather than against the placement: a book
+   * that ends where it began has its assignment written back and stops needing
+   * attention.
+   */
+  it('leaves both lists empty when a reorder puts every piece back', async () => {
+    await twoPieces()
+
+    const one = await pieceAt(1)
+    const two = await pieceAt(2)
+    for (const [id, position] of [[two, 1], [one, 2], [two, 2], [one, 1]] as const) {
+      expect((await editFixture(db, id, { position })).ok).toBe(true)
+    }
+
+    expect(await bothLists()).toEqual({ review: [], carry: [] })
+  })
+})

@@ -74,7 +74,7 @@ import { List, Row } from '../design/List'
 import { Shelf, type ShelfItem } from '../design/Shelf'
 import { Sure } from '../design/Sure'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
-import { plural, saidBooks } from '../lib/carryWords'
+import { plural, saidBooks, sharedSaid } from '../lib/carryWords'
 import { pieceOn } from '../lib/furniture'
 import { useBrowsing } from '../app/browsing'
 import { Frame } from './Frame'
@@ -748,6 +748,17 @@ export function Misfiled({
                   && ' The app made this move and nobody has picked the book up,'
                     + ' so "Undo the move" puts it back.'}
               </Said>
+              {/*
+                Under the sentence rather than instead of it, because both ends
+                really do read `1B` and the person is standing in front of two
+                planks that say so. The carry screen has drawn this since #447
+                and this list did not, which is how a renumbered bookcase (#491)
+                could put five rows in front of somebody each saying to carry a
+                book from a plank to itself.
+              */}
+              {misfile.sharedNumber !== null && (
+                <Said>{sharedSaid(misfile.from, misfile.sharedNumber)}</Said>
+              )}
             </Card>
           </div>
         )
