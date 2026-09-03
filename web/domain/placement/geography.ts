@@ -156,13 +156,18 @@ export function slotsInOrder(fixtures: Fixture[], areas: Area[]): Slot[] {
  * itself. `entries` holds the area ids the placement rules name, worked out by
  * `rules.ts`, which is the only thing that knows what a rule points at.
  *
- * **Exported because it is the one answer, and it was asked in two places**
- * (#499). `runFrom` cuts a run here; `nextRunStartAfter` and `bandsOf` used to
- * cut it at `entries` alone, so a plank somebody had given its own ordering to
- * headed a run for the domain and headed nothing for the furniture reads. The
- * second condition is not an implementation detail of this file: an area that
- * orders itself takes no overflow, which is what the strategy dialog tells
- * somebody it will do before they press it (`strategyChange`).
+ * **Exported because it is the one answer, and it was asked in five places**
+ * (#499). `runFrom` cuts a run here; `nextRunStartAfter` and `bandsOf` cut it at
+ * `entries` alone, so a plank somebody had given its own ordering to headed a
+ * run for the domain and headed nothing for the furniture reads; and
+ * `strategyChange`, `runOwners` and `anchorForNewArea` each wrote this line out
+ * again. All five ask it now, which is what this family costs when they do not:
+ * one question with more than one answer.
+ *
+ * The second condition is not an implementation detail of this file. An area
+ * that orders itself takes no overflow, which is what the dialog on "Change how
+ * this shelf is ordered" tells somebody it will do before they press it
+ * (`strategyChange`), and what the plank card says afterwards (`runOwners`).
  */
 export function startsARun(slot: Slot, entries: ReadonlySet<number>): boolean {
   return entries.has(slot.area.id) || slot.area.sortStrategy !== INHERIT

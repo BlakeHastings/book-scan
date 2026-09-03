@@ -42,8 +42,8 @@
  * rule: an `assigned` row where the answer differs from where the book is.
  */
 
-import { labelFor, type Slot } from './geography'
-import { INHERIT, type SortStrategy } from './strategies'
+import { labelFor, startsARun, type Slot } from './geography'
+import { type SortStrategy } from './strategies'
 
 /** An area that has to take a different ordinal, and the one it takes. */
 export interface Reordering {
@@ -265,11 +265,21 @@ export function strategyChange(
   if (at === -1) return null
 
   const slot = order[at]!
-  const starts = (one: Slot, strategy = one.area.sortStrategy): boolean =>
-    entries.has(one.area.id) || strategy !== INHERIT
 
-  const before = starts(slot)
-  const after = starts(slot, to)
+  /*
+   * The same question `startsARun` answers, asked of a strategy the area does
+   * not have yet, by asking it of the slot it would be.
+   *
+   * That is the whole reason this could not simply call it, and it is not a
+   * reason to answer it again: this dialog is the promise the rest of the app
+   * keeps about a self-ordering plank, so a second spelling of where a run is
+   * cut here would be the app describing a consequence it will not produce.
+   */
+  const wouldStart = (one: Slot, strategy: SortStrategy): boolean =>
+    startsARun({ ...one, area: { ...one.area, sortStrategy: strategy } }, entries)
+
+  const before = startsARun(slot, entries)
+  const after = wouldStart(slot, to)
   const selfContained = after
 
   // Nothing about the runs changes: either the strategy is not what decides
@@ -280,7 +290,7 @@ export function strategyChange(
   // to the next area that starts a run on its own account.
   const affected = [slot]
   for (const next of order.slice(at + 1)) {
-    if (starts(next)) break
+    if (startsARun(next, entries)) break
     affected.push(next)
   }
 
