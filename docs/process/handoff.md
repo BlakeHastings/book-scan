@@ -319,6 +319,7 @@ git merge --ff-only origin/master                        # the checkout drifts
 
 node scripts/prune-worktrees.mjs --dry-run               # says what would go
 node scripts/prune-worktrees.mjs                         # C: has run out 3x
+node scripts/check-leaks.mjs                             # and what outlived it
 df -h /c                                                 # 47G free on 2026-08-24
 
 gh issue list --state open                               # never dispatch `shaping`
@@ -335,6 +336,23 @@ Traps, each of which has actually bitten:
   out to be the pre-squash counterpart of what had already landed.
 - **The merge gate refuses stale bases and that is the point.** Merge docs PRs
   first, code PRs one at a time, each rebased.
+- **A background wait loop outlives the thing it was waiting for, and nothing
+  tells you.** On 2026-09-02 the owner asked why his RAM was going and found
+  nine shells open. Nine `until ... aspire describe ... sleep` loops were still
+  polling, in worktrees whose AppHosts had been stopped hours before and two of
+  which had been deleted. Each poll spawned a .NET process. Stopping them took
+  bash from 18 processes to 0 and gave back 4 GB of commit on a 34 GB machine.
+  **The orchestrator started every one of them and believed each had ended when
+  it stopped caring about the answer.** Write the loop so it exits on the
+  failure path as well as the success one, check `/tasks` before dispatching a
+  wave, and run `check-leaks.mjs`, which sees the residue even though it cannot
+  see the loops themselves.
+- **A pruned worktree leaves its Postgres volume behind.** The AppHost names the
+  volume after a hash of the checkout path, so removing the worktree orphans it
+  silently. Eight of them, 1.6 GB, were found the same day. `check-leaks.mjs`
+  lists them and prints the `docker volume rm` for each; it deletes nothing,
+  because a volume nothing is attached to may be a running agent's world between
+  restarts and the two look identical from outside.
 - **Never `npm run dev` in a worktree.** Fixed ports, and it collides with
   whoever started first. `aspire start --non-interactive` assigns them.
 - **Measure disk with `du`, not PowerShell one-liners.** Escaping has silently
