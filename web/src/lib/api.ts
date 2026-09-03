@@ -1689,7 +1689,28 @@ export const api = {
 
   setCheckedOut,
 
-  checkedOut: () => request<{ books: FiledBookRow[] }>('/api/checked-out'),
+  /*
+   * `checkedOut()` was here and is gone (#459).
+   *
+   * It asked `/api/checked-out`, which answers every book that is out of the
+   * house in one response with no page, and **nothing in this app ever called
+   * it.** Found by the sweep this issue asked for: from the act's primitives,
+   * everything that reads a lending fact, walked to the screen it draws on. This
+   * one drew on none. So the app had a whole list of lent books available and no
+   * door to it, at the same time as a count on the first screen that opened the
+   * unfiltered library.
+   *
+   * That door exists now and it is `findBooks({ state: 'checked_out' })`, which
+   * answers the same books with a page, a total and the collection's counts
+   * beside them, so the library can say "2 of 27". This is removed for exactly
+   * the reason `listBooks` below it was: what was left of it was to be the first
+   * thing the next person found, and what it would have handed them is every
+   * lent book in one response.
+   *
+   * The route stays. `store.checkedOut()` is what `/api/shelves` reads to put an
+   * absent book in the gap it belongs in, and deleting a route with a live
+   * reader on the strength of its wrapper having none is a different change.
+   */
 
   backfillCovers: (limit = 10) =>
     request<{ tried: number; fetched: number; remaining: number }>(
