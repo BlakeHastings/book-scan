@@ -18,7 +18,6 @@ import { byPrecedence, entryAreaOf, entryAreas } from '../domain/placement/rules
 import type { AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
 import { relabellingWithout } from './furniture'
-import { booksNaming } from '../infrastructure/shelving/furniture'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { assignmentFor, standingOf, type Placement } from '../domain/placement/ledger'
 import { CHECKED_OUT } from '../domain/books/state'
@@ -954,7 +953,7 @@ export class Shelves {
       if (!plan.ok) return { ok: false, error: plan.error }
 
       if (plan.carry) {
-        await this.applyBoundary(range, plan.carry)
+        await this.applyBoundary(range, plan.carry, `${plan.carry.from} was full`)
         return {
           ok: true,
           carry: plan.carry,
@@ -974,7 +973,7 @@ export class Shelves {
         }
       }
 
-      await this.applyBoundary(range, step)
+      await this.applyBoundary(range, step, `${step.from} was full`)
 
       return {
         ok: true,
@@ -987,11 +986,25 @@ export class Shelves {
     }, { serialiseOn: rangeLock(range) })
   }
 
-  /** Write the one boundary change a plan asks for. Shared by both answers. */
+  /**
+   * Write the one boundary change a plan asks for. Shared by both answers.
+   *
+   * **The recording is part of the write and not a step beside it** (#487).
+   * Overflow moves a boundary, which moves books in the run without moving them
+   * in the room, and until this it wrote nothing down: the shelving review named
+   * the trip and the carry list, which reads the ledger, said there was nothing
+   * to do. That is #458 seen from this door. `recordWhatMoved` is where the
+   * reasoning lives; what matters here is that both answers this method serves
+   * get it without either caller having a step to remember, which is #465's
+   * lesson said as code.
+   */
   private async applyBoundary(
     range: ShelfRange,
     plan: { create?: { startsAt: string; kind: SeparatorKind }; shift?: { id: number; startsAt: string } },
+    reason: string,
   ): Promise<void> {
+    const before = await this.whereTheRunPutsThem(range)
+
     if (plan.create) {
       // Counted before the insert, exactly as it was: the new separator takes
       // the position after the ones already there. `nextPosition` is the same
@@ -1010,6 +1023,8 @@ export class Shelves {
     } else if (plan.shift) {
       await this.separators.reanchor(plan.shift.id, plan.shift.startsAt)
     }
+
+    await this.recordWhatMoved(range, before, reason, new Date().toISOString())
   }
 
   /**
@@ -1128,6 +1143,15 @@ export class Shelves {
         now,
       )
 
+      /*
+       * And the run's answer as it stands, for the same reason and a different
+       * record (#487). The receipt says how to put the furniture back; it names
+       * no area and nothing that counts work reads it, which is why a move used
+       * to reach the needs-attention list and never the carry list. Both facts
+       * are true of a move, so a move writes both.
+       */
+      const wanted = await this.whereTheRunPutsThem(range)
+
       // The whole set at once. A move that empties an area re-anchors two
       // boundaries sharing one anchor, and where a boundary sits in the run is
       // decided by its anchor, so applying them one at a time leaves the second
@@ -1145,6 +1169,20 @@ export class Shelves {
           throw new AreaRemovalRefused(outcome.move.remove)
         }
       }
+
+      /*
+       * After the removals, so a move that empties an area is recorded once.
+       * `dropArea` has already written an assignment for the books that named
+       * the plank it took off, and `assignmentFor` answers null for a book that
+       * now stands where the run puts it, so this adds a row only for a book the
+       * removal was not about.
+       */
+      await this.recordWhatMoved(
+        range,
+        wanted,
+        `a book crossed the boundary from ${outcome.move.from} to ${outcome.move.to}`,
+        now,
+      )
 
       return {
         ok: true,
@@ -1322,9 +1360,20 @@ export class Shelves {
         }
 
         const before = await this.layout(range)
-        // Read before the restore so the planks it brings back can be told from
-        // the ones that were never away. See `takeTheAssignmentsBack`.
-        const standing = new Set((await this.list(range)).map((one) => one.id))
+        /*
+         * The run's answer before the boundaries go back, so what this undo
+         * moves can be told from what it left alone. See `recordWhatMoved`.
+         *
+         * This used to be the set of boundaries standing, and the undo wrote
+         * assignments only for the books naming a plank the retraction brought
+         * back (#465). That was complete only while a move wrote nothing of its
+         * own: now that a move records where the run puts its book, a plain
+         * re-anchor has an assignment to cancel and brings no plank back, so the
+         * narrower reading would leave a trip on the carry list for a move
+         * somebody had taken back. Both sides of the act are one function, and
+         * that is what keeps them from drifting apart again.
+         */
+        const wanted = await this.whereTheRunPutsThem(range)
 
         // The whole receipt at once, for the reason the move applies its shifts
         // at once: a move that emptied an area left two boundaries on one
@@ -1349,9 +1398,8 @@ export class Shelves {
         }
 
         await this.outstanding.clear(bookId)
-        await this.takeTheAssignmentsBack(
-          range,
-          (await this.list(range)).map((one) => one.id).filter((id) => !standing.has(id)),
+        await this.recordWhatMoved(
+          range, wanted, 'the move was taken back', new Date().toISOString(),
         )
 
         /*
@@ -1391,67 +1439,96 @@ export class Shelves {
   }
 
   /**
-   * The other half of putting a plank back: the assignments that came off it.
+   * Which plank the run puts every shelved book of a range on, right now.
    *
-   * **A retraction has to undo both sides of the act it takes back** (#465).
-   * Taking a plank off the furniture writes an `assigned` row per book naming
-   * the plank that took them in, because those books really do have to be
-   * carried. Putting the plank back means they do not, and an assignment left
-   * standing is a trip on the carry list that nobody has to walk — which is the
-   * defect #465 is about, arrived at from the other end.
+   * The same walk `review` compares against and the same one `areasForSortKeys`
+   * answers, read as plank ids rather than as labels. Ids on purpose: a boundary
+   * write is exactly the thing that makes one plank read as another one's label,
+   * so a before-and-after taken in labels would report a book as moved when only
+   * the letter under it changed, and would miss one that moved onto a plank
+   * whose letter it already had. That is #356 in the one place it still had left
+   * to bite.
    *
-   * It was symmetric before #465 only because the removal wrote nothing.
-   *
-   * **What is written is what the run says now**, not the opposite of what the
-   * move wrote. `areasForSortKeys` is the same walk `review` compares against,
-   * so a book whose plank is back in the run gets an assignment naming it and
-   * agrees with itself again; a book the run genuinely puts somewhere else
-   * keeps the work it has. `assignmentFor` is what decides, so a book already in
-   * agreement gets no row at all and the ledger does not fill up with rows
-   * saying nothing changed.
-   *
-   * Scoped to the planks this retraction brought back, and to the books that
-   * name them, because those are the books whose assignment the removal can
-   * have written. A wider sweep would re-derive assignments the retraction has
-   * nothing to do with.
+   * Lean deliberately. `layout` joins photographs and placements onto every row
+   * because it draws a shelf; this decides which books to write a row for, and
+   * it is taken twice per boundary write.
    */
-  private async takeTheAssignmentsBack(
+  private async whereTheRunPutsThem(
     range: ShelfRange,
-    restored: readonly number[],
-  ): Promise<void> {
-    if (!restored.length) return
+  ): Promise<Map<number, { sortKey: string; area: number | null }>> {
+    const rows = await this.db.all<{ id: number; sort_key: string }>(
+      `SELECT id, sort_key FROM shelved_books WHERE shelf_range = ? ORDER BY sort_key ASC`,
+      [range],
+    )
+    const areas = await this.areasForSortKeys(range, rows.map((row) => row.sort_key))
+    return new Map(rows.map((row, at) =>
+      [Number(row.id), { sortKey: row.sort_key, area: areas[at] ?? null }]))
+  }
 
-    const ids = [...new Set(
-      (await Promise.all(restored.map((id) => booksNaming(this.db, id)))).flat(),
-    )]
-    if (!ids.length) return
+  /**
+   * Write down where the books a boundary write moved now belong.
+   *
+   * **This is the recording every boundary write owes, and it is one function
+   * because moving a boundary is one act** (#487). `docs/shelving.md` says so in
+   * the sentence that specifies the boundary move: the manual move and the
+   * automatic shuffle "answer the same physical question, and if they wrote
+   * different things down one would quietly undo the other". Overflow wrote
+   * nothing at all, a boundary move wrote only its own receipt, and a removal
+   * wrote assignments (#465), so there were three answers to that one question.
+   *
+   * **An `assigned` row is what the act produces, and the ledger's own words
+   * settle which row it is.** `docs/data-model.md`: "`assigned` is what the
+   * rules want; `placed` is what somebody did. They disagree exactly when a
+   * book needs attention." A boundary write moves a book in the run and not in
+   * the room, which is precisely that disagreement, so a book left needing
+   * attention with no `assigned` row is the model contradicting itself. It is
+   * also the whole of #458: the needs-attention list derives its answer and the
+   * carry list reads the ledger, so the ledger going unwritten is a first screen
+   * saying nothing is outstanding over work that is.
+   *
+   * **The receipt is not this and cannot stand in for it.** `outstanding_move`
+   * answers "how do I put the furniture back", which is why only a move that can
+   * be taken back writes one, and it names no area: nothing that counts work
+   * reads it. A move writes both, because both facts are true of it.
+   *
+   * **Scoped to the books this write actually moved**, by comparing the run's
+   * answer before against its answer after. A book whose plank did not change
+   * has nothing new to say, and a wider sweep would re-derive assignments over
+   * books the act never touched. `assignmentFor` decides the rest, so a pinned,
+   * checked out or withdrawn book gets nothing, and neither does one already
+   * standing where it now belongs.
+   */
+  private async recordWhatMoved(
+    range: ShelfRange,
+    before: Map<number, { sortKey: string; area: number | null }>,
+    reason: string,
+    now: string,
+  ): Promise<void> {
+    const moved = [...(await this.whereTheRunPutsThem(range))]
+      .filter(([id, answer]) => {
+        const was = before.get(id)
+        return was !== undefined && was.area !== answer.area
+      })
+    if (!moved.length) return
 
     const ledger = new DrizzlePlacementLedger(this.db)
     const history = new Map<number, Placement[]>()
-    for (const row of await ledger.forBooks(ids)) {
+    for (const row of await ledger.forBooks(moved.map(([id]) => id))) {
       const existing = history.get(row.bookId)
       if (existing) existing.push(row)
       else history.set(row.bookId, [row])
     }
 
-    const keyed = await this.db.all<{ id: number; sort_key: string }>(
-      `SELECT id, sort_key FROM books WHERE id IN (${ids.map(() => '?').join(', ')})`,
-      ids,
-    )
-    const wanted = await this.areasForSortKeys(range, keyed.map((row) => row.sort_key))
-
-    const now = new Date().toISOString()
-    for (const [at, row] of keyed.entries()) {
-      const id = Number(row.id)
-      const to = assignmentFor(standingOf(history.get(id) ?? []), wanted[at] ?? null)
+    for (const [id, answer] of moved) {
+      const to = assignmentFor(standingOf(history.get(id) ?? []), answer.area)
       if (to === null) continue
       await ledger.record({
         bookId: id,
         kind: 'assigned',
         areaId: to,
-        sortKey: row.sort_key,
+        sortKey: answer.sortKey,
         actor: 'rules',
-        reason: 'the move was taken back',
+        reason,
         createdAt: now,
       })
     }

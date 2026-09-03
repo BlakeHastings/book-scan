@@ -8,6 +8,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
+import { outstandingWork } from './carry'
 import { addAreaTo, editFixture } from './furniture'
 import { UnknownPlank } from './placement-ledger'
 import { Shelves } from './shelves'
@@ -1576,6 +1577,164 @@ describe('taking a boundary move back', () => {
     expect(await labels()).toEqual(['1A', '1B', '1C'])
     expect(await locations(ann, bob, cal)).toEqual(['1A', '1B', '1C'])
   })
+})
+
+/**
+ * What a boundary write owes the ledger (#487, the other half of #458).
+ *
+ * Three acts move a boundary and they wrote three different things down.
+ * Removing one wrote an `assigned` row (#465); moving one wrote only its own
+ * receipt, which names no area and which nothing that counts work reads;
+ * overflow wrote nothing at all. So a book could be on the needs-attention list
+ * and absent from the carry list at the same time, which is the sentence #458 is
+ * made of, and `docs/shelving.md` had already forbidden it: the manual move and
+ * the automatic shuffle "answer the same physical question, and if they wrote
+ * different things down one would quietly undo the other".
+ *
+ * These read the carry list itself rather than the ledger, because the claim is
+ * about the two screens and an assertion about rows is one step short of it.
+ * And they compare the **delta** the act adds to each list, the way #465's do:
+ * the two lists answer different questions and only what an act adds has to
+ * match.
+ */
+describe('what a boundary write records', () => {
+  const shelve = async (author: string, title = 'Book') => {
+    const id = await add(author, title)
+    await store.setLocation(id, await shelves.labelFor('fiction', id))
+    return id
+  }
+
+  /** Which books the shelving review names, and which the carry list does. */
+  const bothLists = async () => ({
+    review: (await shelves.review('fiction')).misfiles.map((m) => m.book.id).sort(),
+    carry: (await outstandingWork(db)).trips
+      .flatMap((trip) => trip.books.map((book) => book.id)).sort(),
+  })
+
+  it('reaches the carry list when a full plank pushes a book along', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    expect(await bothLists()).toEqual({ review: [], carry: [] })
+
+    await shelves.overflow('fiction', plank('1A'), 'area')
+
+    // The review named Bob and the carry list said there was nothing to do.
+    expect(await bothLists()).toEqual({ review: [bob], carry: [bob] })
+    const trip = (await outstandingWork(db)).trips[0]
+    expect([trip?.from, trip?.to]).toEqual(['1A', '1B'])
+  })
+
+  /**
+   * And the assignment names the plank rather than the letter over it.
+   *
+   * The row has to point at the area the run now puts the book on, because that
+   * is what a person is sent to and what `PATCH .../location` is checked
+   * against. Read off `planks` rather than off the label for the reason #356
+   * exists.
+   */
+  it('names the plank the run now puts the book on', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+
+    const applied = await shelves.overflow('fiction', plank('1A'), 'area')
+    expect(applied.planks?.to.areaId).not.toBeNull()
+
+    const standing = standingOf(await new DrizzlePlacementLedger(db).forBooks([bob]))
+    expect(standing.assigned).toBe(applied.planks?.to.areaId)
+    expect(needsAttention(standing)).toBe(true)
+  })
+
+  it('writes nothing for a book the overflow did not move', async () => {
+    const ann = await shelve('Ann Author')
+    await shelve('Bob Baker')
+
+    await shelves.overflow('fiction', plank('1A'), 'area')
+
+    // Ann never left 1A, so there is nothing about her to write down and
+    // nothing for anybody to carry.
+    expect(needsAttention(standingOf(await new DrizzlePlacementLedger(db).forBooks([ann]))))
+      .toBe(false)
+  })
+
+  /**
+   * The answer where nothing already shelved moves is still nothing written.
+   *
+   * `carryOn` sends the book in the person's hand on to the next plank instead
+   * of displacing one, so no shelved book crosses a boundary and no assignment
+   * is due. The recording is on the write rather than on the caller precisely so
+   * this case cannot be got wrong by remembering it separately.
+   */
+  it('records nothing when the book in hand is the one that moves', async () => {
+    const ann = await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    await shelves.overflow('fiction', plank('1A'), 'area')
+    await store.setLocation(cal, '1B')
+    const before = await bothLists()
+
+    const carried = await shelves.overflow(
+      'fiction', plank('1A'), 'area', await keyFor('Bob Baxter'),
+    )
+    expect(carried.carry).toMatchObject({ from: '1A', to: '1B' })
+    expect(await bothLists()).toEqual(before)
+    expect(await locations(ann, bob, cal)).toEqual(['1A', '1A', '1B'])
+  })
+
+  /**
+   * The sibling act, made to write the same thing down.
+   *
+   * It wrote only the receipt, so a boundary move produced exactly the
+   * disagreement #458 reports: one on the review, nought to carry. The receipt
+   * stays, because it answers a different question, and both are now true of a
+   * move.
+   */
+  it('reaches the carry list when a book is carried across a boundary', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    // Cal is the one the full plank pushed along and somebody carried him, so
+    // the only thing outstanding when the move below is made is the move.
+    await shelves.overflow('fiction', plank('1A'), 'area')
+    await store.setLocation(cal, '1B')
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+
+    expect(await bothLists()).toEqual({ review: [bob], carry: [bob] })
+    // The receipt is still written, because taking the move back still needs it.
+    expect((await shelves.outstandingMoves('fiction')).map((m) => m.bookId)).toEqual([bob])
+  })
+
+  /**
+   * And the undo takes both back.
+   *
+   * `takeTheAssignmentsBack` was scoped to the planks a retraction brought back,
+   * which was complete while a move wrote nothing of its own. A plain re-anchor
+   * brings no plank back, so that reading would leave the assignment standing
+   * and the carry list holding a trip for a move somebody had taken back, which
+   * is #465's defect arriving from the other end a second time.
+   */
+  it('takes the assignment back when a plain re-anchor is retracted', async () => {
+    await shelve('Ann Author')
+    const bob = await shelve('Bob Baker')
+    const cal = await shelve('Cal Church')
+    // Cal is the one the full plank pushed along and somebody carried him, so
+    // the only thing outstanding when the move below is made is the move.
+    await shelves.overflow('fiction', plank('1A'), 'area')
+    await store.setLocation(cal, '1B')
+
+    await shelves.moveAcrossBoundary('fiction', bob, 'next')
+    expect((await bothLists()).carry).toEqual([bob])
+
+    expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
+    expect(await bothLists()).toEqual({ review: [], carry: [] })
+  })
+
+  /** The helper the cases above share, kept beside them. */
+  const keyFor = async (author: string, title = 'Book') =>
+    (await placementFor({ title, authors: [author], genre: FICTION_SLUG } as never)).sortKey
+
+  const locations = async (...ids: number[]) =>
+    Promise.all(ids.map(async (id) => (await store.getBook(id))?.location))
 })
 
 describe('misfile detection', () => {

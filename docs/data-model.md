@@ -191,6 +191,26 @@ because they are properties of these two rows:
   standing on, the shelving review named a trip nobody had to walk, and the
   work that was real never reached the carry list, which reads the ledger.
   There is one writer for this now and no caller has a step to remember.
+- **Moving a boundary writes `assigned` rows too, and for the same reason**
+  (#487). Removing an area was the first of the three acts that move a boundary
+  to be made to record; the other two are the overflow cascade, which wrote
+  nothing at all, and the boundary move, which wrote only its own
+  `outstanding_move` receipt. A receipt names no area and nothing that counts
+  work reads it, so both of those left a book on the needs-attention list and
+  absent from the carry list, which is #458.
+
+  `Shelves.recordWhatMoved` is the one writer, called from the boundary write
+  rather than from each caller, and it names the plank the run now puts the book
+  on for every book the write moved and no others. `docs/shelving.md` under
+  "What a boundary write records" is the reasoning, and it was already in that
+  file as a rule before it was true in the code: the manual move and the
+  automatic shuffle "answer the same physical question, and if they wrote
+  different things down one would quietly undo the other".
+
+  **A move writes both, because both facts are true of it.** The receipt says how
+  to put the furniture back; the assignment says a book has to be carried.
+  Taking the move back writes the run's answer again, which cancels the
+  assignment, and clears the receipt.
 
 ### SortStrategy
 

@@ -837,6 +837,22 @@ const attentionRow = (page: Page, title: string) =>
   page.locator('.attention__row').filter({ hasText: title })
 
 /**
+ * One book's line in the needs-attention list, said the way the list says it.
+ *
+ * Not `it should say to move exactly:`, which reads `.tomove` — the answer a
+ * removal hands straight back on the screen it happened on. This reads the list
+ * the shelves draw whenever they are opened, which is the one #458 compared
+ * against the first screen's count.
+ */
+Then(
+  'the shelves should say {string} was last seen on {string} and belongs on {string}',
+  async ({ page }, title: string, from: string, to: string) => {
+    await expect(attentionRow(page, title))
+      .toContainText(`Last seen on ${from}. The order now puts it on ${to}`)
+  },
+)
+
+/**
  * The way back out of a move nobody acted on (#196).
  *
  * Asserted next to "Moved it" rather than instead of it, because the two are

@@ -187,6 +187,32 @@ Given(
 )
 
 /**
+ * The same answer, walked away from before the book was carried (#487).
+ *
+ * `fillUp` above records where the displaced book went, because every scenario
+ * using it wants a settled room. This one deliberately does not: the whole
+ * question is what the app says while the boundary has moved and the book has
+ * not, which is the state somebody is in who put the phone down. It is also the
+ * state every one of those scenarios passes through for a moment.
+ */
+Given(
+  '{string} filled up and nobody carried the book',
+  async ({ apiUrl, catalogue }, label: string) => {
+    const response = await fetch(`${apiUrl}/api/shelves/overflow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        range: 'fiction', areaId: await catalogue.plankId(label), kind: 'area',
+      }),
+    })
+    expect(response.ok, `filling ${label} failed: ${response.status}`).toBe(true)
+
+    const { step } = (await response.json()) as { step: { id: number } | null }
+    expect(step, `${label} had no book to give up`).toBeTruthy()
+  },
+)
+
+/**
  * Several planks with books on each, arrived at one answer at a time.
  *
  * A cascade that has to go deep and then descend AGAIN needs planks past the

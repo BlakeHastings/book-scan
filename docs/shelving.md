@@ -889,6 +889,43 @@ moved the book, through `PATCH /api/books/:id/location`. The boundary move and
 the location write are two statements, and both are needed. Making only the
 first leaves the book recorded on the plank it came off.
 
+### What a boundary write records
+
+**Every act that moves a boundary writes an `assigned` row for each book it
+moved in the run**, naming the plank the run now puts that book on, and only
+where that differs from where the book already stands. That is one function on
+the write rather than a step each caller remembers: `Shelves.recordWhatMoved`,
+reached from the overflow cascade, from the boundary move, and from taking a
+boundary move back. Removing a boundary is the same act as removing an area and
+records through `dropArea`, which has done so since #465.
+
+**Which is not a fourth thing to keep in step with the three above; it is what
+stops there being one.** The paragraph before this says the manual move and the
+automatic shuffle must not write different things down. They did: overflow wrote
+nothing at all, a boundary move wrote only its own receipt, and a removal wrote
+assignments. So a book could be on the needs-attention list and absent from the
+carry list at the same time, which is what #458 reported, and #487 is the half
+of it that came in through overflow.
+
+`docs/data-model.md` says which row it has to be: "`assigned` is what the rules
+want; `placed` is what somebody did. They disagree exactly when a book needs
+attention." A boundary write moves a book in the run and not in the room, so it
+creates exactly that disagreement, and the ledger is where the disagreement is
+kept.
+
+**The outstanding-move receipt is not this and cannot stand in for it.** It
+answers "how do I put the furniture back", which is why only an act that can be
+taken back writes one; it names no area, and nothing that counts work reads it.
+A boundary move writes both, because both facts are true of it. Overflow writes
+only the assignment: a plank a person has just declared full is not a thing the
+app offers to un-declare, and the receipt has no way to say "un-create the area
+this made" in any case.
+
+**Scoped to the books the write actually moved**, by comparing where the run
+puts every book in the range before the write against where it puts them after,
+as plank ids rather than as labels. Ids because a boundary write is the one
+thing that makes a plank read as another plank's letter, which is #356.
+
 ### Which plank, and what the plank is called
 
 Two different jobs, and one string used to do both. **A plank is named for a
@@ -955,10 +992,18 @@ and the way out is the one that was always there, which is to say where the book
 actually is.
 
 Only a move the app made can be taken back. A book pushed onto the next plank
-by a newcomer is a misfile too, and it is not one anybody can withdraw: there
-is no assignment behind it, and moving the boundary to close it would be a new
+by a newcomer is a misfile too, and it is not one this offers to reverse: there
+is no receipt behind it, and moving the boundary to close it would be a new
 decision about the furniture, made on the person's behalf, wearing the word
-undo.
+undo. The person said the plank was full, and un-saying that is theirs.
+
+**That sentence used to read "there is no assignment behind it", and since #487
+there is one.** What changed is not this rule. Overflow records where the run
+now puts the book it pushed along, the way every boundary write does, so the
+work reaches the carry list; what it does not get is a receipt, which is the
+thing a retraction replays. The way out of an assignment somebody does not
+intend to act on is the carry list's own, which is to leave the books where they
+are (see below), and that is a different act from putting the furniture back.
 
 ### Taking back a boundary move and leaving a carry list undone are not the same act
 

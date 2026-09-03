@@ -38,6 +38,34 @@ When('I open the list of books to carry', async ({ page }) => {
 })
 
 /**
+ * What the first screen says is outstanding, which is the number #458 is about.
+ *
+ * Read off the tile rather than off the list behind it, because the complaint
+ * was that this number said nothing was left to do while the manage screen
+ * named books that were. A scenario that only opened the list would never see
+ * the disagreement.
+ */
+Then('the first screen should say {string} to carry', async ({ page }, said: string) => {
+  await expect(page.locator('.wf-stat', { hasText: 'to carry' }))
+    .toContainText(said, { timeout: REDRAW })
+})
+
+/**
+ * The list itself, opened from that tile rather than from the door beside it.
+ *
+ * The wait is on the top bar rather than on a heading, because a job of one
+ * book skips the list and lands on the trip: `CarryScreen` chooses the trip and
+ * redirects when `moving` is 1, so the screen that arrives says "One book to
+ * carry" and the one for several says "Books to carry". Both are the list from
+ * where somebody is standing, and waiting for one of the two names would make
+ * this step depend on how much work there happens to be.
+ */
+When('I open that list from the first screen', async ({ page }) => {
+  await page.locator('.wf-stat', { hasText: 'to carry' }).click()
+  await expect(page.locator('.wf-top__title')).toContainText(/carry/i, { timeout: REDRAW })
+})
+
+/**
  * The first trip on the list, opened at the piece the books come off.
  *
  * The primary button rather than the row, because that is the answer the screen
