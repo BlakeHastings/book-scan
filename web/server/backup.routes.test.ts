@@ -30,15 +30,28 @@ import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/te
 import { PgDb } from './db.pg'
 import { dumpFileName, manifestFileName } from './backup'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 
 let pool: pg.Pool
 let db: PgDb
 let scratch: string
 const running: Array<{ app: BookScanApp; server: Server }> = []
 
+/**
+ * The session every request in this file carries. `/api/backup` is behind the
+ * gate since #521: whether this collection is backed up is a fact about the
+ * collection, and a stranger is not owed it.
+ */
+let cookie = ''
+
+/** A request holding the session, which is what a phone's request is. */
+const ask = (url: string, init: RequestInit = {}) =>
+  fetch(url, { ...init, headers: { cookie, ...init.headers } })
+
 beforeAll(async () => {
   pool = await migratedDatabase()
   db = new PgDb(pool)
+  cookie = (await signedIn(db)).cookie
   scratch = scratchRoot('backup-routes')
 })
 
@@ -67,7 +80,7 @@ async function serving(backupDir?: string): Promise<string> {
 describe('GET /api/backup', () => {
   it('claims nothing when the app was given no directory', async () => {
     const base = await serving()
-    const answer = await (await fetch(`${base}/api/backup`)).json()
+    const answer = await (await ask(`${base}/api/backup`)).json()
 
     expect(answer.state).toBe('unwatched')
     expect(answer.where).toBe('')
@@ -83,7 +96,7 @@ describe('GET /api/backup', () => {
     }))
 
     const base = await serving(dir)
-    const answer = await (await fetch(`${base}/api/backup`)).json()
+    const answer = await (await ask(`${base}/api/backup`)).json()
 
     expect(answer.state).toBe('fresh')
     expect(answer.verified.dump).toBe(name)
@@ -92,7 +105,7 @@ describe('GET /api/backup', () => {
 
   it('does not pass a directory that is not there', async () => {
     const base = await serving(join(scratch, 'a-disk-that-is-not-plugged-in'))
-    const answer = await (await fetch(`${base}/api/backup`)).json()
+    const answer = await (await ask(`${base}/api/backup`)).json()
 
     expect(answer.state).toBe('unreachable')
     expect(answer.state).not.toBe('fresh')

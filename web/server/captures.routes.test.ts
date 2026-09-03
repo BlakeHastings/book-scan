@@ -31,6 +31,7 @@ import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/te
 import { downloadCover } from './covers'
 import { PgDb } from './db.pg'
 import { createApp } from './index'
+import { signedIn } from './testauth'
 import { lookupIsbn } from './lookup'
 import { photographTaken } from './photographs'
 import { Store } from './store'
@@ -68,6 +69,8 @@ let scratch: string
 let coverDir: string
 let server: Server
 let baseUrl: string
+/** The session every request in this file carries. See server/testauth.ts. */
+let cookie: string
 /** Kept so a test can wait for the chain a save fires and not race it. */
 let app: ReturnType<typeof createApp>
 
@@ -85,6 +88,7 @@ beforeEach(async () => {
   covers.mockResolvedValue('')
 
   coverDir = mkdtempSync(join(scratch, 'captures-test-'))
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -111,7 +115,13 @@ afterAll(async () => {
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: init.body ? { 'content-type': 'application/json', ...init.headers } : init.headers,
+    // The suite arrives holding a session, because every route under /api is
+    // behind the gate since #521 and a request without one is refused 401.
+    headers: {
+      cookie,
+      ...(init.body ? { 'content-type': 'application/json' } : {}),
+      ...init.headers,
+    },
   })
   const text = await response.text()
   return { status: response.status, body: text ? JSON.parse(text) : null }

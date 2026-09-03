@@ -426,7 +426,14 @@ async function describe(
 export function mountGate(app: express.Express, deps: SignInDeps): void {
   const clock = deps.now ?? (() => new Date())
 
-  app.use(GATE_MOUNT, (req, res, next) => {
+  /*
+   * Named rather than anonymous, and the name is load-bearing. Express records a
+   * middleware's function name on the layer it makes, so `gate.routes.test.ts`
+   * can find this one in the router stack and count what is registered on either
+   * side of it. That count is how "everything is behind the gate" stays a
+   * measurement rather than a claim.
+   */
+  app.use(GATE_MOUNT, function gate(req, res, next) {
     void (async () => {
       const token = cookieFrom(req.headers.cookie, SESSION_COOKIE)
       if (!token) return refuse(res, 'anonymous')

@@ -29,6 +29,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
@@ -49,6 +50,8 @@ let shelves: Shelves
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+/** The session every request in this file carries. See server/testauth.ts. */
+let cookie: string
 /** This file's own scratch root, which no other test file can name. */
 let scratch: string
 let coverDir: string
@@ -121,7 +124,20 @@ async function buildWorld(books = 6, cuts = [2, 4]): Promise<number[]> {
  * measured 24 seconds against a twenty second budget and took the run red.
  * Putting a kept copy back costs one round trip and gives them the same room.
  */
-const buildTheWorld = () => openTestDatabase('the_owners_room')
+/**
+ * The owner's fifty, put back.
+ *
+ * The session is made again on the other side, and that is not incidental.
+ * `openTestDatabase` puts **every** table back (#343), and since #521 that
+ * includes `user` and `session`, so restoring a catalogue kept in `beforeAll`
+ * throws away the session this test was handed in `beforeEach` and every request
+ * afterwards is refused `401`. Found by watching exactly that happen here.
+ */
+const buildTheWorld = async () => {
+  const restored = await openTestDatabase('the_owners_room')
+  cookie = (await signedIn(restored)).cookie
+  return restored
+}
 
 interface Answer {
   status: number
@@ -134,7 +150,13 @@ async function call(method: string, path: string, body?: unknown): Promise<Answe
     method,
     ...(body === undefined
       ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      : { body: JSON.stringify(body) }),
+    // The suite arrives holding a session, because every route under /api is
+    // behind the gate since #521 and a request without one is refused 401.
+    headers: {
+      cookie,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
   })
   return { status: response.status, body: await response.json() }
 }
@@ -206,6 +228,7 @@ beforeEach(async () => {
   shelves = new Shelves(db)
 
   coverDir = mkdtempSync(join(scratch, 'furniture-test-'))
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
