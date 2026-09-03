@@ -136,6 +136,24 @@ export interface OutstandingMove {
   from: string
   /** The plank the move assigned it to, and where the layout now draws it. */
   to: string
+  /**
+   * Which plank `from` was a rendering of, and which `to` was (#481).
+   *
+   * **The address and the identity are two fields because they answer two
+   * questions**, and only the second one keeps answering. A label is derived
+   * from where a piece stands and where a plank stands on it, and a boundary
+   * write is exactly the thing that moves both: taking an area off a face
+   * renumbers the areas after it, so the row that read `1C` reads `1B`
+   * afterwards, and two pieces can stand on one number, which is what
+   * `AreaStanding` exists to say. Anything asking "is this the same plank"
+   * reads these; anything asking "what did this say at the time" reads the two
+   * above.
+   *
+   * Null only on a receipt migrated from its address alone, where the address
+   * named no plank this collection has. See the schema, and `0030`.
+   */
+  fromArea: number | null
+  toArea: number | null
   /** Boundaries to point back at the book they were anchored to before. */
   reanchor: { id: number; startsAt: string }[]
   /**
@@ -163,9 +181,12 @@ export interface OutstandingMoveRepository {
    * for this book.
    *
    * Merging keeps the **older** anchor for a boundary named twice, and the
-   * older `from`, so what is stored stays "the arrangement as it was the last
-   * time this book and its shelf agreed" rather than "as it was a moment ago".
-   * Undoing a move to a state that is itself undone is not undoing.
+   * older `from` with the older `fromArea`, so what is stored stays "the
+   * arrangement as it was the last time this book and its shelf agreed" rather
+   * than "as it was a moment ago". Undoing a move to a state that is itself
+   * undone is not undoing. The two `from` fields move together because they are
+   * the address and the identity of one plank, and keeping one older than the
+   * other is how a receipt comes to name two places.
    */
   record(move: OutstandingMove, madeAt: string): Promise<void>
 

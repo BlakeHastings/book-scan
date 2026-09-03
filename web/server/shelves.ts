@@ -297,11 +297,19 @@ const SHELVES_MOVED_ON =
  * never written a note, and a boundary that had to be made again was, in fact,
  * made again. Faking the original timestamp would be the receipt asserting
  * something that did not happen.
+ *
+ * **The two planks go in as ids as well as as labels** (#481). `planks` is the
+ * plan joined back to the furniture, taken before the write for the same reason
+ * the boundaries are: it is the only moment both planks are on the face, since
+ * the move is what takes one of them off. An area id survives that — a retired
+ * area keeps its row, and `resequenceFace` renumbers positions rather than
+ * moving rows — which is exactly the property the label does not have.
  */
 function receiptFor(
   range: ShelfRange,
   bookId: number,
   move: BoundaryMove,
+  planks: Planks,
   before: Separator[],
   now: string,
 ): OutstandingMove {
@@ -312,6 +320,8 @@ function receiptFor(
     range,
     from: move.from,
     to: move.to,
+    fromArea: planks.from.areaId,
+    toArea: planks.to.areaId,
     reanchor: move.shift.flatMap((shift) => {
       const original = was.get(shift.id)
       return original ? [{ id: shift.id, startsAt: original.startsAt }] : []
@@ -1150,10 +1160,19 @@ export class Shelves {
        * Written before the change, because it is a record of what the change is
        * about to undo. Reading the boundaries afterwards would give their new
        * anchors, and reading them for a removal would give nothing at all.
+       *
+       * The two planks are read here for the same reason (#481). Before the
+       * write both are on the face, because a boundary move refuses at the ends
+       * of the run rather than making furniture; after it, the one the move
+       * empties is not. The ids taken here go on meaning the same two rows
+       * afterwards, which is the whole reason the receipt holds ids: a retired
+       * area keeps its row, and `resequenceFace` renumbers positions rather than
+       * moving rows, so it is the label that stops being about this plank.
        */
       const now = new Date().toISOString()
+      const between = await this.naming(range, outcome.move)
       await this.outstanding.record(
-        receiptFor(range, bookId, outcome.move, boundaries, now),
+        receiptFor(range, bookId, outcome.move, between, boundaries, now),
         now,
       )
 

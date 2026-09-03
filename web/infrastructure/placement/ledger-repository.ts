@@ -151,38 +151,23 @@ export async function areaForLabel(
   return row ? Number(row.id) : null
 }
 
-/**
- * The same, for a label this app wrote down rather than one a person is sending.
+/*
+ * `areaForRecordedLabel` stood here, the same reading as above but reaching a
+ * plank that has been taken off the face: a retired area sits at
+ * `-(plank + 1)` and a retired piece at `-(bookcase + 1)`, and a row on the face
+ * wins over one retired from the same position, which is the only way two rows
+ * read as one label.
  *
- * **It answers a plank that has been taken off the face**, which is the whole
- * difference. `outstanding_move` holds the two labels a boundary move drew, and
- * a move that empties the last area of a run takes that area's boundary out with
- * it, so the receipt names a plank `areaForLabel` will never find: a retired
- * area's position is `-(plank + 1)`. A person standing in the room still calls
- * it `1B`, and the receipt is about what happened rather than about what is on
- * the floor now.
+ * It existed for `outstanding_move`, which said where a boundary move went as an
+ * address, and a move that empties the last area of a run is what takes that
+ * area's boundary out — so the receipt named a plank `areaForLabel` would never
+ * find. #481 gave the receipt the two area ids instead, and an id needs no
+ * lookup and does not stop meaning the row it names when a face is renumbered.
  *
- * A plank on the face wins over one retired from the same position, which is the
- * only way two rows can read as one label.
- *
- * **The piece can be off the floor too**, and is asked for the same two ways
- * round: deleting a bookcase whose planks the ledger names retires the piece to
- * `-(bookcase + 1)` rather than deleting the row (`retireFixture`), and a
- * receipt naming `4A` is about the room somebody was standing in.
- *
- * Not offered to the write path, and that is deliberate: recording a book onto a
- * plank the collection has taken out stays refused.
+ * The reading is not lost: `0030` backfills the ids from the addresses and
+ * spells this query in SQL to do it, once, over the rows that were written
+ * before there was anywhere else to put the answer. Deleted here rather than
+ * left for the next caller, because a function that turns a stored address into
+ * a plank is a thing to have no use for. See `compareLocations` in
+ * `shared/shelving.ts`, taken out the same way and for the same reason.
  */
-export async function areaForRecordedLabel(
-  db: Db,
-  fixturePosition: number,
-  areaPosition: number,
-): Promise<number | null> {
-  const row = await db.get<{ id: number }>(
-    `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
-      WHERE (f.position = ? OR f.position = ?) AND (a.position = ? OR a.position = ?)
-      ORDER BY (f.position >= 0) DESC, (a.position >= 0) DESC, f.id, a.id LIMIT 1`,
-    [fixturePosition, -(fixturePosition + 1), areaPosition, -(areaPosition + 1)],
-  )
-  return row ? Number(row.id) : null
-}

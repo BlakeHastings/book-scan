@@ -212,6 +212,17 @@ because they are properties of these two rows:
   Taking the move back writes the run's answer again, which cancels the
   assignment, and clears the receipt.
 
+  **The receipt names no area in the ledger's sense and does name two planks**
+  (#481). Those are not the same claim. It writes no `book_placement` row, which
+  is why nothing that counts work reads it; what it carries is
+  `from_area_id`/`to_area_id`, which say which two planks the move was between so
+  that the misfile list can ask whether a row is a move it opened without reading
+  an address back. `from_label`/`to_label` are still there and are still what
+  somebody read that day. Neither pair is a foreign key: the move that writes a
+  receipt is what retires the plank it names, and an area nothing else names is
+  deleted rather than retired, so a key here would either block a boundary
+  removal or destroy the receipt.
+
 ### SortStrategy
 
 `sort_strategy(code, label, is_inherit, available, note)`

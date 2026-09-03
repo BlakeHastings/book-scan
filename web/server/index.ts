@@ -70,7 +70,7 @@ import { PAGE_LIMIT, Store, type DraftBook } from './store'
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
 // A location naming a plank nobody has is refused rather than recorded (#232).
 // See the location route, and `recordPlaced`.
-import { areaOfRecordedLocation, historyOf, UnknownPlank } from './placement-ledger'
+import { historyOf, UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove } from './relocate-run'
 import { applyRuleChange, draftFrom, planRuleChange, rulesOnPlace } from './place-rule'
 // The work list the ledger already holds, grouped into trips (#314).
@@ -3682,23 +3682,6 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const review = await shelves.review(range)
     const outstanding = await shelves.outstandingMoves(range)
 
-    /*
-     * A receipt holds the two labels the layout drew when the move was made, and
-     * a label is a rendering, so the receipt has to be read back as the planks it
-     * names before anything is compared with it. `areaOfLocation` is the one
-     * place that reading is done, and it reaches a plank the move itself took
-     * off the face, which is the ordinary case: emptying the last area of a run
-     * takes its boundary out.
-     *
-     * The receipt's own labels are left alone: rewriting somebody's record to
-     * make a comparison easier is the mistake this whole area exists not to make.
-     */
-    const receipts = await Promise.all(outstanding.map(async (move) => ({
-      bookId: move.bookId,
-      from: await areaOfRecordedLocation(db, move.from),
-      to: await areaOfRecordedLocation(db, move.to),
-    })))
-
     res.json({
       ...review,
       /*
@@ -3712,12 +3695,28 @@ export function createApp(options: CreateAppOptions): BookScanApp {
        * shelves have moved on since the move and taking it back would not put
        * the book back, which `retractMove` would refuse anyway. Better not to
        * offer it than to offer it and refuse.
+       *
+       * **Four area ids, and not one address among them** (#481). The receipt
+       * used to say where the move went as `4B`, so this had to parse it back
+       * into a plank before it could be compared with `misfile.book.areaId`, and
+       * an address is a statement about position, which is exactly what a
+       * boundary move changes: renumbering a face makes the row that read `1C`
+       * read `1B`, and two pieces can stand on one number. The receipt now names
+       * the planks it was between, so the comparison is four ids and no
+       * rendering, and it says the same thing on a piece somebody has named, on
+       * a face that has been renumbered since, and on a plank the move itself
+       * took off the furniture.
+       *
+       * A receipt written before that migration can carry no id for a plank the
+       * collection no longer has, and a null never matches. That is the answer
+       * parsing its address gave for the same row, so nothing is offered now
+       * that was not offered then, and nothing withheld that was not.
        */
       outstandingMoves: review.misfiles
-        .filter((misfile) => receipts.some((receipt) =>
+        .filter((misfile) => outstanding.some((receipt) =>
           receipt.bookId === misfile.book.id
-          && receipt.from !== null && receipt.from === misfile.book.areaId
-          && receipt.to !== null && receipt.to === misfile.toAreaId))
+          && receipt.fromArea !== null && receipt.fromArea === misfile.book.areaId
+          && receipt.toArea !== null && receipt.toArea === misfile.toAreaId))
         .map((misfile) => misfile.book.id),
     })
   }))

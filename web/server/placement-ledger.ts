@@ -75,9 +75,7 @@ import { faceOf } from '../infrastructure/shelving/areas'
 import { CHECKED_OUT } from '../domain/books/state'
 import { areaIndex } from '../shared/layout'
 import { parseLocation, type AreaStanding } from '../shared/shelving'
-import {
-  areaForLabel, areaForRecordedLabel, DrizzlePlacementLedger,
-} from '../infrastructure/placement/ledger-repository'
+import { areaForLabel, DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import type { Db } from './driver'
 
 /** What every write here needs to know about the book being moved. */
@@ -105,24 +103,30 @@ export async function areaOfLocation(db: Db, label: string): Promise<number | nu
   return areaForLabel(db, parsed.shelf, position)
 }
 
-/**
- * The same reading, for a label this app wrote down rather than one it was sent.
+/*
+ * `areaOfRecordedLocation` stood here, and it is worth saying what it was for
+ * and why it is gone rather than leaving the next reader to reinvent it.
  *
- * Only `outstanding_move` holds such a label: the two the layout drew when a
- * boundary moved. Reading them back as planks is what lets the misfile list
- * decide whether a row is a move it opened without comparing one rendering of a
- * place against another (#356), and it has to reach a retired plank, because the
- * move that wrote the receipt is the thing that retired it.
+ * It read back a label **this app wrote down**, as against `areaOfLocation`
+ * above, which reads one a person sent. That distinction was real and it is not
+ * what changed: the two were deliberately two functions because comparing one
+ * rendering of a place against another is #356, and merging them was never the
+ * answer. Its one holder of such a label was `outstanding_move`, whose `4B` the
+ * misfile list parsed back into a plank so it could be compared with an area id.
+ *
+ * #481 removed the reason to read anything back. The receipt now records which
+ * planks the move was between, beside what they were called, so the comparison
+ * is ids on both sides and there is no address left on that path to parse. The
+ * reading it did — retired area at `-(plank + 1)`, retired piece at
+ * `-(bookcase + 1)`, a plank on the face winning over one retired from the same
+ * position — is kept where it is now needed once and never again, in migration
+ * `0030`, which backfills the ids from the addresses.
+ *
+ * **`areaOfLocation` is not its replacement**, and a caller that reaches for it
+ * to read something this app stored is asking the wrong question of the right
+ * function. If a stored address ever needs reading back again, the thing to fix
+ * is whatever stored an address.
  */
-export async function areaOfRecordedLocation(db: Db, label: string): Promise<number | null> {
-  const parsed = parseLocation(label)
-  if (!parsed) return null
-
-  const position = areaIndex(parsed.section)
-  if (position < 0) return null
-
-  return areaForRecordedLabel(db, parsed.shelf, position)
-}
 
 /**
  * A location naming furniture the collection does not have.
