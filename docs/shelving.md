@@ -660,6 +660,34 @@ An area therefore keeps its anchor through becoming a run's entry and through
 stopping being one. There is nothing to restore afterwards, because nothing was
 taken away.
 
+### A run begins at a plank, and a plank is not its bookcase
+
+The answer is a **plank**, and half of it is not the answer. `entryAreaOf`
+resolves the area a rule points at, so a rule written on `2C` says the run begins
+at `2C` and says nothing whatever about `2A` and `2B`: those belong to whatever
+run flows into them, and a run's first plank is the entry plank rather than the
+top plank of the piece the entry stands on.
+
+[#490](https://github.com/BlakeHastings/book-scan/issues/490) is what reading
+only half of it cost. `bandOf` answers with a `RangeStart`, which is a bookcase
+and a plank; `runAreasOf` took the bookcase and dropped the plank, so a run whose
+entry was `2C` came back holding `2A, 2B, 2C` and called `2A` the plank it opens
+at. Every reader of that one statement then answered from a run two planks too
+long: `boundariesFrom` invented a boundary and shifted every real one along, so
+six books drew on a `2E` no bookcase has while every plank that does exist
+reported nothing; `areaOfKey` landed a book on a plank the run before it owns,
+which is the destination the misfile list prints; and `relocateRunTo` would have
+taken two planks off a face they were still the previous run's part of. The state
+it needs is one press of "say what belongs here" on a plank, which is the rule
+editor's own guidance, and the arrangement is legal (see "Two rules may name one
+genre" above).
+
+**The band's upper bound is still a bookcase, and that is not the same
+omission.** `RangeBand.limit` is a fixture position because a move stops one
+piece earlier than a run does, which is the section below and is #420. The
+asymmetry belongs to the band; what a reader of the band owes it is to read both
+halves of the answer it was given.
+
 ## Moving a run to another bookcase
 
 A run is the stretch of areas one placement rule claims books into: fiction

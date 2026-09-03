@@ -82,8 +82,16 @@ export class DrizzleSeparatorRepository implements SeparatorRepository {
    *
    * Asked before the transaction opens, because the lock is named after a range.
    * Every range is searched rather than the area's fixture being read, because
-   * an area belongs to a range by sitting between that range's starting bookcase
-   * and the next one's, which is a fact about the bands and not about the row.
+   * an area belongs to a range by standing in that range's run, which is a fact
+   * about the rules and not about the row.
+   *
+   * **A run is not "this range's bookcase up to the next range's"**, which is
+   * what this said until #490 and is the belief that defect was made of. A run
+   * begins at the plank its rule points at, so a plank can sit on a piece a
+   * range reaches and still belong to the run before it. `boundariesOf` is asked
+   * rather than reasoned about for exactly that reason, and `undefined` for a
+   * plank no run owns is the honest answer: there is no range whose boundaries
+   * that removal would be rewriting.
    */
   async rangeOf(id: number): Promise<ShelfRange | undefined> {
     for (const { range } of GENRE_RANGES) {
