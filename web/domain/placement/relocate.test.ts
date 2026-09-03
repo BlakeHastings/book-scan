@@ -136,6 +136,65 @@ describe('moving a run to another bookcase', () => {
     expect(relocateRun(ORDER, nowhere, 2, 3).ok).toBe(false)
   })
 
+  /**
+   * #499: the half of #420 `nextRunStartAfter` cannot see.
+   *
+   * A bookcase somebody else's run begins on is that run's furniture, and half
+   * of one is nobody's to take. `nextRunStartAfter` says that about the pieces
+   * a run stops at, because until #499 a second run opening on the piece a run
+   * already opened on could not be reached: the band arithmetic bounded the
+   * earlier range at its own start and left it with no planks at all. It can be
+   * reached now, so the piece a move starts from is asked the same question.
+   */
+  it('refuses to take half of the bookcase it starts on', () => {
+    // Fiction on bookcase 1, and "say what belongs here" pressed on `1C`. The
+    // move would rehang `1A` and `1B` and leave `1C` on a bookcase with nothing
+    // else on its face, which is the state `refuseAHalfStrippedPiece` throws on.
+    const shared = slotsInOrder(
+      [fixture(1, 1), fixture(4, 4)],
+      [area(10, 1, 0), area(11, 1, 1, 'M'), area(12, 1, 2, 'S'), area(40, 4, 0)],
+    )
+    const rules = [FICTION, NON_FICTION, onTag(3, 'subject/comics', { id: 3, areaId: 12 })]
+
+    const moved = relocateRun(shared, rules, 1, 3)
+    expect(moved).toEqual({
+      ok: false,
+      error: expect.stringContaining('1C is where something else begins'),
+    })
+  })
+
+  it('refuses the same when the other run is a plank that orders itself', () => {
+    // Not a rule at all: an area given an ordering of its own is self-contained,
+    // takes no overflow and heads its own run, which is what `startsARun` says
+    // and what the dialog on that setting tells somebody before they press it.
+    const ordered = slotsInOrder(
+      [fixture(1, 1), fixture(4, 4)],
+      [
+        area(10, 1, 0), area(11, 1, 1, 'M'),
+        { ...area(12, 1, 2, 'S'), sortStrategy: 'title' },
+        area(40, 4, 0),
+      ],
+    )
+
+    expect(relocateRun(ordered, RULES, 1, 3).ok).toBe(false)
+  })
+
+  it('still moves the whole bookcase when the only run on it is its own', () => {
+    // The control. One run, one piece, nothing shared: the refusal above is
+    // about a second run standing on this one's bookcase and not about a run
+    // that happens to have three planks.
+    const alone = slotsInOrder(
+      [fixture(1, 1), fixture(4, 4)],
+      [area(10, 1, 0), area(11, 1, 1, 'M'), area(12, 1, 2, 'S'), area(40, 4, 0)],
+    )
+
+    const moved = relocateRun(alone, RULES, 1, 3)
+    if (!moved.ok) throw new Error(moved.error)
+    expect(moved.move.planks).toEqual([
+      { from: '1A', to: '3A' }, { from: '1B', to: '3B' }, { from: '1C', to: '3C' },
+    ])
+  })
+
   it('carries a run that spans two bookcases across as a whole', () => {
     const wide = slotsInOrder(
       [fixture(1, 1), fixture(2, 2), fixture(4, 4)],

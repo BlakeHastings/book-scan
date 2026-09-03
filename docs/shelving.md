@@ -682,11 +682,50 @@ it needs is one press of "say what belongs here" on a plank, which is the rule
 editor's own guidance, and the arrangement is legal (see "Two rules may name one
 genre" above).
 
-**The band's upper bound is still a bookcase, and that is not the same
-omission.** `RangeBand.limit` is a fixture position because a move stops one
-piece earlier than a run does, which is the section below and is #420. The
-asymmetry belongs to the band; what a reader of the band owes it is to read both
-halves of the answer it was given.
+### And it ends at a plank too, while a move still ends at a bookcase
+
+The two ends of a band are not the same kind of thing, and that is deliberate: a
+run stops at the next **area** any rule points at, and a move stops at the next
+**piece** somebody else's run stands on, which is the section below and is #420.
+
+[#499](https://github.com/BlakeHastings/book-scan/issues/499) is what happens
+when one number is asked both questions. `RangeBand` carried a single bound, a
+bookcase, and every reader took it: the read that says which planks a run has,
+the read that says what furniture is standing where the run is about to be
+written, the cascade's refusal, and the move. Two states nobody chose came out
+of that, and both are reachable through the rule editor's own guidance:
+
+- **Planks between a previous run and an entry part way down a piece belonged to
+  nobody.** Fiction on bookcase 1 flowing onto bookcase 2, with non-fiction's
+  rule on `2C`, gives `2A` and `2B` to fiction by `runFrom` and to no range at
+  all by the band. The bookcase read says those two planks hold "Fiction,
+  carrying on" while the shelves screen offers no boundary that reaches them,
+  the cascade at the end of fiction offers to make a fourth plank on bookcase 1
+  rather than step onto the empty `2A` standing in front of it, and a book
+  sorting there is a disagreement `areaDisagreements` reports.
+- **Two runs beginning on one bookcase left the earlier one with no run at
+  all.** Fiction opening at `1A` and non-fiction's rule on `1C` made fiction's
+  bound its own bookcase, so the read asked for `f.position >= 1 AND
+  f.position < 1` and came back empty. Not an error and not a warning: the
+  shelves screen drew every fiction book on `1A`, the boundary list was empty so
+  nothing could be moved, and the planks somebody had cut went on standing there
+  unmentioned.
+
+So the band answers both ends now, and each reader says which end it means.
+`RangeBand.end` is the first **plank** past the run, and is what `runAreasOf`,
+`writeBoundaries` and the cascade's refusal read. `RangeBand.limit` is one past
+the last **bookcase** a move may pick up, is `nextRunStartAfter` unchanged, and
+is read by the move and by the retirement that empties a whole piece.
+`relocateRunTo` asks for it by name rather than getting it through the run,
+because the run can now reach onto a piece the move may not touch.
+
+**Both come from `startsARun`**, which is the one definition of where a run
+begins and which `runFrom` has always used. That found a third site: an area
+given an ordering of its own is self-contained, takes no overflow and heads its
+own run — which is what the app tells somebody before they change it — and the
+band read only the rules. A bookcase whose middle plank orders itself was
+therefore a piece two runs stood on that a move would take whole, which is the
+#420 state reached by a different button.
 
 ## Moving a run to another bookcase
 
@@ -751,6 +790,20 @@ nobody's to take. `nextRunStartAfter` in `domain/placement/rules.ts` is the one
 definition of where the next run begins, `bandsOf` and `relocateRun` both ask it,
 and `relocateRunTo` refuses inside its own transaction if a move would ever leave
 a piece half stripped again.
+
+**That holds of the bookcase a move starts from as well**
+([#499](https://github.com/BlakeHastings/book-scan/issues/499)).
+`nextRunStartAfter` answers about pieces *past* this run's, which was the whole
+of the question while a second run opening on this run's own bookcase left the
+earlier range with no planks to move. It does not any more, so a move off a
+bookcase another run also begins on is refused rather than trimmed: taking the
+planks above the other rule would leave exactly the half-stripped piece this
+section is about. `otherRunOn` is the check and the sentence names the plank.
+
+**And "somebody's rule" is really "somebody's run".** An area given an ordering
+of its own heads a run without any rule pointing at it, so the bound reads
+`startsARun` — the same predicate `runFrom` cuts by — rather than the rules
+alone.
 
 ### The run takes its own cuts with it
 

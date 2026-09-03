@@ -39,7 +39,7 @@ import { FileAliasHandler } from '../application/authorship/curate-authors'
 import { NON_FICTION_SLUG, FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 import { TagSlug } from '../domain/tagging/tags'
 import { standingOf } from '../domain/placement/ledger'
-import { bandsOf, furnitureIn } from '../infrastructure/shelving/areas'
+import { bandsOf, furnitureIn, runAreasOf } from '../infrastructure/shelving/areas'
 import { claim, entryAreaOf } from '../domain/placement/rules'
 
 let db: Db
@@ -465,6 +465,41 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
       ])
       expect(planned.plan.emptied).toEqual([
         expect.objectContaining({ position: 4, planks: 3 }),
+      ])
+    })
+
+    /**
+     * #499: the same arrangement, asked what the *run* is rather than what the
+     * move may take.
+     *
+     * The three shelves above the comics rule are the tail of the non-fiction
+     * run — `runFrom` has always said so, because a run runs on until the next
+     * area a rule points at. The band answered with the move's bookcase bound,
+     * so every furniture read left them out while the domain went on giving
+     * them to non-fiction, and a book sorting onto one of them was drawn in one
+     * place by the shelf and put in another by the rules.
+     *
+     * Both bounds are true at once and they are different numbers. This holds
+     * them apart: the run reaches the hall and the move stops before it.
+     */
+    it('reaches the hall as a run and stops before it as a move', async () => {
+      const { hall } = await prepareTheComicsShelf()
+
+      const planks = (await runAreasOf(db, 'nonfiction')).map((area) =>
+        `${area.fixturePosition}:${area.position}`)
+      const hallPosition = (await describeFixture(db, hall))!.position
+
+      // The three shelves above the comics rule, and not the one it stands on.
+      expect(planks).toEqual([
+        '4:0', '4:1', '4:2',
+        `${hallPosition}:0`, `${hallPosition}:1`, `${hallPosition}:2`,
+      ])
+
+      // And the move is still about bookcase 4 alone, which is #420 untouched.
+      const planned = await planRunMove(db, 'nonfiction', 3)
+      if (!planned.ok) throw new Error(planned.error)
+      expect(planned.plan.planks).toEqual([
+        { from: '4A', to: '3A' }, { from: '4B', to: '3B' }, { from: '4C', to: '3C' },
       ])
     })
 

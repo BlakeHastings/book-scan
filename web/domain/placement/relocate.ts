@@ -41,7 +41,7 @@ import {
   fixtureLabel, labelFor, runFrom, slotsInOrder, type Area, type Fixture, type Slot,
 } from './geography'
 import {
-  entryAreaOf, entryAreas, nextRunStartAfter, type PlacementRule,
+  entryAreaOf, entryAreas, nextRunStartAfter, otherRunOn, type PlacementRule,
 } from './rules'
 
 /** One plank of the run, said the way somebody reads it off a shelf. */
@@ -162,6 +162,30 @@ export function relocateRun(
    * over, read from the same function.
    */
   const start = flowing[0]!.fixture.position
+
+  /*
+   * **And it does not take half of the piece it starts on either** (#499).
+   *
+   * `nextRunStartAfter` answers about pieces past this one, which was the whole
+   * of the question while a second run opening on this run's own piece bounded
+   * the earlier band at its own start and left it with no planks to move. It
+   * does not any more, so the piece a move starts from has to be asked the same
+   * question the pieces it stops at are asked, and the answer is #420's: a
+   * bookcase another run begins on is that run's furniture. Refused rather than
+   * trimmed, because a move that took the planks above the other rule would
+   * leave that piece half stripped, which is the state
+   * `refuseAHalfStrippedPiece` throws on inside the write.
+   */
+  const shared = otherRunOn(order, rules, start, flowing[0]!.area.id)
+  if (shared) {
+    return {
+      ok: false,
+      error: `${labelFor(shared)} is where something else begins, and a move rehangs `
+        + 'whole bookcases rather than half of one. Give that shelf a bookcase of its '
+        + 'own first.',
+    }
+  }
+
   const limit = nextRunStartAfter(order, rules, start)
   const run = limit === undefined
     ? flowing

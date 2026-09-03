@@ -55,7 +55,7 @@
  */
 
 import {
-  fixtureLabel, labelFor, slotsInOrder, type Area, type Fixture, type Slot,
+  fixtureLabel, labelFor, slotsInOrder, startsARun, type Area, type Fixture, type Slot,
 } from '../domain/placement/geography'
 import {
   addArea as landingFor, anchorsAscend, moveArea, removeArea, strategyChange,
@@ -400,7 +400,7 @@ function runOwners(order: readonly Slot[], rules: readonly PlacementRule[]): Map
   const owners = new Map<number, RunOwner>()
   let carrying: PlacementRule[] = []
   for (const slot of order) {
-    if (entries.has(slot.area.id) || slot.area.sortStrategy !== INHERIT) {
+    if (startsARun(slot, entries)) {
       carrying = opens.get(slot.area.id) ?? []
       owners.set(slot.area.id, { rules: carrying, entry: true })
     } else {
@@ -1436,16 +1436,24 @@ async function anchorForNewArea(
   const after = grown[at + 1] ?? null
 
   // Still inside a run: open where the next area opens, and claim nothing.
-  const opensARun = (slot: Slot): boolean =>
-    entries.has(slot.area.id) || slot.area.sortStrategy !== INHERIT
-  if (after && !opensARun(after)) return after.area.startsAt
+  if (after && !startsARun(after, entries)) return after.area.startsAt
 
-  // The end of the run: past every book standing in it.
+  /*
+   * The end of the run: past every book standing in it.
+   *
+   * **The one walk over a run this app makes backwards**, which is why it is
+   * spelled out here rather than asked of `runFrom`: that walks forward from a
+   * known entry and this walks back from a plank somebody has just added, whose
+   * entry is what it is looking for. The cut is `startsARun` either way, and
+   * that much is asked rather than restated — a second answer to where a run
+   * begins would anchor this plank past books standing in somebody else's run,
+   * which is a boundary in the wrong place and #485's shape.
+   */
   const run: number[] = []
   for (let back = at - 1; back >= 0; back -= 1) {
     const slot = grown[back]!
     run.push(slot.area.id)
-    if (opensARun(slot)) break
+    if (startsARun(slot, entries)) break
   }
 
   const top = run.length

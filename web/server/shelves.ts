@@ -776,9 +776,15 @@ export class Shelves {
    * backwards from `2C` to `2B`. One press, an instruction naming a plank
    * nothing was written to, and a plank the person had quietly taken out.
    *
-   * The bound is `bandOf`, which is `nextRunStartAfter` read as furniture, so
-   * this is the same cut `runFrom` and `relocateRun` make rather than a fourth
-   * opinion about where a run ends. Renumbering is offered as the way on because
+   * The bound is `bandOf`, so this is the same cut `runFrom` and `relocateRun`
+   * make rather than a fourth opinion about where a run ends. **It is
+   * `band.end` and not `band.limit`**, which is #499: this asks where the run
+   * stops, and a run stops at a plank. Asked the move's bookcase bound instead,
+   * it refused a step onto `2A` while a rule on `2C` made `2A` this run's own
+   * next plank, and offered a fourth plank on the bookcase behind rather than
+   * the empty one standing in front of it.
+   *
+   * Renumbering is offered as the way on because
    * it is the move that says what this refusal is about — where the pieces
    * stand — rather than a rule retarget, which is a different request
    * (`relocate-run.ts`). **It is not free**, which this used to say it was:
@@ -788,13 +794,16 @@ export class Shelves {
    */
   private async offTheRun(range: ShelfRange, to: PlankAt): Promise<string> {
     const band = await bandOf(this.db, range)
-    if (!band || band.limit === undefined || to.shelf < band.limit) return ''
+    const past = band?.end
+    if (!past) return ''
+    if (to.shelf < past.shelf || (to.shelf === past.shelf && to.area < past.area)) return ''
 
     const { order, rules } = await furnitureIn(this.db)
     const entries = entryAreas(rules, order)
     const standing = order.find((slot) =>
-      slot.fixture.position === band.limit && entries.has(slot.area.id))
-    const piece = standing ? fixtureLabel(standing.fixture) : String(band.limit)
+      slot.fixture.position === past.shelf && slot.area.position === past.area
+      && entries.has(slot.area.id))
+    const piece = standing ? fixtureLabel(standing.fixture) : String(past.shelf)
     /*
      * **More than one rule can open one plank** ("Plural since #384", see
      * `runOwners`), so which of them this sentence names is the same question
