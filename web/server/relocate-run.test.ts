@@ -21,7 +21,7 @@ import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
-import { applyRunMove, planRunMove } from './relocate-run'
+import { applyRunMove, planRunMove, runMoveOffer } from './relocate-run'
 import {
   addAreaTo, addFixture, booksInArea, booksOnFixture, describeFixture, describeFurniture,
   dropArea, editFixture, planAreaRemoval, type DescribedFixture,
@@ -868,5 +868,146 @@ describe('two rules naming one genre', () => {
       expect(claim((await furnitureIn(db)).rules, { tagSlugs: [FICTION_SLUG] })).toBeNull()
       expect((await bandsOf(db)).get('fiction')?.start).toEqual({ shelf: 1, area: 0 })
     })
+  })
+})
+
+/**
+ * #500 and #486: what the arrange screen is told before it offers anything.
+ *
+ * One screen, and two ways of making a confident statement about a run from
+ * something other than the answer to the question being asked.
+ *
+ * - **Where a run lives** was `groups[0].shelf`, the bookcase of the first group
+ *   of books. A run lives where its rule points; the first group of books is
+ *   wherever the first book happens to be standing, and those are two bookcases
+ *   whenever the leading bookcase of a run holds nothing.
+ * - **Whether a run can be moved at all** was not asked until somebody had
+ *   chosen a destination, because the only thing that could answer it needed
+ *   one. So the screen described a run, offered three bookcases, and refused
+ *   whichever was picked.
+ *
+ * The refusals below are unchanged and they are right. What is held to here is
+ * that they can be had before a destination exists, and that they are the same
+ * words when they are.
+ */
+describe('what the arrange screen is told before it offers a bookcase', () => {
+  /**
+   * "Say what belongs here" on a plank, which writes an area rule serving a
+   * range, and #430 item 1 keeps that arrangement legal.
+   *
+   * This is the state #486 was confirmed live in, reached by doing what the
+   * screens suggest: the rule editor's own guidance on a shelf writes exactly
+   * this rule, and `ruleForRange` answers with it because an area rule is the
+   * more specific statement.
+   */
+  async function sayFictionBelongsOnThisPlank(): Promise<number> {
+    const added = await addFixture(db, { position: 2 })
+    if (!added.ok) throw new Error(added.error)
+
+    const plank = await addAreaTo(db, added.fixture.id, {})
+    if (!plank.ok) throw new Error(plank.error)
+
+    const wrote = await applyRuleChange(db, {
+      about: 'area',
+      placeId: plank.area.id,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: FICTION_SLUG }] }],
+    }, new Date().toISOString())
+    if (!wrote.ok) throw new Error(wrote.error)
+
+    return plank.area.id
+  }
+
+  /** A bookcase after the run with one plank anchored at the run's first book. */
+  async function putUpAHallHoldingEverything(): Promise<void> {
+    const first = (await shelves.layout('nonfiction'))[0]!.book.sortKey
+
+    const hall = await addFixture(db, { name: 'Hall' })
+    if (!hall.ok) throw new Error(hall.error)
+
+    const plank = await addAreaTo(db, hall.fixture.id, { startsAt: first })
+    if (!plank.ok) throw new Error(plank.error)
+  }
+
+  it('says a run cannot be moved before anybody has chosen where to move it', async () => {
+    await sayFictionBelongsOnThisPlank()
+
+    const offer = await runMoveOffer(db, 'fiction')
+    expect(offer.why).toContain('names one plank rather than a bookcase')
+
+    // Word for word the sentence the move gives after a destination is chosen,
+    // because it is that sentence rather than a second one beside it.
+    expect(await planRunMove(db, 'fiction', 3)).toEqual({ ok: false, error: offer.why })
+  })
+
+  /*
+   * The description was never the wrong part. A run a move will not pick up
+   * still stands somewhere and the screen may say so; what it may not do is
+   * offer three bookcases to send it to.
+   */
+  it('still says where the run it will not move lives', async () => {
+    await sayFictionBelongsOnThisPlank()
+
+    const offer = await runMoveOffer(db, 'fiction')
+    expect(offer.from).toBe(2)
+    expect(offer.planks).toEqual([])
+  })
+
+  /**
+   * #500's own sentence: what you have the moment you say a stretch of books
+   * belongs somewhere and before you have carried anything there.
+   *
+   * The books answer nothing at all here, so the screen drew "Bookcase 0" and a
+   * picker starting at bookcase 1.
+   */
+  it('says where a run lives when there is not a book standing on it', async () => {
+    for (const id of world.slice(50)) await store.deleteBook(id)
+
+    // What the screen used to read it off: nothing, because there are no books
+    // to group.
+    expect(await shelves.groups('fiction')).toEqual([])
+
+    const offer = await runMoveOffer(db, 'fiction')
+    expect(offer.from).toBe(1)
+    expect(offer.planks).toEqual([{ label: '1A', books: 0 }])
+    expect(offer.why).toBeNull()
+  })
+
+  /**
+   * The leading bookcase of a run holding nothing while the run carries on past
+   * it, which is where the two answers name two different bookcases.
+   *
+   * A bookcase put up after the non-fiction run is the tail of that run, and a
+   * plank on it anchored at the run's very first book takes every book in it.
+   * Non-fiction still lives on bookcase 4 and bookcase 4 holds none of it.
+   */
+  it('says where a run lives when its leading bookcase is the empty one', async () => {
+    await putUpAHallHoldingEverything()
+
+    const groups = await shelves.groups('nonfiction')
+    expect(groups[0]!.shelf).toBe(5)
+    expect((await runMoveOffer(db, 'nonfiction')).from).toBe(4)
+
+    /*
+     * And what the wrong answer cost. The picker calls the bookcase it starts
+     * on "Where it lives now" and the plan for that choice says nothing would
+     * change. Taken off the books, that option planned a move of the whole run
+     * onto the furniture one along.
+     */
+    const planned = await planRunMove(db, 'nonfiction', groups[0]!.shelf)
+    if (!planned.ok) throw new Error(planned.error)
+    expect(planned.plan.planks).not.toEqual([])
+  })
+
+  /* Every plank a move would take, including the ones holding nothing. */
+  it('names the planks of the run rather than the planks holding books', async () => {
+    await putUpAHallHoldingEverything()
+
+    const offer = await runMoveOffer(db, 'nonfiction')
+    expect(offer.planks).toEqual([
+      { label: '4A', books: 8 },
+      { label: '4B', books: 20 },
+      { label: '4C', books: 22 },
+      { label: 'Hall · A', books: 0 },
+    ])
   })
 })

@@ -54,6 +54,7 @@ const drawn = (over: Partial<Parameters<typeof MoveRunPane>[0]> = {}): string =>
       { label: '4B', books: 20 },
       { label: '4C', books: 22 },
     ],
+    refused: '',
     destinations: [
       { number: 3, said: 'Nothing on it yet' },
       { number: 4, said: 'Where it lives now' },
@@ -102,10 +103,62 @@ describe('choosing where a stretch of books should live', () => {
     expect(words(html)).toContain('A bookcase you do not have yet')
   })
 
-  it('says there is nothing to move rather than drawing an empty picker', () => {
-    const html = drawn({ areas: [] })
+  /**
+   * #500. A shelf at the top of a run with nothing on it yet is an ordinary
+   * state: it is what you have the moment you say a stretch of books belongs
+   * somewhere and before you have carried any of them there.
+   *
+   * The screen used to read this list off the books it was drawing, so a plank
+   * holding nothing was not in it at all, and the run was described as three
+   * planks when it is four. The planks are the run's now, so the empty one is
+   * named with the number that is true of it.
+   */
+  it('names a plank of the run that is holding nothing, rather than leaving it out', () => {
+    const html = words(drawn({
+      areas: [
+        { label: '4A', books: 0 },
+        { label: '4B', books: 20 },
+        { label: '4C', books: 22 },
+      ],
+    }))
 
-    expect(words(html)).toContain('Nothing is filed under non-fiction yet')
+    expect(html).toContain('Three areas: 4A with 0 books, 4B with 20 books, 4C with 22 books')
+  })
+
+  /**
+   * #486. The refusal is right and it is unchanged; what was wrong was that it
+   * came after somebody had read a description of the run and chosen one of
+   * three bookcases to send it to.
+   */
+  it('says why a run cannot be moved instead of offering three bookcases first', () => {
+    const html = drawn({
+      refused: 'Fiction names one plank rather than a bookcase, so there is no run to move.',
+    })
+
+    expect(words(html)).toContain('names one plank rather than a bookcase')
+    expect(html).not.toContain('wf-choice__opt')
+    expect(words(html)).not.toContain('Show me the plan')
+  })
+
+  /* And it still says where the run stands, because that part was never wrong. */
+  it('still says where a run that cannot be moved lives', () => {
+    const html = words(drawn({
+      refused: 'Fiction names one plank rather than a bookcase, so there is no run to move.',
+    }))
+
+    expect(html).toContain('Where it lives now')
+    expect(html).toContain('Bookcase 4')
+  })
+
+  /*
+   * Nought is not a bookcase, so it is what "the read has not answered yet"
+   * reads as. Claiming bookcase 0, or claiming that nothing is filed here,
+   * would both be the screen saying something it does not know.
+   */
+  it('claims nothing at all until the read has answered', () => {
+    const html = drawn({ livesOn: 0, areas: [] })
+
+    expect(words(html)).not.toContain('Bookcase 0')
     expect(html).not.toContain('wf-choice__opt')
   })
 })

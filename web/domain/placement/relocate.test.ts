@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { labelFor, slotsInOrder, type Area, type Fixture } from './geography'
 import { placementOf, type PlacementRule } from './rules'
-import { relocateRun } from './relocate'
+import { relocateRun, runToMove } from './relocate'
 import { INHERIT } from './strategies'
 
 const fixture = (id: number, position: number): Fixture =>
@@ -208,6 +208,66 @@ describe('moving a run to another bookcase', () => {
       { from: '1B', to: '6B' },
       { from: '2A', to: '7A' },
     ])
+  })
+})
+
+/**
+ * #486: everything a move refuses about the run itself, asked before anybody
+ * has chosen where to send it.
+ *
+ * Not one of these refusals is about the destination, and every one of them was
+ * reachable only through `relocateRun`, which cannot be called without a
+ * bookcase. So the only way to find out that a run could not be moved was to
+ * choose somewhere to move it to. The refusals are unchanged; what this holds
+ * to is that they can be had without a destination and that they are the same
+ * words either way.
+ */
+describe('whether there is a run here to move at all', () => {
+  it('says where a run lives without being told where it might go', () => {
+    const asked = runToMove(ORDER, RULES, 2)
+    if (!asked.ok) throw new Error(asked.error)
+
+    expect(asked.move.from).toBe(4)
+    expect(asked.move.planks.map(labelFor)).toEqual(['4A', '4B', '4C'])
+  })
+
+  /*
+   * The run is the furniture the rule points at, and it holds no books here at
+   * all. That is the point: where a run lives is answered by the rules and the
+   * furniture, and a book never comes into it.
+   */
+  it('refuses a rule naming one plank, and still says where that plank stands', () => {
+    const pinned = [FICTION, { ...NON_FICTION, fixtureId: null, areaId: 41 }]
+
+    expect(runToMove(ORDER, pinned, 2)).toEqual({
+      ok: false,
+      from: 4,
+      error: expect.stringContaining('names one plank'),
+    })
+  })
+
+  it('refuses in the same words the move refuses in after a bookcase is chosen', () => {
+    const pinned = [FICTION, { ...NON_FICTION, fixtureId: null, areaId: 40 }]
+
+    const early = runToMove(ORDER, pinned, 2)
+    const late = relocateRun(ORDER, pinned, 2, 3)
+    if (early.ok || late.ok) throw new Error('both of these are refusals')
+
+    expect(early.error).toBe(late.error)
+  })
+
+  it('refuses a bookcase somebody else\'s run begins on, before anything is offered', () => {
+    const shared = slotsInOrder(
+      [fixture(1, 1), fixture(4, 4)],
+      [area(10, 1, 0), area(11, 1, 1, 'M'), area(12, 1, 2, 'S'), area(40, 4, 0)],
+    )
+    const rules = [FICTION, NON_FICTION, onTag(3, 'subject/comics', { id: 3, areaId: 12 })]
+
+    expect(runToMove(shared, rules, 1)).toEqual({
+      ok: false,
+      from: 1,
+      error: expect.stringContaining('1C is where something else begins'),
+    })
   })
 })
 

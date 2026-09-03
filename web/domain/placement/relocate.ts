@@ -110,38 +110,74 @@ export type Relocation =
 const prospectiveId = (at: number): number => -(at + 1)
 
 /**
- * Where a run would live if its rule pointed at bookcase `to`.
+ * The run a move would pick up, and where it stands.
  *
- * Refuses rather than approximating. A destination with planks already on it is
- * two runs sharing a bookcase, which is the arrangement `0013` refuses outright
- * and which nothing here is in a position to merge.
+ * **A run lives where its rule points.** The first group of books is wherever
+ * the first book happens to be standing, and the two are different answers the
+ * moment the leading bookcase of a run holds nothing, which is an ordinary
+ * state and is #500.
  */
-export function relocateRun(
+export interface RunOnTheMove {
+  rule: PlacementRule
+  /** The bookcase the run starts on now. */
+  from: number
+  /** Every plank the move would rehang, in the order they read. */
+  planks: Slot[]
+}
+
+/**
+ * Whether there is a run here for a move to pick up, said without a
+ * destination.
+ *
+ * A refusal still answers where the run stands wherever it can, because "this
+ * cannot be moved" and "this is nowhere" are different sentences and a screen
+ * has to be able to draw the first one truthfully.
+ */
+export type Movable =
+  | { ok: true; move: RunOnTheMove }
+  | { ok: false; from: number | null; error: string }
+
+/**
+ * The run a rule opens, and whether a move may pick it up at all.
+ *
+ * **Split out of `relocateRun` by #486, and the split is the whole of that
+ * fix.** Every refusal here is about the rule and the furniture and none of
+ * them is about the destination, so every one of them is knowable before
+ * anybody has chosen one. They were reachable only through `relocateRun`, which
+ * cannot be called without a bookcase, so the screen described a run, offered
+ * three destinations and refused whichever one was picked. The refusals are
+ * unchanged, word for word: what changed is when they can be asked.
+ */
+export function runToMove(
   order: Slot[],
   rules: PlacementRule[],
   ruleId: number,
-  to: number,
-): Relocation {
+): Movable {
   const rule = rules.find((one) => one.id === ruleId)
-  if (!rule) return { ok: false, error: 'There is no such rule to move.' }
+  if (!rule) return { ok: false, from: null, error: 'There is no such rule to move.' }
+
+  /*
+   * Where the rule points, worked out before anything is refused. A rule a move
+   * will not touch still stands somewhere, and that is the sentence "where it
+   * lives now" is about.
+   */
+  const entry = entryAreaOf(rule, order)
+  const opening = order.find((slot) => slot.area.id === entry) ?? null
 
   if (rule.areaId !== null) {
     return {
       ok: false,
+      from: opening?.fixture.position ?? null,
       error: `${rule.name} names one plank rather than a bookcase, so there is `
         + 'no run to move.',
     }
   }
 
-  if (!Number.isInteger(to) || to < 1) {
-    return { ok: false, error: 'Bookcases are numbered from 1.' }
-  }
-
-  const entry = entryAreaOf(rule, order)
   const flowing = entry === null ? [] : runFrom(order, entry, entryAreas(rules, order))
   if (!flowing.length) {
     return {
       ok: false,
+      from: opening?.fixture.position ?? null,
       error: `${rule.name} does not point at a bookcase with any planks on it, `
         + 'so there is nothing to move.',
     }
@@ -180,6 +216,7 @@ export function relocateRun(
   if (shared) {
     return {
       ok: false,
+      from: start,
       error: `${labelFor(shared)} is where something else begins, and a move rehangs `
         + 'whole bookcases rather than half of one. Give that shelf a bookcase of its '
         + 'own first.',
@@ -187,11 +224,44 @@ export function relocateRun(
   }
 
   const limit = nextRunStartAfter(order, rules, start)
-  const run = limit === undefined
+  const planks = limit === undefined
     ? flowing
     : flowing.filter((slot) => slot.fixture.position < limit)
 
-  const from = run[0]!.fixture.position
+  return { ok: true, move: { rule, from: planks[0]!.fixture.position, planks } }
+}
+
+/**
+ * Where a run would live if its rule pointed at bookcase `to`.
+ *
+ * Refuses rather than approximating. A destination with planks already on it is
+ * two runs sharing a bookcase, which is the arrangement `0013` refuses outright
+ * and which nothing here is in a position to merge.
+ *
+ * **What it refuses about the run itself is `runToMove`'s answer**, asked here
+ * rather than answered a second time, so the screen that asks before offering a
+ * destination and the write that asks after one is chosen refuse on the same
+ * terms and in the same words.
+ */
+export function relocateRun(
+  order: Slot[],
+  rules: PlacementRule[],
+  ruleId: number,
+  to: number,
+): Relocation {
+  /*
+   * The destination first, because it is the argument rather than the
+   * furniture: a bookcase number that is not one is answered without reading a
+   * plank.
+   */
+  if (!Number.isInteger(to) || to < 1) {
+    return { ok: false, error: 'Bookcases are numbered from 1.' }
+  }
+
+  const movable = runToMove(order, rules, ruleId)
+  if (!movable.ok) return { ok: false, error: movable.error }
+
+  const { rule, from, planks: run } = movable.move
   if (from === to) {
     return { ok: true, move: { rule, from, to, order, rules, planks: [], emptied: [] } }
   }

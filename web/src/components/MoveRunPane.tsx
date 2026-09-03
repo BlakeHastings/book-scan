@@ -18,6 +18,17 @@
  * carry list would give the person no way to tell a plan that wrote fifty rows
  * from one that wrote none.
  *
+ * ## A run no move can pick up says so before it offers anywhere to put it
+ *
+ * Some runs cannot be moved, and the commonest of them is ordinary rather than
+ * broken: a rule naming one plank serves a range perfectly well, which is what
+ * "say what belongs here" writes and what #430 item 1 keeps legal, and a rule
+ * about one plank does not describe a bookcase's worth of run to carry
+ * elsewhere. That refusal is right and it is untouched. What was wrong is that
+ * it arrived after somebody had read a convincing description of the run and
+ * chosen one of three bookcases (#486), so it is asked now before the picker is
+ * drawn and drawn in place of it.
+ *
  * ## Nothing here moves a book, and the screen says so out loud
  *
  * Applying records where the rules want each book. The books move when a person
@@ -68,9 +79,27 @@ export interface AreaHolding {
 interface Props {
   /** The books being moved, in the words a person uses: "non-fiction". */
   named: string
-  /** Where they live now. Zero until the read answers. */
+  /**
+   * The bookcase the run lives on. Zero until the read answers, and it is the
+   * server's answer rather than the bookcase the first book stands on (#500).
+   */
   livesOn: number
+  /**
+   * What the run is cut into, empty planks included: a shelf at the top of a run
+   * with nothing on it yet is a real state and this screen describes it.
+   */
   areas: AreaHolding[]
+  /**
+   * Why this run cannot be moved anywhere, in the server's words, or empty when
+   * it can.
+   *
+   * **Known before a destination is offered, which is the whole of #486.** The
+   * refusal itself is unchanged and correct: a rule naming one plank does not
+   * describe a bookcase's worth of run to carry somewhere else. What was wrong
+   * was that it arrived after somebody had read a description of the run and
+   * chosen one of three bookcases to send it to.
+   */
+  refused: string
   /** The bookcases this move can land on, the one it is on included. */
   destinations: Destination[]
   bookcase: number
@@ -109,7 +138,7 @@ function cut(areas: readonly AreaHolding[]): string {
 }
 
 export function MoveRunPane({
-  named, livesOn, areas, destinations, bookcase, onBookcase, plan, waiting, applied,
+  named, livesOn, areas, refused, destinations, bookcase, onBookcase, plan, waiting, applied,
   busy, error, tabs, onBack, onPlan, onUnplan, onApply, onCarry,
 }: Props) {
   if (applied) return <Applied named={named} applied={applied} tabs={tabs} onCarry={onCarry} />
@@ -132,16 +161,30 @@ export function MoveRunPane({
     <RoomFrame top={<TopBar title={`Move ${named}`} onBack={onBack} />} tabs={tabs}>
       <Trouble said={error} />
 
-      {areas.length === 0 ? (
-        <Nothing said={`Nothing is filed under ${named} yet, so there is nothing to move.`} />
-      ) : (
-        <>
-          <Card kind="Where it lives now" title={`Bookcase ${livesOn}`}>
+      {/*
+        Where the run lives, drawn from the moment the server has said where
+        that is. Nought is not a bookcase and is what "not answered yet" reads
+        as, and a screen with nothing on it says less than a screen claiming
+        bookcase 0.
+      */}
+      {livesOn > 0 && (
+        <Card kind="Where it lives now" title={`Bookcase ${livesOn}`}>
+          {areas.length > 0 && (
             <p>
               {cut(areas)} The areas come with it, so the same books stay together.
             </p>
-          </Card>
+          )}
+        </Card>
+      )}
 
+      {/*
+        The refusal, where there is one, instead of the picker rather than after
+        it. Three destinations and a button that exists to say no is the defect
+        #486 is about, and the words are the server's own so that what the
+        screen says and what the write would have said are one sentence.
+      */}
+      {refused ? <Nothing said={refused} /> : livesOn > 0 && (
+        <>
           <Choice
             label="Which bookcase to move it to"
             on={String(bookcase)}

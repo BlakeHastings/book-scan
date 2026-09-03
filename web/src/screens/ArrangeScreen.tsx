@@ -28,17 +28,26 @@
  *
  * ## Two reads before anything is planned, and neither is a guess
  *
- * Where the books live now comes from the same layout the library draws. Which
- * bookcases they can be sent to comes from the furniture, because a destination
- * that already has areas on it is refused by the server and offering it would be
- * a button that exists to say no.
+ * What this run is comes from the server, as `runMoveOffer`: where it lives,
+ * what it is cut into, and whether a move may pick it up at all. Which bookcases
+ * it can be sent to comes from the furniture, because a destination that already
+ * has areas on it is refused by the server and offering it would be a button
+ * that exists to say no.
+ *
+ * **It used to ask the books all three questions and it was wrong about two of
+ * them.** Where a run lives was the bookcase of the first group of books, which
+ * is where the first book happens to be standing rather than where the rule
+ * points, and those are two bookcases the moment the leading one is empty
+ * (#500). Whether the run could be moved was not asked at all until somebody had
+ * chosen a destination, so the screen described a run, offered three bookcases
+ * and refused whichever was picked (#486). Both are one read now.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MoveRunPane, type Destination } from '../components/MoveRunPane'
 import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
-import { api, type RunMovePlan, type ShelfGroupDto } from '../lib/api'
+import { api, type RunMoveOffer, type RunMovePlan } from '../lib/api'
 import type { ShelfRange } from '../../shared/shelving'
 
 /** What each stretch of books is called on screen. No word out of the model. */
@@ -97,7 +106,7 @@ export function ArrangeScreen() {
   const tabs = useRoomTabs()
   useDesignPage()
 
-  const [groups, setGroups] = useState<ShelfGroupDto[]>([])
+  const [offer, setOffer] = useState<RunMoveOffer | null>(null)
   const [bookcase, setBookcase] = useState(0)
   const [plan, setPlan] = useState<RunMovePlan | null>(null)
   const [waiting, setWaiting] = useState<number | null>(null)
@@ -105,19 +114,19 @@ export function ArrangeScreen() {
   const [busy, setBusy] = useState(false)
 
   /*
-   * Where the stretch stands, read off the same layout the library draws. The
-   * picker starts there, so the first tap is a decision rather than a
+   * What this run is, asked of the thing that decides it. The picker starts
+   * where the run lives, so the first tap is a decision rather than a
    * correction.
    */
   const load = useCallback(() => {
     setPlan(null)
     setApplied(null)
-    api.shelves(arranging)
-      .then((shelves) => {
-        setGroups(shelves.groups)
+    api.runMoveOffer(arranging)
+      .then((answer) => {
+        setOffer(answer)
         /*
-         * The picker *starts* where the stretch stands, and "starts" is the
-         * whole of it.
+         * The picker *starts* where the run lives, and "starts" is the whole of
+         * it.
          *
          * This read and the room's are two requests, and the destinations are
          * drawn from the room's, so the buttons are pressable while this one is
@@ -130,14 +139,15 @@ export function ArrangeScreen() {
          * Zero is the value nobody can choose, so it is the one that means
          * nobody has.
          */
-        setBookcase((chosen) => chosen || shelves.groups[0]?.shelf || 1)
+        setBookcase((chosen) => chosen || answer.from || 1)
       })
       .catch((caught) => setError((caught as Error).message))
   }, [arranging, setError])
 
   useEffect(() => { load() }, [load])
 
-  const livesOn = groups[0]?.shelf ?? 0
+  /* Zero until the read answers, which is the value no bookcase has. */
+  const livesOn = offer?.from ?? 0
   const destinations = useMemo(
     () => destinationsFor(room?.fixtures ?? [], livesOn),
     [room, livesOn],
@@ -175,7 +185,8 @@ export function ArrangeScreen() {
     <MoveRunPane
       named={NAMED[arranging]}
       livesOn={livesOn}
-      areas={groups.map((group) => ({ label: group.label, books: group.books.length }))}
+      areas={offer?.planks ?? []}
+      refused={offer?.why ?? ''}
       destinations={destinations}
       bookcase={bookcase}
       onBookcase={(picked) => { setBookcase(picked); setPlan(null) }}
