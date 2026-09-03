@@ -70,7 +70,7 @@ function drawn(
       books={books}
       sorting={sorting}
       writing={RESTING}
-      removal={{ books: 8, areas: 2, rules: 0, retires: false }}
+      removal={{ books: 8, assigned: 0, areas: 2, rules: 0, retires: false }}
       busy={false}
       error=""
       tabs={{ home: nothing, library: nothing, scan: nothing, queue: nothing }}
