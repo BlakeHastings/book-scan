@@ -1373,11 +1373,14 @@ export class Shelves {
    * destination rather than "books will be reassigned", and both are the rows
    * rather than a claim about them.
    *
-   * **An area nothing stands on is drawn nowhere**, so it has no group and its
-   * name comes off the furniture instead. `into` is empty for it, and that is
-   * not a missing answer: there are no books to hand over, so there is nothing
-   * for the area in front to be named in. A group of books always has one drawn
-   * above it, because the first area of a run opens with no boundary at all.
+   * **An area nothing stands on is drawn as a bare plank now** (#457), so it has
+   * a board like any other and both halves come off it. That paragraph used to
+   * say the opposite, and the fallbacks below are what it left behind: they are
+   * kept because a separator id that names no plank of this run at all is still
+   * possible, from a screen drawn before somebody else's removal landed.
+   *
+   * `into` is empty only for the first board of a run, which opens with no
+   * boundary and therefore has nothing drawn above it to hand books to.
    */
   async removalCost(range: ShelfRange, separatorId: number): Promise<AreaGoing> {
     const groups = await this.groups(range)
