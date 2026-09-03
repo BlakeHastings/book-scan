@@ -42,7 +42,16 @@
 
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+
+const readFileSyncSafe = (url) => {
+  try {
+    return readFileSync(url, 'utf8')
+  } catch {
+    return null
+  }
+}
 
 const run = (cmd, args) => {
   try {
@@ -109,15 +118,38 @@ const matched = ours.length - orphanVolumes.length
 console.log(`Worktrees: ${worktrees.length}`)
 console.log(`Postgres volumes: ${ours.length}, of which ${matched} belong to a live worktree`)
 
-// The rot guard the header promises. If nothing at all matches while volumes
-// exist, the likelier explanation is that the naming moved than that every
-// environment on this machine is abandoned.
-if (ours.length > 0 && matched === 0 && worktrees.length > 1) {
+// The rot guard the header promises, which asks the AppHost rather than
+// inferring from the data.
+//
+// **The first version of this guard inferred, and it was wrong within the hour.**
+// It said: if no volume matches any live worktree, the naming has probably
+// moved. But "every agent worktree was pruned" produces exactly that picture,
+// and that is not a rare state — it is the state right after a batch of pull
+// requests land, which is precisely when volumes get orphaned and precisely
+// when somebody runs this. A guard that fires hardest when the tool is most
+// useful is worse than no guard.
+//
+// So it reads the one line that could actually rot. If the AppHost still builds
+// the name the same way, zero matches means zero live agent worktrees, which is
+// ordinary and reportable.
+const namingIsIntact = () => {
+  const src = readFileSyncSafe(new URL('../apphost.mts', import.meta.url))
+  if (src === null) return null // Cannot tell. Say so rather than guess either way.
+  return src.includes("createHash('sha256')")
+    && src.includes('digest(\'hex\').slice(0, 12)')
+    && src.includes('bookscan-pg-')
+}
+
+const intact = namingIsIntact()
+if (intact === false) {
   console.log('')
-  console.log('  STOP. No volume matches any live worktree, which is suspicious rather than')
-  console.log('  informative. Check that the AppHost still names volumes the way this script')
-  console.log('  assumes before deleting anything on its say-so.')
+  console.log('  STOP. `apphost.mts` no longer names volumes the way this script assumes, so')
+  console.log('  every volume above is reported as an orphan for the wrong reason. Fix the')
+  console.log('  two together before deleting anything on this script\'s say-so.')
   process.exit(2)
+}
+if (intact === null) {
+  console.log('  (Could not read apphost.mts, so the volume naming was not confirmed.)')
 }
 
 if (orphanVolumes.length) {
