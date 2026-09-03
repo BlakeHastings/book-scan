@@ -17,7 +17,7 @@ import { waitingSaid } from '../design/Rules'
 import type { RuleChangePlan, RuleDto, TagRow } from './api'
 
 const tag = (slug: string, label: string, books = 0): TagRow =>
-  ({ slug, label, note: '', books })
+  ({ slug, label, note: '', books, ruled: false })
 
 const vocabulary: TagRow[] = [
   tag('subject/comic-books', 'Comic books', 46),

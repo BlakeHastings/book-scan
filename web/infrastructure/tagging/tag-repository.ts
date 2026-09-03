@@ -213,6 +213,29 @@ export class DrizzleTagRepository implements TagRepository {
     await this.db.run(query.text, query.values)
   }
 
+  /**
+   * One statement, with "nothing carries it" inside the `where`.
+   *
+   * `book_tag.tag_id` is `ON DELETE CASCADE`, so an unguarded delete here does
+   * not fail against a tag somebody is using: it silently takes that tag off
+   * every book carrying it. The guard is therefore not a nicety and it is not
+   * something a caller may be trusted to have done, which is why it is in the
+   * statement. `rowCount` says whether the row was there and unused, and a
+   * caller that gets `false` asks the database why rather than guessing.
+   */
+  async remove(slug: TagSlug): Promise<boolean> {
+    const query = statement(sql`
+      delete from ${tag}
+       where ${tag.slug} = ${slug.value}
+         and not exists (
+           select 1 from ${bookTag}
+            where ${bookTag.tagId} = ${tag.id}
+         )
+    `)
+    const done = await this.db.run(query.text, query.values)
+    return done.changes > 0
+  }
+
   private async bySlug(slug: TagSlug): Promise<Tag | undefined> {
     const query = statement(
       build.select({ id: tag.id, slug: tag.slug, label: tag.label, note: tag.note })

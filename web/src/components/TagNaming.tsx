@@ -42,11 +42,37 @@ const FEW = 6
 /** The two the buttons above the box answer, which this panel never offers. */
 const GENRE_ANSWERS: string[] = [FICTION_SLUG, NON_FICTION_SLUG]
 
+/**
+ * The two sentences that mention a book, for the one door that has not got one.
+ *
+ * Everything else this panel says is about the word rather than about the book:
+ * the refusal, the genre answer, where a new one goes. These two are not, and
+ * #452 opened a third door where there is no book in anybody's hand, so "Type
+ * what this book is" would be the panel asking about something that is not
+ * there.
+ *
+ * A pair of strings rather than a `forBook` flag, because a boolean that
+ * switches copy is a place two sets of words hide behind one name, and the next
+ * caller cannot see what it is choosing between.
+ */
+export interface NamingWords {
+  /** The invitation, with nothing typed and nothing to offer. */
+  prompt: string
+  /** What the panel calls it when the write is refused. */
+  wrong: string
+}
+
+const ABOUT_A_BOOK: NamingWords = {
+  prompt: 'Type what this book is. Whatever you say here, a rule can ask for.',
+  wrong: 'That tag could not be added.',
+}
+
 export function TagNaming({
   vocabulary,
   carried,
   busy,
   error,
+  words = ABOUT_A_BOOK,
   onPick,
   onClose,
 }: {
@@ -56,6 +82,8 @@ export function TagNaming({
   carried: readonly string[]
   busy: boolean
   error: string
+  /** The two sentences that assume a book. Defaults to the two that do. */
+  words?: NamingWords
   onPick: (tag: { slug: string; label: string }) => void
   onClose: () => void
 }) {
@@ -75,7 +103,7 @@ export function TagNaming({
      that draws one. */
   const under = labelOf(
     vocabulary.find((one) => one.slug === NAMED_UNDER.value)
-    ?? { slug: NAMED_UNDER.value, label: '', note: '', books: 0 },
+    ?? { slug: NAMED_UNDER.value, label: '' },
   )
 
   const offer = (tag: TagRow) => (
@@ -127,7 +155,7 @@ export function TagNaming({
       onClose={onClose}
       reads={reads(answer, busy, reading.length)}
     >
-      {error && <Nothing said="That tag could not be added.">{error}</Nothing>}
+      {error && <Nothing said={words.wrong}>{error}</Nothing>}
 
       {reading.length > 0 && (
         <Suggestions label={looking ? 'Tags reading like that' : 'Tags you use most'}>
@@ -136,7 +164,7 @@ export function TagNaming({
       )}
 
       {answer.kind === 'nothing' && reading.length === 0 && (
-        <Said>Type what this book is. Whatever you say here, a rule can ask for.</Said>
+        <Said>{words.prompt}</Said>
       )}
 
       {answer.kind === 'genre' && (

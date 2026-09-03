@@ -261,6 +261,28 @@ interface AreaRow {
 }
 
 /**
+ * Every tag slug a placement rule asks for, whether or not anything carries it.
+ *
+ * #400 lets a rule name a tag nothing carries, so a rule's condition is a string
+ * rather than a reference and a slug in here need not be a row in `tag`. That is
+ * the fact this answers, and #452 needs it twice: to say which empty tag is
+ * somebody's deliberate setup rather than litter, and to refuse to remove one.
+ *
+ * It lives beside `furnitureIn` because this file already owns every read of
+ * `rule_condition`, and the alternative was a second place that knows how a rule
+ * stores a tag. `seed-world.ts` writes the same predicate in SQL of its own and
+ * that is the one copy of it, deliberately: it runs in its own process against a
+ * target named on its command line, and importing this would give it a route to
+ * a connection it is written not to have.
+ */
+export async function tagsRulesName(db: Db): Promise<Set<string>> {
+  const rows = await db.all<{ value: string }>(
+    "SELECT DISTINCT value FROM rule_condition WHERE field = 'tag'",
+  )
+  return new Set(rows.map((row) => row.value))
+}
+
+/**
  * The furniture and the rules, read back out of the rows.
  *
  * **`position >= 0` is the whole of what keeps a retired area out.** It is
