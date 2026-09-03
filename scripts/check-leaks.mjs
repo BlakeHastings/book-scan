@@ -15,6 +15,13 @@
 // have failed the same way**, which is why this is a command that looks rather
 // than a paragraph that asks.
 //
+// The cause was found afterwards and is sharper than "they were unbounded":
+// `aspire describe` writes OSC 8 terminal hyperlinks around each resource name,
+// which stripping SGR colour codes does not remove, so `grep -E "^| api .*Healthy"`
+// was a condition that could never be true. The loops were not slow; they were
+// waiting for something that would never happen. An `until` loop has no failure
+// path, so nothing said so. `docs/process/handoff.md` carries both halves.
+//
 // WHAT IT COVERS, AND WHAT IT CANNOT
 // It reads the machine: docker volumes, docker containers, and processes whose
 // command line names a worktree. That is the residue an agent leaves behind.

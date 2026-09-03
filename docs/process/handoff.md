@@ -361,6 +361,17 @@ Traps, each of which has actually bitten:
   out to be the pre-squash counterpart of what had already landed.
 - **The merge gate refuses stale bases and that is the point.** Merge docs PRs
   first, code PRs one at a time, each rebased.
+- **`aspire describe` embeds terminal hyperlinks, so a pattern anchored on the
+  resource name never matches.** This is why the nine loops below never ended,
+  and it is worth more than the lesson about bounding them. The table looks like
+  `│ api  │ Executable │ Running │ Healthy │ http://localhost:51670`, and the
+  bytes are `│ <OSC 8 escape>api<OSC 8 terminator> │ …`. Stripping colours with
+  `sed 's/\x1b\[[0-9;]*m//g'` does **not** remove those: an OSC 8 hyperlink is a
+  different escape from an SGR colour. So `grep -E "^│ api .*Healthy"` is a
+  condition that can never be true, and a loop waiting on it waits for ever.
+  **What works is not anchoring on the name at all**: run `aspire describe` and
+  take `grep -oE "http://localhost:[0-9]+" | head -1`, which is what every
+  successful check in this session actually used.
 - **A background wait loop outlives the thing it was waiting for, and nothing
   tells you.** On 2026-09-02 the owner asked why his RAM was going and found
   nine shells open. Nine `until ... aspire describe ... sleep` loops were still
@@ -368,10 +379,12 @@ Traps, each of which has actually bitten:
   which had been deleted. Each poll spawned a .NET process. Stopping them took
   bash from 18 processes to 0 and gave back 4 GB of commit on a 34 GB machine.
   **The orchestrator started every one of them and believed each had ended when
-  it stopped caring about the answer.** Write the loop so it exits on the
-  failure path as well as the success one, check `/tasks` before dispatching a
-  wave, and run `check-leaks.mjs`, which sees the residue even though it cannot
-  see the loops themselves.
+  it stopped caring about the answer.** The cause was the escape sequences
+  above; the reason it went unnoticed for hours is that an `until` loop has no
+  failure path. **Bound the loop** — `for i in $(seq 1 40)` with a `break`, which
+  ends either way and says which — check `/tasks` before dispatching a wave, and
+  run `check-leaks.mjs`, which sees the residue even though it cannot see the
+  loops themselves.
 - **A pruned worktree leaves its Postgres volume behind.** The AppHost names the
   volume after a hash of the checkout path, so removing the worktree orphans it
   silently. Eight of them, 1.6 GB, were found the same day. `check-leaks.mjs`
