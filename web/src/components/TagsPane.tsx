@@ -58,8 +58,12 @@ import { api, type TagRow } from '../lib/api'
 import { depthOf, groupsOf, labelOf, saysCount } from '../lib/tagTree'
 import { useBrowsing } from '../app/browsing'
 import { useNavigation } from '../app/navigation'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import { Frame } from './Frame'
 import { TagNaming, type NamingWords } from './TagNaming'
+
+/** The two the app asks about every book, which are nobody's to make or sweep. */
+const GENRE_ANSWERS: string[] = [FICTION_SLUG, NON_FICTION_SLUG]
 
 /**
  * The panel's two book-shaped sentences, said about a word instead.
@@ -69,8 +73,23 @@ import { TagNaming, type NamingWords } from './TagNaming'
  * true on both of them.
  */
 const ABOUT_A_WORD: NamingWords = {
+  title: 'Make a tag',
+  asks: 'What are the books about?',
   prompt: 'Type a word for what a book is about. Whatever you say here, a rule can ask for.',
   wrong: 'That tag could not be made.',
+  doing: 'Making it...',
+  genreReads: 'That is one the app asks about a book.',
+  /*
+   * The same refusal as on a book and a different reason, because the reason on
+   * a book is two buttons an inch above the box and there are none here. What is
+   * left is the true half: a genre is answered about a book, so it is answered
+   * where a book is.
+   */
+  genreSaid: 'Fiction and non-fiction are the two this app asks about every book, '
+    + 'and it already keeps both. They are answered on a book rather than made '
+    + 'here.',
+  alreadySaid: 'That is the same word to this app as the one you already keep, so '
+    + 'there is one tag rather than two. You have it; type something else.',
 }
 
 export function TagsPane() {
@@ -172,8 +191,19 @@ export function TagsPane() {
    *
    * Searched-into as well, so a screen full of matches does not sprout a section
    * about words that are not among them.
+   *
+   * **The two genre answers are not in it**, which is the same exclusion
+   * `TagNaming` makes and for the same reason: they are what the app asks about
+   * every book rather than words anybody chose to keep, a rule has named both
+   * since the migration that made the furniture, and neither can ever be swept.
+   * Found by looking at this on a collection with no books in it, which is the
+   * one where they have no books either: the card said Fiction and Non-fiction
+   * were being kept because somebody was setting a bookcase up, which is a
+   * sentence about a decision nobody made.
    */
-  const empty = matching.filter((tag) => tag.books === 0)
+  const empty = matching.filter(
+    (tag) => tag.books === 0 && !GENRE_ANSWERS.includes(tag.slug),
+  )
   const kept = empty.filter((tag) => tag.ruled)
   const litter = empty.filter((tag) => !tag.ruled)
 
@@ -294,10 +324,10 @@ export function TagsPane() {
         >
           {kept.length > 0 && (
             <Said>
-              {kept.map((tag) => labelOf(tag)).join(', ')}
-              {kept.length === 1 ? ' is asked for by a rule' : ' are asked for by rules'},
-              so {kept.length === 1 ? 'it is' : 'they are'} kept: a bookcase can be
-              set up for a subject before a book arrives for it.
+              {kept.length === 1
+                ? `A rule asks for ${labelOf(kept[0]!)}, so it stays: `
+                : `Rules ask for ${kept.map((tag) => labelOf(tag)).join(', ')}, so they stay: `}
+              a bookcase can be set up for a subject before a book arrives for it.
             </Said>
           )}
           {litter.map((tag) => (

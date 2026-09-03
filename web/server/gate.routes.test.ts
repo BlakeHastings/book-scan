@@ -141,17 +141,26 @@ describe('the count', () => {
     expect(before).toEqual([...OPEN_DOORS])
   })
 
-  it('has every one of the seventy-one handlers behind it', () => {
+  it('has every one of the seventy-three handlers behind it', () => {
     const stack = stackOf(app)
     const behind = stack.slice(gateAt(stack) + 1).flatMap(named)
 
     /*
-     * Seventy-one is `docs/auth-surface.md`'s count, taken by reading
-     * `server/index.ts` one route at a time at commit 3690dc5 and unchanged
-     * since. If this number moves, a route was added or removed, and the
-     * question to answer is which — not to edit the number until it is green.
+     * Seventy-one was `docs/auth-surface.md`'s count, taken by reading
+     * `server/index.ts` one route at a time at commit 3690dc5. If this number
+     * moves, a route was added or removed, and the question to answer is which —
+     * not to edit the number until it is green.
+     *
+     * It moved to seventy-three at #452, and the two are `POST /api/tags` and
+     * `DELETE /api/tags`: the third door onto naming a tag, which is the one
+     * with no book in it, and the sweep that undoes it. Both are ordinary
+     * handlers under `/api` registered below the gate with every other one, so
+     * they are covered by where they are rather than by anybody remembering, and
+     * the loop underneath is what says so.
      */
-    expect(behind).toHaveLength(71)
+    expect(behind).toHaveLength(73)
+    expect(behind).toContain('POST /api/tags')
+    expect(behind).toContain('DELETE /api/tags')
 
     // And every one of them is under /api, which is what makes the mount above
     // cover them. A handler registered on any other path would be reachable

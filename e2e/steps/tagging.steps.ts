@@ -43,9 +43,11 @@ async function open(page: Page, typed: string) {
  * happens the *second* time somebody names it, and the first time has to have
  * been a real one or the thing being tested is a fixture.
  *
- * It hangs off a book, because that is the only way a tag comes into existence
- * here: nothing in this app defines a word nobody has put on a book. So the
- * scenario seeds a book, tags it, and the tag outlives it.
+ * It hangs off a book, which was the only way a tag came into existence at all
+ * until #452 added `POST /api/tags`. It stays that way here on purpose: what
+ * this scenario is about is somebody naming a word a second time on the
+ * check-the-details screen, so the first naming should be the door that screen
+ * uses rather than the one the tags screen does.
  */
 Given('the collection already keeps a tag called {string}', async (
   { apiUrl, catalogue }, label: string,
@@ -73,6 +75,64 @@ Given('the collection already keeps a tag called {string}', async (
 
   const kept = await catalogue.vocabulary()
   expect(kept.map((one) => one.label)).toContain(label)
+})
+
+/**
+ * The tags screen, reached the way somebody reaches it: the row above the books.
+ *
+ * Not by a URL, because there are none. `app/navigation.tsx` says why the app has
+ * no routing, and it means every screen in these journeys is arrived at by
+ * pressing what a person presses.
+ */
+When('I open my tags', async ({ page }) => {
+  await page.locator('button.wf-tab', { hasText: 'Library' }).click()
+  // The row above the books, which is where choosing a tag lives since #350
+  // moved finding into the corner it used to have.
+  await page.locator('.wf-picked').click()
+  await expect(page.getByRole('heading', { name: 'Your tags' })).toBeVisible()
+})
+
+/**
+ * Making a word here is the same three presses as making one on a book.
+ *
+ * Deliberately the same locators as `open` above, and that is the assertion
+ * rather than an economy: #452 was meant to reuse the panel the other two doors
+ * use, and a step file that needed a second set of selectors for it would be
+ * saying it had not.
+ */
+When('I make a new tag {string}', async ({ page }, label: string) => {
+  await page.locator('button.wf-tag--add').click()
+  await expect(panel(page)).toBeVisible()
+  await panel(page).locator('input').fill(label)
+  await expect(makeRow(page)).toBeVisible()
+  await makeRow(page).click()
+  await expect(panel(page)).toBeHidden()
+})
+
+/**
+ * The offer to sweep it, which is the screen saying which kind of empty it is.
+ *
+ * A word nothing carries and no rule asks for is litter; one a rule asks for is
+ * somebody's setup and is not offered here. So this is both halves of the
+ * evidence at once: the word exists, and the screen knows nothing depends on it.
+ */
+Then('my tags should offer to sweep away {string}', async ({ page }, label: string) => {
+  await expect(page.getByRole('button', { name: `Sweep away ${label}` })).toBeVisible()
+})
+
+When('I sweep away {string}', async ({ page }, label: string) => {
+  await page.getByRole('button', { name: `Sweep away ${label}` }).click()
+  const sure = page.locator('.wf-sure')
+  await expect(sure).toBeVisible()
+  await sure.getByRole('button', { name: 'Sweep it away' }).click()
+  await expect(sure).toHaveCount(0)
+})
+
+Then('the collection should keep no tag reading {string}', async (
+  { catalogue }, label: string,
+) => {
+  const kept = await catalogue.vocabulary()
+  expect(kept.map((one) => one.label)).not.toContain(label)
 })
 
 When('I name a new tag {string}', async ({ page }, label: string) => {

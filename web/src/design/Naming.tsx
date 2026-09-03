@@ -52,6 +52,8 @@ export function Naming({
   typed,
   caret = false,
   reads,
+  title = 'Add a tag',
+  asks = 'What is this book?',
   onType,
   onClose,
   children,
@@ -62,6 +64,19 @@ export function Naming({
   caret?: boolean
   /** What the box made of what was typed, when that is worth saying. */
   reads?: ReactNode
+  /**
+   * What this panel is called, on its bar and to a screen reader.
+   *
+   * "Add a tag" on the two doors that start with a book in your hand, because
+   * that is what pressing it does: it puts the book under a word. #452 opened a
+   * third with no book anywhere near it, where adding is not what happens and
+   * the button that opens this one says so; a panel headed with a different verb
+   * from the control that opened it is two names for one act, which is the thing
+   * the library's own rules refuse.
+   */
+  title?: string
+  /** What the empty field asks for. Same reason as `title`. */
+  asks?: string
   /** Given this, the box is a real field. Without it, it is the drawing. */
   onType?: (value: string) => void
   onClose?: () => void
@@ -69,14 +84,14 @@ export function Naming({
   children?: ReactNode
 }) {
   return (
-    <div className="wf-name" role="dialog" aria-modal="true" aria-label="Add a tag">
+    <div className="wf-name" role="dialog" aria-modal="true" aria-label={title}>
       <div className="wf-name__panel">
-        <TopBar title="Add a tag" onBack={onClose} />
+        <TopBar title={title} onBack={onClose} />
         <div className="wf-name__body">
           <SearchField
             typed={typed}
             caret={caret}
-            placeholder="What is this book?"
+            placeholder={asks}
             label="Name a tag"
             reads={reads}
             onType={onType}

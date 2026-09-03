@@ -24,6 +24,13 @@
  * back to those buttons rather than quietly filed under something else, because
  * #304 is that this app writes a genre only when somebody actually answered
  * that question.
+ *
+ * ## Three doors, one panel, and one bundle of words
+ *
+ * #377 opened it while cataloguing a book, #433 on a book already shelved, and
+ * #452 from the tags screen with no book at all. All three get the same
+ * deciding; the third gets different sentences, because seven of the ones here
+ * name a book or point at two buttons it does not have. See `NamingWords`.
  */
 
 import { useState } from 'react'
@@ -43,28 +50,70 @@ const FEW = 6
 const GENRE_ANSWERS: string[] = [FICTION_SLUG, NON_FICTION_SLUG]
 
 /**
- * The two sentences that mention a book, for the one door that has not got one.
+ * Everything this panel says that assumes a book, for the door that has not one.
  *
- * Everything else this panel says is about the word rather than about the book:
- * the refusal, the genre answer, where a new one goes. These two are not, and
- * #452 opened a third door where there is no book in anybody's hand, so "Type
- * what this book is" would be the panel asking about something that is not
- * there.
+ * #452 opened a third door onto naming a tag and it is the first with no book in
+ * anybody's hand. What it needed was none of the deciding — `nameTag` is the
+ * same, the near-duplicate refusal is the same, the genre refusal is the same,
+ * where a new tag goes is the same — and all of the wording, because seven of the
+ * sentences here name a book or point at two buttons that are only on a book's
+ * screen. Every one of these was found by opening the new door and reading it.
  *
- * A pair of strings rather than a `forBook` flag, because a boolean that
+ * **A bundle of strings rather than a `forBook` flag**, because a boolean that
  * switches copy is a place two sets of words hide behind one name, and the next
- * caller cannot see what it is choosing between.
+ * caller cannot see what it is choosing between. Seven of them is a lot and is
+ * the honest count: it is what actually differs, and a component copied to say
+ * them differently would be two behaviours that agree until one is edited.
  */
 export interface NamingWords {
+  /** What the panel is called, on its bar. */
+  title: string
+  /** What the empty field asks for. */
+  asks: string
   /** The invitation, with nothing typed and nothing to offer. */
   prompt: string
   /** What the panel calls it when the write is refused. */
   wrong: string
+  /** The quiet caption while the write is in flight. */
+  doing: string
+  /** The quiet caption when what was typed means a genre. */
+  genreReads: string
+  /**
+   * Why it was refused, said in full.
+   *
+   * **The refusal itself is the same on every door and is not in here.** #304
+   * is that this app states a genre only when a source did or a person answered
+   * that question, and no amount of typing reaches it; what differs is where the
+   * person is standing. On a book, the two answers are two buttons an inch above
+   * this box, so the sentence points at them. On the tags screen there is no book
+   * and no buttons, and pointing at them would be the panel describing a screen
+   * somebody is not looking at. Found by typing "fiction" into the new door.
+   */
+  genreSaid: string
+  /**
+   * The near-duplicate refusal, said in full.
+   *
+   * The refusal itself is #372's whole subject and is the same everywhere: two
+   * spellings of one idea must not become two rows. What differs is what is left
+   * to do about it. On a book there is something — put the book under the one you
+   * already keep — and on the tags screen there is not, because the word is
+   * already yours and pressing it would make nothing.
+   */
+  alreadySaid: string
 }
 
 const ABOUT_A_BOOK: NamingWords = {
+  title: 'Add a tag',
+  asks: 'What is this book?',
   prompt: 'Type what this book is. Whatever you say here, a rule can ask for.',
   wrong: 'That tag could not be added.',
+  doing: 'Adding it...',
+  genreReads: 'That is one of the two above.',
+  genreSaid: 'Fiction and non-fiction are the two above this box. They decide which '
+    + 'bookcase the book crosses the room to, so they are answered there rather '
+    + 'than typed.',
+  alreadySaid: 'That is the same word to this app as the one you already keep, so '
+    + 'there is one tag rather than two. Add it, or type something else.',
 }
 
 export function TagNaming({
@@ -82,7 +131,7 @@ export function TagNaming({
   carried: readonly string[]
   busy: boolean
   error: string
-  /** The two sentences that assume a book. Defaults to the two that do. */
+  /** What it says. Defaults to the wording for a door with a book in it. */
   words?: NamingWords
   onPick: (tag: { slug: string; label: string }) => void
   onClose: () => void
@@ -151,9 +200,11 @@ export function TagNaming({
   return (
     <Naming
       typed={typed}
+      title={words.title}
+      asks={words.asks}
       onType={setTyped}
       onClose={onClose}
-      reads={reads(answer, busy, reading.length)}
+      reads={reads(answer, busy, reading.length, words)}
     >
       {error && <Nothing said={words.wrong}>{error}</Nothing>}
 
@@ -167,23 +218,12 @@ export function TagNaming({
         <Said>{words.prompt}</Said>
       )}
 
-      {answer.kind === 'genre' && (
-        <Said>
-          Fiction and non-fiction are the two above this box. They decide which
-          bookcase the book crosses the room to, so they are answered there
-          rather than typed.
-        </Said>
-      )}
+      {answer.kind === 'genre' && <Said>{words.genreSaid}</Said>}
 
       {/* The refusal, said. There is no way past it on purpose: a panel that
           offered to make one anyway is a panel where the second comic book
           makes the second comic book tag. */}
-      {answer.kind === 'already' && answer.nearly && (
-        <Said>
-          That is the same word to this app as the one you already keep, so there
-          is one tag rather than two. Add it, or type something else.
-        </Said>
-      )}
+      {answer.kind === 'already' && answer.nearly && <Said>{words.alreadySaid}</Said>}
 
       {answer.kind === 'new' && (
         <>
@@ -214,9 +254,14 @@ export function TagNaming({
  * rule the find screen's field follows. A list of tags needs no caption; a
  * refusal and an empty panel both do.
  */
-function reads(answer: Verdict, busy: boolean, listed: number): string | undefined {
-  if (busy) return 'Adding it...'
-  if (answer.kind === 'genre') return 'That is one of the two above.'
+function reads(
+  answer: Verdict,
+  busy: boolean,
+  listed: number,
+  words: NamingWords,
+): string | undefined {
+  if (busy) return words.doing
+  if (answer.kind === 'genre') return words.genreReads
   if (answer.kind === 'already' && answer.nearly) return 'You already keep this one.'
   // Only when there is genuinely nothing under it. Half a word matches the
   // front of a tag without meaning it, so this line and a list of tags reading
