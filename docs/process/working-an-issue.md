@@ -257,9 +257,18 @@ each is worth exactly what it covers:
    harness actually has.
 
    **Being registered is still not being loaded.** Settings are read once at
-   process start. Ask the guard rather than the file:
-   `node scripts/guard-live-data.mjs --probe` from inside a worktree should be
-   **refused**; if it prints, nothing intercepted it.
+   process start. Ask the guard rather than the file. Both guards answer:
+   `node scripts/guard-merge.mjs --probe` should be **refused** from anywhere,
+   and `node scripts/guard-live-data.mjs --probe` should be **refused** from
+   inside a worktree. If either prints, nothing intercepted it.
+
+   **The merge guard only gained its probe in #444**, and until then the sole
+   way to learn whether it was loaded was to trip it. That is literally how it
+   was learned: it refused a `gh pr create` for what the pull request's body
+   said, which was the other half of #444. Since that fix it reads the command a
+   line runs and not the text the line carries, so quoting a blocked command in
+   a body, a commit message, a heredoc or a `grep` is ordinary work again and
+   `--body-file` is no longer a workaround for anything.
 
    That probe has **three** outcomes, not two, and the third is easy to mistake
    for the second. Refused means loaded. Printing means registered but not
