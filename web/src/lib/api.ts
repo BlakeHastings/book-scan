@@ -1061,6 +1061,28 @@ export interface UnclaimedBook {
   why: Unclaimed
 }
 
+/**
+ * One book the shelf and the rules put in different places (#489).
+ *
+ * The two fields are the two readings and they are named after where each one
+ * comes from rather than after which is right, because neither of them is
+ * known to be: the app draws a book from the range on its row and a walk over
+ * the boundaries, and the rules claim it by the tags it carries. A
+ * disagreement says one of the two is wrong and never which.
+ *
+ * `fromRules` is empty for a book no rule claims at all. That is a different
+ * complaint with a screen of its own (#341), and it arrives here as well
+ * because a book nothing files is also a book drawn somewhere nothing justifies.
+ */
+export interface DriftingBook {
+  bookId: number
+  title: string
+  /** The place the app draws it in, which is where somebody will look for it. */
+  fromLayout: string
+  /** The place the rules claim it into. Empty when no rule claims it. */
+  fromRules: string
+}
+
 export type SortStrategyCode = 'inherit' | 'author' | 'title' | 'published' | 'tag'
 
 export interface AreaDto {
@@ -2170,6 +2192,24 @@ export const api = {
    */
   unclaimed: () =>
     request<{ books: UnclaimedBook[]; total: number }>('/api/placement/unclaimed'),
+
+  /**
+   * Every book the shelf and the rules disagree about, and how many (#489).
+   *
+   * **The check is older than this call by a long way.** `areaDisagreements`
+   * has run on every start since #213 and wrote its answer to the server log,
+   * which is where it stayed while #485's twelve books went unread for three
+   * weeks. This is the same answer, asked for by something a person looks at.
+   *
+   * `total` beside a capped page, which is `unclaimed`'s pair above: the first
+   * screen says the number and the shelves screen names the books.
+   *
+   * Read only, and there is nothing to write to. Repairing a disagreement
+   * erases how it happened, which is exactly what made the state in #485
+   * diagnosable three weeks after it started.
+   */
+  drift: () =>
+    request<{ books: DriftingBook[]; total: number }>('/api/placement/drift'),
 
   /** What removing an area would do to its books. Writes nothing. */
   areaRemoval: (id: number) =>

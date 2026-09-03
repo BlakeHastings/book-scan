@@ -79,6 +79,10 @@ function propsFor(
        nothing about when it is drawn. */
     unclaimed: 0,
     backup: null,
+    /* The shelf and the rules agreeing is the ordinary day, so it is the
+       default here for `unclaimed`'s reason: a card drawn in every render
+       below would make none of these tests say when it is drawn (#489). */
+    drifting: 0,
     onAdd: () => {},
     onInHand: () => {},
     /* The corner (#350). `RoomMenu` decides what it says and what it opens;
