@@ -80,8 +80,8 @@ count below kept honest by the suite rather than restated by a person.
 The middle one is the one that gets missed, and #510 says why it cannot be
 collapsed into the first:
 
-> A client cannot tell them apart cannot choose between the login screen and the
-> waiting screen.
+> A client that cannot tell them apart cannot choose between the login screen and
+> the waiting screen.
 
 Getting it wrong makes a person who is signed in and simply not admitted look
 logged out, which sends them round the sign-in loop for ever: they sign in
@@ -195,8 +195,14 @@ than a list, so this section cannot drift without the suite going red.
 | Hand-declared handlers **behind** the gate | **71** |
 | Static mounts **behind** the gate | **1** (the photographs) |
 | **Total behind the gate** | **72** |
-| Handlers **in front of** the gate | **5** |
-| Static mounts in front of the gate | 0 |
+| Handlers registered **above** the gate, and therefore open | **5** |
+| Mounts **outside `/api`**, and therefore open | **2**, and only when a client has been built: `express.static` over `web/dist` and the single-page fallback |
+
+The last row is the one to read carefully, because those two are not "in front
+of the gate" in the stack — they are registered below it, and they are open
+because they are not under `/api`. That is the same fact said the other way
+round, and it is why the gate is mounted on a path rather than at the top: the
+client's files have to be reachable by somebody who cannot sign in yet.
 
 **Every one of `docs/auth-surface.md`'s seventy-two doors is behind the gate.**
 The five in front of it did not exist when that survey was taken; they are the
