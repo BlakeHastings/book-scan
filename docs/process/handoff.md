@@ -7,21 +7,82 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up 2026-09-03 after twelve merges in one day.** It
-rots quickly. Three merges from now, distrust the "in flight" section entirely
+**Written 2026-08-24, topped up 2026-09-03 after the owner set a new objective.**
+It rots quickly. Three merges from now, distrust the "in flight" section entirely
 and read `gh pr list` instead.
+
+## The objective changed, and it is the thing to read first
+
+**The owner wants this hosted, and wants a login so only a few people can reach
+it.** In his words: *"lets move towards the objective of hosting this puppy and
+building the authentication system for it"*, then narrowing it: *"Right now we
+will just do the authentication system, not the authorization system. We just
+want a login system restricting who can access it for right now"*.
+
+That answered the question that had blocked #471 all day. **Reachable from
+outside the house**, therefore authentication first. It is #510: a login gate,
+one collection, no ownership, no roles, everyone who gets in is equally in.
+
+#171 stays open and stays `shaping` for everything the slice defers, which is
+four of its five questions. **Authorization is a different problem** and it
+starts with "is a collection owned by one person, or shared", which nobody has
+answered.
 
 ## In flight
 
 | Issue | Who has it |
 | --- | --- |
-| #490 | an agent. A band is about areas and the run reads it as about bookcases. The family's ninth |
-| #491 | an agent. Renumbering a bookcase moves books in the run and writes nothing. Told to check first whether it is #490 |
-| #484 | **PR #493**, reviewed and green, rebased, waiting only on CI |
+| #512 | an agent. A server build, a start script, and the API serving the built client |
+| #505 | an agent. The projection check has no reader, and it is blind to the family it looks like it is for |
 
-**Twelve merges on 2026-09-02**, and every code one was driven in the running app
-by the orchestrator before merging, each with a review record on the pull request
-saying what was checked and what was taken on trust. #458 and #482 are closed.
+## What the two surveys found, and they agree
+
+**`docs/auth-surface.md` (#511): seventy-two doors, none locked.** Seventy-one
+hand-declared handlers plus one static mount for the photographs. Verified by the
+orchestrator over the LAN address rather than loopback: an unauthenticated
+`POST /api/fixtures` from another machine returned **201 and created a
+bookcase**.
+
+That is deliberate rather than accidental. `web/vite.config.ts` says
+`host: true, // bind 0.0.0.0 so the phone can reach it over the LAN`. **The
+exposure is the feature**, and it is what #510 has to close.
+
+Three things worth carrying:
+
+- **The API binds loopback and Vite does not.** So the only externally reachable
+  process is the development server, which also serves the app's own sources
+  under `web/` through `/@fs/` (bounded correctly: 403 outside it) and a
+  websocket. **There is nowhere in this repository to put a gate over the client
+  today.**
+- **`/api/health` hands out collection counts and the database host, port and
+  name** to anyone who asks.
+- **No middleware and no request context anywhere**, established by finding zero
+  non-test matches for `req.cookies`, `res.cookie`, `Set-Cookie`,
+  `Authorization`, `express-session`, `passport` and `jsonwebtoken`. So one check
+  in one file would cover all seventy-two doors, and sessions are a new concern
+  rather than a change to an existing one.
+
+**`docs/deployment-survey.md` and that survey were written independently, hours
+apart, and arrived at the same seam**: there is no server build, nothing serves
+the built client, and where the client is served from decides where a gate can
+live. That is #512, and it is upstream of #510 rather than beside it.
+
+## What needs the owner, and it is now the loop's binding constraint
+
+1. **How do people sign in.** #510 asks it with a recommendation: a password, a
+   long-lived session cookie, and accounts created by hand. Not a provider
+   (depends on a third party, puts a private catalogue in somebody's log), not
+   passkeys yet (bound to a domain nobody has chosen, and recovery on a
+   self-hosted app with no email is a real problem). **Nothing else blocks the
+   gate.**
+2. **Where it hosts.** #471. The homelab is the recommendation.
+3. **#515**, what the app records when a book leaves the house. `shaping`.
+4. **#479**, which of two fallbacks is right. Corroborated twice from opposite
+   directions now.
+5. **The pagefile.** Measured on 2026-09-03: 13 GB of physical RAM free and 2.8
+   GB of commit available, because the commit limit is RAM plus a pagefile that
+   the wipe reset to 2 GB. **The machine is not short of memory, it is short of
+   permission to use it**, and this is what holds the agent count at two.
 
 ## The day's shape, which is the thing to carry forward
 
@@ -30,9 +91,9 @@ company.** #468 and #463 closed two of them, #447 closed the hole they came from
 and #490 is the ninth. Alongside that, a second family surfaced and is the same
 size:
 
-**Four separate acts changed where a book belongs and told the ledger nothing.**
-Removing a boundary (#465, merged), deleting a bookcase (#484), overflow and the
-boundary move (#487, merged), and renumbering a piece (#491). Each was written
+**Five separate acts changed where a book belongs and told the ledger nothing**, across four issues.
+Removing a boundary (#465, merged), deleting a bookcase (#484, merged), overflow and the
+boundary move (#487, merged), and renumbering a piece (#491, merged). Each was written
 independently and none of them knew about the others.
 
 **The check that exists to notice exactly this cannot see any of them.** The
