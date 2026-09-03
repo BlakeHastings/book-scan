@@ -46,14 +46,31 @@ COPY web/ ./
 # `dist-server/index.js` with the migrations copied beside it.
 RUN npm run build
 
-# The toolchain leaves here. `docs/running-from-a-build.md` decision 2 records
-# that the server bundle is built with `packages: 'external'`, so nothing from
-# node_modules is inside it and everything in `dependencies` is still needed at
-# runtime: this removes the devDependencies and keeps the rest, including the
-# two compiled addons.
+# ---------------------------------------------------------------------------
+# The production tree: the same stage with the toolchain taken back out.
+# ---------------------------------------------------------------------------
+#
+# A stage of its own rather than two more `RUN` lines, so that `--target build`
+# above stays a complete checkout with `tsx` and `vitest` still in it. That is
+# worth having: it is how the suite was run for this change on a machine whose
+# worktree had no `node_modules`, against a Postgres started beside it —
+#
+#     docker build --target build -t book-scan:build .
+#     docker run --rm --network <net> \
+#       -e BOOKSCAN_TEST_DATABASE_URL=postgres://...@<pg>:5432/postgres \
+#       book-scan:build npm test
+#
+# which is the same arrangement CI uses, and it costs the final image nothing
+# because nothing is copied from that stage.
+FROM build AS production-tree
+
+# `docs/running-from-a-build.md` decision 2 records that the server bundle is
+# built with `packages: 'external'`, so nothing from node_modules is inside it
+# and everything in `dependencies` is still needed at runtime. This removes the
+# devDependencies and keeps the rest, including the two compiled addons.
 RUN npm prune --omit=dev
 
-# Run the smoke check *after* the prune, which is the only order that proves
+# The smoke check runs *after* the prune, which is the only order that proves
 # anything. It loads the bundle, resolves every external against the tree that
 # is about to be copied into the runtime stage, and requires the one refusal
 # this app makes on purpose. A missing production dependency is a failed build
@@ -65,16 +82,24 @@ RUN node scripts/smoke-built-server.mjs
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION} AS runtime
 
-# `onnxruntime-node`'s prebuilt library links libgomp, and `node:*-slim` does
-# not carry it. Without this the process dies on the import of
-# `ppu-paddle-ocr`, before it listens, with
-# `libgomp.so.1: cannot open shared object file`. It is the one thing the
-# runtime stage needs that Node does not bring, and it is here rather than in
-# the build stage because the build stage never loads the addon.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends libgomp1 \
- && rm -rf /var/lib/apt/lists/*
-
+# No `apt-get` line, and that is a measured result rather than an omission.
+#
+# The two compiled addons are the reason to expect one. Both were checked with
+# `ldd` inside this image instead of guessed at, and every shared object either
+# resolves against what `node:22-bookworm-slim` already carries or is a GPU
+# execution provider that is never asked for:
+#
+#   sharp        -> libvips-cpp.so.8.18.3, all of libstdc++, libm, libgcc_s,
+#                   libpthread, libc, libresolv, libdl. All present.
+#   onnxruntime  -> libonnxruntime.so.1, the same set. All present.
+#   the two that do not resolve are `libonnxruntime_providers_cuda.so` and
+#   `..._tensorrt.so`, wanting libcuda, libcudnn and libnvinfer. They are
+#   `dlopen`ed only by a session that asks for the CUDA provider, and nothing
+#   here does.
+#
+# `docs/the-image.md` has the transcript. If a future dependency does need a
+# library, this is where it goes, and the way to find out is that scan rather
+# than a crash on somebody's first OCR.
 ENV NODE_ENV=production
 
 WORKDIR /app/web
@@ -87,10 +112,10 @@ WORKDIR /app/web
 # module, so moving either of these breaks the arrangement that lets one gate
 # cover the client and the API together. `web/scripts/build-server.mjs` says the
 # same thing where it chooses the path.
-COPY --from=build /app/web/node_modules ./node_modules
-COPY --from=build /app/web/dist ./dist
-COPY --from=build /app/web/dist-server ./dist-server
-COPY --from=build /app/web/package.json ./package.json
+COPY --from=production-tree /app/web/node_modules ./node_modules
+COPY --from=production-tree /app/web/dist ./dist
+COPY --from=production-tree /app/web/dist-server ./dist-server
+COPY --from=production-tree /app/web/package.json ./package.json
 
 # The photographs are a mount, not image content: 1541 files and about 1.4 GB,
 # addressed by bare filename joined onto this directory at read time, written by
@@ -134,7 +159,7 @@ EXPOSE 3001
 
 # No HEALTHCHECK, and that is a decision. Since #521 `GET /api/health` answers
 # 401 to anything without a session, so the only thing a container-level probe
-# could asssert is "something is answering", it would need a second Node process
+# could assert is "something is answering", it would need a second Node process
 # every interval to say it, and the two hosts under consideration ignore the
 # instruction anyway. The deployment that wants a probe should write one that
 # understands 401 is the healthy answer.
