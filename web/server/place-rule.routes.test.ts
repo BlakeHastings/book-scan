@@ -29,6 +29,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
@@ -48,6 +49,8 @@ let shelves: Shelves
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+/** The session every request in this file carries. See server/testauth.ts. */
+let cookie: string
 let scratch: string
 let coverDir: string
 
@@ -130,7 +133,13 @@ async function call(method: string, path: string, body?: unknown): Promise<Answe
     method,
     ...(body === undefined
       ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      : { body: JSON.stringify(body) }),
+    // The suite arrives holding a session, because every route under /api is
+    // behind the gate since #521 and a request without one is refused 401.
+    headers: {
+      cookie,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
   })
   return { status: response.status, body: await response.json() }
 }
@@ -168,6 +177,7 @@ beforeEach(async () => {
   await buildWorld()
 
   coverDir = mkdtempSync(join(scratch, 'placerule-test-'))
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))

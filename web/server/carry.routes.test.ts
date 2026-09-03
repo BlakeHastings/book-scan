@@ -23,6 +23,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 const empty = {
@@ -51,6 +52,8 @@ let coverDir: string
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+/** The session every request in this file carries. See server/testauth.ts. */
+let cookie: string
 
 beforeAll(async () => {
   pool = await migratedDatabase()
@@ -64,6 +67,7 @@ beforeEach(async () => {
     + 'book_placement RESTART IDENTITY CASCADE',
   )
   coverDir = mkdtempSync(join(scratch, 'carry-routes-test-'))
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -86,7 +90,9 @@ afterAll(async () => {
 const post = async (path: string, body: unknown) => {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    // The suite arrives holding a session, because every route under /api is
+    // behind the gate since #521 and a request without one is refused 401.
+    headers: { cookie, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   return { status: response.status, body: await response.json() as Record<string, unknown> }

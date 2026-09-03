@@ -103,8 +103,12 @@ async function copyOfTheCatalogue(pool: pg.Pool, called: string): Promise<string
     tables.map((table) => `CREATE TABLE ${schema}.${table} AS TABLE public.${table};`).join('\n'),
   )
 
+  // Quoted for the same reason as above. None of #521's tables has an identity
+  // column so none of them reaches this list, but a name that needs quoting in
+  // one statement needs it in all of them, and the day one does is not the day
+  // to find that out.
   const numbered = await pool.query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.columns
+    `SELECT quote_ident(table_name) AS table_name FROM information_schema.columns
       WHERE table_schema = 'public' AND column_name = 'id' AND is_identity = 'YES'`,
   )
 
@@ -127,14 +131,26 @@ async function copyOfTheCatalogue(pool: pg.Pool, called: string): Promise<string
  * is thrown about rather than quietly dropped from the restore.
  */
 async function tablesInOrder(pool: pg.Pool): Promise<string[]> {
+  /*
+   * `quote_ident`, because a table can be named after a reserved word and one
+   * now is: #521 adds `user`, which is `USER` the SQL function unless it is
+   * quoted. Postgres is asked to do the quoting rather than this file guessing
+   * at the rules, which is what `server/backup.ts` already does when it builds
+   * its digest from `pg_class`, and for the same reason.
+   *
+   * The names come back quoted, so every use of them below is already a
+   * `"user"` rather than a `user`, and nothing else had to change.
+   */
   const { rows: all } = await pool.query<{ table_name: string }>(
-    `SELECT c.relname AS table_name FROM pg_class c
+    `SELECT quote_ident(c.relname) AS table_name FROM pg_class c
        JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'r'
       ORDER BY c.relname`,
   )
+  // Quoted here too, so the names on both sides of an edge are the same strings
+  // the map above is keyed by.
   const { rows: edges } = await pool.query<{ child: string; parent: string }>(
-    `SELECT child.relname AS child, parent.relname AS parent
+    `SELECT quote_ident(child.relname) AS child, quote_ident(parent.relname) AS parent
        FROM pg_constraint fk
        JOIN pg_class child ON child.oid = fk.conrelid
        JOIN pg_class parent ON parent.oid = fk.confrelid

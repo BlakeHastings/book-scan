@@ -21,6 +21,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 import { Store, PAGE_LIMIT } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { lookupIsbn } from './lookup'
@@ -54,6 +55,8 @@ let coverDir: string
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+/** The session every request in this file carries. See server/testauth.ts. */
+let cookie: string
 
 beforeAll(async () => {
   pool = await migratedDatabase()
@@ -70,6 +73,7 @@ beforeEach(async () => {
   answers.mockResolvedValue({ ...empty })
 
   coverDir = mkdtempSync(join(scratch, 'listing-test-'))
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -92,7 +96,13 @@ afterAll(async () => {
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: init.body ? { 'content-type': 'application/json', ...init.headers } : init.headers,
+    // The suite arrives holding a session, because every route under /api is
+    // behind the gate since #521 and a request without one is refused 401.
+    headers: {
+      cookie,
+      ...(init.body ? { 'content-type': 'application/json' } : {}),
+      ...init.headers,
+    },
   })
   const text = await response.text()
   return { status: response.status, body: text ? JSON.parse(text) : null }

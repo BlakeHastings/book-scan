@@ -1397,6 +1397,21 @@ export class Refusal extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
+    /*
+     * Said out loud, because since #521 it is load-bearing and it is a default.
+     *
+     * Every path this client asks for is relative, so every request is
+     * same-origin, and `same-origin` is what `fetch` already does when nothing
+     * says otherwise — the session cookie would be sent with or without this
+     * line. `docs/auth-surface.md` noted exactly that, and noted that it was
+     * worth writing down before somebody needed it.
+     *
+     * It is written down now because the cost of the default quietly changing,
+     * or of somebody passing an `init` that overrides it, is every request in
+     * this app answering `401` with nothing saying why. A line that states a
+     * default is cheap; finding out that a default moved is not.
+     */
+    credentials: 'same-origin',
     ...init,
   })
   if (!response.ok) {

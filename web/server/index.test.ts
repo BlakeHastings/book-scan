@@ -37,6 +37,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
+import { signedIn } from './testauth'
 import { lookupIsbn } from './lookup'
 import { Shelves } from './shelves'
 import { Store } from './store'
@@ -118,6 +119,8 @@ interface Running {
   store: Store
   coverDir: string
   baseUrl: string
+  /** The session every request in this file carries. See server/testauth.ts. */
+  cookie: string
   /**
    * Wait for the work a save started and nobody awaited, then close the port.
    *
@@ -131,6 +134,9 @@ interface Running {
 
 async function startApp(): Promise<Running> {
   const db = await openTestDatabase()
+  // Every request below arrives holding a session, because since #521 every
+  // route under /api is behind the gate. See server/testauth.ts.
+  const { cookie } = await signedIn(db)
   const coverDir = mkdtempSync(join(scratch, 'index-test-'))
   const app = createApp({ db, coverDir, startBackgroundWork: false })
 
@@ -143,6 +149,7 @@ async function startApp(): Promise<Running> {
     store: new Store(db, new DrizzleAuthorRepository(db)),
     coverDir,
     baseUrl: `http://127.0.0.1:${port}`,
+    cookie,
     close: async () => {
       await app.settled()
       await new Promise<void>((resolve, reject) => {
@@ -172,7 +179,11 @@ afterAll(async () => {
 async function call(path: string, init: RequestInit = {}) {
   const res = await fetch(`${running.baseUrl}${path}`, {
     ...init,
-    headers: init.body ? { 'content-type': 'application/json', ...init.headers } : init.headers,
+    headers: {
+      cookie: running.cookie,
+      ...(init.body ? { 'content-type': 'application/json' } : {}),
+      ...init.headers,
+    },
   })
   const text = await res.text()
   return { status: res.status, body: text ? JSON.parse(text) : null }
@@ -460,7 +471,7 @@ describe('a database hiccup in the work a save started', () => {
     try {
       const saved = await fetch(`${base}/api/books`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { cookie: running.cookie, 'content-type': 'application/json' },
         body: JSON.stringify({
           title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
         }),
@@ -481,7 +492,7 @@ describe('a database hiccup in the work a save started', () => {
 
       // Still answering, which is the whole point: the row is committed and the
       // person can carry on scanning.
-      const health = await fetch(`${base}/api/health`)
+      const health = await fetch(`${base}/api/health`, { headers: { cookie: running.cookie } })
       expect(health.status).toBe(200)
 
       // And the book is still on the "never looked for a cover" list rather
@@ -572,7 +583,9 @@ describe('cropping a saved book to the book', () => {
     expect(crop.equals(photo)).toBe(false)
 
     // Served by the same route the photos are, with no extra wiring.
-    const served = await fetch(`${running.baseUrl}/api/covers/${book.front_crop}`)
+    const served = await fetch(`${running.baseUrl}/api/covers/${book.front_crop}`, {
+      headers: { cookie: running.cookie },
+    })
     expect(served.status).toBe(200)
   }, 30_000)
 
@@ -2824,7 +2837,8 @@ describe('failure paths', () => {
       return jpeg
     }
 
-    const fetchCover = (path: string) => fetch(`${running.baseUrl}${path}`)
+    const fetchCover = (path: string) =>
+      fetch(`${running.baseUrl}${path}`, { headers: { cookie: running.cookie } })
 
     it('sends the width the gallery asked for, and a fraction of the bytes', async () => {
       const full = await storeCover('big.jpg')

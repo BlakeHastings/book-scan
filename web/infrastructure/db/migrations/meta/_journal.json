@@ -218,6 +218,13 @@
       "when": 1788403653664,
       "tag": "0030_a_move_receipt_names_the_plank",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788461227861,
+      "tag": "0031_the_gate_gets_a_person_to_ask_about",
+      "breakpoints": true
     }
   ]
 }

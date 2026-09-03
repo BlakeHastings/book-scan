@@ -220,6 +220,42 @@ let apiBuilder = builder
   // the shell already, and an inherited value must not decide what an Aspire
   // run reads off a disk.
   .withEnvironment('BOOKSCAN_BACKUP_DIR', '')
+  /*
+   * The development door (#521).
+   *
+   * Every route under `/api` is behind a gate now, including the photographs,
+   * so a checkout with no way to sign in is a checkout where nothing works and
+   * no browser test can run. **This is the only place in this repository that
+   * opens that door.**
+   *
+   * It is a provider rather than a bypass, and the difference is the whole
+   * argument: `GET /api/auth/dev/start` finds or creates a user, enables them,
+   * and mints an ordinary session row, which is the same three steps Google's
+   * callback takes. The gate itself has no branch in it and no way to be
+   * switched off. See `web/server/auth/providers.ts`, which carries the
+   * argument, and `docs/the-gate.md`.
+   *
+   * A developer opens that path once per checkout and the session lasts thirty
+   * days; the api's own startup log prints it, both ways round.
+   *
+   * The value is the subject, so it is who this identity is rather than a flag.
+   */
+  .withEnvironment('BOOKSCAN_DEV_SIGN_IN', 'developer')
+  /*
+   * And the three variables that would configure a real provider, cleared.
+   *
+   * Set explicitly and empty for exactly the reason `BOOKSCAN_DATA` and
+   * `BOOKSCAN_BACKUP_DIR` above are: these are names a shell may already carry,
+   * and an inherited value must not decide anything about a run started here.
+   * Here it would decide two things, and both are bad. A real client id in scope
+   * would make a development checkout sign people in through Google; and because
+   * `signInFrom` refuses the development door beside a real provider, it would
+   * instead make `aspire start` fail to come up at all, in a way whose cause is
+   * in somebody's shell rather than in this repository.
+   */
+  .withEnvironment('BOOKSCAN_OIDC_GOOGLE_CLIENT_ID', '')
+  .withEnvironment('BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET', '')
+  .withEnvironment('BOOKSCAN_PUBLIC_ORIGIN', '')
   // Set explicitly for the same reason BOOKSCAN_DATA is: the connection has to
   // be the one this AppHost provisioned and not one inherited from a shell
   // that might name somebody's real catalogue.

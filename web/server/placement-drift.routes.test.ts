@@ -37,6 +37,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { recordCredits, settleGenre } from './book-save'
@@ -54,6 +55,8 @@ let shelves: Shelves
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+/** The session every request in this file carries. See server/testauth.ts. */
+let cookie: string
 /** This file's own scratch root, which no other test file can name. */
 let scratch: string
 let coverDir: string
@@ -101,7 +104,7 @@ async function untag(id: number): Promise<void> {
 
 async function drift(): Promise<{ books: { bookId: number; title: string;
   fromLayout: string; fromRules: string }[]; total: number }> {
-  const response = await fetch(`${baseUrl}/api/placement/drift`)
+  const response = await fetch(`${baseUrl}/api/placement/drift`, { headers: { cookie } })
   expect(response.status).toBe(200)
   return response.json()
 }
@@ -114,6 +117,7 @@ beforeEach(async () => {
   shelves = new Shelves(db)
 
   coverDir = mkdtempSync(join(scratch, 'drift-test-'))
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -195,7 +199,7 @@ describe('GET /api/placement/drift', () => {
     // Not a style point. A screen that looks unfinished without a button is how
     // a repair gets added later, so the absence is pinned here as well as said
     // on the card. Anything under /api that no route matched answers 404.
-    const posted = await fetch(`${baseUrl}/api/placement/drift`, { method: 'POST' })
+    const posted = await fetch(`${baseUrl}/api/placement/drift`, { method: 'POST', headers: { cookie } })
     expect(posted.status).toBe(404)
   })
 })

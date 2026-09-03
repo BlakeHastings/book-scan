@@ -207,10 +207,41 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
     )
   }
 
+  /*
+   * A session, before anything else is asked of the api (#521).
+   *
+   * Every route under `/api` is behind the gate now, including `/api/health`
+   * below and including the photographs, so this suite has to arrive holding a
+   * session exactly as a phone does. That is the point rather than an
+   * inconvenience: a browser suite that could reach the app without one would be
+   * proving the app as it is not deployed.
+   *
+   * It is obtained through the real door. `apphost.mts` sets
+   * `BOOKSCAN_DEV_SIGN_IN`, so this checkout's api carries a development
+   * provider, and `GET /api/auth/dev/start` walks the same three steps Google's
+   * callback walks: find or create the user, enable them, mint a session row.
+   * Nothing here reaches into the database to write a session by hand, so a
+   * change to how a session is made breaks this run rather than leaving it green
+   * against a shape the app no longer writes.
+   */
+  const signedIn = await fetch(`${apiUrl}/api/auth/dev/start`, { redirect: 'manual' })
+  const session = (signedIn.headers.get('set-cookie') ?? '')
+    .split(/,(?=[^;]+=)/)
+    .map((one) => one.trim().split(';')[0] ?? '')
+    .find((pair) => pair.startsWith('bookscan_session='))
+  if (!session) {
+    throw new Error(
+      'The api did not hand out a session at /api/auth/dev/start. That door is ' +
+      'opened by BOOKSCAN_DEV_SIGN_IN, which apphost.mts sets, so this means the ' +
+      `AppHost is not the one this suite expects. It answered ${signedIn.status}.`,
+    )
+  }
+
   // The server is still asked, as a check rather than as the source: if it
   // opened something other than what the AppHost handed it, the two disagree
   // and every assertion below would be made against the wrong database.
-  const health = await fetch(`${apiUrl}/api/health`).then((r) => r.json()) as { db: string }
+  const health = await fetch(`${apiUrl}/api/health`, { headers: { cookie: session } })
+    .then((r) => r.json()) as { db: string }
   const described = describeConnection(connection)
   if (health.db !== described) {
     throw new Error(
@@ -224,6 +255,10 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
 
   process.env.BOOKSCAN_E2E_WEB_URL = webUrl
   process.env.BOOKSCAN_E2E_API_URL = apiUrl
+  // The cookie, in the shape a `Cookie:` header wants it, for the workers. They
+  // are separate processes, so it travels the same way every other discovered
+  // value here does. See `steps/fixtures.ts`, which puts it in the browser.
+  process.env.BOOKSCAN_E2E_SESSION = session
   process.env.BOOKSCAN_E2E_DB = connection
   process.env.BOOKSCAN_E2E_COVERS = join(dataDir, 'covers')
   // The stub's own control endpoint, so a scenario can hold a lookup open for

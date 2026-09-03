@@ -30,6 +30,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 
 let pool: pg.Pool
 let db: PgDb
@@ -39,6 +40,8 @@ let clientDir: string
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+/** The session most requests in this file carry. See server/testauth.ts. */
+let cookie: string
 
 const SHELL = '<!doctype html><html><head><title>book-scan</title></head><body></body></html>'
 const BUNDLE = 'console.log("the client")'
@@ -60,6 +63,7 @@ beforeEach(async () => {
   mkdirSync(join(clientDir, 'assets'))
   writeFileSync(join(clientDir, 'assets', 'index-A1b2C3d4.js'), BUNDLE)
 
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, clientDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -80,8 +84,19 @@ afterAll(async () => {
   removeScratchRoot(scratch)
 })
 
+/**
+ * Holding a session, because the `/api` cases below are behind the gate (#521).
+ *
+ * The cases about the client's own files would pass without one, and one of them
+ * says so on purpose: see "what a stranger may still be handed" at the bottom of
+ * this file. The shell and the bundle are open deliberately, because they are
+ * the login screen.
+ */
 async function get(path: string, init: RequestInit = {}) {
-  const response = await fetch(`${baseUrl}${path}`, init)
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: { cookie, ...init.headers },
+  })
   return {
     status: response.status,
     type: response.headers.get('content-type') ?? '',
@@ -161,6 +176,45 @@ describe('what the fallback must never swallow', () => {
     const response = await get('/some/screen', { method: 'POST' })
     expect(response.status).toBe(404)
     expect(response.text).not.toBe(SHELL)
+  })
+})
+
+/**
+ * The other half of #521's open set, and it is the half that is not under
+ * `/api`.
+ *
+ * The gate is mounted on `/api`, so the client's own files are open by
+ * construction, and that is the design rather than an oversight: they *are* the
+ * login screen, and a person who cannot sign in yet has to be able to load it.
+ * What they disclose is the shape of this app's code, not a row of it, which is
+ * the trade `docs/running-from-a-build.md` decision 3 already weighed for the
+ * source maps beside them.
+ *
+ * Pinned here rather than described, because "the shell is open" and "the shell
+ * is open and so is everything else" look identical from a browser that is
+ * already signed in.
+ */
+describe('what a stranger may still be handed, and what they may not', () => {
+  const asStranger = (path: string) => fetch(`${baseUrl}${path}`)
+
+  it('hands a stranger the app shell, because that is the login screen', async () => {
+    const response = await asStranger('/')
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe(SHELL)
+  })
+
+  it('hands a stranger the bundle, for the same reason', async () => {
+    expect((await asStranger('/assets/index-A1b2C3d4.js')).status).toBe(200)
+  })
+
+  it('hands a stranger any screen path, because the fallback is the same shell', async () => {
+    expect((await asStranger('/library/anything')).status).toBe(200)
+  })
+
+  it('refuses a stranger every route on the other side of the gate', async () => {
+    for (const path of ['/api/health', '/api/books', '/api/covers/anything.jpg', '/api/nope']) {
+      expect((await asStranger(path)).status, path).toBe(401)
+    }
   })
 })
 

@@ -26,6 +26,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 import {
   CATALOGUES, forgetSourceStandings, noteSourceAnswer, noteSourceSkipped,
 } from './source-watch'
@@ -39,9 +40,26 @@ let db: PgDb
 let scratch: string
 const running: Array<{ app: BookScanApp; server: Server }> = []
 
+/**
+ * The session every request in this file carries.
+ *
+ * `/api/health` is behind the gate since #521 and answers `401` without one.
+ * That is the trade AGENTS.md's "one command for a running server" now makes,
+ * and `gate.routes.test.ts` is where the refusal itself is asserted; this file
+ * is about what the answer says once somebody is allowed to see it.
+ *
+ * Made once rather than per test, because nothing here empties the catalogue.
+ */
+let cookie = ''
+
+/** A request holding the session, which is what a phone's request is. */
+const ask = (url: string, init: RequestInit = {}) =>
+  fetch(url, { ...init, headers: { cookie, ...init.headers } })
+
 beforeAll(async () => {
   pool = await migratedDatabase()
   db = new PgDb(pool)
+  cookie = (await signedIn(db)).cookie
   scratch = scratchRoot('health-routes')
 })
 
@@ -74,7 +92,7 @@ async function serving(googleApiKey?: string): Promise<string> {
 
 describe('GET /api/health', () => {
   it('still answers everything it answered before', async () => {
-    const answer = await (await fetch(`${await serving()}/api/health`)).json()
+    const answer = await (await ask(`${await serving()}/api/health`)).json()
 
     expect(answer.ok).toBe(true)
     expect(answer.counts).toBeTruthy()
@@ -88,7 +106,7 @@ describe('GET /api/health', () => {
      * a page count or a genre, so `asked: 0` after a long session is a real and
      * good state rather than a source that has been left out of the report.
      */
-    const answer = await (await fetch(`${await serving()}/api/health`)).json()
+    const answer = await (await ask(`${await serving()}/api/health`)).json()
 
     expect(answer.lookups.sources.map((one: { source: string }) => one.source))
       .toEqual([...CATALOGUES])
@@ -104,7 +122,7 @@ describe('GET /api/health', () => {
     noteSourceAnswer('Google Books', false, 'HTTP 429')
     noteSourceAnswer('Google Books', false, 'HTTP 429')
 
-    const answer = await (await fetch(`${base}/api/health`)).json()
+    const answer = await (await ask(`${base}/api/health`)).json()
     const google = answer.lookups.sources.find((one: { source: string }) => one.source === 'Google Books')
 
     expect(google).toMatchObject({ asked: 2, answered: 0, silent: 2, lastSilence: 'HTTP 429' })
@@ -126,7 +144,7 @@ describe('GET /api/health', () => {
     const base = await serving()
     noteSourceSkipped('Library of Congress')
 
-    const answer = await (await fetch(`${base}/api/health`)).json()
+    const answer = await (await ask(`${base}/api/health`)).json()
     const loc = answer.lookups.sources
       .find((one: { source: string }) => one.source === 'Library of Congress')
 
@@ -135,10 +153,10 @@ describe('GET /api/health', () => {
   })
 
   it('says whether a key is configured, and never what it is', async () => {
-    const without = await (await fetch(`${await serving()}/api/health`)).json()
+    const without = await (await ask(`${await serving()}/api/health`)).json()
     expect(without.lookups.googleBooksKeyConfigured).toBe(false)
 
-    const response = await fetch(`${await serving(API_KEY)}/api/health`)
+    const response = await ask(`${await serving(API_KEY)}/api/health`)
     const body = await response.text()
 
     expect(JSON.parse(body).lookups.googleBooksKeyConfigured).toBe(true)
@@ -197,7 +215,7 @@ describe('GET /api/health and the placement projection', () => {
   }
 
   it('says the projection agrees, and stays ok, on an ordinary catalogue', async () => {
-    const answer = await (await fetch(`${await serving()}/api/health`)).json()
+    const answer = await (await ask(`${await serving()}/api/health`)).json()
 
     expect(answer.ok).toBe(true)
     expect(answer.placement.projection).toEqual({ disagreeing: 0, books: [], repair: '' })
@@ -208,7 +226,7 @@ describe('GET /api/health and the placement projection', () => {
     const undo = await aBookPlacedWithoutARecord('A Book Nobody Wrote Down')
 
     try {
-      const answer = await (await fetch(`${base}/api/health`)).json()
+      const answer = await (await ask(`${base}/api/health`)).json()
 
       // `ok` is the field a machine reads without knowing the shape of the rest,
       // and this is the one condition on this endpoint that moves it: a quiet
@@ -233,7 +251,7 @@ describe('GET /api/health and the placement projection', () => {
     const undo = await aBookPlacedWithoutARecord('Another Book Nobody Wrote Down')
 
     try {
-      const answer = await (await fetch(`${base}/api/health`)).json()
+      const answer = await (await ask(`${base}/api/health`)).json()
 
       // The repair is a command somebody runs having read the names, not a
       // button and not a POST. #485's diagnosis depended on the broken state
@@ -243,8 +261,8 @@ describe('GET /api/health and the placement projection', () => {
       expect(answer.placement.projection.repair).toBe(REBUILD_COMMAND)
       expect(answer.placement.projection.repair).not.toMatch(/https?:|\/api\//)
 
-      expect((await fetch(`${base}/api/health`, { method: 'POST' })).status).toBe(404)
-      expect((await fetch(`${base}/api/placement/projection`)).status).toBe(404)
+      expect((await ask(`${base}/api/health`, { method: 'POST' })).status).toBe(404)
+      expect((await ask(`${base}/api/placement/projection`)).status).toBe(404)
     } finally {
       await undo()
     }
@@ -255,11 +273,11 @@ describe('GET /api/health and the placement projection', () => {
     // this, an endpoint stuck at `ok: false` would pass every test above.
     const base = await serving()
     const undo = await aBookPlacedWithoutARecord('A Third Book Nobody Wrote Down')
-    expect((await (await fetch(`${base}/api/health`)).json()).ok).toBe(false)
+    expect((await (await ask(`${base}/api/health`)).json()).ok).toBe(false)
 
     await undo()
 
-    const after = await (await fetch(`${base}/api/health`)).json()
+    const after = await (await ask(`${base}/api/health`)).json()
     expect(after.ok).toBe(true)
     expect(after.placement.projection).toEqual({ disagreeing: 0, books: [], repair: '' })
   })

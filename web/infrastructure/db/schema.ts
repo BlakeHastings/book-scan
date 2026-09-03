@@ -1291,6 +1291,202 @@ export const bookPlacement = pgTable('book_placement', {
 ])
 
 /**
+ * A person this app owns, and the only thing anything else here will ever
+ * reference when it means a person (#521).
+ *
+ * ## Why the id is ours and not the provider's
+ *
+ * This app holds no password and never will: #510 settled that, and identity is
+ * asserted by Google or by whoever follows. What it does hold is the person, and
+ * the reason is the owner's own sentence about "relationships between things
+ * like books". A reading status, a borrower or a claim keyed on a Google subject
+ * is lost the day the same human signs in with Apple instead, because that is a
+ * different subject from a different issuer and no provider will tell you the
+ * two are one person. So the id is generated here, it means nothing anywhere
+ * else, and `user_identity` is the only table that ever learns what a provider
+ * calls somebody.
+ *
+ * ## Why `enabled` defaults to false, which is the whole gate
+ *
+ * "Sign in with Google" proves who somebody is. It does not say they may come
+ * in, and **every person on earth already holds a valid Google credential**, so
+ * a login with no list behind it is a formality that admits the internet. The
+ * list is this column. A first sign-in creates the row disabled, the person gets
+ * a session and the waiting-list screen, and only `web/scripts/enable-user.ts` —
+ * run by whoever can already reach the database, which is the owner — turns it
+ * true.
+ *
+ * **This is not a role and must not become one.** There is no `is_admin`, no
+ * permissions column and no group, deliberately: #171 has not decided roles and
+ * #510 says an unused column that looks like authorization is worse than none,
+ * because the next person builds against it. What is here answers exactly one
+ * question, "is this person one of ours", and that is the door rather than a
+ * permission on the far side of it.
+ *
+ * The table is named `user`, which is a reserved word in Postgres. Drizzle
+ * quotes every identifier it emits so nothing here has to think about it; the
+ * one place it mattered was `server/testdb.ts`, whose hand-written reset now
+ * asks Postgres to quote for it.
+ */
+export const user = pgTable('user', {
+  /**
+   * Opaque, ours, and never a provider's subject. A `randomUUID()` written at
+   * first sign-in.
+   */
+  id: text('id').primaryKey(),
+  enabled: boolean('enabled').notNull().default(false),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  createdAt: text('created_at').notNull(),
+  /** When somebody was let in, or null while they are still waiting. */
+  enabledAt: text('enabled_at'),
+})
+
+/**
+ * The link from a person this app owns to an identity it does not.
+ *
+ * ## Keyed on (issuer, subject), and deliberately not on email
+ *
+ * `subject` is what an OpenID Connect provider calls somebody, and it is only
+ * unique within that provider, so the pair is the key. **Email is not an
+ * identity** and #510 gives the three reasons in one line: it changes, it is
+ * sometimes unverified, and two providers can assert the same address about
+ * different people. It is carried here so a human reading the enable script's
+ * list can recognise who is knocking, and nothing looks a person up by it.
+ *
+ * ## Do not auto-link
+ *
+ * A second provider asserting an address an existing user already has is **not**
+ * proof of the same person, and treating it as such is an account takeover:
+ * anybody who can get a provider to assert an address inherits the account it
+ * matches. So a sign-in that finds no row here creates a **new** user, always.
+ * Linking a second provider to an existing person is a deliberate act by
+ * somebody already signed in, and it is not in #521.
+ *
+ * `ON DELETE CASCADE` from the user, because an identity with no person is a row
+ * that can only be a way in to nothing.
+ */
+export const userIdentity = pgTable('user_identity', {
+  /** The provider's issuer, e.g. `https://accounts.google.com`. */
+  issuer: text('issuer').notNull(),
+  /** What that provider calls this person. Stored nowhere else. */
+  subject: text('subject').notNull(),
+  userId: text('user_id').notNull(),
+  /** For a human reading a list. Not a key and not looked up; see above. */
+  email: text('email').notNull().default(''),
+  /** Likewise. A provider may not send one, so it may be empty forever. */
+  name: text('name').notNull().default(''),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  firstSeenAt: text('first_seen_at').notNull(),
+  lastSeenAt: text('last_seen_at').notNull(),
+}, (table) => [
+  primaryKey({ name: 'user_identity_pkey', columns: [table.issuer, table.subject] }),
+  foreignKey({
+    name: 'user_identity_user_id_fkey',
+    columns: [table.userId],
+    foreignColumns: [user.id],
+  }).onDelete('cascade'),
+  /** "Which identities does this person have", which is what the script lists. */
+  index('idx_user_identity_user').on(table.userId),
+])
+
+/**
+ * A session, ours, addressed by an opaque cookie.
+ *
+ * **The credential is not ours and the session still is.** A provider says who
+ * somebody is once, at the moment they sign in; everything afterwards is this
+ * row, so signing somebody out, or throwing every session away, is a write here
+ * rather than a conversation with Google.
+ *
+ * ## What is stored is the hash, not the cookie
+ *
+ * `token_hash` is the SHA-256 of the value in the cookie, hex. The cookie itself
+ * is 32 random bytes and exists only in the browser that was handed it and in
+ * the `Set-Cookie` that handed it over. So a copy of this table — a backup, a
+ * dump, a screen somebody is sharing — is not a set of live credentials, and it
+ * costs one hash per request to have it that way.
+ *
+ * ## Long-lived and renewed on use
+ *
+ * A phone held up at a bookshelf that asks for a sign-in every visit gets
+ * abandoned, so `expires_at` is thirty days out and any use that finds the row
+ * more than an hour stale pushes it forward. The hour is there so an ordinary
+ * screen, which makes half a dozen requests, does not make half a dozen writes.
+ *
+ * ## Revocable, and `enabled` is deliberately not cached here
+ *
+ * `revoked_at` ends a session without deleting the evidence that it existed. And
+ * the gate joins `user` on every request rather than copying `enabled` onto this
+ * row: disabling somebody has to take effect on their **next request**, not
+ * whenever their session happens to expire, which is why the enable script does
+ * not need a way to hunt sessions down.
+ */
+export const session = pgTable('session', {
+  /** The SHA-256 of the cookie value, hex. Never the cookie value. */
+  tokenHash: text('token_hash').primaryKey(),
+  userId: text('user_id').notNull(),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  createdAt: text('created_at').notNull(),
+  lastUsedAt: text('last_used_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  /** Set by a sign-out, or by anybody who can reach the database. */
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  foreignKey({
+    name: 'session_user_id_fkey',
+    columns: [table.userId],
+    foreignColumns: [user.id],
+  }).onDelete('cascade'),
+  /** "Every session this person holds", which is what a revocation sweeps. */
+  index('idx_session_user').on(table.userId),
+])
+
+/**
+ * One sign-in part-way through: the state between the redirect out and the
+ * redirect back.
+ *
+ * The authorization code flow with PKCE has two halves that happen in two
+ * separate requests, and three things have to survive between them: the `state`
+ * that ties the callback to the start, the PKCE `code_verifier` whose challenge
+ * went out with the authorization request, and the `nonce` the provider must
+ * echo in the ID token.
+ *
+ * **A row rather than a cookie**, and the difference is single use. A cookie
+ * carrying the verifier can be replayed as often as somebody has copies of it; a
+ * row is deleted the moment a callback consumes it, so an authorization code
+ * that arrives twice fails the second time with nothing left to check it
+ * against. It also means a flow can simply be thrown away, which is what an
+ * expiry does.
+ *
+ * The browser that started the flow is handed the same state in a short-lived
+ * cookie, and the callback requires the two to agree. That is what stops a login
+ * CSRF: an attacker who completes their own authorization and then feeds the
+ * resulting callback URL to somebody else's browser has a state that browser was
+ * never given.
+ *
+ * Nothing about a person is here. The row lives for at most ten minutes and
+ * knows only which provider is being asked.
+ */
+export const signInFlow = pgTable('sign_in_flow', {
+  /** 32 random bytes, base64url. Also handed to the browser as a cookie. */
+  state: text('state').primaryKey(),
+  /** Which provider was asked. `google` today. */
+  provider: text('provider').notNull(),
+  /** PKCE, RFC 7636. What went out was the SHA-256 of this. */
+  codeVerifier: text('code_verifier').notNull(),
+  /** Echoed by the provider in the ID token, and checked there. */
+  nonce: text('nonce').notNull(),
+  /**
+   * Where to send the browser afterwards. Refused unless it is a path on this
+   * origin beginning with a single `/`, because a redirect target taken out of a
+   * query string is an open redirect otherwise.
+   */
+  next: text('next').notNull().default('/'),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  startedAt: text('started_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+})
+
+/**
  * Every table this schema declares.
  *
  * No longer the same list as "every table the baseline creates": `tag` and
@@ -1306,4 +1502,6 @@ export const ALL_TABLES = [
   author, authorAlias, bookAuthor, capture, outstandingMove,
   sortStrategy, collection, fixture, area, placementRule, ruleCondition,
   bookPlacement,
+  // The four #521 adds, and the only tables here that are not about books.
+  user, userIdentity, session, signInFlow,
 ] as const

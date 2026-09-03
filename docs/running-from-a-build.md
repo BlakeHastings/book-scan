@@ -240,6 +240,15 @@ owner, or more than one person's catalogue on one origin. That is #510 and
 #471's call to make with the gate in hand, and it is one line in
 `web/vite.config.ts` and nothing else.
 
+> **The gate arrived and this did not flip, 2026-09-03, #521.** Asked directly:
+> the gate makes this app *less* reachable rather than more, the bind is still
+> `127.0.0.1`, and there is still one person's catalogue on one origin, so
+> nothing this paragraph names has happened. The maps are also on the open side
+> of the gate along with the shell and the bundle, because those three are the
+> login screen and a person who cannot sign in yet has to be able to load it.
+> The decision is still #471's to take, now with the gate in hand.
+> See `docs/the-gate.md`.
+
 **The server bundle's maps are a different question and are on.** Nothing serves
 `web/dist-server`: `express.static` is mounted over `web/dist` and over the
 cover directory, and never over the bundle. So a map there reaches nobody but

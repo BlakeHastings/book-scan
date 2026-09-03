@@ -46,6 +46,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
 import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
@@ -91,6 +92,8 @@ let coverDir: string
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+/** The session every request in this file carries. See server/testauth.ts. */
+let cookie: string
 
 /** The piece standing first, and the plank on it, for the tests to name. */
 let landing = { fixtureId: 0, areaId: 0, label: '' }
@@ -175,6 +178,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await openTestDatabase('a_second_claimant')
   coverDir = mkdtempSync(join(scratch, 'carry-placing-'))
+  cookie = (await signedIn(db)).cookie
   app = createApp({ db, coverDir, startBackgroundWork: false })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
@@ -195,14 +199,14 @@ afterAll(async () => {
 })
 
 const get = async (path: string) => {
-  const response = await fetch(`${baseUrl}${path}`)
+  const response = await fetch(`${baseUrl}${path}`, { headers: { cookie } })
   return { status: response.status, body: await response.json() as Record<string, unknown> }
 }
 
 const send = async (method: string, path: string, body: unknown) => {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { cookie, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   return { status: response.status, body: await response.json() as Record<string, unknown> }
