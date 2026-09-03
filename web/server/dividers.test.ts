@@ -192,6 +192,86 @@ describe('the lines drawn between areas', () => {
   })
 })
 
+/**
+ * The screen that manages the furniture, while a book is out of the house.
+ *
+ * **Lending a book is not a fact about the room** (#457). A boundary is a plank
+ * somebody screwed in and an area is a place they decided to have, and neither
+ * moves because a book left the house for a fortnight. The hunt that found this
+ * lent one book, watched a `Remove` control disappear, pressed the only one
+ * left, and it belonged to a boundary two areas away.
+ *
+ * Both failures came out of one habit: `groupByShelf` emits a board per **run of
+ * books**, and pairs a boundary to a board by comparing the boundary's anchor
+ * with the sort key of that board's first book. A checked-out book is absent
+ * from `shelved_books`, so lending the book an anchor names unpairs the
+ * boundary, and lending the last book on a plank takes the plank off the one
+ * screen that exists to manage planks.
+ *
+ * Asserted here rather than on the screen for the same reason the rest of this
+ * file is: what a person taps has to be the boundary the row names, and reading
+ * the drawn labels alone would pass while both halves were wrong together.
+ */
+describe('a book lent out of an area', () => {
+  /** The ids of books on the shelves, by title, before anything is lent. */
+  const idsOf = async (...titles: string[]) => {
+    const placed = await shelves.layout('fiction')
+    return titles.map((title) => {
+      const found = placed.find((one) => one.book.title === title)
+      expect(found, `no book called ${title} is on a shelf`).toBeDefined()
+      return found!.book.id
+    })
+  }
+
+  /**
+   * The reading this screen owes whatever is lent: four planks and three lines,
+   * each above the plank it opens.
+   */
+  const wholeRun = [
+    '1A',
+    'New area starts here', '1B',
+    'New bookcase starts here', '2A',
+    'New area starts here', '2B',
+  ]
+
+  it('keeps the line that opens an area when its first book is lent', async () => {
+    await twoBookcases()
+    const [fay] = await idsOf('Fay Ford')
+
+    await store.setCheckedOut(fay!, true)
+
+    expect(readingOrder(libraryRows(await shelves.groups('fiction')))).toEqual(wholeRun)
+    // And it is still the boundary that opens 1B, which is the half that moved
+    // books: the line somebody presses has to take the plank under it.
+    const line = lineAbove(libraryRows(await shelves.groups('fiction')), '1B')
+    expect((await shelves.removalCost('fiction', line.separatorId)).area).toBe('1B')
+  })
+
+  it('keeps the area itself when every book on it is lent', async () => {
+    await twoBookcases()
+    const out = await idsOf('Fay Ford', 'Gil Gray')
+
+    for (const id of out) await store.setCheckedOut(id!, true)
+
+    expect(readingOrder(libraryRows(await shelves.groups('fiction')))).toEqual(wholeRun)
+    // Drawn, and drawn empty. The books are out of the house; the plank is not.
+    expect((await shelves.groups('fiction')).map((group) => [group.label, group.books.length]))
+      .toEqual([['1A', 5], ['1B', 0], ['2A', 2], ['2B', 2]])
+  })
+
+  it('puts the books back on it the moment they are checked in', async () => {
+    await twoBookcases()
+    const out = await idsOf('Fay Ford', 'Gil Gray')
+    for (const id of out) await store.setCheckedOut(id!, true)
+
+    for (const id of out) await store.setCheckedOut(id!, false)
+
+    expect(readingOrder(libraryRows(await shelves.groups('fiction')))).toEqual(wholeRun)
+    expect((await shelves.groups('fiction')).map((group) => group.books.length))
+      .toEqual([5, 2, 2, 2])
+  })
+})
+
 describe('removing the bookcase boundary', () => {
   /**
    * **What this used to assert is what #465 found and changed.**
