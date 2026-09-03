@@ -58,8 +58,8 @@ export interface DriftTrouble {
  * one is edited.
  */
 export const NOT_REPAIRED =
-  'Nothing has been moved and nothing will be: this is reported and never ' +
-  'repaired, because a repair would erase how it happened.'
+  'Nothing has been moved and nothing will be: this is never repaired, ' +
+  'because a repair would erase how it happened.'
 
 /** "Twelve books are", "One book is". */
 function counted(n: number): string {
@@ -82,14 +82,14 @@ function counted(n: number): string {
 export function driftTrouble(found: number | null): DriftTrouble | null {
   if (found === null || found <= 0) return null
 
-  const them = found === 1 ? 'it' : 'them'
   return {
     title: `${counted(found)} drawn in one place and claimed by another`,
     said:
-      'The drawing of your bookcases and the rules that decide where a book ' +
-      `goes no longer agree about ${them}, so neither answer can be relied ` +
-      `on. ${NOT_REPAIRED} ${found === 1 ? 'It is' : 'They are'} named under ` +
-      '"Books that are not where they should be", in your library.',
+      'Your bookcases and the rules that file books into them no longer agree ' +
+      `about where ${found === 1 ? 'this one goes' : 'these go'}, so neither ` +
+      `answer can be trusted. ${NOT_REPAIRED} ` +
+      `${found === 1 ? 'It is' : 'They are'} named in your library, under ` +
+      '"Books that are not where they should be".',
   }
 }
 
@@ -104,13 +104,13 @@ export function driftTrouble(found: number | null): DriftTrouble | null {
  * half of it somebody happens to be looking at.
  */
 export function driftOnShelves(found: number): DriftTrouble {
-  const them = found === 1 ? 'it' : 'them'
+  const one = found === 1
   return {
     title: `${counted(found)} drawn in one place and claimed by another`,
     said:
-      'Each of these is drawn where you see it and filed by the rules ' +
-      `somewhere else, so neither place can be relied on for ${them}. ` +
-      `${NOT_REPAIRED} Leave ${them} standing where ${found === 1 ? 'it is' : 'they are'} ` +
-      'rather than moving a book to make the two agree.',
+      `${one ? 'This one is' : 'Each of these is'} drawn where you see it and ` +
+      `filed by the rules somewhere else. ${NOT_REPAIRED} Leave ` +
+      `${one ? 'it where it stands' : 'them where they stand'} rather than ` +
+      'moving a book to make the two agree.',
   }
 }

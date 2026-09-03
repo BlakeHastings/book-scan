@@ -429,11 +429,11 @@ function Adrift(go: Go) {
       kind="Where books stand"
       title="Twelve books are drawn in one place and claimed by another"
     >
-      The drawing of your bookcases and the rules that decide where a book goes
-      no longer agree about them, so neither answer can be relied on. Nothing
-      has been moved and nothing will be: this is reported and never repaired,
-      because a repair would erase how it happened. They are named under "Books
-      that are not where they should be", in your library.
+      Your bookcases and the rules that file books into them no longer agree
+      about where these go, so neither answer can be trusted. Nothing has been
+      moved and nothing will be: this is never repaired, because a repair would
+      erase how it happened. They are named in your library, under "Books that
+      are not where they should be".
     </Trouble>,
   )
 }
