@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { roomLine } from './RoomMenu'
+import { roomLine, signOutNote } from './RoomMenu'
 
 describe('what the corner says where a name would be', () => {
   it('says the collection when both answers are in', () => {
@@ -39,5 +39,38 @@ describe('what the corner says where a name would be', () => {
 
   it('says a real zero, because an empty collection is an answer', () => {
     expect(roomLine(0, 0)).toBe('0 books, no fixtures')
+  })
+})
+
+/**
+ * The line under the one thing on this sheet that leaves rather than opens.
+ *
+ * There is a session to end since #521 and a way to end it since #524, and the
+ * address under the words is what makes the press worth offering: it is the
+ * only line anywhere in this app that says which person the collection is
+ * being shown to. The two states that are not an address are both real: the
+ * request takes as long as it takes, and it can be refused.
+ */
+describe('what the sign-out says about itself', () => {
+  it('says who this browser is signed in as', () => {
+    expect(signOutNote('alex@example.com', 'no')).toBe('alex@example.com')
+  })
+
+  it('says nothing rather than something empty when the provider sent no address', () => {
+    // Drawn as no second line at all. A blank one would leave a gap under the
+    // words that reads as a value that failed to arrive.
+    expect(signOutNote('', 'no')).toBeUndefined()
+  })
+
+  it('says the press is happening, because it is a request and not a toggle', () => {
+    expect(signOutNote('alex@example.com', 'going')).toBe('Signing out.')
+  })
+
+  /* A press that failed silently is a person pressing it again and again. The
+     address goes for as long as this is on screen, on purpose: what matters
+     now is that it did not work, not who it did not work for. */
+  it('says so when it did not work, instead of going quiet', () => {
+    expect(signOutNote('alex@example.com', 'refused'))
+      .toBe('That did not work. Try again.')
   })
 })

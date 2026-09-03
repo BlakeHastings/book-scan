@@ -7,8 +7,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  api, captureName, draftFromBook, draftFromCapture, draftFromLookup,
-  editFromDraft, emptyDraft, withReadIsbn,
+  Refusal, api, captureName, draftFromBook, draftFromCapture, draftFromLookup,
+  editFromDraft, emptyDraft, whenTheGateRefuses, withReadIsbn,
 } from './api'
 import type { BookRow, Capture, LookupResponse } from './api'
 import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
@@ -416,5 +416,95 @@ describe('withReadIsbn', () => {
     })
     expect(draft.isbn10).toBe('0441013597')
     expect(draft.isbnSource).toBe('ocr')
+  })
+})
+
+/**
+ * The two refusals are different, and this is where the client learns which.
+ *
+ * `docs/the-gate.md`: a `401` means this browser is not signed in and a `403`
+ * means somebody is signed in and has not been let in. #521 named the cost of
+ * collapsing them and #524 was opened to stop it happening on this side: "a
+ * client that cannot tell them apart cannot choose between the login screen and
+ * the waiting screen", and one that treats the second as a sign-out sends a
+ * waiting person round the login loop for ever.
+ *
+ * Every request in this app goes through one function, so this is the one place
+ * that reads the word, and the word travels out of it rather than back to
+ * whichever screen happened to ask, because the thing that has to change is the
+ * whole app rather than that screen.
+ */
+describe('what the client is told when the gate refuses', () => {
+  /** Answer whatever is asked for with a status and a body. */
+  function answerWith(status: number, body: unknown): void {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    }))
+  }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('carries "anonymous" out of a 401, to the throw and to whoever is listening', async () => {
+    const heard: string[] = []
+    const stop = whenTheGateRefuses((state) => heard.push(state))
+    answerWith(401, { state: 'anonymous', error: 'Sign in to use this.' })
+
+    const refusal = await api.health().catch((caught: unknown) => caught)
+
+    expect(heard).toEqual(['anonymous'])
+    expect(refusal).toBeInstanceOf(Refusal)
+    expect((refusal as Refusal).authState).toBe('anonymous')
+    stop()
+  })
+
+  /*
+   * The one this issue exists for. A 403 is a live session belonging to
+   * somebody who has not been let in, and the answer to it is the waiting
+   * screen. Anything here saying "anonymous" is the login loop being built.
+   */
+  it('carries "waiting" out of a 403, and never says the caller is signed out', async () => {
+    const heard: string[] = []
+    const stop = whenTheGateRefuses((state) => heard.push(state))
+    answerWith(403, {
+      state: 'waiting',
+      error: 'This account is signed in but has not been let in yet.',
+    })
+
+    const refusal = await api.health().catch((caught: unknown) => caught)
+
+    expect(heard).toEqual(['waiting'])
+    expect(heard).not.toContain('anonymous')
+    expect((refusal as Refusal).authState).toBe('waiting')
+    stop()
+  })
+
+  /*
+   * A refusal about the request rather than about who made it. The furniture
+   * routes answer 409 with an effect on it and no state, and a client reading a
+   * status code instead of the server's own word would one day have to decide
+   * for itself what a 403 from somewhere else meant.
+   */
+  it('says nothing about the gate for a refusal the gate did not make', async () => {
+    const heard: string[] = []
+    const stop = whenTheGateRefuses((state) => heard.push(state))
+    answerWith(409, { error: 'That would take an area off.', effect: { moved: 3 } })
+
+    const refusal = await api.health().catch((caught: unknown) => caught)
+
+    expect(heard).toEqual([])
+    expect((refusal as Refusal).authState).toBeUndefined()
+    expect((refusal as Refusal).effect).toEqual({ moved: 3 })
+    stop()
+  })
+
+  it('stops telling a listener that has stopped listening', async () => {
+    const heard: string[] = []
+    whenTheGateRefuses((state) => heard.push(state))()
+    answerWith(401, { state: 'anonymous', error: 'Sign in to use this.' })
+
+    await api.health().catch(() => {})
+
+    expect(heard).toEqual([])
   })
 })

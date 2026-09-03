@@ -1898,6 +1898,95 @@ describe('a pill says what it is, and is never only a colour', () => {
   })
 })
 
+/**
+ * A person who is not let in is offered the one thing that is theirs, and
+ * nothing that pretends to be.
+ *
+ * #524 is explicit about what this screen owes somebody. They have signed in,
+ * proved exactly who they are, done nothing wrong, and can do nothing about it,
+ * and what they can see the edge of is somebody else's collection. So the
+ * screen says what happened, says the owner is the one who can change it, and
+ * offers a way out.
+ *
+ * **The thing to keep out is a second button**, and it is the one somebody will
+ * add. A "try again" here is the login loop #521 warned about with a coat of
+ * paint on it: the request that would be retried is the one that has just
+ * answered `403`, and it will answer `403` again until a decision is made in a
+ * different place. There is exactly one thing to press on this screen and it is
+ * the way out.
+ *
+ * The address is checked too. It is not decoration: it is what makes signing
+ * out worth offering to somebody who arrived on the wrong account, and without
+ * it the button is a way to lose a session for no stated reason.
+ */
+describe('the screen for somebody who is signed in and not let in', () => {
+  const waiting = () => {
+    const screen = SCREENS.find((one) => one.id === 'waiting')
+    expect(screen, 'the waiting screen is not in the gallery').toBeTruthy()
+    return renderToStaticMarkup(screen!.render(() => {}))
+  }
+
+  it('offers exactly one thing to press, and it is the way out', () => {
+    const markup = waiting()
+    const buttons = markup.match(/<button/g) ?? []
+
+    expect(buttons.length, 'a second press on the waiting screen').toBe(1)
+    expect(words(markup)).toMatch(/\bSign out\b/)
+  })
+
+  it('says who this browser is signed in as', () => {
+    expect(words(waiting())).toMatch(/Signed in as \S+@\S+/)
+  })
+
+  it('says the owner is the one who lets somebody in', () => {
+    // Not "an administrator" and not "support": the whole shape of #510 is that
+    // there is one person, and a script they run, and no role anywhere.
+    expect(words(waiting())).toMatch(/\bowns\b/)
+  })
+
+  it('is not the sign-in screen wearing different words', () => {
+    // The failure this issue exists to prevent, said as a drawing: somebody
+    // holding a good session must never be offered a way to sign in again.
+    expect(words(waiting())).not.toMatch(/Continue with/)
+  })
+
+  it('wears no tab bar, because there is nowhere it could go', () => {
+    expect(waiting()).not.toMatch(/wf-tab(?: |")/)
+    expect(renderToStaticMarkup(
+      SCREENS.find((one) => one.id === 'wayin')!.render(() => {}),
+    )).not.toMatch(/wf-tab(?: |")/)
+  })
+})
+
+/**
+ * The way in draws the answer, and there is no list of providers in the client.
+ *
+ * `GET /api/auth/providers` says which buttons there are, which is what makes
+ * adding Microsoft later a configuration change rather than a screen change.
+ * The gallery draws it twice for that reason, so the claim is a thing somebody
+ * can look at rather than a sentence in a comment.
+ */
+describe('the way in', () => {
+  const drawn = (id: string) => renderToStaticMarkup(
+    SCREENS.find((one) => one.id === id)!.render(() => {}),
+  )
+
+  it('draws one press per way in, and the second one changes nothing else', () => {
+    expect((drawn('wayin').match(/<button/g) ?? []).length).toBe(1)
+    expect((drawn('wayintwo').match(/<button/g) ?? []).length).toBe(2)
+  })
+
+  it('does not tell the development door apart from any other', () => {
+    // #524: "Do not special-case it in the client; if it needs distinguishing,
+    // the server should say so." Both buttons are drawn the same way, and what
+    // separates them is the label the server sent.
+    const markup = drawn('wayintwo')
+    const classes = [...markup.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1])
+
+    expect(new Set(classes).size, 'one of the doors is drawn differently').toBe(1)
+  })
+})
+
 describe('the gallery', () => {
   it('renders every screen to markup', () => {
     for (const screen of SCREENS) {
