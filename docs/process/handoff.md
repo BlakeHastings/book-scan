@@ -7,40 +7,65 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up 2026-09-02 at `9a69d2a` (`master`, after #478),
-on the far side of a machine wipe.** It rots quickly. Three merges from now,
-distrust the "in flight" section entirely and read `gh pr list` instead.
+**Written 2026-08-24, topped up 2026-09-03 after twelve merges in one day.** It
+rots quickly. Three merges from now, distrust the "in flight" section entirely
+and read `gh pr list` instead.
 
 ## In flight
 
-**Two agents running, and the loop is fully unblocked.** The runtime came back
-on 2026-09-02 and five pull requests landed the same day.
-
 | Issue | Who has it |
 | --- | --- |
-| #447 | an agent, rebasing **PR #469** across #477 and #478 and then driving it, which has never been done. Its brief is a comment on the pull request rather than here |
-| #465 | an agent, in a worktree. Removing a boundary writes no placements |
+| #490 | an agent. A band is about areas and the run reads it as about bookcases. The family's ninth |
+| #491 | an agent. Renumbering a bookcase moves books in the run and writes nothing. Told to check first whether it is #490 |
+| #484 | **PR #493**, reviewed and green, rebased, waiting only on CI |
 
-**Landed 2026-09-02**: #473 and #476 (this file), #474 (the deployment survey),
-#477 (issue #468) and #478 (issue #463). Every code one was driven in the running
-app by the orchestrator before merging, and each carries a review record saying
-what was checked and what was taken on trust.
+**Twelve merges on 2026-09-02**, and every code one was driven in the running app
+by the orchestrator before merging, each with a review record on the pull request
+saying what was checked and what was taken on trust. #458 and #482 are closed.
 
-**#448 is still unclaimed.** Branch `e2e/448-leaving-books-flake` and its
-worktree hold two commits: a loop harness under `e2e/loop/` and `e2e/support/`
-that measures the flake rather than arguing about it, and a change making the
-suite say when the machine refused it memory. Nothing is pushed as a pull
-request. It runs browser journeys in a loop and is the heaviest thing on this
-machine, which now has a third of the commit limit it had. **Give it a session
-with nothing else running**, and read the pagefile section before starting.
+## The day's shape, which is the thing to carry forward
 
-**#471 is the owner's and it is the largest thing open.** The epic for deploying
-the catalogue somewhere that is not this desktop, opened because the wipe is the
-concrete form of the risk it exists to end. `docs/deployment-survey.md` is the
-half that needed nobody and it is merged; read it before touching the epic,
-because it changes what the work is. Four questions in the epic are Blake's and
-two decide its size: whether the app is reachable from outside the house, and
-therefore whether authentication has to exist first.
+**Nine defects came out of one sentence: a question with two answers that part
+company.** #468 and #463 closed two of them, #447 closed the hole they came from,
+and #490 is the ninth. Alongside that, a second family surfaced and is the same
+size:
+
+**Four separate acts changed where a book belongs and told the ledger nothing.**
+Removing a boundary (#465, merged), deleting a bookcase (#484), overflow and the
+boundary move (#487, merged), and renumbering a piece (#491). Each was written
+independently and none of them knew about the others.
+
+**The check that exists to notice exactly this cannot see any of them.** The
+projection check compares the projection against the ledger, and every one of
+these wrote to neither side, so the two agreed with each other while both were
+wrong about the furniture. It printed its healthy line over a catalogue with six
+stranded books. That is #489, and it is the most valuable thing open that is not
+a deployment question.
+
+**The method that found the fourth one is worth copying.** Take the complement of
+every ledger writer from an act's primitives, then walk every call site to its
+route. #484 and #491 both came out of that, and both were real. The sweep in
+#492's pull request also says what it would have missed, in five categories, one
+of which is a writer that writes the *wrong* area id rather than none — which is
+what #465's actual bug was and which the complement test passes either way.
+
+## Agents contradicting their briefs, six times out of six
+
+Every agent dispatched on 2026-09-02 was right about something the orchestrator
+was wrong about, and this is now the strongest reason to write the evidence bar
+rather than the answer into a brief:
+
+- One was told #469 had landed. It had not, and the agent checked `origin/master`.
+- One found `carry-placing.test.ts` **asserting the defect it was sent to fix**.
+- One was given a reproduction a fix three hours earlier had invalidated, and
+  found another door to the same state rather than declaring it fixed.
+- One was told to copy `moveAcrossBoundary`'s answer, **ran it as a control**, and
+  found that answer produces the very bug it was fixing.
+- One was told to expect merge conflicts, found none, and read the seams anyway.
+- One declined to close half of #458 on a half fix, and found the other half.
+
+The rule is in `docs/process/working-an-issue.md` now: a brief and a test are
+claims about the tree, and the tree is the authority.
 
 ## What the deployment survey found, which nobody expected
 
@@ -407,62 +432,50 @@ workaround while it stands is `--body-file`, or a non-shell write tool.
 
 ## Open, as of this writing
 
-**One pull request open: #469**, being rebased and driven by an agent. Two issues
-are held by agents (#447 through that pull request, and #465). Everything else
-below is an issue nobody is holding.
+**One pull request: #493** (issue #484), reviewed, rebased and waiting on CI.
+Two issues are held by agents, #490 and #491.
 
-**The label-parser family, and it is nearly closed.** Eight defects have come out
-of one question answered twice. Three fixes landed 2026-08-24 and two more on
-2026-09-02.
+**The label family, closed for what it named.** #447 shut the last reader of a
+rendered label; #468 and #463 shut the two holes it left. **#490 is the ninth**
+and it is one layer in: both sides agree which rule serves a range and disagree
+about what the run derived from it contains. **#479** is the owner's: two
+hardcoded fallbacks for where a range begins when no rule claims it, disagreeing,
+neither with a reason written down. Seen reachable in ordinary use while
+reviewing #493, so it is not theoretical. **#481** is the family's residue: a
+move receipt records an address, and an address is what a move changes.
 
-- **#468** — `buildPlacement` compared two rendered labels, and on a named piece
-  said two planks were one in the sentence somebody acts on. **Fixed and merged
-  as #477**, which also deleted `compareLocations`, whose contract was the
-  family's trap written down as a function.
-- **#463** — `bandsOf` chose a range's rule with `rules.find` while `claim` chose
-  by precedence. **Fixed and merged as #478**, which made `ruleForRange` the one
-  answer and moved the precedence ladder into `domain/placement/rules.ts` as
-  `byPrecedence`. It had been written out three times.
-- **#447** — `pieceOf` (`web/src/lib/areaRuns.ts`), reached from `ShelfView`.
-  **The last known reader of a rendered label**, and #477's sweep of eight search
-  lines found no other. PR #469 is what closes it, and its report is the test of
-  whether the family is closed. #430 item 3 is tracked only here now.
-- **#479** — new, and the eighth. Two hardcoded fallbacks for where a range
-  begins when no rule claims it: `shelves.ts:338` says bookcase 1 for any range,
-  `store.ts:349` says 4 for non-fiction. **Neither has a reason written down**,
-  so which is right is the owner's and it was escalated rather than guessed.
-- **#458** — Today says "0 to carry" while the manage screen says "Needs
-  attention (2)", on the count that tells the owner whether there is work
-  outstanding. Same family, worst placement.
+**The ledger family, which is the day's other one.** Four acts changed where a
+book belongs and wrote nothing. #465 and #487 are fixed and merged; **#484 is in
+#493**; **#491 is being worked**. Two more sites are named and unfixed:
+`writeBoundaries`' two retirement loops, confirmed still uncovered by two
+separate sweeps and one caller away.
 
-**From the lending hunt**, which found more in one pass than any review did:
+**#489 is the one that would have caught all four**, and its only reader is a log
+line. Not a wrong write but a right answer nobody sees, which is why it survives
+every fix to the write side.
 
-- **#457** — lending a book hides furniture, and one of those hidings caused five
-  books to be moved by mistake.
-- **#459** — nothing records who has a lent book, and the date is on a screen
-  reached by a misfile label. Item 4 of it needs the owner.
-- **#465** — removing a boundary moves books and writes no placements. Being
-  worked.
+**From the hunt** (#482, closed): **#486**, a button that describes a move,
+offers three destinations and refuses whichever you pick.
 
-**The deployment epic #471**, and under it **#475**: the launcher that starts the
-live catalogue is two files in no version control, in the same directory as the
-data. The wipe kept the profile, so they survived by luck. #472 is done and
-merged as `docs/deployment-survey.md`.
+**Deployment**, which is the owner's and the largest thing here: **#471** the
+epic, **#475** the launcher that starts production and is in no version control.
+`docs/deployment-survey.md` is merged and answers the derivable half.
 
-**Process and housekeeping:** #444 (the merge guard reads text it should not, and
-cannot say whether it is loaded — the repo's copy still has no `--probe`, checked
-2026-09-02, so the workaround is `--body-file`), #451 (a message faint in both
-themes, and a dead header frame the orphan test cannot see), #452 (making a tag
-no book carries yet), #448 (the e2e flake, with a loop harness already committed
-on its branch and no pull request).
+**From the lending hunt**, untouched all day: **#457** (lending hides furniture,
+and one of those hidings moved five books by mistake), **#459** (nothing records
+who has a lent book).
+
+**Process and housekeeping:** #444 (the merge guard reads text it should not and
+still has no `--probe` in this repo, so being denied by accident remains the only
+way to learn it is loaded), #451, #452, #448 (the e2e flake, with a loop harness
+already committed on its branch and no pull request; give it a session alone).
 
 **Needs the owner, not an agent:** #471 (where this deploys, and whether it is
-reachable from outside the house), #479 (which fallback is right), #454 (remove
-the failing task or restore the schedule, and whether to arm
-`BOOKSCAN_BACKUP_DIR` on the stable launcher), #440 (a design question wanting a
-gallery drawing first), #348 (needs an API key for the smaller half). Restoring
-the recovered catalogue is also the owner's. The two `shaping` epics #171 and
-#139 are never dispatched.
+reachable from outside the house, which decides whether authentication has to
+exist first), #479, #454, #440, #348. Restoring the recovered catalogue is also
+the owner's, and so is the pagefile: the commit limit is a third of what it was
+and it stopped a verification dead on 2026-09-02. The two `shaping` epics #171
+and #139 are never dispatched.
 
 ## The backup, which was reported wrongly twice and is worth reading carefully
 
