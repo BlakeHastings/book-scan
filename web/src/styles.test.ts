@@ -16,6 +16,49 @@
  * happened, and it does not go red over a name assembled at runtime or added
  * through `classList`.
  *
+ * ## The name has to be a name, which is what #451 changed
+ *
+ * This was a substring search, and a short class name is a substring of
+ * ordinary English. Counted over the tree the day #451 was worked, with the
+ * app's own header still in it:
+ *
+ *     error   88 files    tab      136 files
+ *     counts  76 files    app      207 files
+ *
+ * One of those files was the header component, and every other one was
+ * `setError`, `onError`, `database`, `table`, `wf-tab`, `append`, a directory
+ * called `app`, a variable called `counts`. So `.error`, `.tab`, `.counts` and
+ * `.app` could not have been reported as orphans by any deletion: they were
+ * vouched for by the word "database". #451 was raised believing the header kept
+ * them alive by naming them, and that was true of exactly two, `.topbar` and
+ * `.topbar__home`, which are the two nothing else in the tree spells.
+ *
+ * A name now counts only where it appears as a whole name, with no letter,
+ * digit, dash or underscore either side of it. That is the same weakest useful
+ * form and it keeps every property argued for above: `classList.add('tab')`
+ * still saves `.tab`, a `.feature` file still saves what it names, and a name
+ * assembled out of pieces at runtime was never findable by either version.
+ * What it stops is a rule being kept by a word that has nothing to do with it.
+ *
+ * ## What it still cannot see, measured rather than hoped
+ *
+ * #451 expected that deleting the header would make this sweep "tell the truth
+ * again by itself". It does not, and the number is worth writing down. With the
+ * header deleted and its seven rules put back in the stylesheet, this sweep
+ * reports three of them — `topbar`, `topbar__home` and `tab--on` — and passes
+ * `app`, `error`, `tab` and `counts`, because those four are also the names of
+ * a directory, a caught exception, a loop variable and a field on the summary.
+ * The version before #451 reported two: `tab--on` hides inside `wf-tab--on`.
+ *
+ * So the honest description of this check is that it catches a rule whose name
+ * is peculiar to it, which is most of this stylesheet — `cam__sheet-meta`,
+ * `queued__shot`, `queue__row` — and cannot catch one named after an ordinary
+ * word. **No search of the source can.** The question underneath is whether the
+ * class is on a screen somebody can reach, and the text of a file does not
+ * contain the answer; a rendered screen does. That is a different instrument
+ * from this one and it would have to be added beside it rather than instead of
+ * it, because this one deliberately sees names a rendered screen never shows.
+ *
  * ## And the second measurement, which is about the paint rather than the rules
  *
  * Every rule left here predates the token conversion and carries its own paint.
@@ -27,8 +70,16 @@
  *
  * So the ratio is computed from the values in the files rather than read off
  * them, over the two extremes a camera can put behind a panel that is not quite
- * opaque. WCAG 2.1 AA for body text is 4.5 to 1, and both panels are set below
- * 18.66px, so that is the threshold rather than the 3 to 1 large-text one.
+ * opaque. WCAG 2.1 AA for body text is 4.5 to 1, and every one of these is set
+ * below 18.66px, so that is the threshold rather than the 3 to 1 large-text one.
+ *
+ * **The third one is a different defect wearing the same number** (#451), and
+ * it is the reason this is a list rather than a pair. `.cam__sheet-meta` did
+ * not leave its ink to the page; it wrote in a hardcoded white at four tenths
+ * opacity, which follows no theme, so it was 3.83 to 1 in daylight and 3.83 to
+ * 1 at night. The first two were found by switching themes and looking. Nothing
+ * about this one changes when the theme does, so nobody was ever going to
+ * notice it that way, and only the arithmetic finds it.
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -37,6 +88,17 @@ import { describe, expect, it } from 'vitest'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 const SHEET = join(HERE, 'styles.css')
+/**
+ * This file, which is scanned by the sweep below and must not be.
+ *
+ * It sits under `src`, so it was in its own corpus, and it names classes in its
+ * own prose: the paragraph above naming `.topbar` was enough to keep `.topbar`
+ * alive on its own, after the component that drew it had gone. Found by
+ * tripping it while proving the sweep could see the frame #451 deleted, which
+ * is the only way anybody was going to find it — a test that vouches for what
+ * it is measuring reports nothing and looks fine.
+ */
+const SELF = join(HERE, 'styles.test.ts')
 /** The browser journeys, which hold on to some of these by name. */
 const JOURNEYS = join(HERE, '..', '..', 'e2e')
 /** Where the colours a rule may reach for are defined, both themes in one file. */
@@ -63,19 +125,48 @@ function defined(): string[] {
   return [...names]
 }
 
+/**
+ * Whether the app spells this name, as a name rather than as a run of letters
+ * inside a longer word.
+ *
+ * The extractor above only ever produces `[A-Za-z][A-Za-z0-9_-]*`, so there is
+ * nothing here that needs escaping before it goes into a pattern, and a name
+ * that stopped being of that shape would stop being extracted first.
+ */
+function spelled(name: string, text: string): boolean {
+  return new RegExp(`(?<![A-Za-z0-9_-])${name}(?![A-Za-z0-9_-])`).test(text)
+}
+
 describe('the app stylesheet paints nothing nobody draws', () => {
   it('is true of every class it still defines a rule for', () => {
     const names = defined()
     expect(names.length, 'nothing was scanned at all').toBeGreaterThan(10)
 
     const text = [...files(HERE), ...files(JOURNEYS)]
-      .filter((path) => path !== SHEET)
+      .filter((path) => path !== SHEET && path !== SELF)
       .map((path) => readFileSync(path, 'utf8'))
       .join('\n')
 
-    const orphans = names.filter((name) => !text.includes(name))
+    const orphans = names.filter((name) => !spelled(name, text))
 
     expect(orphans, 'these rules paint something no screen asks for').toEqual([])
+  })
+
+  /*
+   * The other half of #451, and the reason the change above is worth having.
+   *
+   * A test that cannot fail proves nothing, and this one could not: `.error`
+   * and `.tab` were spelled inside `setError` and `database`, so no deletion
+   * anywhere in the app could have made them orphans. This asks the check
+   * itself, against a name that is a substring of a word the tree is full of
+   * and of nothing else, so it goes red the day somebody puts the substring
+   * search back.
+   */
+  it('does not accept a name it only found inside a longer word', () => {
+    const text = `import { useErrorBanner } from './errorBanner'\nawait database.query()`
+    expect(spelled('tab', text), '"database" vouched for .tab').toBe(false)
+    expect(spelled('error', text), '"errorBanner" vouched for .error').toBe(false)
+    expect(spelled('database', text), 'a whole name is still a name').toBe(true)
   })
 })
 
@@ -159,7 +250,7 @@ function inkOf(selector: string): { rgb: Rgb; alpha: number } {
   expect(colour, `${selector} paints a background and leaves the ink to the page`)
     .toBeTruthy()
 
-  const token = colour!.match(/^var\((--[a-z-]+)\)$/)
+  const token = colour!.match(/^var\((--[a-z0-9-]+)\)$/)
   expect(token, `${selector} writes in ${colour} rather than in one of the tokens`)
     .toBeTruthy()
 
@@ -176,12 +267,37 @@ function inkOf(selector: string): { rgb: Rgb; alpha: number } {
   return parse(values[0]!)
 }
 
+/*
+ * What is measured, and what each one is written on.
+ *
+ * `on` is here because the two #432 found each painted their own panel, and the
+ * one #451 found does not: `.cam__sheet-meta` is a line inside the sheet, so
+ * what is behind it is the sheet's paint rather than its own. Reading the
+ * background off the rule under test would have thrown rather than measured,
+ * and a rule that only measures the rules that happen to paint themselves is a
+ * rule that stops at the panels and never reaches the words on them.
+ */
+const FLOATING = [
+  {
+    ink: '.cam__error',
+    on: '.cam__error',
+    what: 'the one line that says a photograph could not be read',
+  },
+  {
+    ink: '.cam__sheet-body',
+    on: '.cam__sheet-body',
+    what: 'the camera settings sheet',
+  },
+  {
+    ink: '.cam__sheet-meta',
+    on: '.cam__sheet-body',
+    what: 'what the camera is doing, written on the sheet',
+  },
+]
+
 describe('what floats on the camera can be read in either theme', () => {
-  it.each([
-    ['.cam__error', 'the one line that says a photograph could not be read'],
-    ['.cam__sheet-body', 'the camera settings sheet'],
-  ])('%s: %s', (selector) => {
-    const panel = parse(rule(selector).background!)
+  it.each(FLOATING)('$ink: $what', ({ ink: selector, on }) => {
+    const panel = parse(rule(on).background!)
     const ink = inkOf(selector)
 
     for (const behind of BEHIND) {
