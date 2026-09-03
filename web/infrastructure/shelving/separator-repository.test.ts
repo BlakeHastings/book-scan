@@ -603,3 +603,213 @@ describe('which range a boundary is in', () => {
     expect(await repository.rangeOf(999_999)).toBeUndefined()
   })
 })
+
+/**
+ * #499, which is #490 read at the other end of the same answer.
+ *
+ * #490 fixed where a band **begins**: `bandOf` answers with a plank and
+ * `runAreasOf` reads the plank. The band's other end was a bookcase and stays
+ * one for the reader it belongs to, because a move stops one piece earlier than
+ * a run does (#420) and that is a decision rather than an untidiness.
+ *
+ * The mistake was never the asymmetry. It was that one number stood for both
+ * answers, so "which planks is this run" was put to the bound that exists to say
+ * which *bookcases* a move may pick up, and two states nobody chose came out of
+ * it. Both are reached through the rule editor's own guidance, both are
+ * arrangements #430 item 1 deliberately keeps legal, and the band now carries
+ * `end` for the run and `limit` for the move so each caller says which it is
+ * asking for.
+ */
+describe('a run that stops part way down a bookcase', () => {
+  /**
+   * Fiction over two bookcases with non-fiction's rule on the third plank of the
+   * second, which leaves `2A` and `2B` flowing on from fiction.
+   *
+   * `runFrom` has always given those two to fiction: a run runs from its rule's
+   * entry area until the next area any rule points at, and the next such area is
+   * `2C`. The band stopped at bookcase 2 entire, so they belonged to nobody.
+   */
+  const fictionRunsOntoNonfictionsBookcase = async (): Promise<void> => {
+    await repository.add(asked('fiction', 'area', 'b'))
+    await repository.add(asked('fiction', 'shelf', 'm'))
+    await repository.add(asked('fiction', 'area', 'p'))
+    await repository.add(asked('fiction', 'area', 'q'))
+    await alsoBelongsHere('genre/non-fiction', await plankOf(2, 2), 'Non-fiction here')
+  }
+
+  it('runs on to the plank before the next entry, not to the bookcase before it', async () => {
+    await fictionRunsOntoNonfictionsBookcase()
+
+    // `2A` and `2B` are fiction's, because a run stops at an area and the next
+    // area a rule points at is `2C`. The bookcase bound dropped both.
+    expect(drawn(await runAreasOf(db, 'fiction'))).toEqual([
+      '1:0@', '1:1@b', '2:0@m', '2:1@p',
+    ])
+  })
+
+  it('keeps the cuts somebody made on those planks', async () => {
+    await fictionRunsOntoNonfictionsBookcase()
+
+    // Three boundaries went in and three come back. Bounding at the bookcase
+    // answered one, so the shelf cut onto `2A` and the cut at `2B` were offered
+    // by no read and could be acted on by nobody.
+    expect(said(await repository.inRange('fiction'))).toEqual([
+      'area@b#0', 'shelf@m#1', 'area@p#2',
+    ])
+  })
+
+  it('lands a book on the plank flowing on from the run, not on the one before', async () => {
+    await fictionRunsOntoNonfictionsBookcase()
+
+    // `mm` is past `2A`'s anchor and short of `2B`'s, so `runFrom` and `areaFor`
+    // put it on `2A`. The band ended fiction's run at `1B`, so the layout drew
+    // it there instead, which is the drift below said one book at a time.
+    const run = await runAreasOf(db, 'fiction')
+    expect(areaOfKey(run, 'mm')?.id).toBe(await plankOf(2, 0))
+  })
+
+  it('leaves the next run\'s entry plank standing when this run gives one up', async () => {
+    await fictionRunsOntoNonfictionsBookcase()
+
+    // The cut at `p` is dragged up above the one onto bookcase 2, which is one
+    // reanchor and leaves fiction with one plank on that piece instead of two.
+    // So bookcase 2 is half inside this run and half outside it, which is the
+    // shape `writeBoundaries` had no bound for at this end: `2B` is fiction's to
+    // give up and `2C`, a plank standing past everything fiction derives and
+    // holding somebody's rule, is not fiction's to take off the face.
+    await repository.reanchor(await plankOf(2, 1), 'c')
+
+    expect(await furniture()).toEqual([
+      { fixture: 1, position: 0, starts_at: '' },
+      { fixture: 1, position: 1, starts_at: 'b' },
+      { fixture: 1, position: 2, starts_at: 'c' },
+      { fixture: 2, position: 0, starts_at: 'm' },
+      { fixture: 2, position: 2, starts_at: 'q' },
+      { fixture: 4, position: 0, starts_at: '' },
+    ])
+  })
+
+  it('puts the book where the rules put it, which is what the drift check asks', async () => {
+    await fictionRunsOntoNonfictionsBookcase()
+    await shelve('Wolf Hall', 'fiction', 'mm')
+
+    expect((await areaDisagreements(db)).map(describeAreaDisagreement)).toEqual([])
+  })
+})
+
+/**
+ * The worse of the two, and the one with no symptom at all.
+ *
+ * Two runs beginning on one bookcase made the earlier band's limit and its start
+ * the same number, so `runAreasOf` asked for `f.position >= 1 AND f.position < 1`
+ * and fiction came back with no run. Not an error and not a warning: a range
+ * that simply was not there, with the planks somebody had cut still standing on
+ * the bookcase and every book drawn on the first of them.
+ *
+ * The arrangement is one press of "say what belongs here" on a plank of a
+ * bookcase a run already opens on. #430 item 1 keeps that legal and #463, #486,
+ * #490 and this all rest on it, so nothing here refuses it.
+ */
+describe('two runs beginning on one bookcase', () => {
+  const nonfictionOpensAtTheThirdPlankOfFictionsBookcase = async (): Promise<void> => {
+    await repository.add(asked('fiction', 'area', 'b'))
+    await repository.add(asked('fiction', 'area', 'c'))
+    await alsoBelongsHere('genre/non-fiction', await plankOf(1, 2), 'Non-fiction here')
+  }
+
+  it('leaves the earlier range a run, bounded at the later one\'s plank', async () => {
+    await nonfictionOpensAtTheThirdPlankOfFictionsBookcase()
+
+    expect(drawn(await runAreasOf(db, 'fiction'))).toEqual(['1:0@', '1:1@b'])
+    expect(drawn(await runAreasOf(db, 'nonfiction'))).toEqual(['1:2@c'])
+  })
+
+  it('leaves the earlier range its boundaries', async () => {
+    await nonfictionOpensAtTheThirdPlankOfFictionsBookcase()
+
+    // One cut, at `b`, which is the one still fiction's. With no run there was
+    // no boundary list either, so the shelves screen drew every fiction book on
+    // `1A` and offered nothing that could move any of them.
+    expect(said(await repository.inRange('fiction'))).toEqual(['area@b#0'])
+  })
+
+  it('lands a book on a plank of the run rather than on nothing at all', async () => {
+    await nonfictionOpensAtTheThirdPlankOfFictionsBookcase()
+
+    const run = await runAreasOf(db, 'fiction')
+    expect(areaOfKey(run, 'bb')?.id).toBe(await plankOf(1, 1))
+  })
+
+  it('leaves the later run\'s plank standing when the earlier one is written', async () => {
+    await nonfictionOpensAtTheThirdPlankOfFictionsBookcase()
+
+    // A boundary act on fiction, which reconciles fiction's areas. `1C` stands
+    // on the piece fiction opens on and is not fiction's, so nothing here may
+    // take it off the face — the same claim #490 made about `2A` and `2B`, at
+    // the other end of the run.
+    await repository.add(asked('fiction', 'area', 'bb'))
+
+    expect(await furniture()).toEqual([
+      { fixture: 1, position: 0, starts_at: '' },
+      { fixture: 1, position: 1, starts_at: 'b' },
+      { fixture: 1, position: 2, starts_at: 'c' },
+      { fixture: 4, position: 0, starts_at: '' },
+    ])
+  })
+
+  it('puts every book where the rules put it, which is what the drift check asks', async () => {
+    await nonfictionOpensAtTheThirdPlankOfFictionsBookcase()
+    await shelve('Wolf Hall', 'fiction', 'bb')
+    await shelve('The Selfish Gene', 'nonfiction', 'cc')
+
+    expect((await areaDisagreements(db)).map(describeAreaDisagreement)).toEqual([])
+  })
+})
+
+/**
+ * The next site, found by asking where else a run is cut (#499).
+ *
+ * `startsARun` cuts a run in two places: an area a rule points at, and an area
+ * given an ordering of its own, which is self-contained and takes no overflow.
+ * `runFrom` has always read both. `nextRunStartAfter` and the band read only the
+ * first, so a plank somebody had set to order by title headed a run for the
+ * domain and headed nothing for the furniture — the same one-question-two-answers
+ * this family is made of, reached by a different button, and the dialog on that
+ * button says "would order itself, so nothing overflows into it" before anybody
+ * presses it.
+ */
+describe('a plank that orders itself', () => {
+  const secondPlankOrdersItself = async (): Promise<void> => {
+    await repository.add(asked('fiction', 'area', 'b'))
+    await repository.add(asked('fiction', 'area', 'c'))
+    await db.run(
+      'UPDATE area SET sort_strategy = \'title\' WHERE id = ?',
+      [await plankOf(1, 2)],
+    )
+  }
+
+  it('ends the run above it, exactly as a rule on it would', async () => {
+    await secondPlankOrdersItself()
+
+    expect(drawn(await runAreasOf(db, 'fiction'))).toEqual(['1:0@', '1:1@b'])
+  })
+
+  it('is not somebody else\'s to retire', async () => {
+    await secondPlankOrdersItself()
+    await repository.add(asked('fiction', 'area', 'bb'))
+
+    expect(await furniture()).toEqual([
+      { fixture: 1, position: 0, starts_at: '' },
+      { fixture: 1, position: 1, starts_at: 'b' },
+      { fixture: 1, position: 2, starts_at: 'c' },
+      { fixture: 4, position: 0, starts_at: '' },
+    ])
+  })
+
+  it('agrees with the rules about the book above it', async () => {
+    await secondPlankOrdersItself()
+    await shelve('Wolf Hall', 'fiction', 'bb')
+
+    expect((await areaDisagreements(db)).map(describeAreaDisagreement)).toEqual([])
+  })
+})

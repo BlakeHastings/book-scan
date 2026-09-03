@@ -1111,13 +1111,13 @@ export async function writeBoundaries(
     || (area.fixturePosition === band.end.shelf && area.position < band.end.area))
 
   /*
-   * The plank neither retirement loop below may reach, on the piece it stands
-   * on. **The run's last piece carries planks the run does not own**, exactly
-   * as its first piece does, and #499 is what happens when only the first is
-   * accounted for: a run ending at `2C` derives `2A` and `2B`, so the tail loop
-   * would see `2C` sitting past the last derived position and take non-fiction's
-   * entry plank off its face, and a run that had shrunk off the piece entirely
-   * would have the whole-piece loop take all three.
+   * The plank the tail loop below may not reach, on the piece it stands on.
+   *
+   * **The run's last piece carries planks the run does not own**, exactly as its
+   * first piece does, and #499 is what happens when only the first is accounted
+   * for: a run ending at `2C` derives `2A` and `2B`, so the tail would see `2C`
+   * sitting past the last derived position and take the next run's entry plank
+   * off its face.
    *
    * Undefined on every other piece, which is every piece the run owns whole.
    */
@@ -1243,11 +1243,19 @@ export async function writeBoundaries(
    */
   for (const [fixturePosition, fixture] of existing) {
     if (wanted.has(fixturePosition)) continue
-    const stop = beyond(fixturePosition)
-    for (const [position, id] of fixture.areas) {
-      if (stop !== undefined && position >= stop) continue
-      await retireOrRemove(db, id, position)
-    }
+    /*
+     * **And it stops at `limit` and not at `end`, which is #420 exactly.**
+     * Emptying a bookcase is a statement about a whole piece, so the piece bound
+     * is the one it may go up to: a piece another run begins on is that run's
+     * furniture, whether the plank it begins at is the top one or the last.
+     * `fixturesIn` reads the piece the run ends on so the planks there can be
+     * found rather than made twice, and this loop is the reason that has to be
+     * the only thing done with them. Bounding here at `end` instead took the
+     * three shelves above somebody's comics rule off the hall bookcase, which is
+     * the state #420 is about, arrived at from the other side.
+     */
+    if (band.limit !== undefined && fixturePosition >= band.limit) continue
+    for (const [position, id] of fixture.areas) await retireOrRemove(db, id, position)
   }
 }
 
