@@ -29,6 +29,7 @@ import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { Covers } from '../design/Covers'
+import { Picked } from '../design/Finding'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
@@ -208,5 +209,103 @@ describe('the counts on the library screen', () => {
     expect(library).not.toMatch(/\$\{grouped\(total\)\} books/)
     expect(library).toMatch(/plural\(counts\.total, 'book'\)/)
     expect(library).toMatch(/plural\(total, 'book'\)/)
+  })
+})
+
+/**
+ * What the library says when a count has opened it on part of the collection.
+ *
+ * #459: the first screen's "2 checked out" opened this on twenty-seven books
+ * under a row reading "Every book", which is the count's promise broken and the
+ * screen agreeing that nothing had happened. The row above the books exists to
+ * say what is being shown, so it has to be able to say this.
+ *
+ * The row itself is `Picked`, which takes props and renders, so that half is
+ * markup. The wiring is read as a call for the reason the rest of this file
+ * gives: `LibraryPane` sits inside four providers and fetches, and what is
+ * being claimed is about a call rather than about a particular tree.
+ */
+describe('a library narrowed to one state a book is in', () => {
+  it('says what it is showing instead of "Every book"', () => {
+    const row = renderToStaticMarkup(
+      <Picked showing="Out of the house" note="2 books" />,
+    )
+
+    expect(row).toContain('Out of the house')
+    expect(row, 'the row still claims to be showing everything').not.toContain('Every book')
+  })
+
+  it('still says "Every book" when nothing is narrowing it', () => {
+    expect(renderToStaticMarkup(<Picked note="27 books" />)).toContain('Every book')
+  })
+
+  it('asks the listing for that state rather than filtering what came back', () => {
+    // A page of sixty filtered in the browser is a page of however many the
+    // narrowing left, and "More" would then fetch sixty more of the wrong
+    // question. The narrowing is part of the query or it is not a narrowing.
+    expect(source('LibraryPane.tsx')).toMatch(/state: showing \?\? undefined/)
+  })
+
+  it('offers the way back out, which the tags screen cannot give', () => {
+    const library = source('LibraryPane.tsx')
+
+    expect(library).toContain('Show every book')
+    expect(library).toMatch(/onPress=\{\(\) => setShowing\(null\)\}/)
+  })
+
+  /**
+   * Found by looking at it, on the press this change is for.
+   *
+   * The boards are cut from the areas books stand in, so a library narrowed to
+   * the books that are *not* on a bookcase drew no board at all: a header
+   * reading "2 of 27 books" over an empty page, for somebody who had just
+   * pressed a count of two. The chip kept the promise and the drawing broke it,
+   * which is the same defect one layer down.
+   */
+  it('does not draw a picture of a bookcase for books that are not on one', () => {
+    const library = source('LibraryPane.tsx')
+
+    // The view is decided rather than taken, and every drawing reads the
+    // decision. A view left reading `look` here is a view the narrowing cannot
+    // turn off.
+    expect(library).toMatch(/const drawn = standing \|\| look !== 'spines' \? look : 'list'/)
+    for (const view of ['covers', 'list', 'spines']) {
+      expect(library, `the ${view} view still draws on the chosen look`)
+        .toMatch(new RegExp(`drawn === '${view}'`))
+    }
+    // And the switcher stops offering it, rather than offering a press that
+    // redraws the same thing.
+    expect(library).toMatch(/looks=\{looks\}/)
+  })
+})
+
+/**
+ * Three reasons a book is off a bookcase, and a door for the one with an answer.
+ *
+ * The boards drew every book standing somewhere and said the rest in a sentence
+ * nobody could press: "3 books are not on a bookcase, so they are not drawn
+ * above." Lent, given away and never filed are three different things to do
+ * about a book, and the first is the one this app has a screen for.
+ */
+describe('the books the boards do not draw', () => {
+  it('counts the lending ones apart from the rest', () => {
+    const spines = viewOf('LibraryPane.tsx', 'SpineView')
+
+    expect(spines, 'the boards still say one number for three situations')
+      .not.toMatch(/\$\{grouped\(off\)\} books are not on a bookcase/)
+    expect(spines).toMatch(/off\.out/)
+  })
+
+  it('makes the lending ones a way in rather than a sentence', () => {
+    const spines = viewOf('LibraryPane.tsx', 'SpineView')
+    const button = /<Button[\s\S]*?<\/Button>/.exec(spines)?.[0] ?? ''
+
+    expect(button, 'the boards offer nothing to press at all').not.toBe('')
+    expect(button, 'the lending count is still a sentence').toContain('out of the house')
+    expect(button).toContain('onOut()')
+  })
+
+  it('opens this same library on them, rather than a fourth list of books', () => {
+    expect(source('LibraryPane.tsx')).toMatch(/onOut=\{\(\) => setShowing\(CHECKED_OUT\)\}/)
   })
 })

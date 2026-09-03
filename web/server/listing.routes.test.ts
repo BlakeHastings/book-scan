@@ -145,6 +145,78 @@ describe('the whole collection, which is what the library draws', () => {
   })
 })
 
+/**
+ * The narrowing the first screen's "checked out" count needed (#459).
+ *
+ * That count and the one beside it opened the same unfiltered library, so
+ * pressing "2 checked out" produced twenty-seven books and nothing said what
+ * had happened. A count is a promise about what you will see, which is the
+ * sentence #436 made the queue keep; this is the same promise one screen along
+ * and it is SQL, so it is asserted over HTTP against a real database.
+ */
+describe('narrowing the listing to one state a book is in', () => {
+  it('answers only the books that are out of the house', async () => {
+    const dune = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+    await aBook({ title: 'Cosmos', authors: ['Carl Sagan'], genre: NON_FICTION_SLUG })
+    await post(`/api/books/${dune}/checkout`, { out: true })
+
+    expect(await titles('?range=all&state=checked_out')).toEqual(['Dune'])
+    // And the whole collection is still the denominator, because that is what
+    // the number under the library's title is.
+    const { body } = await call('/api/books?range=all&state=checked_out')
+    expect(body.total).toBe(1)
+    expect(body.counts.total).toBe(2)
+  })
+
+  it('answers the books that are on a bookcase for the other state', async () => {
+    const dune = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+    await aBook({ title: 'Cosmos', authors: ['Carl Sagan'], genre: NON_FICTION_SLUG })
+    await post(`/api/books/${dune}/checkout`, { out: true })
+
+    expect(await titles('?range=all&state=shelved')).toEqual(['Cosmos'])
+  })
+
+  it('narrows with a tag rather than instead of one', async () => {
+    const dune = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+    const cosmos = await aBook({
+      title: 'Cosmos', authors: ['Carl Sagan'], genre: NON_FICTION_SLUG,
+    })
+    await post(`/api/books/${dune}/checkout`, { out: true })
+    await post(`/api/books/${cosmos}/checkout`, { out: true })
+
+    expect(await titles(`?range=all&state=checked_out&tag=${NON_FICTION_SLUG}`))
+      .toEqual(['Cosmos'])
+  })
+
+  /*
+   * Refused rather than ignored, because ignoring it answers the whole
+   * catalogue, which is the exact behaviour this field exists to stop. A
+   * narrowing that silently does nothing is a count that silently breaks its
+   * promise, and nothing on the screen would say so.
+   */
+  it('refuses a state a catalogued book is never in', async () => {
+    await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+
+    const { status, body } = await call('/api/books?range=all&state=scanned')
+
+    expect(status).toBe(400)
+    expect(body.error).toBe('"scanned" is not a state a catalogued book is in.')
+  })
+
+  it('refuses a word that is not a state at all', async () => {
+    const { status } = await call('/api/books?range=all&state=lent')
+    expect(status).toBe(400)
+  })
+
+  it('narrows nothing when nobody asks', async () => {
+    const dune = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
+    await aBook({ title: 'Cosmos', authors: ['Carl Sagan'], genre: NON_FICTION_SLUG })
+    await post(`/api/books/${dune}/checkout`, { out: true })
+
+    expect(await titles('?range=all')).toEqual(['Dune', 'Cosmos'])
+  })
+})
+
 /*
  * The half of a placement a drawing of the room reads, and the half that used
  * not to be on the wire at all.

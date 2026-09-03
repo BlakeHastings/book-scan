@@ -94,6 +94,7 @@ import {
   type PlacementStrip,
 } from '../lib/api'
 import { clothFor, pagesOf, standing } from '../lib/bookLook'
+import { whenSaid } from '../lib/carryWords'
 import { coverThumbUrl, coverUrl } from './PlacementCard'
 import { rememberedFirstPicture } from '../lib/firstPicture'
 import { grouped } from '../lib/say'
@@ -276,9 +277,27 @@ export function BookPane() {
         button that goes nowhere.
       */}
       <Actions>
+        {/*
+          **"Check it in", and it starts checking the book in** (#459).
+
+          It said "Put it back" and opened the screen that corrects a record,
+          where a button called "Check in" opened the step that places a book.
+          So one act had two words and three screens, and the first of the three
+          read like it had done something. That is the fault "It moved" had
+          taken off it in #433, arrived at from the other direction.
+
+          The word is the one the rest of the app already says. This page says
+          "Check it out" and the record screen says "Check out" and "Check in",
+          and `docs/shelving.md` has one way to say where a book is: the
+          shelving step. So this is the same walk `moveBook` is, and the record
+          screen is no longer on the way to it. Coming back is still a physical
+          statement made at the shelf, which is why it is a step and not a tap:
+          `api.updateAndShelve` writes the plank and the check-in together, and
+          neither is a thing this screen knows.
+        */}
         {out ? (
-          <Button tone="secondary" small onPress={() => void openBook(book.id)}>
-            Put it back
+          <Button tone="secondary" small onPress={() => void moveBook(book.id)}>
+            Check it in
           </Button>
         ) : (
           <Button tone="secondary" small onPress={() => void checkOut(true)}>
@@ -317,8 +336,24 @@ export function BookPane() {
           looking at the checked-out book with the heading taken off.
         */}
         {out ? (
+          /*
+            **And since when** (#459). "Out of the house" was the whole of what
+            this page said about a lent book, while `checked_out_at` was in the
+            answer it had already read: the one screen that rendered the date
+            was the record screen, reached from here or from a list of misfiled
+            books, and a lent book is not misfiled. The question somebody has
+            three weeks later is how long it has been gone, and it was on no
+            screen they had a reason to open.
+
+            Said the way the rest of the app says a day, through `whenSaid`:
+            "yesterday" inside the week and "on 24 August" beyond it, because a
+            date three weeks old is a puzzle and a weekday three weeks old is
+            worse. Two lines rather than one sentence, because the place and the
+            day are two facts and the first of them is the one somebody came for.
+          */
           <div>
             <Place quiet>Out of the house</Place>
+            <p className="wf-said">Checked out {whenSaid(book.checked_out_at!.slice(0, 10))}.</p>
           </div>
         ) : strip ? (
           <div className="wf-bleed">

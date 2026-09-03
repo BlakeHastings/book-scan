@@ -62,7 +62,8 @@ import { List, Row } from '../design/List'
 import { Nothing } from '../design/Card'
 import { Shelf, type ShelfItem } from '../design/Shelf'
 import { TopBar } from '../design/Chrome'
-import { areaRuns } from '../lib/areaRuns'
+import { areaRuns, type OffTheBookcase } from '../lib/areaRuns'
+import { CHECKED_OUT, SHELVED, type BookState } from '../../domain/books/state'
 import { clothFor, coverArt, filedAs, pagesOf, spineArt } from '../lib/bookLook'
 import { plural } from '../lib/carryWords'
 import { grouped } from '../lib/say'
@@ -75,9 +76,58 @@ import { More } from './More'
 import { useRoomMenu } from './RoomMenu'
 import type { FiledBookRow } from '../lib/api'
 
+/**
+ * What each state of a catalogued book is called, on the row that says what the
+ * library is showing.
+ *
+ * Three, because `catalogued_books` holds three and the other four states are
+ * the queue, which is a different screen. The words are the ones the app
+ * already says: the book's own page has read "Out of the house" since #282, and
+ * saying "checked out" here and that there would be two vocabularies for one
+ * fact, which is what #459 is about in the first place.
+ *
+ * `shelved` is here for completeness rather than because a count opens it. It
+ * is a narrowing somebody can be handed and the row must be able to name every
+ * one of those.
+ */
+const SAID_OF: Record<'shelved' | 'checked_out' | 'withdrawn', string> = {
+  shelved: 'On a bookcase',
+  checked_out: 'Out of the house',
+  withdrawn: 'Gone from the collection',
+}
+
+/** Whether a state is one this screen can name. See `SAID_OF`. */
+const nameable = (state: BookState): state is keyof typeof SAID_OF => state in SAID_OF
+
+/**
+ * The books off a bookcase that lending does not account for, said in words.
+ *
+ * Two clauses at most, and only where there is something to say: a book given
+ * away and a book nobody has filed yet are both absent from the drawing and are
+ * absent for reasons that have nothing to do with each other. Nothing here is a
+ * door, because neither has a screen to be a door to — the never-placed are the
+ * queue's, which is one press in the tab bar, and "gone from the collection" is
+ * a record rather than a job.
+ */
+function restSaid(off: OffTheBookcase): string {
+  const parts: string[] = []
+  if (off.gone > 0) {
+    parts.push(off.gone === 1
+      ? 'One is gone from the collection'
+      : `${grouped(off.gone)} are gone from the collection`)
+  }
+  if (off.unplaced > 0) {
+    parts.push(off.unplaced === 1
+      ? 'one has never been put anywhere'
+      : `${grouped(off.unplaced)} have never been put anywhere`)
+  }
+  return `${parts.join(', and ')}, so ${
+    off.total - off.out === 1 ? 'it is' : 'they are'} not drawn above.`
+}
+
 export function LibraryPane() {
   const { setRoute } = useNavigation()
-  const { look, setLook, narrowing } = useBrowsing()
+  const { look, setLook, narrowing, showing, setShowing } = useBrowsing()
   const { viewBook } = useOpenBook()
   /* The corner, and the sheet it opens (#350). The same one the first screen
      draws, from the same place, so the two cannot drift. */
@@ -86,10 +136,32 @@ export function LibraryPane() {
   const listing = useListing({
     range: 'all',
     tags: narrowing.map((tag) => tag.slug),
+    state: showing ?? undefined,
   })
 
   const { books, total, counts, complete, loading, error } = listing
-  const narrowed = narrowing.length > 0
+  const narrowed = narrowing.length > 0 || showing !== null
+
+  /*
+   * **A picture of a bookcase cannot draw a book that is not on one.**
+   *
+   * The boards are cut from the areas the books stand in, so a library narrowed
+   * to the books that are out of the house draws no board at all: found by
+   * looking at it, on the very press this change is for, and the screen was a
+   * count of two over an empty page. The list is the one view that can say
+   * where a book that is not on a bookcase belongs, and `ShelfView` has said so
+   * since #405 in the same words: a spine row and a wall of covers are pictures
+   * of a bookcase, and a line of text is not a picture.
+   *
+   * The covers survive the narrowing, because a lent book still has a front. So
+   * the switcher offers two rather than three, which is the `looks` prop's own
+   * reason for existing (the queue offers two of these three), and a view
+   * somebody chose earlier that this narrowing cannot draw falls back to the
+   * list rather than to nothing.
+   */
+  const standing = showing === null || showing === SHELVED
+  const looks = standing ? undefined : (['covers', 'list'] as const)
+  const drawn = standing || look !== 'spines' ? look : 'list'
 
   /*
    * Nothing has come back yet.
@@ -124,24 +196,63 @@ export function LibraryPane() {
       */}
       <Filter
         tags={narrowing.map((tag) => tag.label)}
+        /* What the count on the first screen opened this on (#459). Without it
+           the row said "Every book" over two of twenty-seven. */
+        showing={showing && nameable(showing) ? SAID_OF[showing] : undefined}
         note={counts ? plural(total, 'book') : ''}
         onTags={() => setRoute('tags')}
         onFind={() => setRoute('find')}
-        look={look}
+        look={drawn}
+        looks={looks}
         onLook={setLook}
       />
 
+      {/*
+        The way back out of a narrowing that is not a tag.
+
+        A tag comes off on the tags screen, which is where the row above leads,
+        and this one is not on it. Without this, a library opened on the two
+        books that are out of the house is a library somebody is stuck in: every
+        other door into it (the tab, the count that means the whole collection)
+        does clear the narrowing, but none of them is on this screen.
+      */}
+      {showing && (
+        <div className="wf-under">
+          <Button tone="quiet" onPress={() => setShowing(null)}>
+            Show every book
+          </Button>
+        </div>
+      )}
+
       {error && <Nothing said="The library could not be read." >{error}</Nothing>}
 
+      {/* Which empty this is, because "no book carries all of those" over a
+          library narrowed to the books that are out of the house is an answer
+          about tags to somebody who chose none (#459). */}
       {!error && !loading && total === 0 && (
-        <Nothing said={narrowed ? 'No book here carries all of those.' : 'Nothing is catalogued yet.'}>
-          {narrowed && <p>Take a tag off to see more of the collection.</p>}
+        <Nothing
+          said={
+            narrowing.length > 0
+              ? 'No book here carries all of those.'
+              : showing
+                ? 'No book is in that state just now.'
+                : 'Nothing is catalogued yet.'
+          }
+        >
+          {narrowing.length > 0 && <p>Take a tag off to see more of the collection.</p>}
         </Nothing>
       )}
 
-      {look === 'covers' && <CoverView books={books} onOpen={open} />}
-      {look === 'list' && <ListView books={books} onOpen={open} />}
-      {look === 'spines' && <SpineView books={books} complete={complete} onOpen={open} />}
+      {drawn === 'covers' && <CoverView books={books} onOpen={open} />}
+      {drawn === 'list' && <ListView books={books} onOpen={open} />}
+      {drawn === 'spines' && (
+        <SpineView
+          books={books}
+          complete={complete}
+          onOpen={open}
+          onOut={() => setShowing(CHECKED_OUT)}
+        />
+      )}
 
       {!complete && total > 0 && (
         <More total={total} loading={loading} onMore={listing.more} />
@@ -277,11 +388,13 @@ function ListView({ books, onOpen }: { books: FiledBookRow[]; onOpen: (book: Fil
  * one bookcase twice, in two places, after a tag change (#434).
  */
 function SpineView({
-  books, complete, onOpen,
+  books, complete, onOpen, onOut,
 }: {
   books: FiledBookRow[]
   complete: boolean
   onOpen: (book: FiledBookRow) => void
+  /** Show the books that are out of the house, which is this screen narrowed. */
+  onOut: () => void
 }) {
   const { runs, off } = areaRuns(books, complete)
 
@@ -329,12 +442,35 @@ function SpineView({
         )
       })}
 
-      {off > 0 && (
-        <p className="wf-said">
-          {off === 1
-            ? 'One book is not on a bookcase, so it is not drawn above.'
-            : `${grouped(off)} books are not on a bookcase, so they are not drawn above.`}
-        </p>
+      {/*
+        Why they are not drawn, and a door for the half of them there is
+        something to do about (#459).
+
+        It was one sentence for three different situations: a book somebody lent
+        to a friend, a book they gave away, and a book they photographed and
+        never filed. "Not on a bookcase" is true of all three and useful about
+        none of them, and it was untappable, so the one screen that says when a
+        lent book went out was reachable only through a list of misfiled books.
+
+        The lending half is a button because it is the half with an answer: it
+        opens this same library on those books, where each one's page says when
+        it went and offers to check it in. The other two are said and not
+        offered, which is honest rather than lazy: there is no screen for "given
+        away" and the never-placed are already the queue's business.
+      */}
+      {off.total > 0 && (
+        <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
+          {off.out > 0 && (
+            <Button tone="quiet" onPress={() => onOut()}>
+              {off.out === 1
+                ? 'One book is out of the house'
+                : `${grouped(off.out)} books are out of the house`}
+            </Button>
+          )}
+          {off.total - off.out > 0 && (
+            <p className="wf-said">{restSaid(off)}</p>
+          )}
+        </div>
       )}
     </div>
   )

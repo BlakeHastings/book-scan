@@ -681,6 +681,42 @@ describe('what a count opens', () => {
     expect(opened).toEqual([undefined])
   })
 
+  /**
+   * The same promise, one screen along (#459).
+   *
+   * "2 checked out" and "27 catalogued" both opened the plain library, so the
+   * smaller number produced the larger list and the arriving screen said "Every
+   * book / 27 books" either way. Two counts, one destination, and nothing
+   * saying which of them had been pressed.
+   */
+  const opening = (word: string) => {
+    const opened: (string | undefined)[] = []
+    const items = pressable({
+      counts: { ...counts, checkedOut: 2 },
+      onLibrary: (showing?: string) => opened.push(showing),
+    })
+    items.find((one) => one.word === word)!.onPress()
+    return opened
+  }
+
+  it('opens the library on the books that are out of the house', () => {
+    expect(opening('checked out')).toEqual(['checked_out'])
+  })
+
+  /* And the count that means the whole collection says so, rather than leaving
+     whatever the last press narrowed to in place. */
+  it('opens the whole library from the count that means all of it', () => {
+    expect(opening('catalogued')).toEqual([undefined])
+  })
+
+  it('opens the whole library from the tab bar, which counts nothing', () => {
+    const opened: (string | undefined)[] = []
+    const screen = tree({ onLibrary: (showing?: string) => opened.push(showing) })
+    const tabs = (screen.props as { tabs: Record<string, () => void> }).tabs
+    tabs.library!()
+    expect(opened).toEqual([undefined])
+  })
+
   /* The other three are about books that are not in the queue at all, and this
      is here so that a later hand wiring a filter through does not wire one
      through these by accident. */

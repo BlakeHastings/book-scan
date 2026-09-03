@@ -4,6 +4,7 @@ import type {
 } from '../../shared/shelving'
 import type { FailureCounts } from '../../shared/captureFailure'
 import { genreOfRange, type GenreSlug } from '../../domain/tagging/genre'
+import type { BookState } from '../../domain/books/state'
 
 /**
  * Naming boundary, recorded here because this file is the only client to
@@ -303,6 +304,16 @@ export interface BookRow {
   edge_image: string
   /** Set while the book is off the shelf; null while it is on one. */
   checked_out_at: string | null
+  /**
+   * Which of the seven states this book is in, which is why it is off a shelf.
+   *
+   * On the wire since `books.state` existed and undeclared until #459: the
+   * listing selects every column of `catalogued_books`. It is declared now
+   * because the library needed to tell three reasons apart, and had exactly one
+   * sentence for all of them: "3 books are not on a bookcase". Lent, given away
+   * and never put anywhere are three different things to do about a book.
+   */
+  state: BookState
   /** Publisher cover from the catalogue, for comparing against the real book. */
   cover_image: string
   /**
@@ -361,6 +372,14 @@ export interface BookQuery {
   isbn?: string
   /** Slugs, all of which a book must carry, itself or under. */
   tags?: readonly string[]
+  /**
+   * One of the three states a catalogued book is in. Absent means all of them.
+   *
+   * What lets the first screen's "checked out" count open the books it counted
+   * (#459). It and "catalogued" opened the same unfiltered library, so two
+   * numbers had one destination and neither said what had happened.
+   */
+  state?: BookState
   limit?: number
   offset?: number
 }
@@ -370,6 +389,7 @@ function bookQuery(query: BookQuery): string {
   if (query.range) asked.set('range', query.range)
   if (query.q) asked.set('q', query.q)
   if (query.isbn) asked.set('isbn', query.isbn)
+  if (query.state) asked.set('state', query.state)
   for (const tag of query.tags ?? []) asked.append('tag', tag)
   if (query.limit !== undefined) asked.set('limit', String(query.limit))
   if (query.offset) asked.set('offset', String(query.offset))
@@ -1669,7 +1689,28 @@ export const api = {
 
   setCheckedOut,
 
-  checkedOut: () => request<{ books: FiledBookRow[] }>('/api/checked-out'),
+  /*
+   * `checkedOut()` was here and is gone (#459).
+   *
+   * It asked `/api/checked-out`, which answers every book that is out of the
+   * house in one response with no page, and **nothing in this app ever called
+   * it.** Found by the sweep this issue asked for: from the act's primitives,
+   * everything that reads a lending fact, walked to the screen it draws on. This
+   * one drew on none. So the app had a whole list of lent books available and no
+   * door to it, at the same time as a count on the first screen that opened the
+   * unfiltered library.
+   *
+   * That door exists now and it is `findBooks({ state: 'checked_out' })`, which
+   * answers the same books with a page, a total and the collection's counts
+   * beside them, so the library can say "2 of 27". This is removed for exactly
+   * the reason `listBooks` below it was: what was left of it was to be the first
+   * thing the next person found, and what it would have handed them is every
+   * lent book in one response.
+   *
+   * The route stays. `store.checkedOut()` is what `/api/shelves` reads to put an
+   * absent book in the gap it belongs in, and deleting a route with a live
+   * reader on the strength of its wrapper having none is a different change.
+   */
 
   backfillCovers: (limit = 10) =>
     request<{ tried: number; fetched: number; remaining: number }>(

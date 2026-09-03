@@ -42,6 +42,7 @@ function book(overrides: Partial<FiledBookRow> = {}): FiledBookRow {
     back_image: '',
     edge_image: '',
     checked_out_at: null,
+    state: 'shelved',
     cover_image: '',
     front_crop: '',
     back_crop: '',

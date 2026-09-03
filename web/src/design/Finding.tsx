@@ -144,11 +144,24 @@ export function SearchField({
  */
 export function Picked({
   tags = [],
+  showing,
   note,
   onPress,
 }: {
   /** The chosen tags, as labels. */
   tags?: string[]
+  /**
+   * A narrowing that is not a tag, said in words. Absent is every book.
+   *
+   * "Every book" was drawn whenever no tag was chosen, which was true until a
+   * count could open this screen on part of the collection: pressing "2 checked
+   * out" produced a library headed "Every book / 27 books" (#459). A row whose
+   * whole job is to say what is being shown has to say this one too.
+   *
+   * Drawn beside the tags rather than among them, because a tag is a thing
+   * somebody said about a book and this is a thing that happened to it.
+   */
+  showing?: string
   /** How many books that leaves. Words, not a bare number. */
   note: string
   onPress?: () => void
@@ -159,8 +172,9 @@ export function Picked({
   return (
     <button type="button" className="wf-picked" onClick={onPress}>
       <span className="wf-picked__what">
+        {showing && <span className="wf-tag wf-tag--on">{showing}</span>}
         {tags.length === 0 ? (
-          <span className="wf-picked__all">Every book</span>
+          !showing && <span className="wf-picked__all">Every book</span>
         ) : (
           shown.map((tag) => (
             <span key={tag} className="wf-tag wf-tag--on">
@@ -312,6 +326,7 @@ const NAME: Record<Look, string> = {
  */
 export function Filter({
   tags,
+  showing,
   note = '',
   onTags,
   onFind,
@@ -322,6 +337,8 @@ export function Filter({
 }: {
   /** The chosen tags, as labels. Nothing chosen says so. */
   tags?: string[]
+  /** A narrowing that is not a tag, said in words. See `Picked`. */
+  showing?: string
   /** How many books that leaves. Words, not a bare number. */
   note?: string
   onTags?: () => void
@@ -357,7 +374,7 @@ export function Filter({
         <div className="wf-filter__lead">{children}</div>
       ) : (
         <>
-          <Picked tags={tags} note={note} onPress={onTags} />
+          <Picked tags={tags} showing={showing} note={note} onPress={onTags} />
           <Round name="Find a book" icon={<IconFind size={20} />} onPress={onFind} />
         </>
       )}

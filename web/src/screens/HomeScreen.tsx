@@ -9,12 +9,14 @@
 
 import { HomePane } from '../components/HomePane'
 import { useRoomMenu } from '../components/RoomMenu'
+import { useBrowsing } from '../app/browsing'
 import { useNavigation } from '../app/navigation'
 import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 
 export function HomeScreen() {
   const { setRoute, openScanner, openQueueOn } = useNavigation()
+  const { openLibraryShowing } = useBrowsing()
   const { counts, queueCounts, carrying, unclaimed, backup, drifting } = useSummary()
   /*
    * The corner, and the sheet it opens (#350). `HomePane` holds no state, so
@@ -44,7 +46,12 @@ export function HomeScreen() {
       onInHand={openScanner}
       corner={room.action}
       menu={room.sheet}
-      onLibrary={() => setRoute('library')}
+      /* The library, on the books the press was about (#459). Same shape as
+         `openQueueOn` below and for the same reason: `openLibraryShowing` sets
+         the narrowing and the route together, so a count cannot open the right
+         screen showing the wrong thing. With nothing named it is every book,
+         which also clears a narrowing left over from a previous visit. */
+      onLibrary={(showing) => openLibraryShowing(showing ?? null)}
       /* The queue, on the books the press was about (#436). `openQueueOn` sets
          the filter and the route together, so a count cannot open the right
          screen showing the wrong thing; with nothing named it is the whole

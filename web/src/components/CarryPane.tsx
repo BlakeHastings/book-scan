@@ -84,7 +84,17 @@ interface Props {
   /** A leave or a put-back is in flight, so neither can be sent twice. */
   busy?: boolean
   onHome: () => void
+  /** The Library, which is where the tab of that name goes (#459). */
   onLibrary: () => void
+  /**
+   * The furniture, which is where the button saying so goes.
+   *
+   * Its own prop since #459, because it was `onLibrary` and the screen wiring
+   * it up handed that the Library: a button reading "See your fixtures" opened
+   * the wall of covers. One name for the tab and one for the button, so neither
+   * can be given the other's screen by a caller reading the prop's name.
+   */
+  onFurniture: () => void
   onQueue: () => void
   onScan: () => void
 }
@@ -133,11 +143,24 @@ function leftBehind(work: CarryWork, onRestore: () => void, busy: boolean) {
 
 export function CarryPane({
   work, onTrip, onChanged, asking = false, onAsk, onKeep, onLeave, onRestore, busy = false,
-  onHome, onLibrary, onQueue, onScan,
+  onHome, onLibrary, onFurniture, onQueue, onScan,
 }: Props) {
+  /*
+   * **The Library tab opens the Library** (#459).
+   *
+   * It was bound to nothing at all, on the reasoning that this screen already
+   * wears that tab, so somebody who pressed it twice watched the heading go on
+   * saying "Books to carry" while the other three tabs worked. A tab that is
+   * dead on one screen is not a tab.
+   *
+   * Wearing the tab is not the fault and is not changed: `Frame` does exactly
+   * this for the book's own page and for the shelves, and on both of them the
+   * tab takes you to the Library proper. This is that arrangement, said in the
+   * map `WfScreen` takes instead.
+   */
   const tabs: Record<TabName, () => void> = {
     home: onHome,
-    library: () => {},
+    library: onLibrary,
     scan: onScan,
     queue: onQueue,
   }
@@ -174,7 +197,7 @@ export function CarryPane({
 
         {leftBehind(work, onRestore, busy)}
 
-        <Button tone="quiet" block onPress={onLibrary}>
+        <Button tone="quiet" block onPress={onFurniture}>
           See your fixtures
         </Button>
       </WfScreen>

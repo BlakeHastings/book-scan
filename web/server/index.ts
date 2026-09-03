@@ -61,6 +61,7 @@ import {
   asConfidence, genreStatedBy, statedGenre,
 } from '../domain/tagging/genre'
 import { TagSlug } from '../domain/tagging/tags'
+import { CATALOGUED_STATES, type BookState } from '../domain/books/state'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { filesOf } from './photographs'
@@ -1941,6 +1942,24 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       tags.push(slug.value)
     }
 
+    /*
+     * Which state, refused rather than ignored when it is not one (#459).
+     *
+     * A narrowing nobody can spell is worse than no narrowing: it answers the
+     * whole catalogue, which is exactly the complaint this field exists to fix,
+     * and a count that opened the wrong list is what sent somebody hunting
+     * through 27 books for the 2 they pressed on. `CATALOGUED_STATES` and not
+     * `BOOK_STATES`, because the other four are not in the relation being read
+     * and asking for one is a question with no rows in it by construction.
+     */
+    const wanted = String(req.query.state ?? '')
+    if (wanted && !(CATALOGUED_STATES as readonly string[]).includes(wanted)) {
+      res.status(400).json({
+        error: `"${wanted}" is not a state a catalogued book is in.`,
+      })
+      return
+    }
+
     const limit = Number(req.query.limit)
     const offset = Number(req.query.offset)
 
@@ -1949,6 +1968,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       words: String(req.query.q ?? ''),
       isbn: String(req.query.isbn ?? ''),
       tags,
+      state: (wanted || undefined) as BookState | undefined,
       limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
       offset: Number.isFinite(offset) && offset > 0 ? offset : undefined,
     })
