@@ -22,6 +22,14 @@ server on `https://0.0.0.0:5173`.
 On the phone, open the **Network** HTTPS address Vite prints, for example
 `https://192.168.0.12:5173`. Both devices need to be on the same wifi.
 
+**Since #521 you have to sign in.** Every route under `/api` is behind a gate, so
+a browser that has never signed in gets `401` from everything, including the
+photographs. In a checkout, `aspire start` opens a development door for you: visit
+`/api/auth/dev/start` once on whatever address you are using and the session lasts
+thirty days. `npm run dev` on its own does not, because that door is opened by an
+environment variable the AppHost sets and nothing else in this repository does.
+`docs/the-gate.md` is the whole of it, and `AGENTS.md` has the two commands.
+
 ## The certificate warning
 
 Safari will show "This Connection Is Not Private". Tap **Show Details**, then
@@ -830,6 +838,15 @@ noticed. The suites worth knowing about:
   on it fails silently rather than loudly: the `COLLATE "C"` declarations that
   keep shelf order in byte order, the connection a transaction is pinned to,
   and the aggregates that come back as strings without a cast.
+- `server/gate.routes.test.ts` and `server/sign-in.routes.test.ts` are #521's,
+  and the first one is unusual enough to say why. It **walks the app's own
+  router stack** rather than asserting a list of paths, finds the gate by name,
+  and counts what is registered on either side of it, because a list of paths in
+  a test file is only the set of doors somebody thought of and the failure this
+  is guarding against is the door they did not. The second runs a whole
+  authorization code flow, PKCE and all, against a provider invented in that file
+  and named nowhere in the app, which is the "adding a provider is configuration"
+  claim demonstrated rather than promised.
 - `server/bookcrop.test.ts` measures the crop detector against generated
   scenes whose true rectangle is known, and prints the figures. The assertion
   that matters is that no crop cut into the book, since that is the failure
