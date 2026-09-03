@@ -764,6 +764,37 @@ arithmetic and `relocateRunTo` in `infrastructure/shelving/areas.ts` is the
 write. The first can produce books in somebody's hands as well, incidentally
 rather than as the request, which is why it writes them down.
 
+### Where a run lives is its rule's answer, and a refusal is knowable before the offer
+
+**A run lives where its rule points.** The first group of books is wherever the
+first book happens to be standing, and the two are different bookcases the moment
+the leading bookcase of a run holds nothing — which is an ordinary state, and is
+what you have the moment you say a stretch of books belongs somewhere and before
+you have carried anything there.
+
+[#500](https://github.com/BlakeHastings/book-scan/issues/500) is what asking the
+books cost. The screen that moves a run read `groups[0].shelf`, so it named the
+wrong bookcase, called it "where it lives now", and worked the destinations out
+from it — offering one that is not free, and calling a real move of every plank
+the option that changes nothing.
+
+**And every reason a move may refuse a run is about the rule and the furniture,
+so none of them needs a destination.** They were reachable only through
+`relocateRun`, which cannot be called without a bookcase, so
+[#486](https://github.com/BlakeHastings/book-scan/issues/486) was a screen that
+described a run convincingly, offered three bookcases, and refused whichever one
+was picked. The commonest of those refusals is not a fault at all: an **area rule
+serving a range** is what "say what belongs here" on a plank writes, two rules on
+one genre is legal (see "Two rules may name one genre" above), and a rule about
+one plank does not describe a bookcase's worth of run to carry elsewhere.
+
+`runToMove` in `domain/placement/relocate.ts` is those refusals asked without a
+destination, `relocateRun` asks it rather than repeating it, and
+`GET /api/placement/run` is what a screen reads before it offers anything: where
+the run lives, the planks it is cut into — **including the ones holding no
+books**, because they are planks of the run — and why it cannot be moved, when it
+cannot. The refusal is unchanged in every word. What changed is when it is asked.
+
 ### A run stops where the next run begins, and a move stops a piece earlier
 
 A run runs from its rule's entry area until the next area any rule points at.
