@@ -506,6 +506,28 @@ proxy, and what was decided about source maps: `docs/running-from-a-build.md`.
 Three things a deployment still needs are named at the bottom of it, including
 the loopback bind, which is deliberately still there.
 
+**There is an image now too** (#531), and it is not a deployment either: it
+chooses no host and carries nothing Cloudflare-specific.
+
+```
+docker build -t book-scan .
+docker run -d -e ConnectionStrings__bookscan='postgres://…' -v covers:/data book-scan
+```
+
+Two things to know before running one. **`docker run -p` reaches nothing**,
+because the server still binds `127.0.0.1` inside the container; whatever fronts
+it has to share the network namespace. And **`/data` is a mount, not a
+suggestion**: it holds the photographs, a container that loses it loses all of
+them, and `docs/the-image.md` shows what that looks like from the outside, which
+is an empty directory rather than an error.
+
+Admitting somebody on a deployment is the same script, bundled beside the server
+because an image has no `tsx`:
+
+```
+docker run --rm <image> node dist-server/enable-user.js --target '<connection>' --enable <id|email>
+```
+
 `npm run dev` binds `0.0.0.0:5173` with a self-signed certificate. That is
 deliberate: Safari refuses `getUserMedia` a camera stream over plain HTTP on a
 LAN address, so the phone needs HTTPS.
@@ -918,6 +940,8 @@ teach people to skim past it.
 | `docs/shelving.md` | The shelving specification |
 | `web/scripts/build-server.mjs` | The server build, and why it is a bundle rather than a `tsc` emit |
 | `docs/running-from-a-build.md` | How this app runs without a watcher, and the three decisions that took |
+| `Dockerfile` | The image: two stages, a mount for the photographs, and nothing host-specific |
+| `docs/the-image.md` | What the image decides, what it deliberately does not, and what was proved by running it |
 | `docs/orchestrating.md` | For whoever is running the backlog: where things stand, what bites, and where to go next |
 
 ### The layering, and the tables that go through it

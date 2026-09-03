@@ -69,6 +69,25 @@ const WEB = fileURLToPath(new URL('../', import.meta.url))
  */
 const OUT = join(WEB, 'dist-server')
 const ENTRY = join(WEB, 'server', 'index.ts')
+/*
+ * The second entry point, and it is here because of the image (#531).
+ *
+ * Who is allowed in is decided outside the app, by `scripts/enable-user.ts`,
+ * and `docs/the-gate.md` gives the reason: a route that admits somebody needs a
+ * role, and #171 has not decided one. That is a fine answer while the only way
+ * to run this app is a checkout with `tsx` in it. It stops being one the moment
+ * the app is an image, because **the first user cannot be enabled by an enabled
+ * user, and an image that cannot admit anybody is a login screen with nothing
+ * behind it.**
+ *
+ * So it is bundled beside the server, run as `node dist-server/enable-user.js`,
+ * and the runtime stage still carries no TypeScript and no compiler. It is
+ * built separately rather than as a second entry point in one call on purpose:
+ * esbuild derives output paths from the common ancestor of its entry points, so
+ * one call with both would write `dist-server/server/index.js` and break the
+ * `../dist/` sibling relationship the client serving depends on.
+ */
+const ADMIT_ENTRY = join(WEB, 'scripts', 'enable-user.ts')
 const MIGRATIONS_SRC = join(WEB, 'infrastructure', 'db', 'migrations')
 const MIGRATIONS_OUT = join(OUT, 'migrations')
 
@@ -107,6 +126,24 @@ const result = await build({
   metafile: true,
 })
 
+/*
+ * The same settings as the server, and they are the same for the same reasons:
+ * the node target is the floor of `engines.node`, packages stay external so
+ * `pg` is loaded from the installed tree, and the map is there because nothing
+ * serves this file either.
+ */
+await build({
+  entryPoints: [ADMIT_ENTRY],
+  outfile: join(OUT, 'enable-user.js'),
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20.19',
+  packages: 'external',
+  sourcemap: true,
+  logLevel: 'info',
+})
+
 if (!existsSync(MIGRATIONS_SRC)) {
   throw new Error(`No migrations at ${MIGRATIONS_SRC}`)
 }
@@ -132,9 +169,14 @@ if (!existsSync(journal)) {
 const bundle = join(OUT, 'index.js')
 const emitted = Object.entries(result.metafile.outputs)
   .find(([name]) => name.endsWith('index.js'))
+const admit = join(OUT, 'enable-user.js')
 console.log(
   `[build:server] ${relative(WEB, bundle)} ${kb(statSync(bundle).size)}`
   + ` from ${Object.keys(emitted[1].inputs).length} modules,`
   + ` ${wanted} migrations beside it in ${relative(WEB, MIGRATIONS_OUT)}`,
+)
+console.log(
+  `[build:server] ${relative(WEB, admit)} ${kb(statSync(admit).size)},`
+  + ' so a deployment can admit its first user with no checkout',
 )
 console.log('[build:server] start it with `npm start` from web/')

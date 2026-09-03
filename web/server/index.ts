@@ -4443,7 +4443,7 @@ if (isMainModule) {
       signIn: SIGN_IN,
     })
 
-    app.listen(PORT, '127.0.0.1', () => {
+    const server = app.listen(PORT, '127.0.0.1', () => {
       console.log(`[api] listening on http://127.0.0.1:${PORT}`)
       console.log(`[api] database ${label}`)
       /*
@@ -4498,6 +4498,65 @@ if (isMainModule) {
             'See scripts/write-connection-file.ps1 and AGENTS.md.',
       )
     })
+
+    /*
+     * Stopping when asked (#531).
+     *
+     * Until this existed nothing in this process listened for a signal, which
+     * was invisible while the only way to stop it was Ctrl+C in a terminal and
+     * is not invisible in a container. **A default-disposition signal sent to
+     * PID 1 is discarded by the kernel**, so `docker stop` on an image whose
+     * entry point is this process waited ten seconds and then sent SIGKILL:
+     * every deployment a hard kill, every restart a torn write away from a
+     * half-written photograph. Installing a handler is what makes the signal
+     * deliverable at all, so this is not politeness, it is the difference
+     * between being asked and being shot.
+     *
+     * What it does, in the order it matters:
+     *
+     * 1. Stops the listener, so nothing new arrives. Requests already in flight
+     *    keep their connection and finish.
+     * 2. Closes idle keep-alive connections, because a phone that loaded the
+     *    library and is sitting on a shelf holds one open, and without this the
+     *    close waits for it and the ten seconds are spent anyway.
+     * 3. Closes the pool, which is what actually lets the process exit: idle
+     *    Postgres clients hold the event loop open on their own.
+     *
+     * And a bound on all of it. A shutdown that hangs is worse than a hard kill
+     * because it looks like a working one, so the timer says what it is doing
+     * and exits. It is unref'd so it cannot itself be the reason the process
+     * stays up.
+     *
+     * Second signal, second thought: a person pressing Ctrl+C twice means it.
+     */
+    let stopping = false
+    const stop = (signal: NodeJS.Signals) => {
+      if (stopping) {
+        console.log(`[api] ${signal} again; exiting now`)
+        process.exit(1)
+      }
+      stopping = true
+      console.log(`[api] ${signal}: closing the listener, then the catalogue`)
+
+      const giveUp = setTimeout(() => {
+        console.log('[api] still busy after 10s; exiting anyway')
+        process.exit(1)
+      }, 10_000)
+      giveUp.unref()
+
+      server.close(() => {
+        db.close()
+          .catch((error) => console.error('[api] the catalogue did not close cleanly', error))
+          .finally(() => {
+            console.log('[api] stopped')
+            process.exit(0)
+          })
+      })
+      server.closeIdleConnections()
+    }
+
+    process.on('SIGTERM', stop)
+    process.on('SIGINT', stop)
   }
 
   bootstrap().catch((error) => {

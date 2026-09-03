@@ -1,0 +1,25 @@
+# What the build context is allowed to contain (#531).
+#
+# Everything is excluded and `web/` is put back, rather than the other way
+# round, because this repository holds two things a build context must never
+# pick up and both live outside `web/`: `.git`, which carries every revision of
+# everything, and `.claude/worktrees/`, which holds other agents' checkouts of
+# this same repository. A deny list would have to keep naming them; this way an
+# addition at the root is out by default.
+#
+# The one cost is that a new build input outside `web/` has to be re-included
+# here on purpose. That is the intended cost.
+*
+!web
+
+# And inside `web/`, the things that are made rather than written. `dist/` and
+# `dist-server/` are built inside the image; `node_modules/` is installed there,
+# and copying a Windows tree in would put the wrong compiled addons next to the
+# right ones. `data/` is a developer's scratch catalogue and its photographs.
+web/node_modules
+web/dist
+web/dist-server
+web/data
+web/.scratch-*
+web/*.traineddata
+web/*.local

@@ -11,3 +11,13 @@
 # migrator's current implementation rather than something the bookkeeping depends
 # on being true.
 web/infrastructure/db/migrations/** text eol=lf
+
+# The image's two files keep LF, for a smaller version of the same reason (#531).
+#
+# A Dockerfile is read by a parser on Linux and its `RUN` lines are handed to a
+# shell there. Docker tolerates CRLF today; a shell does not tolerate a stray
+# carriage return in the middle of a continued command, and this machine's
+# `core.autocrlf` is `true`, so a checkout here would otherwise write CRLF into a
+# file that is only ever executed somewhere else.
+Dockerfile text eol=lf
+.dockerignore text eol=lf

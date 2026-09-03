@@ -37,6 +37,7 @@ const WEB = fileURLToPath(new URL('../', import.meta.url))
 const BUNDLE = join(WEB, 'dist-server', 'index.js')
 const CLIENT = join(WEB, 'dist', 'index.html')
 const JOURNAL = join(WEB, 'dist-server', 'migrations', 'meta', '_journal.json')
+const ADMIT = join(WEB, 'dist-server', 'enable-user.js')
 
 const failures = []
 const check = (ok, said) => { if (!ok) failures.push(said) }
@@ -52,6 +53,14 @@ check(existsSync(JOURNAL), `No migration journal at ${JOURNAL}.`)
  * line nobody is reading.
  */
 check(existsSync(CLIENT), `No built client at ${CLIENT}. Run \`npm run build:client\`.`)
+
+/*
+ * The way in for the first user (#531). An image carries no TypeScript and no
+ * `tsx`, so `npm run enable-user` cannot run inside one, and a deployment whose
+ * enable script did not get built is a login screen that admits nobody. The
+ * failure is invisible until somebody has already deployed and signed in.
+ */
+check(existsSync(ADMIT), `No enable-user bundle at ${ADMIT}. Run \`npm run build:server\`.`)
 
 if (failures.length) {
   for (const said of failures) console.error(`[smoke] ${said}`)
