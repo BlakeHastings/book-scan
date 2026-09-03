@@ -597,7 +597,26 @@ interface ExistingFixture {
   retired: Map<number, number>
 }
 
-/** The fixtures in a band, lowest id first at each position, with their areas. */
+/**
+ * The fixtures in a band, lowest id first at each position, with their areas.
+ *
+ * **This one really does read the band by bookcase, and it is not the omission
+ * `runAreasOf` had** (#490). The two ask different questions. `runAreasOf` asks
+ * which planks the run is, and a run opens at a plank, so dropping
+ * `band.start.area` there put two of somebody else's planks inside this run.
+ * This asks what is already standing where the run's planks are about to be
+ * written, and the answer has to include the planks the run does *not* own on
+ * the piece it opens on: `writeBoundaries` looks a plank up by
+ * `fixture.areas.get(position)` and creates one when it is missing, so an
+ * `existing` that stopped at the entry would insert a second `2A` beside the
+ * one already hanging there the moment a run opened at `2C`.
+ *
+ * Nothing here reaches those planks. Every loop in `writeBoundaries` that can
+ * take a plank off a face is bounded by something else: the per-piece tail
+ * retires only positions past the last derived one, and the whole-piece
+ * retirement skips any piece `wanted` names, which always includes the entry
+ * piece. So the extra rows are read and never written, which is the point.
+ */
 async function fixturesIn(
   db: Db,
   band: RangeBand,
@@ -656,6 +675,30 @@ interface RunRow {
  * Fixture position, then the fixture that was there first, then area position.
  * That is `slotsInOrder` restricted to a band, and it has to be, because the
  * boundary list and the run the rules walk are two readings of one sequence.
+ *
+ * **The run opens at the band's plank, not at the band's bookcase**, and that is
+ * #490. `bandOf` answers where a run begins with a `RangeStart`, which is a
+ * plank: `ruleForRange` picks the rule and `entryAreaOf` resolves the area it
+ * points at, so a rule written on `2C` says the run begins at `2C`.
+ * `docs/shelving.md` says the same in one line — "a run runs from its rule's
+ * entry area until the next area any rule points at" — and `runFrom` reads it
+ * that way in the domain. This read took `start.shelf` and dropped `start.area`,
+ * so it handed back `2A, 2B, 2C` and called `2A` the plank the run opens at.
+ * Everything downstream of one read then answered from a run two planks too
+ * long: `boundariesFrom` invented a boundary and shifted every real one along,
+ * so the shelves screen drew six books on a `2E` that does not exist while every
+ * plank that does reported nothing; `areaOfKey` landed a book on somebody else's
+ * plank, which is the destination the misfile list prints; and `relocateRunTo`
+ * would have taken the two planks before the entry off a face they were still
+ * the previous run's part of.
+ *
+ * **The upper bound stays a bookcase, and that is deliberate rather than the
+ * other half of the same omission.** `band.limit` is a fixture position because
+ * a move stops one piece earlier than a run does — #420, and `docs/shelving.md`
+ * under "A run stops where the next run begins, and a move stops a piece
+ * earlier". Reading it as a plank here would reverse that decision. The
+ * asymmetry is real and is the band's, not this statement's: what this owes the
+ * band is to read both halves of the answer it was given.
  */
 export async function runAreasOf(db: Db, range: ShelfRange): Promise<RunArea[]> {
   const band = await bandOf(db, range)
@@ -665,9 +708,12 @@ export async function runAreasOf(db: Db, range: ShelfRange): Promise<RunArea[]> 
     `SELECT a.id, a.fixture_id, f.position AS fixture_position, a.position, a.starts_at
        FROM area a JOIN fixture f ON f.id = a.fixture_id
       WHERE a.position >= 0
-        AND f.position >= ?${band.limit === undefined ? '' : ' AND f.position < ?'}
+        AND (f.position > ? OR (f.position = ? AND a.position >= ?))
+        ${band.limit === undefined ? '' : 'AND f.position < ?'}
       ORDER BY f.position, f.id, a.position`,
-    band.limit === undefined ? [band.start.shelf] : [band.start.shelf, band.limit],
+    band.limit === undefined
+      ? [band.start.shelf, band.start.shelf, band.start.area]
+      : [band.start.shelf, band.start.shelf, band.start.area, band.limit],
   )
 
   // One fixture per position, the one that was there first, which is the run
