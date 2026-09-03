@@ -394,6 +394,50 @@ function NoDisk(go: Go) {
   )
 }
 
+/**
+ * The day the app and its own rules stopped agreeing about where books stand.
+ *
+ * **This one had a check and no drawing for months** (#489). The app has placed
+ * every shelved book twice since #213, once the way it draws the bookcases and
+ * once the way the rules claim it, and it has written the answer to the server
+ * log on every start ever since. It was right the whole time: for three weeks
+ * it named twelve books on every restart, and printed that they all landed
+ * where the rules claim them the moment somebody fixed the cause. Nothing on
+ * any screen ever said a word, so the one person who could act on it did not
+ * know.
+ *
+ * It is drawn beside the backup card and in the same weight, because it is the
+ * same kind of news: something the app is the only thing to have looked at, and
+ * something nobody can do anything about from a phone.
+ *
+ * **The count is in the title and the last line is the way to the names.** A
+ * card that said only "some books are in the wrong place" would be the log line
+ * on a screen; this screen never names a book, and the one that draws the
+ * bookcases does.
+ *
+ * **And it says nothing will be repaired**, which is the sentence that has to
+ * survive. The state this catches was diagnosable three weeks after it began
+ * only because it was stable and outlived every restart, and a check that put
+ * it right on sight would have hidden the defect indefinitely. Said on the card
+ * so that nobody adds a button here on the grounds that it looks unfinished.
+ */
+function Adrift(go: Go) {
+  return Home(
+    go,
+    undefined,
+    <Trouble
+      kind="Where books stand"
+      title="Twelve books are drawn in one place and claimed by another"
+    >
+      Your bookcases and the rules that file books into them no longer agree
+      about where these go, so neither answer can be trusted. Nothing has been
+      moved and nothing will be: this is never repaired, because a repair would
+      erase how it happened. They are named in your library, under "Books that
+      are not where they should be".
+    </Trouble>,
+  )
+}
+
 /* --- The library, and the three ways of looking at it --------------------- */
 
 /**
@@ -5379,6 +5423,10 @@ export const SCREENS: Screen[] = [
      for. */
   { id: 'unbacked', name: 'Nothing backed up', group: 'Every day', render: Unbacked },
   { id: 'nodisk', name: 'Backups unreadable', group: 'Every day', render: NoDisk },
+  /* The third day it has bad news, and the one whose check was already there
+     and already right (#489). It went to the server log for months while the
+     screen said nothing, which is the same failure the two above it fixed. */
+  { id: 'adrift', name: 'Not where claimed', group: 'Every day', render: Adrift },
   /* And the day before there is anything at all, which is what five counts
      make of a collection nobody has photographed a book into yet. */
   { id: 'firstday', name: 'The first evening', group: 'Every day', render: FirstDay },

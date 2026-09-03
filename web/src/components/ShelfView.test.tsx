@@ -17,8 +17,8 @@
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { Misfiled } from './ShelfView'
-import type { Misfile, ShelvingReviewResponse } from '../lib/api'
+import { Drifted, Misfiled } from './ShelfView'
+import type { DriftingBook, Misfile, ShelvingReviewResponse } from '../lib/api'
 
 function misfile(overrides: Partial<Misfile['book']> = {}, from = '1A', to = '2B'): Misfile {
   return {
@@ -182,5 +182,96 @@ describe('the list of books that are not where they should be', () => {
     const html = drawn([misfile({ authorFiling: '', authors: '' })], review())
     expect(html).toContain('Dune')
     expect(html).toContain('unknown author')
+  })
+})
+
+/**
+ * The books the shelf and the rules put in different places (#489).
+ *
+ * **The check has been right since #213 and had no reader but the server log.**
+ * Through the whole of #485 it named twelve books on every restart of the api
+ * and nothing on any screen said a word. This card is where the names arrive;
+ * the first screen carries the count and the sentence sending somebody here.
+ *
+ * What is pinned is what makes it worth drawing at all: both places on every
+ * row, the refusal to repair said out loud rather than left in a comment, and
+ * nothing on it to press.
+ */
+describe('the books the shelf and the rules disagree about', () => {
+  const drifting = (over: Partial<DriftingBook> = {}): DriftingBook => ({
+    bookId: 7,
+    title: 'Dune',
+    fromLayout: '1A',
+    fromRules: '2B',
+    ...over,
+  })
+
+  const card = (books: DriftingBook[], total = books.length) =>
+    renderToStaticMarkup(<Drifted drift={{ books, total }} onOpen={() => {}} />)
+
+  it('names both places for every book on it', () => {
+    // One without the other says nothing: the whole content of a disagreement
+    // is which two places disagree.
+    const html = card([drifting()])
+
+    expect(html).toContain('Dune')
+    expect(html).toContain('drawn in 1A, claimed into 2B')
+  })
+
+  it('says so when no rule claims the book at all', () => {
+    // The state #223 describes: a tag comes off a book that is already shelved,
+    // the range column keeps the answer it had, and nothing files it any more.
+    // An empty second place must read as a sentence rather than as a gap.
+    const html = card([drifting({ fromRules: '' })])
+
+    expect(html).toContain('drawn in 1A, and no rule claims it')
+    expect(html).not.toContain('claimed into ')
+  })
+
+  it('counts the whole collection in its title, not the run on screen', () => {
+    // #485 was three screens giving three counts of one thing. This card is
+    // drawn under whichever run is showing and says the number the first screen
+    // says, because a disagreement is a fact about how the furniture and the
+    // rules fit together rather than about the half somebody is looking at.
+    expect(card([drifting()], 12))
+      .toContain('Twelve books are drawn in one place and claimed by another')
+  })
+
+  it('says out loud that nothing will be repaired', () => {
+    const html = card([drifting()])
+
+    expect(html).toContain('Nothing has been moved and nothing will be')
+    expect(html).toContain('never repaired')
+    // And what the person should do instead, which is nothing to the books.
+    expect(html).toContain('rather than moving a book to make the two agree')
+  })
+
+  it('carries no control that would put any of it right', () => {
+    /*
+     * The decision, not an omission, and the one thing about this card that has
+     * to survive somebody tidying the screen. Repairing a disagreement destroys
+     * the evidence of how it happened, and #485 was diagnosable three weeks in
+     * only because the broken state was stable and outlived every restart. The
+     * rows are books and open books, the way every list here does; what must
+     * not appear is an action.
+     */
+    const html = card([drifting(), drifting({ bookId: 8, title: 'Emma' })])
+
+    expect(html, 'the card grew an action').not.toContain('wf-btn')
+    expect((html.match(/class="wf-row"/g) ?? []).length, 'the books stopped being rows').toBe(2)
+  })
+
+  it('stops naming books long before it becomes a wall of them', () => {
+    // The worst case is a rule somebody switched off, which puts the whole
+    // collection on this list. Five hundred rows above the shelves is the log's
+    // own failure mode rebuilt: a report too long to read. The count in the
+    // title is never truncated.
+    const many = Array.from({ length: 40 }, (_, at) =>
+      drifting({ bookId: at + 1, title: `Book ${at + 1}` }))
+    const html = card(many, 300)
+
+    expect((html.match(/class="wf-row"/g) ?? []).length).toBe(25)
+    expect(html).toContain('275 more books')
+    expect(html).toContain('300 books are drawn in one place')
   })
 })

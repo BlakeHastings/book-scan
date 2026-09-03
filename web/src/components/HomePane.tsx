@@ -75,6 +75,33 @@
  * reassuring version of this card, on purpose: a line saying backups are fine
  * is a line that can be printed over a disk nobody read.
  *
+ * ## And the second thing on it that is not work (#489)
+ *
+ * A card saying the shelf and the rules disagree about where some books stand.
+ * It is the same argument as the one above it, arrived at the same way, and the
+ * repetition is the finding rather than a coincidence: the app has had a check
+ * for that since #213, it has been correct on every start since, and it wrote
+ * its answer to the server log and to nothing else. Through the whole of #485 it
+ * named twelve books on every restart, printed `every book lands where the rules
+ * claim it` the moment that was fixed, and **no screen said a word either way**.
+ *
+ * A prevention that gets bypassed is silent when it is bypassed; a detection
+ * nobody reads is silent in exactly the same way, and this project's standard is
+ * that whatever prevention exists gets detection behind it. Half a layer is what
+ * the check was.
+ *
+ * **It has no button and it never repairs**, which is the one thing about it
+ * that has to survive somebody tidying this screen. The state #485 was in was
+ * diagnosable three weeks later precisely because it was stable across restarts;
+ * a check that quietly put it right would have hidden a defect indefinitely. So
+ * the card says so in words, and the words are in `lib/driftWords.ts` where they
+ * are tested.
+ *
+ * **It names no book**, which is round eight's deletion holding: this screen
+ * counts, and the screen that draws the bookcases names. The card says where to
+ * go instead, in its last sentence, because a card with no button that says
+ * only that something is wrong is the log line moved onto a screen.
+ *
  * ## The three doors, and what is deliberately not one
  *
  * **The book in your hand** (#355) is the camera you point at a book you
@@ -130,6 +157,7 @@ import { Stats } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Trouble } from '../design/Trouble'
 import { troubleWith } from '../lib/backupWords'
+import { driftTrouble } from '../lib/driftWords'
 import { grouped } from '../lib/say'
 import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
 import type { Which } from './QueuePane'
@@ -163,6 +191,17 @@ interface Props {
    * something wrong that nothing else was going to mention.
    */
   backup: BackupWatch | null
+  /**
+   * How many books the shelf and the rules put in different places (#489).
+   *
+   * Null until the read answers, and null if it failed, and both draw nothing.
+   * So does nought, which is the ordinary day: there is no card here saying the
+   * two agree, for the reason `backup` gives above.
+   *
+   * The count and not the books. This screen has never named a book and does
+   * not start now; the card says where they are named.
+   */
+  drifting: number | null
   /** Photograph a book, which is what the fourth tab is for. */
   onAdd: () => void
   /**
@@ -220,7 +259,7 @@ function waitingIn(queue: QueueCounts): number {
 }
 
 export function HomePane({
-  counts, queue, carrying, unclaimed, backup,
+  counts, queue, carrying, unclaimed, backup, drifting,
   onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onUnclaimed,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
@@ -258,8 +297,25 @@ export function HomePane({
    * not far-fetched, it is the morning after the worst kind of night.
    */
   const trouble = troubleWith(backup)
-  const news = trouble && (
-    <Trouble kind="Backups" title={trouble.title}>{trouble.said}</Trouble>
+  /*
+   * The second piece of news, worked out at the same moment and for the same
+   * reason (#489). Two independent answers off two independent reads, so a
+   * catalogue that is slow cannot hide a backup that has stopped and a disk
+   * that is unplugged cannot hide a shelf that disagrees with its own rules.
+   *
+   * Under the backup card where both are drawn, which is a choice about what
+   * is worse rather than about what is newer: books drawn in the wrong place
+   * are still books somebody owns, and no copy of the collection existing at
+   * all is not.
+   */
+  const drift = driftTrouble(drifting)
+  const news = (trouble || drift) && (
+    <>
+      {trouble && <Trouble kind="Backups" title={trouble.title}>{trouble.said}</Trouble>}
+      {drift && (
+        <Trouble kind="Where books stand" title={drift.title}>{drift.said}</Trouble>
+      )}
+    </>
   )
 
   // Nothing has come back yet. Drawing zeros would be saying something false

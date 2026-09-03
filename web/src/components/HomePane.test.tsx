@@ -79,6 +79,10 @@ function propsFor(
        nothing about when it is drawn. */
     unclaimed: 0,
     backup: null,
+    /* The shelf and the rules agreeing is the ordinary day, so it is the
+       default here for `unclaimed`'s reason: a card drawn in every render
+       below would make none of these tests say when it is drawn (#489). */
+    drifting: 0,
     onAdd: () => {},
     onInHand: () => {},
     /* The corner (#350). `RoomMenu` decides what it says and what it opens;
@@ -539,6 +543,98 @@ describe('when the collection has stopped being backed up', () => {
           new RegExp(`\\b${word}\\b`, 'i'),
         )
       }
+    }
+  })
+})
+
+/*
+ * The other half of #489, and the reason that issue exists.
+ *
+ * The check itself has been right since #213 and is covered by four test files;
+ * what it did not have was a reader. It printed to the server log on every
+ * start, correctly, all the way through #485, and no screen said a word, so the
+ * one person who could act on it never found out.
+ *
+ * What is held to a claim here is the reading half: that the news reaches this
+ * screen as words somebody would act on, that a day the two agree says nothing
+ * at all, and that the card carries the refusal to repair rather than leaving
+ * it to a comment nobody reads.
+ */
+describe('when the shelf and the rules disagree about where books stand', () => {
+  it('says nothing on a day they agree, and nothing when nobody answered', () => {
+    // Nought and null both draw nothing, and they are different silences. There
+    // is no reassuring version of this card for `backupWords`' reason: a line
+    // saying the shelf is fine is a line a bug can print over a check that
+    // never ran, and this whole card exists because a correct check went unread.
+    for (const drifting of [0, null]) {
+      const html = home({ drifting })
+      expect(words(html), `${drifting} drew a card`).not.toMatch(/claimed by another/)
+    }
+  })
+
+  it('says how many, and where the books are named', () => {
+    const text = words(home({ drifting: 12 }))
+
+    expect(text).toContain('Twelve books are drawn in one place and claimed by another')
+    // The last sentence is the door, because the card has no button. Without it
+    // this is the log line moved onto a screen: true, and nothing to act on.
+    expect(text).toContain('Books that are not where they should be')
+  })
+
+  it('counts one book as one book', () => {
+    expect(words(home({ drifting: 1 })))
+      .toContain('One book is drawn in one place and claimed by another')
+  })
+
+  it('says out loud that nothing will be repaired', () => {
+    // The sentence that has to survive somebody tidying this screen. #485 was
+    // diagnosable three weeks in because the broken state was stable and
+    // outlived every restart; a check that put it right on sight would have
+    // hidden the defect indefinitely. Said where the reader can see it, so
+    // nobody adds a button on the grounds that the card looks unfinished.
+    const text = words(home({ drifting: 12 }))
+
+    expect(text).toContain('Nothing has been moved and nothing will be')
+    expect(text).toContain('never repaired')
+  })
+
+  it('offers no button, because nothing on this phone fixes it', () => {
+    const html = home({ drifting: 12 })
+    const card = html.slice(html.indexOf('claimed by another'))
+
+    expect(card.slice(0, card.indexOf('</section>'))).not.toContain('<button')
+  })
+
+  it('names no book, because this screen never has', () => {
+    // Round eight's deletion, holding. The count is here and the names are on
+    // the screen whose job is drawing the books, which is what the last
+    // sentence of the card sends somebody to.
+    expect(home({ drifting: 12 })).not.toContain('wf-row')
+  })
+
+  it('says it even before the catalogue has answered', () => {
+    // The two reads are independent, so a catalogue that is slow must not be
+    // able to hide this. Same argument as the backup card above it.
+    const html = home({ counts: null, queue: null, drifting: 12 })
+
+    expect(words(html)).toContain('claimed by another')
+    expect(html).not.toContain('wf-stat')
+  })
+
+  it('draws both pieces of bad news when there are two', () => {
+    // Not either-or. A morning where the backups stopped and the shelf stopped
+    // agreeing with its own rules is one morning, and the app has no business
+    // picking which of the two to mention.
+    const text = words(home({ backup: watched({ state: 'none' }), drifting: 12 }))
+
+    expect(text).toContain('Nothing has been backed up')
+    expect(text).toContain('claimed by another')
+  })
+
+  it('says no word out of the model', () => {
+    const text = words(home({ drifting: 12 }))
+    for (const word of ['run', 'range', 'shelf', 'plank', 'separator', 'capture', 'placement', 'cut']) {
+      expect(text, `the card says "${word}"`).not.toMatch(new RegExp(`\\b${word}\\b`, 'i'))
     }
   })
 })

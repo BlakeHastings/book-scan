@@ -821,6 +821,20 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
  *
  * **It reports, does not repair, and does not refuse to start**, for the reasons
  * given above about the projection.
+ *
+ * ## This line is no longer the only reader (#489)
+ *
+ * It was, for the whole of #485, and that is what made the log worth nothing:
+ * the check was right on every restart for three weeks, naming the twelve books
+ * it had found, and the person who owns the books never saw a word of it. The
+ * answer now goes to `GET /api/placement/drift` as well, and from there to a
+ * card on the first screen and the list on the shelves screen.
+ *
+ * **The line stays, and it is not redundant.** It is what somebody reading
+ * `aspire logs api` sees, it is what proved #485's fix, and it says the good
+ * outcome out loud where the screens deliberately say nothing at all: an
+ * interface that drew "the shelf agrees with the rules" on an ordinary day is
+ * the reassurance a bug can print over a check that never ran.
  */
 async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
   const found = await areaDisagreements(db)

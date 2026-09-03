@@ -87,6 +87,10 @@ import {
 import { idIn, refuse, refused } from './refusal'
 // Why a book is here: which rule claimed it, and which ones lost (#323).
 import { booksNoRuleClaims, claimOfBook } from './claim'
+// The check that places every shelved book twice, by the shelf and by the
+// rules, and says which books the two answers disagree about (#213). It ran on
+// every start and printed to the log, and nothing else read it (#489).
+import { areaDisagreements } from '../infrastructure/shelving/area-drift'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
@@ -1675,6 +1679,42 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    */
   app.get('/api/placement/unclaimed', asyncRoute(async (_req, res) => {
     const found = await booksNoRuleClaims(db)
+    res.json({ books: found.slice(0, PAGE_LIMIT), total: found.length })
+  }))
+
+  /**
+   * Every book the shelf and the rules put in different places (#489).
+   *
+   * **The check is not new and neither is its answer.** `areaDisagreements` has
+   * placed every shelved book twice since #213, once the way the app draws it
+   * and once the way the rules claim it, and `applySchema` has run it on every
+   * start ever since. It was right through the whole of #485: it named twelve
+   * books on every restart of the api, it printed `every book lands where the
+   * rules claim it` the moment that was fixed, and **the only place either
+   * sentence appeared was the server log**. Nothing on any screen said anything
+   * was wrong, so the one person who could act on it had no way to know.
+   *
+   * This route is the reading half, and #311 is the shape it copies: that issue
+   * put the backup check behind `GET /api/backup` and a card on the first
+   * screen, for the identical reason. A detection nobody reads is silent in
+   * exactly the way a prevention that gets bypassed is silent.
+   *
+   * `total` beside a capped page, which is `/api/placement/unclaimed`'s pair
+   * directly above and `findBooks`' before that: the count is what the first
+   * screen says, the names are what explain it, and the worst case is a
+   * catalogue whose every book disagrees.
+   *
+   * **It reports and it must never repair.** That is `area-drift.ts`'s own rule
+   * and it is the reason the state in #485 was diagnosable at all: the broken
+   * shelf was stable and survived restarts, so it could be read three weeks
+   * later. A route that wrote the disagreement away would have destroyed the
+   * evidence of a defect nobody had found yet. There is deliberately no
+   * `POST` beside this, and the screens say out loud that nothing will be moved
+   * so that nobody adds one later on the grounds that the card looked
+   * unfinished without it.
+   */
+  app.get('/api/placement/drift', asyncRoute(async (_req, res) => {
+    const found = await areaDisagreements(db)
     res.json({ books: found.slice(0, PAGE_LIMIT), total: found.length })
   }))
 

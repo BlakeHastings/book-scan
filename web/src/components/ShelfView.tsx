@@ -58,9 +58,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  api, Refusal, type AreaGoing, type CheckedOutAt, type Counts, type Misfile,
-  type Move, type ShelfGroupDto, type ShelvingReviewResponse,
+  api, Refusal, type AreaGoing, type CheckedOutAt, type Counts, type DriftingBook,
+  type Misfile, type Move, type ShelfGroupDto, type ShelvingReviewResponse,
 } from '../lib/api'
+import { driftOnShelves } from '../lib/driftWords'
 import { canTakeBack, notChecked, recordMoved, takeMoveBack } from '../lib/misfile'
 import { coverNote, coverOf, listOf, missingFrom, spineLabel, spineOf } from '../lib/shelfRow'
 import { libraryRows } from '../../shared/layout'
@@ -152,6 +153,13 @@ export function ShelfView({
   const [counts, setCounts] = useState<Counts | null>(null)
   const [off, setOff] = useState<CheckedOutAt[]>([])
   const [review, setReview] = useState<ShelvingReviewResponse | null>(null)
+  /*
+   * The books the shelf and the rules disagree about (#489), or nothing when
+   * the read has not answered or failed. Not part of `Promise.all` below, and
+   * not able to fail this screen: a check that could not answer must not take
+   * the shelves down with it, and it must not produce a sentence either.
+   */
+  const [drift, setDrift] = useState<{ books: DriftingBook[]; total: number } | null>(null)
   const [moving, setMoving] = useState(0)
   /*
    * The line somebody has pressed Remove on and has not yet answered about,
@@ -185,6 +193,13 @@ export function ShelfView({
 
   const load = useCallback(() => {
     setLoading(true)
+    /*
+     * Asked again on every reload rather than once per visit, because removing
+     * a boundary on this screen changes the areas, and the areas are one of the
+     * two things the check compares. A card left over from before the act would
+     * be the app reporting a state it had just changed.
+     */
+    api.drift().then(setDrift).catch(() => setDrift(null))
     Promise.all([api.shelves(range), api.misfiles(range)])
       .then(([shelves, flagged]) => {
         setGroups(shelves.groups)
@@ -365,6 +380,22 @@ export function ShelfView({
       </Filter>
 
       <Trouble said={error} />
+
+      {/*
+        Above everything, including the list of books that are not where they
+        should be (#489).
+
+        It is the one thing on this screen that says the drawing under it may be
+        wrong about where a book belongs, and everything below it is written on
+        the assumption that it is not. The misfile list compares where somebody
+        last saw a book against where the order puts it now; both of those are
+        readings this check has just said cannot be relied on for these books.
+
+        Drawn whichever run is on screen, with the whole collection's count.
+        See `driftOnShelves`: #485 was three screens giving three counts of one
+        thing, and scoping this to the visible half would rebuild that.
+      */}
+      {drift && drift.total > 0 && <Drifted drift={drift} onOpen={open} />}
 
       {/* Louder than a hint, and above the list rather than below it, because
           it is the one line that says the list underneath is not the whole
@@ -763,6 +794,95 @@ export function Misfiled({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * The books the shelf and the rules put in different places (#489).
+ *
+ * **The check behind this is not new and has always been right.**
+ * `areaDisagreements` has placed every shelved book twice since #213, once the
+ * way this screen draws it and once the way the rules claim it, and
+ * `applySchema` has run it on every start ever since. Through the whole of #485
+ * it named twelve books on every restart of the api, into the server log, and
+ * nothing anywhere else said a word. This card and the one on the first screen
+ * are the reading half; `GET /api/placement/drift` is what both of them read.
+ *
+ * ## Why it is here and not only on the first screen
+ *
+ * The first screen is where somebody learns something is wrong, and it never
+ * names a book. This is where the books are drawn, so this is where the names
+ * belong: a card saying twelve books are in the wrong place with no way to find
+ * out which twelve is the log line moved onto a screen.
+ *
+ * ## It offers nothing to press, and that is the decision
+ *
+ * Not an omission, and not a card waiting for a button. Repairing a
+ * disagreement destroys the evidence of how it happened, and the only reason
+ * #485 was diagnosable three weeks after it began is that the broken state was
+ * stable and survived every restart. So there is no repair here, there is
+ * nothing to write to on the server either, and the sentence says so where the
+ * reader can see it rather than in a comment they will never read.
+ *
+ * **A row opens the book and does nothing else**, which is what every other
+ * list of books in this app does and is the reason it is not spelled out as an
+ * exception: a row that led nowhere would be a target that does nothing, and
+ * looking at a book is not moving it. What is absent is any control here that
+ * writes, and its absence is checked rather than described.
+ *
+ * Split out and holding no state, like `Misfiled` above, so what it says can be
+ * held to a claim in a test rather than only looked at.
+ */
+export function Drifted({
+  drift, onOpen,
+}: {
+  drift: { books: DriftingBook[]; total: number }
+  onOpen: (id: number) => void
+}) {
+  const said = driftOnShelves(drift.total)
+  /*
+   * Bounded, and by a screen rather than by the wire. The route answers up to
+   * `PAGE_LIMIT` of these and the worst case is a rule somebody switched off,
+   * which puts the whole collection on this list; five hundred rows above the
+   * shelves is the log's own failure mode rebuilt, a report so long nobody
+   * reads it. The count in the title is the number that matters and it is never
+   * truncated.
+   */
+  const shown = drift.books.slice(0, 25)
+  const rest = drift.total - shown.length
+
+  return (
+    <div className="drifted">
+      <Card kind="Not agreed" title={said.title}>
+        <Said>{said.said}</Said>
+        <List label="Books drawn in one place and claimed by another">
+          {shown.map((one) => (
+            <Row
+              key={one.bookId}
+              title={one.title}
+              /* Both answers on the row, because one without the other says
+                 nothing: the whole content of a disagreement is which two
+                 places disagree. A book no rule claims at all reaches this list
+                 too and has only one of them, so it says that rather than
+                 drawing an empty place. Those books have a screen of their own
+                 (#341) and this is not it. */
+              sub={one.fromRules
+                ? `drawn in ${one.fromLayout}, claimed into ${one.fromRules}`
+                : `drawn in ${one.fromLayout}, and no rule claims it`}
+              cloth={clothFor(one.bookId)}
+              onPress={() => onOpen(one.bookId)}
+            />
+          ))}
+        </List>
+        {rest > 0 && (
+          <Said>
+            And {plural(rest, 'more book')}, not named here: a list this long is
+            a rule that has stopped claiming a whole stretch of the collection
+            rather than a handful of books to go and look at.
+          </Said>
+        )}
+      </Card>
     </div>
   )
 }

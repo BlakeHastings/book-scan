@@ -91,6 +91,20 @@ export interface Summary {
    * has its own word for "I could not look", and it is not this one.
    */
   readonly backup: BackupWatch | null
+  /**
+   * How many books the shelf and the rules put in different places (#489).
+   *
+   * Null until the read answers, and null if it failed, which is the same
+   * arrangement `backup` above keeps and is kept for the same reason: this is
+   * the second thing on the first screen whose only job is to say something is
+   * wrong, and a sentence written from a request that never came back is worth
+   * less than silence.
+   *
+   * The number and not the books, which is `unclaimed`'s split and not
+   * `carrying`'s: the first screen never names one of these, and the screen
+   * that names them reads the list itself.
+   */
+  readonly drifting: number | null
 }
 
 
@@ -103,6 +117,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const [carrying, setCarrying] = useState<CarryItem[] | null>(null)
   const [unclaimed, setUnclaimed] = useState<number | null>(null)
   const [backup, setBackup] = useState<BackupWatch | null>(null)
+  const [drifting, setDrifting] = useState<number | null>(null)
 
   useEffect(() => {
     let live = true
@@ -202,10 +217,40 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
     return () => { live = false }
   }, [route])
 
+  /**
+   * Whether the shelf and the rules still agree about where every book stands
+   * (#489).
+   *
+   * On the first screen only, like `unclaimed` and `backup` above. It is two
+   * placements of every shelved book, which is the same shape of work
+   * `api.unclaimed()` beside it already does on this screen, and it is not work
+   * to repeat on every navigation: the answer only changes when something
+   * writes, and when something does the person is on a screen that reads it
+   * again for itself.
+   *
+   * `total` and not the page, for `unclaimed`'s reason: the card is drawn from
+   * whether there are any at all, and the shelves screen asks again for the
+   * names.
+   *
+   * A failure leaves it null and the screen says nothing. That is the right
+   * silence and it is the important one here: a card claiming somebody's books
+   * are drawn in the wrong place, produced by a request that did not come back,
+   * is the false alarm that teaches them to scroll past the real one.
+   */
+  useEffect(() => {
+    if (route !== 'home') return
+    let live = true
+    api.drift()
+      .then((found) => { if (live) setDrifting(found.total) })
+      .catch(() => { if (live) setDrifting(null) })
+    return () => { live = false }
+  }, [route])
+
   return (
     <Context.Provider
       value={{
         counts, setCounts, queueCounts, setQueueCounts, carrying, unclaimed, backup,
+        drifting,
       }}
     >
       {children}
