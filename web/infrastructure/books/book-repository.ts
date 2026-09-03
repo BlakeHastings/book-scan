@@ -75,7 +75,7 @@ import { withPhotographs, type FiledPhotographedBook } from '../../server/photog
 import { withPlacements, type PlacementFields } from '../../server/placement-ledger'
 import type { Neighbour, ShelfRange } from '../../shared/shelving'
 import { resolveIsbnPair } from '../../shared/isbn'
-import { CHECKED_OUT } from '../../domain/books/state'
+import { CHECKED_OUT, type BookState } from '../../domain/books/state'
 import { build, statement } from '../db/query'
 import { tagCounts } from './tag-counts'
 import { bookPlacement, bookTag, cataloguedBooks, shelvedBooks, tag } from '../db/schema'
@@ -117,6 +117,21 @@ export interface Listing {
   isbn?: string
   /** Slugs, all of which the book must carry, itself or under. */
   tags?: readonly string[]
+  /**
+   * One of the states a catalogued book can be in. Absent means all three.
+   *
+   * **The narrowing "checked out" needed and did not have** (#459). The first
+   * screen counts the books that are out of the house and had nowhere to send
+   * somebody with them: pressing the count opened the whole library, which is
+   * byte for byte what pressing "catalogued" opened. A count is a promise about
+   * what you will see, and this is what lets the library keep it.
+   *
+   * It narrows to a state rather than to lending, because `catalogued_books`
+   * holds three of them and a book that is off the shelf is off it for one of
+   * three different reasons. One field answers all three and invents no second
+   * vocabulary for a column that already says it.
+   */
+  state?: BookState
   /** How many rows this page holds. Absent means `PAGE_LIMIT` of them. */
   limit?: number
   offset?: number
@@ -422,6 +437,8 @@ function conditionsFor(query: Listing): SQL | undefined {
   const conditions: SQL[] = []
 
   if (query.range) conditions.push(eq(cataloguedBooks.shelfRange, query.range))
+
+  if (query.state) conditions.push(eq(cataloguedBooks.state, query.state))
 
   if (query.isbn) {
     const pair = resolveIsbnPair(query.isbn)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { areaRuns } from './areaRuns'
 import type { AreaStanding } from '../../shared/shelving'
+import type { BookState } from '../../domain/books/state'
 
 /** A piece nobody has named, standing where it stands. */
 const at = (
@@ -10,10 +11,18 @@ const at = (
 ): AreaStanding => ({ fixtureId: fixture, fixture, plank, name: '', kind: 'bookshelf', ...more })
 
 const book = (id: number, areaId: number, location: string, standing: AreaStanding) =>
-  ({ id, area_id: areaId, location, standing })
+  ({ id, area_id: areaId, location, standing, state: 'shelved' as BookState })
 
-/** A book nobody has put anywhere: checked out, or never placed. */
-const nowhere = (id: number) => ({ id, area_id: null, location: '', standing: null })
+/**
+ * A book nobody has put anywhere, and why not.
+ *
+ * The reason is a parameter since #459: the three of them used to be one count
+ * and one sentence, and only one of the three is a book somebody can go and
+ * fetch. `shelved` with no area is the never-placed, which is what this
+ * defaulted to being before the state was asked for at all.
+ */
+const nowhere = (id: number, state: BookState = 'shelved') =>
+  ({ id, area_id: null, location: '', standing: null, state })
 
 describe('cutting a listing into the rows a bookcase has', () => {
   it('makes one board per area, in the order the books arrived on it', () => {
@@ -97,11 +106,35 @@ describe('cutting a listing into the rows a bookcase has', () => {
       true,
     )
 
-    expect(off).toBe(1)
+    expect(off.total).toBe(1)
     // And it does not split the area either side of it: the run has closed up
     // behind the missing book exactly as the shelf has.
     expect(runs).toHaveLength(1)
     expect(runs[0]!.books.map((one) => one.id)).toEqual([1, 3])
+  })
+
+  /**
+   * Three reasons a book is off a bookcase, counted apart (#459).
+   *
+   * They were one number and one sentence, "3 books are not on a bookcase", and
+   * only one of the three is a book somebody can walk out and fetch. The
+   * library says the lending one as a door into those books and the other two
+   * as words, so a count that has an answer and a count that has none do not
+   * read the same.
+   */
+  it('counts the three reasons a book is off a bookcase apart', () => {
+    const { off } = areaRuns(
+      [
+        book(1, 10, '1A', at(1, 0)),
+        nowhere(2, 'checked_out'),
+        nowhere(3, 'checked_out'),
+        nowhere(4, 'withdrawn'),
+        nowhere(5),
+      ],
+      true,
+    )
+
+    expect(off).toEqual({ out: 2, gone: 1, unplaced: 1, total: 4 })
   })
 
   it('closes every board when everything has loaded', () => {
@@ -121,7 +154,8 @@ describe('cutting a listing into the rows a bookcase has', () => {
   })
 
   it('has nothing to say about no books', () => {
-    expect(areaRuns([], false)).toEqual({ runs: [], off: 0 })
+    expect(areaRuns([], false))
+      .toEqual({ runs: [], off: { out: 0, gone: 0, unplaced: 0, total: 0 } })
   })
 })
 

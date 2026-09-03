@@ -160,6 +160,7 @@ import { troubleWith } from '../lib/backupWords'
 import { driftTrouble } from '../lib/driftWords'
 import { grouped } from '../lib/say'
 import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
+import { CHECKED_OUT, type BookState } from '../../domain/books/state'
 import type { Which } from './QueuePane'
 
 interface Props {
@@ -224,7 +225,18 @@ interface Props {
   corner: { word: string; icon: ReactNode; onPress: () => void }
   /** That menu, while it is open. */
   menu?: ReactElement
-  onLibrary: () => void
+  /**
+   * Open the library, on the books the press was about (#459).
+   *
+   * **The argument is the same fix #436 made to the queue's two counts, one
+   * screen along.** "2 checked out" and "27 catalogued" both opened the plain
+   * library: two numbers, one destination, and nothing on the arriving screen
+   * saying which of them had been pressed. So the count that means "off the
+   * shelf and still yours" hands the library that state and the count that
+   * means the whole collection hands it null, which is also what clears a
+   * narrowing left from last time.
+   */
+  onLibrary: (showing?: BookState) => void
   /**
    * Open the queue, on the books the press was about (#436).
    *
@@ -264,7 +276,9 @@ export function HomePane({
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
-    library: onLibrary,
+    /* The whole library, for the reason the queue's tab opens the whole queue:
+       a tab is a room rather than a claim about how many books are in it. */
+    library: () => onLibrary(),
     scan: onAdd,
     /* The whole queue. A tab is a room rather than a claim about how many
        books are in it, so this is the one way in that filters nothing. */
@@ -355,8 +369,15 @@ export function HomePane({
       <Stats
         cat={bare ? 'sleeping' : undefined}
         items={[
-          { n: grouped(counts.total), word: 'catalogued', onPress: onLibrary },
-          { n: grouped(counts.checkedOut), word: 'checked out', onPress: onLibrary },
+          { n: grouped(counts.total), word: 'catalogued', onPress: () => onLibrary() },
+          {
+            n: grouped(counts.checkedOut),
+            word: 'checked out',
+            // Not `onLibrary` bare, for the reason the queue's two counts are
+            // not either (#436, #459): this count is the books that are out of
+            // the house, and the library has to open on those.
+            onPress: () => onLibrary(CHECKED_OUT),
+          },
           {
             n: grouped(queue.ready),
             word: 'ready to shelve',

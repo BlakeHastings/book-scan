@@ -41,7 +41,18 @@ describe('saying a book has moved', () => {
    */
   it('goes to the step that places a book, not to the form that corrects one', () => {
     const pane = source('BookPane.tsx')
-    const press = pane.slice(pane.indexOf('It moved') - 400, pane.indexOf('It moved'))
+    /*
+     * The button that says it: its own tag, and its own word under it.
+     *
+     * It was the four hundred characters before the first "It moved" in the
+     * file, which is a window onto a neighbourhood rather than onto a button.
+     * Prose written above the row pushed the press out of that window, and
+     * prose quoting the word moved the window itself onto a comment (#459). The
+     * property asserted is unchanged and so is the reason for it.
+     */
+    const word = /\n\s*It moved\s*\n/.exec(pane)
+    expect(word, 'no button on this page says "It moved"').not.toBeNull()
+    const press = pane.slice(pane.lastIndexOf('<Button', word!.index), word!.index)
 
     expect(press, 'it still opens the record form').not.toContain('openBook(book.id)')
     expect(press).toContain('moveBook(book.id)')

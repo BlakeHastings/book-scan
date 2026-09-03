@@ -48,6 +48,7 @@
  */
 
 import type { AreaStanding } from '../../shared/shelving'
+import { CHECKED_OUT, WITHDRAWN, type BookState } from '../../domain/books/state'
 import { pieceOn } from './furniture'
 
 /** One row of books: an area, as it stands and as it reads. */
@@ -80,6 +81,33 @@ interface Book {
   area_id: number | null
   location: string
   standing: AreaStanding | null
+  /** Why it is off a bookcase, for the sentence that counts them (#459). */
+  state: BookState
+}
+
+/**
+ * The books that are on no bookcase, counted by the reason they are not.
+ *
+ * **Three reasons, and they used to be one sentence** (#459). "3 books are not
+ * on a bookcase" put a book somebody lent to a friend, a book they gave away
+ * and a book they photographed and never filed into one number, and the only
+ * thing to do about each of them is different. The first is the one this app
+ * has a screen for and the one somebody comes looking for.
+ *
+ * `withdrawn` is a state and `never placed` is the absence of an area on a book
+ * that is otherwise shelved, which is why the second is counted rather than
+ * named: `shelved` with no plank is somebody having said what a book is and not
+ * yet where it went.
+ */
+export interface OffTheBookcase {
+  /** Lent, borrowed, in a box in the car. Still yours. */
+  out: number
+  /** Given away, sold, lost. */
+  gone: number
+  /** Catalogued and never put anywhere. */
+  unplaced: number
+  /** All three, which is what the sentence used to be. */
+  total: number
 }
 
 /*
@@ -116,13 +144,16 @@ export function areaRuns<T extends Book>(
   books: readonly T[],
   /** Whether the whole listing has loaded, or only the pages so far. */
   complete: boolean,
-): { runs: AreaRun[]; off: number } {
+): { runs: AreaRun[]; off: OffTheBookcase } {
   const runs = new Map<number, AreaRun>()
-  let off = 0
+  const off: OffTheBookcase = { out: 0, gone: 0, unplaced: 0, total: 0 }
 
   for (const book of books) {
     if (book.area_id === null || !book.standing) {
-      off += 1
+      off.total += 1
+      if (book.state === CHECKED_OUT) off.out += 1
+      else if (book.state === WITHDRAWN) off.gone += 1
+      else off.unplaced += 1
       continue
     }
 

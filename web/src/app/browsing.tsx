@@ -20,6 +20,8 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 import type { Look } from '../design/Finding'
 import { rememberedView, rememberView, type LibraryView } from '../lib/libraryView'
+import type { BookState } from '../../domain/books/state'
+import { useNavigation } from './navigation'
 
 /**
  * The stored answer and the drawn one are the same three views under two sets of
@@ -55,6 +57,38 @@ export interface Browsing {
   /** The tags narrowing the library. Empty is every book. */
   readonly narrowing: readonly Narrowing[]
   readonly setNarrowing: (tags: readonly Narrowing[]) => void
+  /**
+   * Which state of book the library is showing, or null for all of them.
+   *
+   * **A count is a promise about what you will see** (#459). "2 checked out" on
+   * the first screen and "27 catalogued" beside it opened the same unfiltered
+   * library, so pressing the smaller number produced the larger list and
+   * nothing on the screen said what had happened. This is the answer carried
+   * from the press to the screen, which is why it is here rather than in
+   * `LibraryPane`: the screen that presses is unmounted before the library
+   * mounts, which is the reason every other field on this provider is here.
+   *
+   * A narrowing beside the tags rather than one of them. A tag is something
+   * somebody said about a book; being out of the house is something that
+   * happened to it, and #395 settles that lending is not a tag.
+   */
+  readonly showing: BookState | null
+  readonly setShowing: (state: BookState | null) => void
+  /**
+   * Open the library on the books a count was about, or on all of them.
+   *
+   * Both in one call, because the two apart is how "2 checked out" opened the
+   * library on 27: a caller that sets the route and forgets the narrowing is a
+   * count that does not keep its promise. `openQueueOn` in `navigation.tsx` is
+   * the same shape for the same reason, and #436 is what taught it.
+   *
+   * Unlike the queue's, the answer is **not** consumed on the way in. It is a
+   * narrowing beside the tags and it survives opening a book and coming back,
+   * exactly as a chosen tag does, because coming back to the whole collection
+   * every time is what "narrowed" would then mean for one screen and not the
+   * other. Whichever press wants the whole library says so by passing null.
+   */
+  readonly openLibraryShowing: (state: BookState | null) => void
   /** The book whose own page is open, if one is. */
   readonly viewing: number
   readonly setViewing: (id: number) => void
@@ -66,8 +100,12 @@ export interface Browsing {
 const Context = createContext<Browsing | null>(null)
 
 export function BrowsingProvider({ children }: { children: ReactNode }) {
+  // Navigation is the provider outside this one, which is what lets a narrowing
+  // and the route it is for be set together. See `openLibraryShowing`.
+  const { setRoute } = useNavigation()
   const [look, setStoredLook] = useState<Look>(() => LOOK_OF[rememberedView()])
   const [narrowing, setNarrowing] = useState<readonly Narrowing[]>([])
+  const [showing, setShowing] = useState<BookState | null>(null)
   const [viewing, setViewing] = useState(0)
   const [typed, setTyped] = useState('')
 
@@ -78,11 +116,14 @@ export function BrowsingProvider({ children }: { children: ReactNode }) {
     setLook: (next) => { setStoredLook(next); rememberView(VIEW_OF[next]) },
     narrowing,
     setNarrowing,
+    showing,
+    setShowing,
+    openLibraryShowing: (state) => { setShowing(state); setRoute('library') },
     viewing,
     setViewing,
     typed,
     setTyped,
-  }), [look, narrowing, viewing, typed])
+  }), [look, narrowing, showing, viewing, typed, setRoute])
 
   return <Context.Provider value={value}>{children}</Context.Provider>
 }
