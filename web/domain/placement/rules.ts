@@ -45,7 +45,7 @@
  */
 
 import { TagSlug } from '../tagging/tags'
-import { areaFor, runFrom, type Slot } from './geography'
+import { areaFor, runFrom, startsARun, type Slot } from './geography'
 
 /** What a condition can ask about. One today, and the column it replaces held one. */
 export const RULE_FIELDS = ['tag'] as const
@@ -190,7 +190,7 @@ export function placementOf(
 }
 
 /**
- * The first piece of furniture past `from` that somebody's rule stands on.
+ * The first piece of furniture past `from` that another run begins on.
  *
  * **A run stops where the next run begins, and "the next run" is any rule's, not
  * only the other genre's.** `runFrom` says exactly that already, area by area,
@@ -198,6 +198,15 @@ export function placementOf(
  * the two callers that have to decide which *furniture* a run owns rather than
  * which planks it flows through: the band a range is reconciled over
  * (`bandsOf`) and the stretch a move is allowed to pick up (`relocateRun`).
+ *
+ * **It asks `startsARun` rather than `entries` alone, and #499 is the
+ * difference.** A rule is not the only thing that opens a run: an area given an
+ * ordering of its own is self-contained, takes no overflow, and heads its own
+ * run, which is what the dialog on "Change how this shelf is ordered" says out
+ * loud before anybody agrees to it. `runFrom` has always cut there. This read
+ * did not, so a bookcase whose middle plank somebody had set to order by title
+ * was a piece two runs stood on that a move would take whole — the #420 state
+ * exactly, reached by a different button.
  *
  * **Piece granularity is the point**, and #420 is what its absence cost. A rule
  * somebody wrote on the bottom shelf of a bookcase they had just put up cut the
@@ -219,9 +228,34 @@ export function nextRunStartAfter(
 
   let limit: number | undefined
   for (const slot of order) {
-    if (!entries.has(slot.area.id)) continue
+    if (!startsARun(slot, entries)) continue
     if (slot.fixture.position <= from) continue
     if (limit === undefined || slot.fixture.position < limit) limit = slot.fixture.position
   }
   return limit
+}
+
+/**
+ * Another run beginning on the piece `from`, other than the one opening at
+ * `entry`, or null when that piece is this run's alone.
+ *
+ * **The half of #420 `nextRunStartAfter` cannot see.** That one answers about
+ * pieces *past* the one a run opens on, because until #499 nothing could begin
+ * a second run on the piece a run already opened on and still be reached: the
+ * band arithmetic erased the earlier range instead. It can now, and the rule is
+ * unchanged — a bookcase somebody else's run begins on is that run's furniture,
+ * and half a piece is nobody's to take — so the piece a move starts from has to
+ * be asked the same question as the pieces it stops at.
+ */
+export function otherRunOn(
+  order: Slot[],
+  rules: PlacementRule[],
+  from: number,
+  entry: number,
+): Slot | null {
+  const entries = entryAreas(rules, order)
+  return order.find((slot) =>
+    slot.fixture.position === from
+    && slot.area.id !== entry
+    && startsARun(slot, entries)) ?? null
 }

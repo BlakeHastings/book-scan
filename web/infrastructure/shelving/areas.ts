@@ -81,11 +81,11 @@
 
 import type { AreaFace } from '../../domain/placement/carry'
 import {
-  byPrecedence, entryAreaOf, nextRunStartAfter,
+  byPrecedence, entryAreaOf, entryAreas, nextRunStartAfter,
   type PlacementRule, type RuleOperator,
 } from '../../domain/placement/rules'
 import {
-  labelFor, slotsInOrder, type Area, type Fixture, type Slot,
+  labelFor, slotsInOrder, startsARun, type Area, type Fixture, type Slot,
 } from '../../domain/placement/geography'
 import type { SortStrategy } from '../../domain/placement/strategies'
 import { GENRE_RANGES } from '../../domain/tagging/genre'
@@ -184,10 +184,46 @@ export function boundariesFrom(range: ShelfRange, areas: readonly RunArea[]): Se
   }))
 }
 
-/** A range, and the bookcase the range after it begins on. */
+/**
+ * A range's run, and the furniture that run is reconciled and moved over.
+ *
+ * **Two ends answering two questions, and each caller says which it is asking**
+ * (#499). This used to carry one bound, a bookcase, and both questions read it:
+ *
+ * - `end` is where the **run** stops, which is a plank, because a run runs from
+ *   its rule's entry area until the next area any rule points at. `runFrom` has
+ *   always said it that way in the domain and `docs/shelving.md` settles it in
+ *   one line.
+ * - `limit` is where a **move** stops, which is a bookcase, because a move
+ *   rehangs whole pieces and a piece somebody else's run begins on is that
+ *   run's furniture. That is #420 and it is a decision rather than a rounding.
+ *
+ * The asymmetry is real and it is not the mistake. The mistake was one bound
+ * standing for both, which cost two things nobody chose: planks between a
+ * previous run and an entry part way down a piece fell out of every band while
+ * `runFrom` still gave them to the run before, and two runs opening on one
+ * piece bounded the earlier range at its own start, so `f.position >= 2 AND
+ * f.position < 2` gave a whole range no run at all — silently, with no error
+ * and nothing on any list.
+ *
+ * `end` is undefined exactly when `limit` is: nothing stands past this run.
+ */
 export interface RangeBand {
   start: RangeStart
-  /** One past the last bookcase this range may use, or undefined for the last. */
+  /**
+   * The first plank past this run, or undefined when no run begins after it.
+   *
+   * Exclusive, and a plank rather than a bookcase: `2C` here means the run has
+   * `2A` and `2B` and stops.
+   */
+  end?: PlankAt
+  /**
+   * One past the last bookcase a move of this range may pick up, or undefined
+   * for the last run in the room.
+   *
+   * `nextRunStartAfter` read as furniture. Never below `end.shelf`, and above
+   * it exactly when another run opens on the piece this one opens on.
+   */
   limit?: number
 }
 
@@ -301,48 +337,49 @@ export async function furnitureIn(
  */
 export async function bandsOf(db: Db): Promise<Map<ShelfRange, RangeBand>> {
   const { order, rules } = await furnitureIn(db)
+  const entries = entryAreas(rules, order)
 
-  const starts: { range: ShelfRange; start: RangeStart }[] = []
+  const bands = new Map<ShelfRange, RangeBand>()
   for (const { range } of GENRE_RANGES) {
     const rule = ruleForRange(rules, range)
     if (!rule) continue
 
     const areaId = entryAreaOf(rule, order)
-    const slot = order.find((one) => one.area.id === areaId)
-    if (!slot) continue
+    const at = order.findIndex((one) => one.area.id === areaId)
+    if (at === -1) continue
 
-    starts.push({
-      range,
-      start: { shelf: slot.fixture.position, area: slot.area.position },
-    })
-  }
+    const slot = order[at]!
+    const start: RangeStart = { shelf: slot.fixture.position, area: slot.area.position }
 
-  starts.sort((a, b) => (a.start.shelf - b.start.shelf) || (a.start.area - b.start.area))
-
-  const bands = new Map<ShelfRange, RangeBand>()
-  starts.forEach(({ range, start }, at) => {
     /*
-     * Where the next run begins, and **not only where the next range does**.
-     * That is the whole of #420. The two genre rules were the only thing that
-     * could bound a band, so a bookcase somebody stood past the last of them,
-     * and wrote their own rule on, fell inside non-fiction's band: every read
-     * here treated its planks as non-fiction's cuts, and a move about two other
-     * bookcases rewrote them onto a third.
+     * Where the next run begins, said twice because two questions are being
+     * asked, and **neither of them is "where does the next range begin"**.
      *
-     * `nextRunStartAfter` is `runFrom`'s own cut read a piece at a time, so the
-     * furniture this reconciles is the furniture the domain says the run owns.
-     * The next range's start is one of those entries and is kept in the
-     * arithmetic anyway, for the one case the entries cannot express: two runs
-     * beginning on the same piece, where the bound is that piece rather than
-     * something past it.
+     * That was the whole of #420 for the piece bound: the two genre rules were
+     * the only thing that could bound a band, so a bookcase somebody stood past
+     * the last of them, and wrote their own rule on, fell inside non-fiction's
+     * band and a move about two other bookcases rewrote its planks.
+     *
+     * It is the whole of #499 for the plank bound. The next range's start was
+     * kept in the arithmetic as well, as a `Math.min`, for the one case the
+     * pieces could not express: two runs opening on one piece. But a bound of
+     * "the next range's bookcase" is this range's own bookcase in that case, so
+     * the earlier range came back bounded at its own start and every read of it
+     * answered about nothing. The plank bound expresses that case exactly, and
+     * with it the `min` has nothing left to contribute: any next range starting
+     * on a later piece is one of the run starts `nextRunStartAfter` already
+     * walks, so it could never have been the smaller of the two.
+     *
+     * Both come from `startsARun`, which is `runFrom`'s own cut: one read a
+     * plank at a time for the run, one read a piece at a time for the move.
      */
-    const next = starts[at + 1]?.start.shelf
-    const claimed = nextRunStartAfter(order, rules, start.shelf)
-    const limit = next === undefined ? claimed
-      : claimed === undefined ? next
-        : Math.min(next, claimed)
-    bands.set(range, { start, limit })
-  })
+    const past = order.slice(at + 1).find((one) => startsARun(one, entries))
+    const end = past
+      ? { shelf: past.fixture.position, area: past.area.position }
+      : undefined
+
+    bands.set(range, { start, end, limit: nextRunStartAfter(order, rules, start.shelf) })
+  }
   return bands
 }
 
@@ -611,11 +648,18 @@ interface ExistingFixture {
  * `existing` that stopped at the entry would insert a second `2A` beside the
  * one already hanging there the moment a run opened at `2C`.
  *
- * Nothing here reaches those planks. Every loop in `writeBoundaries` that can
- * take a plank off a face is bounded by something else: the per-piece tail
- * retires only positions past the last derived one, and the whole-piece
+ * **The piece the run *ends* on is read whole for the same reason** (#499), and
+ * that is why the bound below is `<= end.shelf` and not the move's `limit`. A
+ * run ending at `2C` owns `2A` and `2B`, so the piece has to be here for those
+ * two to be found rather than made a second time; and `2C` itself has to be
+ * here so that neither retirement loop in `writeBoundaries` can be handed a
+ * piece it has only half of.
+ *
+ * Nothing here reaches a plank the run does not own. Every loop in
+ * `writeBoundaries` that can take one off a face is bounded: the whole-piece
  * retirement skips any piece `wanted` names, which always includes the entry
- * piece. So the extra rows are read and never written, which is the point.
+ * piece, and both loops stop at `band.end` on the piece the run ends on. So the
+ * extra rows are read and never written, which is the point.
  */
 async function fixturesIn(
   db: Db,
@@ -629,9 +673,9 @@ async function fixturesIn(
             a.id AS area_id, a.position AS area_position
        FROM fixture f
        LEFT JOIN area a ON a.fixture_id = f.id
-      WHERE f.position >= ?${band.limit === undefined ? '' : ' AND f.position < ?'}
+      WHERE f.position >= ?${band.end === undefined ? '' : ' AND f.position <= ?'}
       ORDER BY f.position, f.id, a.position`,
-    band.limit === undefined ? [band.start.shelf] : [band.start.shelf, band.limit],
+    band.end === undefined ? [band.start.shelf] : [band.start.shelf, band.end.shelf],
   )
 
   const byPosition = new Map<number, ExistingFixture>()
@@ -692,13 +736,20 @@ interface RunRow {
  * would have taken the two planks before the entry off a face they were still
  * the previous run's part of.
  *
- * **The upper bound stays a bookcase, and that is deliberate rather than the
- * other half of the same omission.** `band.limit` is a fixture position because
- * a move stops one piece earlier than a run does — #420, and `docs/shelving.md`
- * under "A run stops where the next run begins, and a move stops a piece
- * earlier". Reading it as a plank here would reverse that decision. The
- * asymmetry is real and is the band's, not this statement's: what this owes the
- * band is to read both halves of the answer it was given.
+ * **The run closes at a plank too, and that is #499 rather than a tidy-up.**
+ * This read used `band.limit`, which is a fixture position because *a move*
+ * stops one piece earlier than a run does — #420, and `docs/shelving.md` under
+ * "A run stops where the next run begins, and a move stops a piece earlier".
+ * That decision is untouched and `band.limit` still holds it; what changed is
+ * that this statement is not the one it is about. Asking a move's bound which
+ * planks a run has cost the two things the band's own docstring names: `2A` and
+ * `2B` under a run ending at `2C` fell out of every read while `runFrom` went
+ * on giving them to the run before, and two runs opening on one piece bounded
+ * the earlier one at its own start, so this statement asked for
+ * `f.position >= 2 AND f.position < 2` and a whole range came back with no run.
+ *
+ * So the band answers both ends with a plank now, and the reader that wants a
+ * piece — the move, and only the move — asks `band.limit` for it by name.
  */
 export async function runAreasOf(db: Db, range: ShelfRange): Promise<RunArea[]> {
   const band = await bandOf(db, range)
@@ -709,11 +760,14 @@ export async function runAreasOf(db: Db, range: ShelfRange): Promise<RunArea[]> 
        FROM area a JOIN fixture f ON f.id = a.fixture_id
       WHERE a.position >= 0
         AND (f.position > ? OR (f.position = ? AND a.position >= ?))
-        ${band.limit === undefined ? '' : 'AND f.position < ?'}
+        ${band.end === undefined ? '' : 'AND (f.position < ? OR (f.position = ? AND a.position < ?))'}
       ORDER BY f.position, f.id, a.position`,
-    band.limit === undefined
+    band.end === undefined
       ? [band.start.shelf, band.start.shelf, band.start.area]
-      : [band.start.shelf, band.start.shelf, band.start.area, band.limit],
+      : [
+        band.start.shelf, band.start.shelf, band.start.area,
+        band.end.shelf, band.end.shelf, band.end.area,
+      ],
   )
 
   // One fixture per position, the one that was there first, which is the run
@@ -1051,8 +1105,24 @@ export async function writeBoundaries(
   )
   if (!collection) return
 
-  const derived = areasOf(band.start, separators)
-    .filter((area) => band.limit === undefined || area.fixturePosition < band.limit)
+  const derived = areasOf(band.start, separators).filter((area) =>
+    band.end === undefined
+    || area.fixturePosition < band.end.shelf
+    || (area.fixturePosition === band.end.shelf && area.position < band.end.area))
+
+  /*
+   * The plank neither retirement loop below may reach, on the piece it stands
+   * on. **The run's last piece carries planks the run does not own**, exactly
+   * as its first piece does, and #499 is what happens when only the first is
+   * accounted for: a run ending at `2C` derives `2A` and `2B`, so the tail loop
+   * would see `2C` sitting past the last derived position and take non-fiction's
+   * entry plank off its face, and a run that had shrunk off the piece entirely
+   * would have the whole-piece loop take all three.
+   *
+   * Undefined on every other piece, which is every piece the run owns whole.
+   */
+  const beyond = (fixturePosition: number): number | undefined =>
+    band.end !== undefined && fixturePosition === band.end.shelf ? band.end.area : undefined
 
   /*
    * The plank the run opens at, and the one row here does not write an anchor
@@ -1148,10 +1218,14 @@ export async function writeBoundaries(
       )
     }
 
-    // The tail of a fixture that has lost boundaries.
+    // The tail of a fixture that has lost boundaries, stopping short of a plank
+    // the next run opens at. See `beyond`.
     const last = areas[areas.length - 1]!.position
+    const stop = beyond(fixturePosition)
     for (const [position, id] of fixture.areas) {
-      if (position > last) await retireOrRemove(db, id, position)
+      if (position <= last) continue
+      if (stop !== undefined && position >= stop) continue
+      await retireOrRemove(db, id, position)
     }
   }
 
@@ -1169,7 +1243,11 @@ export async function writeBoundaries(
    */
   for (const [fixturePosition, fixture] of existing) {
     if (wanted.has(fixturePosition)) continue
-    for (const [position, id] of fixture.areas) await retireOrRemove(db, id, position)
+    const stop = beyond(fixturePosition)
+    for (const [position, id] of fixture.areas) {
+      if (stop !== undefined && position >= stop) continue
+      await retireOrRemove(db, id, position)
+    }
   }
 }
 
@@ -1240,8 +1318,26 @@ export async function relocateRunTo(
   const rule = await runRuleOf(db, range)
   if (!rule) return
 
-  const boundaries = await boundariesOf(db, range)
-  const run = await runAreasOf(db, range)
+  /*
+   * **The stretch that moves, said here rather than inherited** (#499).
+   *
+   * `runAreasOf` answers which planks the run *is*, which since #499 is a plank
+   * bound and can therefore run onto a piece another rule stands part way down.
+   * A move may not take that piece: #420 is the decision and
+   * `refuseAHalfStrippedPiece` below is what stops it being undone quietly. So
+   * this reads `band.limit`, the bookcase bound, by name — the same bound
+   * `relocateRun` filters the plan by, out of the same `nextRunStartAfter`, so
+   * the planks the plan names are still the planks this takes.
+   *
+   * The boundaries are derived from that stretch rather than read again, so the
+   * cuts written onto the destination are the cuts of the planks that moved.
+   */
+  const band = await bandOf(db, range)
+  const flowing = await runAreasOf(db, range)
+  const run = band?.limit === undefined
+    ? flowing
+    : flowing.filter((area) => area.fixturePosition < band.limit!)
+  const boundaries = boundariesFrom(range, run)
 
   for (const area of run) await takeOffTheFace(db, area.id, area.position)
 
