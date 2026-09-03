@@ -23,7 +23,7 @@ import { useNavigation } from '../app/navigation'
 import { usePaper } from '../app/paper'
 
 export function CarryScreen() {
-  const { openScanner, setRoute } = useNavigation()
+  const { openScanner, openRoom, setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const { choose } = useArmful()
   const [work, setWork] = useState<CarryWork | null>(null)
@@ -90,6 +90,12 @@ export function CarryScreen() {
       busy={busy}
       onHome={() => setRoute('home')}
       onLibrary={() => setRoute('library')}
+      /* The furniture, which is what the button under an empty list says it
+         shows. It was handed `setRoute('library')` through `onLibrary` and
+         opened the wall of covers instead (#459). Through `openRoom` so the
+         back arrow over there returns here, the way every other door to the
+         furniture does since #350. */
+      onFurniture={() => openRoom('furniture')}
       onQueue={() => setRoute('queue')}
       onScan={openScanner}
     />

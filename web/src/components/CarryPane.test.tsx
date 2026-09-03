@@ -78,6 +78,7 @@ const carry = (over: Partial<Parameters<typeof CarryPane>[0]> = {}): string =>
     onRestore: () => {},
     onHome: () => {},
     onLibrary: () => {},
+    onFurniture: () => {},
     onQueue: () => {},
     onScan: () => {},
     ...over,
