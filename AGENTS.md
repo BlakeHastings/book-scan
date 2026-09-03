@@ -359,8 +359,8 @@ it about now, which is why the deployment check is the place it belongs.
 `cd web && npm run rebuild-projection -- --target '<connection>'`, which prints
 what disagrees and writes nothing, plus `--repair` as a separate second decision.
 It does not read `ConnectionStrings__bookscan`, and unlike `seed-world.ts` it does
-not refuse port 5433, because the live catalogue is the one it exists to repair —
-so running it there is the owner's, like every other write to that database.
+not refuse port 5433, because the live catalogue is the one it exists to repair.
+Running it there is the owner's, like every other write to that database.
 Agents are refused it by `scripts/guard-live-data.mjs` from inside a worktree.
 Nothing repairs on start, for #485's reason: the diagnosis depended on the broken
 state surviving restarts.
