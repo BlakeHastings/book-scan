@@ -32,10 +32,65 @@ answered.
 
 | Issue | Who has it |
 | --- | --- |
-| #512 | an agent. A server build, a start script, and the API serving the built client |
-| #505 | an agent. The projection check has no reader, and it is blind to the family it looks like it is for |
+| #524 | an agent. The sign-in, waiting-list and admitted screens |
+| #451, #452 | an agent. The contrast sweep's two findings and the third tag door |
 
-## What the two surveys found, and they agree
+## The login gate is built, and it is the thing to read first
+
+**#523 landed on 2026-09-03 and closed the seventy-two open doors.** Verified by
+re-issuing the survey's own requests from the LAN address:
+
+```
+POST /api/fixtures        201 -> 401
+GET  /api/fixtures        200 -> 401
+GET  /api/covers/<name>   200 image/jpeg -> 401
+GET  /api/covers/?w=160   200 -> 401
+GET  /                    200 -> 200, correctly: it is the login screen
+```
+
+**Three states, and the middle one is the design.** No session is `401`
+`anonymous`; a session belonging to a disabled user is **`403` `waiting`**; an
+enabled one gets the route. Driven on one cookie, unchanged, disabled and
+re-enabled between requests: a person switched off is refused on the session
+they already hold, and switched back on goes straight through.
+
+**Five paths are open and all five are the sign-in ones**, plus the static client
+because it *is* the login screen. The count is taken by a test that walks the
+router stack, so it cannot drift silently.
+
+The owner's model, in his words: *"We will create users when people log in but if
+they aren't enabled they should be shown a screen that explains they are on the
+waiting list."* Users are created disabled at first sign-in. **Enabling happens
+by a script**, `web/scripts/enable-user.ts`, deliberately not a route: a route
+would need an administrator, which is a role, which #171 has not decided. It also
+solves the bootstrap, since the first user cannot be enabled by an enabled one.
+
+Google is the provider. **Microsoft is deliberately absent from the registry**
+because its issuer is tenant-scoped and a Google-shaped row would ship a wrong
+check; the seam is proved by running an invented provider through the whole flow
+instead. Apple needs a domain nobody has chosen, a paid membership and a
+rotating signed secret.
+
+**`docs/the-gate.md` carries the whole design.** Read it before touching
+anything with a route in it.
+
+## What else landed on 2026-09-03
+
+- **#520**: this app can be started from a build. An esbuild bundle, `npm start`
+  with no watcher, and **the API serves the built client**, which is what makes
+  one gate cover everything. A `tsc` emit was tried first and compiles but does
+  not run.
+- **#519**: the projection check has a reader, `GET /api/health` with `ok:false`,
+  and its repair has a script that refuses to repair unless asked twice. The
+  argument that decided it: **a startup line prints once**, so a writer that
+  stops recording itself an hour after boot goes unreported until the next
+  restart. Watched happening — the log said everything agreed while the endpoint
+  named two books.
+- **#522**: the merge guard, below.
+- **#514 and #516**: lending stopped hiding furniture, and the list of lent books
+  finally has a door. `GET /api/checked-out` had existed with no caller.
+
+## What the two surveys found, and they agreed before the gate closed it
 
 **`docs/auth-surface.md` (#511): seventy-two doors, none locked.** Seventy-one
 hand-declared handlers plus one static mount for the photographs. Verified by the
@@ -526,6 +581,21 @@ run and reads the program each one invokes, so cargo is cargo: a `--body`, a
 `-m`, a heredoc, an `echo`, a `grep` for the phrase. `--body-file` is no longer
 a workaround for anything. It also answers `node scripts/guard-merge.mjs
 --probe`, and being refused is the answer that means it is loaded.
+
+**Probed on 2026-09-03 and refused, so this is now a measurement rather than a
+hope.** The hook is invoked as a fresh `node` process per tool call and reads the
+file from disk each time, so the fix took effect the moment `master` moved
+rather than at the next session start. That is worth knowing: it means a change
+to the guard is live immediately, in both directions.
+
+The old guard was wrong in **both** directions, measured against nineteen
+payloads before it was replaced. It refused a pull request comment quoting the
+command, a commit message explaining it, an `echo` and a `grep` — the known,
+annoying half. And it **allowed a merge with a flag before the subcommand and a
+push to `master` by full ref**, which nobody knew, and which is the half that
+matters: the thing built to stop a merge bypassing the checks had two bypasses
+in it.
+
 
 ## Open, as of this writing
 
