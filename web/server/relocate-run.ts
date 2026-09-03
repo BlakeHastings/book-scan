@@ -24,11 +24,13 @@
  */
 
 import {
-  furnitureIn, plankLabels, relocateRunTo, ruleForRange,
+  areasStanding, furnitureIn, plankLabels, relocateRunTo, ruleForRange,
 } from '../infrastructure/shelving/areas'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { planPlacements, type PlacementPlan, type PlannableBook } from '../domain/placement/plan'
-import { relocateRun, type EmptiedPiece, type PlankMove } from '../domain/placement/relocate'
+import {
+  relocateRun, runToMove, type EmptiedPiece, type PlankMove,
+} from '../domain/placement/relocate'
 import {
   AssignPlacementsHandler, type AssignableBook, type AssignmentReport,
 } from '../application/placement/assign-placements'
@@ -102,6 +104,76 @@ async function booksIn(db: Db, range: ShelfRange): Promise<PlannableBook[]> {
   }))
 }
 
+/** One plank of a run, as the card describing it reads. */
+export interface RunPlank {
+  label: string
+  /** Books standing on it, which is where somebody last said they were. */
+  books: number
+}
+
+/**
+ * Where a run lives, what it is cut into, and whether it can be moved at all.
+ *
+ * **The read the arrange screen draws itself from**, and it exists because that
+ * screen used to answer all three from the books it happened to be showing.
+ *
+ * - Where a run lives is where its rule points. The first group of books is
+ *   wherever the first book happens to be standing, and an empty leading
+ *   bookcase makes those two different bookcases (#500).
+ * - What the run is cut into is the planks a move would rehang. A plank holding
+ *   nothing is in that list, because it is a plank of the run, and dropping it
+ *   is exactly how a run with an empty shelf at the top got described as
+ *   starting one bookcase further along.
+ * - Whether it can be moved is `runToMove`'s refusal, which nothing about a
+ *   destination is needed to ask (#486).
+ *
+ * **`why` is an answer rather than an error.** A run a move cannot pick up is an
+ * ordinary arrangement — an area rule serving a range is what "say what belongs
+ * here" on a plank writes, and #430 item 1 keeps two rules on one genre legal —
+ * so the screen is told before it offers anything, rather than after somebody
+ * has chosen.
+ */
+export interface RunMoveOffer {
+  /** The bookcase the run starts on, or null when its rule points nowhere. */
+  from: number | null
+  /** Every plank a move would take with it, empty ones included. */
+  planks: RunPlank[]
+  /** Why this run cannot be moved, or null when it can. */
+  why: string | null
+}
+
+/**
+ * What the screen needs before it draws a single destination. **Writes
+ * nothing.**
+ */
+export async function runMoveOffer(db: Db, range: ShelfRange): Promise<RunMoveOffer> {
+  const { order, rules } = await furnitureIn(db)
+  const rule = ruleForRange(rules, range)
+  if (!rule) return { from: null, planks: [], why: NO_RULE }
+
+  const movable = runToMove(order, rules, rule.id)
+  if (!movable.ok) return { from: movable.from, planks: [], why: movable.error }
+
+  /*
+   * The label and the count off the same row, which is `areasStanding`: the one
+   * statement in the app that counts the books standing on an area. A plank the
+   * screen names and a plank the screen counts must not come from two readings.
+   */
+  const standing = new Map((await areasStanding(db)).map((area) => [area.id, area]))
+
+  return {
+    from: movable.move.from,
+    planks: movable.move.planks.map((slot) => ({
+      label: standing.get(slot.area.id)?.label ?? '',
+      books: standing.get(slot.area.id)?.books ?? 0,
+    })),
+    why: null,
+  }
+}
+
+/** Said in one place, because the plan and the offer refuse it on the same terms. */
+const NO_RULE = 'No rule files books into this run, so it lives nowhere to move.'
+
 /**
  * What moving this run would mean. **Writes nothing at all.**
  *
@@ -112,9 +184,7 @@ async function booksIn(db: Db, range: ShelfRange): Promise<PlannableBook[]> {
 export async function planRunMove(db: Db, range: ShelfRange, to: number): Promise<Planned> {
   const { order, rules } = await furnitureIn(db)
   const rule = ruleForRange(rules, range)
-  if (!rule) {
-    return { ok: false, error: 'No rule files books into this run, so it lives nowhere to move.' }
-  }
+  if (!rule) return { ok: false, error: NO_RULE }
 
   const moved = relocateRun(order, rules, rule.id, to)
   if (!moved.ok) return moved

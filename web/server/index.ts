@@ -71,7 +71,7 @@ import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } fr
 // A location naming a plank nobody has is refused rather than recorded (#232).
 // See the location route, and `recordPlaced`.
 import { historyOf, UnknownPlank } from './placement-ledger'
-import { applyRunMove, planRunMove } from './relocate-run'
+import { applyRunMove, planRunMove, runMoveOffer } from './relocate-run'
 import { applyRuleChange, draftFrom, planRuleChange, rulesOnPlace } from './place-rule'
 // The work list the ledger already holds, grouped into trips (#314).
 import { leaveWhereTheyAre, outstandingWork, putBackOnTheList, tripAtArea } from './carry'
@@ -1555,7 +1555,29 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }))
 
   /**
-   * Where a run lives, and what moving it would cost in books carried.
+   * Where a run lives, what it is cut into, and whether it can be moved.
+   *
+   * **The read the arrange screen draws itself from**, and it is a read rather
+   * than a refusal because both of the things it answers were being worked out
+   * from something other than this. The screen took the bookcase off the first
+   * group of books it was showing, which is a different question and a
+   * different answer the moment the leading bookcase of a run is empty (#500);
+   * and it could not find out that a run was one no move may pick up until
+   * somebody had chosen a destination and been refused (#486).
+   *
+   * A run that cannot be moved answers 200 with the reason. It is an ordinary
+   * arrangement rather than a fault: an area rule serving a range is what "say
+   * what belongs here" on a plank writes, and #430 item 1 keeps two rules on
+   * one genre legal. A 400 here would put the same sentence in the same error
+   * banner at the same late moment.
+   */
+  app.get('/api/placement/run', asyncRoute(async (req, res) => {
+    const range = req.query.range === 'nonfiction' ? 'nonfiction' : 'fiction'
+    res.json(await runMoveOffer(db, range))
+  }))
+
+  /**
+   * What moving a run would cost in books carried, and then the move.
    *
    * Two routes and one idea, the same pair as `/api/shelves/overflow/plan` and
    * the route beside it: the first computes and **writes nothing**, the second

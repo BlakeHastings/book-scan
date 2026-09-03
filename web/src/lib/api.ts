@@ -661,6 +661,31 @@ export interface RunMovePlan {
 }
 
 /**
+ * Where a run lives, what it is cut into, and whether it can be moved at all.
+ *
+ * **Everything the arrange screen needs before it offers anything**, and all
+ * three of them are the server's answer rather than the screen's reading of a
+ * list of books. The screen used to take the bookcase off the first group of
+ * books it was drawing, which is a different question with a different answer
+ * whenever the leading bookcase of a run holds nothing (#500), and it had no way
+ * to find out that a run was one no move may pick up until somebody had chosen
+ * a destination and been refused (#486).
+ */
+export interface RunMoveOffer {
+  /** The bookcase the run starts on, or null when its rule points nowhere. */
+  from: number | null
+  /**
+   * Every plank a move would take with it, in the order they read.
+   *
+   * A plank holding no books is in this list, because it is a plank of the run.
+   * An empty shelf at the top of a run is a real state and the screen says so.
+   */
+  planks: { label: string; books: number }[]
+  /** Why this run cannot be moved, or null when it can. */
+  why: string | null
+}
+
+/**
  * One line of a rule as a screen sends it back, which is a slug and a question.
  *
  * **The slug and not the label.** The label is what somebody read on the way to
@@ -1935,6 +1960,15 @@ export const api = {
   /** Books in this range that are not where they now belong. Read only. */
   misfiles: (range: ShelfRange) =>
     request<ShelvingReviewResponse>(`/api/misfiles?range=${range}`),
+
+  /**
+   * Where a run lives, what it is cut into, and whether it can be moved.
+   *
+   * The one read the arrange screen draws itself from, asked before it offers a
+   * destination rather than after somebody has picked one. **Writes nothing.**
+   */
+  runMoveOffer: (range: ShelfRange) =>
+    request<RunMoveOffer>(`/api/placement/run?range=${range}`),
 
   /**
    * What moving a whole run onto another bookcase would mean. **Writes
