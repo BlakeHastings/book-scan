@@ -18,6 +18,7 @@
     "e2e:fixture": "tsx scripts/e2e-video-fixture.ts",
     "seed": "tsx scripts/seed-world.ts",
     "rebuild-projection": "tsx scripts/rebuild-projection.ts",
+    "enable-user": "tsx scripts/enable-user.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
