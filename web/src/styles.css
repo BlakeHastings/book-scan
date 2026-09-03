@@ -6,8 +6,9 @@
  * is what that has no answer for, and each block below says which of the three
  * reasons it is:
  *
- * 1. **The chrome the redesign has not reached.** The header and its tabs, and
- *    the sheet on the cataloguing camera.
+ * 1. **The chrome the redesign has not reached**, which since #451 is the sheet
+ *    on the cataloguing camera and nothing else. The header and its tabs were
+ *    the rest of it and had not been drawn for months.
  * 2. **A picture with something floating on it.** No drawing in the gallery has
  *    an answer over a live camera, so where a panel sits is the app's; what is
  *    inside every one of them is the design system's.
@@ -41,58 +42,19 @@ html, body {
   -webkit-text-size-adjust: 100%;
 }
 
-.app {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: env(safe-area-inset-top) 12px calc(24px + env(safe-area-inset-bottom));
-}
-
-/* --- Top bar ---------------------------------------------------------- */
-
-.topbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
-}
-.topbar h1 { font-size: 18px; margin: 0; flex: 1; }
-.topbar nav { display: flex; gap: 4px; }
-.counts { flex-basis: 100%; color: var(--muted); font-size: 13px; }
-
-/* The title doubles as the way back, so every flow has an exit that is
-   always in the same place. */
-.topbar__home {
-  background: none;
-  border: 0;
-  padding: 0;
-  color: var(--text);
-  font: inherit;
-  font-weight: 700;
-}
-
-.tab {
-  background: none;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  padding: 8px 14px;
-  border-radius: 999px;
-  font-size: 14px;
-  min-height: 40px;
-}
-.tab--on { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
-
-/* The one line of red the header carries. Every screen inside the redesign
-   says what went wrong on itself, with `Trouble`; this is what is left for
-   whatever is still outside one. */
-.error {
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
-  margin-bottom: 12px;
-  background: rgba(247, 118, 142, 0.15);
-  border: 1px solid var(--bad);
-}
+/*
+ * Reason 1 above was the header, its three tabs and the red line it carried,
+ * and #451 took all of it out. Nothing had drawn any of it since the last
+ * screen was converted (#387): the route table said `chrome: false` on every
+ * one of its twenty-three lines, so the component holding these was compiled,
+ * imported and never mounted. Every screen brings the design system's own top
+ * bar and four-place tab bar, and says what went wrong on itself with
+ * `Trouble`.
+ *
+ * The rules are gone from here and the component with them, which is what makes
+ * the orphan test below tell the truth about them rather than about a file that
+ * spelled their names.
+ */
 
 /*
  * A placement on screen that is known to be out of date.
@@ -284,10 +246,24 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .cam__sheet-body h3 { margin: 0; font-size: 16px; }
 .cam__sheet-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+/*
+ * The third rule on this sheet to be measured rather than read (#451), and the
+ * one the theme trick could not have caught.
+ *
+ * `.cam__error` and `.cam__sheet-body` were faint in one theme and fine in the
+ * other, so switching themes found them. This one wrote in
+ * `rgba(255, 255, 255, 0.4)`, a literal that follows no theme, and came out at
+ * 3.83 to 1 in daylight and 3.83 to 1 at night: equally unreadable both ways
+ * round, and therefore invisible to the way the other two were found.
+ *
+ * It is still the quiet line on this sheet, which is what it is for. It is
+ * quiet in the picture's own second ink now instead of in an arbitrary white,
+ * and that is 5.79 to 1.
+ */
 .cam__sheet-meta {
   margin: 0;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--picture-ink-2);
   font-variant-numeric: tabular-nums;
 }
 

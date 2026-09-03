@@ -7,25 +7,19 @@
  * value read by six conditionals inside one 1,859 line component, and every
  * new screen was an edit to the same few lines of it.
  *
- * `chrome` says whether the screen wears the header and the tabs. Most no
- * longer do: the two cameras are full-screen and the page behind them must not
- * scroll, and every screen converted to the design system brings its own top
- * bar and four-place tab bar, so the app's header would be a second bar above
- * them saying the same thing. That is the first screen since #303, the
- * furniture since #313, the carry flow since #314, the cataloguing journey
- * since #316 and the move-and-plan screen since #326.
+ * **Each line used to carry a `chrome` flag as well, and #451 removed it.** It
+ * said whether the screen wore the app's own header and tabs. The conversion
+ * took that away one screen at a time — the first screen at #303, the furniture
+ * at #313, the carry flow at #314, the cataloguing journey at #316, the
+ * move-and-plan screen at #326, and the last of them, `review` on both its
+ * paths, at #387 — because every converted screen brings the design system's own
+ * top bar and four-place tab bar, and the app's header would be a second bar
+ * above them saying the same thing.
  *
- * **`carrying` still wears whatever the where-it-goes screen wears**, which is
- * the point of it calling that screen rather than copying it. That screen is
- * converted now, so this one is too, and the two are still one component with
- * one frame around it rather than two that agree today.
- *
- * **`review` is converted on both its paths since #387**, which is what took
- * the last condition out of this table's neighbourhood: it drew a queued
- * capture with the design system and a catalogued book with what the app
- * always had, and asked for the frame itself on the second one. Both wear
- * their own top bar and their own tab bar now, so the line below says what
- * every other line says and nothing asks for a header underneath it.
+ * So the flag spent months reading `false` on every line, the frame it chose
+ * between had one arm, and `Chrome` was never mounted. The comments below still
+ * say which issue converted which group, because that is the history of the
+ * table; what has gone is the column that recorded it as a live choice.
  */
 
 import type { ComponentType } from 'react'
@@ -54,17 +48,11 @@ import { TagsScreen } from '../screens/TagsScreen'
 import { TripScreen } from '../screens/TripScreen'
 import { UnclaimedScreen } from '../screens/UnclaimedScreen'
 
-export interface ScreenEntry {
-  readonly view: ComponentType
-  /** Whether the header, the tabs and the error line are drawn around it. */
-  readonly chrome: boolean
-}
-
-export const SCREENS: Record<Route, ScreenEntry> = {
-  home: { view: HomeScreen, chrome: false },
-  capture: { view: CaptureScreen, chrome: false },
-  review: { view: ReviewScreen, chrome: false },
-  shelve: { view: ShelveScreen, chrome: false },
+export const SCREENS: Record<Route, ComponentType> = {
+  home: HomeScreen,
+  capture: CaptureScreen,
+  review: ReviewScreen,
+  shelve: ShelveScreen,
   /*
    * The library group (#315) wears no chrome either, for the same reason: each
    * of these brings the design system's own top bar and four-place tab bar.
@@ -73,20 +61,20 @@ export const SCREENS: Record<Route, ScreenEntry> = {
    * last screen in the app drawing the header, the three pills and the blue
    * accent, and it is `ShelfView` drawn with the design system.
    */
-  library: { view: LibraryScreen, chrome: false },
-  book: { view: BookScreen, chrome: false },
-  find: { view: FindScreen, chrome: false },
-  tags: { view: TagsScreen, chrome: false },
-  shelves: { view: ShelvesScreen, chrome: false },
-  queue: { view: QueueScreen, chrome: false },
+  library: LibraryScreen,
+  book: BookScreen,
+  find: FindScreen,
+  tags: TagsScreen,
+  shelves: ShelvesScreen,
+  queue: QueueScreen,
   /*
    * Changing what belongs where, and the plan it produces (#326). It wore the
    * app's frame until the whole journey was walked and this was the one screen
    * in it still dressed as the old app: describe the furniture, change a rule,
    * plan, apply, then carry books on screens that look like the new one.
    */
-  arrange: { view: ArrangeScreen, chrome: false },
-  scan: { view: ScanScreen, chrome: false },
+  arrange: ArrangeScreen,
+  scan: ScanScreen,
 
   /*
    * The furniture, drawn with the design system and therefore without the
@@ -98,9 +86,9 @@ export const SCREENS: Record<Route, ScreenEntry> = {
    * stopped being two screens that explained them and became two widgets on the
    * page of the place itself.
    */
-  furniture: { view: FurnitureScreen, chrome: false },
-  fixture: { view: FixtureScreen, chrome: false },
-  area: { view: AreaScreen, chrome: false },
+  furniture: FurnitureScreen,
+  fixture: FixtureScreen,
+  area: AreaScreen,
 
   /*
    * What the corner opens onto (#350). Not one of the furniture three: it is
@@ -108,25 +96,25 @@ export const SCREENS: Record<Route, ScreenEntry> = {
    * frame for the same reason they do, which is that it brings its own top bar
    * and its own four-place tab bar.
    */
-  settings: { view: SettingsScreen, chrome: false },
+  settings: SettingsScreen,
 
   /*
    * Why one book is here (#323). Not one of the furniture three: the book page
    * reaches it too, and it goes back to whichever screen opened it.
    */
-  claimed: { view: ClaimedScreen, chrome: false },
+  claimed: ClaimedScreen,
 
   /* Putting things right, in the order the journey is walked. */
-  carry: { view: CarryScreen, chrome: false },
-  trip: { view: TripScreen, chrome: false },
-  carrying: { view: CarryingScreen, chrome: false },
-  carried: { view: CarriedScreen, chrome: false },
-  carrystale: { view: CarryStaleScreen, chrome: false },
+  carry: CarryScreen,
+  trip: TripScreen,
+  carrying: CarryingScreen,
+  carried: CarriedScreen,
+  carrystale: CarryStaleScreen,
 
   /*
    * The books no rule claims (#341), which is the other half of putting things
    * right: a carry list is books the rules want somewhere else, and this is
    * books the rules have no opinion about at all.
    */
-  unclaimed: { view: UnclaimedScreen, chrome: false },
+  unclaimed: UnclaimedScreen,
 }

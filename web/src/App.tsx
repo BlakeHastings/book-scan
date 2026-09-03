@@ -41,30 +41,28 @@ import { ArrangingProvider } from './app/arranging'
 import { BookInHandProvider } from './app/bookInHand'
 import { BrowsingProvider } from './app/browsing'
 import { CameraSessionProvider } from './app/cameraSession'
-import { Chrome } from './app/Chrome'
 import { SummaryProvider } from './app/summary'
 import { ErrorBannerProvider } from './app/errorBanner'
 import { NavigationProvider, useNavigation } from './app/navigation'
 import { SCREENS } from './app/screens'
 
 /**
- * Draw whichever screen the route names, inside the frame if it wears one.
+ * Draw whichever screen the route names.
  *
  * The screen component changes type when the route does, so React unmounts the
  * old one. That is what carries "state that belongs to one screen goes away
  * with it", and it is why a screen can hold its own state without having to
  * clear it on the way out.
+ *
+ * There used to be a frame to choose between here, drawn for a screen whose
+ * table entry asked for one. Every screen stopped asking as it was converted,
+ * and #451 removed the frame and the choice: a screen wears the design system's
+ * own top bar, and the red line is drawn by the three screens that write to it.
  */
 function CurrentScreen() {
   const { route } = useNavigation()
-  const { view: View, chrome } = SCREENS[route]
-
-  if (!chrome) return <View />
-  return (
-    <Chrome>
-      <View />
-    </Chrome>
-  )
+  const View = SCREENS[route]
+  return <View />
 }
 
 export default function App() {

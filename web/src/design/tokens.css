@@ -132,6 +132,20 @@ body.wf-page {
    */
   --picture: #332a22;
   --picture-ink: #fbf6ec;
+  /*
+   * The quiet half of the same cream, for a line that is a footnote to the one
+   * above it: what the camera is doing, under what it is for. `--ink-2` is that
+   * for paper and this is that for a picture, and the reason there have to be
+   * two of them is the reason the whole block exists.
+   *
+   * The alpha is where the ratio comes from and it is measured rather than
+   * chosen (#451). It was `rgba(255, 255, 255, 0.4)` written straight into the
+   * rule, which is 3.83 to 1 on the panel it sits on and fails AA in both
+   * themes at once, because a literal follows no theme at all. This is 5.79 to
+   * 1 there, and `styles.test.ts` recomputes it from these digits rather than
+   * trusting this sentence.
+   */
+  --picture-ink-2: rgba(251, 246, 236, 0.55);
   --picture-scrim: rgba(20, 16, 11, 0.55);
   --picture-line: rgba(251, 246, 236, 0.4);
 
