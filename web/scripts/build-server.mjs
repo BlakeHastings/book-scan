@@ -22,7 +22,7 @@
  * observed by doing it, on 2026-09-03. `tsc` will not rewrite a specifier, so
  * making its output runnable means putting `.js` on 359 relative imports across
  * 75 files in `server/`, `infrastructure/`, `application/`, `domain/` and
- * `shared/` — a change to every layer, for the build's benefit — or writing a
+ * `shared/`, a change to every layer made for the build's benefit, or writing a
  * resolver here to do it afterwards. esbuild already resolves exactly what tsx
  * and Vite resolve, so the build agrees with development by construction.
  *

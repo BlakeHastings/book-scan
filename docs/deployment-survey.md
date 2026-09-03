@@ -240,6 +240,15 @@ Section 8 keeps it, narrowed.
 
 ## 3. The build
 
+> **Superseded in part, 2026-09-03, by #512.** There is a server build now, and
+> the API serves the built client on the same origin with a single-page
+> fallback, so "there is no server build at all" and "nothing serves the built
+> client" below are a description of what was true when this was written. The
+> rest of the section, including what constrains the choice, is what that change
+> was built from, and `docs/running-from-a-build.md` is where the choices are
+> argued. Requirement 16 in section 7, the loopback bind, is deliberately still
+> open.
+
 ### What exists
 
 `web/package.json:10`: `"build": "tsc --noEmit && vite build"`.

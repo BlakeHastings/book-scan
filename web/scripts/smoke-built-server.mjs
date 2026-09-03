@@ -11,7 +11,7 @@
  *
  * What it proves: the bundle loads, every external package resolves against the
  * installed tree, the entry module runs, and execution reaches the one refusal
- * this app makes on purpose — no connection string, so it exits 1 naming the
+ * this app makes on purpose: no connection string, so it exits 1 naming the
  * variable rather than coming up on an empty database.
  *
  * What it does not prove is that the server serves. That needs a database, and

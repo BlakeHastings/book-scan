@@ -41,6 +41,32 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    /*
+     * Kept on, deliberately, and this is the decision rather than the default
+     * it looks like (#512).
+     *
+     * It is about 2.4 MB of maps against about 450 kB of code, and since the
+     * API now serves `dist` they are fetched from the same origin as everything
+     * else, so anyone who can open this app's devtools can read its original
+     * TypeScript. That was worth stating out loud rather than leaving as a line
+     * nobody had looked at.
+     *
+     * Why on: what a map discloses is the shape of the client's code. It is not
+     * a credential and it is not a row. The client bundle holds no secret to
+     * find: every origin it talks to is the same origin, the API key lives on
+     * the server (`server/secrets.ts`) and the connection never leaves it. The
+     * exposure this app actually has is the seventy-two unauthenticated doors
+     * `docs/auth-surface.md` counted, and a source map is not one of them.
+     * Against that, the maps are what makes a fault on somebody's phone
+     * readable, on the one deployment that has no compiler and no watcher
+     * behind it. They are served once and cached.
+     *
+     * What would flip it: this app becoming reachable by anybody who is not the
+     * owner. A build that strangers can fetch, or more than one person's
+     * catalogue on one origin, and disclosure stops being free. That is #510
+     * and #471's decision to take with the gate in hand, and it is this one
+     * line and nothing else.
+     */
     sourcemap: true,
   },
 })
