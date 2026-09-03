@@ -341,6 +341,30 @@ the opposite. `ok` stays `true` while a catalogue is down, on purpose: somebody
 can still catalogue a book, which is why a source that fails does not fail a
 lookup.
 
+**Since #505 there is exactly one thing that makes `ok` false, and it is worth
+knowing what it means.** `placement.projection.disagreeing` is the count of books
+whose `current_area_id` does not fold out of their `book_placement` rows. That is
+not a state of the collection somebody can carry books to fix: it means **an act
+changed where a book belongs and recorded nothing**, which is a defect in this
+code. A quiet catalogue, a drifted shelf and a book no rule claims all leave `ok`
+`true`, because a person resolves each of those; this one leaves it `false`,
+because the reader who can act on it is whoever maintains the app.
+
+`applySchema` has printed the same count on every start since the projection
+landed, and a startup line is answered once: a writer that stops recording itself
+an hour after boot is not reported until the next restart. This endpoint answers
+it about now, which is why the deployment check is the place it belongs.
+
+**The repair is not run by anything and must not become so.** It is
+`cd web && npm run rebuild-projection -- --target '<connection>'`, which prints
+what disagrees and writes nothing, plus `--repair` as a separate second decision.
+It does not read `ConnectionStrings__bookscan`, and unlike `seed-world.ts` it does
+not refuse port 5433, because the live catalogue is the one it exists to repair —
+so running it there is the owner's, like every other write to that database.
+Agents are refused it by `scripts/guard-live-data.mjs` from inside a worktree.
+Nothing repairs on start, for #485's reason: the diagnosis depended on the broken
+state surviving restarts.
+
 Whatever launches it, launch it **detached**, not as a child of an agent
 session. It has died three times because the process was owned by a session
 that later let go of it. Nothing watches it either: if the phone stops loading,

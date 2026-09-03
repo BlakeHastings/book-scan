@@ -47,6 +47,15 @@
  * resolved by carrying books, and a disagreement here is resolved by finding the
  * writer that did not record itself. Telling the owner would be telling somebody
  * about a defect he cannot act on.
+ *
+ * ## What it cannot see, which is #518
+ *
+ * This compares two answers, so an act that writes to **neither** of them leaves
+ * them agreeing while both are wrong. All four of the 2026-09-02 defects were
+ * that shape (#465, #484, #487, #491) and this reported healthy through every
+ * one. Catching those needs a third thing to compare against, which is the
+ * furniture; that is a different check and it is filed as #518 rather than bolted
+ * on here.
  */
 
 import { KINDS_ABOUT_THE_ANSWER } from '../../domain/placement/ledger'

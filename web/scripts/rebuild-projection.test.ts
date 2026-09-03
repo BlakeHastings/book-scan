@@ -77,16 +77,18 @@ describe('rebuilding the placement projection', () => {
 
     const report = await rebuildProjectionRun(db, { repair: false })
 
+    // The rows first, because this is the assertion that matters: #485's
+    // diagnosis depended on the broken state being stable, and a dry run that
+    // repaired would erase the only evidence of which writer stopped recording
+    // itself. Asserted before the report so a run that repaired fails here
+    // rather than on a field.
+    expect(await countProjectionDisagreements(db)).toBe(1)
+
     expect(report.before).toBe(1)
     expect(report.named.map((one) => one.title)).toEqual(['A Book Nobody Wrote Down'])
     // `null` rather than `0`: nothing was attempted, which is a different fact
     // from a repair that moved no rows.
     expect(report.changed).toBeNull()
-
-    // The whole reason this is not on the startup path. #485's diagnosis
-    // depended on the broken state being stable, and a dry run that repaired
-    // would erase the only evidence of which writer stopped recording itself.
-    expect(await countProjectionDisagreements(db)).toBe(1)
   })
 
   it('repairs only when asked a second time, and re-asks rather than claiming', async () => {
