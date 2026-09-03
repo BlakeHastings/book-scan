@@ -31,6 +31,7 @@ import { DrizzleSeparatorRepository } from './separator-repository'
 import {
   areaOfKey, areasOf, bandOf, boundariesFrom, runAreasOf, type DerivedArea,
 } from './areas'
+import { areaDisagreements, describeAreaDisagreement } from './area-drift'
 import type { NewSeparator } from '../../application/shelving/ports'
 import type { Separator, SeparatorKind } from '../../shared/layout'
 import type { ShelfRange } from '../../shared/shelving'
@@ -99,19 +100,45 @@ async function roundTrips(range: ShelfRange): Promise<void> {
 }
 
 /**
- * Point the rule that serves fiction at one area, or back at a whole bookcase.
+ * Point the rule that serves a range at one area, or back at a whole bookcase.
  *
  * Which rule that is comes from the tag it asks for, the same pairing
  * `ruleForRange` reads out of `GENRE_RANGES`, so this moves the run's beginning
  * exactly as "Say what belongs here" and "Have no rule here" do on a screen.
  */
-async function fictionOpensAt(
+async function runOpensAt(
+  slug: string,
   at: { area: number } | { fixture: number },
 ): Promise<void> {
   await db.run(
     `UPDATE placement_rule SET area_id = ?, fixture_id = ?
-      WHERE id IN (SELECT rule_id FROM rule_condition WHERE value = 'genre/fiction')`,
-    'area' in at ? [at.area, null] : [null, at.fixture],
+      WHERE id IN (SELECT rule_id FROM rule_condition WHERE value = ?)`,
+    'area' in at ? [at.area, null, slug] : [null, at.fixture, slug],
+  )
+}
+
+const fictionOpensAt = (at: { area: number } | { fixture: number }) =>
+  runOpensAt('genre/fiction', at)
+
+/**
+ * A second rule naming a genre, written on one plank.
+ *
+ * Two rules on one genre is legal and stays legal (#430 item 1), and this is
+ * what "say what belongs here" writes on a plank: an area rule beside the
+ * fixture rule the migration seeded. `ruleForRange` picks between them by
+ * `byPrecedence`, area before fixture, so this one is the one that serves the
+ * range from here on and the bookcase rule goes on standing.
+ */
+async function alsoBelongsHere(slug: string, area: number, name: string): Promise<void> {
+  const rule = await db.get<{ id: number }>(
+    `INSERT INTO placement_rule (area_id, fixture_id, priority, name, enabled)
+     VALUES (?, NULL, 100, ?, TRUE) RETURNING id`,
+    [area, name],
+  )
+  await db.run(
+    `INSERT INTO rule_condition (rule_id, field, operator, value)
+     VALUES (?, 'tag', 'is', ?)`,
+    [rule!.id, slug],
   )
 }
 
@@ -124,14 +151,40 @@ async function fixtureAt(position: number): Promise<number> {
   return row!.id
 }
 
-/** The id of the area a run begins in, which is furniture and not a boundary. */
-async function firstAreaOf(fixture: number): Promise<number> {
+/** The id of one plank of the bookcase standing at a position. */
+async function plankOf(fixture: number, position: number): Promise<number> {
   const row = await db.get<{ id: number }>(
     `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
-      WHERE f.position = ? AND a.position = 0`,
-    [fixture],
+      WHERE f.position = ? AND a.position = ?`,
+    [fixture, position],
   )
   return row!.id
+}
+
+/** The id of the area a run begins in, which is furniture and not a boundary. */
+const firstAreaOf = (fixture: number) => plankOf(fixture, 0)
+
+/**
+ * A shelved book carrying the tag its range comes from.
+ *
+ * The tag is what a rule reads and the column is what the layout reads, so a
+ * book needs both before `areaDisagreements` has two answers to compare. The
+ * rows are written directly because this file has no save path; `tag` itself is
+ * seeded by the migrations.
+ */
+async function shelve(title: string, range: ShelfRange, sortKey: string): Promise<number> {
+  const slug = range === 'fiction' ? 'genre/fiction' : 'genre/non-fiction'
+  const book = await db.get<{ id: number }>(
+    `INSERT INTO books (title, shelf_range, sort_key, scanned_at, state)
+     VALUES (?, ?, ?, ?, 'shelved') RETURNING id`,
+    [title, range, sortKey, STAMP],
+  )
+  await db.run(
+    `INSERT INTO book_tag (book_id, tag_id, source, confidence, added_at)
+     SELECT ?, id, 'person', 'stated', ? FROM tag WHERE slug = ?`,
+    [book!.id, STAMP, slug],
+  )
+  return book!.id
 }
 
 describe('reading a range', () => {
@@ -358,6 +411,109 @@ describe('a run that begins at a plank, and then does not', () => {
     // book was filed back onto bookcase 1.
     const run = await runAreasOf(db, 'fiction')
     expect(areaOfKey(run, 'n')?.id).toBe(await firstAreaOf(2))
+  })
+})
+
+/**
+ * #490, which is the same sentence one layer in from #463.
+ *
+ * #463 made `ruleForRange` the one answer to *which rule* serves a range. Both
+ * sides here already ask that rule and then disagree about **what the run
+ * derived from it contains**: `bandOf` answers where a run begins as a plank,
+ * because `entryAreaOf` resolves the plank the rule points at, and `runAreasOf`
+ * read the bookcase out of that answer and threw the plank away.
+ *
+ * So a run whose entry is not the top plank of its piece came back holding the
+ * planks standing before its entry, and called the first of those the plank the
+ * run opens at. `docs/shelving.md` settles which of the two is right in one
+ * line — "a run runs from its rule's entry area until the next area any rule
+ * points at" — and `runFrom` has always read it that way in the domain.
+ *
+ * The arrangement is the rule editor's own guidance followed on a plank: "say
+ * what belongs here" writes an area rule, and two rules naming one genre is
+ * legal (#430 item 1). Nothing here makes that state an error.
+ */
+describe('a run that opens partway down a bookcase', () => {
+  /**
+   * Fiction cut into five planks over two bookcases, then non-fiction's rule
+   * written onto the third plank of the second one.
+   *
+   * `2A` and `2B` are anchored at real sort keys, which is what makes the old
+   * reading visible rather than merely wrong: `areaOfKey` sorts a run by anchor,
+   * so two planks the run does not own sorted in front of the one it does.
+   */
+  const nonfictionOpensAtTheThirdPlank = async (): Promise<void> => {
+    await repository.add(asked('fiction', 'area', 'b'))
+    await repository.add(asked('fiction', 'shelf', 'm'))
+    await repository.add(asked('fiction', 'area', 'p'))
+    await repository.add(asked('fiction', 'area', 'q'))
+    expect(await furniture()).toEqual([
+      { fixture: 1, position: 0, starts_at: '' },
+      { fixture: 1, position: 1, starts_at: 'b' },
+      { fixture: 2, position: 0, starts_at: 'm' },
+      { fixture: 2, position: 1, starts_at: 'p' },
+      { fixture: 2, position: 2, starts_at: 'q' },
+      { fixture: 4, position: 0, starts_at: '' },
+    ])
+
+    await alsoBelongsHere('genre/non-fiction', await plankOf(2, 2), 'Non-fiction here')
+  }
+
+  it('is the planks from its entry on, not every plank of its bookcase', async () => {
+    await nonfictionOpensAtTheThirdPlank()
+
+    expect(drawn(await runAreasOf(db, 'nonfiction'))).toEqual(['2:2@q'])
+  })
+
+  it('offers no boundary for the planks standing before its entry', async () => {
+    await nonfictionOpensAtTheThirdPlank()
+
+    // A one plank run has nothing above it to be cut off from, so it has no
+    // boundaries at all. `2A` and `2B` came back as two of non-fiction's, which
+    // is what put a `2D` and a `2E` on the shelves screen that no bookcase has.
+    expect(await repository.inRange('nonfiction')).toEqual([])
+  })
+
+  it('lands a book on its entry plank rather than on the run before it', async () => {
+    await nonfictionOpensAtTheThirdPlank()
+
+    // `pz` is past `2B`'s anchor and short of `2C`'s, so the old reading walked
+    // it onto `2B`: a plank inside the run that owns the shelves above. That is
+    // the plank the misfile list prints as where the book belongs.
+    const run = await runAreasOf(db, 'nonfiction')
+    expect(areaOfKey(run, 'pz')?.id).toBe(await plankOf(2, 2))
+  })
+
+  it('leaves the planks before it standing, on the face, holding their anchors', async () => {
+    await nonfictionOpensAtTheThirdPlank()
+
+    // Nothing is repaired and nothing is taken away. A rule written on `2C` says
+    // where non-fiction begins; it says nothing about the two planks above it,
+    // and the run they belong to is not this one's business.
+    expect(await furniture()).toEqual([
+      { fixture: 1, position: 0, starts_at: '' },
+      { fixture: 1, position: 1, starts_at: 'b' },
+      { fixture: 2, position: 0, starts_at: 'm' },
+      { fixture: 2, position: 1, starts_at: 'p' },
+      { fixture: 2, position: 2, starts_at: 'q' },
+      { fixture: 4, position: 0, starts_at: '' },
+    ])
+  })
+
+  /**
+   * The instrument, asked in the arrangement it was silent about.
+   *
+   * `areaDisagreements` places every shelved book twice and says nothing when
+   * the two agree. Its two readings stay independent here on purpose (#488): the
+   * layout side walks the areas the boundary list is derived from, the rules
+   * side walks `runFrom` over the slots, and making them agree by construction
+   * would blind the one check that catches this whole family.
+   */
+  it('is where the rules put the book, which is what the drift check asks', async () => {
+    await nonfictionOpensAtTheThirdPlank()
+    await shelve('The Selfish Gene', 'nonfiction', 'pz')
+
+    expect((await areaDisagreements(db)).map(describeAreaDisagreement)).toEqual([])
   })
 })
 
