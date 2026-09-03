@@ -1058,6 +1058,18 @@ describe('moving a book across an area boundary', () => {
     expect(back?.empties?.becomes).toEqual([{ from: '1C', to: '1B' }])
   })
 
+  /**
+   * **The last line of this used to assert the other half of #457.**
+   *
+   * It read `['1A', '1C']`, and the comment under it said "a bare plank has no
+   * books to name". That is the layout's rule and it still holds, on the line
+   * above: `docs/shelving.md` under "The only book in an area" says an empty
+   * area "disappears from the layout until something lands on it again", and
+   * `labels()` is the layout. `groups` is not. It is what the screen that
+   * manages the areas draws, and a plank the room still has, with a boundary
+   * somebody can still press Remove on, has to be on it. Leaving it out is what
+   * put the wrong Remove under a thumb and relocated five books.
+   */
   it('lets the only book in an area leave it, and empties the area', async () => {
     // Capacity is not modelled, so nothing here says an area must hold a
     // book. The plank is simply bare, and a bare plank has no books to name.
@@ -1074,7 +1086,8 @@ describe('moving a book across an area boundary', () => {
 
     expect((await carry(bob, 'next')).ok).toBe(true)
     expect(await labels()).toEqual(['1A', '1C', '1C'])
-    expect((await shelves.groups('fiction')).map((g) => g.label)).toEqual(['1A', '1C'])
+    expect((await shelves.groups('fiction')).map((g) => [g.label, g.books.length]))
+      .toEqual([['1A', 1], ['1B', 0], ['1C', 2]])
   })
 
   it('moves nothing but the book in your hand', async () => {

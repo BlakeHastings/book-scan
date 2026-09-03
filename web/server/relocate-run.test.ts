@@ -962,9 +962,11 @@ describe('what the arrange screen is told before it offers a bookcase', () => {
   it('says where a run lives when there is not a book standing on it', async () => {
     for (const id of world.slice(50)) await store.deleteBook(id)
 
-    // What the screen used to read it off: nothing, because there are no books
-    // to group.
-    expect(await shelves.groups('fiction')).toEqual([])
+    // What the screen used to read it off. It answered nothing at all, because
+    // there were no books to group; since #457 it is the run's own plank,
+    // holding nothing, which is what the room has.
+    expect((await shelves.groups('fiction')).map((g) => [g.label, g.books.length]))
+      .toEqual([['1A', 0]])
 
     const offer = await runMoveOffer(db, 'fiction')
     expect(offer.from).toBe(1)
@@ -983,17 +985,26 @@ describe('what the arrange screen is told before it offers a bookcase', () => {
   it('says where a run lives when its leading bookcase is the empty one', async () => {
     await putUpAHallHoldingEverything()
 
+    /*
+     * **Both readings say bookcase 4 now**, and they used to say 4 and 5.
+     * `groups` skipped the run's leading plank because nothing was standing on
+     * it, so the first board it drew was the first one holding books; since
+     * #457 a bare plank of the run is drawn as a bare plank. The offer's answer
+     * is unchanged and is still the one the screen reads (#500).
+     */
     const groups = await shelves.groups('nonfiction')
-    expect(groups[0]!.shelf).toBe(5)
+    expect(groups.map((group) => [group.label, group.books.length])[0]).toEqual(['4A', 0])
+    expect(groups[0]!.shelf).toBe(4)
     expect((await runMoveOffer(db, 'nonfiction')).from).toBe(4)
 
     /*
-     * And what the wrong answer cost. The picker calls the bookcase it starts
-     * on "Where it lives now" and the plan for that choice says nothing would
-     * change. Taken off the books, that option planned a move of the whole run
+     * And what the wrong answer cost, which is still worth having: 5 is what
+     * reading the location off the books answered. The picker calls the
+     * bookcase it starts on "Where it lives now" and the plan for that choice
+     * says nothing would change, so that option planned a move of the whole run
      * onto the furniture one along.
      */
-    const planned = await planRunMove(db, 'nonfiction', groups[0]!.shelf)
+    const planned = await planRunMove(db, 'nonfiction', 5)
     if (!planned.ok) throw new Error(planned.error)
     expect(planned.plan.planks).not.toEqual([])
   })

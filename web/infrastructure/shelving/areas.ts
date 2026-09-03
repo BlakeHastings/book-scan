@@ -849,6 +849,20 @@ export interface RunPlanks {
   labelOf(areaId: number): string
   /** What every plank of the run is called, in the order a book meets them. */
   labels(): string[]
+  /**
+   * Every plank of the run addressed, in the order a book meets them.
+   *
+   * The furniture's own answer to "which planks are there", which is a
+   * different question from "where do books stand" and has a different answer
+   * the moment a plank is bare (#457). A screen that draws the room reads this
+   * and asks the layout what stands on each; a screen that draws the books
+   * reads the layout and never needs it.
+   *
+   * Empty exactly when the run is: a range whose rule points at furniture that
+   * has been taken out has no planks to name, and the caller falls back on the
+   * addresses the layout invented.
+   */
+  every(): PlankAt[]
 }
 
 export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
@@ -935,6 +949,9 @@ export async function planksOf(db: Db, range: ShelfRange): Promise<RunPlanks> {
     },
     labels() {
       return run.map((area) => areas.get(area.id)?.label ?? '')
+    },
+    every() {
+      return run.map((area) => ({ shelf: area.fixturePosition, area: area.position }))
     },
   }
 }
