@@ -4033,7 +4033,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      */
     app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next()
-      res.set('Cache-Control', 'no-cache').sendFile(indexHtml, (error) => {
+      // The header goes through sendFile's own options rather than res.set:
+      // `send` writes its own Cache-Control as it streams, and applies these
+      // afterwards, so anything set beforehand is overwritten.
+      res.sendFile(indexHtml, { headers: { 'Cache-Control': 'no-cache' } }, (error) => {
         if (error) next(error)
       })
     })
