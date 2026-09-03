@@ -23,27 +23,50 @@ one at a time, in front of a camera. Treat it as irreplaceable, because it is.
 
 No count is given here on purpose. It grows, and a stale number invites the
 thought that this is a small toy database rather than somebody's afternoons.
-
 **Since 2026-08-06 it is in two places, not one.** Stage H moved the catalogue
 to Postgres. Every row below is irreplaceable and every row is out of bounds:
 
 | What | Where |
 | --- | --- |
-| The catalogue | A Postgres database in the container `book-scan-live-pg`, on the named volume `book-scan-live-pgdata`, at `127.0.0.1:5433/bookscan` |
+| The catalogue | A Postgres database, `bookscan`, normally in the container `book-scan-live-pg` on the named volume `book-scan-live-pgdata` at `127.0.0.1:5433`. **Not running as of 2026-09-02; see below.** |
 | The photographs | Files, still, at `C:\Users\Blake\book-scan-production-data\live\covers\` |
 | The old SQLite file | `C:\Users\Blake\book-scan-production-data\live\books.db`, untouched, kept until at least 2026-09-06 |
 | Backups | `E:\book-scan-backups`, nightly, on a different physical disk. The photographs are mirrored beside them at `E:\book-scan-covers` |
+| The recovered volume | `C:\book-scan-recovery\`, from the 2026-08-26 wipe. A tarball and a disk image, mirrored to `E:\book-scan-backups\recovered-volume\` |
+
+### The live catalogue is not running, and that changes nothing about the rule
+
+Blake reset this Windows machine on **2026-08-26**. It kept the user profile, so
+the photographs and the backups were never touched, but it removed Docker
+Desktop and the named volume went with it. The volume was recovered out of
+`C:\Windows.old` on 2026-09-02, three days before Windows would have deleted it,
+and nothing was lost: the newest write in it predates the last verified dump.
+
+**So today there is no `book-scan-live-pg` container and no
+`book-scan-live-pgdata` volume.** Docker is installed again and empty.
+`docs/process/handoff.md` has the evidence.
+
+**This does not make any of it yours.** The rows still exist, in two places on
+disk, and putting them back is the owner's act and nobody else's. An empty
+`docker volume ls` is not permission; it is a catalogue between homes. Treat
+every prohibition below as though the container were running, because the thing
+being protected is the collection and not the container.
 
 Agents must never read from, write to, point a dev server at, run a migration
 against, or delete anything in that directory or any sibling under
-`book-scan-production-data\`. **The same goes for the database.** Do not connect
-to `127.0.0.1:5433`, do not `docker exec` into `book-scan-live-pg`, and do not
-`docker stop`, `docker rm` or `docker volume rm` it. A read-only connection is
-still a connection to somebody's whole collection, and "it was only a SELECT" is
-not a thing to find out you were wrong about.
+`book-scan-production-data\`, and the same goes for `C:\book-scan-recovery\`.
+**The same goes for the database.** Do not connect to `127.0.0.1:5433`, do not
+`docker exec` into `book-scan-live-pg`, and do not `docker stop`, `docker rm` or
+`docker volume rm` it. **Do not create it either**: restoring a dump or the
+recovered volume into a database of that name is the owner's, and an agent that
+"helpfully" brought the catalogue back would be writing somebody's collection
+from a file nobody had checked. A read-only connection is still a connection to
+somebody's whole collection, and "it was only a SELECT" is not a thing to find
+out you were wrong about.
 
 The backup job is the one thing that reads it on a schedule, it is registered by
 the owner rather than by an agent, and it never connects to that database from
+an agent session. See `docs/backup-runbook.md`.
 an agent session. See `docs/backup-runbook.md`.
 
 **The SQLite file is not a spare copy you may practise on.** Stage I removed
@@ -52,9 +75,11 @@ nothing here should learn how. It stays on that disk until at least 2026-09-06.
 Treat it as read-only history: not yours to touch, to name in code, or to tidy
 up.
 
-You do not need any of it. Everything you need to develop and test is generated
-locally. If you believe a task requires production data, stop and ask the owner
-instead of proceeding.
+You do not need any of it, and right now you need it less than ever: the AppHost
+starts a Postgres of its own per checkout, so the live catalogue being absent
+stops nothing. Everything you need to develop and test is generated locally. If
+you believe a task requires production data, stop and ask the owner instead of
+proceeding.
 
 ### Why you are unlikely to reach it by accident
 
