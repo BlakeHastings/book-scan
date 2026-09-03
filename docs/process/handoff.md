@@ -508,19 +508,24 @@ present and wired, after two fixes made that day:
   it exists to deny was reachable through this harness's second shell tool. It
   now names both.
 
-**`.claude/settings.json` is gitignored here**, so the hook wiring is
-machine-local: a fresh clone gets `scripts/guard-merge.mjs` and no hook calling
-it. That is worth knowing before trusting layer 2 in a checkout you did not
-wire yourself. The same is now true of the compaction hooks.
+**`.claude/settings.json` was gitignored when this was written**, so the hook
+wiring was machine-local: a fresh clone got `scripts/guard-merge.mjs` and no
+hook calling it. **No longer true as of 2026-09-03.** `.gitignore` excludes
+`.claude/*` and re-includes `.claude/settings.json`, the file is tracked, and
+its matcher already names both shell tools, so a fresh clone now inherits the
+wiring and the fix. #444's third finding is the stale one for that reason.
 
 **The guard is loaded, and we found that out by accident.** It refused an
 attempt to open a pull request, because the pull request's *body* quoted the
 merge command it denies, and then refused a heredoc writing an issue about it
-for the same reason. So it reads the whole command string and cannot tell a
-command from a document a command is carrying. Both halves of that are #444:
-the false positive, and the fact that the repo's copy predates the `--probe`
-flag, so being denied by accident was the only way to learn the answer. The
-workaround while it stands is `--body-file`, or a non-shell write tool.
+for the same reason. So it read the whole command string and could not tell a
+command from a document a command is carrying. Both halves of that are #444.
+
+**Fixed 2026-09-03.** The guard splits a line into the commands the shell will
+run and reads the program each one invokes, so cargo is cargo: a `--body`, a
+`-m`, a heredoc, an `echo`, a `grep` for the phrase. `--body-file` is no longer
+a workaround for anything. It also answers `node scripts/guard-merge.mjs
+--probe`, and being refused is the answer that means it is loaded.
 
 ## Open, as of this writing
 
