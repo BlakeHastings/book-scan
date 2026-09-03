@@ -5,6 +5,18 @@ true today, and it is deliberately the half that does not depend on how people
 sign in, because that question is still open and this count is the same under
 every answer to it.
 
+> **Correction, 2026-09-03, #521.** The headline below — "there are seventy-two
+> doors and not one of them is locked" — was true when it was written and is not
+> any more. All seventy-two are behind a gate, including both cover doors and
+> `/api/health`, and the two requests quoted below as answering `200` and `201`
+> now answer `401`. **Every other claim in this document still holds**, and it is
+> what the gate was built from: the count, the enumeration, the fifteen places
+> that touch the cover directory, the four `app.use` calls, the absence of any
+> middleware between the body parser and the handlers, and the finding that
+> hosting this app and gating it are the same decision. Its section on the Vite
+> dev surface also still holds in full, and is deliberately outside what #521
+> could cover. See `docs/the-gate.md`.
+
 **Nothing here designs a gate.** No schema, no table, no session shape, no
 provider, not even a sketch. #510 says why: an unused column that looks like
 authorization is worse than none, because the next person builds against it.

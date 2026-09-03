@@ -322,8 +322,18 @@ does not need one, and most do not.
 settles which catalogue it opened is one command against the running server:
 
 ```
-curl http://127.0.0.1:3001/api/health
+curl -i http://127.0.0.1:3001/api/health
 ```
+
+**Since #521 that endpoint is behind the gate, and the trade was made
+deliberately.** It hands out the collection's counts and the database host, port
+and name, which is the collection and where the collection lives, and a stranger
+is owed neither. So the command above still settles that the server is up and
+answering — a `401` is a running server saying so, and `-i` is what shows it —
+and settling *which* catalogue was opened now needs a session. Sign in first and
+pass the cookie; `docs/the-gate.md` has the reasoning and the section above has
+the two commands. Nothing automated was broken by this: `apphost.mts` declares no
+health-check path and `scripts/smoke-built-server.mjs` never starts a listener.
 
 Started with no connection string, the server **refuses to start** and names
 the variable. That is deliberate and it is the good outcome: a process that
@@ -368,7 +378,8 @@ state surviving restarts.
 Whatever launches it, launch it **detached**, not as a child of an agent
 session. It has died three times because the process was owned by a session
 that later let go of it. Nothing watches it either: if the phone stops loading,
-check `curl http://127.0.0.1:3001/api/health`.
+check `curl -i http://127.0.0.1:3001/api/health`, which answers 401 to a request
+carrying no session and is a running server saying so (#521).
 
 **The way back is no longer a variable.** Through stages G and H it was
 `BOOKSCAN_DB=sqlite`, one flag against a file that had lost nothing. It is now
@@ -644,6 +655,53 @@ HTTP/1.1 exporter is refused at the TLS layer. That was the original bug (#34).
 Prove your change works by driving the running app and reading what it says,
 then turn what you did by hand into a test. A change nobody watched run is not
 verified.
+
+#### You have to sign in now, and it is one URL
+
+**Since #521 every route under `/api` is behind a gate**, including the
+photographs and including `/api/health`. A request with no session answers `401`,
+one belonging to a user who is not enabled answers `403`, and only an enabled
+user's reaches the route. `docs/the-gate.md` is the whole of it.
+
+A development checkout is not asked to sign in through Google. `apphost.mts`
+sets `BOOKSCAN_DEV_SIGN_IN`, which puts one extra provider in the registry, and
+opening this once gives you a session that lasts thirty days and survives
+restarts:
+
+```
+<the app's own origin>/api/auth/dev/start
+```
+
+In a browser, that is the **Vite** address from `aspire logs web`, because Vite
+proxies `/api`. From `curl`, it is the api's own port, and the cookie comes back
+on the `Set-Cookie`:
+
+```
+curl -si "$API/api/auth/dev/start" | grep -i '^set-cookie: bookscan_session'
+curl -s -H "Cookie: bookscan_session=<the value>" "$API/api/health"
+```
+
+Note `curl -c/-b` will **not** work over plain http: the cookie carries `Secure`
+and curl honours it. Pass the header. Browsers treat `http://localhost` as a
+secure context and store it, so this is a curl detail rather than an app one.
+
+`aspire logs api` says which state the door is in on every start, both ways
+round, beside the backup line and the built-client line.
+
+**This is a provider, not a switch that turns the gate off**, and the argument
+for why that distinction holds is in `web/server/auth/providers.ts` and
+`docs/the-gate.md`. The gate has no off switch, and `signInFrom` refuses to start
+at all if `BOOKSCAN_DEV_SIGN_IN` is set beside a real provider's credentials.
+
+**Who is allowed in is decided outside the app**, by a script in the shape of
+`rebuild-projection.ts`, because a route that enables somebody needs a role and
+#171 has not decided one:
+
+```
+cd web
+npm run enable-user -- --target '<connection>'                     # lists, writes nothing
+npm run enable-user -- --target '<connection>' --enable <id|email>
+```
 
 #### Several checkouts really can run at once
 

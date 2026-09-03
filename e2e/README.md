@@ -111,6 +111,26 @@ Scenarios therefore run one at a time (`workers: 1`). Parallelism would need a
 database per worker, which means an AppHost per worker, which costs far more
 than it saves at this size.
 
+## The suite signs in, in both of the ways it talks to the app
+
+Since #521 every route under `/api` is behind a gate: a request with no session
+answers `401`. That covers the browser's requests for screens and photographs and
+the direct `fetch(apiUrl, ...)` calls the step files use to set a scenario up
+without photographing forty books through the camera.
+
+`global-setup.ts` obtains one session through the real door — `apphost.mts` sets
+`BOOKSCAN_DEV_SIGN_IN`, so this checkout's api carries a development provider and
+`GET /api/auth/dev/start` walks the same three steps Google's callback walks —
+and hands the cookie to the workers in `BOOKSCAN_E2E_SESSION`. `steps/fixtures.ts`
+puts it on the browser context and attaches it to `fetch` calls made at the api's
+own origin, and at no other origin, so the catalogue stub's control plane is
+untouched.
+
+**Nothing here writes a session row by hand.** A suite that could reach the API
+through a door the app does not have would be proving an app that is not
+deployed, and a change to how a session is made has to break this run rather than
+leave it green.
+
 ## Asserting on the database
 
 `support/database.ts` opens the same SQLite file the app is writing to, which
