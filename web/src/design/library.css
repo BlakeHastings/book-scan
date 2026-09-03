@@ -3910,6 +3910,31 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-corner__way .wf-cat,
 .wf-corner__way svg { flex: none; margin-left: auto; color: var(--ink-2); }
 
+/*
+ * Signing out (#524): the one thing on this sheet that does not open a room.
+ *
+ * Drawn under the ways with a rule between, no filled well and no chevron, so
+ * it does not read as a third door. Not red either: `Button`'s note about the
+ * danger tone applies here for the same reason, and this is reversible by
+ * signing in again.
+ */
+.wf-corner__out {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  margin-top: var(--s3);
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  width: 100%;
+}
+.wf-corner__out:active { background: var(--paper-sunk); }
+.wf-corner__out:focus-visible { outline: none; box-shadow: var(--focus); }
+
 .wf-corner__word {
   font-size: var(--size-body);
   line-height: var(--lh-tight);

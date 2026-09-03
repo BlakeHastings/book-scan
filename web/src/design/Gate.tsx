@@ -24,7 +24,7 @@
  *    and it was never going to, because every person on earth already holds a
  *    Google credential and this collection is one person's.
  * 2. **Who can change it.** The owner, and only by a decision made outside the
- *    app. Not a form, not a button, not "try again" — there is nothing to retry
+ *    app. Not a form, not a button, not "try again": there is nothing to retry,
  *    and saying so is the difference between waiting and being sent round the
  *    sign-in loop for ever (#521).
  * 3. **A way out.** Sign out is the one act that is theirs, and it is here
