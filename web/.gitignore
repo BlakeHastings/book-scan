@@ -1,5 +1,10 @@
 node_modules/
 dist/
+# The server bundle (#512). A sibling of dist/ rather than inside it, because
+# `server/index.ts` finds the built client at `../dist/` relative to whichever
+# of the two files is the entry point, and both have to be one directory below
+# web/ for that to be true. See web/scripts/build-server.mjs.
+dist-server/
 data/
 *.local
 
