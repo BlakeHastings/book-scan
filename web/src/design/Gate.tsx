@@ -72,7 +72,20 @@ export function WayIn({
         {ways.length > 0 ? (
           <div className="wf-gate__acts">
             {ways.map((way) => (
-              <Button key={way.id} tone="primary" block onPress={way.onPress}>
+              /*
+               * Filled only when there is one of them. `Button` says a screen
+               * has at most one primary, "the one thing this screen is for",
+               * and a stack of filled buttons is a screen with no answer to
+               * that. With two providers there genuinely is no answer: neither
+               * is more the way in than the other, and this app is in no
+               * position to recommend one of somebody's own accounts.
+               */
+              <Button
+                key={way.id}
+                tone={ways.length === 1 ? 'primary' : 'secondary'}
+                block
+                onPress={way.onPress}
+              >
                 Continue with {way.label}
               </Button>
             ))}
@@ -122,8 +135,8 @@ export function WaitingList({
         </p>
         <p className="wf-gate__said">
           If you are meant to be here, whoever owns this collection has to let
-          you in. It happens away from this app, so nothing you do on this screen
-          will bring it any closer.
+          you in. That happens away from this app, so there is nothing to do
+          here but wait.
         </p>
 
         <div className="wf-gate__acts">
