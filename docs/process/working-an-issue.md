@@ -152,6 +152,27 @@ Tear down by explicit path when you are done, before your worktree is removed.
 An unscoped teardown stops every environment on the machine, including the ones
 other agents are working in.
 
+**"When you are done" means the moment you stop needing it, not the moment you
+finish the issue.** A running environment nobody is using is the cheapest thing
+to give back, and this machine's commit limit is a third of what it was before
+the 2026-08-26 wipe, so a spare environment is the difference between the next
+agent starting and failing to spawn a process.
+
+**And check what you left behind rather than assuming.** `node
+scripts/check-leaks.mjs` from the main checkout lists volumes, containers and
+processes that outlived the worktree that made them. It deletes nothing.
+
+Two things it exists because of, both found on 2026-09-02:
+
+- **A background wait loop outlives what it was waiting for.** Nine of them were
+  still polling `aspire describe` every few seconds, in worktrees whose AppHosts
+  had been stopped hours earlier. Each poll spawned a process. If you start a
+  loop that waits for a condition, make it exit on the failure path too, or you
+  have written something that never ends.
+- **A pruned worktree leaves its Postgres volume behind**, because the AppHost
+  names the volume after a hash of the checkout path. Eight orphans and 1.6 GB
+  were found that day.
+
 ## The pull request
 
 Title: what changed, in plain language. Reference the issue with `Closes #N`.

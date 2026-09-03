@@ -252,6 +252,17 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/ci-scope.test.mjs
 
+      # What the machine keeps holding after an agent has gone. The deciding
+      # half is tested and the reading half is not: this script prints
+      # `docker volume rm` for anything it calls an orphan, and a volume nothing
+      # is attached to may be a running agent's world between restarts. The
+      # spelling test is the one that matters — `git` prints forward slashes and
+      # the AppHost hashes backslashes, and a version that held one spelling
+      # would recommend deleting every live worktree's database.
+      - name: Leak check classifies correctly
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/check-leaks.test.mjs
+
       # The classification the Install step above (and apphost.mts) relies on
       # to tell a transient network timeout apart from a real failure. Getting
       # it wrong in either direction defeats the point of #342.
