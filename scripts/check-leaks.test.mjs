@@ -68,3 +68,23 @@ test('no volumes and no worktrees is quiet rather than wrong', () => {
   assert.deepEqual(ours, [])
   assert.deepEqual(orphans, [])
 })
+
+test('every agent worktree gone means every volume is an orphan, and that is a real answer', () => {
+  // The case that broke the first version of the rot guard, within an hour of
+  // it shipping. Two agent worktrees were pruned as their pull requests landed,
+  // so nothing matched, and the guard read "nothing matches" as "the naming has
+  // moved" and refused to report anything.
+  //
+  // That is exactly backwards: a batch of worktrees being pruned is when
+  // volumes get orphaned, so it is when this tool has the most to say. The
+  // guard now reads `apphost.mts` instead of inferring, and this pins the
+  // classification that the guard used to override.
+  const main = 'C:/repos/book-scan'
+  const gone = [
+    'C:/repos/book-scan/.claude/worktrees/agent-aaaa1111',
+    'C:/repos/book-scan/.claude/worktrees/agent-bbbb2222',
+  ]
+  const { ours, orphans } = classifyVolumes(gone.map(volumeFor), [main])
+  assert.equal(ours.length, 2)
+  assert.equal(orphans.length, 2, 'both are orphans and saying so is the point')
+})
