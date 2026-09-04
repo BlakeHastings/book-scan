@@ -105,7 +105,7 @@ rather than taken as a list.
 
 | Door | Why it cannot be behind the gate |
 | --- | --- |
-| `GET /api/auth/providers` | Which buttons a login screen draws. A caller with no session has to be able to ask, or there is no login screen. It discloses that this app can be signed into with Google, which is what the button says. |
+| `GET /api/auth/providers` | Which buttons a login screen draws. A caller with no session has to be able to ask, or there is no login screen. It discloses which providers this app can be signed into with, which is what the buttons say. |
 | `GET /api/auth/session` | Which of the three states the caller is in. This is the one #521 names. It must answer in the `anonymous` state as well as the other two, so it cannot be gated. To a stranger it answers `{"state":"anonymous"}` and nothing else. |
 | `GET /api/auth/:provider/start` | The login itself. Nobody has a session before it. |
 | `GET /api/auth/:provider/callback` | Where the provider redirects the browser back to. Open by necessity, and the reason a redirect URI has to be an absolute URL registered with the provider ahead of time. |
@@ -294,20 +294,20 @@ Authorization code flow with PKCE, server-side. Not implicit; no token reaches
 the browser, because a token in a browser is a credential this app cannot revoke,
 and what the browser gets instead is a cookie addressing a row it can delete.
 
-**Google only, and that is the issue's instruction.** Google permits
-`http://localhost` redirect URIs so it can be built and driven now. Apple cannot:
-it refuses `localhost`, needs a domain #471 has not chosen and a paid membership,
-and its client secret is an ES256-signed JWT this server would have to mint and
-rotate every six months.
+**Google first**, because it permits `http://localhost` redirect URIs and could
+therefore be built and driven immediately. **Apple is closed**, by the owner's
+own decision in #510: there is no developer account, and it was already the
+awkward one, refusing `localhost`, needing a domain #471 has not chosen, and
+taking a client secret that is an ES256-signed JWT this server would have to mint
+and rotate every six months.
 
-**Microsoft is deliberately not a row in the registry, and the reason is worth
-having.** It is straightforward in every respect but one: its issuer is
-tenant-scoped, `https://login.microsoftonline.com/{tenant}/v2.0`, so the `iss` an
-ID token must carry is not a constant the way Google's is. A row carrying
-Google's shape with Microsoft's endpoints would ship a *wrong* `iss` check, which
-is exactly the kind of door nobody tries. What it needs is one more field on the
-provider type, an issuer that may be a pattern, and that is a day's work when
-somebody wants it rather than a guess made today.
+**Microsoft is a row now (#537), and the section after next is what it cost.**
+This paragraph used to say it deliberately was not one, and the reason it gave
+was right: its issuer is tenant-scoped, so a row carrying Google's shape with
+Microsoft's endpoints would ship a wrong `iss` check. What it predicted the fix
+would be was "one more field on the provider type, an issuer that may be a
+pattern". **A pattern is the defect rather than the fix**, and that is the
+finding.
 
 **The seam is proved rather than asserted.** `web/server/sign-in.routes.test.ts`
 runs a second provider — `acme`, with its own issuer, endpoints and client id,
@@ -318,17 +318,184 @@ the ID token's claims, the user, the session and the gate. A claim that a second
 provider is configuration is worth nothing until something has been the second
 provider.
 
+**And #537 added a second invented provider beside it**, `wellhouse`, whose
+issuer exists only in a discovery document the stub serves. It goes through the
+same whole flow, and the case that earns its keep is the one where a token from a
+*different tenant on the same authority* is refused. Every other case in that
+block is a sign-in that works, which is exactly what the defect would also look
+like.
+
 **One shortcut is taken and it is permitted by the specification.** The ID
 token's signature is not verified. OpenID Connect Core 1.0 §3.1.3.7 item 6 allows
 exactly this for the code flow: when the token comes back through direct
 communication with the token endpoint, TLS server validation may stand in for
-checking the signature. This server posts to a hard-coded HTTPS endpoint over a
-connection Node validates, carrying a secret only it holds, and the token never
-passes through the browser. What *is* checked is `iss`, `aud`, `exp`, `nonce` and
-the presence of `sub` — the claims that make a token *this* token rather than
-some other valid one, none of which a signature check would supply. The thing
-that would flip it is a flow where the token reaches this server any other way,
-and there is none.
+checking the signature. This server posts to an HTTPS endpoint belonging to the
+provider over a connection Node validates, carrying a secret only it holds, and
+the token never passes through the browser. What *is* checked is `iss`, `aud`,
+`exp`, `nonce` and the presence of `sub` — the claims that make a token *this*
+token rather than some other valid one, none of which a signature check would
+supply. The thing that would flip it is a flow where the token reaches this
+server any other way, and there is none.
+
+**That paragraph used to say "a hard-coded HTTPS endpoint", and #537 changed
+what that sentence rests on.** Microsoft's token endpoint is not hard-coded: it
+is read from a discovery document. The property the shortcut needs is that the
+endpoint belongs to the provider, and what supplies it now is the rule in
+`web/server/auth/discovery.ts` that a document may only name endpoints on **its
+own origin**. The origin is fixed in this repository, the document is fetched
+from it over TLS Node validates, and the endpoints it may nominate cannot leave
+it. Take that rule away and the shortcut goes with it, which is why it is a case
+in `discovery.test.ts` rather than a sentence here.
+
+---
+
+## Microsoft, whose issuer is not a constant, and the seam that had to move
+
+#523 predicted this would need "one more field on the provider type, an issuer
+that may be a pattern". It needed one more field, and **a pattern is the defect
+rather than the fix.**
+
+### What was decided, and it is the first job the issue asked for
+
+**One authority per deployment, named in configuration, whose issuer is a
+value.** Concretely:
+
+| `BOOKSCAN_OIDC_MICROSOFT_TENANT` | Who can sign in | Supported |
+| --- | --- | --- |
+| a tenant GUID, or a verified domain | that one organisation | **yes** |
+| `consumers` | personal Microsoft accounts | **yes** |
+| `common` | every Entra tenant *and* personal accounts | **no** |
+| `organizations` | every Entra tenant | **no** |
+
+**There is no default**, and that is the decision rather than an omission. Every
+candidate default is wrong: `common` is the defect, `consumers` is this
+repository guessing about somebody else's family, and one tenant is site-specific
+and may never be written here. So a deployment says, and the process refuses to
+start until it does.
+
+The owner's own answer to "which tenants" was *the people in my household*, who
+may well be on personal accounts rather than in any tenant at all. `consumers`
+is the row that serves that, and it has a real issuer:
+`https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`,
+the well-known Microsoft-account tenant.
+
+### Why the two multi-tenant authorities are refused, in Microsoft's own words
+
+Read from the live documents on 2026-09-04, at
+`https://login.microsoftonline.com/<authority>/v2.0/.well-known/openid-configuration`,
+which is a public unauthenticated GET and needs no app registration:
+
+| Authority | `issuer` |
+| --- | --- |
+| `consumers` | `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0` |
+| a tenant (discovered by domain) | `https://login.microsoftonline.com/72f988bf-…/v2.0` |
+| `common` | `https://login.microsoftonline.com/{tenantid}/v2.0` |
+| `organizations` | `https://login.microsoftonline.com/{tenantid}/v2.0` |
+
+**The last two answer with a template, and they are telling the truth.** Those
+authorities issue tokens on behalf of every tenant there is, so there is no one
+issuer for a token to be checked against. The only way to accept them is a
+pattern over `login.microsoftonline.com/<any tenant>/v2.0`, and an Entra tenant
+costs nothing and takes ten minutes to create. A check like that answers "which
+authority issued this token" with "some authority did", while sign-in keeps
+working perfectly. **That is what a wrong issuer check looks like, and it is why
+this could not be found by driving a happy path.**
+
+Note the second row as well: discovery performed against a *domain* is answered
+with a *GUID*. An issuer spelled from the configured tenant would match no real
+token at all.
+
+### They are refused twice, and the order matters
+
+1. `providers.ts` refuses `common` and `organizations` **by name, at start**, so
+   the deployment learns in front of whoever is watching the process come up.
+2. `discovery.ts` refuses **any templated issuer**, whatever the authority was
+   called, when the document comes back.
+
+The second is the guarantee, and it is the one that would still hold if Microsoft
+invented a third such authority tomorrow. The first only makes the answer arrive
+sooner and in plainer words.
+
+### What is written in this repository, and what is not
+
+**Written down**: one host, `login.microsoftonline.com`, and the shape of the
+well-known path. Something has to be the trust anchor, or a document is not worth
+fetching.
+
+**Not written down, and read from the authority instead**: the issuer, the
+authorization endpoint, and the token endpoint. The row for Microsoft carries
+empty strings for all three and a `discovery` URL instead, and `resolveProvider`
+fills them in at the first sign-in.
+
+**Never written down**: a tenant id, a client id, a secret or a domain. The three
+variables are the deployment's, and the AppHost clears all three so a value in a
+shell cannot decide anything about a run started here.
+
+Four rules are applied to a document before any of it is believed, and each is a
+case in `web/server/auth/discovery.test.ts`: it is an object with a non-empty
+string issuer; the issuer is not a template; the issuer is on the document's own
+origin; and both endpoints are too. That last one is what the token endpoint
+rests on, because it is where this server posts its client secret.
+
+### Google did not change, which was a requirement rather than a bonus
+
+`providers.ts` argued against discovery: a network call before a sign-in can be
+answered, with a cache, an expiry, and a failure mode where the app is up and
+nobody can get in. **That argument still stands, and Google still fetches
+nothing.** A provider that carries an issuer carries it, resolves to itself, and
+touches no network. `discovery.test.ts` asserts the request count is zero for
+exactly that reason.
+
+**When it is fetched, and the failure that was chosen.** At the first sign-in
+through that provider, not at start. Resolving at start would mean a Microsoft
+outage stops this app from booting, and then nobody reaches the catalogue: not
+the person signing in, and not the household already holding sessions. Resolving
+lazily costs only the people who could not sign in anyway, because signing in
+needs Microsoft to be up regardless. Cached for the life of the process, with no
+expiry, and successes only, so a bad answer is not remembered.
+
+**An authority that will not say what its issuer is answers `502`, not `400`.** A
+token this server refuses is a bad sign-in and is the caller's business; an
+authority that cannot be resolved has nothing to do with whoever pressed the
+button. There is no branch that carries on without an issuer, because carrying on
+without one is the defect.
+
+### What a deployment supplies
+
+Three more variables, and none of their values may ever appear here.
+
+| Variable | Required | Secret | Absent |
+| --- | --- | --- | --- |
+| `BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID` | with the other two | no | Microsoft is not a way in |
+| `BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET` | with the other two | **yes** | as above |
+| `BOOKSCAN_OIDC_MICROSOFT_TENANT` | with the other two | no | **refuses to start**, naming itself, when the other two are set |
+
+Any one of the three set means all three must be, and the refusal names which are
+missing. `BOOKSCAN_PUBLIC_ORIGIN` is required as it already was, because a
+redirect URI is an absolute URL, and the URI to register with Microsoft is
+`<BOOKSCAN_PUBLIC_ORIGIN>/api/auth/microsoft/callback`. The app registration must
+allow the account types the tenant implies: a registration limited to one
+organisation cannot serve `consumers`, and the process cannot detect that in
+advance.
+
+**The client learns nothing.** `GET /api/auth/providers` grows a row and the
+sign-in screen draws one more button, which is what #527 built it for.
+
+### What was proved, and what was not
+
+**Not proved, and it needs a registration this repository must never hold:** an
+end-to-end sign-in against Microsoft. Nothing here has spoken to Microsoft except
+to read four public discovery documents. Whether the app registration flow, the
+consent screen, the real authorization redirect and a real ID token behave as
+expected is unproven until somebody with a client id and a secret runs it.
+
+**Proved, without one:** that the discovery document is fetched and read rather
+than hardcoded, counted at the far end of a stub rather than assumed; that the
+issuer check refuses a token from another tenant on the same authority, driven
+end to end and against constructed tokens; that a templated issuer is refused;
+that Google fetches nothing; and that the two authorities without one issuer are
+refused twice. `docs/process/review.md`'s standard applies here in the shape #533
+used: a stub is honest and a claim is not.
 
 ---
 
