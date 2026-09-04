@@ -184,11 +184,17 @@ VOLUME ["/data"]
 USER node
 
 # Documentation rather than a promise, and worth reading with
-# `docs/the-image.md`: the server binds `127.0.0.1` inside this container, which
-# #520 left deliberately and this issue does not change. Publishing this port
-# reaches nothing on its own. What a deployment puts in front of it has to be in
-# the same network namespace: a tunnel daemon as a sidecar, or a proxy joined to
-# it. That is exactly the decision that is still open.
+# `docs/the-bind.md`: by default the server binds `127.0.0.1` inside this
+# container, so publishing this port reaches nothing on its own. What a
+# deployment puts in front of it then has to be in the same network namespace: a
+# tunnel daemon as a sidecar, or a proxy joined to it.
+#
+# `BOOKSCAN_BIND=all` is the other answer, and it is the deployment's to give
+# (#539): the server listens on `0.0.0.0`, this published port reaches it, and
+# the sign-in gate is the only thing in front of the catalogue. It is not set
+# here, deliberately. An image that shipped it set would be an image that opened
+# a listener nobody asked for, and the default is the half of this that has to
+# stay safe on its own.
 EXPOSE 3001
 
 # No HEALTHCHECK, and that is a decision. Since #521 `GET /api/health` answers
