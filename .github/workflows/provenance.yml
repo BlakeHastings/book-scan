@@ -2,10 +2,15 @@ name: Provenance
 
 # Detection, not prevention.
 #
-# Branch protection needs a paid plan on a private repo, so nothing at GitHub's
-# end refuses a direct push to master or a merge taken with CI still pending.
-# `scripts/guard-merge.mjs` refuses both locally, but a guard that runs on one
-# machine is silent the moment somebody works from another one, or turns it off.
+# This used to say branch protection needed a paid plan on a private repo, so
+# nothing at GitHub's end refused a direct push to master or a merge taken with
+# CI pending. The repository is public and always was, so #540 added a ruleset
+# and GitHub now refuses both.
+#
+# `scripts/guard-merge.mjs` refuses them locally too, but a guard that runs on
+# one machine is silent the moment somebody works from another one, or turns it
+# off — and a ruleset is silent the moment somebody disables it, which is two
+# clicks and appears in no diff. This job is what notices either.
 #
 # This runs on the result, which is the one thing a bypass cannot avoid
 # producing: for every new commit on master it asks GitHub which pull requests

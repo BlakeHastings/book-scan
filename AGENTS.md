@@ -916,8 +916,18 @@ bills a job rounded up to a whole minute, so as its own job it cost as much as
 the suite it sat beside. It is unconditional in both places: it never depends on
 what a change touched, because any change at all can commit a database.
 
-CI is billed by the job-minute on a private repository, so if you add a job,
-know what whole minute you are spending. `ci.yml` no longer runs on a push to
+This section used to open by saying CI is billed by the job-minute on a private
+repository. **This repository is public** — `gh repo view --json visibility`
+says so, and #540 found the same false belief behind four other decisions — and
+GitHub Actions minutes are free on a public repository's standard runners. So
+the billing argument that shaped several jobs here was never true.
+
+The jobs are not being changed back on that account, because the other reasons
+still stand and are the better ones: a run that re-proves a tree already proved
+is noise whether or not it costs anything, and a five second job that reports
+its own check name is a name somebody has to keep in three places. But do not
+repeat the cost argument as though it were a fact, and do not decline a job you
+think is worth having because of it. `ci.yml` no longer runs on a push to
 master: the pull request run already proved that tree, and `provenance.yml`
 still runs on every merge.
 

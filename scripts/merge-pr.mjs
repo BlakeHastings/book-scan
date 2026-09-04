@@ -1,10 +1,23 @@
 // The only sanctioned way to land a PR on the default branch.
 //
 // WHAT THIS PREVENTS
-// GitHub cannot enforce required checks here: branch protection needs a paid
-// plan on a private repo. Without enforcement, "check the run first" is a
-// habit, and habits lapse exactly when things are busy. This does the check
-// mechanically and refuses otherwise.
+// It used to say here that GitHub could not enforce required checks, because
+// branch protection needs a paid plan on a private repo. That was wrong twice
+// over and it was wrong for months: this repository is public (`gh repo view
+// --json visibility`), and rulesets are free on a public repository. #540 added
+// one. Since 2026-09-04 GitHub itself refuses a merge to `master` that has no
+// pull request behind it, that has either required check not green, or that
+// uses any merge method but squash. See `docs/process/working-an-issue.md`.
+//
+// So this script is no longer the only thing standing between a red run and
+// `master`, and it is still the sanctioned way to land a pull request, for a
+// reason the ruleset cannot cover and the next section is entirely about: a
+// green tick and a green tick against the right base are different claims. The
+// ruleset checks the first. This checks the second, and refuses on it.
+//
+// It also refuses earlier and says why, which a 405 from the API does not, and
+// it works out its answer from data it fetches itself rather than from a
+// setting that could have been switched off without anybody noticing.
 //
 // Always squash: one issue becomes one commit on master, so `git log --oneline`
 // stays a readable list of changes rather than a wall of "fix lint" noise, and
@@ -78,8 +91,10 @@ export const COMPARE_FILE_LIMIT = 300
  * base side is the unknown, and nothing in the API says which base commit a
  * check run used: `pull_requests` comes back empty on this repository's
  * workflow runs and check suites (checked on run 31042629121 and suite
- * 84200985766), and `mergeStateStatus` only reports BEHIND when a ruleset
- * requires up-to-date branches, which this plan cannot have. So staleness is
+ * 84200985766), and `mergeStateStatus` only reports BEHIND when a rule requires
+ * up-to-date branches, which this repository deliberately does not: #540 left
+ * `strict_required_status_checks_policy` off in the ruleset and turned `strict`
+ * off on the classic protection, for the reason argued below. So staleness is
  * derived from what the base has gained instead, which is a plain question git
  * can always answer.
  *
