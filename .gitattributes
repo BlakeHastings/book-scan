@@ -21,3 +21,14 @@ web/infrastructure/db/migrations/** text eol=lf
 # file that is only ever executed somewhere else.
 Dockerfile text eol=lf
 .dockerignore text eol=lf
+
+# The contract and its checker keep LF, for the third version of the same reason
+# (#533).
+#
+# `deploy/contract.json` is copied into the image, and the publish workflow
+# compares the copy inside the pushed image against the file in the repository so
+# that "this image carries this contract" is checked rather than assumed. That
+# comparison is over bytes, and `core.autocrlf` on a Windows checkout would make
+# the two differ without either one being wrong. `deploy/check-config.mjs` runs
+# inside the image beside it, on Linux.
+deploy/** text eol=lf
