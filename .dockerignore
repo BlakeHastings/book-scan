@@ -12,6 +12,12 @@
 *
 !web
 
+# The deployment contract and its checker, which are the second thing this image
+# carries and the reason a private repository never has to read this one's
+# source (#533). Two small files, copied into the runtime stage as they are, so
+# the contract that describes an image travels inside it.
+!deploy
+
 # And inside `web/`, the things that are made rather than written. `dist/` and
 # `dist-server/` are built inside the image; `node_modules/` is installed there,
 # and copying a Windows tree in would put the wrong compiled addons next to the

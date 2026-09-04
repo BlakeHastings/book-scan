@@ -511,6 +511,15 @@ are rows in Postgres rather than state in the process.
 1. **It does not choose a host, and it adds nothing Cloudflare-shaped.** No
    `wrangler.toml`, no edge assumption, no registry, no tag scheme, and nothing
    in CI builds this image. That is the next decision, not this one.
+
+   > **Superseded in part, 2026-09-03, by #533.** There is a registry and a tag
+   > scheme now, and CI builds and pushes this image when a version tag is
+   > pushed: `ghcr.io`, one immutable tag per release, and no `latest`.
+   > `docs/publishing.md` argues all three. Still true, and deliberately: no
+   > host is chosen, nothing Cloudflare-shaped is here, and there is no compose
+   > file or any other descriptor that encodes topology. The image also now
+   > carries `deploy/contract.json` at `/app/deploy/`, which is the list of
+   > everything a deployment must provide.
 2. **It does not move the loopback bind.** See above for what a deployment needs
    instead, and which of the two options has to answer the question first.
 3. **It does not solve TLS.** `docs/running-from-a-build.md` already says a

@@ -975,6 +975,8 @@ teach people to skim past it.
 | `docs/running-from-a-build.md` | How this app runs without a watcher, and the three decisions that took |
 | `Dockerfile` | The image: two stages, a mount for the photographs, and nothing host-specific |
 | `docs/the-image.md` | What the image decides, what it deliberately does not, and what was proved by running it |
+| `deploy/contract.json` | **The whole deployment surface in one machine-readable list**: every environment variable, whether it is required, whether it is secret, what its absence does, the mount, the port and the loopback bind. Checked against the code on every pull request by `scripts/check-deploy-contract.mjs`, so it cannot go stale quietly. |
+| `docs/publishing.md` | Why the image is public, on GHCR, on a version tag, and what a version means here |
 | `docs/orchestrating.md` | For whoever is running the backlog: where things stand, what bites, and where to go next |
 
 ### The layering, and the tables that go through it

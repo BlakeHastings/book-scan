@@ -44,6 +44,14 @@ Line numbers are as of `58606cb`.
 
 ## 1. Configuration
 
+> **Superseded as the list, 2026-09-03, by #533.** `deploy/contract.json` is now
+> the one place the whole surface is written, it includes the four sign-in
+> variables `docs/the-gate.md` added after this was measured, and
+> `scripts/check-deploy-contract.mjs` fails CI when it and the code disagree in
+> either direction. What is below is the survey that found them and the argument
+> for each, which is what a list cannot carry. Where the two differ, the contract
+> is the one that is checked.
+
 `AGENTS.md` says the surface is `ConnectionStrings__bookscan` and
 `BOOKSCAN_DATA`. **Those are the two that matter, and they are not the whole
 surface.** A search for `process.env` across `web/`, `scripts/`, `apphost.mts`

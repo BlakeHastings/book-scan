@@ -1,0 +1,385 @@
+{
+  "$comment": [
+    "What a deployment of this app has to provide, in a form a program can check.",
+    "",
+    "This file is the contract #533 asked for. It is published three ways and they are the same bytes: it is in this repository at the tagged commit, it is copied into the image at /app/deploy/contract.json, and it is attached to the GitHub release for the tag. .github/workflows/publish.yml compares the copy inside the pushed image against this file before it creates the release, so 'the contract that came with this image' is a fact rather than a habit.",
+    "",
+    "docs/publishing.md is the argument for every choice here. scripts/check-deploy-contract.mjs is what stops it drifting from the source it describes: CI fails if a variable is read and not declared, declared and not read, or if the port, the bind, the mount or the Postgres major written here disagree with the Dockerfile, the server or postgres-version.json.",
+    "",
+    "Nothing site-specific is in here and nothing site-specific may be added: no domain, no hostname, no address, no credential. The consumer's own values go in the consumer's own repository. This says what the shapes are, not what the values are."
+  ],
+
+  "contract": 1,
+  "app": "book-scan",
+
+  "image": {
+    "registry": "ghcr.io",
+    "repository": "blakehastings/book-scan",
+    "reference": "ghcr.io/blakehastings/book-scan",
+    "visibility": "public",
+    "platforms": ["linux/amd64"],
+    "approximateSize": "1.49 GB",
+    "tagging": {
+      "scheme": "one immutable tag per release, spelled exactly as the git tag, e.g. v0.1.0",
+      "movingTags": "none. There is no latest, no v0 and no v0.1. A moving tag would make 'what is running' unanswerable, which is the reason this publishes on a version at all.",
+      "pinBy": "digest",
+      "why": "A tag names a release for a person. A digest is the only thing that pins a build, so a consumer should deploy ghcr.io/blakehastings/book-scan@sha256:... and keep the tag in a comment beside it. Every release records its digest."
+    },
+    "entrypoint": ["node", "--enable-source-maps", "dist-server/index.js"],
+    "workdir": "/app/web",
+    "user": "node",
+    "runsAsRoot": false,
+    "env": {
+      "NODE_ENV": "production",
+      "BOOKSCAN_DATA": "/data",
+      "PORT": "3001",
+      "HOME": "/home/node"
+    },
+    "healthcheck": null,
+    "healthcheckNote": "The image deliberately carries no HEALTHCHECK. GET /api/health answers 401 to anything without a session, so a probe has to treat 401 as healthy, and running one inside the container would cost a second Node process every interval. A consumer that wants a probe should write it knowing that. docs/the-image.md has the reasoning."
+  },
+
+  "network": {
+    "port": 3001,
+    "bind": "127.0.0.1",
+    "readThisFirst": "The server listens on 127.0.0.1 inside the container, so publishing the port reaches nothing. `docker run -p 8080:3001` sets up a route to the container's own address and there is nothing listening there. This is the first thing a deployer hits and it does not look like a configuration mistake: the container is up, the log says it is listening, and every request from outside is refused at the socket.",
+    "whatTheConsumerMustDo": "Put whatever fronts this app inside the container's own network namespace, so it can reach 127.0.0.1:3001 and be reached from outside. A tunnel daemon or a proxy as a sidecar sharing the namespace is the ordinary shape. Changing the bind is one line in this repository and is deliberately not made here, because what sits in front of it is the consumer's decision and is not knowable from this side.",
+    "expose": 3001,
+    "exposeIsDocumentation": true,
+    "sameOrigin": true,
+    "sameOriginNote": "One process serves the built client, the API and the photographs. The client addresses the API with same-origin relative paths and has no base-URL setting, so the client and /api must be one origin. Nothing has to route /api anywhere.",
+    "tls": {
+      "terminatedBy": "the consumer",
+      "required": true,
+      "why": "The session cookie is set with Secure, always, in one place (web/server/auth/gate.ts). A browser will not store it over plain http on anything but localhost, so an origin that is not https and not localhost gives a sign-in that appears to succeed and lands back on the login screen. A phone will also not open a camera outside a secure context, which is what this app is for."
+    }
+  },
+
+  "mounts": [
+    {
+      "path": "/data",
+      "required": true,
+      "writable": true,
+      "mustOutliveTheContainer": true,
+      "ownedBy": "the image's `node` user",
+      "holds": "the photographs, under /data/covers",
+      "approximateSize": "about 1.4 GB across roughly 1500 files, and it grows per book",
+      "whenMissing": "Not an error. The image declares VOLUME [\"/data\"], so a container started with no mount gets an anonymous volume, writes photographs into it, serves them, and loses every one of them the next time the container is replaced. The names are in Postgres and the bytes are not, so what this looks like afterwards is an empty shelf rather than a failure.",
+      "backup": "Must be backed up separately from Postgres and restored to the same moment. A database restored from one moment against a covers directory from another gives rows naming files that are not there, and the static mount answers 404 for each of them."
+    },
+    {
+      "path": "/home/node/.cache",
+      "required": false,
+      "writable": true,
+      "mustOutliveTheContainer": false,
+      "holds": "the OCR models tesseract.js and ppu-paddle-ocr download on first use",
+      "whenMissing": "Nothing is lost. A replaced container downloads a few megabytes again. A deployment that restarts often may want this mounted; it is deliberately not part of /data, because it is not data."
+    }
+  ],
+
+  "dependencies": {
+    "postgres": {
+      "major": 18,
+      "required": true,
+      "reachedBy": "the ConnectionStrings__bookscan value, as a TCP connection from the container",
+      "why": "postgres-version.json is the one place this major is written in this repository, and CI pins its own service container to it. Collation behaviour is a property of the server and the libc it was built against, so this is what the suite proves rather than a floor.",
+      "schema": "applied by the container on every start, before it listens"
+    },
+    "outboundHttps": {
+      "required": true,
+      "why": "Identifying a book is what the app is for, and every source is an origin on the public internet. Without egress the app runs and identifies nothing.",
+      "hosts": [
+        { "host": "openlibrary.org", "port": 443, "for": "metadata", "overrideWith": "BOOKSCAN_OPENLIBRARY_URL" },
+        { "host": "covers.openlibrary.org", "port": 443, "for": "cover images", "overrideWith": "BOOKSCAN_COVERS_URL" },
+        { "host": "www.googleapis.com", "port": 443, "for": "Google Books", "overrideWith": "BOOKSCAN_GOOGLE_BOOKS_URL" },
+        { "host": "lx2.loc.gov", "port": 210, "for": "Library of Congress SRU", "overrideWith": "BOOKSCAN_LOC_SRU_URL" },
+        { "host": "sru.k10plus.de", "port": 443, "for": "K10plus SRU", "overrideWith": "BOOKSCAN_K10PLUS_SRU_URL" }
+      ]
+    }
+  },
+
+  "lifecycle": {
+    "start": {
+      "migrations": "Every start applies the schema, inside openPostgres, before the server listens.",
+      "concurrency": "Migration is wrapped in a session-scoped Postgres advisory lock, so several containers starting at once is safe: one creates the schema and the rest wait and find it done. Driven with three containers against one empty database.",
+      "hazard": "pg_advisory_lock waits without a timeout. A migration that hangs makes every other container's start hang behind it, which looks like a deployment that is up and never answers.",
+      "theLineToRead": "`[db] postgres migrations: this database was empty, so the schema was created from them` is correct on a first start and is the finding on any start after that: it means the container opened an empty database that is not the catalogue, and it will come up reporting success with nothing in it.",
+      "saysOnEveryStart": [
+        "whether telemetry is configured",
+        "which database it opened, host, port and name, never the credentials",
+        "whether a backup directory is watched",
+        "whether it is serving a built client",
+        "whether the development sign-in door is open or shut"
+      ],
+      "notMultiProcessSafe": "The advisory lock covers the schema and nothing else. The capture queue, the background crop worker and the cover downloader were written for one process. Two containers can safely start; that is not a claim that two should run."
+    },
+    "stop": {
+      "signal": "SIGTERM",
+      "handled": true,
+      "measured": "docker stop --time 10 returns in about 0.24s, exit 0. Without the handler the same stop took the full 10s and exited 137, because the kernel discards a default-disposition signal sent to PID 1 and the image runs node as PID 1 in exec form.",
+      "does": "closes the listener, closes idle keep-alive connections, then closes the Postgres pool, which is what lets the process exit at all",
+      "doesNot": "A background crop or cover download that is mid-write when the signal arrives is cut off. Those writers do not write-then-rename, so a torn file is possible. The window is small and it is not zero."
+    }
+  },
+
+  "refusals": [
+    {
+      "id": "no-connection",
+      "when": "ConnectionStrings__bookscan is unset or empty",
+      "result": "the process exits 1 naming the variable"
+    },
+    {
+      "id": "half-a-google",
+      "when": "exactly one of BOOKSCAN_OIDC_GOOGLE_CLIENT_ID and BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET is set",
+      "result": "the process throws at start naming the one that is missing"
+    },
+    {
+      "id": "provider-without-origin",
+      "when": "a sign-in provider is configured and BOOKSCAN_PUBLIC_ORIGIN is empty",
+      "result": "the process throws at start. Every OpenID Connect provider needs an absolute redirect URI and the server cannot build one without being told its own origin."
+    },
+    {
+      "id": "dev-door-beside-a-real-provider",
+      "when": "BOOKSCAN_DEV_SIGN_IN is set at the same time as a real provider is configured",
+      "result": "the process throws at start. The development door signs in anybody who reaches it, so the two are refused together."
+    }
+  ],
+
+  "environment": [
+    {
+      "name": "ConnectionStrings__bookscan",
+      "required": true,
+      "refusesToStartWithout": true,
+      "secret": true,
+      "default": null,
+      "readAt": "web/server/db.pg.ts",
+      "is": "the Postgres connection string for the catalogue",
+      "whenAbsent": "The process exits 1 naming this variable. It is the only variable whose absence stops the server.",
+      "note": "This spelling and no other. Not DATABASE_URL, not PG*, deliberately, so an inherited shell variable cannot decide what gets written to."
+    },
+    {
+      "name": "BOOKSCAN_DATA",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "/data",
+      "defaultSetBy": "the image",
+      "readAt": "web/server/index.ts",
+      "is": "the directory the photographs live in; `covers` is joined onto it",
+      "whenAbsent": "Outside the image, the server resolves ./data against its working directory, creates it, and comes up reporting success while serving a catalogue whose every photograph is a 404. The image sets it to /data so that forgetting the mount costs an empty directory rather than a silent one in the wrong place.",
+      "note": "Overriding this points the app somewhere other than the declared mount. Do not, unless the mount moves with it."
+    },
+    {
+      "name": "PORT",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "3001",
+      "defaultSetBy": "the image",
+      "readAt": "web/server/index.ts",
+      "is": "the port the server listens on, on 127.0.0.1",
+      "whenAbsent": "3001."
+    },
+    {
+      "name": "BOOKSCAN_BACKUP_DIR",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "",
+      "readAt": "web/server/index.ts",
+      "is": "a directory the server watches for evidence that this catalogue has been backed up; read only, never created",
+      "whenAbsent": "Nothing is watched, and the start log says so. Empty means the same as unset, deliberately."
+    },
+    {
+      "name": "GOOGLE_BOOKS_API_KEY",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": true,
+      "default": "",
+      "readAt": "web/server/secrets.ts",
+      "is": "the Google Books API key",
+      "whenAbsent": "A supported state. Requests go out anonymously into a shared quota that is permanently exhausted, so Google Books contributes nothing to identifying a book. /api/health reports whether a key is configured and never what it is."
+    },
+    {
+      "name": "BOOKSCAN_OPENLIBRARY_URL",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "https://openlibrary.org",
+      "readAt": "web/server/lookup.ts",
+      "is": "the Open Library metadata origin",
+      "whenAbsent": "The public origin above."
+    },
+    {
+      "name": "BOOKSCAN_GOOGLE_BOOKS_URL",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "https://www.googleapis.com",
+      "readAt": "web/server/lookup.ts",
+      "is": "the Google Books origin",
+      "whenAbsent": "The public origin above."
+    },
+    {
+      "name": "BOOKSCAN_COVERS_URL",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "https://covers.openlibrary.org",
+      "readAt": "web/server/covers.ts",
+      "is": "the Open Library cover image origin",
+      "whenAbsent": "The public origin above."
+    },
+    {
+      "name": "BOOKSCAN_LOC_SRU_URL",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "https://lx2.loc.gov:210/lcdb",
+      "readAt": "web/server/catalogue-sru.ts",
+      "is": "the Library of Congress SRU endpoint",
+      "whenAbsent": "The public endpoint above."
+    },
+    {
+      "name": "BOOKSCAN_K10PLUS_SRU_URL",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "https://sru.k10plus.de/opac-de-627",
+      "readAt": "web/server/catalogue-sru.ts",
+      "is": "the K10plus SRU endpoint",
+      "whenAbsent": "The public endpoint above."
+    },
+    {
+      "name": "BOOKSCAN_SRU_PACE_MS",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": null,
+      "readAt": "web/server/source-pace.ts",
+      "is": "an override, in milliseconds, for the pace between requests to the SRU catalogues",
+      "whenAbsent": "The built-in pace.",
+      "deployments": "must not set this. It exists so a test run does not spend real seconds proving a rule about seconds; setting it low against the real catalogues asks them faster than they have agreed to be asked."
+    },
+    {
+      "name": "BOOKSCAN_OIDC_GOOGLE_CLIENT_ID",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "",
+      "readAt": "web/server/auth/providers.ts",
+      "is": "the OAuth client id for signing in with Google",
+      "whenAbsent": "No real sign-in provider is configured, and the start log says so: nobody new can get in. Anyone already holding a session keeps it.",
+      "requires": ["BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET", "BOOKSCAN_PUBLIC_ORIGIN"]
+    },
+    {
+      "name": "BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": true,
+      "default": "",
+      "readAt": "web/server/auth/providers.ts",
+      "is": "the OAuth client secret for signing in with Google",
+      "whenAbsent": "As above.",
+      "requires": ["BOOKSCAN_OIDC_GOOGLE_CLIENT_ID", "BOOKSCAN_PUBLIC_ORIGIN"]
+    },
+    {
+      "name": "BOOKSCAN_PUBLIC_ORIGIN",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "",
+      "readAt": "web/server/auth/providers.ts",
+      "is": "the origin a browser reaches this app on, scheme and host, used to build the provider's redirect URI",
+      "whenAbsent": "Fine while no provider is configured. With one configured the process throws at start, because a redirect URI is an absolute URL and the server cannot invent its own origin.",
+      "note": "This is the one variable whose value is site-specific. Its value belongs to the consumer and must never appear in this repository."
+    },
+    {
+      "name": "BOOKSCAN_DEV_SIGN_IN",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "",
+      "readAt": "web/server/auth/providers.ts",
+      "is": "the subject a development-only door signs in as, which admits on sight",
+      "whenAbsent": "The door does not exist.",
+      "deployments": "must not set this. A deployment that sets it and configures no real provider has an account anybody who can reach it can sign into. Set beside a real provider the process refuses to start, which covers the configuration somebody would actually end up in; this covers the rest."
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": null,
+      "readAt": "web/instrumentation.ts",
+      "is": "an OTLP collector to export traces and metrics to",
+      "whenAbsent": "Telemetry is dormant and says so on start. Nothing is retried and nothing is logged."
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_PROTOCOL",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "http/protobuf",
+      "readAt": "web/server/otel.ts",
+      "is": "grpc or http/protobuf",
+      "whenAbsent": "http/protobuf. Anything else is refused with a message and falls back to http/protobuf.",
+      "alsoAccepts": ["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"]
+    },
+    {
+      "name": "OTEL_LOG_LEVEL",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "error",
+      "readAt": "web/instrumentation.ts",
+      "is": "how loudly the telemetry stack reports its own problems",
+      "whenAbsent": "Errors only."
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_HEADERS",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": true,
+      "default": null,
+      "readAt": null,
+      "readBy": "the OpenTelemetry SDK, not this app's code",
+      "is": "headers sent to the collector, which is where a collector's credential would go",
+      "whenAbsent": "No headers."
+    },
+    {
+      "name": "OTEL_SERVICE_NAME",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": null,
+      "readAt": null,
+      "readBy": "the OpenTelemetry SDK, not this app's code",
+      "is": "the service name spans are filed under",
+      "whenAbsent": "The SDK's own default."
+    }
+  ],
+
+  "operations": {
+    "firstUser": {
+      "why": "The gate admits nobody by default. A person who signs in for the first time lands on a waiting list, and the first user cannot be enabled by an enabled user because there is not one.",
+      "command": ["node", "dist-server/enable-user.js", "--target", "<the same Postgres connection>", "--enable", "<id or email>"],
+      "runIn": "the published image, e.g. docker run --rm <image> node dist-server/enable-user.js --target ... --enable ...",
+      "note": "Listing is the default and writes nothing. The target is taken on the command line and never from ConnectionStrings__bookscan, because this command writes and an ambient connection string must not decide what it writes to.",
+      "otherSwitches": ["--disable", "--sign-out"]
+    },
+    "checkYourConfiguration": {
+      "command": ["node", "/app/deploy/check-config.mjs"],
+      "runIn": "the published image, with the environment you intend to deploy with",
+      "does": "Reads this contract from beside it and reports missing required variables, the four refusals above before the app hits them at runtime, unknown BOOKSCAN_ names that look like typos, and settings that are wrong for a deployment rather than merely unusual. Prints names and never values.",
+      "exit": "0 when there is nothing to fix, 1 when there is"
+    }
+  },
+
+  "notInThisContract": [
+    "Any domain, hostname, address, network shape, tunnel credential or provider client id. Those belong to whoever deploys this and must never appear here.",
+    "A compose file, a chart, a wrangler.toml or any other descriptor that encodes topology. What runs beside this container is the consumer's decision.",
+    "TLS. Something in front terminates it.",
+    "Backups. The image cannot back up a mount it does not own."
+  ]
+}
