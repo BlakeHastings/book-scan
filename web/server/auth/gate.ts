@@ -60,6 +60,7 @@ import { RENEW_AFTER_MINUTES, SESSION_DAYS } from '../../infrastructure/auth/aut
 import {
   authorizationUrl, exchange, opaque, pkce, SignInRefused,
 } from './oidc'
+import { resolveProvider } from './discovery'
 import type { SignInConfig, SignInProviderConfig } from './providers'
 
 /**
@@ -265,6 +266,15 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
         return
       }
 
+      /*
+       * Where the browser is sent may not be knowable from the row (#537). A
+       * provider carrying a `discovery` URL has its endpoints read out of the
+       * authority's own document here, cached for the process; one carrying an
+       * issuer resolves to itself and touches nothing.
+       */
+      const resolved = await settle(provider, res)
+      if (!resolved) return
+
       const state = opaque()
       const nonce = opaque()
       const { verifier, challenge } = pkce()
@@ -275,8 +285,8 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
       // The browser gets the state too, so the callback can require that the
       // browser completing the flow is the browser that started it.
       res.cookie(FLOW_COOKIE, state, cookieOptions(FLOW_MAX_AGE_MS))
-      res.redirect(302, authorizationUrl(provider, {
-        redirectUri: redirectUri(provider), state, nonce, challenge,
+      res.redirect(302, authorizationUrl(resolved, {
+        redirectUri: redirectUri(resolved), state, nonce, challenge,
       }))
     })().catch(next)
   })
@@ -324,11 +334,21 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
         return
       }
 
+      /*
+       * Resolved again, and this is where it matters most: what comes back is
+       * the token endpoint this server posts its client secret to, and the
+       * issuer the ID token is then checked against. For a discovered provider
+       * both come from the authority's document rather than from anything
+       * written here, which is the whole of #537.
+       */
+      const resolved = await settle(provider, res)
+      if (!resolved) return
+
       let identity
       try {
         identity = await exchange(
-          provider,
-          { code, redirectUri: redirectUri(provider), verifier: flow.code_verifier },
+          resolved,
+          { code, redirectUri: redirectUri(resolved), verifier: flow.code_verifier },
           now,
         )
       } catch (error) {
@@ -343,7 +363,9 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
         return
       }
 
-      await admit(deps, res, provider, identity, now)
+      // `resolved`, not `provider`, because the issuer half of the identity's
+      // key is the discovered one for a discovered provider.
+      await admit(deps, res, resolved, identity, now)
       res.redirect(302, flow.next)
     })().catch(next)
   })
@@ -358,6 +380,34 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
       res.status(204).end()
     })().catch(next)
   })
+}
+
+/**
+ * A provider with its issuer and endpoints on it, or an answer already sent.
+ *
+ * **`502` and not `400`**, and the distinction is worth keeping: a token this
+ * server refuses is a bad sign-in and is the caller's business, while an
+ * authority that will not say what its issuer is has nothing to do with whoever
+ * pressed the button. Answering `400` there would tell somebody their sign-in
+ * was wrong when the truth is that this app cannot currently sign anybody in
+ * through that door.
+ *
+ * Refusing rather than falling back is the point. There is no "carry on without
+ * the issuer" branch, because carrying on without the issuer is the defect #537
+ * exists to prevent.
+ */
+async function settle(
+  provider: SignInProviderConfig,
+  res: express.Response,
+): Promise<SignInProviderConfig | undefined> {
+  try {
+    return await resolveProvider(provider)
+  } catch (error) {
+    if (!(error instanceof SignInRefused)) throw error
+    console.warn('[auth] provider could not be resolved:', error.message)
+    res.status(502).json({ error: error.message })
+    return undefined
+  }
 }
 
 /**

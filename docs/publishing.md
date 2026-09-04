@@ -270,10 +270,18 @@ docker run --rm --env-file <theirs> <image> node /app/deploy/check-config.mjs
 
 It prints names and never values, because two of the variables are a Postgres
 password and an OAuth client secret and a checker whose output cannot be pasted
-into an issue is a checker nobody runs. It restates the four refusals the server
-makes at start — no connection string, half a Google client, a provider with no
+into an issue is a checker nobody runs. It restates the six refusals the server
+makes at start — no connection string, half a Google client, an incomplete
+Microsoft set, a Microsoft authority with no single issuer, a provider with no
 public origin, the development door beside a real one — so a deployment meets
 them in a check rather than in a crash loop.
+
+**The fourth of those is the one worth reading twice**, and #537 added it.
+`BOOKSCAN_OIDC_MICROSOFT_TENANT` may not be `common` or `organizations`: they are
+authorities rather than tenants, they have no single issuer, and accepting one
+would mean accepting every tenant there is. `common` is what most examples on the
+internet use, so a deployer is likely to reach for it, which is why this is
+caught in a check as well as at start. `docs/the-gate.md` has the whole argument.
 
 **It travels with the image, and that is verified rather than intended.** The
 publish workflow pulls back what it just pushed, by digest, and `diff`s the

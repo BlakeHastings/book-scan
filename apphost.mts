@@ -242,7 +242,7 @@ let apiBuilder = builder
    */
   .withEnvironment('BOOKSCAN_DEV_SIGN_IN', 'developer')
   /*
-   * And the three variables that would configure a real provider, cleared.
+   * And every variable that would configure a real provider, cleared.
    *
    * Set explicitly and empty for exactly the reason `BOOKSCAN_DATA` and
    * `BOOKSCAN_BACKUP_DIR` above are: these are names a shell may already carry,
@@ -252,9 +252,18 @@ let apiBuilder = builder
    * `signInFrom` refuses the development door beside a real provider, it would
    * instead make `aspire start` fail to come up at all, in a way whose cause is
    * in somebody's shell rather than in this repository.
+   *
+   * **This list grows with the registry, and #537 is the first time it did.**
+   * The three Microsoft names are here for the same reason as the Google ones,
+   * and `BOOKSCAN_OIDC_MICROSOFT_TENANT` matters more than it looks: it is not a
+   * credential, so it is the one somebody is most likely to have left in a shell
+   * profile, and on its own it is enough to stop a worktree starting.
    */
   .withEnvironment('BOOKSCAN_OIDC_GOOGLE_CLIENT_ID', '')
   .withEnvironment('BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET', '')
+  .withEnvironment('BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID', '')
+  .withEnvironment('BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET', '')
+  .withEnvironment('BOOKSCAN_OIDC_MICROSOFT_TENANT', '')
   .withEnvironment('BOOKSCAN_PUBLIC_ORIGIN', '')
   // Set explicitly for the same reason BOOKSCAN_DATA is: the connection has to
   // be the one this AppHost provisioned and not one inherited from a shell

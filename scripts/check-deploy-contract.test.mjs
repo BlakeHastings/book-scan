@@ -168,7 +168,15 @@ const has = (name, lines, fragment) => {
 // --- private on purpose, so a hostname arriving here is a hostname that is
 // --- public forever. The catalogue origins and the registry are the exceptions.
 {
-  const allowed = [...contract.dependencies.outboundHttps.hosts.map((one) => one.host), contract.image.registry]
+  // The same list `main` builds, and it is built the same way on purpose: a host
+  // is excused because the contract declares a deployment must reach it, never
+  // because a script names it. #537 added the sign-in hosts, of which
+  // `login.microsoftonline.com` is the one this repository actually writes down.
+  const allowed = [
+    ...contract.dependencies.outboundHttps.hosts.map((one) => one.host),
+    ...contract.dependencies.outboundHttps.signInHosts.map((one) => one.host),
+    contract.image.registry,
+  ]
   check('the contract as it stands names no place', siteSpecificProblems(contract, allowed).length, 0)
 
   has(

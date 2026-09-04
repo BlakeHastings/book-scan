@@ -45,6 +45,7 @@ import { AuthStore } from '../infrastructure/auth/auth-store'
 import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
 import { devProvider, signInFrom } from './auth/providers'
+import { forgetDiscovered } from './auth/discovery'
 import type { SignInProviderConfig } from './auth/providers'
 import { SESSION_COOKIE } from '../shared/auth'
 
@@ -66,6 +67,52 @@ let providerUrl: string
 let received: URLSearchParams | undefined
 /** What the next token exchange gets back. A case sets this before calling. */
 let nextToken: string
+/**
+ * How many discovery documents the stub has handed out, per authority (#537).
+ *
+ * Counted rather than assumed, because "the issuer is fetched rather than
+ * hardcoded" and "the document is read once per process" are both claims about
+ * requests, and the only honest way to check a claim about requests is to count
+ * them at the far end.
+ */
+let documentsAsked: Record<string, number>
+
+/**
+ * The authorities this stub answers for, and what each one says about itself.
+ *
+ * Shaped like Microsoft's, which is the only reason a stub is worth anything
+ * here: `wellhouse` answers with an issuer and is the case that works,
+ * `templated` answers with a `{tenantid}` placeholder exactly as `common` and
+ * `organizations` do, and `elsewhere` tries to nominate an issuer this stub does
+ * not own.
+ */
+type Authorities = Record<string, (base: string) => Record<string, unknown>>
+
+const freshAuthorities = (): Authorities => ({
+  wellhouse: (base) => ({
+    issuer: `${base}/wellhouse/v2.0`,
+    authorization_endpoint: `${base}/wellhouse/authorize`,
+    token_endpoint: `${base}/token`,
+    subject_types_supported: ['pairwise'],
+  }),
+  templated: (base) => ({
+    issuer: `${base}/{tenantid}/v2.0`,
+    authorization_endpoint: `${base}/templated/authorize`,
+    token_endpoint: `${base}/token`,
+  }),
+  elsewhere: (base) => ({
+    issuer: 'https://an-issuer-this-document-does-not-own.test/v2.0',
+    authorization_endpoint: `${base}/elsewhere/authorize`,
+    token_endpoint: `${base}/token`,
+  }),
+})
+
+/** Reset per case, so one of them can change an answer underneath a flow. */
+let authorities: Authorities
+
+/** Where a provider is told to go and ask about one of them. */
+const discoveryFor = (authority: string) =>
+  `${providerUrl}/${authority}/v2.0/.well-known/openid-configuration`
 
 beforeAll(async () => {
   pool = await migratedDatabase()
@@ -73,6 +120,27 @@ beforeAll(async () => {
   scratch = scratchRoot('sign-in-routes')
 
   provider = createServer((req, res) => {
+    const path = req.url ?? ''
+
+    /*
+     * The discovery half, added by #537. The token endpoint below was the whole
+     * of this stub when there was only one shape of provider; a provider whose
+     * issuer is not written down has to ask somebody, and this is the somebody.
+     */
+    const authority = /^\/([^/]+)\/v2\.0\/\.well-known\/openid-configuration$/.exec(path)?.[1]
+    if (authority) {
+      documentsAsked[authority] = (documentsAsked[authority] ?? 0) + 1
+      const said = authorities[authority]
+      if (!said) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(said(providerUrl)))
+      return
+    }
+
     let body = ''
     req.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     req.on('end', () => {
@@ -99,6 +167,9 @@ function acme(): SignInProviderConfig {
     label: 'Acme',
     kind: 'oidc',
     issuer: ISSUER,
+    // Its issuer is written down, so it asks nobody. That is the shape Google
+    // has and the shape every provider had before #537.
+    discovery: '',
     authorizationEndpoint: `${providerUrl}/authorize`,
     tokenEndpoint: `${providerUrl}/token`,
     scope: 'openid email profile',
@@ -112,6 +183,9 @@ function acme(): SignInProviderConfig {
 beforeEach(async () => {
   await pool.query('TRUNCATE "user", sign_in_flow CASCADE')
   received = undefined
+  documentsAsked = {}
+  authorities = freshAuthorities()
+  forgetDiscovered()
   coverDir = mkdtempSync(join(scratch, 'covers-'))
   app = createApp({
     db,
@@ -525,6 +599,247 @@ describe('what the client is told, in each of the three states', () => {
 
   it('lets somebody with no session sign out, and does nothing', async () => {
     expect((await fetch(`${baseUrl}/api/auth/signout`, { method: 'POST' })).status).toBe(204)
+  })
+})
+
+/**
+ * A provider whose issuer is not written down anywhere, driven end to end
+ * (#537).
+ *
+ * ## What this is, and what it is not
+ *
+ * **It is not Microsoft.** Driving Microsoft needs an app registration with a
+ * client id and a secret the owner has not created and which must never enter
+ * this repository, so nothing in this file has ever spoken to Microsoft and
+ * nothing claims to have. What it is, is the *shape* Microsoft has, run through
+ * the whole flow: an authority that answers a discovery document, an issuer that
+ * exists only in that answer, and a second tenant on the same authority whose
+ * tokens must be refused.
+ *
+ * **A stub is honest here and a claim is not**, which is the precedent #523 set
+ * with `acme` above. What it can prove is what `auth/discovery.ts` and this
+ * server do with a document and with a token; what it cannot prove is that
+ * Microsoft answers the way `discovery.test.ts`'s fixtures say it does. Those
+ * fixtures were read from Microsoft's own public documents and say where and
+ * when, which is the closest a repository with no registration can get.
+ *
+ * The case that matters is `refuses a token from another tenant`. Everything
+ * else here is a sign-in that works, and #537's whole point is that a sign-in
+ * that works is exactly what the defect looks like.
+ */
+describe('a provider whose issuer is discovered rather than written down', () => {
+  let discovered: BookScanApp
+  let discoveredServer: import('node:http').Server
+  let url: string
+
+  /** The row, with a hole where every other provider carries three constants. */
+  const wellhouse = (authority = 'wellhouse'): SignInProviderConfig => ({
+    id: 'wellhouse',
+    label: 'Wellhouse',
+    kind: 'oidc',
+    issuer: '',
+    discovery: discoveryFor(authority),
+    authorizationEndpoint: '',
+    tokenEndpoint: '',
+    scope: 'openid email profile',
+    clientId: CLIENT_ID,
+    clientSecret: CLIENT_SECRET,
+    subject: '',
+    admitsOnSight: false,
+  })
+
+  async function boot(row: SignInProviderConfig) {
+    discovered = createApp({
+      db,
+      coverDir,
+      startBackgroundWork: false,
+      signIn: { providers: [row], publicOrigin: 'http://books.test' },
+    })
+    discoveredServer = discovered.listen(0)
+    await new Promise<void>((resolve) => discoveredServer.once('listening', resolve))
+    url = `http://127.0.0.1:${(discoveredServer.address() as AddressInfo).port}`
+  }
+
+  afterEach(async () => {
+    await discovered.settled()
+    await new Promise<void>((resolve) => { discoveredServer.close(() => resolve()) })
+  })
+
+  async function start(next = '/') {
+    const response = await fetch(
+      `${url}/api/auth/wellhouse/start?next=${encodeURIComponent(next)}`,
+      { redirect: 'manual' },
+    )
+    const location = response.status === 302
+      ? new URL(response.headers.get('location') ?? '')
+      : undefined
+    return {
+      status: response.status,
+      location,
+      state: location?.searchParams.get('state') ?? '',
+      nonce: location?.searchParams.get('nonce') ?? '',
+      cookie: cookieIn(response.headers.get('set-cookie'), 'bookscan_signin'),
+    }
+  }
+
+  const comeBack = (state: string, cookie: string) => fetch(
+    `${url}/api/auth/wellhouse/callback?code=a-code&state=${state}`,
+    { redirect: 'manual', headers: cookie ? { cookie } : {} },
+  )
+
+  it('sends the browser to the endpoint the document named, not to one written here', async () => {
+    await boot(wellhouse())
+    const began = await start('/library')
+
+    expect(began.status).toBe(302)
+    // The row's `authorizationEndpoint` is the empty string. This URL exists
+    // only because the document was fetched and read.
+    expect(`${began.location?.origin ?? ''}${began.location?.pathname ?? ''}`)
+      .toBe(`${providerUrl}/wellhouse/authorize`)
+    expect(documentsAsked.wellhouse).toBe(1)
+  })
+
+  it('signs somebody in, and files them under the issuer the document named', async () => {
+    await boot(wellhouse())
+    const began = await start('/library')
+    nextToken = idToken({
+      iss: `${providerUrl}/wellhouse/v2.0`,
+      aud: CLIENT_ID,
+      sub: 'a-pairwise-subject',
+      exp: Math.floor(Date.now() / 1000) + 300,
+      nonce: began.nonce,
+      email: 'somebody@wellhouse.test',
+      name: 'Some Body',
+    })
+
+    const back = await comeBack(began.state, began.cookie)
+    expect(back.status).toBe(302)
+    expect(back.headers.get('location')).toBe('/library')
+
+    const [person] = await new AuthStore(db).everybody()
+    /*
+     * The discovered issuer, on `user_identity`, and not the empty string the
+     * row carries. If the callback read the field rather than the resolved
+     * provider, every identity would be filed under `''` and two providers with
+     * the same subject would be one person.
+     */
+    expect(person?.identities[0]?.issuer).toBe(`${providerUrl}/wellhouse/v2.0`)
+    expect(person?.identities[0]?.subject).toBe('a-pairwise-subject')
+    // A real provider, so the waiting list, as Google's first sign-in gives.
+    expect(person?.enabled).toBe(false)
+  })
+
+  /**
+   * **The case #537 exists for.**
+   *
+   * Every claim in this token is right except one: it was issued by a different
+   * tenant on the same authority. That is exactly what a real Microsoft token
+   * from somebody else's Entra tenant looks like, and it is what a check written
+   * as "the issuer starts with the authority's host" would let through while
+   * still producing a sign-in that succeeds and a session that works.
+   *
+   * A wrong issuer check is not visible from a happy path. It is visible here.
+   */
+  it('refuses a token from another tenant on the same authority', async () => {
+    await boot(wellhouse())
+    const began = await start()
+    nextToken = idToken({
+      iss: `${providerUrl}/somebody-elses-tenant/v2.0`,
+      aud: CLIENT_ID,
+      sub: 'a-pairwise-subject',
+      exp: Math.floor(Date.now() / 1000) + 300,
+      nonce: began.nonce,
+      email: 'somebody@wellhouse.test',
+    })
+
+    const back = await comeBack(began.state, began.cookie)
+
+    expect(back.status).toBe(400)
+    expect(cookieIn(back.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
+    expect(await new AuthStore(db).everybody()).toHaveLength(0)
+  })
+
+  it('reads the document once, however many sign-ins go through it', async () => {
+    await boot(wellhouse())
+    for (let i = 0; i < 3; i += 1) {
+      const began = await start()
+      nextToken = idToken({
+        iss: `${providerUrl}/wellhouse/v2.0`,
+        aud: CLIENT_ID,
+        sub: 'a-pairwise-subject',
+        exp: Math.floor(Date.now() / 1000) + 300,
+        nonce: began.nonce,
+      })
+      expect((await comeBack(began.state, began.cookie)).status).toBe(302)
+    }
+
+    // Three sign-ins, three authorization requests, three exchanges, and one
+    // document.
+    expect(documentsAsked.wellhouse).toBe(1)
+    expect(await new AuthStore(db).everybody()).toHaveLength(1)
+  })
+
+  /**
+   * `common` and `organizations`, in the only form a stub can have them:
+   * an authority whose document answers `{tenantid}` instead of an issuer.
+   * `providers.ts` also refuses those two by name at start, which is the same
+   * answer arriving sooner; this is the refusal that would still hold for an
+   * authority nobody has thought of.
+   */
+  it('refuses an authority that answers with a template, and signs nobody in', async () => {
+    await boot(wellhouse('templated'))
+
+    const began = await start()
+    expect(began.status).toBe(502)
+    expect(began.cookie).toBe('')
+
+    // And nothing was half-started: no flow row to replay and no user.
+    expect((await pool.query('SELECT * FROM sign_in_flow')).rowCount).toBe(0)
+    expect(await new AuthStore(db).everybody()).toHaveLength(0)
+  })
+
+  it('refuses an authority that names an issuer it does not own', async () => {
+    await boot(wellhouse('elsewhere'))
+    expect((await start()).status).toBe(502)
+  })
+
+  it('refuses an authority that is not there at all', async () => {
+    await boot(wellhouse('an-authority-this-stub-has-never-heard-of'))
+    expect((await start()).status).toBe(502)
+  })
+
+  /**
+   * The callback resolves too, and it has to.
+   *
+   * The situation is ordinary rather than contrived: a sign-in that began before
+   * a restart comes back after one, so nothing is cached and the document is
+   * asked for again. If the authority has stopped being able to say what its
+   * issuer is, the answer is to refuse, because the alternative shape, "carry on
+   * and sort the issuer out later", is how a provider ends up admitting a token
+   * nothing checked.
+   */
+  it('refuses at the callback when the authority stops answering usefully', async () => {
+    await boot(wellhouse())
+    const began = await start()
+    expect(began.status).toBe(302)
+
+    // The restart, and the authority now answering the way `common` does.
+    forgetDiscovered()
+    authorities.wellhouse = authorities.templated!
+
+    nextToken = idToken({
+      iss: `${providerUrl}/wellhouse/v2.0`,
+      aud: CLIENT_ID,
+      sub: 'a-pairwise-subject',
+      exp: Math.floor(Date.now() / 1000) + 300,
+      nonce: began.nonce,
+    })
+    const back = await comeBack(began.state, began.cookie)
+
+    expect(back.status).toBe(502)
+    expect(cookieIn(back.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
+    expect(await new AuthStore(db).everybody()).toHaveLength(0)
+    expect(documentsAsked.wellhouse).toBe(2)
   })
 })
 

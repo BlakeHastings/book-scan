@@ -269,6 +269,20 @@ function main() {
     }),
     ...siteSpecificProblems(contract, [
       ...contract.dependencies.outboundHttps.hosts.map((one) => one.host),
+      /*
+       * The identity providers' own hosts (#537). Excused on exactly the same
+       * terms as the catalogue origins above, and for the same reason: a host is
+       * allowed to appear in this contract only because the contract also
+       * declares that a deployment must be able to reach it. Nothing is excused
+       * by being written into this script.
+       *
+       * This became load-bearing rather than tidy when Microsoft arrived.
+       * `login.microsoftonline.com` is the one host this repository does write
+       * down, because a discovery document is only worth reading on account of
+       * where it was fetched from, and a deployment that cannot reach it can
+       * sign nobody in through that door.
+       */
+      ...contract.dependencies.outboundHttps.signInHosts.map((one) => one.host),
       contract.image.registry,
     ]),
   ]

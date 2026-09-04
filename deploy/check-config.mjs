@@ -92,7 +92,40 @@ export function checkConfig(env, contract, options = {}) {
     errors.push(`${missing} is missing and the other half of the pair is set. ${refusal('half-a-google').result}`)
   }
 
-  const hasRealProvider = googleId && googleSecret
+  /*
+   * Microsoft, and three names rather than two (#537). The tenant is in the set
+   * because Microsoft's issuer is scoped to one and there is deliberately no
+   * default: a deployment says which authority it admits, or the process refuses
+   * to start.
+   */
+  const microsoft = [
+    'BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID',
+    'BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET',
+    'BOOKSCAN_OIDC_MICROSOFT_TENANT',
+  ]
+  const microsoftSet = microsoft.filter((name) => set(env, name))
+  const microsoftMissing = microsoft.filter((name) => !set(env, name))
+  if (microsoftSet.length > 0 && microsoftMissing.length > 0) {
+    errors.push(
+      `${microsoftMissing.join(' and ')} ${microsoftMissing.length === 1 ? 'is' : 'are'} ` +
+      `missing and the rest of the set is present. ${refusal('half-a-microsoft').result}`,
+    )
+  }
+
+  /*
+   * The one this file exists to catch early, because the alternative is a
+   * deployer reading "common" in every example on the internet, setting it, and
+   * meeting the refusal at start with the container already scheduled.
+   */
+  const tenant = (env.BOOKSCAN_OIDC_MICROSOFT_TENANT ?? '').trim().toLowerCase()
+  if (tenant === 'common' || tenant === 'organizations') {
+    errors.push(
+      `BOOKSCAN_OIDC_MICROSOFT_TENANT is "${tenant}". ` +
+      `${refusal('microsoft-authority-with-no-issuer').result}`,
+    )
+  }
+
+  const hasRealProvider = (googleId && googleSecret) || microsoftMissing.length === 0 && microsoftSet.length === 3
   if (hasRealProvider && !set(env, 'BOOKSCAN_PUBLIC_ORIGIN')) {
     errors.push(`BOOKSCAN_PUBLIC_ORIGIN is empty and a sign-in provider is configured. ${refusal('provider-without-origin').result}`)
   }
@@ -148,7 +181,11 @@ export function checkConfig(env, contract, options = {}) {
   //    is not. The sign-in pair is left out because the note above covers it in
   //    one line rather than two, and the two the SDK reads are left out because
   //    this app does not read them.
-  const signIn = new Set(['BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET', 'BOOKSCAN_OIDC_GOOGLE_CLIENT_ID'])
+  const signIn = new Set([
+    'BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET', 'BOOKSCAN_OIDC_GOOGLE_CLIENT_ID',
+    'BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET', 'BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID',
+    'BOOKSCAN_OIDC_MICROSOFT_TENANT',
+  ])
   for (const entry of contract.environment) {
     if (entry.required || !entry.secret || !entry.readAt) continue
     if (signIn.has(entry.name)) continue
