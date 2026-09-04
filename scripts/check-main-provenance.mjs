@@ -1,12 +1,19 @@
 // Fail when a commit reached `main` without a pull request behind it.
 //
 // WHAT THIS PREVENTS
-// Branch protection is unavailable on a private repo on this plan, so
-// nothing at GitHub's end stops a direct push to `main` or a merge taken with CI
-// red. Two layers stand in for it, and both are preventive: `guard-merge.mjs`
-// only loads in a Claude Code session that started with `.claude/settings.json`
-// present, and `merge-pr.mjs` only binds whoever chooses to type it. A layer
-// that can be bypassed cannot tell you it was bypassed.
+// This used to say branch protection was unavailable on a private repo on this
+// plan, so nothing at GitHub's end stopped a direct push to `main` or a merge
+// taken with CI red. That was false: the repository is public and rulesets are
+// free on a public repository. #540 added one, and GitHub now refuses both.
+//
+// Which changes what this check is for, and makes it more useful rather than
+// less. Three preventive layers now stand ahead of it and every one of them can
+// be absent without saying so: `guard-merge.mjs` only loads in a session that
+// started with `.claude/settings.json` present, `merge-pr.mjs` only binds
+// whoever chooses to type it, and a ruleset is a setting on an account that two
+// clicks can disable, leaving no trace in any diff. A layer that can be
+// bypassed cannot tell you it was bypassed, and a layer that can be switched
+// off cannot tell you it was switched off.
 //
 // This one runs on the result, so it cannot be. For every commit a push added to
 // `main` it asks the API which pull requests that commit belongs to. A squash
@@ -212,8 +219,15 @@ if (violations.length > 0) {
   }
   console.error(
     `This is not a broken build. The code may be perfectly good. What failed is\n` +
-      `that it arrived without review or green checks, which on this repo nothing\n` +
-      `at GitHub's end prevents: branch protection needs a paid plan here.\n\n` +
+      `that it arrived without review or green checks.\n\n` +
+      `Since #540 a ruleset should have refused this at GitHub's end, so seeing\n` +
+      `it at all means one of two things, and the first is the likely one:\n` +
+      `the ruleset is no longer active. Check before anything else:\n\n` +
+      `    gh api repos/{owner}/{repo}/rules/branches/master\n\n` +
+      `If that comes back empty or without a pull_request rule, the gap is the\n` +
+      `setting, not the guard. Restore it:\n\n` +
+      `    gh api --method POST repos/{owner}/{repo}/rulesets \\\n` +
+      `      --input docs/process/master-ruleset.json\n\n` +
       `What to do, in order:\n` +
       `  1. Work out how it got there: a direct push, a merge taken with checks\n` +
       `     red, or a rewritten history. \`git show <sha>\` and the push event on\n` +

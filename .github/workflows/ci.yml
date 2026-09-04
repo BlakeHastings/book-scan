@@ -10,10 +10,21 @@ name: CI
 # a tree that had just been built.
 #
 # Checked before removing it: nothing uses `workflow_run`, no README carries a
-# status badge, branch protection is unavailable on this plan so no ruleset
-# names a CI context, and `provenance.yml` has its own independent `push`
-# trigger and still runs on every merge. `e2e.yml` also still runs nightly on
-# the default branch, so master keeps a daily full browser signal.
+# status badge, and `provenance.yml` has its own independent `push` trigger and
+# still runs on every merge. `e2e.yml` also still runs nightly on the default
+# branch, so master keeps a daily full browser signal.
+#
+# The fourth reason given at the time was that branch protection was
+# unavailable on this plan, so no ruleset could name a CI context. That was
+# false — the repository is public — and since #540 a ruleset does name both
+# contexts. It does not bring the push trigger back: a ruleset requires the
+# checks on the *pull request*, which is exactly the run this workflow already
+# produces. Adding a push trigger would still only re-prove a tree that was
+# just proved. But if you ever change the job names here, change them in the
+# ruleset too — `docs/process/master-ruleset.json` is the payload, and the live
+# copy needs a `gh api --method PUT` — as well as in `REQUIRED` in
+# `scripts/merge-pr.mjs`. There are now three places that name these two
+# strings, and a name that never reports makes master unmergeable.
 on:
   pull_request:
 

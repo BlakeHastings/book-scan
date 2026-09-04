@@ -217,14 +217,114 @@ decides whether the steps inside them do any work. That shape is deliberate. A
 SKIPPED, and the merge gate refuses both, which would make a README change
 unmergeable.
 
-**GitHub itself does not enforce them.** Branch protection needs a paid plan on a
-private repo, and this repo cannot be public. Four things stand in for it, and
-each is worth exactly what it covers:
+**GitHub itself enforces them.** It has since 2026-09-04, and this paragraph
+used to say the opposite.
 
-1. **`node scripts/merge-pr.mjs <n>`**, the only sanctioned way to land a PR. It
+What it said was that branch protection needs a paid plan on a private repo and
+that this repo cannot be public. Both halves are untrue. `gh repo view --json
+visibility` answers `PUBLIC`, and it has for as long as anyone has checked;
+rulesets and branch protection are free on a public repository. So four controls
+were hand-built around a constraint that does not exist. They were built well —
+each one says in its own header exactly what it cannot cover — but every one of
+them is a script refusing, and a script only refuses the person who runs it.
+
+That is the lesson worth keeping more than the fix is. **An untrue invariant is
+worse than an absent one**, because the next person builds against it, and here
+four things were built against it over several months by people who had no
+reason to doubt a line in a process document. Nobody checked `gh repo view`.
+Check the claim, including this one.
+
+**Nothing was deleted, and nothing should be.** The scripts do not become
+redundant, because the ruleset covers a *different* gap rather than the same
+one. Each of the four fails at a different moment, and the ruleset fails at a
+fifth: it is the only layer that refuses a merge taken from a machine no guard
+was loaded on, by somebody who never typed the wrapper, before rather than after
+the commit exists. Two of the four also work with no network and no API, which
+the ruleset never does. Read the list as five layers that fail at five different
+moments:
+
+1. **The `default branch: pull request, green checks, squash` ruleset**, which
+   is GitHub refusing rather than a script refusing. It requires a pull request
+   before anything reaches `master`, both checks green on it, squash as the only
+   merge method, and it blocks force-pushes to `master` and deleting it.
+   *Not covered:* nothing local. It cannot tell you why before you try, it needs
+   the API to be up, and it says nothing about the *base* those checks ran
+   against — which is the failure that produced #154 and the reason layer 2 is
+   still the sanctioned path rather than a convenience.
+
+   **It has no bypass actors, on purpose.** `current_user_can_bypass` reads
+   `never` for the owner, who is the only human with access and the only account
+   the agents authenticate as. A ruleset that exempts admins would exempt every
+   actor there is, which is not a control, it is a comment.
+
+   **It does not require an approving review, and that is the deliberate part.**
+   Requiring one would lock the repository shut, not tighten it. Every pull
+   request here is authored by `BlakeHastings` — the agents push with his token —
+   and GitHub does not let an author approve their own pull request. With one
+   human and no second account, `required_approving_review_count: 1` makes every
+   pull request permanently unmergeable, and the only way out is switching the
+   rule off, which trains everyone to switch it off. The `pull_request` rule at
+   zero approvals still buys the thing review needs: a diff, a description and a
+   place to comment must exist before anything lands. The orchestrator's review
+   is real; it is just not expressible as an approval from a second account.
+   **Raise it to 1 the day a second account has push access**, and add
+   `require_last_push_approval` at the same time.
+
+   `require_extra_approval_for_unattributed_changes` is pinned to `false` for
+   the same reason, and it is pinned rather than omitted because GitHub defaults
+   it to `true`. A commit authored from an email not on the owner's GitHub
+   account would otherwise demand an approval that nobody in this repository can
+   give.
+
+   **`strict_required_status_checks_policy` is off**, which is GitHub's "require
+   branches to be up to date". Turning it on would re-run every open pull
+   request on every merge, including a merge that touched only a README, and
+   would refuse a docs-only merge outright. Layer 2 already answers the same
+   question better: it asks whether the base has gained anything that could
+   change what those checks proved, and waves through a base that moved only
+   under `docs/`. Read the long comment above `judgeBase` in
+   `scripts/merge-pr.mjs` before changing this.
+
+   **Where to see it**, because a repository setting is invisible in a diff:
+   <https://github.com/BlakeHastings/book-scan/rules>, or better,
+
+   ```bash
+   gh api repos/{owner}/{repo}/rules/branches/master
+   ```
+
+   which reports what GitHub evaluates for the branch rather than what somebody
+   configured. `docs/process/master-ruleset.json` is the exact payload it was
+   created from.
+
+   **How to undo it**, which matters because there is one human with access and
+   he is inside the rule rather than outside it. In the UI: Settings → Rules →
+   Rulesets → that ruleset → **Enforcement status: Disabled** → Save. Two
+   clicks, reversible, and it leaves the configuration sitting there to switch
+   back on. From a terminal:
+
+   ```bash
+   # Suspend it, keeping the definition.
+   gh api --method PUT repos/{owner}/{repo}/rulesets/22306910 -f enforcement=disabled
+   # Turn it back on.
+   gh api --method PUT repos/{owner}/{repo}/rulesets/22306910 -f enforcement=active
+   # Remove it entirely.
+   gh api --method DELETE repos/{owner}/{repo}/rulesets/22306910
+   # Recreate it from the committed payload.
+   gh api --method POST repos/{owner}/{repo}/rulesets --input docs/process/master-ruleset.json
+   ```
+
+   Prefer disabling to deleting. A disabled ruleset is a decision anyone can
+   see; a deleted one looks like it was never there, which is how this section
+   came to be wrong in the first place.
+2. **`node scripts/merge-pr.mjs <n>`**, the only sanctioned way to land a PR. It
    refuses unless all required checks are green, and always squash merges.
    *Not covered:* anyone who does not use the command. It is a tool, not a gate.
-2. **`scripts/guard-merge.mjs`**, a PreToolUse hook wired up in
+   **Layer 1 does not make it redundant**, and this is the one place the two
+   genuinely differ rather than overlap: the ruleset asks whether the ticks are
+   green, and this asks whether they describe the tree that is about to land.
+   #151 and #152 were both green, both mergeable and left `master` red. A
+   ruleset would have merged both.
+3. **`scripts/guard-merge.mjs`**, a PreToolUse hook wired up in
    `.claude/settings.json`. It denies the commands above before they run.
    *Not covered:* sessions that did not load it. A net, not a guarantee.
    **The registration is now tracked, and it was not before.** `.claude/` is
@@ -275,12 +375,16 @@ each is worth exactly what it covers:
    loaded. **A missing-file error means the worktree predates the change**, and
    says nothing about either — so the measurement only means anything in a
    worktree created after this landed.
-3. **`scripts/check-main-provenance.mjs`**, run on every push to the default
+4. **`scripts/check-main-provenance.mjs`**, run on every push to the default
    branch. It asks the API whether each new commit belongs to a merged pull
    request and fails loudly when one does not.
    *Not covered:* prevention. It notices afterwards, which is why it cannot be
-   bypassed.
-4. **`scripts/guard-live-data.mjs`**, the same shape as the merge guard but
+   bypassed. **Keep it even though layer 1 now prevents the thing it detects**,
+   because it is the only layer that would notice layer 1 being switched off. A
+   ruleset is a setting, settings change, and nothing in a diff shows it. This
+   is the check that turns "the ruleset is on" from a belief into an
+   observation.
+5. **`scripts/guard-live-data.mjs`**, the same shape as the merge guard but
    pointed at the live catalogue rather than at the default branch. It refuses
    commands naming the live container, its volume, `127.0.0.1:5433`, the
    `stable` checkout or the backup scripts **when they run from inside a
@@ -298,11 +402,48 @@ node scripts/merge-pr.mjs 42
 ```
 
 **Squash, always.** One issue becomes one commit, so the log stays a readable
-list of changes and reverting means reverting one commit.
+list of changes and reverting means reverting one commit. GitHub now refuses
+every other merge method on the default branch, so this is no longer a
+convention you could forget.
 
 If a commit ever reaches the default branch outside this path, treat it as a
 **defect in the guard** rather than a mistake by whoever did it: work out what
-the guard missed, add the case, and say so.
+the guard missed, add the case, and say so. **Check the ruleset first**, because
+since #540 the likeliest explanation is that it is no longer active:
+`gh api repos/{owner}/{repo}/rules/branches/master`.
+
+### There is also a classic branch protection, and it was armed against us
+
+Found while doing #540, and worth knowing about because it is a second place to
+look and it disagreed with the first. `master` already carried a **classic
+branch protection** — the older mechanism, configured at Settings → Branches,
+which is a different screen from Settings → Rules and does not appear in
+`gh api repos/{owner}/{repo}/rules/branches/master`. Ask for it by name:
+
+```bash
+gh api repos/{owner}/{repo}/branches/master/protection
+```
+
+It required the same two checks, and it had `enforce_admins` **off**. The owner
+is the only account with access, so the protection applied to nobody. That is
+the shape to recognise: a control that is configured, visible, reassuring, and
+exempts the only actor it could ever stop.
+
+It also had **`strict: true`**, GitHub's "require branches to be up to date",
+which is the one setting that refuses a merge `merge-pr.mjs` would allow. It bit
+nothing only because admins were exempt from it — so a single checkbox ("do not
+allow bypassing the above settings", the obvious thing to tick after reading
+#540) would have turned the sanctioned path into a refused one while the unsafe
+ones stayed open. **`strict` was set to `false` on 2026-09-04** so that the two
+mechanisms agree and nothing depends on a bypass staying open.
+
+The rest of it was left alone. It is now a redundant second copy of the required
+checks, which is harmless, and it is the only thing left protecting `master` if
+the ruleset is ever disabled. **Deleting it is the owner's call, not an agent's**:
+
+```bash
+gh api --method DELETE repos/{owner}/{repo}/branches/master/protection
+```
 
 ## When the process is the problem
 

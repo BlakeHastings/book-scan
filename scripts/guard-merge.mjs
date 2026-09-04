@@ -1,10 +1,31 @@
 // PreToolUse guard: nothing reaches `master` except through the sanctioned path.
 //
 // WHAT THIS PREVENTS
-// Branch protection is unavailable on a private repo on this plan, so GitHub
-// will happily accept a merge with CI red, or a direct push to master that
-// skips review entirely. Agents run unattended, and "I was told not to" is not
-// a control. This is the control.
+// This used to say branch protection was unavailable on a private repo on this
+// plan, so GitHub would happily accept a merge with CI red or a direct push to
+// master. Both premises were false: the repository is public, and rulesets are
+// free on a public repository. #540 added one, and since 2026-09-04 GitHub does
+// refuse all of that at its end.
+//
+// That does not make this redundant, and it is worth being precise about why,
+// because "the ruleset covers it" is the argument that would delete a layer
+// that covers something else. Three things:
+//
+//   It refuses before the command runs, so nothing is attempted, nothing is
+//   half-done, and the agent gets a sentence explaining the rule rather than a
+//   405 from an API.
+//
+//   It works with no network and no GitHub. `git push origin HEAD:master` from
+//   a machine that cannot reach github.com fails for the wrong reason and
+//   succeeds the moment the network comes back; this refuses it either way.
+//
+//   It is the layer that survives the ruleset being switched off. A ruleset is
+//   a setting on somebody's account, invisible in every diff, and two clicks
+//   from gone. This is in the repository, and changing it is a commit.
+//
+// Agents run unattended, and "I was told not to" is not a control. This is one
+// of the controls; `docs/process/working-an-issue.md` lists all five and what
+// each one misses.
 //
 // It denies, before the command runs: `gh pr merge`, a merge through `gh api`,
 // a `git push` whose own arguments name master as the destination, and a bare
