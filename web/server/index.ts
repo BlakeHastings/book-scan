@@ -73,6 +73,9 @@ import { PAGE_LIMIT, Store, type DraftBook } from './store'
 // the five open doors are registered immediately above it. See server/auth/.
 import { mountGate, mountSignIn } from './auth/gate'
 import { describeSignIn, signInFrom, type SignInConfig } from './auth/providers'
+// Which interface this listens on (#539). Loopback unless a deployment says
+// otherwise, and it refuses anything but the two words. See server/bind.ts.
+import { bindFrom, describeBind } from './bind'
 import { AuthStore } from '../infrastructure/auth/auth-store'
 // The two steps every save takes, lifted out so the seed takes the same ones
 // (#237). What a book's shelf range and filing name are derived from.
@@ -4424,6 +4427,20 @@ if (isMainModule) {
    */
   const SIGN_IN = signInFrom(process.env)
 
+  /*
+   * Which interface to listen on (#539), read here for the same reason `SIGN_IN`
+   * is read here: `bindFrom` refuses a value it does not recognise, and it is
+   * evaluated before `bootstrap` so a deployment that spelled it wrong exits at
+   * start with the variable named, in front of whoever is watching it start,
+   * rather than listening somewhere nobody chose.
+   *
+   * Unset is loopback, which is what every checkout and every deployment that
+   * has not thought about this gets, and it is what this app has always done.
+   * `server/bind.ts` is the argument for the default and for why the variable
+   * takes two words rather than an address.
+   */
+  const BIND = bindFrom(process.env)
+
   mkdirSync(COVER_DIR, { recursive: true })
 
   // Connecting is asynchronous where opening a file was not, so the wiring
@@ -4443,8 +4460,18 @@ if (isMainModule) {
       signIn: SIGN_IN,
     })
 
-    const server = app.listen(PORT, '127.0.0.1', () => {
-      console.log(`[api] listening on http://127.0.0.1:${PORT}`)
+    const server = app.listen(PORT, BIND.address, () => {
+      console.log(`[api] listening on http://${BIND.address}:${PORT}`)
+      /*
+       * Said on every start, both ways round, for exactly the reason the four
+       * lines below it are (#539). The address above differs by one character
+       * between the two cases and by everything else in what it means, and
+       * "nothing outside can reach this" and "anything that can route here can"
+       * look identical from a browser sitting on the same machine. It should be
+       * impossible to read a start log and be wrong about which interface is
+       * listening.
+       */
+      for (const line of describeBind(BIND)) console.log(line)
       console.log(`[api] database ${label}`)
       /*
        * Said on every start, both ways round, for the reason the stable
