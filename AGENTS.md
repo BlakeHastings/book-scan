@@ -503,8 +503,9 @@ built client only when there is one beside it, and it says which on every start.
 
 Why a bundler and not a `tsc` emit, why the API serves the client rather than a
 proxy, and what was decided about source maps: `docs/running-from-a-build.md`.
-Three things a deployment still needs are named at the bottom of it, including
-the loopback bind, which is deliberately still there.
+Three things a deployment still needs are named at the bottom of it. The first of
+them, the bind, is a choice now rather than a line: `BOOKSCAN_BIND`, loopback
+unless a deployment says `all`, argued in `docs/the-bind.md`.
 
 **There is an image now too** (#531), and it is not a deployment either: it
 chooses no host and carries nothing Cloudflare-specific.
@@ -514,12 +515,15 @@ docker build -t book-scan .
 docker run -d -e ConnectionStrings__bookscan='postgres://…' -v covers:/data book-scan
 ```
 
-Two things to know before running one. **`docker run -p` reaches nothing**,
-because the server still binds `127.0.0.1` inside the container; whatever fronts
-it has to share the network namespace. And **`/data` is a mount, not a
-suggestion**: it holds the photographs, a container that loses it loses all of
-them, and `docs/the-image.md` shows what that looks like from the outside, which
-is an empty directory rather than an error.
+Two things to know before running one. **`docker run -p` reaches nothing unless
+you ask for it**, because the server binds `127.0.0.1` by default; either
+whatever fronts it shares the network namespace, or the container is given
+`BOOKSCAN_BIND=all` and listens on every interface (#539). That variable takes
+`loopback` or `all` and refuses an address, including `0.0.0.0`, at start;
+`docs/the-bind.md` is why, and why the default did not move. And **`/data` is a
+mount, not a suggestion**: it holds the photographs, a container that loses it
+loses all of them, and `docs/the-image.md` shows what that looks like from the
+outside, which is an empty directory rather than an error.
 
 Admitting somebody on a deployment is the same script, bundled beside the server
 because an image has no `tsx`:
@@ -975,8 +979,10 @@ teach people to skim past it.
 | `docs/running-from-a-build.md` | How this app runs without a watcher, and the three decisions that took |
 | `Dockerfile` | The image: two stages, a mount for the photographs, and nothing host-specific |
 | `docs/the-image.md` | What the image decides, what it deliberately does not, and what was proved by running it |
-| `deploy/contract.json` | **The whole deployment surface in one machine-readable list**: every environment variable, whether it is required, whether it is secret, what its absence does, the mount, the port and the loopback bind. Checked against the code on every pull request by `scripts/check-deploy-contract.mjs`, so it cannot go stale quietly. |
+| `deploy/contract.json` | **The whole deployment surface in one machine-readable list**: every environment variable, whether it is required, whether it is secret, what its absence does, the mount, the port and the bind. Checked against the code on every pull request by `scripts/check-deploy-contract.mjs`, so it cannot go stale quietly. |
 | `docs/publishing.md` | Why the image is public, on GHCR, on a version tag, and what a version means here |
+| `web/server/bind.ts` | Which interface the server listens on: `BOOKSCAN_BIND`, two words, loopback unless a deployment says otherwise |
+| `docs/the-bind.md` | Why the bind is a choice, why the default stays closed, and why the variable takes a word rather than an address |
 | `docs/orchestrating.md` | For whoever is running the backlog: where things stand, what bites, and where to go next |
 
 ### The layering, and the tables that go through it
