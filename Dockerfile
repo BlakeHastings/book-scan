@@ -82,6 +82,23 @@ RUN node scripts/smoke-built-server.mjs
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION} AS runtime
 
+# What this image is, in its own metadata, so `docker inspect` answers without
+# anybody having to know where this repository is. The version, the revision and
+# the build time are not here: they are properties of a build rather than of the
+# recipe, and `.github/workflows/publish.yml` adds them from the tag it is
+# publishing. A `LABEL org.opencontainers.image.version` in this file would be
+# a number somebody has to remember to change, which is the same failure as a
+# contract nobody checks.
+LABEL org.opencontainers.image.title="book-scan"
+LABEL org.opencontainers.image.description="Phone-first cataloguing for a physical book collection."
+LABEL org.opencontainers.image.source="https://github.com/BlakeHastings/book-scan"
+LABEL org.opencontainers.image.documentation="https://github.com/BlakeHastings/book-scan/blob/master/docs/publishing.md"
+LABEL org.opencontainers.image.licenses="MIT"
+
+# Where the contract lives inside this image, so a consumer can find it by
+# asking rather than by knowing (#533).
+LABEL org.bookscan.contract="/app/deploy/contract.json"
+
 # No `apt-get` line, and that is a measured result rather than an omission.
 #
 # The two compiled addons are the reason to expect one. Both were checked with
@@ -116,6 +133,23 @@ COPY --from=production-tree /app/web/node_modules ./node_modules
 COPY --from=production-tree /app/web/dist ./dist
 COPY --from=production-tree /app/web/dist-server ./dist-server
 COPY --from=production-tree /app/web/package.json ./package.json
+
+# The contract, carried by the image it describes (#533).
+#
+# `deploy/contract.json` says what a deployment must provide: every environment
+# variable, the mount, the port and the loopback bind, what happens on start and
+# stop, and what has to be beside it. `deploy/check-config.mjs` reads it and
+# checks an environment against it, with no dependencies and nothing imported
+# from the app, so it runs in this image:
+#
+#     docker run --rm --env-file <theirs> <image> node /app/deploy/check-config.mjs
+#
+# It is here rather than only in the repository or only on the release so that
+# the answer to "what does this exact image need" comes from the image. A
+# contract a consumer has to go and look up somewhere else is a contract that
+# can be read for the wrong version. `.github/workflows/publish.yml` compares
+# this copy against the repository's before it announces a release.
+COPY deploy/ /app/deploy/
 
 # The photographs are a mount, not image content: 1541 files and about 1.4 GB,
 # addressed by bare filename joined onto this directory at read time, written by

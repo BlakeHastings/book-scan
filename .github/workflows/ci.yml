@@ -278,6 +278,25 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/ci-scope.test.mjs
 
+      # `deploy/contract.json` is what a separate, private repository deploys
+      # this from without reading this repository's source. That is worth
+      # something only while it is true, and a document describing an
+      # environment surface goes stale silently: somebody adds a variable, it
+      # works on their machine, and the deployer meets it at runtime. This holds
+      # the contract to the code in both directions, and holds the port, the
+      # mount, the loopback bind and the Postgres major to the files that decide
+      # them. It runs here rather than only in `publish.yml`, because a tag is
+      # too late to find out.
+      - name: The deployment contract matches the code
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/check-deploy-contract.mjs
+
+      # And the checker that ships inside the image, which is the one a
+      # deployment actually runs.
+      - name: The contract's checkers behave
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/check-deploy-contract.test.mjs
+
       # What the machine keeps holding after an agent has gone. The deciding
       # half is tested and the reading half is not: this script prints
       # `docker volume rm` for anything it calls an orphan, and a volume nothing
