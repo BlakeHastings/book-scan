@@ -132,7 +132,7 @@ const has = (name, lines, fragment) => {
    * The bind is four facts rather than one since #539, because it is a choice
    * now: the variable that decides it, what each word means, which word is the
    * default, and that the listen call takes what those produced. The last is the
-   * one that catches the change nobody would notice — every word could still be
+   * one that catches the change nobody would notice. Every word could still be
    * right while `app.listen` carried an address of its own, and the contract
    * would be describing a variable that does nothing.
    */

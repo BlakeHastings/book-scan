@@ -318,6 +318,15 @@ section as more than it is:
 
 ## The loopback bind, which is still there, and what a deployment needs instead
 
+> **Superseded in part, 2026-09-04, by #539.** The bind is a choice now:
+> `BOOKSCAN_BIND=all` listens on every interface in the container's network
+> namespace, and a published port reaches the app. **The default is unchanged**,
+> so every sentence below still describes what a container that says nothing
+> does, and the namespace-mate arrangement it describes is still a supported
+> shape rather than a workaround. `docs/the-bind.md` is the argument for the
+> option, for the default staying closed, and for the variable taking a word
+> rather than an address.
+
 `web/server/index.ts` still listens on `127.0.0.1` only. #520 left it that way
 deliberately, `docs/the-gate.md` left it, and this issue does not change it: the
 bind belongs with the tunnel work, where somebody can reason about what sits in
@@ -522,6 +531,13 @@ are rows in Postgres rather than state in the process.
    > everything a deployment must provide.
 2. **It does not move the loopback bind.** See above for what a deployment needs
    instead, and which of the two options has to answer the question first.
+
+   > **Answered, 2026-09-04, by #539**, and answered as a choice rather than a
+   > move: `BOOKSCAN_BIND=all` opens it, unset leaves it exactly where this
+   > document found it. The question above (does the platform hand the request to
+   > loopback, or to an interface address?) is now the deployment's to answer in
+   > its own configuration instead of this repository's to guess.
+   > `docs/the-bind.md`.
 3. **It does not solve TLS.** `docs/running-from-a-build.md` already says a
    deployment needs a real certificate and that a phone will not open a camera
    outside a secure context. Whatever terminates TLS is the same thing that has

@@ -323,6 +323,12 @@ and one of its statements is now out of date.
    that hosting this app and gating it are the same decision. Opening it in the
    change that is upstream of the gate is exactly the move that document warns
    against. #471 should take it with #510's gate in hand.
+
+   > **Taken, 2026-09-04, by #539**, and taken the way this paragraph asked: with
+   > the gate in hand, in a change about the bind and nothing else. It is a
+   > variable now rather than a line, `BOOKSCAN_BIND`, and **the default is still
+   > `127.0.0.1`**, so the sentence above is still what `npm start` and every
+   > deployment that says nothing do. `docs/the-bind.md`.
 2. **There is no TLS here.** The phone will not open a camera outside a secure
    context, which is why the dev server speaks HTTPS with a self-signed
    certificate. A deployment needs a real one. A TLS-terminating proxy that
