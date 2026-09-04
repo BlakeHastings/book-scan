@@ -845,6 +845,39 @@ expiring, so raising the timeout would change nothing. Demonstrated by pointing
 `dev:client` at a command that exits non-zero, running `aspire wait web`, and
 watching the deliberate line come back out of the captured logs.
 
+**When the AppHost never starts at all, that is a different failure and both
+those commands are blind to it** (#535). `aspire ps` and `aspire logs` ask a
+running AppHost, so when `aspire start` is what failed they answer "No running
+AppHost found" and the job log says nothing else. The answer is in the CLI's own
+files under `~/.aspire/logs/`, whose paths every failing run has always printed
+and which nobody had ever read, because the runner is thrown away with them
+still on it. `e2e.yml` now tails them on failure. **Read that dump first.**
+
+**Starting a TypeScript AppHost runs `npm install` before any resource starts,
+and it is normally most of the start time.** The CLI does it for the guest
+runtime, in the AppHost's directory, which is the repository root. On 2026-09-04
+a slow registry made that install take longer than the CLI's 120 second default
+budget and `browser journeys` went red on every branch with no commit between
+green and red. Two things followed from it:
+
+- `e2e/support/aspire.ts` starts the AppHost with `npm_config_prefer_offline`,
+  no audit and no funding check, because the workflow has just run `npm ci` in
+  that directory from the same lock file and there is nothing for the install to
+  fetch. The budget is raised to 480s as margin, under the ten minute process
+  timeout in the same file, but the budget is not the fix and raising it alone
+  was measured not to work.
+- The suite prints `ready in Ns (of a 480s budget)` and warns past half. A
+  healthy start is around 45s. The last green run before this broke took 106s
+  against a budget of 120 and read exactly like every other run, because nothing
+  said what the budget was.
+
+**The Aspire CLI version was not the cause and is now pinned anyway**, to
+whatever `aspire.config.json` says under `sdk.version`, so there is one number
+rather than two and `aspire update` keeps it. The argument is beside the install
+step in `e2e.yml`. What the pin buys is that the first question asked of a red
+gate — did the toolchain move — can be answered from a job log instead of by
+installing three versions and watching, which is what it cost that night.
+
 It gates pull requests, as the `browser journeys` check in the `End to end`
 workflow, and still runs nightly and on demand with `gh workflow run e2e.yml`.
 
