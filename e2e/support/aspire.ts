@@ -27,6 +27,74 @@ const ASPIRE = 'aspire'
 /** Ten minutes. A cold start builds the AppHost and runs `npm install`. */
 const START_TIMEOUT_MS = 10 * 60 * 1000
 
+/**
+ * What `aspire start` needs so that starting the app is not a network call.
+ *
+ * WHAT #535 ACTUALLY WAS
+ * `browser journeys` went red on every branch on 2026-09-04, including a commit
+ * that had passed hours earlier and was re-run unchanged. Every failing job
+ * printed the same two lines, and they told two different stories:
+ *
+ *     NativeCertificateToolRunner: The certificate is not trusted by OpenSSL.
+ *     Timed out waiting 120s for AppHost to start.
+ *
+ * Neither was the reason. The CLI's own log, which no job had ever printed,
+ * says what happened (run 33833840718):
+ *
+ *     03:45:24.817 [GuestAppHostProject] Executing: .../npm install
+ *     03:47:15.084 [Cli] Termination signal received, requesting cancellation.
+ *
+ * Starting a TypeScript AppHost runs `npm install` in the AppHost's directory
+ * before a single resource starts, and **that install was the whole of the
+ * start time**: 110 seconds against a 120 second budget, still running when the
+ * CLI gave up. The certificate line is a warning logged a quarter of a second
+ * *after* the timeout, during teardown, which the CLI then echoed back as
+ * "recent AppHost startup output" — last written, not first cause.
+ *
+ * The Aspire CLI version was not it either. The same tree failed identically on
+ * 13.4.2, 13.4.6 and 13.5.3, which is the experiment the issue asked for and it
+ * came back the other way.
+ *
+ * WHY THIS IS THE FIX AND A LONGER TIMEOUT IS NOT
+ * That `npm install` is redundant work on the critical path. The workflow runs
+ * `npm ci` in the same directory, from the same lock file, immediately before,
+ * so `node_modules` is already correct and there is nothing for the install to
+ * do. What it still does is talk to the registry, which is why a registry
+ * having a slow evening can stop this app starting at all. The same run proves
+ * a longer budget does not save it: the job given 420 seconds instead of 120
+ * failed too, with that one install running for 413 of them.
+ *
+ * So the network comes off the start path instead:
+ *
+ * - `prefer-offline` answers from the local npm cache and reaches the registry
+ *   only for something genuinely missing. `npm ci` has just populated that
+ *   cache from this exact lock file, so in CI there is nothing missing. On a
+ *   developer's first run the cache is cold and npm simply fetches, which is
+ *   why this is `prefer-offline` and not `offline`: it degrades to today's
+ *   behaviour rather than failing.
+ * - `audit` and `fund` are two registry round trips whose output nothing reads,
+ *   on a path where the app is not yet up.
+ *
+ * Integrity is untouched. The lock file still pins every version and every
+ * hash, and npm still checks them; all this changes is where the bytes are read
+ * from.
+ *
+ * The budget is raised as well, but as margin rather than as the fix. A healthy
+ * start is around 45 seconds and the last green run before this broke took 106,
+ * so the CLI's 120 second default had spent its headroom without anybody
+ * noticing. Eight minutes sits under this file's own ten minute process
+ * timeout, so a start that really is wedged is still reported by the CLI, with
+ * its reasons, rather than killed by execFile with none.
+ */
+export const START_BUDGET_SECONDS = 480
+
+const START_ENV: NodeJS.ProcessEnv = {
+  ASPIRE_CLI_START_TIMEOUT: String(START_BUDGET_SECONDS),
+  npm_config_prefer_offline: 'true',
+  npm_config_audit: 'false',
+  npm_config_fund: 'false',
+}
+
 interface ExecOptions {
   env?: NodeJS.ProcessEnv
   timeoutMs?: number
@@ -78,10 +146,13 @@ export interface AspireResource {
  * keeps the ports apart: `--isolated` cannot override a launch profile, so the
  * ports stay apart only because `aspire.config.json` declares no profile. See
  * the note in AGENTS.md before adding one back.
+ *
+ * `START_ENV` first, so a caller can still override any of it; see the note on
+ * that constant for what it is doing and which failure it is for.
  */
 export async function startAppHost(env: NodeJS.ProcessEnv): Promise<void> {
   await aspire(['start', '--isolated', '--format', 'Json'], {
-    env,
+    env: { ...START_ENV, ...env },
     timeoutMs: START_TIMEOUT_MS,
   })
 }
