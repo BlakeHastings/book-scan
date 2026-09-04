@@ -42,7 +42,7 @@
  * something sharing this network namespace*, and *anything that can route to
  * me*. A narrower interface address is assigned by the runtime when the
  * container starts, is not knowable when the variable is set, and changes when
- * the container is replaced — so a value that was right once is a container that
+ * the container is replaced. A value that was right once is then a container that
  * will not start the next time, with `EADDRNOTAVAIL` and nothing else to read.
  *
  * A word also says what was meant. `0.0.0.0` in a deployment's configuration

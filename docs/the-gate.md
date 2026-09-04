@@ -610,6 +610,11 @@ the Postgres volume is per checkout. The api prints the path on every start.
   `docs/running-from-a-build.md` says why: the bind is the moment this app becomes
   reachable by somebody who is not sitting at the machine, and it belongs to #471
   with this gate in hand rather than to the change that builds the gate.
+
+  > **#471 took it on 2026-09-04, in #539**, and the gate is why the default did
+  > not move rather than why it could. A deployment can now open the bind with
+  > `BOOKSCAN_BIND=all`, and when it does, everything in this document is the
+  > only thing in front of the catalogue. `docs/the-bind.md`.
 - **It does not build roles**, an `is_admin`, or a permissions column, not even
   unused.
 - **It does not link identities by email**, and `sign-in.routes.test.ts` drives
