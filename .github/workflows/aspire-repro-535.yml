@@ -1,0 +1,113 @@
+name: Aspire repro 535
+
+# TEMPORARY. Delete before this branch's pull request is opened.
+#
+# The experiment for #535. `browser journeys` went red on every branch with the
+# AppHost never starting inside the CLI's 120s budget, and two explanations fit
+# the same log: the AppHost got slower, or it never becomes healthy at all and
+# the certificate line above the timeout is the reason. They want opposite
+# fixes, so this asks the runner rather than guessing.
+#
+# Four jobs, differing only in which Aspire CLI they install and how long they
+# let it wait:
+#
+#   floating              what CI does today. Prints the version, which the
+#                         install step never has, so "the version moved" stops
+#                         being a hypothesis and becomes a number.
+#   floating-long         the same CLI with seven minutes instead of two. If the
+#                         AppHost is merely slow this goes green; if it never
+#                         becomes healthy this fails the same way, later.
+#   pinned-13.4.6         the CLI matching the hosting packages in
+#                         aspire.config.json.
+#   pinned-13.4.2         the CLI matching its `sdk.version`, and the version
+#                         installed on the machine where this suite still passes.
+#
+# It runs on push to this branch rather than on workflow_dispatch, because a
+# dispatch resolves the workflow through the default branch and this file is not
+# there.
+on:
+  push:
+    branches:
+      - 'platform/535-**'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: probe (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: floating
+            version: ''
+            start_timeout: ''
+          - label: floating-long
+            version: ''
+            start_timeout: '420'
+          - label: pinned-13.4.6
+            version: '13.4.6'
+            start_timeout: ''
+          - label: pinned-13.4.2
+            version: '13.4.2'
+            start_timeout: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the Aspire CLI
+        env:
+          ASPIRE_VERSION: ${{ matrix.version }}
+        run: |
+          if [ -n "$ASPIRE_VERSION" ]; then
+            curl -sSL https://aspire.dev/install.sh | bash -s -- --version "$ASPIRE_VERSION"
+          else
+            curl -sSL https://aspire.dev/install.sh | bash
+          fi
+          echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
+
+      # The one line the real workflow has never printed, and the reason nobody
+      # could say which version CI was on.
+      - name: Which CLI this is
+        run: aspire --version
+
+      - name: Install the app
+        working-directory: web
+        run: node ../scripts/npm-install.mjs
+
+      - name: Install the AppHost
+        run: node scripts/npm-install.mjs
+
+      - name: Install the suite
+        working-directory: e2e
+        run: node ../scripts/npm-install.mjs
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the journeys
+        working-directory: e2e
+        env:
+          ASPIRE_CLI_START_TIMEOUT: ${{ matrix.start_timeout }}
+        run: npm test
+
+      # The AppHost's own transcript. The failing job quotes a path to this file
+      # and then throws the machine away, so nobody has ever read one.
+      - name: What the CLI wrote down
+        if: always()
+        continue-on-error: true
+        run: |
+          aspire ps --non-interactive || true
+          for log in "$HOME"/.aspire/logs/*.log; do
+            [ -e "$log" ] || continue
+            echo "===== $log ====="
+            tail -c 20000 "$log"
+          done
