@@ -42,8 +42,16 @@
   "network": {
     "port": 3001,
     "bind": "127.0.0.1",
-    "readThisFirst": "The server listens on 127.0.0.1 inside the container, so publishing the port reaches nothing. `docker run -p 8080:3001` sets up a route to the container's own address and there is nothing listening there. This is the first thing a deployer hits and it does not look like a configuration mistake: the container is up, the log says it is listening, and every request from outside is refused at the socket.",
-    "whatTheConsumerMustDo": "Put whatever fronts this app inside the container's own network namespace, so it can reach 127.0.0.1:3001 and be reached from outside. A tunnel daemon or a proxy as a sidecar sharing the namespace is the ordinary shape. Changing the bind is one line in this repository and is deliberately not made here, because what sits in front of it is the consumer's decision and is not knowable from this side.",
+    "bindVariable": "BOOKSCAN_BIND",
+    "bindDefault": "loopback",
+    "bindOptions": {
+      "loopback": "127.0.0.1",
+      "all": "0.0.0.0"
+    },
+    "bindNote": "BOOKSCAN_BIND takes one of the two words above and nothing else, not an address. Unset, empty and `loopback` are the same thing and are what this app has always done. The two words are the only answers that mean anything from inside a container: a narrower interface address is assigned by the runtime at start, is not knowable when the variable is set, and changes when the container is replaced. Anything else is refused at start; see the bind-that-is-not-a-word refusal below.",
+    "readThisFirst": "By default the server listens on 127.0.0.1 inside the container, so publishing the port reaches nothing. `docker run -p 8080:3001` sets up a route to the container's own address and there is nothing listening there. This is the first thing a deployer hits and it does not look like a configuration mistake: the container is up, the log says it is listening, and every request from outside is refused at the socket. Set BOOKSCAN_BIND=all to listen on every interface in the container's network namespace instead, which is what a deployment that wants the container network to be its boundary should do.",
+    "whatTheConsumerMustDo": "Decide which of the two the deployment is. Leave BOOKSCAN_BIND unset and put whatever fronts this app inside the container's own network namespace, so it can reach 127.0.0.1:3001 and be reached from outside: a tunnel daemon or a proxy as a sidecar sharing the namespace is the ordinary shape, and nothing listens on a routable interface at all. Or set BOOKSCAN_BIND=all, publish the port, and let the container's network be the boundary, in which case the sign-in gate is the only thing in front of the catalogue and TLS below is not optional. The default is the first one deliberately: this app was reachable and unauthenticated on a home network for months, the gate is what closed that, and a default that assumes the gate is correct stops being safe the day the gate has a hole.",
+    "saysWhichOnEveryStart": "The start log names the address it bound and says what that address means, both ways round. `[api] bound to loopback only` or `[api] bound to EVERY interface`, on the line under `[api] listening on`.",
     "expose": 3001,
     "exposeIsDocumentation": true,
     "sameOrigin": true,
@@ -158,6 +166,11 @@
       "id": "dev-door-beside-a-real-provider",
       "when": "BOOKSCAN_DEV_SIGN_IN is set at the same time as a real provider is configured",
       "result": "the process throws at start. The development door signs in anybody who reaches it, so the two are refused together."
+    },
+    {
+      "id": "bind-that-is-not-a-word",
+      "when": "BOOKSCAN_BIND is set to anything but loopback or all, an address included",
+      "result": "the process throws at start, printing the value it was given and the two words it takes. It does not fall back to the default, deliberately: a deployment that asked to be reachable and silently was not would look exactly like the bind it was trying to change, which is the failure this variable exists to end."
     }
   ],
 
@@ -193,8 +206,20 @@
       "default": "3001",
       "defaultSetBy": "the image",
       "readAt": "web/server/index.ts",
-      "is": "the port the server listens on, on 127.0.0.1",
+      "is": "the port the server listens on, on whichever interface BOOKSCAN_BIND chose",
       "whenAbsent": "3001."
+    },
+    {
+      "name": "BOOKSCAN_BIND",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "loopback",
+      "defaultSetBy": "the server",
+      "readAt": "web/server/bind.ts",
+      "is": "which interface the server listens on: the word `loopback` for 127.0.0.1, or the word `all` for 0.0.0.0, every interface in this container's network namespace",
+      "whenAbsent": "loopback, which is what this app has always done and what every deployment that has not thought about this gets. Empty means the same as unset. Inside a container that means a published port reaches nothing and whatever fronts this app has to share the network namespace; see network.readThisFirst.",
+      "note": "It is a word rather than an address on purpose, and an address is refused rather than accepted. Those two are the only answers that mean anything from inside a container: a narrower interface address is assigned by the runtime at start, is not knowable when this variable is set, and changes when the container is replaced, so a value that was right once is a container that will not start the next time. `all` is IPv4 and there is deliberately no IPv6 word until something asks for one. Setting this to `all` is the deployment saying the container's network is its boundary: the sign-in gate is then the only thing in front of the catalogue, and every start says which of the two states the process is in."
     },
     {
       "name": "BOOKSCAN_BACKUP_DIR",
@@ -421,7 +446,7 @@
     "checkYourConfiguration": {
       "command": ["node", "/app/deploy/check-config.mjs"],
       "runIn": "the published image, with the environment you intend to deploy with",
-      "does": "Reads this contract from beside it and reports missing required variables, the four refusals above before the app hits them at runtime, unknown BOOKSCAN_ names that look like typos, and settings that are wrong for a deployment rather than merely unusual. Prints names and never values.",
+      "does": "Reads this contract from beside it and reports missing required variables, every refusal above that a name in an environment can predict, before the app hits them at runtime, unknown BOOKSCAN_ names that look like typos, and settings that are wrong for a deployment rather than merely unusual. Prints names and never values.",
       "exit": "0 when there is nothing to fix, 1 when there is"
     }
   },

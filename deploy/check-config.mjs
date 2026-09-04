@@ -175,7 +175,41 @@ export function checkConfig(env, contract, options = {}) {
     errors.push('PORT is set to something that is not a number. Number(PORT) becomes NaN and the listen call will not do what you meant.')
   }
 
-  // 8. Things that are fine, and that a deployer should know are the state they
+  /*
+   * 8. The bind, which is the only variable here that decides who can reach this
+   *    at all (#539).
+   *
+   *    Both halves are worth catching before a container starts. A value that is
+   *    not one of the two words is a process that will not start, and it is the
+   *    likeliest thing to get wrong, because `0.0.0.0` is what everybody types
+   *    and it is refused here on purpose: an interface address inside a
+   *    container is assigned at start and changes when the container is
+   *    replaced. And a bind that *is* open is not an error, it is a decision,
+   *    so it is said back to the deployer as the state they are in rather than
+   *    passed over in silence.
+   */
+  const bindOptions = contract.network.bindOptions
+  const bindWords = Object.keys(bindOptions)
+  if (set(env, contract.network.bindVariable)) {
+    const asked = env[contract.network.bindVariable].trim().toLowerCase()
+    if (!bindWords.includes(asked)) {
+      errors.push(
+        `${contract.network.bindVariable} is "${asked}", which is not ${bindWords.join(' or ')}. ` +
+        'It takes a word rather than an address, and network.bindNote in the contract beside ' +
+        `this file says why. On a start with this set: ${refusal('bind-that-is-not-a-word').result}`,
+      )
+    } else if (asked !== contract.network.bindDefault) {
+      notes.push(
+        `${contract.network.bindVariable} is ${asked}, so the server listens on ` +
+        `${bindOptions[asked]}: every interface in its network namespace, rather than the ` +
+        `default ${contract.network.bindDefault}. Anything that can route to this container ` +
+        'reaches the sign-in gate, which is then the only thing in front of the catalogue. ' +
+        'That is a supported state and the server says so on every start.',
+      )
+    }
+  }
+
+  // 9. Things that are fine, and that a deployer should know are the state they
   //    are in rather than find out from behaviour. Secrets only: an absent
   //    secret is the one kind of absence that looks like working software and
   //    is not. The sign-in pair is left out because the note above covers it in
@@ -263,7 +297,14 @@ function main(argv) {
   console.log('')
   if (result.errors.length === 0) {
     console.log('Nothing here will stop this deploying. What this cannot check is on the other side of the network:')
-    console.log(`  - ${contract.network.readThisFirst}`)
+    /*
+     * The bind trap is only a trap for the deployment that has the default, and
+     * that deployment is most of them (#539). One that set the variable has
+     * already been told what it chose, in the note above, so repeating "a
+     * published port reaches nothing" at it would be false.
+     */
+    const bind = (env[contract.network.bindVariable] ?? '').trim().toLowerCase()
+    if (bind !== 'all') console.log(`  - ${contract.network.readThisFirst}`)
     console.log(`  - ${contract.mounts[0].whenMissing}`)
     return 0
   }

@@ -228,10 +228,11 @@ jobs:
           there is deliberately no moving tag to follow.
 
           \`contract.json\` below is what this image needs: every environment variable,
-          the mount that must outlive the container, the port, the loopback bind, what
-          happens on start and stop, and what has to be beside it. The same file is
-          inside the image at \`/app/deploy/contract.json\`, and this workflow compared
-          the two before creating this release.
+          the mount that must outlive the container, the port, the bind and the one
+          variable that moves it, what happens on start and stop, and what has to be
+          beside it. The same file is inside the image at
+          \`/app/deploy/contract.json\`, and this workflow compared the two before
+          creating this release.
 
           Check a configuration against it before deploying:
 
@@ -239,9 +240,12 @@ jobs:
           docker run --rm --env-file <yours> $IMAGE@$DIGEST node /app/deploy/check-config.mjs
           \`\`\`
 
-          **Read this first if nothing answers:** the server binds \`127.0.0.1\` inside
-          the container, so a published port reaches nothing. Whatever fronts it has to
-          be in the container's own network namespace.
+          **Read this first if nothing answers:** by default the server binds
+          \`127.0.0.1\` inside the container, so a published port reaches nothing, and
+          whatever fronts it has to be in the container's own network namespace. Set
+          \`BOOKSCAN_BIND=all\` if you want the container's network to be the boundary
+          instead. It takes that word or \`loopback\`, not an address, and it refuses
+          anything else at start.
           EOF
           )
           # A version with a hyphen in it is a pre-release, per semver, and
