@@ -36,3 +36,10 @@ dist/
 # committing them means carrying 6000 lines that go stale. Recreate with
 # `aspire agent init`.
 .agents/
+
+# Cygwin/MSYS writes one of these beside the repository root when a tool under
+# Git Bash crashes, so a `du` or a `bash` dying mid-command leaves an untracked
+# file that looks like a change to whoever runs `git status` next. Two were
+# sitting in the root when #540 was worked. They are crash dumps of a process,
+# never of this project, and nothing here reads them.
+*.stackdump
