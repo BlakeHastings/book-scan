@@ -96,14 +96,52 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
 
-      # Not cached on purpose. It takes about four seconds, and a cached copy
-      # would pin the CLI version until something else in the key changed,
-      # which is the wrong trade for four seconds.
+      # Two decisions live in this step. They are written out separately
+      # because for months they were one comment, and the second one had never
+      # actually been made. #535.
+      #
+      # NOT CACHED, a decision about wall clock and billed minutes. The
+      # download takes about four seconds, and caching it saves nothing
+      # measurable: see the note above "Run the journeys", where restoring 719M
+      # of Aspire and NuGet came out a second slower than a cold run and both
+      # runs were billed three minutes. Nothing in this job waits on it.
+      #
+      # PINNED, a decision about reproducibility, and a different question
+      # entirely. The caching note above used to be the only comment here, and
+      # it left the version floating as a side effect. Read a year later it
+      # looks like somebody decided the version should float. Nobody did.
+      #
+      # **This pin is not what fixed #535, and it must not be read as the fix.**
+      # The failure there was the AppHost start budget, not the CLI, and it is
+      # fixed in `e2e/support/aspire.ts`. Measured on this runner at one tree
+      # rather than argued (run 33833840718): 13.4.2, 13.4.6 and 13.5.3 all
+      # failed identically, and the one job that passed differed only in giving
+      # the CLI longer to start.
+      #
+      # What the pin is for is the hour that experiment cost. When the gate went
+      # red on every branch with no commit between, the first question anybody
+      # asked was "did the CLI version move", and no job log anywhere could
+      # answer it, so it had to be answered by installing three versions and
+      # watching. A merge gate whose toolchain can change without a commit
+      # cannot say what it proved, and the version is the cheapest half of that
+      # to nail down.
+      #
+      # An exact version usually costs somebody the job of moving it, and a pin
+      # nobody moves rots into a version that can no longer be reproduced. This
+      # one costs nothing, because it is not a second number: it is read out of
+      # `aspire.config.json`, which is already the file that says which Aspire
+      # this repository is, and which `aspire update` already maintains. There
+      # is nothing here to keep in step by hand and nothing to forget.
       - name: Install the Aspire CLI
         if: steps.scope.outputs.docs_only != 'true'
         run: |
-          curl -sSL https://aspire.dev/install.sh | bash
+          version="$(node -p "require('./aspire.config.json').sdk.version")"
+          curl -sSL https://aspire.dev/install.sh | bash -s -- --version "$version"
           echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
+          # Printed because it never was, which is the whole reason the first
+          # question could not be answered from the evidence. One line, every
+          # run, so next time it is a grep rather than an experiment.
+          "$HOME/.aspire/bin/aspire" --version
 
       # `scripts/npm-install.mjs` runs `npm ci` and retries it a bounded number
       # of times, but only when the failure looks like a connection that timed
@@ -175,6 +213,24 @@ jobs:
       # differently red one are worse than none. If the run got as far as global
       # teardown the AppHost has been stopped, and this says there is nothing
       # running, which is itself an answer.
+      #
+      # THE CLI'S OWN LOGS ARE THE THIRD CAPTURE, and #535 is why. Both commands
+      # above ask a *running* AppHost, so when `aspire start` is what failed
+      # they both answer "No running AppHost found" and the job log says nothing
+      # else. That is exactly the failure that took the merge gate down: every
+      # red run printed a path to `~/.aspire/logs/`, and then the runner was
+      # thrown away with the only account of what happened still on it. Nobody
+      # had ever read one.
+      #
+      # They are worth reading. The file for the failing run says, in order,
+      # that the CLI spawned `npm install` for the TypeScript AppHost, that it
+      # was still running 113 seconds later, and that the certificate warning
+      # everybody was chasing was logged *after* the timeout rather than before
+      # it. That is the diagnosis, and it was one `tail` away for a day.
+      #
+      # Bounded to the tail, because a run that restores several hundred NuGet
+      # packages writes megabytes of "PackageSignatureVerificationLog" that
+      # would bury the twenty lines worth having.
       - name: What the AppHost said, if anything failed
         if: failure() && steps.scope.outputs.docs_only != 'true'
         continue-on-error: true
@@ -182,6 +238,11 @@ jobs:
         run: |
           aspire ps --non-interactive || true
           aspire logs --tail 400 --timestamps --non-interactive || true
+          for log in "$HOME"/.aspire/logs/*.log; do
+            [ -e "$log" ] || continue
+            echo "===== $log ====="
+            tail -c 20000 "$log"
+          done
 
       - name: Keep the report
         if: always() && steps.scope.outputs.docs_only != 'true'

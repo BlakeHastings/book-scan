@@ -23,6 +23,7 @@ import { BOOK_IN_HAND } from './support/books.js'
 import { ensureCameraVideo, ensureFrontCameraVideo } from './support/camera-fixture.js'
 import { startCatalogueStub, type CatalogueStub } from './support/catalogue-stub.js'
 import {
+  START_BUDGET_SECONDS,
   describeResources, reportResourceState, startAppHost, stopAppHost, urlOf, waitForResource,
 } from './support/aspire.js'
 
@@ -272,7 +273,33 @@ async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
   // Redacted, and this is not decoration. The connection now carries a
   // password, and CI keeps this log.
   say(`db  ${described}`)
-  say(`ready in ${Math.round((Date.now() - started) / 1000)}s`)
+  /*
+   * How long it took, and how much of the budget that was.
+   *
+   * The number alone was already printed and it was not enough. Through
+   * 2026-09-03 every run said "ready in 45s" against a budget of 120 that
+   * nothing mentioned; the last green run before #535 said 106s, which was
+   * eighty-eight per cent of the budget and read exactly like the others. The
+   * next run crossed the line and the gate was down on every branch.
+   *
+   * So the budget is printed beside the elapsed time, and a start that has eaten
+   * half of it says so in words a person scanning a green log will stop on. This
+   * is the leading indicator that did not exist: the failure it is for arrives
+   * as a margin quietly shrinking, and by the time it is a red run the evidence
+   * of the shrinking is in job logs nobody kept.
+   *
+   * It is deliberately not a failure. A slow start is not a wrong app, and a
+   * suite that failed on it would be a suite that goes red for the weather.
+   */
+  const elapsed = Math.round((Date.now() - started) / 1000)
+  say(`ready in ${elapsed}s (of a ${START_BUDGET_SECONDS}s budget)`)
+  if (elapsed * 2 > START_BUDGET_SECONDS) {
+    console.warn(
+      `[e2e] WARNING: starting the app took ${elapsed}s, over half the ` +
+      `${START_BUDGET_SECONDS}s the CLI allows. That margin is what #535 spent. ` +
+      'Find out what got slower before it crosses.',
+    )
+  }
 
   return async () => {
     // Only this AppHost. Other Aspire apps belonging to other projects are

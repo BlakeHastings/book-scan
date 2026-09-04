@@ -2,25 +2,30 @@ name: Aspire repro 535
 
 # TEMPORARY. Delete before this branch's pull request is opened.
 #
-# The experiment for #535. `browser journeys` went red on every branch with the
-# AppHost never starting inside the CLI's 120s budget, and two explanations fit
-# the same log: the AppHost got slower, or it never becomes healthy at all and
-# the certificate line above the timeout is the reason. They want opposite
-# fixes, so this asks the runner rather than guessing.
+# ROUND 1 (run 33833840718) asked which Aspire CLI CI installs and whether a
+# longer wait helps. Both answers came back the other way from the issue's
+# hypothesis:
 #
-# Four jobs, differing only in which Aspire CLI they install and how long they
-# let it wait:
+#   floating        13.5.3   failed at 120s
+#   pinned-13.4.6   13.4.6   failed at 120s
+#   pinned-13.4.2   13.4.2   failed at 120s
+#   floating-long   13.5.3   failed at 420s
 #
-#   floating              what CI does today. Prints the version, which the
-#                         install step never has, so "the version moved" stops
-#                         being a hypothesis and becomes a number.
-#   floating-long         the same CLI with seven minutes instead of two. If the
-#                         AppHost is merely slow this goes green; if it never
-#                         becomes healthy this fails the same way, later.
-#   pinned-13.4.6         the CLI matching the hosting packages in
-#                         aspire.config.json.
-#   pinned-13.4.2         the CLI matching its `sdk.version`, and the version
-#                         installed on the machine where this suite still passes.
+# The CLI version is not it, and neither is the budget on its own. The CLI's own
+# log, which no job had ever printed, says the whole start time is one
+# `npm install` that the CLI runs for the TypeScript AppHost before any resource
+# starts: 110s of a 120s budget in one job, 413s of a 420s budget in the other,
+# still running when the CLI gave up both times. The certificate warning is
+# logged after the timeout, not before it.
+#
+# ROUND 2, below, is the control the process asks for: the fix and the same tree
+# without it, at the same moment, on the same runner pool. The failure is a slow
+# registry, so it can heal on its own; a green run proves nothing unless
+# something red is standing next to it.
+#
+#   with-the-fix       this branch as it stands
+#   without-the-fix    identical, with the two changed files checked back out of
+#                      master before the suite runs
 #
 # It runs on push to this branch rather than on workflow_dispatch, because a
 # dispatch resolves the workflow through the default branch and this file is not
@@ -42,18 +47,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: floating
-            version: ''
-            start_timeout: ''
-          - label: floating-long
-            version: ''
-            start_timeout: '420'
-          - label: pinned-13.4.6
-            version: '13.4.6'
-            start_timeout: ''
-          - label: pinned-13.4.2
-            version: '13.4.2'
-            start_timeout: ''
+          - label: with-the-fix
+            revert: 'false'
+          - label: without-the-fix
+            revert: 'true'
 
     steps:
       - uses: actions/checkout@v4
@@ -62,21 +59,38 @@ jobs:
         with:
           node-version: 22
 
+      - name: Cache the npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ runner.os }}-${{ hashFiles('web/package-lock.json', 'package-lock.json', 'e2e/package-lock.json') }}
+          restore-keys: |
+            npm-e2e-${{ runner.os }}-
+
+      - name: Cache the browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+
       - name: Install the Aspire CLI
-        env:
-          ASPIRE_VERSION: ${{ matrix.version }}
         run: |
-          if [ -n "$ASPIRE_VERSION" ]; then
-            curl -sSL https://aspire.dev/install.sh | bash -s -- --version "$ASPIRE_VERSION"
-          else
-            curl -sSL https://aspire.dev/install.sh | bash
-          fi
+          version="$(node -p "require('./aspire.config.json').sdk.version")"
+          curl -sSL https://aspire.dev/install.sh | bash -s -- --version "$version"
           echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
 
-      # The one line the real workflow has never printed, and the reason nobody
-      # could say which version CI was on.
       - name: Which CLI this is
         run: aspire --version
+
+      # The control. Everything else about this job is the same, so a red here
+      # beside a green above is the fix doing the work rather than the registry
+      # having a better minute.
+      - name: Put the fix back the way it was
+        if: matrix.revert == 'true'
+        run: |
+          git fetch --depth=1 origin master
+          git checkout FETCH_HEAD -- e2e/support/aspire.ts e2e/global-setup.ts
+          git --no-pager diff --stat HEAD
 
       - name: Install the app
         working-directory: web
@@ -95,12 +109,10 @@ jobs:
 
       - name: Run the journeys
         working-directory: e2e
-        env:
-          ASPIRE_CLI_START_TIMEOUT: ${{ matrix.start_timeout }}
         run: npm test
 
-      # The AppHost's own transcript. The failing job quotes a path to this file
-      # and then throws the machine away, so nobody has ever read one.
+      # The AppHost's own transcript, and the step that turned this from a guess
+      # into a diagnosis. It is in `e2e.yml` now for the same reason.
       - name: What the CLI wrote down
         if: always()
         continue-on-error: true
