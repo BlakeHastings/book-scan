@@ -94,7 +94,13 @@
         { "host": "www.googleapis.com", "port": 443, "for": "Google Books", "overrideWith": "BOOKSCAN_GOOGLE_BOOKS_URL" },
         { "host": "lx2.loc.gov", "port": 210, "for": "Library of Congress SRU", "overrideWith": "BOOKSCAN_LOC_SRU_URL" },
         { "host": "sru.k10plus.de", "port": 443, "for": "K10plus SRU", "overrideWith": "BOOKSCAN_K10PLUS_SRU_URL" }
-      ]
+      ],
+      "signInHosts": [
+        { "host": "accounts.google.com", "port": 443, "for": "signing in with Google: the authorization redirect a browser follows", "onlyWhen": "BOOKSCAN_OIDC_GOOGLE_CLIENT_ID is set", "overrideWith": null },
+        { "host": "oauth2.googleapis.com", "port": 443, "for": "signing in with Google: the token exchange, server to server", "onlyWhen": "BOOKSCAN_OIDC_GOOGLE_CLIENT_ID is set", "overrideWith": null },
+        { "host": "login.microsoftonline.com", "port": 443, "for": "signing in with Microsoft: the discovery document, the authorization redirect and the token exchange, all three", "onlyWhen": "BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID is set", "overrideWith": null }
+      ],
+      "signInHostsNote": "Listed apart from the five above because they are conditional and because they cannot be overridden: a provider's origin is not configurable, deliberately. Microsoft's is the trust anchor under an issuer this app does not otherwise know, so a variable that could move it would be a variable that could move who is trusted. Without egress to the host of a configured provider, the app runs, everybody holding a session keeps working, and nobody new can sign in."
     }
   },
 
@@ -132,6 +138,16 @@
       "id": "half-a-google",
       "when": "exactly one of BOOKSCAN_OIDC_GOOGLE_CLIENT_ID and BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET is set",
       "result": "the process throws at start naming the one that is missing"
+    },
+    {
+      "id": "half-a-microsoft",
+      "when": "any of BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID, BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET and BOOKSCAN_OIDC_MICROSOFT_TENANT is set and any of the three is not",
+      "result": "the process throws at start naming the ones that are missing. Three rather than two, because Microsoft's issuer is scoped to a tenant and there is deliberately no default tenant."
+    },
+    {
+      "id": "microsoft-authority-with-no-issuer",
+      "when": "BOOKSCAN_OIDC_MICROSOFT_TENANT is \"common\" or \"organizations\"",
+      "result": "the process throws at start. Those are authorities rather than tenants and have no single issuer: they sign in people from every tenant there is, and their own discovery documents say so by answering with the template https://login.microsoftonline.com/{tenantid}/v2.0 instead of a value. Accepting one would mean accepting any tenant, including one somebody registered this morning, which is an issuer check that proves nothing while sign-in still works. Name one tenant, by GUID or verified domain, or use \"consumers\" for personal Microsoft accounts."
     },
     {
       "id": "provider-without-origin",
@@ -282,6 +298,40 @@
       "is": "the OAuth client secret for signing in with Google",
       "whenAbsent": "As above.",
       "requires": ["BOOKSCAN_OIDC_GOOGLE_CLIENT_ID", "BOOKSCAN_PUBLIC_ORIGIN"]
+    },
+    {
+      "name": "BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "",
+      "readAt": "web/server/auth/providers.ts",
+      "is": "the OAuth client id for signing in with Microsoft",
+      "whenAbsent": "Microsoft is not a way in. Google, if configured, is unaffected.",
+      "requires": ["BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET", "BOOKSCAN_OIDC_MICROSOFT_TENANT", "BOOKSCAN_PUBLIC_ORIGIN"]
+    },
+    {
+      "name": "BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": true,
+      "default": "",
+      "readAt": "web/server/auth/providers.ts",
+      "is": "the OAuth client secret for signing in with Microsoft",
+      "whenAbsent": "As above.",
+      "requires": ["BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID", "BOOKSCAN_OIDC_MICROSOFT_TENANT", "BOOKSCAN_PUBLIC_ORIGIN"]
+    },
+    {
+      "name": "BOOKSCAN_OIDC_MICROSOFT_TENANT",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": null,
+      "readAt": "web/server/auth/providers.ts",
+      "is": "which Microsoft authority this deployment admits: a tenant GUID, a verified domain, or \"consumers\" for personal Microsoft accounts",
+      "whenAbsent": "Microsoft is not a way in. Set beside the other two, the process throws at start, because there is deliberately no default: Microsoft's issuer is scoped to a tenant and this app may not guess which authority a deployment is admitting.",
+      "note": "This is the second variable whose value is site-specific, after BOOKSCAN_PUBLIC_ORIGIN, and it must never appear in this repository. \"common\" and \"organizations\" are refused; see the microsoft-authority-with-no-issuer refusal above. Nothing else about Microsoft is configured or hard-coded: the issuer, the authorization endpoint and the token endpoint are read from https://login.microsoftonline.com/<this value>/v2.0/.well-known/openid-configuration at the first sign-in, and docs/the-gate.md is the argument.",
+      "requires": ["BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID", "BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET", "BOOKSCAN_PUBLIC_ORIGIN"]
     },
     {
       "name": "BOOKSCAN_PUBLIC_ORIGIN",
