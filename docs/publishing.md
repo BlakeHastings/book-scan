@@ -211,6 +211,13 @@ alarming and untrue. **`0.x` is the honest statement that the contract is still
 moving**, and `1.0.0` is the right thing to cut when the bind question is
 answered and a deployment has run for a while.
 
+> **The bind question was answered on 2026-09-04 by #539, and it cost a minor
+> rather than a major.** Making it `BOOKSCAN_BIND` with the default where it was
+> adds an optional variable and takes nothing away, so a deployment that upgrades
+> and changes nothing behaves identically. The major this paragraph was reserving
+> is still reserved, and it is now the one thing this change deliberately did not
+> do: move the *default*. `docs/the-bind.md`.
+
 The two `version` fields in the `package.json` files are deliberately left alone.
 Nothing reads them, so setting them would create a third and fourth place for a
 version to be wrong. **The git tag is the version, and the image and the release
@@ -270,11 +277,12 @@ docker run --rm --env-file <theirs> <image> node /app/deploy/check-config.mjs
 
 It prints names and never values, because two of the variables are a Postgres
 password and an OAuth client secret and a checker whose output cannot be pasted
-into an issue is a checker nobody runs. It restates the six refusals the server
+into an issue is a checker nobody runs. It restates the seven refusals the server
 makes at start — no connection string, half a Google client, an incomplete
 Microsoft set, a Microsoft authority with no single issuer, a provider with no
-public origin, the development door beside a real one — so a deployment meets
-them in a check rather than in a crash loop.
+public origin, the development door beside a real one, and a bind that is not one
+of the two words it takes, so a deployment meets them in a check rather than in
+a crash loop.
 
 **The fourth of those is the one worth reading twice**, and #537 added it.
 `BOOKSCAN_OIDC_MICROSOFT_TENANT` may not be `common` or `organizations`: they are
@@ -290,10 +298,11 @@ contract inside it against the one in the repository. `.gitattributes` holds
 
 **And it is held to the code.** `scripts/check-deploy-contract.mjs` runs on every
 pull request and fails both ways: a variable read and not declared, or declared
-and no longer read. It also holds the four facts a deployer trips over to the
-files that decide them — the bind to `web/server/index.ts`, the port and the
-mount to the `Dockerfile`, the Postgres major to `postgres-version.json` — so
-the contract cannot quietly describe a system that has moved. This project has
+and no longer read. It also holds the facts a deployer trips over to the files
+that decide them. The bind, its two words and its default go to
+`web/server/bind.ts` and to the listen call they feed; the port and the mount to
+the `Dockerfile`; the Postgres major to `postgres-version.json`. So the contract
+cannot quietly describe a system that has moved. This project has
 found a guard that never loaded, a check whose only reader was a log line, and a
 build CI never ran; **a contract nobody verifies is the same shape**, and it
 would fail in the one place where the failure lands on somebody else.
@@ -302,9 +311,9 @@ would fail in the one place where the failure lands on somebody else.
 
 ## The thing a deployer will hit first, said here rather than discovered
 
-**The server binds `127.0.0.1` inside the container, so a published port reaches
-nothing.** `docker run -p 8080:3001` sets up a route to the container's own
-address and nothing is listening there.
+**By default the server binds `127.0.0.1` inside the container, so a published
+port reaches nothing.** `docker run -p 8080:3001` sets up a route to the
+container's own address and nothing is listening there.
 
 This does not look like a configuration mistake. The container is up, the log
 says `[api] listening on http://127.0.0.1:3001`, and every request from outside
@@ -313,17 +322,25 @@ is refused at the socket. It is in `deploy/contract.json` under
 clean run, and it is in the release notes in bold. Three places, because it is
 the one thing that will cost an hour otherwise.
 
-**What the consumer must do:** put whatever fronts this app inside the
+**What the consumer must do:** decide which of two shapes this deployment is.
+Either leave the bind where it is and put whatever fronts this app inside the
 container's network namespace — a tunnel daemon or a proxy as a sidecar sharing
-it. That is not a workaround; it is the ordinary shape of both options the owner
-is choosing between, and `docs/the-image.md` argues it.
+it, with nothing listening on a routable interface at all. Or set
+`BOOKSCAN_BIND=all`, publish the port, and let the container's own network be the
+boundary. `docs/the-image.md` argues the first and `docs/the-bind.md` argues the
+choice.
 
-**Why it is not simply changed here.** #520 left the bind deliberately, #532 left
-it, and this leaves it, for the reason that has not changed: the bind is the
-moment this app becomes reachable by somebody who is not at the machine, and it
-should move where somebody can see what is in front of it. That is the private
-repository, with the tunnel decision in hand. It is one line when it happens, and
-under the versioning rule above it is a major bump.
+> **#539 made this a choice, 2026-09-04, and left the default alone.** The
+> paragraph that used to stand here said the bind should move where somebody can
+> see what is in front of it, in the private repository, with the tunnel decision
+> in hand, and that is still true of the *decision*. What changed is that the
+> decision no longer needs a commit here to express: `BOOKSCAN_BIND` takes
+> `loopback` or `all`, unset is `loopback`, and an address is refused at start.
+> Under the versioning rule above this is a **minor** bump rather than the major
+> one that paragraph predicted, because it is an optional variable and nothing
+> already set stops working. The default stays closed because the safety came
+> from the gate rather than from the bind, and a default that assumes the gate is
+> correct stops being safe the day the gate has a hole.
 
 The other one, which costs less time but is just as invisible: **the session
 cookie is set `Secure`, always.** A browser will not store it over plain `http`
@@ -463,7 +480,8 @@ release candidate is exactly what an unproven pipeline should publish first.
    Postgres, and it ran on the pull request the tagged commit came from. What the
    image build does run is `npm run build`, which typechecks, and the smoke check
    that loads the bundle after the prune.
-4. **It does not move the loopback bind**, for the reasons above.
+4. **It does not move the loopback bind**, for the reasons above. (#539 made it a
+   choice on 2026-09-04 and left the default exactly here. `docs/the-bind.md`.)
 5. **It does not publish more than `linux/amd64`.** Nothing needs `arm64` yet and
    a second platform doubles a 1.49 GB build. When something does, it is a change
    to one line and a note in the contract.

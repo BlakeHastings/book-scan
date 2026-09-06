@@ -115,22 +115,51 @@ const has = (name, lines, fragment) => {
   )
 }
 
-// --- The four facts a deployer trips over, each broken in turn. These are the
-// --- ones where being wrong is expensive: a published port that reaches
-// --- nothing, and a mount that is not there.
+// --- The facts a deployer trips over, each broken in turn. These are the ones
+// --- where being wrong is expensive: a published port that reaches nothing, and
+// --- a mount that is not there.
 {
   const good = {
     contract,
     dockerfile: readFileSync(join(root, 'Dockerfile'), 'utf8'),
     serverIndex: readFileSync(join(root, 'web', 'server', 'index.ts'), 'utf8'),
+    serverBind: readFileSync(join(root, 'web', 'server', 'bind.ts'), 'utf8'),
     postgres: JSON.parse(readFileSync(join(root, 'postgres-version.json'), 'utf8')),
   }
   check('the tree as it stands agrees with the contract', factProblems(good).length, 0)
 
+  /*
+   * The bind is four facts rather than one since #539, because it is a choice
+   * now: the variable that decides it, what each word means, which word is the
+   * default, and that the listen call takes what those produced. The last is the
+   * one that catches the change nobody would notice. Every word could still be
+   * right while `app.listen` carried an address of its own, and the contract
+   * would be describing a variable that does nothing.
+   */
   has(
-    'a bind that moved and a contract that did not',
-    factProblems({ ...good, serverIndex: good.serverIndex.replace("app.listen(PORT, '127.0.0.1'", "app.listen(PORT, '0.0.0.0'") }),
-    'the contract says the server binds 127.0.0.1',
+    'a word that means a different address than the contract says',
+    factProblems({ ...good, serverBind: good.serverBind.replace("loopback: '127.0.0.1',", "loopback: '127.0.0.2',") }),
+    'BOOKSCAN_BIND=loopback binds 127.0.0.1',
+  )
+  has(
+    'a default that moved in the code and not in the contract',
+    factProblems({ ...good, serverBind: good.serverBind.replace("DEFAULT_BIND: BindName = 'loopback'", "DEFAULT_BIND: BindName = 'all'") }),
+    'the bind defaults to loopback',
+  )
+  has(
+    'a contract whose default word and default address disagree with each other',
+    factProblems({ ...good, contract: { ...contract, network: { ...contract.network, bind: '0.0.0.0' } } }),
+    'binds 0.0.0.0 by default',
+  )
+  has(
+    'a variable renamed in the code and not in the contract',
+    factProblems({ ...good, serverBind: good.serverBind.replace("export const BIND = 'BOOKSCAN_BIND'", "export const BIND = 'BOOKSCAN_HOST'") }),
+    'chooses the bind, and web/server/bind.ts reads a different name',
+  )
+  has(
+    'a listen call that went back to an address of its own',
+    factProblems({ ...good, serverIndex: good.serverIndex.replace('app.listen(PORT, BIND.address', "app.listen(PORT, '0.0.0.0'") }),
+    'listens on an address of its own',
   )
   has(
     'an EXPOSE that moved',
@@ -197,7 +226,7 @@ const has = (name, lines, fragment) => {
 }
 
 // --- The consumer's half: a configuration checked against the contract. Each of
-// --- the four refusals the server makes at start, asked before it starts.
+// --- the refusals the server makes at start, asked before it starts.
 {
   const ok = {
     ConnectionStrings__bookscan: 'postgres://user:pw@db:5432/bookscan',
@@ -243,6 +272,28 @@ const has = (name, lines, fragment) => {
   has('an origin that is not a URL', errors({ ...ok, BOOKSCAN_PUBLIC_ORIGIN: 'books.example' }), 'not an absolute URL')
 
   has('a port that is not a port', errors({ ...ok, PORT: 'three thousand' }), 'PORT is set to something that is not a number')
+
+  /*
+   * The bind (#539). The value a deployer is likeliest to reach for is the one
+   * that is refused, so that is the case with teeth: `0.0.0.0` is what everybody
+   * types and it is not what this variable takes.
+   *
+   * The open bind is deliberately not an error and not a warning. It is a
+   * decision a deployment is allowed to make, and what it earns is a note saying
+   * which state it is now in.
+   */
+  has('an address where a word belongs', errors({ ...ok, BOOKSCAN_BIND: '0.0.0.0' }), 'which is not loopback or all')
+  has('a word nobody defined', errors({ ...ok, BOOKSCAN_BIND: 'public' }), 'which is not loopback or all')
+  check('the default spelled out is still the default', errors({ ...ok, BOOKSCAN_BIND: 'loopback' }).length, 0)
+  check('an empty bind is an unset bind', errors({ ...ok, BOOKSCAN_BIND: '  ' }).length, 0)
+  check('a bind that is open is not an error', errors({ ...ok, BOOKSCAN_BIND: 'all' }).length, 0)
+  check('nor a warning', checkConfig({ ...ok, BOOKSCAN_BIND: 'all' }, contract).warnings.length, 0)
+  has(
+    'and it is said back as the state the deployment is in',
+    checkConfig({ ...ok, BOOKSCAN_BIND: 'all' }, contract).notes,
+    'the sign-in gate, which is then the only thing in front of the catalogue',
+  )
+  check('a bind that is closed says nothing, because it is the default', checkConfig({ ...ok, BOOKSCAN_BIND: 'loopback' }, contract).notes.some((line) => line.includes('BOOKSCAN_BIND')), false)
 
   // A typo in an optional variable is otherwise completely silent.
   const warnings = checkConfig({ ...ok, BOOKSCAN_DAT: '/data' }, contract).warnings

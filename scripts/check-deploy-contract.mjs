@@ -14,10 +14,10 @@
 // reviewed: a guard that never loaded, a check whose only reader was a log
 // line, a build CI had never run. A contract nobody verifies is the same shape.
 //
-// It also holds the four facts a deployer trips over to the files that decide
-// them: the port and the mount to the Dockerfile, the loopback bind to the
-// server, and the Postgres major to `postgres-version.json`, which is the one
-// place that version is written.
+// It also holds the facts a deployer trips over to the files that decide
+// them: the port and the mount to the Dockerfile, the bind to
+// `web/server/bind.ts` and to the listen call it feeds, and the Postgres major
+// to `postgres-version.json`, which is the one place that version is written.
 //
 // Usage, from a workflow step or by hand at the repository root:
 //   node scripts/check-deploy-contract.mjs
@@ -155,13 +155,44 @@ export function compare(read, declared) {
  * The facts a deployer meets first, checked against the files that decide them
  * rather than against the last person to edit the contract.
  */
-export function factProblems({ contract, dockerfile, serverIndex, postgres }) {
+export function factProblems({ contract, dockerfile, serverIndex, serverBind, postgres }) {
   const problems = []
   const say = (claim, ok) => { if (!ok) problems.push(claim) }
 
+  /*
+   * The bind, which is a choice with a default since #539 rather than an address
+   * written into the listen call. Four things have to agree, and the contract is
+   * describing a server somebody else's deployment does not have if any of them
+   * drifts: which variable decides it, what each word means, which word is the
+   * default, and that the listen call takes the address those produced rather
+   * than one of its own.
+   *
+   * The last of the four is the one worth having. Everything above it could be
+   * right while `app.listen` still carried a literal, and the contract would be
+   * documenting a variable that does nothing.
+   */
   say(
-    `the contract says the server binds ${contract.network.bind}, and web/server/index.ts does not`,
-    serverIndex.includes(`app.listen(PORT, '${contract.network.bind}'`),
+    `the contract says ${contract.network.bindVariable} chooses the bind, and web/server/bind.ts reads a different name`,
+    serverBind.includes(`export const BIND = '${contract.network.bindVariable}'`),
+  )
+  for (const [word, address] of Object.entries(contract.network.bindOptions)) {
+    say(
+      `the contract says ${contract.network.bindVariable}=${word} binds ${address}, and web/server/bind.ts does not`,
+      new RegExp(`^ {2}${word}: '${address.replace(/\./g, '\\.')}',$`, 'm').test(serverBind),
+    )
+  }
+  say(
+    `the contract says the bind defaults to ${contract.network.bindDefault}, and web/server/bind.ts does not`,
+    serverBind.includes(`export const DEFAULT_BIND: BindName = '${contract.network.bindDefault}'`),
+  )
+  say(
+    `the contract says the server binds ${contract.network.bind} by default, and its own bindOptions say ` +
+    `${contract.network.bindDefault} is ${contract.network.bindOptions[contract.network.bindDefault]}`,
+    contract.network.bindOptions[contract.network.bindDefault] === contract.network.bind,
+  )
+  say(
+    'the contract says the bind is chosen by a variable, and web/server/index.ts listens on an address of its own',
+    serverIndex.includes('app.listen(PORT, BIND.address'),
   )
   say(
     `the contract says the port is ${contract.network.port}, and the Dockerfile does not EXPOSE it`,
@@ -265,6 +296,7 @@ function main() {
       contract,
       dockerfile: readFileSync(join(root, 'Dockerfile'), 'utf8'),
       serverIndex: readFileSync(join(root, 'web', 'server', 'index.ts'), 'utf8'),
+      serverBind: readFileSync(join(root, 'web', 'server', 'bind.ts'), 'utf8'),
       postgres: JSON.parse(readFileSync(join(root, 'postgres-version.json'), 'utf8')),
     }),
     ...siteSpecificProblems(contract, [
