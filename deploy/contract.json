@@ -59,7 +59,12 @@
     "tls": {
       "terminatedBy": "the consumer",
       "required": true,
-      "why": "The session cookie is set with Secure, always, in one place (web/server/auth/gate.ts). A browser will not store it over plain http on anything but localhost, so an origin that is not https and not localhost gives a sign-in that appears to succeed and lands back on the login screen. A phone will also not open a camera outside a secure context, which is what this app is for."
+      "requiredBy": "the application. This is not the image declining to provide TLS; it is the app not functioning without it. The distinction matters at the moment somebody is wiring this up, because 'something in front terminates it' reads as a division of labour that can wait, and this cannot.",
+      "why": "The session cookie is set with Secure, always, in one place (web/server/auth/gate.ts). A browser will not store it over plain http on anything but localhost, so an origin that is not https and not localhost gives a sign-in that appears to succeed and lands back on the login screen. A phone will also not open a camera outside a secure context, which is what this app is for.",
+      "whatBreaksWithoutIt": "Without https in front of this, everything behind the gate is unreachable, and quietly. The chain is four links and none of them is this app's own rule: the session cookie is marked Secure, so a browser on a plain http origin discards it rather than storing it; with no session every route under /api answers 401, including the photographs and including /api/health; so nobody can sign in; so what is deployed is a login screen that loops back to itself. Nothing logs an error at any link, because from the server's side each request simply arrived carrying no cookie, which is what a request from a stranger looks like.",
+      "localhostException": "Browsers treat http://localhost, and the loopback address written out, as secure contexts and will store a Secure cookie there. That is the whole reason this is invisible in development, and it is why the first deployment reached by an address or a name rather than by localhost is where it bites.",
+      "checkableFromHere": false,
+      "whyNotCheckable": "Nothing inside the container can see what is in front of it. The server is handed a plain http request in every topology, including every correct one where a proxy or a tunnel terminated TLS a hop earlier, so a check from in here would fire on correct deployments and teach the one person who runs it to stop reading its output. The one thing that is observable is BOOKSCAN_PUBLIC_ORIGIN, and check-config.mjs does refuse a value that is neither https nor localhost. That is a check on what a deployment says about itself, not on what it built, and it is silent when no sign-in provider is configured because the variable is then legitimately unset."
     }
   },
 
@@ -454,7 +459,7 @@
   "notInThisContract": [
     "Any domain, hostname, address, network shape, tunnel credential or provider client id. Those belong to whoever deploys this and must never appear here.",
     "A compose file, a chart, a wrangler.toml or any other descriptor that encodes topology. What runs beside this container is the consumer's decision.",
-    "TLS. Something in front terminates it.",
+    "Terminating TLS. Something in front does that and it is the consumer's. This is the one item on this list the application requires rather than merely does without, so it is not an omission the way the others are: read network.tls before wiring anything up, because on a plain http origin the session cookie is discarded by the browser, nobody signs in, and what is deployed is a login screen.",
     "Backups. The image cannot back up a mount it does not own."
   ]
 }

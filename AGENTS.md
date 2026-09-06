@@ -272,6 +272,23 @@ The task runs `C:\Users\Blake\book-scan-production-data\run-stable.cmd`, which
 redirects the log and hands off to `run-stable.ps1` beside it. That one sets
 `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` and runs `npm run dev`.
 
+**Since #475 this repository owns a launcher, and the task does not run it yet.**
+`scripts/run-stable.ps1` and `scripts/run-stable.cmd` are the same argument with
+the paths taken out: no path in either names a person, a machine or a catalogue,
+this machine's facts come from `%LOCALAPPDATA%\book-scan\stable-launcher.json`,
+and before it starts anything it runs the checkout's own
+`deploy/check-config.mjs` over the environment it just built. Repointing the task
+and deleting the two old files are the **owner's** steps, listed in
+`docs/the-stable-launcher.md`, which is also where the argument for owning it
+lives. Until he does, the paragraph above is still what runs.
+
+**The old pair had drifted three variables behind the tree**, which is what the
+launcher being outside version control cost and is the reason it is now checked
+by CI: it sets no `BOOKSCAN_BACKUP_DIR`, so #311's backup watch is not armed on
+the one deployment whose backup actually runs; it sets no `GOOGLE_BOOKS_API_KEY`,
+so #348 is still standing there; and it configures no sign-in provider, which
+nobody would meet until the first deploy past #521.
+
 **Neither file holds a secret, and neither reads one out of the environment.**
 The connection comes from the DPAPI-encrypted file at
 `%LOCALAPPDATA%\book-scan\backup-connections.json`, which is the same file the
@@ -292,10 +309,13 @@ would put the key in the process listing and in PowerShell's own history file.
 Anything not given is carried forward, so rotating the key does not mean
 re-typing the connections and rotating a connection does not disturb the key.
 
-The launcher hands it to the server as `GOOGLE_BOOKS_API_KEY`, which is one line
-in `run-stable.ps1` beside the two it already has, and is the only name
-`web/server/secrets.ts` reads. **The owner adds that line; nothing in this
-repository can.** Without it the app still works, Open Library still does the
+The launcher hands it to the server as `GOOGLE_BOOKS_API_KEY`, which is the only
+name `web/server/secrets.ts` reads. **That used to be a line the owner had to
+add to a file nothing in this repository could see, and it was never added.**
+`scripts/run-stable.ps1` reads the key out of the same encrypted store as the
+connection, so once the owner has written the key and repointed the task the
+remembering stops being anybody's job. Without it the app still works, Open
+Library still does the
 real work, and both the startup log and `/api/health` say plainly that the
 second catalogue is unkeyed. That last part is the actual fix in #348: the key
 had never been set, every Google Books request went out anonymously into an
@@ -987,7 +1007,9 @@ teach people to skim past it.
 | `web/server/store.ts` | All SQL |
 | `web/server/backup.ts` | The backup digest and retention, and the shelf order hash |
 | `web/server/backup-catalogue.ts` | The dump, the retention sweep and the verifying restore |
-| `scripts/backup-catalogue.ps1` | What the scheduled task runs |
+| `scripts/backup-catalogue.ps1` | What the backup scheduled task runs |
+| `scripts/run-stable.ps1` | The launcher for the `stable` server, carrying no path that names a machine |
+| `docs/the-stable-launcher.md` | Which of three things the launcher was, why the build and the image did not make it obsolete, and the owner's steps |
 | `docs/backup-runbook.md` | How the catalogue is backed up, and what is not covered |
 | `web/domain/tagging/genre.ts` | Which shelf range a book's genre tags file it into |
 | `web/server/shelves.ts` | Shelf capacity and derived locations |

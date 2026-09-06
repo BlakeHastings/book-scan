@@ -308,6 +308,23 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/check-deploy-contract.test.mjs
 
+      # The other deployment, and the one that had no check at all until #475.
+      # The launcher that starts the owner's live catalogue was two files in no
+      # version control that survived a machine wipe by luck, and while nothing
+      # could see them they fell three variables behind the tree. This holds the
+      # committed launcher to the contract and refuses a live path in it, which
+      # are the two promises that let it be committed at all.
+      - name: The stable launcher matches the contract and names no machine
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/check-stable-launcher.mjs
+
+      # Including its own refusals, driven with PowerShell, which the runner has.
+      # None of them reaches a decryption, so none of them needs the owner's
+      # machine.
+      - name: The stable launcher refuses what it must
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/check-stable-launcher.test.mjs
+
       # What the machine keeps holding after an agent has gone. The deciding
       # half is tested and the reading half is not: this script prints
       # `docker volume rm` for anything it calls an orphan, and a volume nothing
