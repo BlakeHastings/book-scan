@@ -15,16 +15,13 @@
  * already had, in stage G, on the column this replaces.
  */
 
-import pg from 'pg'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { PgDb } from '../../server/db.pg'
 import type { Db } from '../../server/driver'
 import { RecordPhotographsHandler } from '../../application/capture/record-photographs'
 import { verdictOf } from '../../domain/capture/photographs'
-import { closeScratchDatabases, migratedDatabase } from '../db/testdb'
+import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
 import { DrizzleCaptureRepository } from './capture-repository'
 
-let pool: pg.Pool
 let db: Db
 let captures: DrizzleCaptureRepository
 
@@ -41,16 +38,12 @@ async function aBook(title: string): Promise<number> {
 }
 
 beforeEach(async () => {
-  if (!pool) {
-    pool = await migratedDatabase()
-    db = new PgDb(pool)
-  }
-  await db.run('TRUNCATE books, capture RESTART IDENTITY CASCADE')
+  db = await openTestDatabase()
   captures = new DrizzleCaptureRepository(db)
 })
 
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
 })
 
 describe('recording a photograph', () => {

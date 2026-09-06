@@ -10,35 +10,25 @@
  * through their cases against a live-sized catalogue. This is the wrapper.
  */
 
-import pg from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
-import { PgDb } from '../server/db.pg'
+import { closeTestDatabase, openTestDatabase } from '../server/testdb'
 import type { Db } from '../server/driver'
 import { countProjectionDisagreements } from '../infrastructure/placement/projection'
 import { describeDisagreement, rebuildProjectionRun } from './rebuild-projection'
 
-let pool: pg.Pool
 let db: Db
 
-beforeAll(async () => {
-  pool = await migratedDatabase()
-  db = new PgDb(pool)
-})
-
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
 })
 
-/** A position no real bookcase has, so the teardown can name this file's own. */
+/** A position no real bookcase has, so this file's own bookcases stand apart. */
 const OURS = 9505
 let made = 0
 
 beforeEach(async () => {
-  // Books cascade their placements; areas go with the bookcase they hang on.
-  await pool.query('DELETE FROM books')
-  await pool.query('DELETE FROM fixture WHERE position >= $1', [OURS])
+  db = await openTestDatabase()
   made = 0
 })
 

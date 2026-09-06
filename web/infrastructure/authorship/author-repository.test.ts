@@ -11,20 +11,17 @@
  * byte-ordered database.
  */
 
-import pg from 'pg'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { PgDb } from '../../server/db.pg'
 import type { Db } from '../../server/driver'
 import { CreditBookHandler } from '../../application/authorship/credit-book'
 import {
   FileAliasHandler, MergeAuthorsHandler,
 } from '../../application/authorship/curate-authors'
 import { PrintedName, nameKey } from '../../domain/authorship/authors'
-import { closeScratchDatabases, migratedDatabase } from '../db/testdb'
+import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
 import { DrizzleAuthorRepository, NAME_KEY_SQL } from './author-repository'
 import { statement } from '../db/query'
 
-let pool: pg.Pool
 let db: Db
 let authors: DrizzleAuthorRepository
 
@@ -41,16 +38,12 @@ async function aBook(title: string): Promise<number> {
 const printed = (name: string) => PrintedName.of(name)
 
 beforeEach(async () => {
-  if (!pool) {
-    pool = await migratedDatabase()
-    db = new PgDb(pool)
-  }
-  await db.run('TRUNCATE books, author, author_alias, book_author RESTART IDENTITY CASCADE')
+  db = await openTestDatabase()
   authors = new DrizzleAuthorRepository(db)
 })
 
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
 }, 60_000)
 
 describe('the fold that says two spellings are one name', () => {

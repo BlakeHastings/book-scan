@@ -11,18 +11,15 @@
  * is doing work here rather than being masked by a byte-ordered database.
  */
 
-import pg from 'pg'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { PgDb } from '../../server/db.pg'
 import type { Db } from '../../server/driver'
 import { RestateTagsHandler } from '../../application/tagging/restate-tags'
 import { ApplyTagHandler, RemoveTagHandler } from '../../application/tagging/apply-tag'
 import { TagSlug } from '../../domain/tagging/tags'
-import { closeScratchDatabases, migratedDatabase } from '../db/testdb'
+import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
 import { DbBookTransactions } from './transactions'
 import { DrizzleTagRepository, vocabularyQuery } from './tag-repository'
 
-let pool: pg.Pool
 let db: Db
 let tags: DrizzleTagRepository
 
@@ -39,16 +36,12 @@ async function aBook(title: string): Promise<number> {
 }
 
 beforeEach(async () => {
-  if (!pool) {
-    pool = await migratedDatabase()
-    db = new PgDb(pool)
-  }
-  await db.run('TRUNCATE books, tag, book_tag RESTART IDENTITY CASCADE')
+  db = await openTestDatabase()
   tags = new DrizzleTagRepository(db)
 })
 
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
 })
 
 describe('the vocabulary', () => {
@@ -78,6 +71,16 @@ describe('the vocabulary', () => {
     expect(after?.label).toBe('Not made up')
   })
 
+  /**
+   * `genre/fiction` and `genre/non-fiction` are in the answer because `0002`
+   * seeds them, and every catalogue that has ever run a migration holds both.
+   * They were absent until #529 only because this file's reset truncated `tag`
+   * and deleted them, which is a state no migration can produce.
+   *
+   * What the test is about is still the three that are *not* here: `genres/…`,
+   * `genre-adjacent` and `mine` are adjacent rather than beneath, and a prefix
+   * match on the string would have taken the first two.
+   */
   it('answers under with the tag and its descendants and nothing adjacent', async () => {
     for (const slug of [
       'genre', 'genre/fantasy', 'genre/fantasy/epic', 'genres/fantasy', 'genre-adjacent', 'mine',
@@ -86,7 +89,7 @@ describe('the vocabulary', () => {
     }
 
     expect((await tags.vocabulary(TagSlug.of('genre'))).map((one) => one.slug.value))
-      .toEqual(['genre', 'genre/fantasy', 'genre/fantasy/epic'])
+      .toEqual(['genre', 'genre/fantasy', 'genre/fantasy/epic', 'genre/fiction', 'genre/non-fiction'])
   })
 
   it('reads a prefix out of the index rather than scanning the vocabulary', async () => {
@@ -94,12 +97,12 @@ describe('the vocabulary', () => {
     // back rather than by asserting the answers, which are the same either way.
     // A vocabulary this size is where the planner starts preferring a scan, so a
     // sequential one here would be a real finding.
-    await pool.query(
+    await db.run(
       `INSERT INTO tag (slug, label)
        SELECT 'subject/' || lpad(n::text, 6, '0'), 'x'
          FROM generate_series(1, 5000) AS n`,
     )
-    await pool.query('ANALYZE tag')
+    await db.run('ANALYZE tag')
 
     const query = vocabularyQuery(TagSlug.of('subject/000123'))
     const plan = await db.all<{ 'QUERY PLAN': string }>(
