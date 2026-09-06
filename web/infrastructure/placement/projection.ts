@@ -48,14 +48,21 @@
  * writer that did not record itself. Telling the owner would be telling somebody
  * about a defect he cannot act on.
  *
- * ## What it cannot see, which is #518
+ * ## What it cannot see, and where that is now asked (#518)
  *
  * This compares two answers, so an act that writes to **neither** of them leaves
  * them agreeing while both are wrong. All four of the 2026-09-02 defects were
  * that shape (#465, #484, #487, #491) and this reported healthy through every
  * one. Catching those needs a third thing to compare against, which is the
- * furniture; that is a different check and it is filed as #518 rather than bolted
- * on here.
+ * furniture.
+ *
+ * That is `stranded.ts`, beside this file, and it is a **separate check on
+ * purpose** rather than a third comparison in here. This function answers "did a
+ * writer forget the ledger"; that one answers "did a writer forget the books".
+ * Two findings with the same audience but not the same meaning, and widening
+ * this one would have made a book on a retired plank indistinguishable in the
+ * count from a book whose column is stale. `areaDisagreements` is the shape that
+ * was followed: a third check beside the two rather than a widening of either.
  */
 
 import { KINDS_ABOUT_THE_ANSWER } from '../../domain/placement/ledger'

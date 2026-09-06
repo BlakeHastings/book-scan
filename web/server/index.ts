@@ -42,6 +42,7 @@ import { toNeighbour } from '../infrastructure/books/book-repository'
 import {
   countProjectionDisagreements, projectionDisagreements, REBUILD_COMMAND,
 } from '../infrastructure/placement/projection'
+import { countStrandedBooks, strandedBooks } from '../infrastructure/placement/stranded'
 import type { Move, PlankAt } from '../shared/layout'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
@@ -4092,12 +4093,36 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * and `repair` is a command a person runs deliberately having read the names,
    * because a projection rebuilt on sight erases the evidence of which writer is
    * missing. See `infrastructure/placement/projection.ts`.
+   *
+   * ## `placement.stranded`, which is the same question about the furniture (#518)
+   *
+   * The projection check compares two answers, so an act writing to neither of
+   * them leaves the two agreeing while both are wrong. All four of the
+   * 2026-09-02 defects were that shape and it reported healthy through every
+   * one. `placement.stranded` is the third opinion: the area a book's ledger
+   * folds to, asked of the furniture's own face, which nothing in the ledger or
+   * the projection writes. See `infrastructure/placement/stranded.ts` for why
+   * that is the reading and why it is one check rather than two.
+   *
+   * **It moves `ok` too, by the same narrow rule.** A retired plank with books
+   * recorded on it is not a state of the collection somebody resolves by
+   * carrying a book: carrying it clears the misfile and leaves the writer that
+   * removed the plank without recording still missing, so the next removal
+   * strands the next books just as quietly. That is this server having written
+   * something it cannot account for, which is the one thing on this endpoint
+   * `ok` is for.
+   *
+   * **And there is no repair here either, not even a command.** The projection
+   * has one because it holds nothing the ledger does not. Neither side of this
+   * one is derived from the other, so there is nothing to fold again; what the
+   * books need is a person at the shelves, which is the carry list.
    */
   app.get('/api/health', asyncRoute(async (_req, res) => {
     const disagreeing = await countProjectionDisagreements(db)
+    const stranded = await countStrandedBooks(db)
 
     res.json({
-      ok: disagreeing === 0,
+      ok: disagreeing === 0 && stranded === 0,
       counts: await store.counts(),
       db: options.dbLabel ?? '',
       lookups: {
@@ -4113,6 +4138,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
           // Empty when there is nothing to repair, so the answer never suggests
           // running a write against a catalogue that does not need one.
           repair: disagreeing === 0 ? '' : REBUILD_COMMAND,
+        },
+        stranded: {
+          books: stranded,
+          // Bounded and newest first, as above. There is no `repair` key beside
+          // this one and its absence is the answer rather than an omission.
+          where: stranded === 0 ? [] : await strandedBooks(db),
         },
       },
     })

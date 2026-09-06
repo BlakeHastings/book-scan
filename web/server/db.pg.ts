@@ -27,6 +27,9 @@ import { migrateToLatest, type MigrationOutcome } from '../infrastructure/db/mig
 import {
   countProjectionDisagreements, projectionDisagreements, REBUILD_COMMAND,
 } from '../infrastructure/placement/projection'
+import {
+  countStrandedBooks, describeStranding, strandedBooks,
+} from '../infrastructure/placement/stranded'
 import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
 import { booksNoRuleClaims } from './claim'
 import type { ShelfRange } from '../shared/shelving'
@@ -795,6 +798,7 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
   const db = new PgDb(pool)
 
   await sayWhetherThePlacementProjectionHolds(db)
+  await sayWhetherTheFurnitureStillHasThePlanks(db)
   await sayWhetherTheRulesAgreeWithTheShelf(db)
   await sayWhetherEveryBookIsClaimed(db)
 }
@@ -955,6 +959,50 @@ async function sayWhetherThePlacementProjectionHolds(db: Db): Promise<void> {
     'GET /api/health answers the same question while this process runs. ' +
     named.map((one) => `#${one.bookId} ${one.title}: column ${one.projected ?? 'nowhere'}, ` +
       `ledger ${one.fromLedger ?? 'nowhere'}`).join('; '),
+  )
+}
+
+/**
+ * Ask the furniture whether the planks the ledger names are still on it.
+ *
+ * **The check above it compares two answers, and this is the third** (#518).
+ * `sayWhetherThePlacementProjectionHolds` reported healthy through all four of
+ * the 2026-09-02 defects, because removing a boundary, deleting a bookcase,
+ * overflow and renumbering a piece all wrote to neither the column nor the
+ * ledger. This asks the one thing they did write to: `area.position` and
+ * `fixture.position`, which the furniture writers own and neither side of that
+ * comparison derives.
+ *
+ * It sits directly beneath it rather than at the end of the list, because the
+ * two are one family read twice: the projection line says whether the ledger and
+ * the column agree, and this says whether what they agree on is still there.
+ *
+ * **Reported, not repaired, and there is no repair to offer** (#485). The
+ * projection line can name a command because a projection can be folded again.
+ * Nothing here is derived from anything here: the ledger is right about what
+ * somebody did and the furniture is right about what the shelves are, and the
+ * books need a person at the shelves rather than a statement.
+ *
+ * **This line is not the reader**, for the reason #505 gave about the one above:
+ * it is printed once and a writer goes missing while the process runs. It is
+ * what `aspire logs api` shows, and it says the good outcome out loud where the
+ * endpoint only says `ok: true`. `GET /api/health` is the reader.
+ */
+async function sayWhetherTheFurnitureStillHasThePlanks(db: Db): Promise<void> {
+  const stranded = await countStrandedBooks(db)
+  if (stranded === 0) {
+    console.log('[placement] every plank the ledger names is still on a face')
+    return
+  }
+
+  const named = await strandedBooks(db)
+  console.error(
+    `[placement] ${stranded} books are recorded on a plank the shelves no longer ` +
+    'have, so something took a piece of furniture apart and told the ledger ' +
+    'nothing. Find the writer first: the books are still where somebody put ' +
+    'them and only a person at the shelves can say where they go now. ' +
+    'GET /api/health answers the same question while this process runs. ' +
+    named.map(describeStranding).join('; '),
   )
 }
 
