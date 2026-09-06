@@ -1118,7 +1118,45 @@ It compares the projection against the ledger, so an act that writes to neither
 side leaves the two agreeing while both are wrong about the furniture. All four of
 the 2026-09-02 defects were that shape (#465, #484, #487, #491) and this check
 reported healthy through every one. Catching those needs a third thing to compare
-against, which is the furniture, and that is #518 rather than this.
+against, which is the furniture.
+
+**That third thing is the furniture's own face, and it is a separate check**
+(#518). `countStrandedBooks` in `infrastructure/placement/stranded.ts` folds the
+ledger the same way — one spelling of the fold, deliberately — and joins the area
+it lands on to `area.position` and `fixture.position`. Those are written by the
+furniture writers and by nothing else, so "is the plank this book's ledger names
+still on a face" is a comparison between two sets of rows written by two sets of
+writers rather than the same opinion twice. It reaches `applySchema` and
+`GET /api/health` beside the projection count, and it moves `ok` under the same
+narrow rule.
+
+**Why it is not "where is the book".** The obvious third reading is the book's own
+whereabouts, and this schema has not had one since `0024` took `books.location`:
+whereabouts is now derived from `books.current_area_id`, which is the projection
+being checked, so that comparison restates rather than checks. Breaking that loop
+is what the furniture answers, and it is answerable precisely because it does not
+need to know where the book physically is — only whether the place the ledger
+sends somebody to still exists.
+
+**Why it is one check rather than two**, which is the question the `SET NULL` on
+`books.current_area_id` and the `RESTRICT` on `book_placement.area_id` raise. The
+asymmetry describes a state this schema cannot reach: `RESTRICT` refuses to delete
+an area any ledger row names, and for the two halves to agree the area they agree
+on is named by a ledger row, so `SET NULL` never fires for one of these books.
+`removeAreaIfUnused` asks the ledger, the projection and the rules before it tries
+at all. What happens instead is **retirement** — the row stays, both halves go on
+naming it, and it comes off the face — so what the check looks for is a negative
+position rather than a missing row.
+
+**It does not repair, and unlike the projection there is no command either.** A
+projection can be folded again because it holds nothing the ledger does not.
+Neither side here is derived from the other: the ledger is right about what
+somebody did, the furniture is right about what the shelves are, and the books
+need a person at the shelves, which is the carry list. #487 and #491 are outside
+it on purpose: both move a book within a run that still exists, and where the run
+puts a book against where the ledger says it is disagrees legitimately every time
+somebody shelves anything. That comparison is `Shelves.review` and it already has
+a screen.
 
 **The wire vocabulary did not move.** `GET /api/captures` still answers with
 `pending`, `ready`, `failed` and `done`, so the client, the queue badge and the

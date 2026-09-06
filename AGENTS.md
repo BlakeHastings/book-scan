@@ -383,8 +383,10 @@ the opposite. `ok` stays `true` while a catalogue is down, on purpose: somebody
 can still catalogue a book, which is why a source that fails does not fail a
 lookup.
 
-**Since #505 there is exactly one thing that makes `ok` false, and it is worth
-knowing what it means.** `placement.projection.disagreeing` is the count of books
+**Two things make `ok` false, and they are one argument asked twice.** #505 added
+the first and #518 the second; everything else on this endpoint leaves it `true`.
+
+The first is `placement.projection.disagreeing`, the count of books
 whose `current_area_id` does not fold out of their `book_placement` rows. That is
 not a state of the collection somebody can carry books to fix: it means **an act
 changed where a book belongs and recorded nothing**, which is a defect in this
@@ -406,6 +408,22 @@ Running it there is the owner's, like every other write to that database.
 Agents are refused it by `scripts/guard-live-data.mjs` from inside a worktree.
 Nothing repairs on start, for #485's reason: the diagnosis depended on the broken
 state surviving restarts.
+
+The second is `placement.stranded.books`, and it exists because the first has a
+blind spot the exact shape of the family it looks like it exists for (#518). That
+check compares two answers, so an act writing to **neither** leaves them agreeing
+while both are wrong about the furniture: all four of the 2026-09-02 defects were
+that shape and it reported healthy through every one. This one counts books whose
+ledger names a plank that is no longer on a face — somebody removed the boundary
+that opened it, or took the piece away — read off `area.position` and
+`fixture.position`, which the furniture writers own and neither side of the first
+comparison derives. Same reader, same `ok`, same reasoning: carrying such a book
+clears the misfile and leaves the writer that recorded nothing still missing.
+
+**It has no repair at all, not even a command**, and the absence is the answer.
+A projection can be folded again because it holds nothing the ledger does not.
+Neither side of this one is derived from the other, so where the books go is a
+person's decision at the shelves, which is the carry list.
 
 Whatever launches it, launch it **detached**, not as a child of an agent
 session. It has died three times because the process was owned by a session
