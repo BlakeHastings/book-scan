@@ -36,13 +36,12 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import { AuthStore } from '../infrastructure/auth/auth-store'
-import { PgDb } from './db.pg'
+import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { devProvider, signInFrom } from './auth/providers'
 import { forgetDiscovered } from './auth/discovery'
@@ -53,8 +52,8 @@ const ISSUER = 'https://acme.test'
 const CLIENT_ID = 'a-client-this-repository-does-not-know'
 const CLIENT_SECRET = 'a-secret-that-must-never-reach-a-browser'
 
-let pool: pg.Pool
-let db: PgDb
+/** One `Db` for the file. `openTestDatabase` hands back the same one each time. */
+let db: Db
 let scratch: string
 let coverDir: string
 let app: BookScanApp
@@ -115,8 +114,6 @@ const discoveryFor = (authority: string) =>
   `${providerUrl}/${authority}/v2.0/.well-known/openid-configuration`
 
 beforeAll(async () => {
-  pool = await migratedDatabase()
-  db = new PgDb(pool)
   scratch = scratchRoot('sign-in-routes')
 
   provider = createServer((req, res) => {
@@ -156,7 +153,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => { provider.close(() => resolve()) })
-  await closeScratchDatabases()
+  await closeTestDatabase()
   removeScratchRoot(scratch)
 })
 
@@ -181,7 +178,7 @@ function acme(): SignInProviderConfig {
 }
 
 beforeEach(async () => {
-  await pool.query('TRUNCATE "user", sign_in_flow CASCADE')
+  db = await openTestDatabase()
   received = undefined
   documentsAsked = {}
   authorities = freshAuthorities()
@@ -794,7 +791,7 @@ describe('a provider whose issuer is discovered rather than written down', () =>
     expect(began.cookie).toBe('')
 
     // And nothing was half-started: no flow row to replay and no user.
-    expect((await pool.query('SELECT * FROM sign_in_flow')).rowCount).toBe(0)
+    expect(await db.all('SELECT * FROM sign_in_flow')).toHaveLength(0)
     expect(await new AuthStore(db).everybody()).toHaveLength(0)
   })
 

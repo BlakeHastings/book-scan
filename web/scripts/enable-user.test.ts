@@ -16,31 +16,23 @@
  *   matters more here: this writes.
  */
 
-import pg from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
-import { PgDb } from '../server/db.pg'
+import { closeTestDatabase, openTestDatabase } from '../server/testdb'
 import type { Db } from '../server/driver'
 import { AuthStore, type UserWithIdentities } from '../infrastructure/auth/auth-store'
 import { describePerson, findPerson, listEverybody, readArgs } from './enable-user'
 
-let pool: pg.Pool
 let db: Db
 let store: AuthStore
 
-beforeAll(async () => {
-  pool = await migratedDatabase()
-  db = new PgDb(pool)
-  store = new AuthStore(db)
-})
-
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
 })
 
 beforeEach(async () => {
-  await pool.query('TRUNCATE "user" CASCADE')
+  db = await openTestDatabase()
+  store = new AuthStore(db)
 })
 
 /** Somebody who has signed in, the way a first sign-in leaves them. */

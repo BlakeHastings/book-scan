@@ -15,11 +15,10 @@ import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
-import { PgDb } from './db.pg'
+import { closeTestDatabase, openTestDatabase } from './testdb'
+import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import { Store, PAGE_LIMIT } from './store'
@@ -48,8 +47,8 @@ vi.mock('./covers', () => ({
 
 const answers = vi.mocked(lookupIsbn)
 
-let pool: pg.Pool
-let db: PgDb
+/** One `Db` for the file. `openTestDatabase` hands back the same one each time. */
+let db: Db
 let scratch: string
 let coverDir: string
 let app: BookScanApp
@@ -58,17 +57,12 @@ let baseUrl: string
 /** The session every request in this file carries. See server/testauth.ts. */
 let cookie: string
 
-beforeAll(async () => {
-  pool = await migratedDatabase()
-  db = new PgDb(pool)
+beforeAll(() => {
   scratch = scratchRoot('listing')
 })
 
 beforeEach(async () => {
-  await pool.query(
-    'TRUNCATE books, book_authors, captures, book_tag, tag, author, author_alias, '
-    + 'book_placement RESTART IDENTITY CASCADE',
-  )
+  db = await openTestDatabase()
   answers.mockReset()
   answers.mockResolvedValue({ ...empty })
 
@@ -89,7 +83,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
   removeScratchRoot(scratch)
 })
 
