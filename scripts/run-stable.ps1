@@ -2,9 +2,9 @@
 #
 # WHY THIS IS HERE RATHER THAN BESIDE THE CATALOGUE
 #
-# It used to be two files at `C:\Users\Blake\book-scan-production-data\`, in no
-# version control, in the same directory as the irreplaceable data, backed up by
-# nothing. On 2026-08-26 this machine was reset; it kept the user profile, so
+# It used to be two files in the owner's data directory, in no version control,
+# in the same directory as the irreplaceable data, backed up by nothing. On
+# 2026-08-26 this machine was reset; it kept the user profile, so
 # they survived by luck rather than by design. #475 asked which of three things
 # they were: this repository's, a machine artefact, or something to delete when
 # the deployment in #471 lands. `docs/the-stable-launcher.md` is the argument.
@@ -67,7 +67,11 @@ param(
     # The checkout to start. Defaults to the one this script is in, which is the
     # point of committing it: the launcher is deployed by the same fast-forward
     # as the code it launches, so it cannot drift behind what it starts.
-    [string] $Checkout = (Split-Path -Parent $PSScriptRoot),
+    #
+    # Resolved below rather than here. `$PSScriptRoot` is empty while Windows
+    # PowerShell 5.1 binds a parameter's default, and the scheduled task on this
+    # machine may be running either host.
+    [string] $Checkout,
 
     # The photographs. Required, and deliberately without a default: it is the
     # one path that names somebody's data, and a launcher that guessed it could
@@ -91,6 +95,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Checkout) {
+    $here = $PSScriptRoot
+    if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Path }
+    $Checkout = Split-Path -Parent $here
+}
 
 function Write-Line {
     param([string] $Message)
