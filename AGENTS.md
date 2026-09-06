@@ -158,6 +158,18 @@ from. Two files used to close and rebuild the database per test to get a clean
 floor and a third kept its own capture of the furniture; all three were working
 around a reset that did not cover the rows they wrote, and all three are gone.
 
+**This paragraph is now checked rather than only written down** (#529), and it
+had to be: twelve files wrote their own reset anyway, and every one of the twelve
+lists had already fallen behind the schema. `web/server/testdb.test.ts` reads
+every test file and fails on a `beforeEach` or `beforeAll` that empties the
+catalogue by naming tables. It says in its own header what it cannot see — a
+reset extracted into a helper is invisible to it — because a check that reads
+text can only find the shapes somebody has written.
+
+A `TRUNCATE` inside a test is untouched by that and always was. `backup.pg.test.ts`
+empties `books` mid-test to insert the same rows in the other order, and that
+emptying is the test rather than the way it starts.
+
 **If a file's fixture costs more than its tests do, build it once.**
 `keepThisCatalogue('a_name')` takes the catalogue as it stands as a state
 `openTestDatabase('a_name')` puts back in one round trip. `carry.test.ts`,
