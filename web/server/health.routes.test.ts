@@ -282,3 +282,128 @@ describe('GET /api/health and the placement projection', () => {
     expect(after.placement.projection).toEqual({ disagreeing: 0, books: [], repair: '' })
   })
 })
+
+/**
+ * The blind spot the check above has, given a reader at the same address (#518).
+ *
+ * A second unread check would be #505 again one along, so this is here for the
+ * same reason and asserted the same way: out of the rows, through a real
+ * request, because the wiring is the thing in question.
+ *
+ * `infrastructure/placement/stranded.test.ts` is where the check itself is put
+ * through its cases, including the `SET NULL` / `RESTRICT` map that decides it
+ * is one check rather than two.
+ */
+describe('GET /api/health and the furniture the ledger names', () => {
+  /**
+   * A book properly recorded on a plank somebody then took off the face.
+   *
+   * **Both halves are written and both stay right**, which is the state the
+   * whole issue is about: the column agrees with the ledger and the two of them
+   * are wrong about the furniture together.
+   */
+  async function aBookOnAPlankThatWent(title: string): Promise<() => Promise<void>> {
+    const fixture = await db.get<{ id: number }>(
+      `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
+       SELECT id, 'bookshelf', '', 9518, 'inherit', '' FROM collection ORDER BY id LIMIT 1
+       RETURNING id`,
+    )
+    expect(fixture, 'no collection to hang a bookcase off').toBeDefined()
+
+    const area = await db.get<{ id: number }>(
+      `INSERT INTO area (fixture_id, position, name, starts_at, sort_strategy, note)
+       VALUES (?, 1, '', '', 'inherit', '') RETURNING id`,
+      [fixture!.id],
+    )
+    const book = await db.get<{ id: number }>(
+      `INSERT INTO books (title, shelf_range, sort_key, scanned_at, state, current_area_id)
+       VALUES (?, 'fiction', ?, '2026-09-06T00:00:00.000Z', 'shelved', ?) RETURNING id`,
+      [title, title.toUpperCase(), area!.id],
+    )
+    await db.run(
+      `INSERT INTO book_placement (book_id, kind, area_id, sort_key, actor, reason, created_at)
+       VALUES (?, 'placed', ?, ?, 'person', '', '2026-09-06T00:00:00.000Z')`,
+      [book!.id, area!.id, title.toUpperCase()],
+    )
+
+    // The act itself: `retireArea` takes the plank off the face and leaves every
+    // placement that names it exactly where it is.
+    await db.run('UPDATE area SET position = -2 WHERE id = ?', [area!.id])
+
+    return async () => {
+      await db.run('DELETE FROM books WHERE id = ?', [book!.id])
+      await db.run('DELETE FROM fixture WHERE id = ?', [fixture!.id])
+    }
+  }
+
+  it('says the planks are all up, and stays ok, on an ordinary catalogue', async () => {
+    const answer = await (await ask(`${await serving()}/api/health`)).json()
+
+    expect(answer.ok).toBe(true)
+    expect(answer.placement.stranded).toEqual({ books: 0, where: [] })
+  })
+
+  it('names the books, and answers not ok, when the plank they name is gone', async () => {
+    const base = await serving()
+    const undo = await aBookOnAPlankThatWent('A Book On A Plank That Went')
+
+    try {
+      const answer = await (await ask(`${base}/api/health`)).json()
+
+      // The whole of #518 in one assertion pair. The check that looks like it
+      // exists for this reports healthy, because the act wrote to neither of the
+      // two things it compares, and the third opinion is what sees it.
+      expect(answer.placement.projection.disagreeing).toBe(0)
+      expect(answer.placement.stranded.books).toBe(1)
+      expect(answer.placement.stranded.where).toEqual([{
+        bookId: expect.any(Number),
+        title: 'A Book On A Plank That Went',
+        areaId: expect.any(Number),
+        recorded: '9518B',
+        why: 'plank-off-the-face',
+      }])
+
+      // It moves `ok`, by the same narrow rule the projection moves it under:
+      // this is the server unable to account for something it wrote, and not a
+      // state of the collection a person resolves by carrying a book. Carrying
+      // this one clears the misfile and leaves the missing writer missing.
+      expect(answer.ok).toBe(false)
+    } finally {
+      await undo()
+    }
+  })
+
+  it('offers no repair at all, not even a command, and no way to write from here', async () => {
+    const base = await serving()
+    const undo = await aBookOnAPlankThatWent('Another Book On A Plank That Went')
+
+    try {
+      const answer = await (await ask(`${base}/api/health`)).json()
+
+      // The projection has a command because a projection can be folded again.
+      // Neither side of this one is derived from the other, so there is nothing
+      // to fold and the absence is the answer. Asserted rather than described,
+      // because a key that looks missing is how one gets added.
+      expect(answer.placement.stranded).not.toHaveProperty('repair')
+      expect(JSON.stringify(answer.placement.stranded)).not.toMatch(/https?:|\/api\//)
+
+      expect((await ask(`${base}/api/health`, { method: 'POST' })).status).toBe(404)
+      expect((await ask(`${base}/api/placement/stranded`)).status).toBe(404)
+    } finally {
+      await undo()
+    }
+  })
+
+  it('goes back to ok once the furniture holds the planks again', async () => {
+    // Without this an endpoint stuck at `ok: false` would pass everything above.
+    const base = await serving()
+    const undo = await aBookOnAPlankThatWent('A Third Book On A Plank That Went')
+    expect((await (await ask(`${base}/api/health`)).json()).ok).toBe(false)
+
+    await undo()
+
+    const after = await (await ask(`${base}/api/health`)).json()
+    expect(after.ok).toBe(true)
+    expect(after.placement.stranded).toEqual({ books: 0, where: [] })
+  })
+})
