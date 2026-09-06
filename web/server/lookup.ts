@@ -52,7 +52,7 @@
  */
 
 import { classify, type Classification } from './classify'
-import { noteSourceAnswer } from './source-watch'
+import { noteSourceAnswer, outcomeOf } from './source-watch'
 import { askSupplementaryCatalogues } from './catalogue-sru'
 import { fetchBounded, type Answer } from './bounded-fetch'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
@@ -244,10 +244,14 @@ async function fromOpenLibrary(isbn: string, timeoutMs: number) {
     { bibkeys: key, format: 'json', jscmd: 'data' },
     timeoutMs,
   )
-  noteSourceAnswer('Open Library', answer.answered, answer.why)
   const data = answer.data as Record<string, OpenLibraryData> | null
 
+  // Noted after the parse rather than before it, because whether the reply held
+  // this book is the one thing `bounded-fetch.ts` cannot see and is half of what
+  // the report is for. Open Library has no record of six of the 238 books in the
+  // real catalogue, and those six must not read as six outages.
   const entry = data?.[key]
+  noteSourceAnswer('Open Library', outcomeOf(answer.answered, Boolean(entry?.title)), answer.why)
   if (!entry?.title) return null
 
   return {
@@ -337,9 +341,13 @@ async function fromGoogleIsbn(isbn: string, timeoutMs: number, apiKey: string) {
   const params: Record<string, string> = { q: `isbn:${isbn}` }
   if (apiKey) params.key = apiKey
   const answer = await getJson(GOOGLE_BOOKS_URL, params, timeoutMs)
-  noteSourceAnswer('Google Books', answer.answered, answer.why)
   const data = answer.data as { items?: GoogleVolume[] } | null
   const first = data?.items?.[0]
+  // The catalogue this issue is about. `held` is the number that will say
+  // whether a key changed anything: an unkeyed request is refused and counted
+  // as `declined`, and a keyed one that answers with nothing is a book Google
+  // Books does not have, which is a different thing and now reads as one.
+  noteSourceAnswer('Google Books', outcomeOf(answer.answered, Boolean(first)), answer.why)
   return first ? fromGoogleVolume(first) : null
 }
 
@@ -617,13 +625,14 @@ export async function searchTitle(
     },
     timeoutMs,
   )
-  // The one catalogue this route asks, counted the same way, so a search that
-  // came back empty because Open Library was down is not filed as a collection
-  // with no such book in it.
-  noteSourceAnswer('Open Library', answer.answered, answer.why)
   const data = answer.data as { docs?: OpenLibraryDoc[] } | null
 
+  // The one catalogue this route asks, counted the same way, so a search that
+  // came back empty because Open Library was down is not filed as a collection
+  // with no such book in it, and a search that came back empty because nobody
+  // has written that title down is not filed as an outage.
   const doc = data?.docs?.[0]
+  noteSourceAnswer('Open Library', outcomeOf(answer.answered, Boolean(doc?.title)), answer.why)
   if (!doc?.title) return emptyResult([`No match for title "${query}".`])
 
   const isbns = doc.isbn ?? []

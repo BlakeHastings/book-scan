@@ -57,7 +57,7 @@
 
 import { fetchBounded } from './bounded-fetch'
 import {
-  K10PLUS_NAME, LIBRARY_OF_CONGRESS_NAME, noteSourceAnswer, noteSourceSkipped,
+  K10PLUS_NAME, LIBRARY_OF_CONGRESS_NAME, noteSourceAnswer, noteSourceSkipped, outcomeOf,
 } from './source-watch'
 import { reserveSlot } from './source-pace'
 import type { SupplementaryRecord } from '../domain/books/catalogue-reconciliation'
@@ -288,10 +288,32 @@ async function askOne(
     left,
     'text',
   )
-  noteSourceAnswer(catalogue.name, answer.answered, answer.why)
-
   const body = typeof answer.data === 'string' ? answer.data : ''
-  if (!body) return null
+  const record = body ? readSruRecord(catalogue, body) : null
+
+  /*
+   * Noted once the record has been read, because "it replied" and "it had the
+   * book" are two facts and only the second one says the catalogue is earning
+   * its slot. These two are asked only about books the first pair left a gap
+   * in, so a low `held` against a healthy `answered` is the number that would
+   * say a source is not worth the rate limit it costs.
+   *
+   * A reply this application could not parse counts as no record rather than as
+   * silence, deliberately: the catalogue did its part, and calling that an
+   * outage would blame a library for a regular expression here.
+   */
+  noteSourceAnswer(catalogue.name, outcomeOf(answer.answered, record !== null), answer.why)
+  return record
+}
+
+/**
+ * The MARC record inside one SRU reply, or null when there is not one.
+ *
+ * Split out of `askOne` so the record can be read before the outcome is
+ * recorded, which is the whole of what changed here: nothing about the parse
+ * moved.
+ */
+function readSruRecord(catalogue: SruCatalogue, body: string): SupplementaryRecord | null {
 
   /*
    * SRU wraps each hit in its own `record`, so the document holds two elements

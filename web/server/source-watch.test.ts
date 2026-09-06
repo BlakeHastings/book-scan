@@ -48,8 +48,8 @@ describe('a source with nothing to say is not a source that said nothing', () =>
     // catalogue. That is a fact about those books, not about the request, and
     // recording it as a failure would make the report useless for finding the
     // real one.
-    noteSourceAnswer('Open Library', true)
-    noteSourceAnswer('Open Library', true)
+    noteSourceAnswer('Open Library', 'no record')
+    noteSourceAnswer('Open Library', 'no record')
 
     expect(standingFor('Open Library')).toMatchObject({
       asked: 2, answered: 2, silent: 0, lastSilentAt: '', lastSilence: '',
@@ -58,7 +58,7 @@ describe('a source with nothing to say is not a source that said nothing', () =>
   })
 
   it('counts a catalogue that did not reply, and says when and why', () => {
-    noteSourceAnswer('Google Books', false, 'HTTP 429')
+    noteSourceAnswer('Google Books', 'no reply', 'HTTP 429')
 
     const standing = standingFor('Google Books')
     expect(standing).toMatchObject({ asked: 1, answered: 0, silent: 1, lastSilence: 'HTTP 429' })
@@ -68,13 +68,13 @@ describe('a source with nothing to say is not a source that said nothing', () =>
 
 describe('the reason a source gives', () => {
   it('accepts the three shapes lookup.ts produces', () => {
-    noteSourceAnswer('Google Books', false, 'HTTP 503')
+    noteSourceAnswer('Google Books', 'no reply', 'HTTP 503')
     expect(standingFor('Google Books').lastSilence).toBe('HTTP 503')
 
-    noteSourceAnswer('Google Books', false, 'timed out')
+    noteSourceAnswer('Google Books', 'no reply', 'timed out')
     expect(standingFor('Google Books').lastSilence).toBe('timed out')
 
-    noteSourceAnswer('Google Books', false, 'unreachable')
+    noteSourceAnswer('Google Books', 'no reply', 'unreachable')
     expect(standingFor('Google Books').lastSilence).toBe('unreachable')
   })
 
@@ -87,7 +87,7 @@ describe('the reason a source gives', () => {
      * checked here rather than trusted from the caller, and a caller that
      * widens it gets "did not answer" instead of a leak.
      */
-    noteSourceAnswer('Google Books', false, 'https://www.googleapis.com/books/v1/volumes?key=SEKRIT')
+    noteSourceAnswer('Google Books', 'no reply', 'https://www.googleapis.com/books/v1/volumes?key=SEKRIT')
 
     const standing = standingFor('Google Books')
     expect(standing.lastSilence).toBe('did not answer')
@@ -100,7 +100,7 @@ describe('what reaches the log', () => {
   it('says it once, not once per book', () => {
     // A shelf is dozens of books and an exhausted quota answers every one of
     // them the same way. A line per request is a line nobody reads.
-    for (let i = 0; i < 40; i += 1) noteSourceAnswer('Google Books', false, 'HTTP 429')
+    for (let i = 0; i < 40; i += 1) noteSourceAnswer('Google Books', 'no reply', 'HTTP 429')
 
     expect(console.warn).toHaveBeenCalledTimes(1)
     expect(standingFor('Google Books').silent).toBe(40)
@@ -108,16 +108,16 @@ describe('what reaches the log', () => {
   })
 
   it('says it again when the reason changes', () => {
-    noteSourceAnswer('Google Books', false, 'HTTP 429')
-    noteSourceAnswer('Google Books', false, 'timed out')
+    noteSourceAnswer('Google Books', 'no reply', 'HTTP 429')
+    noteSourceAnswer('Google Books', 'no reply', 'timed out')
 
     expect(console.warn).toHaveBeenCalledTimes(2)
   })
 
   it('says it again when a source that had been answering stops', () => {
-    noteSourceAnswer('Open Library', false, 'HTTP 503')
-    noteSourceAnswer('Open Library', true)
-    noteSourceAnswer('Open Library', false, 'HTTP 503')
+    noteSourceAnswer('Open Library', 'no reply', 'HTTP 503')
+    noteSourceAnswer('Open Library', 'record')
+    noteSourceAnswer('Open Library', 'no reply', 'HTTP 503')
 
     // Same reason both times, so only the recovery in between earns the second
     // line. An outage that ends and starts again is two outages.
@@ -126,7 +126,7 @@ describe('what reaches the log', () => {
   })
 
   it('never says whether there is a key, let alone what it is', () => {
-    noteSourceAnswer('Google Books', false, 'HTTP 429')
+    noteSourceAnswer('Google Books', 'no reply', 'HTTP 429')
 
     const said = vi.mocked(console.warn).mock.calls.flat().join(' ')
     expect(said).not.toMatch(/key/i)
@@ -154,9 +154,9 @@ describe('a catalogue that was wanted and not asked (#305)', () => {
   })
 
   it('does not disturb what the same catalogue has answered', () => {
-    noteSourceAnswer('K10plus', true)
+    noteSourceAnswer('K10plus', 'record')
     noteSourceSkipped('K10plus')
-    noteSourceAnswer('K10plus', true)
+    noteSourceAnswer('K10plus', 'record')
 
     expect(standingFor('K10plus')).toMatchObject({ asked: 2, answered: 2, skipped: 1 })
   })
@@ -164,15 +164,15 @@ describe('a catalogue that was wanted and not asked (#305)', () => {
 
 describe('the report handed to /api/health', () => {
   it('is a copy, so a reader cannot change a counter through it', () => {
-    noteSourceAnswer('Open Library', true)
+    noteSourceAnswer('Open Library', 'record')
     sourceStandings()[0]!.asked = 999
 
     expect(standingFor('Open Library').asked).toBe(1)
   })
 
   it('keeps the catalogues in a fixed order whichever was asked first', () => {
-    noteSourceAnswer('Google Books', true)
-    noteSourceAnswer('Open Library', true)
+    noteSourceAnswer('Google Books', 'record')
+    noteSourceAnswer('Open Library', 'record')
 
     expect(sourceStandings().map((one) => one.source)).toEqual([...CATALOGUES])
   })

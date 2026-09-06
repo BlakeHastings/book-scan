@@ -118,9 +118,9 @@ describe('GET /api/health', () => {
 
   it('reports a catalogue that consulted and heard nothing', async () => {
     const base = await serving()
-    noteSourceAnswer('Open Library', true)
-    noteSourceAnswer('Google Books', false, 'HTTP 429')
-    noteSourceAnswer('Google Books', false, 'HTTP 429')
+    noteSourceAnswer('Open Library', 'record')
+    noteSourceAnswer('Google Books', 'no reply', 'HTTP 429')
+    noteSourceAnswer('Google Books', 'no reply', 'HTTP 429')
 
     const answer = await (await ask(`${base}/api/health`)).json()
     const google = answer.lookups.sources.find((one: { source: string }) => one.source === 'Google Books')

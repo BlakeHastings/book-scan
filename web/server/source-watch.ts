@@ -22,6 +22,22 @@
  * unreachable, or what came back was an HTTP status rather than a record. That
  * is what went unrecorded, and that is what is counted here.
  *
+ * **And two is still not enough of a distinction.** The first version of this
+ * file drew that line and stopped, which left two pairs still folded together
+ * and both pairs mattering. A catalogue that replied and held the book and one
+ * that replied and had never heard of it were both `answered`, so a source that
+ * has contributed nothing at all looked exactly like a source doing its job. A
+ * catalogue that refused to serve and one that failed to reply were both
+ * `silent`, distinguishable only by `lastSilence` and therefore only for the
+ * most recent one. Those are the four states somebody needs told apart, and
+ * `SourceStanding` below now reports them separately, with the fifth — a
+ * catalogue that was never asked at all — as the nought it always was.
+ *
+ * The reason the last one matters most: the second catalogue in this
+ * application has been refusing every request since before anybody was
+ * counting, and "refused" is answered by configuration this afternoon, while
+ * "failed" is answered by waiting. One number cannot mean both.
+ *
  * ## What this is not
  *
  * It is not an error path. A catalogue being down must not stop somebody
@@ -90,7 +106,66 @@ export const CATALOGUES = [
  */
 const REASON = /^(HTTP \d{3}|timed out|unreachable)$/
 
-/** What one catalogue has done since this server started. */
+/**
+ * The statuses that mean the catalogue heard the request and would not serve it.
+ *
+ * A refusal is not a failure, and the difference is the whole of what a person
+ * does next. An exhausted quota or a rejected credential is answered by
+ * configuration, and answered today; a timeout or an unreachable host is
+ * answered by waiting, and there is nothing to configure. Folded together, as
+ * they were until this list existed, "Google Books has been silent forty times"
+ * could not tell the owner which of those two afternoons he was having.
+ *
+ * Derived from `why` rather than passed in, so it can only ever be one of the
+ * strings `REASON` already vets. Nothing here reads a response body, and
+ * widening this list may not either.
+ */
+const DECLINED = new Set(['HTTP 401', 'HTTP 403', 'HTTP 429'])
+
+/**
+ * What one catalogue did with one request, said by the only code that knows.
+ *
+ * Three outcomes and not two, and the third has to come from the caller because
+ * `bounded-fetch.ts` cannot see it: whether the reply had this book in it. A
+ * reply is a reply either way, so both count as `answered`, but "Open Library
+ * answered 238 times" and "Open Library answered 238 times and held 232 of the
+ * books" are different claims, and only the second one can be checked against a
+ * collection.
+ *
+ * **There is deliberately no default.** A caller that does not say which of the
+ * three happened does not compile, because a silent default is the exact defect
+ * this file exists to end: the unsaid case reads as the ordinary one.
+ */
+export type SourceOutcome =
+  /** It replied and had a record of this book. */
+  | 'record'
+  /** It replied and has no record of this book. Ordinary, and not a failure. */
+  | 'no record'
+  /** It did not reply at all. `why` says whether it refused or simply failed. */
+  | 'no reply'
+
+/**
+ * What one catalogue has done since this server started.
+ *
+ * **Five things can happen to a source and this reports all five**, because
+ * four of them are the same `null` from the outside, and somebody looking at a
+ * book with no cover and no page count needs to know which one happened:
+ *
+ * | What happened | How it reads here |
+ * | --- | --- |
+ * | It was never asked | `asked` and `skipped` both nought |
+ * | It was wanted and not asked, to stay inside its rate | `skipped` above nought |
+ * | It was asked and refused to serve | `declined` above nought |
+ * | It was asked and failed | `failed` above nought |
+ * | It was asked and genuinely has no record | `noRecord` above nought |
+ *
+ * `asked`, `answered` and `silent` are the coarse three, kept because things
+ * read them. They are sums of the finer ones and nothing else:
+ * `answered = held + noRecord`, `silent = declined + failed`, and
+ * `asked = answered + silent`. Nothing recomputes them on the way out; they are
+ * incremented beside the finer ones in the one place that increments anything,
+ * and a test holds the sums.
+ */
 export interface SourceStanding {
   /** The catalogue, spelled as `lookup_source` spells it. */
   source: string
@@ -100,6 +175,41 @@ export interface SourceStanding {
   answered: number
   /** Requests it did not reply to at all. */
   silent: number
+  /**
+   * Replies that had a record of the book asked about.
+   *
+   * The number that says a catalogue is earning its request. A source missing a
+   * key, holding a different kind of collection, or not indexing the ISBN form
+   * it was handed, sits at `held: 0` with a perfectly healthy `answered`, and
+   * until this existed that was indistinguishable from a source doing its job.
+   */
+  held: number
+  /**
+   * Replies that had no record of the book asked about.
+   *
+   * **Not a failure and not counted as one.** Open Library has no record of six
+   * of the 238 books in the real catalogue, and that is a fact about those
+   * books rather than about the request. It is split out from `held` rather
+   * than out of `answered` for exactly that reason.
+   */
+  noRecord: number
+  /**
+   * Requests the catalogue heard and refused to serve: 401, 403 or 429.
+   *
+   * The one this issue was about. Every Google Books request in the life of the
+   * real catalogue has come back 429 from Google's shared anonymous pool, so
+   * this is the counter a missing key moves, and it is the one to read beside
+   * `googleBooksKeyConfigured`.
+   */
+  declined: number
+  /**
+   * Requests that did not reply for any other reason: a timeout, an unreachable
+   * host, or a status that is not a refusal.
+   *
+   * Nothing anybody configures fixes this one, which is precisely why it must
+   * not be the same number as `declined`.
+   */
+  failed: number
   /**
    * Times this catalogue was wanted and not asked, to stay inside its rate (#305).
    *
@@ -125,14 +235,18 @@ interface Tally extends SourceStanding {
 const standings = new Map<string, Tally>()
 
 function tallyFor(source: string): Tally {
-  const held = standings.get(source)
-  if (held) return held
+  const standing = standings.get(source)
+  if (standing) return standing
 
   const fresh: Tally = {
     source,
     asked: 0,
     answered: 0,
     silent: 0,
+    held: 0,
+    noRecord: 0,
+    declined: 0,
+    failed: 0,
     skipped: 0,
     lastSilentAt: '',
     lastSilence: '',
@@ -151,16 +265,27 @@ for (const source of CATALOGUES) tallyFor(source)
  * returns nothing and cannot fail: a lookup must not care whether the record
  * was kept, and must not slow down or break because it was not.
  *
+ * **Called after the reply has been read, not before.** Whether there was a
+ * record of this book is the one thing `bounded-fetch.ts` cannot see, so the
+ * call moved down past the parse in every caller. Nothing else moved with it:
+ * the reply is still not allowed to change what the lookup returns.
+ *
  * @param source the catalogue, spelled as `lookup_source` spells it
- * @param answered true when it replied at all, false when it did not reply
- * @param why one of the reasons `REASON` allows. Ignored when it answered
+ * @param outcome which of the three things happened. There is no default
+ * @param why one of the reasons `REASON` allows. Ignored unless it did not reply
  */
-export function noteSourceAnswer(source: string, answered: boolean, why = ''): void {
+export function noteSourceAnswer(
+  source: string,
+  outcome: SourceOutcome,
+  why = '',
+): void {
   const tally = tallyFor(source)
   tally.asked += 1
 
-  if (answered) {
+  if (outcome !== 'no reply') {
     tally.answered += 1
+    if (outcome === 'record') tally.held += 1
+    else tally.noRecord += 1
     tally.answering = true
     return
   }
@@ -171,6 +296,8 @@ export function noteSourceAnswer(source: string, answered: boolean, why = ''): v
   const wentQuiet = tally.answering
 
   tally.silent += 1
+  if (DECLINED.has(reason)) tally.declined += 1
+  else tally.failed += 1
   tally.lastSilentAt = new Date().toISOString()
   tally.lastSilence = reason
   tally.answering = false
@@ -193,6 +320,24 @@ export function noteSourceAnswer(source: string, answered: boolean, why = ''): v
       'See /api/health for how often this has happened.',
     )
   }
+}
+
+/**
+ * The outcome, from the two booleans every caller already has.
+ *
+ * `answered` comes from `bounded-fetch.ts` and `held` from whatever that caller
+ * does with the body, and the two are always decided in different places. This
+ * exists so the joining of them is written once: a caller that wrote
+ * `answered ? 'record' : 'no reply'` by hand would count every book a catalogue
+ * has never heard of as an outage, which is the mistake this whole file is
+ * about, in miniature.
+ *
+ * @param answered whether the catalogue replied at all
+ * @param held whether the reply had a record of the book asked about
+ */
+export function outcomeOf(answered: boolean, held: boolean): SourceOutcome {
+  if (!answered) return 'no reply'
+  return held ? 'record' : 'no record'
 }
 
 /**
@@ -220,9 +365,13 @@ export function sourceStandings(): SourceStanding[] {
 
   return [...known, ...rest].map((name) => {
     const {
-      source, asked, answered, silent, skipped, lastSilentAt, lastSilence,
+      source, asked, answered, silent, held, noRecord, declined, failed, skipped,
+      lastSilentAt, lastSilence,
     } = tallyFor(name)
-    return { source, asked, answered, silent, skipped, lastSilentAt, lastSilence }
+    return {
+      source, asked, answered, silent, held, noRecord, declined, failed, skipped,
+      lastSilentAt, lastSilence,
+    }
   })
 }
 
