@@ -46,13 +46,14 @@
 #
 # Not inertia, and it was checked rather than assumed. Since #512 there is a
 # build and `npm start`, and since #531 there is an image; neither of them can
-# serve this deployment. The built server and the image both bind `127.0.0.1`
-# with no TLS, deliberately (`deploy/contract.json`, `network.bind`), and the
-# phone this app exists for is a different device on the LAN and will not open a
-# camera outside a secure context. `npm run dev` is the only thing in the tree
-# that binds `0.0.0.0:5173` over HTTPS. When #471 puts something in front of the
-# server that terminates TLS, this becomes `npm start` and this comment is the
-# thing to delete.
+# serve this deployment, and the reason is TLS rather than the bind. #543 made
+# the bind a choice, so the built server can be reached from the LAN now. It
+# still cannot serve a phone: neither the build nor the image terminates TLS, the
+# session cookie is set `Secure` always, and a browser will not store it over
+# plain http on anything but localhost. `npm run dev` is the only thing in the
+# tree that binds `0.0.0.0:5173` over HTTPS, which is what the camera needs. When
+# #471 puts something in front of the server that terminates TLS, this becomes
+# `npm start` and this comment is the thing to delete.
 
 [CmdletBinding()]
 param(

@@ -80,22 +80,31 @@ the whole thing as a machine fact would put the table above outside version
 control on the strength of three strings, and every row of that table is a thing
 this project paid for once and would pay for again.
 
-**"Delete it when #471 lands" is refuted by dates and by the loopback bind.**
-#471 has not chosen a host and has deliberately not chosen between a tunnel to an
-origin the owner runs and Cloudflare Containers; `docs/the-image.md` says so and
-declines to guess. Until it does, this launcher is how somebody's catalogue
-starts every day. And the newer things do not replace it, which is the part worth
-stating precisely:
+**"Delete it when #471 lands" is refuted by dates and by TLS.** #471 has not
+chosen a host and has deliberately not chosen between a tunnel to an origin the
+owner runs and Cloudflare Containers; `docs/the-image.md` says so and declines to
+guess. Until it does, this launcher is how somebody's catalogue starts every day.
+And the newer things do not replace it, which is the part worth stating
+precisely:
 
-- **The build (#512) cannot serve this deployment.** `npm start` runs one process
-  bound to `127.0.0.1:3001` over plain http.
-- **The image (#531) cannot either**, for the same reason: `deploy/contract.json`
-  records `network.bind` as `127.0.0.1` and says in `readThisFirst` that
-  publishing the port reaches nothing.
 - **The phone is a different device on the LAN, and it needs a secure context to
   open a camera.** `npm run dev` binds `0.0.0.0:5173` with a self-signed
-  certificate, and it is the only thing in this tree that does. That is why the
-  launcher still runs it, and it is a fact about TLS rather than about inertia.
+  certificate, and it is the only thing in this tree that does.
+- **Neither the build (#512) nor the image (#531) terminates TLS**, and neither
+  was ever meant to. `docs/running-from-a-build.md` says a deployment needs a
+  real certificate; `docs/the-image.md` says whatever terminates TLS is the
+  consumer's and has to sit in front of the container. `npm start` runs one
+  process over plain http, and a browser will not store the session cookie over
+  plain http on anything but localhost, because `web/server/auth/gate.ts` sets it
+  `Secure` always. So a phone pointed at `npm start` on this desktop gets a
+  sign-in that appears to work and lands back on the login screen, and no camera.
+
+**The bind stopped being part of this argument on 2026-09-06**, which is worth
+saying because the first draft of this section leaned on it. #543 made the bind a
+choice: `BOOKSCAN_BIND` takes `loopback` or `all`, and the default stays
+`loopback`. So the built server *can* now be reached from the LAN. It still
+cannot serve a phone, because a reachable http origin is not a secure context.
+The argument narrows to TLS alone and the conclusion does not move.
 
 So the launcher becomes deletable the day something in front of the server
 terminates TLS, and that is #471's decision, not this one.
@@ -237,8 +246,11 @@ them is reversible by an agent, which is why they are listed rather than done.
 1. **It does not touch the live catalogue, the stable server or the scheduled
    task.** Nothing was started, stopped or pointed anywhere. The two files were
    read and nothing else in that directory was.
-2. **It does not move the loopback bind or choose a host.** That is #471, and
-   until it is decided this launcher is how the catalogue starts.
+2. **It does not set `BOOKSCAN_BIND` or choose a host.** #543 made the bind a
+   choice and left the default closed; this deployment is served by the Vite dev
+   server on `0.0.0.0:5173` and does not need the api's own listener widened.
+   Choosing a host is #471, and until it is decided this launcher is how the
+   catalogue starts.
 3. **It does not back up the machine.** #475 asked specifically that this not be
    folded into a general backup chore, and it has not been. What is fixed is that
    the launcher is now in a repository with a remote, which is a different thing
