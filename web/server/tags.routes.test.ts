@@ -439,6 +439,18 @@ describe('a person tagging a book', () => {
 })
 
 describe('the vocabulary', () => {
+  /**
+   * `genre/non-fiction` is in this list because every catalogue has it, and it
+   * was missing until #529 for a reason worth keeping.
+   *
+   * `0002` seeds `genre/fiction` and `genre/non-fiction` as vocabulary rows, so
+   * a real catalogue holds both from its first migration. This file's old reset
+   * truncated `tag`, which deleted them; `genre/fiction` came back only because
+   * `aBook()` files as fiction and saving re-made it. So the answer this test
+   * asserted was the answer to a catalogue that cannot exist. The hand-written
+   * list was wrong in both directions at once — short of the tables a test
+   * writes, and past the rows a migration seeded.
+   */
   it('answers under with the tags beneath one slug', async () => {
     const id = await aBook()
     await post(`/api/books/${id}/tags`, { slug: 'genre/fantasy', label: 'Fantasy' })
@@ -446,7 +458,7 @@ describe('the vocabulary', () => {
 
     const { body } = await call('/api/tags?under=genre')
     expect((body.tags as { slug: string }[]).map((tag) => tag.slug))
-      .toEqual(['genre/fantasy', 'genre/fiction'])
+      .toEqual(['genre/fantasy', 'genre/fiction', 'genre/non-fiction'])
   })
 
   it('renames a tag without moving its slug', async () => {
