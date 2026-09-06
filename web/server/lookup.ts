@@ -20,6 +20,12 @@
  * anything here: the distinction it turns on is between a source with no record
  * of a book, which is ordinary, and a source that did not reply.
  *
+ * **And it now says which of five things happened rather than which of three.**
+ * `noteSourceAnswer` takes an outcome and not a boolean, with no default, which
+ * is why every call to it here sits below the parse rather than above it:
+ * whether a reply held this book is the one thing `bounded-fetch.ts` cannot
+ * see, and it is half of what the report is for.
+ *
  * ## Since #305 there are four catalogues, and two of them are a top-up
  *
  * `docs/catalogue-sources.md` asked five candidates about all 238 books in the

@@ -56,6 +56,13 @@
  * - The findable record is `/api/health`, which is already the one command
  *   AGENTS.md tells anybody to run against a running server. It settled which
  *   database was opened; it now also settles which catalogues answered.
+ * - **The read record is a screen**, and it had to become one. The two above
+ *   are for somebody at a terminal, the log line is printed once per outage,
+ *   and #521 put `/api/health` behind the sign-in gate, so the whole of this
+ *   was legible only to a signed-in `curl`. The owner holds a phone.
+ *   `src/lib/catalogueWords.ts` turns this into the card on the first screen
+ *   and the standings in Settings, and carries the argument about which fact
+ *   goes on which.
  *
  * A table in Postgres was the other option and it is not proportionate. This is
  * a fact about a running server rather than about the collection, and a

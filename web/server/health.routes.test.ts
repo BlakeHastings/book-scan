@@ -133,6 +133,38 @@ describe('GET /api/health', () => {
     expect(answer.ok).toBe(true)
   })
 
+  it('carries all five states through the route, not the coarse three', async () => {
+    /*
+     * The route hands the report out whole, so what is asserted here is that
+     * the fields survive the wire rather than what any of them mean;
+     * `source-watch.test.ts` is where each is put through its cases. It is
+     * worth a real request because the route is the wiring, and a report that
+     * lost its finer half between the tally and the response would leave the
+     * client reading two numbers where it now reads five.
+     */
+    const base = await serving()
+    noteSourceAnswer('Open Library', 'record')
+    noteSourceAnswer('Open Library', 'no record')
+    noteSourceAnswer('Google Books', 'no reply', 'HTTP 429')
+    noteSourceAnswer('Google Books', 'no reply', 'timed out')
+    noteSourceSkipped('K10plus')
+
+    const answer = await (await ask(`${base}/api/health`)).json()
+    const of = (name: string) =>
+      answer.lookups.sources.find((one: { source: string }) => one.source === name)
+
+    expect(of('Open Library')).toMatchObject({
+      asked: 2, answered: 2, held: 1, noRecord: 1, silent: 0, declined: 0, failed: 0,
+    })
+    expect(of('Google Books')).toMatchObject({
+      asked: 2, answered: 0, held: 0, noRecord: 0, silent: 2, declined: 1, failed: 1,
+    })
+    expect(of('K10plus')).toMatchObject({ asked: 0, skipped: 1, declined: 0, failed: 0 })
+    expect(of('Library of Congress')).toMatchObject({
+      asked: 0, skipped: 0, held: 0, noRecord: 0, declined: 0, failed: 0,
+    })
+  })
+
   it('reports a catalogue that was wanted and not asked, as neither of the other two', async () => {
     /*
      * #305 put two free national catalogues behind a rate limiter, and the
