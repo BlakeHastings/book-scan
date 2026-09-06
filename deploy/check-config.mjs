@@ -306,6 +306,15 @@ function main(argv) {
     const bind = (env[contract.network.bindVariable] ?? '').trim().toLowerCase()
     if (bind !== 'all') console.log(`  - ${contract.network.readThisFirst}`)
     console.log(`  - ${contract.mounts[0].whenMissing}`)
+    /*
+     * TLS belongs on this list rather than in a check, and the difference is the
+     * point. Nothing in here can see what is in front of the container: every
+     * correct deployment hands this server plain http, so a check would fire on
+     * all of them. It is not a check that guesses, it is the sentence a deployer
+     * needs at the moment they are wiring something up, printed exactly where
+     * the other two unknowables are.
+     */
+    console.log(`  - ${contract.network.tls.whatBreaksWithoutIt}`)
     return 0
   }
 
