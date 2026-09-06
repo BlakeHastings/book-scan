@@ -24,12 +24,11 @@ import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
+import { closeTestDatabase, openTestDatabase } from './testdb'
 import { downloadCover } from './covers'
-import { PgDb } from './db.pg'
+import type { Db } from './driver'
 import { createApp } from './index'
 import { signedIn } from './testauth'
 import { lookupIsbn } from './lookup'
@@ -60,10 +59,11 @@ vi.mock('./covers', () => ({
 const answers = vi.mocked(lookupIsbn)
 const covers = vi.mocked(downloadCover)
 
-let pool: pg.Pool
 // One `Db` for the file, not one per test. Each `PgDb` registers an `error`
 // listener on the pool, and a dozen of them trips node's max-listeners warning.
-let db: PgDb
+// `openTestDatabase` hands back the same one every call, which is what keeps
+// that true now the reset is its job rather than this file's.
+let db: Db
 /** This file's own scratch root, which no other test file can name. */
 let scratch: string
 let coverDir: string
@@ -74,14 +74,12 @@ let cookie: string
 /** Kept so a test can wait for the chain a save fires and not race it. */
 let app: ReturnType<typeof createApp>
 
-beforeAll(async () => {
-  pool = await migratedDatabase()
-  db = new PgDb(pool)
+beforeAll(() => {
   scratch = scratchRoot('captures')
 })
 
 beforeEach(async () => {
-  await pool.query('TRUNCATE books, book_authors, captures, capture, book_tag, tag RESTART IDENTITY CASCADE')
+  db = await openTestDatabase()
   answers.mockReset()
   answers.mockResolvedValue({ ...empty })
   covers.mockReset()
@@ -103,7 +101,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
   // The per-test cover directories go in `afterEach`; this is the root they
   // were made in, and it belongs to this file alone. Nothing above it is
   // touched, because there is nothing above it that anything else shares. That

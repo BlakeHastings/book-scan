@@ -18,11 +18,10 @@ import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { closeScratchDatabases, migratedDatabase } from '../infrastructure/db/testdb'
-import { PgDb } from './db.pg'
+import { closeTestDatabase, openTestDatabase } from './testdb'
+import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import { lookupIsbn } from './lookup'
@@ -59,10 +58,11 @@ const DUNE_10 = '0441013597'
 /** A different book, for the saves that correct which book a row is. */
 const MOCKINGBIRD = '9780061120084'
 
-let pool: pg.Pool
 // One `Db` for the file, not one per test. Each `PgDb` registers an `error`
 // listener on the pool, and a dozen of them trips node's max-listeners warning.
-let db: PgDb
+// `openTestDatabase` hands back the same one every call, which is what keeps
+// that true now the reset is its job rather than this file's.
+let db: Db
 /** This file's own scratch root, which no other test file can name. */
 let scratch: string
 let coverDir: string
@@ -72,17 +72,12 @@ let baseUrl: string
 /** The session every request in this file carries. See server/testauth.ts. */
 let cookie: string
 
-beforeAll(async () => {
-  pool = await migratedDatabase()
-  db = new PgDb(pool)
+beforeAll(() => {
   scratch = scratchRoot('tags')
 })
 
 beforeEach(async () => {
-  await pool.query(
-    'TRUNCATE books, book_authors, captures, book_tag, tag, author, author_alias ' +
-    'RESTART IDENTITY CASCADE',
-  )
+  db = await openTestDatabase()
   answers.mockReset()
   answers.mockResolvedValue({ ...empty })
 
@@ -117,7 +112,7 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  await closeScratchDatabases()
+  await closeTestDatabase()
   // The per-test cover directories go in `afterEach`; this is the root they
   // were made in, and it belongs to this file alone. Nothing above it is
   // touched, because there is nothing above it that anything else shares. That
@@ -582,16 +577,20 @@ describe('sweeping a tag away', () => {
 
   it('takes a word nothing carries and no rule asks for', async () => {
     /*
-     * Its own word, and not the one the tests above write a rule against.
+     * Its own word, which no longer has to be (#529).
      *
-     * **This file's reset does not cover the rules**, and a test writing one is
-     * new with #452. The `beforeEach` truncates a hand-written list of tables
-     * that stops at `author_alias`, so `placement_rule` and `rule_condition`
-     * carry from one test in this file into the next: written with the same slug
-     * as the test above, this one asked to sweep a word a rule left over from
-     * two tests ago was still asking for, and was refused. AGENTS.md names that
-     * shape by itself — a reset the schema outgrew, which nothing reports
-     * because nothing is wrong until a test writes the table nobody listed.
+     * #452 wrote this comment the other way round. This file's reset was a
+     * hand-written `TRUNCATE` that stopped at `author_alias`, so
+     * `placement_rule` and `rule_condition` carried from one test into the next,
+     * and this test — written with the same slug as the one above it — asked to
+     * sweep a word a rule left over from two tests ago was still asking for, and
+     * was refused. The distinct slug was the workaround.
+     *
+     * The `beforeEach` is `openTestDatabase()` now, which puts **every** table
+     * back rather than the ones somebody remembered, so the leak is gone and the
+     * slug is only a slug. It is left distinct because nothing is gained by
+     * making two tests share one, and kept commented because the next person to
+     * find a test passing for a reason like this one should recognise it.
      */
     await post('/api/tags', { slug: 'subject/thatching', label: 'Thatching' })
 
