@@ -102,6 +102,27 @@
  * go instead, in its last sentence, because a card with no button that says
  * only that something is wrong is the log line moved onto a screen.
  *
+ * ## And the third, which is the narrowest of them (#348)
+ *
+ * A card saying a catalogue has described none of the books looked up, and it
+ * arrived the same way as the two above: the counters behind it existed, they
+ * were correct, and the only readers were a log line printed once per outage
+ * and a `/api/health` that has been behind the sign-in gate since #521. The
+ * owner holds a phone. He was never going to see either.
+ *
+ * **It is drawn for a refusal and not for a failure**, which is the deliberate
+ * part and the reason the server had to learn the difference before this could
+ * exist. A catalogue turning the request away answers the same way tomorrow and
+ * a person is what ends it; a catalogue timing out is having an afternoon.
+ * Putting the second on this screen would teach somebody to scroll past the
+ * card, and this screen already carries two cards that must not be scrolled
+ * past. The full standing of every catalogue, including the ones merely having
+ * an afternoon and the ones nobody has asked, is in Settings.
+ *
+ * It names no catalogue this app did not ask, says nothing about the key beyond
+ * whether there is one, and has no button, for all the same reasons as the two
+ * above. `lib/catalogueWords.ts` holds the words and the argument.
+ *
  * ## The three doors, and what is deliberately not one
  *
  * **The book in your hand** (#355) is the camera you point at a book you
@@ -158,8 +179,11 @@ import { Phone } from '../design/Phone'
 import { Trouble } from '../design/Trouble'
 import { troubleWith } from '../lib/backupWords'
 import { driftTrouble } from '../lib/driftWords'
+import { catalogueTrouble } from '../lib/catalogueWords'
 import { grouped } from '../lib/say'
-import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
+import type {
+  BackupWatch, CarryItem, Counts, LookupStandings, QueueCounts,
+} from '../lib/api'
 import { CHECKED_OUT, type BookState } from '../../domain/books/state'
 import type { Which } from './QueuePane'
 
@@ -203,6 +227,20 @@ interface Props {
    * not start now; the card says where they are named.
    */
   drifting: number | null
+  /**
+   * What each catalogue a lookup consults has been doing (#348).
+   *
+   * Null until the read answers, and null if it failed, and both draw nothing.
+   * So does every catalogue answering, and so does one merely having a bad
+   * afternoon: the only thing that draws a card here is a catalogue that was
+   * asked, described nothing, and turned the requests away, because that is the
+   * one that will still be true tomorrow.
+   *
+   * The whole report and not a count, which is neither of the two splits above:
+   * the sentence has to name the catalogue and say whether it was refused for
+   * want of a key, and neither is a number.
+   */
+  lookups: LookupStandings | null
   /** Photograph a book, which is what the fourth tab is for. */
   onAdd: () => void
   /**
@@ -271,7 +309,7 @@ function waitingIn(queue: QueueCounts): number {
 }
 
 export function HomePane({
-  counts, queue, carrying, unclaimed, backup, drifting,
+  counts, queue, carrying, unclaimed, backup, drifting, lookups,
   onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onUnclaimed,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
@@ -323,11 +361,31 @@ export function HomePane({
    * all is not.
    */
   const drift = driftTrouble(drifting)
-  const news = (trouble || drift) && (
+  /*
+   * The third, and the one with the narrowest condition (#348).
+   *
+   * Only a catalogue that was asked, answered nothing, and turned the requests
+   * away rather than failing to reply. That is the state a person ends and the
+   * other one is weather: a library timing out this afternoon is answering
+   * again by evening, and a card about it is a card somebody learns to scroll
+   * past before the day it is real. The argument is written out in
+   * `lib/catalogueWords.ts`, along with why Settings has the rest of it.
+   *
+   * Last of the three, which is again about what is worse: no copy of the
+   * collection outranks books drawn in two places, and both outrank a book
+   * described by one library instead of two.
+   */
+  const catalogues = catalogueTrouble(lookups)
+  const news = (trouble || drift || catalogues) && (
     <>
       {trouble && <Trouble kind="Backups" title={trouble.title}>{trouble.said}</Trouble>}
       {drift && (
         <Trouble kind="Where books stand" title={drift.title}>{drift.said}</Trouble>
+      )}
+      {catalogues && (
+        <Trouble kind="Catalogues" title={catalogues.title}>
+          {catalogues.said}
+        </Trouble>
       )}
     </>
   )

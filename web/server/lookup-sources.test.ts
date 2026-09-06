@@ -39,9 +39,18 @@ const API_KEY = 'not-a-real-key-9d1f0c'
 
 const ISBN = '9780441013593'
 
-/** What each stub does with the next request. Set per test. */
-let openLibraryDoes: 'answers' | 'has no record' | 'quota' | 'hangs' | 'drops' = 'answers'
-let googleDoes: 'answers' | 'has no record' | 'quota' | 'hangs' | 'drops' = 'answers'
+/**
+ * What each stub does with the next request. Set per test.
+ *
+ * `quota` and `breaks` are both a status code and neither is an answer, and
+ * they are separate on purpose: 429 is a catalogue refusing to serve, which a
+ * key answers, and 500 is a catalogue failing, which nothing anybody types
+ * answers. The report has to tell them apart, so the stubs have to be able to
+ * produce them apart.
+ */
+type Behaviour = 'answers' | 'has no record' | 'quota' | 'breaks' | 'hangs' | 'drops'
+let openLibraryDoes: Behaviour = 'answers'
+let googleDoes: Behaviour = 'answers'
 
 let openLibrary: Server
 let google: Server
@@ -57,13 +66,13 @@ function answer(res: ServerResponse, body: unknown): void {
 }
 
 /**
- * The four ways a catalogue can behave, mapped onto one handler.
+ * The ways a catalogue can behave, mapped onto one handler.
  *
  * "has no record" is a 200 with nothing in it, which is the ordinary case and
  * the one that must never be counted as a failure.
  */
 function behave(
-  does: typeof googleDoes,
+  does: Behaviour,
   req: IncomingMessage,
   res: ServerResponse,
   found: unknown,
@@ -73,6 +82,13 @@ function behave(
     // Google's own words for an exhausted anonymous pool, shortened.
     res.writeHead(429, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: { code: 429, message: "Quota exceeded for quota metric 'Queries'" } }))
+    return
+  }
+  if (does === 'breaks') {
+    // A catalogue having a bad day rather than refusing us. Nobody's key fixes
+    // this one, which is the whole reason it must not land in the same counter.
+    res.writeHead(500, { 'Content-Type': 'application/json' })
+    res.end('{}')
     return
   }
   if (does === 'hangs') return // no response at all, until the caller gives up
@@ -298,6 +314,100 @@ describe('the other ways a catalogue goes quiet', () => {
     // twice. Nothing here is an exception and nothing reached a 500.
     expect(standingFor('Open Library')).toMatchObject({ asked: 2, answered: 0, silent: 2 })
     expect(standingFor('Google Books')).toMatchObject({ asked: 2, answered: 0, silent: 2 })
+  })
+})
+
+/**
+ * The bar this issue actually sets, put to a real server five times.
+ *
+ * "A source that silently answers nothing looks exactly like a source that
+ * answered and found nothing" is the sentence the whole issue turns on, and
+ * there are five of those look-alikes rather than two. Each case below is a
+ * server really behaving that way, and the last test is the one that matters:
+ * it asserts the five reports are five different reports, so a future change
+ * that folds two of them back together fails here rather than going quiet
+ * again, which is the failure mode this file exists to stop.
+ *
+ * `supplement: false` throughout, so Library of Congress and K10plus are not
+ * consulted. That is not only about staying off the network: it is what makes
+ * them the "never asked" case.
+ */
+describe('the five things that can happen to a catalogue, told apart', () => {
+  /** Google Books' standing after the stub behaved one way for one lookup. */
+  async function after(does: Behaviour) {
+    forgetSourceStandings()
+    googleDoes = does
+    await lookupIsbn(ISBN, { googleApiKey: API_KEY, supplement: false, timeoutMs: 150 })
+    return standingFor('Google Books')
+  }
+
+  it('never asked is nought everywhere, and is not silence', async () => {
+    await lookupIsbn(ISBN, { googleApiKey: API_KEY, supplement: false })
+
+    // Named in the report at nought rather than left out of it, because an
+    // absent entry reads as "nothing to report" and means the opposite.
+    expect(standingFor('Library of Congress')).toMatchObject({
+      asked: 0, answered: 0, silent: 0, held: 0, noRecord: 0,
+      declined: 0, failed: 0, skipped: 0, lastSilence: '',
+    })
+  })
+
+  it('asked and it had the book is the only state that counts as held', async () => {
+    expect(await after('answers')).toMatchObject({
+      asked: 1, answered: 1, held: 1, noRecord: 0, silent: 0, declined: 0, failed: 0,
+    })
+  })
+
+  it('asked and it genuinely has no record is an answer, not a failure', async () => {
+    // Open Library has no record of six of the 238 books in the real
+    // catalogue. Those six are a fact about the books, and filing them as
+    // outages would make the report useless for finding a real one.
+    expect(await after('has no record')).toMatchObject({
+      asked: 1, answered: 1, held: 0, noRecord: 1, silent: 0, declined: 0, failed: 0,
+    })
+  })
+
+  it('asked and it refused to serve is declined, which a key answers', async () => {
+    expect(await after('quota')).toMatchObject({
+      asked: 1, answered: 0, held: 0, noRecord: 0,
+      silent: 1, declined: 1, failed: 0, lastSilence: 'HTTP 429',
+    })
+  })
+
+  it('asked and it failed is failed, which nothing anybody types answers', async () => {
+    expect(await after('breaks')).toMatchObject({
+      asked: 1, answered: 0, silent: 1, declined: 0, failed: 1, lastSilence: 'HTTP 500',
+    })
+    expect(await after('hangs')).toMatchObject({
+      silent: 1, declined: 0, failed: 1, lastSilence: 'timed out',
+    })
+    expect(await after('drops')).toMatchObject({
+      silent: 1, declined: 0, failed: 1, lastSilence: 'unreachable',
+    })
+  })
+
+  it('reports all five differently, which is the whole of what was wrong', async () => {
+    /*
+     * Before this, `answered` covered the second and third and `silent` covered
+     * the fourth and fifth, so five afternoons produced three reports. The
+     * counters and the timestamp are dropped from the comparison: the timestamp
+     * differs between any two runs and would make this pass for the wrong
+     * reason.
+     */
+    const said = (standing: object) =>
+      JSON.stringify({ ...standing, source: '', lastSilentAt: '' })
+
+    forgetSourceStandings()
+    await lookupIsbn(ISBN, { googleApiKey: API_KEY, supplement: false })
+    const reports = [said(standingFor('Library of Congress'))]
+
+    // Sequentially. `after` sets a module-level behaviour and empties a
+    // module-level tally, so these cannot be run at once.
+    for (const does of ['answers', 'has no record', 'quota', 'breaks'] as const) {
+      reports.push(said(await after(does)))
+    }
+
+    expect(new Set(reports).size, reports.join('\n')).toBe(5)
   })
 })
 

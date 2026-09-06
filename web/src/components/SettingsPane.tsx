@@ -90,11 +90,12 @@
 import { Card, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Choice, Segmented } from '../design/Controls'
-import type { FurnitureDto, SortStrategyCode } from '../lib/api'
+import type { FurnitureDto, LookupStandings, SortStrategyCode } from '../lib/api'
 import type { FirstPicture } from '../design/Shots'
 import type { Hand } from '../design/Camera'
 import { FIRST_PICTURE_WORD } from '../lib/firstPicture'
 import { HAND_WORD } from '../lib/hand'
+import { catalogueRoll } from '../lib/catalogueWords'
 import { orderingSaid } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 
@@ -126,13 +127,23 @@ interface Props {
   onOrder: (code: SortStrategyCode) => void
   onHand: (hand: Hand) => void
   onFirstPicture: (first: FirstPicture) => void
+  /**
+   * What each catalogue has been doing (#348).
+   *
+   * Null until the read answers and null if it failed, and both draw no card.
+   * The alternative, a card of noughts, would say every catalogue has been
+   * asked nothing, which is a claim rather than a silence and is the exact
+   * misreading this whole feature exists to prevent.
+   */
+  lookups: LookupStandings | null
 }
 
 export function SettingsPane({
-  room, hand, firstPicture, busy, error, tabs,
+  room, hand, firstPicture, busy, error, tabs, lookups,
   onBack, onOrder, onHand, onFirstPicture,
 }: Props) {
   const top = <TopBar title="Settings" onBack={onBack} />
+  const roll = catalogueRoll(lookups)
 
   return (
     <RoomFrame top={top} tabs={tabs}>
@@ -208,6 +219,39 @@ export function SettingsPane({
         A book with no downloaded cover opens on the photograph you took, either
         way.
       </Said>
+
+      {/*
+        Where a person finds out what the catalogues have been doing (#348).
+
+        Read-only and not a control, so the paragraph above about backing up
+        does not cover it: there is nothing here to press and nothing here
+        promises anything the server cannot do. The one act it points at, giving
+        the second catalogue a key, is done where the server runs, and the card
+        says so rather than drawing a field for a secret on a phone.
+
+        Every catalogue every time, including the ones that have done nothing,
+        which is the rule the whole issue produced: an absent entry reads as
+        "nothing to report" and means the opposite.
+      */}
+      {roll && (
+        <Card kind="Catalogues" title="Where your books are described from">
+          <Said>{roll.said}</Said>
+          {/*
+            A label and a sentence per catalogue, which is this screen's own
+            repeating shape, rather than `List` and `Row`. A `Row` is a button
+            whether or not it is given something to do, and there is nothing to
+            open behind any of these: a press target that does nothing is worse
+            than a paragraph.
+          */}
+          {roll.rows.map((one) => (
+            <div key={one.source}>
+              <span className="wf-field__label">{one.source}</span>
+              <Said>{one.said}</Said>
+            </div>
+          ))}
+          <Said>{roll.keyed}</Said>
+        </Card>
+      )}
 
       <Card kind="Nobody signs in" title="Everybody in the house shares one collection">
         <p>

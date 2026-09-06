@@ -105,13 +105,31 @@ per-IP and starts returning 429 well before you finish a shelf". What is new is
 that it is not "well before you finish a shelf", it is always.
 
 This matters twice over. It is a real thing to fix, and it is cheaper than
-anything else on this page: `server/index.ts` already reads
-`GOOGLE_BOOKS_API_KEY`, and nothing more than setting it is required. It also
+anything else on this page: nothing more than setting a key is required. It also
 means **every number in this document is measured against a baseline of one
 source**, so a share of what the new catalogues are credited with here is really
 what Google Books would have said if it had been asked. Google Books is not in
 the sweep below for that reason: 238 requests would have been 238 429s, and
 adding to an exhausted quota is not a polite way to measure it.
+
+**Two of those sentences have since gone out of date and are left standing**,
+because this page is a measurement taken on 2026-08-14 and rewriting a
+measurement to match today is how a measurement stops being one. What has
+changed, as of #348:
+
+- The key is read by `web/server/secrets.ts` under `GOOGLE_BOOKS_API_KEY` and
+  by nothing else, not by `server/index.ts`.
+- Setting it is `pwsh -File scripts/write-connection-file.ps1
+  -SetGoogleBooksApiKey`, and `scripts/run-stable.ps1` decrypts it into the
+  server's own environment. It is the owner's act and no agent's.
+- **The silence itself is fixed whether or not a key is ever set.** A catalogue
+  that refused, one that failed, one that answered and had no record of a book,
+  and one nobody asked are four different numbers on `/api/health` and two
+  different things on two screens of the app. See `web/server/source-watch.ts`.
+
+The table above is therefore the honest baseline **for one source**, and it
+stays labelled that way until somebody re-runs the sweep against a keyed Google
+Books. Nothing in this repository can do that: it needs the key.
 
 ## What each source said
 

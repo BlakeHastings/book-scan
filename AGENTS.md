@@ -383,6 +383,37 @@ the opposite. `ok` stays `true` while a catalogue is down, on purpose: somebody
 can still catalogue a book, which is why a source that fails does not fail a
 lookup.
 
+**Five things can happen to a source and the report says which**, because four
+of them are the same `null` from outside. Beside those three coarse counts, each
+catalogue carries `held` and `noRecord`, which split "it replied" into whether
+it had this book, and `declined` and `failed`, which split "it did not reply"
+into a refusal (401, 403, 429) and everything else. `skipped` is the fifth: it
+was wanted and not asked, to stay inside its rate. The coarse three are exactly
+the sums of the finer ones and stay for the things that read them.
+
+The split is not bookkeeping. **A refusal is answered by configuration this
+afternoon and a failure is answered by waiting**, and until they were two
+numbers "Google Books has been silent forty times" could not say which
+afternoon you were having. It also decides who gets told: the first screen of
+the app draws a card only for a catalogue that was asked, described nothing,
+and refused, because that is the state that will still be true tomorrow. The
+full standing of every catalogue, including the ones merely having a bad
+afternoon and the ones nobody has asked, is in the app's Settings screen. The
+argument for that split is in `web/src/lib/catalogueWords.ts`.
+
+**None of that moves `ok`, and the reason is worth saying rather than leaving to
+be inferred**, because a refusal looks like it should. It passes half the test
+the two conditions below pass: it is a standing state rather than weather, and a
+person is what ends it. It fails the other half, which is the half that matters.
+`ok` is for **this server having written something it cannot account for**, and a
+catalogue refusing to serve is somebody else's server declining: nothing here
+wrote anything, nothing is unaccounted for, and every book looked up while it was
+refusing was catalogued correctly from the catalogue that did answer. Turning
+`ok` red for it would also turn it red on every checkout that has no key, which
+is all of them, and a deployment check that is red by default is a check nobody
+reads. `web/server/health.routes.test.ts` asserts `ok` stays `true` through a
+429, so this is checked rather than only written here.
+
 **Two things make `ok` false, and they are one argument asked twice.** #505 added
 the first and #518 the second; everything else on this endpoint leaves it `true`.
 

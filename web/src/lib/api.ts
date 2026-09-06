@@ -235,6 +235,53 @@ export interface Counts {
 }
 
 /**
+ * What one catalogue has done since the server started (#348).
+ *
+ * The counters and not a verdict, the same arrangement `BackupWatch` keeps: the
+ * server decides what happened and `catalogueWords.ts` decides how to say it.
+ *
+ * The five states somebody has to be able to tell apart are all in here, and
+ * four of them used to be two numbers. `server/source-watch.ts` is where each
+ * is defined and why the split is worth the fields.
+ */
+export interface SourceStanding {
+  /** The catalogue, spelled as the app spells it on a book. */
+  source: string
+  /** Requests sent to it. */
+  asked: number
+  /** Requests it replied to, whether or not it had the book. */
+  answered: number
+  /** Requests it did not reply to at all. */
+  silent: number
+  /** Replies that had a record of the book. */
+  held: number
+  /** Replies that had no record of the book. Ordinary, and not a failure. */
+  noRecord: number
+  /** Requests it heard and refused: 401, 403 or 429. A person can end these. */
+  declined: number
+  /** Requests that failed for any other reason. Nobody's configuration ends these. */
+  failed: number
+  /** Times it was wanted and not asked, to stay inside its rate. */
+  skipped: number
+  /** When it last did not answer, ISO 8601, or empty. */
+  lastSilentAt: string
+  /** Why it last did not answer, from a closed vocabulary. Never a key. */
+  lastSilence: string
+}
+
+/**
+ * What every catalogue has done, and whether the second one has a key.
+ *
+ * `googleBooksKeyConfigured` is a boolean and stays one. It answers "is that
+ * why it is quiet" without going anywhere near the key, and a length, a prefix
+ * or a masked form would all leak and would all invite the next widening.
+ */
+export interface LookupStandings {
+  googleBooksKeyConfigured: boolean
+  sources: SourceStanding[]
+}
+
+/**
  * What the server found where the backups are kept.
  *
  * The states are the server's own words and the wire carries them rather than a
@@ -2417,7 +2464,19 @@ export const api = {
   dropArea: (id: number) =>
     request<{ plan: AreaRemovalPlan }>(`/api/areas/${id}`, { method: 'DELETE' }),
 
-  health: () => request<{ ok: boolean; counts: Counts; db: string }>('/api/health'),
+  /**
+   * The counts on the first screen, and what the catalogues have been doing.
+   *
+   * `lookups` is read here rather than fetched separately because this call
+   * already happens on every route change, so the catalogue standings cost
+   * nothing extra and are as fresh as the counts beside them. The endpoint also
+   * answers `db` and `placement`, which are for whoever curls the server and
+   * have no screen; they are typed only as far as this client reads them.
+   */
+  health: () =>
+    request<{ ok: boolean; counts: Counts; db: string; lookups: LookupStandings }>(
+      '/api/health',
+    ),
 
   /**
    * Whether there is a backup of this collection anybody has proved restores.

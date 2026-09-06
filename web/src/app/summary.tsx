@@ -32,7 +32,8 @@ import {
   type Dispatch, type ReactNode, type SetStateAction,
 } from 'react'
 import {
-  api, type BackupWatch, type CarryItem, type Counts, type QueueCounts,
+  api, type BackupWatch, type CarryItem, type Counts, type LookupStandings,
+  type QueueCounts,
 } from '../lib/api'
 import { useNavigation, type Route } from './navigation'
 
@@ -105,6 +106,21 @@ export interface Summary {
    * that names them reads the list itself.
    */
   readonly drifting: number | null
+  /**
+   * What each catalogue a lookup consults has been doing (#348).
+   *
+   * Null until the read answers and null if it failed, which is the third time
+   * that arrangement appears here and is kept for `backup`'s reason: a sentence
+   * written from a request that never came back is worth less than silence.
+   *
+   * It rides along on the health read rather than having one of its own,
+   * because that read already happens on every route change and this is a fact
+   * about the same running server. Not guarded to the first screen, unlike the
+   * two above it: Settings draws the standings in full, and a diagnostic that
+   * is only fetched on the screen it is not drawn on is a diagnostic nobody
+   * sees.
+   */
+  readonly lookups: LookupStandings | null
 }
 
 
@@ -118,11 +134,19 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const [unclaimed, setUnclaimed] = useState<number | null>(null)
   const [backup, setBackup] = useState<BackupWatch | null>(null)
   const [drifting, setDrifting] = useState<number | null>(null)
+  const [lookups, setLookups] = useState<LookupStandings | null>(null)
 
   useEffect(() => {
     let live = true
     api.health()
-      .then((h) => { if (live) setCounts(h.counts) })
+      .then((h) => {
+        if (!live) return
+        setCounts(h.counts)
+        // `?? null` rather than trusting the type: a server that predates the
+        // standings answers without them, and the words this feeds must be able
+        // to say nothing rather than read an absence as a nought.
+        setLookups(h.lookups ?? null)
+      })
       .catch(() => {})
     return () => { live = false }
   }, [route])
@@ -250,7 +274,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
     <Context.Provider
       value={{
         counts, setCounts, queueCounts, setQueueCounts, carrying, unclaimed, backup,
-        drifting,
+        drifting, lookups,
       }}
     >
       {children}
