@@ -31,6 +31,7 @@ import { useState } from 'react'
 import { SettingsPane } from '../components/SettingsPane'
 import { useNavigation } from '../app/navigation'
 import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
+import { useSummary } from '../app/summary'
 import { api, type SortStrategyCode } from '../lib/api'
 import { rememberFirstPicture, rememberedFirstPicture } from '../lib/firstPicture'
 import { rememberHand, rememberedHand } from '../lib/hand'
@@ -41,6 +42,9 @@ export function SettingsScreen() {
   const [hand, setHand] = useState(rememberedHand)
   const [firstPicture, setFirstPicture] = useState(rememberedFirstPicture)
   const tabs = useRoomTabs()
+  // Off the health read the app already makes on every change of screen, so
+  // this screen costs no request of its own (#348).
+  const { lookups } = useSummary()
   useDesignPage()
 
   return (
@@ -51,6 +55,7 @@ export function SettingsScreen() {
       busy={busy}
       error={error}
       tabs={tabs}
+      lookups={lookups}
       onBack={leaveRoom}
       onOrder={(code: SortStrategyCode) => { void write(() => api.editCollection(code)) }}
       onHand={(next) => { setHand(next); rememberHand(next) }}

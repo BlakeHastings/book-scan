@@ -31,7 +31,9 @@ import { HomePane } from './HomePane'
 import { CARRY_BOOKS, IN_HAND, SAY_WHAT } from '../design/Controls'
 import { Stats } from '../design/List'
 import type { Which } from './QueuePane'
-import type { BackupWatch, CarryItem, Counts, QueueCounts } from '../lib/api'
+import type {
+  BackupWatch, CarryItem, Counts, LookupStandings, QueueCounts, SourceStanding,
+} from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
 const counts: Counts = { total: 12, fiction: 8, nonfiction: 4, checkedOut: 0 }
@@ -67,6 +69,34 @@ function watched(over: Partial<BackupWatch> & Pick<BackupWatch, 'state'>): Backu
   return { where: 'E-drive', limitHours: 26, ...over }
 }
 
+/** One catalogue at nought, which is what a server nobody has scanned on reports. */
+function catalogue(over: Partial<SourceStanding> & { source: string }): SourceStanding {
+  return {
+    asked: 0, answered: 0, silent: 0, held: 0, noRecord: 0,
+    declined: 0, failed: 0, skipped: 0, lastSilentAt: '', lastSilence: '',
+    ...over,
+  }
+}
+
+/**
+ * The four catalogues, all answering unless a test says otherwise.
+ *
+ * The ordinary day, so it is what `propsFor` defaults to. `catalogueWords.ts`
+ * is where the sentences are put through their cases; what these tests ask is
+ * only whether a card reaches this screen and what else is on it when it does.
+ */
+function catalogues(
+  over: Partial<Record<string, Partial<SourceStanding>>> = {},
+  googleBooksKeyConfigured = true,
+): LookupStandings {
+  const answering = { asked: 12, answered: 12, held: 10, noRecord: 2 }
+  return {
+    googleBooksKeyConfigured,
+    sources: ['Open Library', 'Google Books', 'Library of Congress', 'K10plus']
+      .map((source) => catalogue({ source, ...answering, ...(over[source] ?? {}) })),
+  }
+}
+
 function propsFor(
   over: Partial<Parameters<typeof HomePane>[0]> = {},
 ): Parameters<typeof HomePane>[0] {
@@ -83,6 +113,10 @@ function propsFor(
        default here for `unclaimed`'s reason: a card drawn in every render
        below would make none of these tests say when it is drawn (#489). */
     drifting: 0,
+    /* Every catalogue answering is the ordinary day, so it is the default here
+       for `drifting`'s reason: a card drawn in every render below would make
+       none of these tests say when it is drawn (#348). */
+    lookups: catalogues(),
     onAdd: () => {},
     onInHand: () => {},
     /* The corner (#350). `RoomMenu` decides what it says and what it opens;
@@ -636,6 +670,101 @@ describe('when the shelf and the rules disagree about where books stand', () => 
     for (const word of ['run', 'range', 'shelf', 'plank', 'separator', 'capture', 'placement', 'cut']) {
       expect(text, `the card says "${word}"`).not.toMatch(new RegExp(`\\b${word}\\b`, 'i'))
     }
+  })
+})
+
+/**
+ * The third card, and the one whose condition is the argument (#348).
+ *
+ * The counters behind it have existed since the first half of this issue and
+ * were correct the whole time. Their readers were a log line printed once per
+ * outage and a `/api/health` behind the sign-in gate, and the person who owns
+ * the books reads neither. That is the same shape as the two cards above, one
+ * storey up: a detection nobody reads is silent exactly the way a missing one
+ * is.
+ *
+ * What is checked here is mostly what does **not** draw a card. The sentences
+ * themselves are `lib/catalogueWords.test.ts`'s.
+ */
+describe('when a catalogue has described none of the books looked up', () => {
+  it('says nothing while every catalogue is answering, or nobody answered', () => {
+    for (const lookups of [catalogues(), null]) {
+      const html = home({ lookups })
+      expect(words(html), 'drew a card').not.toMatch(/described none of/)
+    }
+  })
+
+  it('says nothing about a catalogue that is only having a bad afternoon', () => {
+    /*
+     * The line this card is drawn on, and the reason the server had to learn
+     * the difference first. A timeout ends on its own; a refusal answers the
+     * same way tomorrow. A card for the first is a card somebody learns to
+     * scroll past, on a screen carrying two others that must not be.
+     */
+    const html = home({
+      lookups: catalogues({
+        'Google Books': { asked: 12, answered: 0, held: 0, noRecord: 0, silent: 12, failed: 12 },
+      }),
+    })
+
+    expect(words(html)).not.toMatch(/described none of/)
+  })
+
+  it('says which catalogue and how many books, when it is being refused', () => {
+    const text = words(home({
+      lookups: catalogues({
+        'Google Books': { asked: 12, answered: 0, held: 0, noRecord: 0, silent: 12, declined: 12 },
+      }, false),
+    }))
+
+    expect(text).toContain('Google Books has described none of the 12 books')
+    // The reassurance, which is what stops this being an alarm about somebody
+    // else's server put in front of somebody holding a book.
+    expect(text).toContain('Nothing you have catalogued is wrong')
+    // And the door, in words, because the card has no button.
+    expect(text).toContain('Where your books are described from')
+  })
+
+  it('offers no button, because nothing on this phone sets a key', () => {
+    const html = home({
+      lookups: catalogues({
+        'Google Books': { asked: 12, answered: 0, held: 0, noRecord: 0, silent: 12, declined: 12 },
+      }, false),
+    })
+    const card = html.slice(html.indexOf('described none of'))
+
+    expect(card.slice(0, card.indexOf('</section>'))).not.toContain('<button')
+  })
+
+  it('draws all three pieces of bad news when there are three', () => {
+    // One morning, and the app has no business picking which two of the three
+    // to mention.
+    const text = words(home({
+      backup: watched({ state: 'none' }),
+      drifting: 12,
+      lookups: catalogues({
+        'Google Books': { asked: 12, answered: 0, held: 0, noRecord: 0, silent: 12, declined: 12 },
+      }, false),
+    }))
+
+    expect(text).toContain('Nothing has been backed up')
+    expect(text).toContain('claimed by another')
+    expect(text).toContain('described none of')
+  })
+
+  it('says it even before the catalogue counts have answered', () => {
+    // Independent reads, like the two cards above: a slow collection must not
+    // be able to hide this.
+    const html = home({
+      counts: null,
+      queue: null,
+      lookups: catalogues({
+        'Google Books': { asked: 12, answered: 0, held: 0, noRecord: 0, silent: 12, declined: 12 },
+      }, false),
+    })
+
+    expect(words(html)).toContain('described none of')
+    expect(html).not.toContain('wf-stat')
   })
 })
 

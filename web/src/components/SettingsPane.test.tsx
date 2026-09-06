@@ -29,7 +29,9 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { SettingsPane } from './SettingsPane'
-import type { FurnitureDto, SortStrategyCode } from '../lib/api'
+import type {
+  FurnitureDto, LookupStandings, SortStrategyCode, SourceStanding,
+} from '../lib/api'
 import type { FirstPicture } from '../design/Shots'
 import type { Hand } from '../design/Camera'
 import type { TabName } from '../design/Chrome'
@@ -53,12 +55,34 @@ function room(defaultSortStrategy: SortStrategyCode = 'author'): FurnitureDto {
   }
 }
 
+/** One catalogue at nought. */
+function catalogue(over: Partial<SourceStanding> & { source: string }): SourceStanding {
+  return {
+    asked: 0, answered: 0, silent: 0, held: 0, noRecord: 0,
+    declined: 0, failed: 0, skipped: 0, lastSilentAt: '', lastSilence: '',
+    ...over,
+  }
+}
+
+/** The four catalogues, in the state a test puts them in (#348). */
+function catalogues(
+  over: Partial<Record<string, Partial<SourceStanding>>> = {},
+  googleBooksKeyConfigured = true,
+): LookupStandings {
+  return {
+    googleBooksKeyConfigured,
+    sources: ['Open Library', 'Google Books', 'Library of Congress', 'K10plus']
+      .map((source) => catalogue({ source, ...(over[source] ?? {}) })),
+  }
+}
+
 function drawn(over: {
   room?: FurnitureDto | null
   hand?: Hand
   firstPicture?: FirstPicture
   busy?: boolean
   error?: string
+  lookups?: LookupStandings | null
 } = {}): string {
   return renderToStaticMarkup(
     <SettingsPane
@@ -68,6 +92,7 @@ function drawn(over: {
       busy={over.busy ?? false}
       error={over.error ?? ''}
       tabs={tabs}
+      lookups={over.lookups === undefined ? catalogues() : over.lookups}
       onBack={() => {}}
       onOrder={() => {}}
       onHand={() => {}}
@@ -218,8 +243,24 @@ describe('which picture of a book comes first', () => {
 
     expect(said).toMatch(/The downloaded one/)
     expect(said).toMatch(/The one you took/)
-    // The word the model uses for that picture is "catalogue" and no screen
-    // says it to anybody; the book page calls it the downloaded one.
+  })
+
+  it('never calls the downloaded picture the catalogue one', () => {
+    /*
+     * The word the model uses for that picture is "catalogue" and no screen
+     * says it to anybody; the book page calls it the downloaded one.
+     *
+     * **Asked of this section rather than of the page**, which it was until
+     * #348 put a card about the book catalogues on the same screen. That card
+     * uses the word in its ordinary sense, the one the first screen's
+     * "Catalogued" count has always used, so a page-wide ban was banning two
+     * different words at once and would have made the wrong one the casualty.
+     */
+    const markup = drawn()
+    const from = markup.indexOf('Which picture of a book comes first')
+    const to = markup.indexOf('either way.')
+    const said = words(markup.slice(from, to))
+
     expect(said, 'the setting calls it something no screen calls it').not.toMatch(/catalogue/i)
   })
 })
@@ -241,6 +282,86 @@ describe('the card at the foot', () => {
     ]) {
       expect(said, `the settings screen offers ${promise}`).not.toMatch(promise)
     }
+  })
+})
+
+/**
+ * Where the catalogues are named, which is the second half of #348's reader.
+ *
+ * The first screen carries the news and this carries the names, which is #504's
+ * split applied to a different pair of facts. There the names were books and
+ * went where books live; here they are the catalogues themselves, so they go
+ * where the app's own arrangements are.
+ *
+ * The sentences are `lib/catalogueWords.test.ts`'s. What is asked here is that
+ * they reach this screen, that every catalogue is on it including the ones that
+ * have done nothing, and that nothing about a key beyond its existence is.
+ */
+describe('where your books are described from', () => {
+  it('names every catalogue, including the ones nobody has asked', () => {
+    /*
+     * The rule the whole issue produced, at the last place it could still be
+     * lost. "Google Books was asked and described nothing" and "Google Books is
+     * not on this screen" read very differently, and the second is
+     * indistinguishable from a phone nobody has scanned a book on.
+     */
+    const said = words(drawn())
+
+    for (const source of ['Open Library', 'Google Books', 'Library of Congress', 'K10plus']) {
+      expect(said, `${source} is not on the screen`).toContain(source)
+    }
+  })
+
+  it('says all four numbers for a catalogue, noughts included', () => {
+    const said = words(drawn({
+      lookups: catalogues({
+        'Open Library': { asked: 12, answered: 12, held: 10, noRecord: 2 },
+      }),
+    }))
+
+    expect(said).toContain(
+      'Asked about 12 books: described 10, had no record of 2, turned away 0, failed on 0.',
+    )
+  })
+
+  it('tells a catalogue that refused from one that failed, on one screen', () => {
+    // The pair that used to be one number. Both are "did not answer" and only
+    // one of them is answered by anything a person can do.
+    const said = words(drawn({
+      lookups: catalogues({
+        'Google Books': { asked: 12, silent: 12, declined: 12 },
+        K10plus: { asked: 3, silent: 3, failed: 3 },
+      }),
+    }))
+
+    expect(said).toContain('turned away 12, failed on 0')
+    expect(said).toContain('turned away 0, failed on 3')
+  })
+
+  it('says whether there is a key, and never anything else about one', () => {
+    expect(words(drawn({ lookups: catalogues({}, true) })))
+      .toContain('Google Books is being asked with a key')
+
+    const without = words(drawn({ lookups: catalogues({}, false) }))
+    expect(without).toContain('without a key')
+    // And where one is set, which is not here: a field for a secret on a phone
+    // is what this card exists instead of.
+    expect(without).toContain('where the server runs, not here')
+  })
+
+  it('offers nothing to press, because nothing here is a control', () => {
+    const markup = drawn()
+    const card = markup.slice(markup.indexOf('Where your books are described from'))
+    const body = card.slice(0, card.indexOf('</section>'))
+
+    expect(body).not.toContain('<button')
+  })
+
+  it('draws no card at all when the read has not answered', () => {
+    // A card of noughts built from a failed request would claim every catalogue
+    // had been asked nothing, which is a claim and not a silence.
+    expect(words(drawn({ lookups: null })))
+      .not.toContain('Where your books are described from')
   })
 })
 
