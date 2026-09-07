@@ -151,6 +151,13 @@ jobs:
       # again below, in "Run the journeys", as the AppHost's own install of the
       # same tree (covered in apphost.mts by the same script), which is why a
       # fix only here would not have been enough.
+      #
+      # These three are the installs that do the work. The AppHost's run of the
+      # same script minutes later finds `web/node_modules` already matching the
+      # lock file this step installed from and does nothing (#561), which is
+      # what a job wants and is arrived at by asking rather than by a flag that
+      # says "this is CI". A developer's second `aspire start` gets the same
+      # answer for the same reason.
       - name: Install the app
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: web

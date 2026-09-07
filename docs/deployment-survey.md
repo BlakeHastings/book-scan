@@ -308,8 +308,8 @@ turns "there is a build script" into "there is a client to serve".
 TypeScript source through `tsx`:
 
 - `web/package.json:8`: `"dev:server": "tsx watch server/index.ts"`
-- `apphost.mts:202-204`: `addNodeApp('api', './web', 'server/index.ts')` with
-  `.withRunScript('dev:server')`, and the comment at `:203` says why: "tsx,
+- `apphost.mts:213-216`: `addNodeApp('api', './web', 'server/index.ts')` with
+  `.withRunScript('dev:server')`, and the comment at `:215` says why: "tsx,
   because the server is TypeScript and is not built before running."
 - The backfill and backup tools are invoked as `npx tsx server/<tool>.ts`, for
   example `scripts/backup-catalogue.ps1:178`.
@@ -475,9 +475,9 @@ What it declares, and nothing else:
 | Line | Resource | What it actually starts |
 | --- | --- | --- |
 | `apphost.mts:159-164` | `postgres` / `bookscan` | A **local Postgres container**, image tag from `postgres-version.json`, with `withDataVolume({ name: volumeName })` where `volumeName` is a hash of *this checkout's path on this disk* (`:137`) |
-| `apphost.mts:194-199` | `npm-install` | An executable that runs `scripts/npm-install.mjs` in `./web` |
-| `apphost.mts:201-236` | `api` | `addNodeApp('api', './web', 'server/index.ts')` with `.withRunScript('dev:server')`, which is `tsx watch server/index.ts` |
-| `apphost.mts:238-254` | `web` | `addViteApp('web', './web', { runScriptName: 'dev:client' })`, which is the **Vite dev server** |
+| `apphost.mts:206-211` | `npm-install` | An executable that runs `scripts/npm-install.mjs` in `./web` |
+| `apphost.mts:213-284` | `api` | `addNodeApp('api', './web', 'server/index.ts')` with `.withRunScript('dev:server')`, which is `tsx watch server/index.ts` |
+| `apphost.mts:295-311` | `web` | `addViteApp('web', './web', { runScriptName: 'dev:client' })`, which is the **Vite dev server** |
 
 Every one of those is a development fact. The api resource runs a file watcher.
 The web resource runs a dev server, not a built asset. The database is a

@@ -721,6 +721,29 @@ Aspire assigns the ports, so nothing is fixed at 3001 or 5173. It also injects
 `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, which
 `web/instrumentation.ts` reads.
 
+**A start installs only when there is something to install** (#561). The
+`npm-install` resource used to run `npm ci` every time, and `npm ci` deletes
+`node_modules` before it writes, so every start threw away `web/node_modules`
+and wrote all 579 packages back: seventeen seconds of a twenty-eight second
+start, measured on this machine, and Vite's dependency pre-bundling cache went
+with the directory. It now compares the lock file against
+`node_modules/.package-lock.json`, which npm writes at the end of every install,
+and skips when they agree. The same start is 12 seconds.
+
+It says which on every start, so `aspire logs npm-install` is where "why did my
+dependency change not take" is answered:
+
+```
+node_modules already matches package-lock.json, so there is nothing to install.
+Installing, because package.json and package-lock.json disagree about "dependencies".
+```
+
+**It can only decide to skip.** Anything it cannot account for is a reason to
+install, and `npm ci` then runs and refuses exactly as before, so a
+`package.json` out of sync with its lock file still fails the start rather than
+being run past. Deleting `node_modules`, or running `npm ci` by hand, is how you
+force one.
+
 **The web URL that `aspire ps` and `aspire describe` report does not serve the
 app.** They advertise a proxy port that answers nothing: `curl` gets
 `ERR_EMPTY_RESPONSE` and a browser gets a blank page. The real address is in

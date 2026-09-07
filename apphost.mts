@@ -190,6 +190,18 @@ console.log(
  * times and only when the failure looks like the timeout #342 was about,
  * still failing loudly for a dependency that genuinely will not install. Both
  * `api` and `web` wait for it below rather than installing on their own.
+ *
+ * **It installs only when there is something to install** (#561). It used to
+ * run `npm ci` unconditionally, whose documented first act is to delete
+ * `node_modules`, so every start of a development environment threw away
+ * `web/node_modules` and wrote all 579 packages back: seventeen seconds of a
+ * twenty-eight second start, measured, and Vite's dependency pre-bundling
+ * cache went with the directory. The resource is still here and `api` and
+ * `web` still wait for its completion, because something has to guarantee the
+ * dependencies are present before they start and this ordering is how that is
+ * said. What changed is that it now asks first, and a disagreement between the
+ * lock file and the tree still fails the start rather than being installed
+ * over quietly.
  */
 const npmInstall = await builder.addExecutable(
   'npm-install',
