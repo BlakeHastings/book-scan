@@ -329,15 +329,22 @@ export function CaptureScreen() {
   /*
    * Where to hold the book, measured rather than drawn.
    *
-   * The gallery's guide is a shape at fixed percentages. This one is the
-   * rectangle in `SLOT_GUIDE`, which for the spine is the rectangle
-   * `SLOT_CROP` really keeps, so what somebody frames is what survives. A
-   * boundary you cannot see is a boundary you will get wrong.
+   * The gallery's guide is a book-shaped rectangle centred in the picture above
+   * the controls. This one is the rectangle in `SLOT_GUIDE`, which for the
+   * spine is the rectangle `SLOT_CROP` really keeps, so what somebody frames is
+   * what survives. A boundary you cannot see is a boundary you will get wrong.
+   *
+   * `--crop` is what says so to the stylesheet (#584). The frame the design
+   * system draws is centred and given a shape, because it is a drawing; four
+   * fractions of the picture that have been centred and reshaped are no longer
+   * the rectangle being kept, so this one takes that sizing off and the
+   * fractions below are the only thing placing it. It needs no `--slot`
+   * either: that modifier is a shape, and this element brings its own.
    */
   const frame = SLOT_GUIDE[activeSlot]
   const guide = cameraOn && (
     <div
-      className={SLOT_CROP[activeSlot] ? 'wf-view__guide wf-view__guide--slot' : 'wf-view__guide'}
+      className="wf-view__guide wf-view__guide--crop"
       aria-hidden="true"
       style={{
         left: `${frame.x * 100}%`,

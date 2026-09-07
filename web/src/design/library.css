@@ -1326,6 +1326,23 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   overflow: hidden;
   display: grid;
   grid-template-rows: 1fr auto;
+
+  /*
+   * Where the three round targets in the corners begin, and the first line
+   * under them that is clear of all three.
+   *
+   * Said once because it was said three times, and because the aiming frame
+   * now has to know it: centred in the picture above the bar it comes up high
+   * enough to put its own top corner behind the way out. **This is a different
+   * kind of number from the one #584 took out**, and the difference is the
+   * whole of why it is allowed here. The bottom of this screen is however many
+   * controls a caller handed in, which is why no stylesheet can count it. The
+   * top is exactly one 44px target inset by a gap, in every camera there is,
+   * placed by the three rules below this file's own — so it is a fact about
+   * this file, and reading it back is not a guess.
+   */
+  --wf-corner-top: calc(var(--s3) + env(safe-area-inset-top));
+  --wf-clear-top: calc(var(--wf-corner-top) + var(--tap) + var(--s3));
 }
 
 /* Standing in for the feed. A wireframe, so there is no camera access here and
@@ -1452,23 +1469,39 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * it and would be a third number somebody has to keep in step with the shutter
  * and the buttons, which is the family of fault #554 was about.
  *
- * So these percentages are percentages of `.wf-view__over`, which ends where
- * the bar begins, and the frame cannot be behind a control on any phone whatever
- * the bar is holding. **The numbers were chosen so that the frame barely moves
- * on the phone this screen was drawn at**: at 414 x 896 it is within a few
- * pixels of where it was, and it gives room back only where the bar genuinely
- * takes it.
+ * So it is centred in `.wf-view__over`, which ends where the bar begins. It
+ * cannot be behind a control on any phone, whatever that camera's bar happens
+ * to be holding, and there is no number here that anybody has to keep in step
+ * with a shutter.
  *
- * **A proportion of that region and not a fixed gap above it**, which is the
- * one thing here that was a choice rather than a consequence. `bottom:
- * var(--s3)` also clears everything, and on a tall phone it makes the frame 604
- * tall inside 315 wide, which is not the shape of a book. This is a rectangle
- * somebody lines a paperback up in, so it stays roughly a paperback's
- * proportions on every phone, and `--screen` below is the drawing of the
- * alternative it replaces.
+ * **It is a shape and a share of the width rather than four insets**, and that
+ * is the part that was a choice. Insets of the region would also clear
+ * everything and would make the frame a different shape on every phone: 315 by
+ * 616 on a tall one and 285 by 355 on a short one, out of a rule whose own
+ * comment says it is "roughly the proportions of a paperback held up to a phone
+ * in portrait". A 34 by 54 rectangle 76% of the width across is that sentence
+ * written down. `max-height` is the only thing that ever takes it away, on a
+ * phone short enough that a book-shaped frame does not fit above the controls,
+ * and then it gives up the height rather than the room.
+ *
+ * **Centred rather than above centre, and that is a deletion.** It sat above
+ * centre because "the controls occupy the lower fifth of the screen, and a
+ * vertically centred rectangle runs underneath them" — which is the same
+ * sentence as the 28%, one property along. The box it is centred in ends at the
+ * controls, so being in the middle of it is the whole answer.
+ *
+ * **It is centred below the corners rather than below the top of the screen**,
+ * and that was found by looking at it: centred in the whole region at 414 by
+ * 896 the frame's top edge came up to y 82 and its own top left corner went
+ * behind the way out, which is the defect this is about pointed at the other
+ * end of the screen. `--wf-clear-top` is the first line under the three corner
+ * targets and the note on `.wf-view` says why that one is allowed to be a
+ * number when the bottom of the screen is not.
  *
  * The two drawings that go with this are `#framescreen` and `#framebar`, on the
- * one picture that shows what it costs.
+ * one picture that shows what it costs. At 414 by 896 on the camera with a line
+ * to say they draw a frame of the same height within 3px, which is why that pair
+ * has to be walked at two sizes to say anything.
  *
  * ## Two tones, because a line cannot have a bed (#553)
  *
@@ -1517,10 +1550,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  */
 .wf-view__guide {
   position: absolute;
-  left: 12%;
-  right: 12%;
-  top: 17%;
-  bottom: 10%;
+  inset: var(--wf-clear-top) 0 0;
+  margin: auto;
+  width: 76%;
+  aspect-ratio: 34 / 54;
+  max-height: calc(100% - var(--wf-clear-top) - var(--s3));
   border: 1.5px solid var(--picture-line);
   border-radius: var(--r-lg);
   box-shadow:
@@ -1551,14 +1585,43 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * 414 by 896 with the bar's own box beginning at 719: it cleared by 8.7px, and
  * at 375 by 667 the same rule put 10px of it behind "Done with this book".
  * Clearing by a coincidence and failing on the next phone is what a percentage
- * of the screen buys. These are percentages of `.wf-view__over` now, like the
- * rule above, so the slot ends above the bar on every phone.
+ * of the screen buys.
+ *
+ * It is the same answer as the rule above and only two numbers of it are
+ * different: a fifth of the width rather than three quarters, and one to five
+ * rather than 34 to 54. Everything about where it goes it inherits.
  */
 .wf-view__guide--slot {
-  left: 36%;
-  right: 36%;
-  top: 10%;
-  bottom: 3%;
+  width: 28%;
+  aspect-ratio: 1 / 5;
+}
+
+/*
+ * A frame that is a crop rather than a drawing, and therefore its caller's.
+ *
+ * The cataloguing camera measures its own frame off `SLOT_GUIDE`, which for the
+ * spine **is** the rectangle the shutter is going to keep, so all four of its
+ * edges are fractions of the picture and are given inline. This takes the
+ * sizing above back off so that those fractions are the only thing deciding
+ * where it lands: a crop that has been centred, given a shape and clamped is a
+ * rectangle that is not the one being kept, and a boundary you cannot trust is
+ * worse than one you cannot see.
+ *
+ * The paint stays, which is the whole reason such a frame wears
+ * `.wf-view__guide` at all: one keyline, drawn once, whoever decides where the
+ * rectangle goes.
+ *
+ * **After `--slot` rather than before it, on purpose.** Both of them say what
+ * shape the frame is, so whichever comes last in this file wins, and the one
+ * that has to win is the one saying "somebody else already decided".
+ */
+.wf-view__guide--crop,
+.wf-view__guide--screen {
+  inset: auto;
+  margin: 0;
+  width: auto;
+  aspect-ratio: auto;
+  max-height: none;
 }
 
 /*
@@ -1634,10 +1697,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * picture, which is what the old rule was and what the cataloguing camera's own
  * frame still has to be. Drawn in the region these numbers would mean something
  * else entirely and the drawing would prove nothing.
+ *
+ * It shares the reset with `--crop` above, because being four insets against
+ * the picture is exactly what those two have in common.
  */
 .wf-view__guide--screen {
-  top: 14%;
-  bottom: 28%;
+  inset: 14% 12% 28%;
 }
 
 /* Two floating targets, and neither of them is a bar: 44px each, on the
@@ -1645,7 +1710,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-view__leave {
   position: absolute;
   z-index: 2;
-  top: calc(var(--s3) + env(safe-area-inset-top));
+  top: var(--wf-corner-top);
   left: var(--s3);
   width: var(--tap);
   height: var(--tap);
@@ -1679,7 +1744,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-view__far {
   position: absolute;
   z-index: 2;
-  top: calc(var(--s3) + env(safe-area-inset-top));
+  top: var(--wf-corner-top);
   right: var(--s3);
 }
 
@@ -1698,7 +1763,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-view__top {
   position: absolute;
   z-index: 2;
-  top: calc(var(--s3) + env(safe-area-inset-top));
+  top: var(--wf-corner-top);
   left: calc(var(--s3) + var(--tap) + var(--s2));
   display: flex;
   align-items: center;
@@ -1911,8 +1976,20 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * one that gives. So the shutter does not move when a line appears or goes,
  * which is the property that matters, since the shutter is the one control a
  * thumb finds without looking.
+ *
+ * **`position: relative` is doing something and it is not positioning.** In
+ * flow with no `position` at all, this whole bar paints *behind* the picture:
+ * `.wf-view__picture` is an absolutely positioned earlier sibling, and every
+ * positioned box paints over every in-flow one whatever the document order says.
+ * Found by taking the screenshot rather than by reasoning about it — the frame
+ * was where the measurements said and the shutter, the two buttons and the line
+ * had simply gone, while the rail of photographs stayed because `Shots` carries
+ * a stacking context of its own. `relative` with no offsets changes no geometry
+ * and puts the bar back in the same layer as everything it has to be in front
+ * of, in the order they are written.
  */
 .wf-view__bar {
+  position: relative;
   display: grid;
   gap: var(--s3);
   padding: var(--s6) var(--s3) calc(var(--s4) + env(safe-area-inset-bottom));

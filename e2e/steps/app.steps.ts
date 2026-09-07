@@ -170,6 +170,20 @@ When('I start the camera', async ({ page }) => {
   await expect(page.locator('.cam__error')).toHaveCount(0)
 })
 
+/**
+ * Point the shutter at a different one of the three photographs.
+ *
+ * The rail is how a person changes their mind about which side of the book they
+ * are holding up, and it is the only way to get the hint back: the camera says
+ * what a slot wants when the slot changes and then gets out of the way after a
+ * couple of seconds. A scenario about where that hint lands cannot wait for it
+ * to appear on its own, because "on its own" happened while the camera was
+ * starting and may already be over.
+ */
+When('I choose the {word} photograph', async ({ page }, side: string) => {
+  await page.getByRole('button', { name: `Photograph the ${side}`, exact: true }).click()
+})
+
 When('I photograph the book', async ({ page }) => {
   // The back cover is the slot the camera opens on, which is deliberate: it
   // carries the barcode, so identification starts on the first shot.
