@@ -325,12 +325,30 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
  * Two names for one rule because the browser journeys tell the two answers
  * apart by them, and telling them apart is the point: a finding about work
  * somebody has already done is not a list of books to choose between.
+ *
+ * **It was 200px and it is 260px** (#554). The band gained a row: the line
+ * saying what is in your hands used to float on the picture at its own offset
+ * and it is inside the bar now, which makes the bar 48px taller when there is
+ * something to say. At 200 this panel's lowest 44px lay across that line, and
+ * it carries `z-index: 3` while the bar carries none, so it would have covered
+ * it — the same defect this issue is about, one layer up and pointed the other
+ * way. Measured at 414x896: the line runs from 208 to 244 off the bottom, and
+ * 260 is that plus the gap the bar puts between its own rows.
+ *
+ * **And this is the offset that is left.** #554 deleted the two in
+ * `library.css` because the box holding the controls is the thing that knows
+ * how tall they are, and it cannot do the same for this one: this is drawn
+ * through `over`, which is "somewhere on the picture", so it has no box to be
+ * a row of. Making it one is a bigger change than a caption — `over` would have
+ * to become a region that ends where the bar starts, and the camera-not-started
+ * screen is passed through the same slot and has to cover the bar rather than
+ * stop at it. Worth doing and not here.
  */
 .queued,
 .isbncam__choices {
   position: absolute;
   left: 10px; right: 10px;
-  bottom: 200px;
+  bottom: 260px;
   max-height: 44%;
   overflow-y: auto;
 }

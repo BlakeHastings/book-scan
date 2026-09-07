@@ -1764,7 +1764,7 @@ function CameraOnAPage(go: Go) {
       <Viewfinder
         shots={shotsOf(go)}
         picture={<div className="wf-view__picture wf-view__picture--page" aria-hidden="true" />}
-        over={inHand}
+        said={inHand}
         also={nextBook(go)}
         onLeave={() => go('home')}
         onDone={() => go('review')}
@@ -1779,7 +1779,7 @@ function CameraOnACover(go: Go) {
       <Viewfinder
         shots={shotsOf(go)}
         picture={<div className="wf-view__picture wf-view__picture--cover" aria-hidden="true" />}
-        over={inHand}
+        said={inHand}
         also={nextBook(go)}
         onLeave={() => go('home')}
         onDone={() => go('review')}
@@ -1858,12 +1858,16 @@ const FrameDim = aimedWith(' wf-view__guide--dim')
  * so a drawing of the camera on a photograph that leaves it out is a drawing of
  * everything except the question.
  *
- * **Drawing it is also what shows the second thing**, which is not about
+ * **Drawing it is also what showed the second thing**, which was not about
  * colour: this camera's near cluster is three controls tall, the offset under
- * this line clears one, and so the line lies under "Done with this book"
- * whatever it says. That was invisible for as long as the line was invisible.
- * It is a place for it rather than a paint, so it is left where it is and drawn
- * where somebody can react to it.
+ * this line cleared one, and so the line lay under "Done with this book"
+ * whatever it said. That was invisible for as long as the line was invisible,
+ * #530 drew it and left it, and #554 is the fix.
+ *
+ * It goes in through `said` now rather than `over`, which is the fix in one
+ * word: `over` is somewhere on the picture and this was never that. It is the
+ * bar's first row, so the bar is as tall as this line plus the controls and
+ * nothing anywhere counts them.
  */
 const inHand = (
   <p className="wf-view__found">
@@ -1959,6 +1963,46 @@ function InHandCamera(go: Go) {
            does have both: the far corner is where a back arrow belongs and the
            near one is the only thing a thumb can reach while the other hand is
            holding a book. `Camera.tsx` has the argument about the reach. */
+        onLeave={() => go('home')}
+        onDone={() => go('home')}
+        done="Done"
+      />
+    </div>
+  )
+}
+
+/**
+ * The same camera with something to say, which is the case the gallery has
+ * never drawn and the one that decided #554.
+ *
+ * This screen's near cluster is **two** controls tall where the cataloguing
+ * camera's is three, and until #554 that difference was spelled out as two
+ * `bottom` calculations in the stylesheet, one per height, with the taller
+ * camera quietly using the shorter one's. The sentence here is the real longest
+ * one the app says on a camera, and it is what the second of those offsets was
+ * written for: it is a whole sentence rather than a title, it fills the line at
+ * 414 wide with nothing to spare, and it is the reason "a title and an author,
+ * short and centred" was not a safe assumption about what goes here.
+ *
+ * **So this is what the change costs, drawn.** The bar is taller by the height
+ * of this line plus a gap, on a camera that has no rail of photographs to make
+ * it tall in the first place. Walk it beside `#inhand` and the picture the
+ * sentence covers is the whole of the argument: the alternative is the sentence
+ * lying on top of the button, which is what it did.
+ */
+function InHandCameraSaying(go: Go) {
+  return (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={[]}
+        top={<span className="wf-view__chip">Hold a book up</span>}
+        onShutter={() => go('book')}
+        shutterName="Find this book"
+        said={
+          <p className="wf-view__found">
+            9780441013593 is not in the library yet. Add it first.
+          </p>
+        }
         onLeave={() => go('home')}
         onDone={() => go('home')}
         done="Done"
@@ -5754,6 +5798,16 @@ export const SCREENS: Screen[] = [
     name: 'The book in your hand',
     group: 'Finding a book',
     render: InHandCamera,
+  },
+  /* Beside it, because the two are one screen with one thing different and the
+     difference is what #554 is about: this camera's bar is as tall as what it
+     has to say, and what it has to say here is the longest sentence the app
+     puts on a camera. */
+  {
+    id: 'inhandsaid',
+    name: 'The book it could not find',
+    group: 'Finding a book',
+    render: InHandCameraSaying,
   },
   { id: 'spine', name: 'Framing the spine', group: 'Cataloguing', render: SpineShot },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },

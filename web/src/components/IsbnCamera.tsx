@@ -159,14 +159,12 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
         /* Unchanged from before #408: the request this shutter started, and a
            stream that never opened. Nothing else is ever in front of it. */
         shutterOff={reading || Boolean(error)}
-        over={
-          <>
-            {error && <div className="cam__error">{error}</div>}
-            {miss && !error && (
-              <p className="wf-view__found wf-view__found--wide">{miss}</p>
-            )}
-          </>
-        }
+        /* The same line in the same place as the other two cameras', and it is
+           the long one: "9780441013593 is not in the library yet. Add it first."
+           is what `--wide` existed for. In the bar since #554, so it is as wide
+           as the bar and as far up as the controls happen to be. */
+        said={miss && !error ? <p className="wf-view__found">{miss}</p> : undefined}
+        over={error ? <div className="cam__error">{error}</div> : undefined}
       />
     </div>
   )

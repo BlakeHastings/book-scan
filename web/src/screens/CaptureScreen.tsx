@@ -451,23 +451,6 @@ export function CaptureScreen() {
               </p>
             )}
 
-            {/*
-              What is in your hands, said rather than inferred from nothing
-              being drawn (#62). Above the controls and out of the way of the
-              picture: one line, and it is either the book the queue has
-              settled on or the fact that there is not one yet.
-            */}
-            {identified ? (
-              <p className="wf-view__found">
-                <strong>{draft.title}</strong>
-                {draft.authors ? ` · ${draft.authors}` : ''}
-              </p>
-            ) : shotCount === 0 && !captureId ? (
-              <p className="wf-view__found wf-view__found--empty">
-                Nothing in hand. First shot starts a new book.
-              </p>
-            ) : null}
-
             {!cameraOn && (
               <div className="wf-view__idle">
                 <h2 className="wf-view__idle-head">Photograph the book</h2>
@@ -586,6 +569,27 @@ export function CaptureScreen() {
             )}
           </>
         }
+        /*
+          What is in your hands, said rather than inferred from nothing being
+          drawn (#62). One line, and it is either the book the queue has settled
+          on or the fact that there is not one yet.
+
+          **Handed to the bar rather than floated over the picture** (#554).
+          This is the camera whose near cluster is three controls tall, so the
+          one offset the design system had for this line put it under "Done with
+          this book" by 24px whatever it said. The bar is the thing that knows
+          how tall its own controls are, and this is how it is told.
+        */
+        said={identified ? (
+          <p className="wf-view__found">
+            <strong>{draft.title}</strong>
+            {draft.authors ? ` · ${draft.authors}` : ''}
+          </p>
+        ) : shotCount === 0 && !captureId ? (
+          <p className="wf-view__found wf-view__found--empty">
+            Nothing in hand. First shot starts a new book.
+          </p>
+        ) : undefined}
         also={{
           word: shotCount > 0 ? `Next book ${shotCount}/3` : 'Next book',
           onPress: nextBook,
