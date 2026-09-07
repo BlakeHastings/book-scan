@@ -139,8 +139,29 @@ export async function openTheApp(page: Page, url: string, ready: Locator): Promi
         .catch(() => 'gave up' as const)
       if (await Promise.race([drawn, moved]) !== 'moved') return
     } catch (error) {
-      // A document request abandoned the same way throws out of `goto`. Any
-      // other reason it could throw is the caller's failure, untouched.
+      /*
+       * Losing the **document** the same way throws out of the navigation
+       * instead, and Playwright words it as an interruption rather than as the
+       * network error underneath:
+       *
+       *     page.goto: Navigation to "https://localhost:46287/" is interrupted
+       *     by another navigation to "chrome-error://chromewebdata/"
+       *
+       * That sentence is true of a server that has died as well, so it is not
+       * enough on its own to decide by. What decides is whether the browser
+       * says a request was abandoned because the network moved, and the one
+       * thing that cannot be assumed is that it has said it **yet**: the
+       * navigation's rejection and the request's failure are two events and
+       * this is the ordering where the rejection wins.
+       *
+       * So the answer is waited for rather than read, bounded, and only on a
+       * path that has already failed. A second is far longer than the gap
+       * between those two events and is spent only where the alternative is
+       * reporting a machine's network as a broken app.
+       */
+      if (!lost.length) {
+        await Promise.race([moved, page.waitForTimeout(1_000)])
+      }
       if (!lost.length) throw error
     } finally {
       page.off('requestfailed', watch)
