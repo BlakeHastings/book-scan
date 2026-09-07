@@ -765,8 +765,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * asks `bandOf` and already answers `range-has-no-start` when nothing
      * claims the range; this then restates the whole placement in the derived
      * scheme and used to hand `derivedLocation` in as the range's start. Those
-     * are two different questions — where this book lands, and where the run
-     * opens — and they part company on exactly the collection #479 is about:
+     * are two different questions, where this book lands and where the run
+     * opens, and they part company on exactly the collection #479 is about:
      * `shelvesForSortKeys` answers `''` for every key of a range with no run,
      * `''` is not null, and so the restatement came back "First book in
      * fiction. Start at ." with an empty plank offered under it.

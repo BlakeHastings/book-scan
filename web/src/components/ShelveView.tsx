@@ -163,8 +163,8 @@ export function ShelveView({
    * No rule says where this book's range begins, so nothing says where it goes.
    *
    * **Read off the placement's own kind rather than worked out here** (#479).
-   * `known` is false for this and for two other things — a placement that has
-   * not arrived, and one that has gone stale — and all three used to draw
+   * `known` is false for this and for two other things, a placement that has
+   * not arrived and one that has gone stale, and all three used to draw
    * "Working out where it goes...", which is a promise that an answer is on the
    * way. For those other two it is. For this one nothing is coming until
    * somebody writes a rule, and a spinner that never ends is the same silence

@@ -79,9 +79,13 @@ Deliberately **not** in scope, per decisions below:
    book on the next one and records that.
 3. **Within an author:** series first in series order, then standalone titles
    alphabetically.
-4. **Fiction and non-fiction are separate ranges.** Shelf 4 (`S4`) is
-   dedicated to non-fiction. The two ranges are independent ordered lists and
-   never interact.
+4. **Fiction and non-fiction are separate ranges.** The two are independent
+   ordered lists and never interact. Where each one stands in the room is the
+   rule set's answer and nothing else's: this document said "shelf 4 (`S4`) is
+   dedicated to non-fiction" until
+   [#479](https://github.com/BlakeHastings/book-scan/issues/479), which was true
+   of the one collection this grew out of and was never a fact about the model.
+   See [A range no rule serves has no start at all](#a-range-no-rule-serves-has-no-start-at-all).
 
 Consequence of 1 and 2 together: location is *descriptive*, not
 *prescriptive*. Sort order is the source of truth for sequence; the recorded
@@ -131,15 +135,26 @@ Five cases. `Lp` and `Ls` are the predecessor's and successor's locations.
 | pred and succ differ | After *Snow Crash* (Stephenson, **2C**), before *Player of Games* (Banks, **2D**). Boundary of 2C/2D. |
 | no pred | First in fiction. Before *Adams, Douglas* at **1A**. Start of bookcase 1. |
 | no succ | Last in fiction. After *Zusak, Markus* at **3B**. End of bookcase 3. |
-| neither | First book in this range. Start at **1A** (fiction) or **S4** (non-fiction). |
+| neither | First book in this range. Start at **2A**, which is wherever this collection's rules say the range begins. |
+| the range has no start | Nothing says where non-fiction begins, so there is nowhere to put this book. Say what belongs on a bookcase or a shelf first. |
 
 Always name author and title for both neighbours, not just the title. On a
 real shelf the user is scanning spines for an author block first.
 
+The sixth case is
+[#479](https://github.com/BlakeHastings/book-scan/issues/479) and it is a sixth
+case rather than a variant of the fifth: the first five all name the range's
+start where a neighbour cannot be named, and there is no start to name. The two
+books either side are still carried and still drawn, because the sequence is a
+fact about the books rather than about the furniture. See
+[A range no rule serves has no start at all](#a-range-no-rule-serves-has-no-start-at-all).
+
 ### Suggested location
 
-`pred.location`, falling back to `succ.location`, falling back to the range's
-configured start. The user can always override. When `pred.location !=
+`pred.location`, falling back to `succ.location`, falling back to where the
+range begins, and **there is no further fallback**: a range no rule serves has
+no start, so there is no location to suggest and the screens say so instead of
+suggesting one. The user can always override. When `pred.location !=
 succ.location` the suggestion is a coin flip, so present both and let the user
 pick which side of the boundary the book actually went.
 
@@ -332,8 +347,8 @@ pane**. Manual entry is the primary path here, not the fallback.
 
 ## Classification: fiction or non-fiction
 
-Because `S4` is the only non-fiction shelf, a wrong guess sends the book to an
-entirely different bookcase. This must never be silent.
+The two ranges stand in different parts of the room, so a wrong guess sends the
+book to an entirely different bookcase. This must never be silent.
 
 The good news: two of the three useful signals are **already present in
 responses the current code discards**.
@@ -659,6 +674,54 @@ the first screen each counted something different about one state.
 An area therefore keeps its anchor through becoming a run's entry and through
 stopping being one. There is nothing to restore afterwards, because nothing was
 taken away.
+
+### A range no rule serves has no start at all
+
+**The rule set is what says where a range begins, so where it says nothing there
+is nowhere**, and that is the answer rather than a hole for something else to
+fill. There is no default start, there is no per-genre default, and neither a
+range nor this document may name a bookcase a range begins on. The owner settled
+it in those terms on
+[#479](https://github.com/BlakeHastings/book-scan/issues/479): "It can begin
+anywhere as configured by our rule set. Originally it was only in one place
+because this application grew out of a need and that was a specific need. It is
+now being generalized to work for more people and the rule system we have in
+place is the way to do that."
+
+This is not a rare state. It is what every collection is in before anybody has
+written a rule, and it is what a collection returns to the moment a rule comes
+off the last place that served a range, which the rule editor warns about in its
+own words: "the library would have no rule saying where it begins".
+
+**What it means for a reader.** A range with no start has no run, so:
+
+- there are no planks to draw and no boards to lay books along, and `layout`,
+  `layoutWith` and `shelving` answer with nothing rather than laying the books
+  out from somewhere;
+- `shelvesForSortKeys` answers the empty label for every key, which is what it
+  already answered for a key it could not place;
+- `areasForSortKeys` answers null for every key, which it already did, and the
+  needs-attention list therefore reports every book of that range as
+  unplaceable rather than as correctly filed;
+- the placing screen offers no plank and no save. **Not an error and not a
+  wait**: `buildPlacement` answers the placement kind `range-has-no-start`, the
+  book keeps its range and its two neighbours, and the sentence says what is
+  missing and what ends it.
+
+**The books do not move and nothing is lost.** Where a book physically is is a
+ledger row somebody wrote, and no read of the rules touches it. What is missing
+is the app's ability to say where the range stands, and it fills back in the
+moment a rule points the range at a piece of furniture.
+
+**Two hardcoded starts are what this replaced**, and reading them is the reason
+to keep this section. `Shelves.startOf` answered `{ shelf: 1, area: 0 }` for any
+range and `Store.rangeStart` answered bookcase 4 for non-fiction and bookcase 1
+for everything else, so on a collection with no non-fiction rule the shelves
+screen drew non-fiction standing on fiction's own entry plank while the placing
+screen sent the book to bookcase 4. Neither literal had a specification behind
+it. A third, `layoutRange`'s default `start`, made the same answer available to
+anyone who left the argument off; the parameter is required now, so a caller
+with no start has to decide what to do about it in the open.
 
 ### A run begins at a plank, and a plank is not its bookcase
 
