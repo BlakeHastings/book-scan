@@ -33,9 +33,10 @@
 // AND IT ONLY RUNS WHEN THERE IS SOMETHING TO INSTALL (#561)
 // `npm ci`'s documented first act is to delete `node_modules` entirely, and
 // this script ran on every `aspire start`. So every start of a development
-// environment deleted `web/node_modules` and wrote all 579 packages back,
-// about fifteen seconds of a twenty-four second start, and took Vite's
-// dependency pre-bundling cache away with the directory. It is the same act
+// environment deleted `web/node_modules` and wrote all 579 packages back:
+// `added 579 packages, and audited 580 packages in 17s`, of a twenty-eight
+// second start, and Vite's dependency pre-bundling cache went with the
+// directory. The same start is now twelve seconds. It is the same act
 // as the Windows `EPERM ... unlink ... skia.win32-x64-msvc.node` of #536, one
 // directory over: a start that deletes a tree something else may be holding.
 //
