@@ -141,8 +141,8 @@ describe('no coloured rail down the side of a card', () => {
  * over a bed** — which is a rule this file cannot check.
  *
  * It also cannot see a *new* word arriving on the camera with no bed at all.
- * Two were already there when this was written, "Back" and "Spine" under the
- * photographs, at 1.1 to 1 on their own.
+ * The words under the photographs were already there when this was written, at
+ * 1.1 to 1 on their own.
  */
 describe('a word on the picture can be read whatever the lens is pointed at', () => {
   /** Every definition of a custom property in `tokens.css`, in file order. */
@@ -188,12 +188,21 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
   })
 
   /*
-   * The other way the floor comes out from under a word, and it has happened
-   * three times in one file: `opacity` on something that beds itself.
+   * The other way the floor comes out from under a word, and it happened twice
+   * in this one file: `opacity` on something that beds itself.
    *
-   * It thins the bed at exactly the rate it thins the ink, so it cannot demote
-   * a word on a photograph, only hide it. Three quarters of a 0.72 scrim is a
+   * It thins the bed at exactly the rate it thins the ink, so on a photograph
+   * it cannot demote a word, only hide it. Three quarters of a 0.72 scrim is a
    * 0.54 scrim, which is the number this whole issue is about.
+   *
+   * **It has to follow the class rather than the rule, and getting that wrong
+   * was the first version of this test.** Neither of the two was written in the
+   * rule that painted its bed: the fade was on `.wf-view__found--empty` while
+   * the scrim was on `.wf-view__found`, and on
+   * `.wf-shots--picture .wf-shot__note` while the bed is on the rule beside it.
+   * A check that asked one rule for both would have passed over both of them,
+   * which is a check that cannot fail — worse than no check, because somebody
+   * builds on it.
    *
    * `:disabled` is the one carve-out and it is WCAG's own: 1.4.3 exempts an
    * inactive component, and a control that has faded because it cannot be
@@ -201,12 +210,30 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
    */
   it('is not undone by fading something that beds itself', () => {
     const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+    const rules = [...css.matchAll(/(?:^|\})([^{}]+)\{([^}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector!.trim(), body: body! }))
 
-    const faded = [...css.matchAll(/(?:^|\})([^{}]+)\{([^}]*)\}/g)]
-      .filter(([, , body]) => /background:\s*var\(--picture-scrim\)/.test(body!))
-      .filter(([, , body]) => /(^|[\s;])opacity\s*:/.test(body!))
-      .map(([, selector]) => selector!.trim())
-      .filter((selector) => !selector.includes(':disabled'))
+    const classesIn = (selector: string): string[] =>
+      [...selector.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((found) => found[1]!)
+
+    /** Every class that paints the scrim for itself, wherever it does it. */
+    const bedded = new Set(
+      rules
+        .filter(({ body }) => /background:\s*var\(--picture-scrim\)/.test(body))
+        .flatMap(({ selector }) => classesIn(selector)),
+    )
+    expect(bedded.size, 'nothing beds itself on the scrim at all').toBeGreaterThan(3)
+
+    /** A modifier of a bedded class is the same element, so it counts. */
+    const isBedded = (name: string): boolean =>
+      [...bedded].some((one) => name === one || name.startsWith(`${one}--`))
+
+    const faded = rules
+      .filter(({ body }) => /(^|[\s;])opacity\s*:/.test(body))
+      .filter(({ selector }) => !selector.includes(':disabled'))
+      .filter(({ selector }) => classesIn(selector).some(isBedded))
+      .map(({ selector }) => selector)
 
     expect(faded, 'these fade the bed they are standing on').toEqual([])
   })
