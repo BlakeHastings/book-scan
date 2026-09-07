@@ -781,6 +781,32 @@ the fix:
   the reason above. Where the two disagree, `backup-watch.ts` is right and the
   script is the copy to fix.
 
+**Loud when unconfigured, on every machine that has not written down that it
+holds no catalogue.** That exception is #567 and it is narrower than it sounds.
+The loop moved to a Linux devbox that holds no catalogue, no photographs and no
+dumps (AGENTS.md puts all three on the Windows desktop), and the check fired
+there at every session start under a heading saying the catalogue needs
+attention. A machine whose backup has stopped and a machine that never had one
+produce the same silence on disk, and **nothing on either machine tells them
+apart**: probing for the catalogue itself answers "not here" on the desktop too
+whenever the container is down, which is the desktop at its worst moment, and
+the platform is a coincidence of this operator rather than a fact about the
+collection. So it has to be recorded.
+
+**Which way round it is recorded is the whole safeguard.** The recorded fact is
+the one that produces silence, never the one that produces the alarm:
+`"catalogue": "elsewhere"` in the machine's own
+`.git/factory/backup-dirs.json`. A machine that has written nothing, including
+this one if that file is ever lost, is exactly as loud as it was before, and
+the line is believed only while no directory is configured, so the desktop's
+record, which names three paths, can never silence anything. Recorded the other
+way about, one missing file would retire the alarm, which is #454 with the
+watcher in on it.
+
+On a machine that has said it, the check says nothing at session start, for the
+same reason the healthy case says nothing. `node scripts/check-backup-freshness.mjs
+--status` answers when asked.
+
 **And it watches the covers, but not by their age**, which is a correction worth
 recording because the first version of the check got it wrong and the wrong
 answer looked entirely plausible.

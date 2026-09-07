@@ -80,6 +80,44 @@
 // environment nor the machine record names a directory, it says so rather than
 // passing quietly, because a watcher that is silently watching nothing is the
 // same defect this file exists to catch.
+//
+// EXCEPT ON A MACHINE THAT HOLDS NO CATALOGUE, WHICH IS NOT THE SAME THING
+// That paragraph was written on the machine with the collection on it. On the
+// Linux devbox this loop now runs on there is no catalogue, no photographs and
+// no dumps (AGENTS.md puts all three on the Windows desktop and out of bounds),
+// and so this check fired at every session start, under a heading saying the
+// catalogue needs attention, about a machine that has nothing to attend to
+// (#567). Two situations produce that one observation and they want opposite
+// answers: a backup that has stopped, and a machine that never had one.
+//
+// **Nothing on the machine tells them apart, and the near misses are worth
+// naming because each looks like it would.** Probing for the catalogue itself
+// (the `book-scan-live-pg` container, the volume, the covers directory) answers
+// "no catalogue here" on the desktop too whenever the container is down, which
+// AGENTS.md records it has been since 2026-09-02. That is the machine that most
+// needs the alarm, at its worst moment, and it is also a connection this file
+// promises above never to open. The platform is no better: Linux means no
+// catalogue for this operator today and nothing at all tomorrow.
+//
+// So it has to be recorded, and **the direction of the record matters more
+// than where it lives**. #567 suggests recording that a machine *is* expected
+// to hold a catalogue. That makes an absent record mean silence, and the
+// machine holding the catalogue today has no such record: losing one file
+// would retire the alarm, which is #454 happening again with the watcher in on
+// it. Recorded the other way, the quiet case is the one somebody had to write
+// down, and every machine that has written nothing is as loud as it ever was.
+//
+// The statement is `"catalogue": "elsewhere"` in
+// `.git/factory/backup-dirs.json`, beside the paths and read in the same pass,
+// because deriving one answer from two reads of one file is how this project
+// gets its defects. **It holds only while nothing is configured.** A machine
+// that names even one directory has something here claiming to be watched, and
+// it is watched and complained about exactly as before, so the desktop's own
+// record, which names three paths, can never silence anything.
+//
+// What it says when it is quiet is nothing, at session start, for the same
+// reason the healthy case says nothing: a line printed every session is a line
+// nobody reads. `--status` is a question somebody asked, so that answers.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
@@ -124,18 +162,24 @@ import { join } from 'node:path'
 
 /**
  * Where the backups live, from the environment first and the machine record
- * second.
+ * second, and, from the record only, whether this machine expects to have any.
  *
- * These are machine facts — which disk this operator keeps backups on — so they
- * are never committed. `.git/factory/` is where this project already puts that
- * kind of state: inside the git common directory, shared by every worktree and
- * inherited by no clone.
+ * These are machine facts: which disk this operator keeps backups on, and
+ * whether the collection is on this box at all. So they are never committed.
+ * `.git/factory/` is where this project already puts that kind of state: inside
+ * the git common directory, shared by every worktree and inherited by no clone.
+ *
+ * `catalogue` is `'elsewhere'` only where the record says so in those words,
+ * and `null` for every machine that has not said it, including a machine with
+ * no record at all. See the header for why the silent case is the one that has
+ * to be written down rather than the loud one.
  */
 export function directories(env = process.env, factoryDir = null) {
   const fromEnv = {
     dumps: env.BOOKSCAN_BACKUP_DIR ?? null,
     covers: env.BOOKSCAN_COVERS_DIR ?? null,
     coversSource: env.BOOKSCAN_COVERS_SOURCE ?? null,
+    catalogue: null,
   }
   if (fromEnv.dumps && fromEnv.covers && fromEnv.coversSource) return fromEnv
 
@@ -148,6 +192,7 @@ export function directories(env = process.env, factoryDir = null) {
         dumps: fromEnv.dumps ?? said.dumps ?? null,
         covers: fromEnv.covers ?? said.covers ?? null,
         coversSource: fromEnv.coversSource ?? said.coversSource ?? null,
+        catalogue: said.catalogue === 'elsewhere' ? 'elsewhere' : null,
       }
     } catch {
       // A malformed record is the same as no record, and saying so is the
@@ -195,6 +240,18 @@ const hoursSince = (at, now) => (now - at) / 3_600_000
 const days = (hours) => (hours / 24).toFixed(1)
 
 /**
+ * Whether this machine has said the collection is not on it.
+ *
+ * Both halves matter and they are written once because two copies of a rule is
+ * how this project gets its defects: the record has to say it in those words,
+ * and it is believed only while nothing here is claiming to be watched. See
+ * the header, including why the statement cannot be inferred (#567).
+ */
+function holdsNoCatalogue(dirs) {
+  return dirs.catalogue === 'elsewhere' && !dirs.dumps && !dirs.covers && !dirs.coversSource
+}
+
+/**
  * What the verification beside a dump says about it.
  *
  * Absent or unreadable is reported as unknown rather than as failure: a dump
@@ -225,6 +282,10 @@ function verificationOf(dir, dumpName) {
  */
 export function complaints(dirs, now = Date.now()) {
   const said = []
+
+  // Not a machine left unconfigured: a machine configured with nothing, which
+  // is correct here, and there is no complaint to make about it.
+  if (holdsNoCatalogue(dirs)) return said
 
   const missing = [
     dirs.dumps ? null : 'no dump directory',
@@ -308,9 +369,18 @@ if (process.argv[1]?.endsWith('check-backup-freshness.mjs')) {
     console.log(`dumps:  ${dirs.dumps ?? '(not configured)'}`)
     console.log(`covers: ${dirs.covers ?? '(not configured)'}`)
     console.log('')
-    console.log(said.length
-      ? said.join('\n')
-      : 'Nothing has been photographed since the newest dump, and that dump verified clean.')
+    if (holdsNoCatalogue(dirs)) {
+      // Asked directly, so it answers: silence at session start is the right
+      // amount to say unprompted, and the wrong amount to say to a question.
+      console.log('This machine records that the catalogue is elsewhere, in'
+        + '\n.git/factory/backup-dirs.json, so there is nothing here to watch and'
+        + '\nnothing to say at the start of a session. Take that line out and this is'
+        + '\nloud again, which is what every machine that has not written it gets.')
+    } else {
+      console.log(said.length
+        ? said.join('\n')
+        : 'Nothing has been photographed since the newest dump, and that dump verified clean.')
+    }
     process.exit(0)
   }
 

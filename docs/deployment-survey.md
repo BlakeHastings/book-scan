@@ -539,7 +539,7 @@ None of this survives the move, and all of it is load-bearing today.
 | The nightly backup wrapper | `scripts/backup-catalogue.ps1`, 229 lines | PowerShell throughout. DPAPI decrypt at `:100-111`, `robocopy /E /XO` for the photographs at `:219`, and a same-drive refusal that reads PSDrive letters at `:203-214` |
 | Installing the schedule | `scripts/install-backup-task.ps1` | `Register-ScheduledTask` at `:182`, `New-ScheduledTaskAction` at `:168`, `pwsh` falling back to `powershell.exe` at `:165-166`, `$env:LOCALAPPDATA` at `:111` |
 | The secret store | `scripts/write-connection-file.ps1` | DPAPI at `CurrentUser` scope: the file "decrypts only for the account that wrote it, on this machine" (`backup-catalogue.ps1:37-38`). Default path `$env:LOCALAPPDATA\book-scan\backup-connections.json` at `:119` |
-| The freshness check | `scripts/check-backup-freshness.mjs` | Portable JavaScript, but its whole argument is built on robocopy's timestamp behaviour (`:40-47`, `:278`). Its header records "1541 files on each side" as of 2026-08-25, which is where that count is written down in this repository |
+| The freshness check | `scripts/check-backup-freshness.mjs` | Portable JavaScript, but its whole argument is built on robocopy's timestamp behaviour (`:40-47`, `:339`). Its header records "1541 files on each side" as of 2026-08-25, which is where that count is written down in this repository |
 | The launcher | **Not in this repository at all** | AGENTS.md:234-236 records that the scheduled task `book-scan stable server` runs `run-stable.cmd` under `book-scan-production-data`, which hands off to `run-stable.ps1` beside it, and that those set the two variables and run `npm run dev` |
 
 That last row is the most important line in this section. **What runs the live
@@ -562,10 +562,12 @@ refuses a client older than the server.
 
 Three further variables belong to this toolchain rather than to the app:
 `BOOKSCAN_COVERS_DIR` and `BOOKSCAN_COVERS_SOURCE` alongside
-`BOOKSCAN_BACKUP_DIR` (`scripts/check-backup-freshness.mjs:134-140`), falling
+`BOOKSCAN_BACKUP_DIR` (`scripts/check-backup-freshness.mjs:178-182`), falling
 back to an uncommitted machine record at `.git/factory/backup-dirs.json`
-(`:143-157`). A deployment that keeps the freshness check has to tell it where
-the two directories are on the new host.
+(`:186-197`). A deployment that keeps the freshness check has to tell it where
+the two directories are on the new host. On a host that holds no catalogue and
+is not meant to, write `"catalogue": "elsewhere"` in that same record, which
+is the only thing that makes the check quiet about being unconfigured (#567).
 
 ---
 
