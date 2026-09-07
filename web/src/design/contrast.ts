@@ -80,6 +80,18 @@ export const over = (top: Paint, under: Rgb): Rgb =>
 export const AA_BODY_TEXT = 4.5
 
 /**
+ * AA for something you have to be able to make out and do not have to read.
+ *
+ * WCAG 1.4.11. There is exactly one such thing on this camera and it is the
+ * frame you aim the book inside (#553): a rectangle with no words in it, whose
+ * whole job is to say where the crop is. Inheriting 4.5 for it would have been
+ * a stricter rule nobody argued for, and a looser one applied to a word would be
+ * worse, so the two numbers sit here together with their reasons rather than
+ * being chosen per test.
+ */
+export const AA_NON_TEXT = 3
+
+/**
  * The two ends of what a camera can put behind something.
  *
  * A white page and a black paperback are both books somebody photographs, and

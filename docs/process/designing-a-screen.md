@@ -51,7 +51,7 @@ copied into the app is two components that agree until one of them is edited.
 
 ## The rules file
 
-`web/src/design/design.test.tsx` holds eleven rules as tests. **Every one came
+`web/src/design/design.test.tsx` holds twelve rules as tests. **Every one came
 from a real correction or a real defect**, and each carries the reason in its own
 comment:
 
@@ -66,6 +66,7 @@ comment:
 - the first screen is counts, and every count goes somewhere
 - one row of books is one area
 - a word on the picture can be read whatever the lens is pointed at
+- the frame you aim the book inside can be seen whatever the lens is pointed at
 
 The eleventh is the first that came from a measurement rather than from
 something the owner said, and it is the one worth knowing the shape of. A ratio
@@ -76,6 +77,18 @@ gallery draws the camera at both ends (`#camerapage`, `#cameracover`) and the
 rule recomputes the bed from the token's own digits. The drawing and the sum are
 both needed: a number nobody can see goes stale politely, and a drawing nobody
 recomputes goes wrong quietly.
+
+The twelfth is its sibling and it is here for what makes it *not* the same rule
+(#553). The one thing on that camera which is not a word is the frame you aim
+the book inside, and three things about it are different in kind: the threshold
+is WCAG 1.4.11 at 3:1 rather than 1.4.3 at 4.5:1, because a frame is aimed with
+and not read; there is nothing behind a 1.5px line to bed it on, so it carries a
+second tone on each side of itself instead; and it is 340 by 540 on a phone,
+which is far too big to assume one colour is behind it. That last one is why
+the gallery grew a third picture, a page held up in a room rather than a flat
+page or a flat cover, and four screens drawn on it to choose between. **A group
+of candidates goes in the gallery while the question is open and comes out with
+the answer**, which is the rule the group below it already set.
 
 These are load-bearing. An agent that finds a rule awkward is told the rule wins,
 because the alternative is relearning the same correction in three months. They

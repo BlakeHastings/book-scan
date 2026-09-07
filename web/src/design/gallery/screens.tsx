@@ -1789,6 +1789,65 @@ function CameraOnACover(go: Go) {
 }
 
 /**
+ * Four ways to draw the frame you aim the book inside, on the one picture that
+ * tells them apart (#553).
+ *
+ * **The frame was 1.03 to 1 over a white page**, which is not a rounding away
+ * from invisible: read off the running app at 414 by 896, the line's own pixels
+ * are rgb(253,251,247) and the page behind them is rgb(255,255,255). It is the
+ * last thing on this camera that #530 did not reach, and it could not: that
+ * issue answered "readable over any photograph" by putting a bed under every
+ * word, and a 1.5px border has nothing behind it to bed.
+ *
+ * It is also a different question rather than the same one further along. This
+ * is the only thing on the screen that is not a word, so it is WCAG 1.4.11 at
+ * 3:1 rather than 1.4.3 at 4.5:1 — a frame is aimed with, not read — and that
+ * is an argument that deserved making rather than inheriting.
+ *
+ * **These are four screens rather than four paragraphs** because
+ * `docs/process/designing-a-screen.md` says so and because it has been right
+ * six times: the owner reacts to a drawing on his phone, and walking four
+ * screens in a row is the comparison. `library.css` carries the case for each
+ * beside the rule that draws it. In short: `now` is the defect, `dark` is the
+ * first thing anybody tries and fails at the other end, `dim` is the real
+ * alternative and costs half the picture, and `keyline` is what shipped.
+ *
+ * They all stand on `--held`, which is a page held up in a room rather than a
+ * flat page or a flat cover. That is the picture that decides it: on a flat
+ * background both sides of a line have the same thing behind them, and on this
+ * one the frame's own left and top edges run off white on to dark part way
+ * along. A frame is 340 by 540 on this phone. It is not small enough to be over
+ * one colour.
+ */
+const AIMING = (
+  <div className="wf-view__picture wf-view__picture--held" aria-hidden="true" />
+)
+
+function aimedWith(guide: string) {
+  return (go: Go) => (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={shotsOf(go)}
+        picture={AIMING}
+        guide={<div className={`wf-view__guide${guide}`} aria-hidden="true" />}
+        over={inHand}
+        also={nextBook(go)}
+        onLeave={() => go('home')}
+        onDone={() => go('review')}
+      />
+    </div>
+  )
+}
+
+/* The one that shipped, which is the plain rule and therefore no modifier at
+   all. Named rather than left out, because a candidate missing from a row of
+   candidates reads as an oversight. */
+const FrameKeyline = aimedWith('')
+const FrameNow = aimedWith(' wf-view__guide--now')
+const FrameDark = aimedWith(' wf-view__guide--dark')
+const FrameDim = aimedWith(' wf-view__guide--dim')
+
+/**
  * What is in your hands, which the wireframe camera has never drawn.
  *
  * The screen above it says a wireframe has nothing in its hands, and that was
@@ -5701,6 +5760,35 @@ export const SCREENS: Screen[] = [
      of it, which is why they carry the picture and nothing else different. */
   { id: 'camerapage', name: 'The camera on a page', group: 'Cataloguing', render: CameraOnAPage },
   { id: 'cameracover', name: 'The camera on a dark cover', group: 'Cataloguing', render: CameraOnACover },
+  /* A group of its own rather than four more Cataloguing screens, in the shape
+     "Two ways to say the order" already set: these four are one screen with one
+     thing different, drawn to be chosen between, and filing them beside the
+     camera would read as four cameras. Walk them in this order — the defect,
+     the obvious answer, the expensive answer, and the one that shipped. */
+  {
+    id: 'framenow',
+    name: 'The line on its own',
+    group: 'Four ways to draw the aiming frame',
+    render: FrameNow,
+  },
+  {
+    id: 'framedark',
+    name: 'The line, dark instead',
+    group: 'Four ways to draw the aiming frame',
+    render: FrameDark,
+  },
+  {
+    id: 'framedim',
+    name: 'The room around it, dimmed',
+    group: 'Four ways to draw the aiming frame',
+    render: FrameDim,
+  },
+  {
+    id: 'framekeyline',
+    name: 'The line with a keyline',
+    group: 'Four ways to draw the aiming frame',
+    render: FrameKeyline,
+  },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
   /* Beside it, because the top of that screen has two answers and both are
      ordinary: a book a catalogue holds a cover for, and a book nothing
@@ -5913,6 +6001,14 @@ export const GROUPS = [
   'Every day',
   'Finding a book',
   'Cataloguing',
+  /* The second such group, under the same rule as the one below: it is here
+     while the question needs deciding by looking and it goes with the answer
+     (#553). Beside `Cataloguing` rather than at the end because the case is
+     made by walking it straight on from `camerapage` and `cameracover`, which
+     are the same camera over the two flat backgrounds these four are not.
+     **This heading, its four screens, `aimedWith` and the three
+     `.wf-view__guide` modifiers all go together the day the frame is chosen.** */
+  'Four ways to draw the aiming frame',
   'The corner',
   'Your fixtures',
   'Putting things right',
