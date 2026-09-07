@@ -35,40 +35,46 @@ that is the correct answer, not a gap.** The catalogue, the covers and the dumps
 are all on the desktop. There is nothing here to watch, and pointing it at
 something local would arm a check that is watching nothing while looking armed.
 
-## Nothing has ever been published, and that is the gap between "deployable" and deployed
+## Published, on 2026-09-07, and the rehearsal held
 
-The section below this one is true: the build, the image, the publishing
-workflow, the contract and the bind all exist. **What has never happened is any
-of it running.** Checked 2026-09-07:
+**`v0.1.0` exists.** The image is at `ghcr.io/blakehastings/book-scan`, public, and the
+release carries `contract.json`. The owner authorised the tag in prose; the
+push is his by the rule in `.git/factory/machine.md`, and the classifier
+refused it from this session twice before allowing it, which is a harness
+permission rule rather than a decision to retake.
 
 ```
-git tag -l                              # nothing
-gh release list                         # nothing
-gh run list --workflow publish.yml      # nothing
+ghcr.io/blakehastings/book-scan@sha256:c507fa85c04f12bf2b510bd52fbceee0b0fac6eacf9e9f5cf7543bd3dba7cd70
 ```
 
-So there is no image in the registry for the private repository to point at, and
-`.github/workflows/publish.yml` has zero runs. A reader of "this app is
-deployable now" would reasonably conclude otherwise, which is why this sits
-above it.
+**Every step of `publish.yml` passed on its first ever run**, which is what #549
+was for. The image rehearsal was dispatched against the exact commit first and
+was green, so the push, the pull-back by digest and `gh release create` were the
+only steps that had never executed, and all three worked.
 
-**The shape of the risk is the ordering inside that workflow.** `Build and push`
-has `push: true`, and three steps come after it: the pull-back contract
-comparison, the checker inside the image, and `gh release create`. A run that
-fails in any of the three has already put an immutable tag in a public registry,
-and the tagging scheme deliberately has no way to move or replace one. The
-workflow's own comment calls the build "the gate" — and that gate first runs at
-the moment something irreversible is created.
+**Verified after the fact, from this machine, the way a consumer would:** pulled
+by digest, and the contract inside the image is byte-identical both to this
+repository's copy and to the release asset. The checker inside it exits 1 on an
+empty environment and 0 with a connection string. So "the contract that came
+with this image" is a fact rather than a habit, three ways round.
 
-**#549 closed the half of that which is this repository's** and landed as #551:
-the image is built, the contract compared and the checker run on every pull
-request that can change the image. It was then run against `master` itself and
-was green. The section below has the detail.
+**Two things to know before the next release.** The workflow log's first
+`sha256:` is a layer digest and not the image's — read the digest from the
+release notes, which is where the workflow writes it. And there is deliberately
+no moving tag, so a consumer pins the digest and keeps the tag in a comment.
 
-**Pushing the first tag is the owner's**, and it is asked once rather than
-assumed. It creates a public image and a public release under his name, and
-"owned" covers merging into this repository rather than publishing artefacts
-from it.
+**What is still the owner's**: the private infrastructure repository that
+consumes this, and the sign-in configuration for wherever it lands. Neither is
+work for this repository, which is the property `docs/publishing.md` exists to
+protect.
+
+## The merge gate and the ruleset agree again
+
+Both now require three checks, `image (build + contract)` among them. #552 is
+closed in both halves: the script half landed as #569, and the ruleset was
+brought into line on 2026-09-07 with `docs/process/master-ruleset.json` updated
+in the same change, so the committed payload still describes what GitHub
+evaluates.
 
 ## In flight
 
