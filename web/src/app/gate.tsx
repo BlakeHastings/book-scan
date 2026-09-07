@@ -36,6 +36,15 @@
  *
  * and a fourth that is not an event this app can generate: coming back to the
  * tab. See `useEffect` on `visibilitychange`.
+ *
+ * **"None of them is a timer" was measured against a person, and it cost the
+ * waiting screen** (#558). That screen deliberately makes no requests, so it can
+ * generate none of the three, and somebody sitting on it after being let in sat
+ * there for forty seconds having made zero. Every other screen in the app makes
+ * requests and therefore has the second of the three available to it; the one
+ * that does not is the one waiting for the answer to change. Still no
+ * timer, decided rather than inherited: the words on it now say what does move
+ * it, and `design/Gate.tsx` on `WaitingList` carries the whole argument.
  */
 
 import {
@@ -45,7 +54,7 @@ import {
 
 import {
   signInTroubleIn, TROUBLE_PARAM, TROUBLE_WAY_PARAM,
-  type SessionAnswer, type SignInProvider,
+  type AuthState, type SessionAnswer, type SignInProvider,
 } from '../../shared/auth'
 import { api, whenTheGateRefuses, theGateSaid } from '../lib/api'
 import { signInTroubleSaid, type SignInTroubleSaid } from '../lib/signInWords'
@@ -110,6 +119,50 @@ function coversAreBehindTheGate(ask: () => void): () => void {
 }
 
 /**
+ * What the app knows after a refusal, which includes who is holding the session
+ * (#558).
+ *
+ * A refusal reaching `lib/api.ts` carries one word and no person: the gate's
+ * `403` body is `{ state, error }`, because `docs/the-gate.md` is explicit that
+ * nothing about somebody beyond `enabled` is read on a request that every
+ * photograph makes. So this used to replace the whole answer with `{ state }`,
+ * and the waiting screen it put up said only "Sign out" where the same screen
+ * reached by a reload says "Signed in as somebody@example".
+ *
+ * **That is the wrong screen to lose an address from.** Its one offer is "sign
+ * out if you meant to arrive as somebody else", and picking the wrong account is
+ * exactly the case it exists for. It is hard to act on an offer to change
+ * identity from a screen that will not say which identity you have.
+ *
+ * **The person is carried rather than re-asked, and that is the whole choice.**
+ * The alternative is a second request to `GET /api/auth/session` alongside every
+ * refusal, which would fetch a fact this browser is already holding: the refusal
+ * changed which of the three states the caller is in, not who the caller is.
+ * They are the same session either way, because a `403` is this cookie's own
+ * user being refused.
+ *
+ * What does move is `enabled`, so it is taken from the state the server just
+ * said rather than carried, and `anonymous` drops the person entirely, because
+ * there is nobody to describe. That is what `SessionAnswer` means by an absent
+ * `user`.
+ * The first ask on mount is what fills this in for somebody who arrives on the
+ * waiting screen with no earlier answer, so nothing here has to invent one.
+ *
+ * Exported for `gate.test.tsx`, which asserts the property that matters: the two
+ * ways onto that screen draw the same thing.
+ */
+export function afterTheGateSaid(
+  was: SessionAnswer | null,
+  state: AuthState,
+): SessionAnswer {
+  // Unchanged rather than rebuilt, so a refusal on a screen already showing this
+  // state is not thirty re-renders when thirty photographs fail at once.
+  if (was?.state === state) return was
+  if (state === 'anonymous' || !was?.user) return { state }
+  return { state, user: { ...was.user, enabled: state === 'admitted' } }
+}
+
+/**
  * The gate, in front of everything.
  *
  * Draws nothing at all while the first answer is in flight. That is one request
@@ -145,7 +198,7 @@ export function GateProvider({ children }: { children: ReactNode }) {
 
   /* The server refused something, somewhere. Take its word for the state. */
   useEffect(() => whenTheGateRefuses((state) => {
-    setAnswer((was) => (was && was.state === state ? was : { state }))
+    setAnswer((was) => afterTheGateSaid(was, state))
   }), [])
 
   useEffect(() => coversAreBehindTheGate(reask), [reask])

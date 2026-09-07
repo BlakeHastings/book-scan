@@ -146,6 +146,44 @@ export function WayIn({
  * `email` is the identity they arrived on, shown because it is the one fact
  * that makes the sign-out button worth anything: somebody who picked the wrong
  * account can see that they did.
+ *
+ * ## This screen does not poll, and the last paragraph is what that costs (#558)
+ *
+ * It used to end "there is nothing to do here but wait", and waiting was the one
+ * action that never resolved. Measured: sat here, had the person enabled by the
+ * script, waited forty seconds, and the browser made **zero** requests. The
+ * screen makes none by design, `app/gate.tsx` moves on a refusal or a cover that
+ * would not load, and neither happens to somebody sitting still. A reload got
+ * straight in, and so did leaving the tab and coming back, which re-asks. So the
+ * app was letting people in perfectly and telling the person in front of it that
+ * there was nothing to do but the one thing that would never work.
+ *
+ * **Two honest fixes, and they are different products.** Poll
+ * `GET /api/auth/session` here and the screen comes alive by itself. Say what
+ * actually moves it and the screen costs nothing and is true. This is the second
+ * one, on purpose, for three reasons:
+ *
+ * 1. **Everybody on earth holding a Google credential can reach this screen.**
+ *    That is not incidental, it is the whole reason the waiting state exists
+ *    (`docs/the-gate.md`, on why there are three states). A timer here is an
+ *    unbounded, automatic stream of requests from people this app has decided
+ *    not to admit, from every tab any of them ever left open. #556 and #566 both
+ *    spent an issue making sure a refusal is re-asked rather than remembered,
+ *    and neither turned a refusal into a repeating request.
+ * 2. **The window a poll would win is mostly not there.** Being let in is a
+ *    person's decision, made at a terminal, and told to the waiting person the
+ *    same way: out of band. They already have to be told. A poll buys the
+ *    seconds between the script finishing and the message arriving.
+ * 3. **The escape already exists and was simply never named.** Coming back to
+ *    this tab re-asks the gate, which is what made the observed behaviour so
+ *    strange: switch away and back and you are admitted, sit and watch and you
+ *    are not. The words below now describe both ways.
+ *
+ * **And it is still not a button.** #524 kept "try again" off this screen
+ * because the request that would be retried is the one that has just answered
+ * `403`, and `design.test.tsx` holds that as a rule: exactly one thing to press
+ * here and it is the way out. A reload is the browser's act and not this app
+ * offering to fix something, which is the difference.
  */
 export function WaitingList({
   email,
@@ -170,8 +208,9 @@ export function WaitingList({
         </p>
         <p className="wf-gate__said">
           If you are meant to be here, whoever owns this collection has to let
-          you in. That happens away from this app, so there is nothing to do
-          here but wait.
+          you in. That happens away from this app, so this page will not change
+          on its own. Once they tell you, reload it, or leave this tab and come
+          back to it. Either one asks again.
         </p>
 
         <div className="wf-gate__acts">
