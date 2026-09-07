@@ -74,13 +74,20 @@ from it.
 
 | Issue | Who has it |
 | --- | --- |
-| #566 | an agent. Every gated JSON route still says nothing about caching, which is #556 one surface over |
-| #561 | an agent. Every `aspire start` deletes `web/node_modules` and installs it again |
-| #552 | an agent. Making the image check actually gate a merge, now that it has twelve green runs |
+| #572 | an agent. The live-data guard's test passes where CI runs it and fails where agents do |
+| #563 | an agent. The browser suite is required and its own sources are never typechecked |
+| #553, #554 | an agent. The aiming frame and the caption, both on the camera, both found by #530 |
 
-**Landed on 2026-09-07, all reviewed and merged from this loop**: #551 (#549),
-#555 (#530), #560 (#448), #565 (#556), #564 (#557), plus three documentation
-top-ups of this file. #510 was closed on evidence.
+**Fourteen pull requests merged on 2026-09-07, every one reviewed from this
+loop**: #551 (#549), #555 (#530), #560 (#448), #565 (#556), #564 (#557), #569
+(#552 script half), #570 (#566), #571 (#561), #573 (#567), #575 (#562), #574 and
+#576 (#558, split), plus four top-ups of this file. **#510 was closed on
+evidence**, not on its reviews.
+
+**The merge gate now requires three checks**, `image (build + contract)` being
+the third. Its `REQUIRED` list is the single source of truth for what gates a
+merge, and it is deliberately stricter than the branch ruleset until the owner
+adds the same context there.
 
 ## The tag is rehearsed, and only three things are still first
 
@@ -164,10 +171,21 @@ sign-in, because no credential may exist here. It got one step further than the
 stub anyway, fetching Microsoft's live discovery document with a real tenant and
 building a correct authorization URL from the endpoints it named.
 
-**Its driver scripts are still on disk** in the finished agent's worktree, under
-`hunt-scratch/`. They are the cheapest way to drive a built server with a real
-provider configured, and they are why `prune-worktrees.mjs` is holding that
-worktree.
+**The technique it used is the durable part, and the scripts were not.** They
+carried hardcoded ports and a session scratch path, so they were residue rather
+than a tool, and the worktree holding them has been released. Two later agents
+reproduced the whole setup from a description, which is what settled it. The
+description, so nobody has to reconstruct it a fourth time:
+
+`npm run build`, then start `dist-server/index.js` on a port of your own, with
+`ConnectionStrings__bookscan` and `BOOKSCAN_DATA` read out of the api resource's
+own environment in `aspire describe` and **passed to the child process only**.
+Neither variable is ever set in a shell, which is the `AGENTS.md` rule and the
+reason this is worth writing down rather than improvising. Add invented provider
+credentials and `BOOKSCAN_PUBLIC_ORIGIN` and the sign-in doors are reachable
+without a real account: the start routes build correct authorization URLs, and
+the callback's failure branches are all reachable by hand. `e2e/global-setup.ts`
+does the same environment read and is the worked example.
 
 ## This app is deployable now, and that is the headline
 
@@ -375,6 +393,42 @@ declares no image, no registry and no target.
 
 The configuration surface is **twelve** environment variables, not the two
 `AGENTS.md` names, and five of them default to origins on the public internet.
+
+## What a day of this loop actually produced, and the one number worth carrying
+
+Fourteen merges on 2026-09-07. **In nine of them the agent contradicted the issue
+or the brief it was handed, and in nine of them the agent was right.** That is no
+longer a surprise to note; it is the expected outcome, and briefs are now written
+to invite it.
+
+The corrections, because the pattern is the lesson:
+
+- **#530** named a class that was not the problem; the real defect was one token
+  under everything the design system floats on a camera.
+- **#549** was told the image job would be too slow to run per pull request. It
+  is the fastest of the three checks.
+- **#556** was told `immutable` was the lever. It is not: a subresource under a
+  long `max-age` is served from cache with no request either way. The lever is
+  `max-age`.
+- **#557** was handed two failure exits. There were eleven, and the one nobody
+  named was the sharper: a sign-in button is a top-level navigation, so a
+  provider outage put a raw error body in front of whoever pressed it.
+- **#552** was told it was one line and a test. There was no test to add it to —
+  nothing in the repository read `REQUIRED` at all, so the refusing half of the
+  merge gate had never been executed by anything.
+- **#561** was told the pre-bundling cost lands on the first page load. It lands
+  inside the start, before the resource reports healthy.
+- **#566** was warned that `no-store` would cost the browser's back/forward
+  cache. That is true of a document and nothing under `/api` is one.
+- **#567** was handed a polarity that would have silenced the alarm on the one
+  machine that needs it, because the desktop has no record and absence would have
+  meant silence. The agent inverted it.
+- **#562** was pointed at the neighbours' answer. Copying it would have emptied
+  a correctly populated screen on any later blip.
+
+**The brief that produces this says what the evidence bar is rather than what the
+answer is**, and says plainly that the tree is the authority. That sentence is in
+`docs/process/working-an-issue.md` and it is earning its place.
 
 ## What the fixes keep turning out to be
 
