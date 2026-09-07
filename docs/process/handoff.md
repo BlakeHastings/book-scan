@@ -74,9 +74,83 @@ from it.
 
 | Issue | Who has it |
 | --- | --- |
-| #549 | an agent. Everything a version tag does, except the push and the release, running before the tag |
 | #448 | an agent. The browser-journey flake, dispatched here because the machine that blocked it in August is not this machine |
-| #530 | an agent. The camera caption over a white page, which wants a drawing before a stylesheet |
+| #556 | an agent. The cover cache header, which is the most important thing found today |
+| #557 | an agent. Every sign-in failure landing on raw JSON |
+
+## The tag is rehearsed, and only three things are still first
+
+**#549 landed as #551 and was immediately run against `master` itself**, through the
+`workflow_dispatch` trigger it added for exactly that. Green at `71df5ba`: the
+image builds cold in 1m22s, the contract inside it is this repository's byte for
+byte, and the checker inside it refuses an environment with no connection string
+and passes one that has it. **None of that had ever been executed anywhere
+before 2026-09-07.**
+
+A tag now does three things for the first time: the push, the pull-back by
+digest, and `gh release create`.
+
+**The rehearsal nearly shipped the failure it was built to prevent, and the
+shape of that is worth carrying.** The first version asked `docker image inspect`
+whether the image was local and exited if it was not. That passes on every pull
+request, where the image is built with `load: true`. At a tag the image is pushed
+straight to the registry and never lands locally, so it would have failed one
+step after the push, with the immutable public tag already created and no
+release. **A check whose two callers differ in an unexamined way is a check that
+passes everywhere it is exercised and fails where it is not**, and "the two
+callers differ in exactly one thing" had been written as a fact before anybody
+checked it. Found by reading the diff against what `publish.yml` actually does,
+and by running the three-line Docker experiment rather than reasoning about it.
+
+**#552 is the piece deliberately left**: nothing requires the new check to be
+green. Making a check required has made this repository unmergeable once, so it
+waits for several green runs.
+
+## The login is finished, and a hunting pass found four things behind it
+
+**#510 is closed.** Gate, screens, Google, Microsoft, the enable script, Apple
+closed by the owner. Verified before closing by running
+`web/server/gate.routes.test.ts` here: 17 tests, and it asserts the open doors as
+a **list** rather than a count, 73 handlers behind the gate, the photographs
+refused at both doors, and a person disabled mid-session refused on their very
+next request. The handler count was 71 when `docs/the-gate.md` was written, which
+is the mechanism working rather than drift.
+
+**Then a hunting pass drove the whole way in against the built server**, which is
+the shape that will actually run and which nothing had ever driven end to end. It
+found four things worth filing and argued five more down, and the most valuable
+one is not a bug in the gate at all:
+
+- **#556, and it is the one to read.** Both cover doors answer
+  `Cache-Control: public, max-age=2592000, immutable` with no `Vary`. **`public`
+  explicitly authorises a shared cache to keep the photograph**, and the
+  deployment this is heading for puts a CDN in front of the origin. Somebody who
+  signs out also keeps every cover they have looked at, from disk cache, with no
+  cookie in the jar. **The header was written when everything was open and was
+  harmless then**; #521 closed the doors and nobody revisited what a correct
+  answer says it may be used for afterwards. Confirmed here by standing up
+  `express.static` with those exact options and asking it.
+- **#557.** Every OIDC callback failure renders as raw JSON with no way back:
+  pressing Cancel at the provider, pressing Back after signing in, a flow older
+  than ten minutes. **It survived five verification passes because the
+  development door has no failure path**, and that door is what every test uses.
+  The callback is the only route in this app whose response a browser renders as
+  a page, so it is answering in the right shape for the wrong audience.
+- **#558**, three smaller ones: the thirty-day session slides in the database and
+  the cookie is never re-issued, so a daily user is signed out on day 30 anyway
+  and the renewal machinery has no observable effect; the waiting screen makes no
+  requests, so it never notices it has been let in; and it forgets who you are
+  when you reach it by a refusal rather than a reload.
+
+**What the pass could not reach, and said so**: a real Google or Microsoft
+sign-in, because no credential may exist here. It got one step further than the
+stub anyway, fetching Microsoft's live discovery document with a real tenant and
+building a correct authorization URL from the endpoints it named.
+
+**Its driver scripts are still on disk** in the finished agent's worktree, under
+`hunt-scratch/`. They are the cheapest way to drive a built server with a real
+provider configured, and they are why `prune-worktrees.mjs` is holding that
+worktree.
 
 ## This app is deployable now, and that is the headline
 
@@ -303,6 +377,12 @@ how to write a brief:
   in `carry-placing.test.ts` diverged for free, because a rewritten rule row goes
   to the end of the Postgres heap and `rules.find` then returned the other rule.
   So a passing test was the defect written down, and any correct fix broke it.
+- **#530** named a class that was not the problem. That chip sits on an opaque
+  sheet and measures 14.2:1 where it actually is; the issue's failing number was
+  its own translucent background composited onto white, which is right arithmetic
+  against a bed it never has. **The title was right and the defect was larger**:
+  one token bedded everything the design system floats on the camera, at 3.9:1
+  over a white page. The agent said so rather than fixing what it was pointed at.
 
 **Reproduce before fixing, read the specification before deciding what correct
 is, and when a document and a machine disagree, ask the machine.** All three are
