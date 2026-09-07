@@ -17,7 +17,7 @@
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { Drifted, Misfiled } from './ShelfView'
+import { Drifted, Misfiled, NothingDrawn } from './ShelfView'
 import type { DriftingBook, Misfile, ShelvingReviewResponse } from '../lib/api'
 
 function misfile(overrides: Partial<Misfile['book']> = {}, from = '1A', to = '2B'): Misfile {
@@ -273,5 +273,54 @@ describe('the books the shelf and the rules disagree about', () => {
     expect((html.match(/class="wf-row"/g) ?? []).length).toBe(25)
     expect(html).toContain('275 more books')
     expect(html).toContain('300 books are drawn in one place')
+  })
+})
+
+/**
+ * A page of shelves with nothing on it, which has two causes (#479).
+ *
+ * The screen said "Nothing catalogued in this range yet" for both, and one of
+ * them is a range holding every book it held a minute ago whose rule somebody
+ * has just taken off. That is #562's distinction on the screen that draws
+ * somebody's collection: drawing nothing and saying nothing could be found are
+ * different, and only the second is what a person needs.
+ */
+describe('a range with no planks to draw', () => {
+  const drawnEmpty = (begins: string | null | undefined, filed: number | null = null) =>
+    renderToStaticMarkup(
+      <NothingDrawn range="nonfiction" begins={begins} filed={filed} />,
+    )
+
+  it('says nothing is catalogued only when the range has somewhere to be', () => {
+    const html = drawnEmpty('4A')
+    expect(html).toContain('Nothing catalogued in this range yet')
+    expect(html).not.toContain('Nothing says where')
+  })
+
+  it('says nothing places the range when nothing does', () => {
+    const html = drawnEmpty(null)
+    expect(html).toContain('Nothing says where non-fiction begins')
+    expect(html).not.toContain('Nothing catalogued in this range yet')
+  })
+
+  it('says the books are still there, which is the half that was a lie', () => {
+    expect(drawnEmpty(null, 7)).toContain('The 7 books filed here are still catalogued')
+    expect(drawnEmpty(null, 1)).toContain('The one book filed here is still catalogued')
+  })
+
+  it('invents no count when nothing has answered with one', () => {
+    const html = drawnEmpty(null)
+    expect(html).toContain('Nothing has been changed')
+    expect(html).not.toMatch(/[0-9]+ books filed here/)
+  })
+
+  it('says what ends the state rather than only naming it', () => {
+    expect(drawnEmpty(null, 7)).toContain('Describe the room and say what belongs where')
+  })
+
+  it('reads a server that does not send the field as the ordinary empty range', () => {
+    // `begins` is optional on the wire, so undefined is "nobody said" and must
+    // not draw the louder of the two. Only null is the claim.
+    expect(drawnEmpty(undefined)).toContain('Nothing catalogued in this range yet')
   })
 })

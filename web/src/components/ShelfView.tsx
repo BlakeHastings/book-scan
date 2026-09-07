@@ -518,44 +518,8 @@ export function ShelfView({
 
       {loading && <Said>Loading...</Said>}
 
-      {/*
-        The two silences, told apart (#479).
-
-        `groups` is empty for both, and the sentence that was here said the one
-        thing that is a statement about the books: "Nothing catalogued in this
-        range yet". It is false of the case underneath it. A range whose rule
-        has been taken off still holds every book it held a minute ago; what it
-        has lost is the one thing the rules alone say, which is where it stands
-        in the room. Saying nothing is catalogued there reads as the books
-        having gone, on the screen somebody opens to look for them.
-
-        So the card names the state, says the books are still there, and says
-        what ends it. No button of its own: writing a rule is the furniture
-        screen, which is the quiet button already at the foot of this one, and a
-        second door to it would be a second answer to where rules are written.
-      */}
-      {!loading && groups.length === 0 && begins === null && (
-        <Card
-          kind="Nowhere to draw"
-          title={`Nothing says where ${range === 'fiction' ? 'fiction' : 'non-fiction'} begins`}
-        >
-          <p>
-            No rule points {range === 'fiction' ? 'fiction' : 'non-fiction'} at a
-            bookcase or a shelf, so there is no run to draw and no plank to put a
-            book on.{' '}
-            {rangeCount === null
-              ? 'Nothing has been changed.'
-              : rangeCount === 1
-                ? 'The one book filed here is still catalogued and has not moved.'
-                : `The ${rangeCount} books filed here are still catalogued and have `
-                  + 'not moved.'}{' '}
-            Describe the room and say what belongs where, and this fills in.
-          </p>
-        </Card>
-      )}
-
-      {!loading && groups.length === 0 && begins !== null && (
-        <Nothing said="Nothing catalogued in this range yet." />
+      {!loading && groups.length === 0 && (
+        <NothingDrawn range={range} begins={begins} filed={rangeCount} />
       )}
 
       {/*
@@ -752,6 +716,62 @@ export function ShelfView({
         />
       )}
     </Frame>
+  )
+}
+
+/**
+ * What an empty page of shelves says, and there are two of them (#479).
+ *
+ * **Drawing nothing and saying nothing could be found are different**, and this
+ * screen used to say only the first: "Nothing catalogued in this range yet",
+ * for both. That sentence is a statement about the books, and it is false of
+ * the case underneath it. A range whose rule has just been taken off holds
+ * every book it held a minute ago; what it has lost is the one thing the rules
+ * alone say, which is where it stands in the room. Read on the screen somebody
+ * opens to look for their books, it says the books have gone.
+ *
+ * So the second says what the state is, says the books are still there, and
+ * says what ends it. `begins` is what tells them apart and it is the server's
+ * answer, from `bandOf` through `Shelves.beginsAt`: undefined until a read has
+ * come back, null when no rule places the range, and the plank the run opens at
+ * otherwise. Undefined reads as the ordinary empty range, which is what a server
+ * that does not send the field yet leaves this looking at.
+ *
+ * No button of its own. Writing a rule is the furniture screen, which is the
+ * quiet button already at the foot of this one, and a second door to it would be
+ * a second answer to where rules are written.
+ *
+ * Split out and holding no state for `Misfiled`'s reason, below.
+ */
+export function NothingDrawn({
+  range, begins, filed,
+}: {
+  range: ShelfRange
+  /** Where the run opens, null when nothing says, undefined until a read says. */
+  begins: string | null | undefined
+  /** How many books are filed in this range, or null while nobody has said. */
+  filed: number | null
+}) {
+  if (begins !== null) return <Nothing said="Nothing catalogued in this range yet." />
+
+  const named = range === 'fiction' ? 'fiction' : 'non-fiction'
+
+  return (
+    <Card kind="Nowhere to draw" title={`Nothing says where ${named} begins`}>
+      <p>
+        No rule points {named} at a bookcase or a shelf, so there is no run to
+        draw and no plank to put a book on.{' '}
+        {/* The count, or nothing rather than a nought. A number nobody answered
+            with, on the card about books somebody is worried they have lost, is
+            the one thing this must not invent. */}
+        {filed === null
+          ? 'Nothing has been changed.'
+          : filed === 1
+            ? 'The one book filed here is still catalogued and has not moved.'
+            : `The ${filed} books filed here are still catalogued and have not moved.`}{' '}
+        Describe the room and say what belongs where, and this fills in.
+      </p>
+    </Card>
   )
 }
 
