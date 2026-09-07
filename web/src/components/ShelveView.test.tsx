@@ -17,11 +17,12 @@
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { MovesSoFar } from './ShelveView'
+import { MovesSoFar, ShelveView } from './ShelveView'
 import {
   asking, confirm, emptyCascade, pushCarry, pushFrame,
   type Cascade, type Frame,
 } from '../lib/cascade'
+import type { PlacementResponse } from '../lib/api'
 
 const frame = (title: string, from: string, to: string, id = 1): Frame => ({
   // Invented and only distinct: this file is about what the list says, and the
@@ -103,5 +104,109 @@ describe('nothing having happened', () => {
     const html = drawn(carried)
     expect(html).toContain('Where it went instead')
     expect(html).not.toContain('Shuffle')
+  })
+})
+
+/**
+ * A range no rule serves, on the screen somebody is standing at a bookcase with
+ * (#479).
+ *
+ * The screen has three ways of not knowing which plank it is talking about, and
+ * two of them are waits: the placement has not arrived, or it has and a boundary
+ * move has made it stale. All three used to draw "Working out where it goes...",
+ * which is a promise that an answer is on its way. For this one nothing is on
+ * its way until somebody writes a rule, and that is the same silence #562 found
+ * on the first screen: the screen drawn while you wait, shown for a state that
+ * is not waiting.
+ */
+describe('a book whose range nothing places', () => {
+  const nowhere = {
+    kind: 'range-has-no-start',
+    range: 'nonfiction',
+    instruction:
+      'Nothing says where non-fiction begins, so there is nowhere to put this book. '
+      + 'Say what belongs on a bookcase or a shelf first.',
+    suggestedLocation: '',
+    derivedLocation: '',
+    derivedAreaId: null,
+    predecessor: null,
+    successor: null,
+    authorFiling: 'Berger, John',
+    sortKey: 'berger john|ways of seeing',
+    strip: null,
+  } as unknown as PlacementResponse
+
+  const drawnFor = (placement: PlacementResponse | null, stale = false) =>
+    renderToStaticMarkup(
+      <ShelveView
+        placement={placement}
+        stale={stale}
+        range="nonfiction"
+        title="Ways of Seeing"
+        saving={false}
+        onShelved={() => {}}
+        onBack={() => {}}
+        cascade={emptyCascade}
+        setCascade={() => {}}
+        onRefresh={async () => {}}
+      />,
+    )
+
+  it('says nothing places the range, rather than promising an answer', () => {
+    const html = drawnFor(nowhere)
+    expect(html).toContain('Nothing says where non-fiction')
+    expect(html).not.toContain('Working out where')
+  })
+
+  it('is what tells that screen apart from the one still waiting', () => {
+    // The same screen with no placement at all, which is the wait. It draws the
+    // wait, and that stays right: an answer really is coming.
+    const waiting = drawnFor(null)
+    expect(waiting).toContain('Working out where')
+    expect(waiting).not.toContain('Nothing says where')
+  })
+
+  it('names no plank, because there is none to name', () => {
+    // Every sentence on this screen carries a plank's name in its wording, and
+    // the one built out of an empty label read "Start at ." (#479).
+    const html = drawnFor(nowhere)
+    expect(html).not.toContain('Start at')
+    expect(html).not.toContain('gap at')
+  })
+
+  it('offers no answer to press, because every one of them writes', () => {
+    // "It fits, save" records the book on a plank and the two "no room" buttons
+    // ask a route to move furniture. None of them is a question that can be
+    // asked about a run that does not exist, so all three stay off.
+    const html = drawnFor(nowhere)
+    expect(html.match(/<button[^>]*disabled/g)).toHaveLength(3)
+  })
+
+  it('says nothing has been changed and what ends the state', () => {
+    const html = drawnFor(nowhere)
+    expect(html).toContain('Nothing has been changed and nothing is lost')
+    expect(html).toContain('Where a range begins is whatever your rules say')
+  })
+
+  it('does not say it about a book that is simply in neither run', () => {
+    // The other absence, and #304's sentence, which stays exactly as it was: a
+    // book with no genre tag is in neither ordered list, where this is a list
+    // standing nowhere.
+    const html = renderToStaticMarkup(
+      <ShelveView
+        placement={null}
+        stale={false}
+        range={null}
+        title="Ways of Seeing"
+        saving={false}
+        onShelved={() => {}}
+        onBack={() => {}}
+        cascade={emptyCascade}
+        setCascade={() => {}}
+        onRefresh={async () => {}}
+      />,
+    )
+    expect(html).toContain('is fiction or')
+    expect(html).not.toContain('Nothing says where')
   })
 })

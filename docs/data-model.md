@@ -1030,8 +1030,10 @@ in is **retired** instead, on the rule under "Fixture, Area": its position goes
 negative and every read of the furniture asks for `position >= 0`. That is what
 closes the drift #213 could only report.
 
-**A range's run stops where the next range's begins.** Non-fiction starts on
-bookcase 4, so a fiction range grown to a fourth bookcase is two runs sharing a
+**A range's run stops where the next range's begins.** In the collection `0013`
+migrated, non-fiction's rule points at bookcase 4. That is one collection's
+arrangement rather than a default, and #479 removed the two places that read it
+as one. So a fiction range grown to a fourth bookcase is two runs sharing a
 number, which is the arrangement `0013` refuses outright. The bound is still real
 and the write still does not refuse it: the areas past it are not written and the
 disagreement is reported, because a shelf somebody has already filled is not an

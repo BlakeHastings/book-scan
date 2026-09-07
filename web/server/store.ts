@@ -337,17 +337,26 @@ export class Store {
   // -----------------------------------------------------------------------
 
   /**
-   * The label a range's first book is offered when nothing is shelved in it yet.
+   * The label a range's first book is offered when nothing is shelved in it yet,
+   * or null when no rule says where the range begins.
    *
    * `shelf_ranges.start_label` until #232, and the first plank of the run the
    * range's rule points at from here. The two agree: `0013` derived the fixture
    * from `start_shelf` and the label was `start_shelf` and `start_area` written
    * out, so this is the same string built by the one function that builds one.
+   *
+   * **Null is `bandOf`'s answer and this passes it on** (#479). It used to be
+   * `{ shelf: range === 'nonfiction' ? 4 : 1, area: 0 }`, a literal nobody
+   * argued for: 4 is where the seeded world happens to stand non-fiction, from
+   * a time when this app served one shelf in one house. The owner settled that
+   * there is no per-genre default and there is not supposed to be one, because
+   * the rule set is what says where a range begins, per collection. So a range
+   * no rule serves has no start, `buildPlacement` says so, and nothing here
+   * invents a plank on the strength of which genre it is.
    */
-  private async rangeStart(range: ShelfRange): Promise<string> {
+  private async rangeStart(range: ShelfRange): Promise<string | null> {
     const band = await bandOf(this.db, range)
-    const start = band?.start ?? { shelf: range === 'nonfiction' ? 4 : 1, area: 0 }
-    return locationLabel(start.shelf, start.area)
+    return band ? locationLabel(band.start.shelf, band.start.area) : null
   }
 
   /**

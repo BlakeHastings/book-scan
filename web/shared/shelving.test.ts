@@ -278,6 +278,59 @@ describe('buildPlacement', () => {
     expect(result.instruction).not.toContain('Unknown author')
   })
 
+  /**
+   * A range no rule serves (#479).
+   *
+   * `rangeStart` is null then, and it is null because `bandsOf` says so rather
+   * than because anything here or in either caller worked it out. Four of the
+   * five sentences above name the range's start where a neighbour cannot be
+   * named, and the fifth is nothing but the start, so this is asked before any
+   * of them and is a kind of its own.
+   */
+  describe('when no rule says where the range begins', () => {
+    it('says so, and offers no plank', () => {
+      const result = buildPlacement('nonfiction', null, null, null)
+      expect(result.kind).toBe('range-has-no-start')
+      expect(result.suggestedLocation).toBe('')
+      expect(result.instruction).toBe(
+        'Nothing says where non-fiction begins, so there is nowhere to put this book. '
+        + 'Say what belongs on a bookcase or a shelf first.',
+      )
+    })
+
+    it('never names a plank in the sentence, whichever neighbours it has', () => {
+      const both = [neighbour(1, 'Alpha', '1A', 7), neighbour(2, 'Beta', '2B', 8)] as const
+      for (const [predecessor, successor] of [
+        [null, null], [both[0], null], [null, both[1]], [both[0], both[1]],
+      ] as const) {
+        const result = buildPlacement('fiction', predecessor, successor, null)
+        expect(result.kind).toBe('range-has-no-start')
+        expect(result.instruction).not.toMatch(/\d[A-Z]/)
+      }
+    })
+
+    it('still carries the two books either side, which is the sequence', () => {
+      // The furniture is what is missing. Where this book falls among the books
+      // is a fact about the books, it is unchanged, and the screen draws it.
+      const result = buildPlacement(
+        'fiction', neighbour(1, 'Alpha', '1A', 7), neighbour(2, 'Beta', '1A', 7), null,
+      )
+      expect(result.predecessor?.title).toBe('Alpha')
+      expect(result.successor?.title).toBe('Beta')
+    })
+
+    it('is not what an empty label means, which is a neighbour nobody has placed', () => {
+      // '' and null are different answers and used to be one. A range with a
+      // start whose neighbours have no recorded location still has somewhere to
+      // suggest; a range with no start has nowhere.
+      const result = buildPlacement(
+        'fiction', neighbour(1, 'Alpha', ''), neighbour(2, 'Beta', ''), '1A',
+      )
+      expect(result.kind).toBe('between-different-locations')
+      expect(result.suggestedLocation).toBe('1A')
+    })
+  })
+
   it('says "Unknown author" only once neither name is available', () => {
     const nameless: Neighbour = {
       id: 2, title: 'Beta', authorFiling: '', authors: '',

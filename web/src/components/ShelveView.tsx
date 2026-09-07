@@ -160,6 +160,24 @@ export function ShelveView({
   const known = shelfAreaId !== null && Boolean(shelfLabel) && !stale
 
   /**
+   * No rule says where this book's range begins, so nothing says where it goes.
+   *
+   * **Read off the placement's own kind rather than worked out here** (#479).
+   * `known` is false for this and for two other things, a placement that has
+   * not arrived and one that has gone stale, and all three used to draw
+   * "Working out where it goes...", which is a promise that an answer is on the
+   * way. For those other two it is. For this one nothing is coming until
+   * somebody writes a rule, and a spinner that never ends is the same silence
+   * #562 found on the first screen: the screen a person is given while they
+   * wait, drawn for a state that is not waiting.
+   *
+   * The server decides this, once, from `bandOf`. Nothing here re-derives it
+   * from an empty label, which is what having two answers to this question
+   * looked like in the first place.
+   */
+  const nowhere = placement?.kind === 'range-has-no-start'
+
+  /**
    * Nothing on this shelf sorts after the book in your hand.
    *
    * Which makes it the one that moves when the shelf is full, so the button
@@ -422,6 +440,19 @@ export function ShelveView({
                     non-fiction, so no rule claims it and there is no shelf to put
                     it on. Go back and say which it is.
                   </>
+                ) : nowhere ? (
+                  /* The same shape as the sentence above it and a different
+                     absence (#479). That one is a book in neither run; this is
+                     a run standing nowhere. The book has a range, the sequence
+                     knows which two books it falls between, and what is missing
+                     is where the range itself is, which only a rule says. Not
+                     phrased as a wait for the same reason: nothing is coming. */
+                  <>
+                    Nothing says where {range === 'fiction' ? 'fiction' : 'non-fiction'}
+                    {' '}begins, so there is nowhere
+                    to put <strong>{title}</strong> yet. Say what belongs on a
+                    bookcase or a shelf first, and this book has a place.
+                  </>
                 ) : known ? (
                   <>
                     Put <strong>{title}</strong> in the gap at <strong>{shelfLabel}</strong>.
@@ -479,6 +510,11 @@ export function ShelveView({
                 {range === null
                   ? 'Every rule asks about a tag, so a book carrying none matches ' +
                     'nothing. Saying which it is settles where it goes.'
+                  : nowhere
+                  ? 'Where a range begins is whatever your rules say, and no rule ' +
+                    'says this one. Nothing has been changed and nothing is lost: ' +
+                    'the book is where you are holding it and the run fills back in ' +
+                    'as soon as a rule points it at a piece of furniture.'
                   : atEndOfShelf
                   ? `Nothing on ${shelfLabel || 'this area'} goes after this book, so ` +
                     'it is the one that moves. Everything already on the bookcase ' +
