@@ -49,6 +49,7 @@ import {
 } from '../Finding'
 import { AddBox, AreaBox, Claim, Nest, Order } from '../Furniture'
 import { WaitingList, WayIn } from '../Gate'
+import { signInTroubleSaid } from '../../lib/signInWords'
 import {
   FilterRule, MoveBooks, SortRule, WouldHappen,
   type OrderEnds, type RuleEditing, type RuleSaid, type WouldMove,
@@ -5543,6 +5544,39 @@ function WayInTwo() {
 }
 
 /**
+ * The way in, reached by somebody whose sign-in did not finish (#557).
+ *
+ * Two of the six, drawn beside the ordinary screen rather than instead of it,
+ * for the reason the two bad days on Today are drawn that way: most arrivals
+ * here are the plain one, and a drawing that only ever showed the trouble would
+ * be designing for the exception.
+ *
+ * These two are the pair the issue is about, and putting them next to each other
+ * is the whole argument for there being six codes rather than one. Somebody who
+ * pressed Cancel and somebody who pressed Back are told different things,
+ * because they are in different situations and only one of them did anything.
+ */
+function WayInCancelled() {
+  return (
+    <WayIn
+      ways={[{ id: 'google', label: 'Google' }]}
+      said="These are somebody's own books. Sign in, and the person whose books they are can let you in."
+      trouble={signInTroubleSaid('cancelled', 'Google')}
+    />
+  )
+}
+
+function WayInStale() {
+  return (
+    <WayIn
+      ways={[{ id: 'google', label: 'Google' }]}
+      said="These are somebody's own books. Sign in, and the person whose books they are can let you in."
+      trouble={signInTroubleSaid('stale')}
+    />
+  )
+}
+
+/**
  * Signed in, and not let in. The screen the owner asked for by name.
  *
  * Drawn with an address on it, because the address is the whole worth of the
@@ -5559,6 +5593,12 @@ export const SCREENS: Screen[] = [
      being let in is the app. */
   { id: 'wayin', name: 'A way in', group: 'Getting in', render: WayInOne },
   { id: 'wayintwo', name: 'Two ways in', group: 'Getting in', render: WayInTwo },
+  /* The same screen reached from a sign-in that did not finish. Two of the six
+     reasons, and deliberately the two #557 puts side by side: one person
+     pressed Cancel and the other pressed Back, and telling them the same thing
+     would tell one of them something untrue about themselves. */
+  { id: 'wayincancelled', name: 'Cancelled at the door', group: 'Getting in', render: WayInCancelled },
+  { id: 'wayinstale', name: 'Back after a sign-in', group: 'Getting in', render: WayInStale },
   { id: 'waiting', name: 'Signed in, not in yet', group: 'Getting in', render: WaitingScreen },
   { id: 'home', name: 'Today', group: 'Every day', render: Home },
   /* Short names. The viewer's own bar gives a name about twenty-four

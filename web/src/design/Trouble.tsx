@@ -32,8 +32,18 @@ export function Trouble({
   title,
   children,
 }: {
-  /** What the trouble is about, said quietly under the title. */
-  kind: string
+  /**
+   * What the trouble is about, said quietly under the title.
+   *
+   * Optional, as it already is on the `Card` this wraps, and left off when the
+   * card is the only thing on its screen (#557). On the first screen a Trouble
+   * sits among other cards and the kind is what tells them apart; on the login
+   * screen there is nothing to tell it apart from, so the line would be spent
+   * restating the title. That is the objection the owner made to the eyebrow
+   * this second line replaced, recorded on `Card`: a tracked line spent on a
+   * word before the sentence that actually says something.
+   */
+  kind?: string
   /** The bad news, in one line, at the top where it gets read. */
   title: string
   /** Why it matters, in a sentence or two. */

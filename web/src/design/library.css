@@ -4206,6 +4206,20 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   line-height: var(--lh-body);
 }
 
+/*
+ * The card saying why a sign-in did not finish (#557).
+ *
+ * The column it sits in is centred and centre-aligned, which is right for one
+ * title and one line under it and wrong for two sentences of explanation, so
+ * the card takes the full width and reads from the start edge like every other
+ * card in the app.
+ */
+.wf-gate__trouble {
+  width: 100%;
+  text-align: start;
+  margin-top: var(--s2);
+}
+
 /* The buttons, and the quiet lines that belong with them. */
 .wf-gate__acts {
   width: 100%;
