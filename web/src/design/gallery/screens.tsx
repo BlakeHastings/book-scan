@@ -50,6 +50,7 @@ import {
 import { AddBox, AreaBox, Claim, Nest, Order } from '../Furniture'
 import { WaitingList, WayIn } from '../Gate'
 import { signInTroubleSaid } from '../../lib/signInWords'
+import { CANNOT_REACH } from '../../lib/reachWords'
 import {
   FilterRule, MoveBooks, SortRule, WouldHappen,
   type OrderEnds, type RuleEditing, type RuleSaid, type WouldMove,
@@ -437,6 +438,36 @@ function Adrift(go: Go) {
       erase how it happened. They are named in your library, under "Books that
       are not where they should be".
     </Trouble>,
+  )
+}
+
+/**
+ * The day nothing answered, which drew nothing at all until #562.
+ *
+ * The odd one of the four, and it is the only screen in this group with neither
+ * a count nor a door on it, because that is exactly the state: this screen is
+ * made of two reads and neither came back, so there is no number to draw and
+ * nothing to invite anybody to go and do.
+ *
+ * **What was there before was this screen with the card taken off**, which is a
+ * top bar, a tab bar and white space, and it is also what the app draws for the
+ * first half second of every ordinary visit. A person cannot tell those apart,
+ * so the same drawing said "a collection with nothing in it", "still loading"
+ * and "the server is not there" depending on which one happened to be true.
+ *
+ * It is drawn where `NoDisk` is drawn and it is the same argument at a different
+ * scale: the app could not look, said in the same weight as bad news, because to
+ * somebody standing here they mean the same thing.
+ */
+function Unanswered(go: Go) {
+  return (
+    <Phone
+      tab="home"
+      go={go}
+      top={<TopBar title="Book scan" action={you(go)} />}
+    >
+      <Trouble kind="Counts" title={CANNOT_REACH.title}>{CANNOT_REACH.said}</Trouble>
+    </Phone>
   )
 }
 
@@ -5614,6 +5645,11 @@ export const SCREENS: Screen[] = [
      and already right (#489). It went to the server log for months while the
      screen said nothing, which is the same failure the two above it fixed. */
   { id: 'adrift', name: 'Not where claimed', group: 'Every day', render: Adrift },
+  /* And the fourth, which is not news about the collection but about this app
+     not being able to ask (#562). The only one of the four that takes the
+     counts and the doors off the screen, because it is the state in which
+     nothing is known to draw. */
+  { id: 'unanswered', name: 'Nothing answered', group: 'Every day', render: Unanswered },
   /* And the day before there is anything at all, which is what five counts
      make of a collection nobody has photographed a book into yet. */
   { id: 'firstday', name: 'The first evening', group: 'Every day', render: FirstDay },

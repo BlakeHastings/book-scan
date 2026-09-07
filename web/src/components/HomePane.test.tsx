@@ -117,6 +117,10 @@ function propsFor(
        for `drifting`'s reason: a card drawn in every render below would make
        none of these tests say when it is drawn (#348). */
     lookups: catalogues(),
+    /* The server answering is the ordinary day, so it is the default here for
+       `drifting`'s reason: a card drawn in every render below would make none
+       of these tests say when it is drawn (#562). */
+    unreachable: false,
     onAdd: () => {},
     onInHand: () => {},
     /* The corner (#350). `RoomMenu` decides what it says and what it opens;
@@ -765,6 +769,95 @@ describe('when a catalogue has described none of the books looked up', () => {
 
     expect(words(html)).toContain('described none of')
     expect(html).not.toContain('wf-stat')
+  })
+})
+
+/**
+ * What a person sees when the reads this screen is made of do not come back
+ * (#562).
+ *
+ * The defect was that they saw nothing: the two reads behind `counts` and
+ * `queue` ended in a bare `.catch(() => {})`, and both values are null while a
+ * read is in flight as well as after one has failed, so a server that was not
+ * there drew the same screen as a server that had not answered yet. A top bar,
+ * a tab bar, and white space, until somebody happened to navigate.
+ *
+ * So the thing worth asserting is not that a `catch` ran. It is that the two
+ * cases now look different to somebody holding the phone, and that the ordinary
+ * day is unchanged.
+ */
+describe('when nothing answered', () => {
+  it('says so, on the screen that would otherwise be blank', () => {
+    const html = home({ counts: null, queue: null, unreachable: true })
+
+    expect(words(html)).toContain('Your books could not be counted')
+    // Still no counts, which is the half that was already right: a number drawn
+    // from a request that did not come back is a guess about the collection.
+    expect(html).not.toContain('wf-stat')
+  })
+
+  it('is what tells that screen apart from the one still waiting', () => {
+    // The whole of the defect, in one comparison. Before #562 these two renders
+    // were the same markup, and a person could not tell a server that is not
+    // there from the first half second of an ordinary visit.
+    const waiting = home({ counts: null, queue: null })
+    const nothing = home({ counts: null, queue: null, unreachable: true })
+
+    expect(words(waiting)).not.toContain('Your books could not be counted')
+    expect(nothing).not.toEqual(waiting)
+  })
+
+  it('keeps the last counts on the screen rather than emptying it', () => {
+    // Not the answer the four reads below it give, and deliberately (#562).
+    // They each claim something is wrong or invite a walk to a bookcase, so a
+    // stale one is a false alarm. A count is the cheapest thing to be wrong
+    // about, these are re-read on every change of screen, and dropping the
+    // whole screen out of the layout because one re-read hiccuped is worse than
+    // saying beside it that the app could not check.
+    const html = home({ queue: queue({ ready: 6 }), unreachable: true })
+
+    expect(words(html)).toContain('Your books could not be counted')
+    expect(said(html)).toContain('catalogued')
+    expect(said(html)).toContain('ready to shelve')
+  })
+
+  it('says nothing at all on a day the server answered', () => {
+    // There is no reassuring version of this card, for `backupWords`' reason: a
+    // line saying the app can reach the server is a line that can be printed
+    // over a read nobody made.
+    expect(words(home())).not.toContain('could not be counted')
+    expect(words(home({ counts: null, queue: null }))).not.toContain('could not be counted')
+  })
+
+  it('is read before the news it is the reason for', () => {
+    // The three cards below it are ranked by what is worse, because they are
+    // three things to worry about. This one is why the rest of the screen is
+    // empty, and an explanation drawn after the thing it explains is one
+    // somebody has already stopped looking for.
+    const html = home({
+      counts: null,
+      queue: null,
+      unreachable: true,
+      backup: watched({ state: 'none' }),
+    })
+
+    expect(html.indexOf('Your books could not be counted'))
+      .toBeLessThan(html.indexOf('Nothing has been backed up'))
+  })
+
+  it('offers no button, because pressing one is what moving around the app does', () => {
+    const html = home({ counts: null, queue: null, unreachable: true })
+    const card = html.slice(html.indexOf('Your books could not be counted'))
+
+    expect(card.slice(0, card.indexOf('</section>'))).not.toContain('<button')
+  })
+
+  it('says no word out of the model', () => {
+    const text = words(home({ counts: null, queue: null, unreachable: true }))
+
+    for (const word of ['run', 'range', 'shelf', 'plank', 'separator', 'capture', 'placement', 'cut']) {
+      expect(text, `the card says "${word}"`).not.toMatch(new RegExp(`\\b${word}\\b`, 'i'))
+    }
   })
 })
 
