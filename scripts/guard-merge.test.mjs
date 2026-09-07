@@ -359,6 +359,23 @@ try {
   const malformed = execFileSync('node', [GUARD], { input: 'not json', encoding: 'utf8' })
   if (malformed.trim() !== '') fail('a malformed payload produced a decision')
 
+  // #582 asked whether this guard shares the live-data guard's shape, where a
+  // payload with no `cwd` used to allow everything. It does not, and this is
+  // what says so rather than a paragraph. `cwd` here only ever resolves a `cd`
+  // inside a command line, and every rule denies from anywhere, so a payload
+  // missing the field is judged exactly as one carrying it. Measured before it
+  // was written down: the same five command lines decide identically with a
+  // worktree `cwd`, a main-checkout `cwd`, an empty one, and no field at all.
+  const withoutCwd = (command) => {
+    const output = execFileSync('node', [GUARD], {
+      input: JSON.stringify({ tool_input: { command } }),
+      encoding: 'utf8',
+    })
+    return output.trim() !== ''
+  }
+  if (!withoutCwd('gh pr merge 42 --squash')) fail('a payload with no cwd allowed a merge')
+  if (withoutCwd('npm run build')) fail('a payload with no cwd denied ordinary work')
+
   // The probe refuses itself at the path an installer actually has it at, not
   // only at the literal `scripts/guard-merge.mjs` spelled above.
   if (!decide(`node ${GUARD} --probe`).denied) {
