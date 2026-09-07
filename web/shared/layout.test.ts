@@ -18,6 +18,21 @@ const sep = (
   kind: 'shelf' | 'area' = 'area',
 ): Separator => ({ id, range: 'fiction', kind, startsAt, position: id })
 
+/**
+ * Lay a run out from the first plank of the first bookcase.
+ *
+ * `layoutRange` used to default its start to that plank and does not any more
+ * (#479): where a range begins is the rule set's answer, and a default here was
+ * one of the three places that answered it with a literal instead. Nothing in
+ * this file has a rule set to ask, because what it tests is the arithmetic of
+ * walking a run rather than where the run stands, so the start is stated once
+ * here and every expectation below reads in the addresses it produces.
+ */
+const lay = <T extends { id: number; sortKey: string }>(
+  books: T[],
+  separators: Separator[],
+) => layoutRange(books, separators, { shelf: 1, area: 0 })
+
 const labels = (books: { id: number; sortKey: string }[], separators: Separator[]) =>
   lay(books, separators).map((p) => p.label)
 

@@ -548,7 +548,7 @@ describe('the shelf a sort key lands on', () => {
       .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
     // Fiction begins at 1A in a database standing as the migrations leave it,
     // which is what every other expectation in this file assumes too.
-    return layoutRange(merged, await shelves.list('fiction'))
+    return layoutRange(merged, await shelves.list('fiction'), { shelf: 1, area: 0 })
       .find((p) => p.book.id === NEWCOMER_ID)!.label
   }
 
