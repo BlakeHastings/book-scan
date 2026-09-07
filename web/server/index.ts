@@ -1211,7 +1211,14 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       })
       // Not an image, or an image sharp cannot read. The full size file is
       // still there and still servable, so send that rather than failing.
-      .catch(() => next())
+      .catch(() => {
+        // The validator above names a width, and what answers now is the whole
+        // file. `send` keeps an ETag it finds already set, so leaving these
+        // would describe the response it is about to write as something else.
+        res.removeHeader('ETag')
+        res.removeHeader('Last-Modified')
+        next()
+      })
   })
 
   /*

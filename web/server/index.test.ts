@@ -3070,6 +3070,23 @@ describe('what a photograph says may be done with it', () => {
     })
     expect(crossed.status).toBe(200)
   })
+
+  /**
+   * A width asked of something sharp cannot read falls through to the static
+   * mount, which sends the whole file. The validator the thumbnail route wrote
+   * on the way past names a width, and `send` keeps an ETag it finds already
+   * set, so it has to be taken off again or the full file goes out described
+   * as a 320-wide rendering of itself.
+   */
+  it('does not describe a fallen-through file as the thumbnail it could not make', async () => {
+    writeFileSync(join(running.coverDir, 'notreally.jpg'), 'this is not a JPEG')
+
+    const res = await fetchCover('/api/covers/notreally.jpg?w=320')
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('this is not a JPEG')
+    expect(res.headers.get('etag')).not.toContain('w320')
+  })
 })
 
 /**
