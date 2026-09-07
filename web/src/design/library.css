@@ -1324,6 +1324,25 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
+ * The same wireframe picture at the two ends of what a photograph can be, drawn
+ * so somebody can look at the bound rather than be told it (#530).
+ *
+ * The camera hands this screen eight-bit sRGB, so nothing the lens is ever
+ * pointed at comes back lighter than white or darker than black. That is what
+ * makes "how readable is a word over a photograph" answerable at all: it is a
+ * range, and the range is closed at both ends, so a bed that survives these two
+ * survives every book. White is the end that fails and it is the ordinary one:
+ * a paperback's page under a lamp is most of what this camera sees.
+ *
+ * Literals rather than tokens, and it is the one place in this file where that
+ * is right. They are not a colour anything is painted in. They are the bound
+ * the paint has to hold up against, and a token would make them look like a
+ * choice somebody could retune.
+ */
+.wf-view__picture--page { background: #fff; }
+.wf-view__picture--cover { background: #000; }
+
+/*
  * The app's picture, which is a live stream rather than a drawing.
  *
  * Same place, same job. `cover` because the viewfinder is the screen: a

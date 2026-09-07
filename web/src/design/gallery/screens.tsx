@@ -1705,6 +1705,54 @@ function Camera(go: Go) {
 }
 
 /**
+ * The same camera with a real book in front of it, drawn twice, at the two ends
+ * of what a photograph can be (#530).
+ *
+ * **This is the state the hatched rectangle above cannot show.** The wireframe
+ * picture is `--picture`, a mid brown, and every word floating on this screen
+ * reads beautifully against it: the cream is 13.0 to 1 there. The app puts a
+ * photograph there instead, and the photograph somebody is most often holding
+ * up is a page, which is white. Measured in the running app at 414 by 896 over
+ * a white page, before this pair existed: the aiming frame 1.0 to 1, "Next
+ * book" 2.0, the line saying what is in your hands 2.9, the shot labels 3.7,
+ * the way out and "Camera" 3.9. One control on the screen cleared AA and it was
+ * the one sitting lowest in the gradient.
+ *
+ * So the drawing is the measurement made lookable-at. Walk these two beside the
+ * hatched one and the difference is the whole of the argument: a screen that
+ * only ever draws the middle case is a screen that will be rebuilt.
+ *
+ * The dark one is not decoration either. It is the other end, and it is what
+ * stops the answer being "darken it until it works": the same bed has to leave
+ * a black paperback still looking like a photograph of a black paperback.
+ */
+function CameraOnAPage(go: Go) {
+  return (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={shotsOf(go)}
+        picture={<div className="wf-view__picture wf-view__picture--page" aria-hidden="true" />}
+        onLeave={() => go('home')}
+        onDone={() => go('review')}
+      />
+    </div>
+  )
+}
+
+function CameraOnACover(go: Go) {
+  return (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={shotsOf(go)}
+        picture={<div className="wf-view__picture wf-view__picture--cover" aria-hidden="true" />}
+        onLeave={() => go('home')}
+        onDone={() => go('review')}
+      />
+    </div>
+  )
+}
+
+/**
  * The same camera, pointed at the spine, which is the shot the frame changes
  * shape for.
  *
@@ -5535,6 +5583,11 @@ export const SCREENS: Screen[] = [
   },
   { id: 'spine', name: 'Framing the spine', group: 'Cataloguing', render: SpineShot },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },
+  /* Beside it, in the order somebody would walk them: the hatched picture, then
+     the two a real lens hands it. These are the same screen and not a variant
+     of it, which is why they carry the picture and nothing else different. */
+  { id: 'camerapage', name: 'The camera on a page', group: 'Cataloguing', render: CameraOnAPage },
+  { id: 'cameracover', name: 'The camera on a dark cover', group: 'Cataloguing', render: CameraOnACover },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
   /* Beside it, because the top of that screen has two answers and both are
      ordinary: a book a catalogue holds a cover for, and a book nothing
