@@ -7,73 +7,92 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up 2026-09-03 after the owner set a new objective.**
-It rots quickly. Three merges from now, distrust the "in flight" section entirely
-and read `gh pr list` instead.
-
-## The objective changed, and it is the thing to read first
-
-**The owner wants this hosted, and wants a login so only a few people can reach
-it.** In his words: *"lets move towards the objective of hosting this puppy and
-building the authentication system for it"*, then narrowing it: *"Right now we
-will just do the authentication system, not the authorization system. We just
-want a login system restricting who can access it for right now"*.
-
-That answered the question that had blocked #471 all day. **Reachable from
-outside the house**, therefore authentication first. It is #510: a login gate,
-one collection, no ownership, no roles, everyone who gets in is equally in.
-
-#171 stays open and stays `shaping` for everything the slice defers, which is
-four of its five questions. **Authorization is a different problem** and it
-starts with "is a collection owned by one person, or shared", which nobody has
-answered.
+**Written 2026-08-24, topped up 2026-09-06. Eighteen merges since the last
+top-up.** It rots quickly. Three merges from now, distrust the "in flight"
+section entirely and read `gh pr list` instead.
 
 ## In flight
 
 | Issue | Who has it |
 | --- | --- |
-| #524 | an agent. The sign-in, waiting-list and admitted screens |
-| #451, #452 | an agent. The contrast sweep's two findings and the third tag door |
+| #518 | an agent. The projection check agrees with itself while both sides are wrong |
+| #348 | an agent. Saying when a catalogue source did not answer, which is the half that needs no key |
 
-## The login gate is built, and it is the thing to read first
+## This app is deployable now, and that is the headline
 
-**#523 landed on 2026-09-03 and closed the seventy-two open doors.** Verified by
-re-issuing the survey's own requests from the LAN address:
+Everything between the code and somebody else's hardware exists:
 
-```
-POST /api/fixtures        201 -> 401
-GET  /api/fixtures        200 -> 401
-GET  /api/covers/<name>   200 image/jpeg -> 401
-GET  /api/covers/?w=160   200 -> 401
-GET  /                    200 -> 200, correctly: it is the login screen
-```
+- **A build** (#520). `npm start`, no watcher, and **the API serves the built
+  client**, which is what lets one gate cover everything.
+- **An image** (#532). Runs the build, carries the gate and the enable script,
+  stops cleanly, runs as a non-root user, mounts the photographs.
+- **Publishing** (#534). On a version tag, to the same host as this repository,
+  as a **public** image — the source is public, so a private one would put a
+  registry credential on the owner's hardware to guard a build of public code.
+- **A contract** (#534, #543, #544). `deploy/contract.json`, machine-readable,
+  twenty-one variables in one list for the first time, with a checker that ships
+  inside the image. A CI check fails on anything hostname-shaped, so the boundary
+  between this repository and the owner's private one is **enforced rather than
+  remembered**.
+- **A bind that is a choice** (#543). `BOOKSCAN_BIND`, `loopback` or `all`,
+  default unchanged. Two words rather than an address, because an interface
+  address is assigned at start and changes when a container is replaced.
 
-**Three states, and the middle one is the design.** No session is `401`
-`anonymous`; a session belonging to a disabled user is **`403` `waiting`**; an
-enabled one gets the route. Driven on one cookie, unchanged, disabled and
-re-enabled between requests: a person switched off is refused on the session
-they already hold, and switched back on goes straight through.
+**The owner is hosting on his own hardware, fronted by Cloudflare, deployed from
+a separate private repository.** This repository publishes an image and a
+contract and never learns where his hardware is. Creating that repository is his.
 
-**Five paths are open and all five are the sign-in ones**, plus the static client
-because it *is* the login screen. The count is taken by a test that walks the
-router stack, so it cannot drift silently.
+**Cloudflare Workers cannot run this**, established by reading the dependencies:
+two compiled native modules, a filesystem holding 1.4 GB of photographs, a
+Postgres socket, and optical character recognition in process.
 
-The owner's model, in his words: *"We will create users when people log in but if
-they aren't enabled they should be shown a screen that explains they are on the
-waiting list."* Users are created disabled at first sign-in. **Enabling happens
-by a script**, `web/scripts/enable-user.ts`, deliberately not a route: a route
-would need an administrator, which is a role, which #171 has not decided. It also
-solves the bootstrap, since the first user cannot be enabled by an enabled one.
+## The login is finished
 
-Google is the provider. **Microsoft is deliberately absent from the registry**
-because its issuer is tenant-scoped and a Google-shaped row would ship a wrong
-check; the seam is proved by running an invented provider through the whole flow
-instead. Apple needs a domain nobody has chosen, a paid membership and a
-rotating signed secret.
+Google and Microsoft. **Apple is closed** — the owner has no developer account —
+and nothing had to change to accommodate that, because identities are keyed on
+`(issuer, subject)` and providers are a list.
 
-**`docs/the-gate.md` carries the whole design.** Read it before touching
-anything with a route in it.
+**Microsoft produced the sharpest finding in the whole job.** Its `common` and
+`organizations` authorities answer discovery with the literal string
+`https://login.microsoftonline.com/{tenantid}/v2.0`, braces and all, because they
+have no single issuer. Accepting them means a pattern, and a pattern over that
+host **accepts a tenant somebody created this morning**. So this app requires one
+named authority and refuses the wildcards, **on what the document said rather
+than on a list of names**, so it self-corrects if Microsoft ever changes.
 
+Verified independently by fetching all three documents.
+
+## What is the owner's, and three of them are about his live catalogue
+
+1. **The backup watch is off on the one deployment whose backup actually runs.**
+   `BOOKSCAN_BACKUP_DIR` defaults to empty on `origin/stable` and the old
+   launcher never set it.
+2. **The Google Books key was never added**, which is the whole of why #348 has
+   never answered. It had to be set in a file outside the repository that nobody
+   had a copy of. #544 fixed that shape.
+3. **Do not deploy `stable` until sign-in is configured for it.** `origin/stable`
+   is 60 commits behind with no `server/auth/`, and the launcher names no
+   provider. Zero providers is a login screen with no way in. The orchestrator has
+   standing permission to deploy, so this is a hazard aimed at the orchestrator.
+   #544 makes it a refusal rather than a surprise.
+4. Then: the settings file, repointing the scheduled task, and deleting the two
+   old launcher files, which are in the directory `AGENTS.md` puts out of bounds.
+
+## Two mechanisms that replaced beliefs
+
+**The repository is public and a process document said it could not be.** That
+belief was in six files and had shaped four hand-built controls and a CI
+decision. There is now a **ruleset** on the default branch with no bypass actors,
+and it found a live trap on the way: an undocumented classic branch protection
+with `strict: true`, which refuses merges the sanctioned wrapper allows, harmless
+only because admins were exempt. The obvious next click would have blocked the
+safe path and left the unsafe ones open.
+
+**Twelve test files kept a hand-written list of tables to clear**, and all twelve
+had already fallen behind, no two in the same place. They now ask the catalogue,
+and a test reads every test file and refuses a reset that names tables. The two
+tests that broke were the mirror of the expected failure: they passed because a
+table **was** cleared that no migration-produced catalogue clears.
 ## What else landed on 2026-09-03
 
 - **#520**: this app can be started from a build. An esbuild bundle, `npm start`
@@ -122,22 +141,22 @@ apart, and arrived at the same seam**: there is no server build, nothing serves
 the built client, and where the client is served from decides where a gate can
 live. That is #512, and it is upstream of #510 rather than beside it.
 
-## What needs the owner, and it is now the loop's binding constraint
+## What needed the owner on 2026-09-03, and was answered
 
-1. **How do people sign in.** #510 asks it with a recommendation: a password, a
-   long-lived session cookie, and accounts created by hand. Not a provider
-   (depends on a third party, puts a private catalogue in somebody's log), not
-   passkeys yet (bound to a domain nobody has chosen, and recovery on a
-   self-hosted app with no email is a real problem). **Nothing else blocks the
-   gate.**
-2. **Where it hosts.** #471. The homelab is the recommendation.
-3. **#515**, what the app records when a book leaves the house. `shaping`.
-4. **#479**, which of two fallbacks is right. Corroborated twice from opposite
-   directions now.
-5. **The pagefile.** Measured on 2026-09-03: 13 GB of physical RAM free and 2.8
-   GB of commit available, because the commit limit is RAM plus a pagefile that
-   the wipe reset to 2 GB. **The machine is not short of memory, it is short of
-   permission to use it**, and this is what holds the agent count at two.
+**Kept as a record of what was open, not as a list of what is.** Every question
+in it has been answered, and the answers are near the top of this file. It is
+here because two of them were answered *against* the recommendation, and that is
+worth remembering the next time a recommendation reads as settled.
+
+- **How do people sign in.** The recommendation was a password with hand-made
+  accounts. **The owner chose "login with" providers** and to hold no
+  credentials, which inverted the design: anybody may knock, only he opens the
+  door, and the allowlist became the whole gate.
+- **Where it hosts.** The recommendation was the homelab. **He chose his own
+  hardware fronted by Cloudflare**, which is the same answer arrived at from a
+  different direction, plus a private repository the recommendation had not
+  imagined.
+- **Whether Apple waits.** Answered: no developer account, so it is closed.
 
 ## The day's shape, which is the thing to carry forward
 
