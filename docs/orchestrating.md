@@ -8,6 +8,56 @@ Read first, in this order: `AGENTS.md`, then `docs/data-model.md` and
 
 ## Where things stand
 
+**Read this section's date before believing it.** Everything under this heading
+down to "The owner" was rewritten on 2026-09-07 except where it says otherwise.
+
+### This app is published, and that is the newest fact about it
+
+**`v0.1.0` exists**, at `ghcr.io/blakehastings/book-scan`, public, with
+`contract.json` attached to the release and identical inside the image. It is
+the first version this repository has ever had. `docs/publishing.md` argues the
+registry, the visibility and the version scheme; `docs/the-image.md` is what the
+image is; `deploy/contract.json` is what a deployment has to provide, in a form
+a program checks.
+
+**The property that keeps this repository free is worth stating before anything
+else here.** Nothing site-specific may land: no domain, no host, no address, no
+credential. And the direction nobody notices, which
+`scripts/check-deploy-contract.mjs` enforces rather than trusts: **if building
+or testing this repository ever needs a real domain, a real host or a real
+provider credential, the two repositories have stopped being separable.** The
+owner's infrastructure repository is private specifically to protect him. This
+one must never need it to exist.
+
+**A tag is the only thing that publishes**, and `.github/workflows/image.yml`
+rehearses everything a tag does except the push and the release, on every pull
+request and on demand through `workflow_dispatch`. **Run that against the commit
+before tagging it.** It was built after the first version of it would have
+failed a tag one step *after* the push, leaving an immutable public tag and no
+release.
+
+### The gate is on, and it changed what a route is
+
+**Every way into this app is behind a sign-in.** `docs/auth-surface.md` counted
+seventy-two doors and none locked; `docs/the-gate.md` is what was done. One
+`app.use('/api', gate)`, five open doors above it, and **being behind the gate
+is a property of a path rather than of anybody having remembered**. A route
+added at the bottom of `server/index.ts` next year is covered because of where
+it is.
+
+Two consequences worth carrying:
+
+- **The photographs are the door most likely to be left open**, and they are the
+  one route that does not look like data. Both cover doors are under `/api`.
+- **A cache header can exempt a response from the gate without touching it.**
+  A cover the browser was told not to re-request for thirty days made no request,
+  so the gate was never asked and a signed-out person kept every photograph they
+  had looked at. That is #556, and #566 is the same sentence for every JSON
+  route. **When you change what an answer says about itself, ask what the gate
+  loses.**
+
+### The catalogue, and the machine question
+
 **The Postgres migration is finished.** All nine stages. The catalogue is a
 Postgres database, `bookscan`, which normally lives in the container
 `book-scan-live-pg`; the SQLite file is retained as history until at least
@@ -17,6 +67,25 @@ Postgres database, `bookscan`, which normally lives in the container
 2026-08-26 and Docker went with it. The rows were recovered and nothing was
 lost; `AGENTS.md` has the rule and `docs/process/handoff.md` has the evidence.
 Putting them back is the owner's act.
+
+**And the loop is no longer on that machine.** Since 2026-09-07 it runs on a
+Linux devbox with 31 GB of RAM and room for three or four agents. That matters
+more than it sounds, because **the whole of "Things will bite you" below about
+committed memory is about the Windows desktop** — the commit limit, the
+pagefile, `hostfxr.dll`, PowerShell refusing to start. None of it constrains the
+new box, where `free -g` simply tells the truth.
+
+Two things follow that are not obvious:
+
+- **The catalogue is not on the machine you are working on.** Every rule in
+  `AGENTS.md` about it still holds, and now holds trivially: there is nothing
+  here to reach. `scripts/check-backup-freshness.mjs` reports that it is
+  watching nothing, deliberately, because a machine records in
+  `.git/factory/backup-dirs.json` that the catalogue is elsewhere. Do not
+  configure it here.
+- **`.git/factory/` does not travel**, because it is untracked on purpose. The
+  write boundary has to be recorded again on every new checkout, from evidence,
+  and **never inferred from a git remote**. Two minutes, every time.
 
 **The remodel is built and it is read. Both epics are finished.**
 `docs/data-model.md` specifies fourteen tables. Landed: `tag` and `book_tag`
@@ -83,6 +152,17 @@ where that view has to hold.
 
 **Two epics are `shaping`**: #171 multi-user, #139 collection management. Both
 name the questions that block them. Do not dispatch either.
+
+**One thing was carved out of #171 and finished**, and the carve is the reusable
+part. #510 took "a login gate, and nothing else" out of the multi-user epic:
+authentication without authorization, one household collection, no roles, no
+ownership. It shipped, and #171 still stands with its five questions unanswered.
+
+**Both epics hang on the same unanswered question**, which is worth naming
+because it looks like two: *is this one household's shared catalogue, or does it
+grow real accounts?* #171 asks it as "is a collection owned or shared", #139 as
+"whose reading status". Until the owner answers it, anything built on either is
+built on a guess. **That is the single most valuable answer to get from him.**
 
 ## The owner
 
@@ -243,8 +323,36 @@ detecting the picture printed on the cover rather than the book.
 
 ## Where I would go next
 
-**Written at the 2026-08-07 handover, and the remodel items on it are all
-landed**: #183 in both halves, then #184 and #185, then the whole cut-over they
+### Rewritten 2026-09-07. The list below this one is kept for its ordering argument, not its items.
+
+**The deployment is the owner's now, not this repository's.** `v0.1.0` is
+published and the contract is the interface. What is left is his private
+infrastructure repository and the sign-in configuration for wherever it lands,
+and neither is work here. **Resist the pull to help by adding a compose file or
+a chart**; `docs/publishing.md` explains why a topology in this public repository
+is the thing that ends the separation.
+
+**Get one answer from the owner and a lot unblocks:** one household's shared
+catalogue, or real accounts? #171 and #139 both wait on it, and #515 (who has a
+lent book) collapses to a text field or an epic depending on it.
+
+**The defect family to watch is the one that keeps producing issues**: a
+question with two answers that part company. Nine of it have been fixed and
+#479 is the current one. The instruction is always the same — one module
+decides, the other reads — and the trap is that the two answers usually differ
+by an accident nobody wrote down.
+
+**And a family that is new and is now three deep: a check that cannot see what
+it claims to.** A design test read every other CSS rule and passed its own
+revert by luck of position. A memory meter printed a negative number beside a
+real failure and sent an agent after the wrong cause for a fortnight. A guard's
+test passed where CI ran it and failed where agents did. **When a check is the
+only thing standing behind a claim, make it fail on purpose before you believe
+it.**
+
+### The 2026-08-07 list, kept for the ordering argument
+
+**All the remodel items on it are landed**: #183 in both halves, then #184 and #185, then the whole cut-over they
 were building towards. It is kept because the ordering argument is the part worth
 reusing. For the defects beside them, read the issues rather than this list.
 
