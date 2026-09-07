@@ -58,6 +58,47 @@
 // master's has nothing to lose; a branch whose files differ has work on it,
 // whatever origin remembers.
 //
+// AND CONTENT CANNOT TELL THE DIFFERENCE EITHER, ONCE MASTER MOVES
+// It refused four merged worktrees in one wave on 2026-09-07 (#577), and the
+// reason is that a file comparison has no direction. Squash merged, a branch's
+// changes are on master under a commit the branch has never seen. Then master
+// moves *on top of the same files*, because the next agent's work touches them
+// too, and now the branch differs from master again in the other direction:
+// master has work the worktree lacks, not the reverse. Both signals available
+// locally say "unlanded" about a branch that landed cleanly.
+//
+// A refusal that fires on every successful merge is the ordinary case, and the
+// argument above is entirely about somebody reading these lines. The one time
+// it is right arrives looking exactly like the four times it was not.
+//
+// SO THE FOURTH CHECK NOW HAS A SECOND OPINION, AND IT IS THE HONEST SIGNAL
+// GitHub knows what a squash merge did to a branch, and it is the only party
+// that does: `gh pr list --state merged --head <branch>` answers directly. That
+// is asked **only of the worktrees this would otherwise refuse for content**,
+// which is a handful per sweep rather than a network call each, and never
+// before the local checks that need no network at all.
+//
+// It is not "was there a merged pull request", which would be the eager guess
+// this must not make. It is "does a merged pull request's head commit equal
+// this branch's tip", which is the same question the header above asks and the
+// only form of it that survives the failure this script has already caused:
+// commits made locally after the branch was pushed and merged move the tip away
+// from what GitHub merged, so the answer is no and the worktree is kept and
+// named. That case used to be this file's stated blind spot; it is now the case
+// it reports.
+//
+// Everything about it fails towards keeping. No `gh`, no network, no
+// authentication, an unparseable answer, a pull request that is not merged, a
+// tip that does not match: all of them leave the refusal exactly as it was.
+//
+// WHAT `git cherry` AND PATCH IDS SAY, SINCE IT WAS WORTH FINDING OUT
+// Nothing usable. Run against `covers/556-cover-cache-header`, whose three
+// commits landed as the squash #565, `git cherry origin/master <branch>` marks
+// all three `+`, meaning "not upstream". A squash has one patch id and the
+// branch has three, so no patch-equivalence test can match them, and it gets
+// worse rather than better the more commits an agent makes. It is recorded here
+// so the next person does not spend the afternoon on it.
+//
 //   node scripts/prune-worktrees.mjs            # remove what is safe
 //   node scripts/prune-worktrees.mjs --dry-run  # say what would go
 import { execFileSync } from 'node:child_process'
@@ -156,6 +197,81 @@ function branchesOnOrigin() {
   )
 }
 
+/** The commit this branch is actually standing on, or null if it cannot be read. */
+function tipOf(branch) {
+  try {
+    return git(['rev-parse', branch]).trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The merged pull requests GitHub has for this branch name, or null.
+ *
+ * `--state merged` and `--head <branch>` still answer after the branch is
+ * deleted from origin, which is exactly when this is asked: the pull request
+ * remembers the ref name and the commit it merged. Verified on the three
+ * worktrees #577 was filed about, all of whose branches were already gone.
+ *
+ * Null for every failure, including `gh` not being installed at all, so a
+ * machine without it behaves as this script did before: it keeps.
+ *
+ * `--limit 20` because a branch name can have been used more than once and the
+ * judgement below wants all of them; the timeout is here because this runs
+ * inside a merge, and a sweep that hangs on a network call has turned a
+ * finished merge into a stuck one.
+ */
+function mergedPullRequestsFor(branch) {
+  try {
+    return JSON.parse(
+      execFileSync(
+        'gh',
+        ['pr', 'list', '--state', 'merged', '--head', branch, '--json', 'number,headRefOid', '--limit', '20'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 },
+      ),
+    )
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Did this exact commit land, as a squash, under a pull request?
+ *
+ * Separated from the call to `gh` so the decision can be exercised without a
+ * network, because this is the half that can be wrong in the direction that
+ * deletes somebody's afternoon.
+ *
+ * `landed` is true only when a merged pull request's head commit **is** the
+ * branch's tip. Anything else is a keep, and the two interesting keeps say
+ * different things:
+ *
+ *   - no merged pull request at all: the ordinary unlanded branch, and the
+ *     content refusal it already had is the right message.
+ *   - merged, but the tip has moved: commits were made in the worktree after
+ *     the pull request was merged. That is the failure of 2026-08-14 with the
+ *     branch deleted for a good reason instead of never pushed, and it is the
+ *     one this file used to say out loud it could not see. It is named in the
+ *     refusal so somebody looks at it.
+ */
+export function judgeMergedPullRequests(pullRequests, tip) {
+  if (!Array.isArray(pullRequests) || !tip) return { landed: false }
+
+  const landed = pullRequests.find((pull) => pull?.headRefOid === tip)
+  if (landed) return { landed: true, number: landed.number }
+
+  const numbers = pullRequests.map((pull) => pull?.number).filter(Boolean)
+  if (numbers.length === 0) return { landed: false }
+
+  return {
+    landed: false,
+    note:
+      `it merged as ${numbers.map((number) => `#${number}`).join(', ')}, ` +
+      'but this checkout has moved since, so look at it',
+  }
+}
+
 function isDirty(path) {
   try {
     return git(['-C', path, 'status', '--porcelain']).trim() !== ''
@@ -166,7 +282,7 @@ function isDirty(path) {
   }
 }
 
-export function main() {
+export function main({ askGitHub = mergedPullRequestsFor } = {}) {
   // Only the agent worktrees. The main checkout and the `stable` checkout are
   // not this script's business, and `stable` especially is not: AGENTS.md makes
   // it off limits without asking, and that includes tidying it.
@@ -210,17 +326,31 @@ export function main() {
       kept.push(`${name}: could not be compared against master, so left alone`)
       continue
     }
+    // Differing files are the ordinary look of a squash-merged branch, so this
+    // is the one refusal that gets a second opinion, and only this one. Asked
+    // last, after every check that needs no network, and asked about the
+    // handful of worktrees that reach it rather than about all of them.
+    let landedAs = null
     if (unique.length > 0) {
-      kept.push(
-        `${name}: ${unique.length} file(s) differ from master ` +
-        `(${unique.slice(0, 3).join(', ')}${unique.length > 3 ? ', ...' : ''}), ` +
-        'so this is unlanded work',
-      )
-      continue
+      const verdict = judgeMergedPullRequests(askGitHub(tree.branch), tipOf(tree.branch))
+      if (!verdict.landed) {
+        const files =
+          `${unique.length} file(s) differ from master ` +
+          `(${unique.slice(0, 3).join(', ')}${unique.length > 3 ? ', ...' : ''})`
+        kept.push(
+          verdict.note
+            ? `${name}: ${files}, and ${verdict.note}`
+            : `${name}: ${files}, so this is unlanded work`,
+        )
+        continue
+      }
+      landedAs = verdict.number
     }
 
+    const landed = landedAs === null ? '' : `landed as #${landedAs}`
+
     if (DRY_RUN) {
-      removed.push(`${name} (would remove)`)
+      removed.push(`${name} (${['would remove', landed].filter(Boolean).join(', ')})`)
       continue
     }
     try {
@@ -232,7 +362,7 @@ export function main() {
           // The branch outliving its worktree is untidy, not dangerous.
         }
       }
-      removed.push(name)
+      removed.push(landed ? `${name} (${landed})` : name)
     } catch (error) {
       kept.push(`${name}: could not be removed (${(error.message || '').split('\n')[0]})`)
     }

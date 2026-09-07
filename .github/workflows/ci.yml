@@ -246,7 +246,7 @@ jobs:
         working-directory: web
         run: node scripts/smoke-built-server.mjs
 
-      # Four script suites, none of which needs a dependency tree. They run
+      # The script suites, none of which needs a dependency tree. They run
       # here rather than in jobs of their own because a job is billed rounded up
       # to a whole minute and these take about a second between them.
       #
@@ -289,6 +289,16 @@ jobs:
       - name: Merge gate behaves
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/merge-pr.test.mjs
+
+      # The last thing a merge does, and the only tool here that deletes a
+      # directory somebody might still want. It builds a scratch repository with
+      # a real squash merge in it, because what it has to get right is what git
+      # says about one, and no fixture can be wrong about that the same way git
+      # is. Most of its assertions are refusals: a worktree wrongly kept costs a
+      # gigabyte and a worktree wrongly removed is somebody's afternoon.
+      - name: Worktree sweep behaves
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node scripts/prune-worktrees.test.mjs
 
       - name: Scope rules
         if: steps.scope.outputs.docs_only != 'true'

@@ -532,10 +532,9 @@ worktree in the 2026-09-07 wave.
 residue but not removed, as fixtures for whoever works #577. Their content was
 each confirmed present in `master` by the grep below before they were left.
 
-## The pruner has a second blind spot, and it is the opposite of the first
+## The pruner's second blind spot, which the pruner now covers itself
 
-Its header warns that it cannot see commits made locally after a branch was
-pushed and merged. There is another, met twice on 2026-09-07:
+It used to refuse every merged worktree, met four times on 2026-09-07:
 
 ```
 Kept agent-aee7390cb1861a073: 2 file(s) differ from master
@@ -543,14 +542,29 @@ Kept agent-aee7390cb1861a073: 2 file(s) differ from master
 ```
 
 **That work was landed.** What had happened is that `master` moved *on top of the
-same files* after the merge, so the worktree's copy differs from `master` while
-containing nothing `master` lacks. Comparing file contents cannot tell "this has
+same files* after the merge, so the worktree's copy differed from `master` while
+containing nothing `master` lacked. Comparing file contents cannot tell "this has
 work master has not got" from "master has work this has not got".
 
-**The refusal is still right and still worth reading rather than forcing.** The
-check that settles it is whether the distinguishing content is in `master`, which
-is one `grep`. Do that rather than reaching for `--force`, and if it is there,
-the worktree is safe to remove.
+**Since #577 the tool asks GitHub instead of asking you.** When the content
+comparison would refuse, and only then, it asks whether a merged pull request's
+head commit is this branch's tip, which is the one signal a squash merge does not
+destroy. The line now reads
+
+```
+Pruned 3 worktree(s): agent-ab9240273b2ca3b45 (landed as #571), ...
+```
+
+and the `grep` that used to settle it is nobody's job any more. **The refusal is
+still what you act on when it comes**, and it now distinguishes the two reasons
+it can arrive: "so this is unlanded work" is a branch GitHub has never merged,
+and "merged as #565, but this checkout has moved since" is the other blind spot,
+commits made in the worktree *after* its pull request landed, which used to be
+invisible and is now the thing being reported. Neither is a case for `--force`.
+
+Everything about the question fails towards keeping: no `gh`, no network, an
+unparseable answer or a tip that does not match all leave the worktree exactly
+where it was.
 
 **A rebase makes a finished agent's worktree look dirty**, for the same family of
 reason: rebasing the branch under a worktree leaves its working copy differing
@@ -793,10 +807,16 @@ node scripts/merge-pr.mjs <n>                            # the only way to land
 
 Traps, each of which has actually bitten:
 
-- **`prune-worktrees.mjs` cannot see commits made locally after a branch was
-  pushed and merged.** Look at a worktree that matters before a big sweep. On
-  2026-08-24 the one stale worktree was checked first and its whole chain turned
-  out to be the pre-squash counterpart of what had already landed.
+- **`prune-worktrees.mjs` reports a commit made locally after a branch was
+  pushed and merged, and no longer needs you to go and look.** It compares the
+  merged pull request's head against the branch's tip, so such a worktree comes
+  back as "merged as #565, but this checkout has moved since" rather than being
+  swept or being indistinguishable from an ordinary refusal (#577). On
+  2026-08-24 that check was done by hand and the one stale worktree turned out to
+  be the pre-squash counterpart of what had already landed. **It still needs
+  `gh` to answer**: with no network the sweep refuses everything, which is safe
+  and reclaims nothing, so a sweep that suddenly keeps every worktree is that
+  rather than a machine full of unlanded work.
 - **The merge gate refuses stale bases and that is the point.** Merge docs PRs
   first, code PRs one at a time, each rebased.
 - **`aspire describe` embeds terminal hyperlinks, so a pattern anchored on the
