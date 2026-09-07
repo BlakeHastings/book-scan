@@ -120,8 +120,9 @@ Then('nothing the camera says should be under a control', async ({ page }) => {
  * camera hands in its own frame, which for the spine is the rectangle the
  * shutter is going to keep, given as fractions of the picture. That one cannot
  * be moved without changing what gets saved, so it is out of scope here and is
- * its own issue; asserting on it would make this step red for a defect nobody
- * is fixing in it. Every camera that draws the design system's frame is in.
+ * #593; asserting on it would make this step red for a defect nobody is fixing
+ * in it. Every camera that draws the design system's frame is in, and taking
+ * this exclusion out is how #593 gets proved when somebody takes it.
  */
 Then('the frame you aim inside should be clear of the bar', async ({ page }) => {
   const worst = await page.evaluate(({ controls, said }) => {

@@ -25,8 +25,9 @@ Feature: Nothing the camera draws is under a control
 
   The one frame not asked about here is the cataloguing camera's own, which is
   the crop the shutter is really going to keep rather than a drawing of where to
-  hold a book. It cannot be moved without changing what gets saved, so it is
-  somebody's decision rather than this change's.
+  hold a book. It has the same defect and worse — 36px of it behind the caption
+  at 414 by 896 — and it cannot be moved without changing what gets saved, so it
+  is somebody's decision rather than this change's. That is #593.
 
   Background:
     Given the catalogue is empty

@@ -1611,6 +1611,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * `.wf-view__guide` at all: one keyline, drawn once, whoever decides where the
  * rectangle goes.
  *
+ * **The frame that wears this has the defect above and keeps it, which is
+ * #593.** At 414 by 896 the spine's crop ends at 698.9 with the line the camera
+ * says running 651.7 to 688, so 36px of it is behind a caption. Moving it moves
+ * what every future spine photograph keeps, so it is the owner's rather than
+ * this rule's.
+ *
  * **After `--slot` rather than before it, on purpose.** Both of them say what
  * shape the frame is, so whichever comes last in this file wins, and the one
  * that has to win is the one saying "somebody else already decided".
