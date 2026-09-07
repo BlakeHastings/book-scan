@@ -167,6 +167,15 @@ and it is what `.github/workflows/image.yml` is scoped around. That job now
 prints the size of what it built into its own step summary, so the next time
 this table is wrong it will be a line in a run rather than a rediscovery.
 
+**On a GitHub runner the same build is faster than either other check**, which
+was the surprise: the whole job, cold, is **1m31s** against 4m36s for `web
+(typecheck + tests)` and 5m37s for `browser journeys`, and 35s of that 91 is
+exporting the 1.49 GB into the runner's own daemon rather than building
+anything. `npm ci` inside the container takes 17s there against minutes here.
+So "the image is too slow to build on a pull request" is not true and should not
+be repeated; the reason that job is scoped narrowly is the whole dependency tree
+being fetched and 1.49 GB being written on every run, not the clock.
+
 ---
 
 ## What the image is not allowed to contain

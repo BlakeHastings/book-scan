@@ -36,14 +36,28 @@ name: Image
 # `scripts/ci-scope.mjs` whether the steps inside it are worth doing. Read the
 # header of that script before reaching for either.
 #
-# WHEN IT DOES THE WORK
-# A 1.49 GB build is a different calculation from a test run: measured at 3m08s
-# on a developer's eight-core machine with an empty cache on 2026-09-07, against
-# about a minute for everything `web (typecheck + tests)` does. So this asks a
-# narrower question than the other two jobs — `image` rather than `docs_only` —
-# and builds only when the change touches something that decides what the image
-# is. The list and the argument for it are in `ci-scope.mjs` beside
-# `DECIDES_THE_IMAGE`.
+# WHEN IT DOES THE WORK, AND WHY THAT IS NOT AN ARGUMENT ABOUT MINUTES
+# This job asks a narrower question than the other two — `image` rather than
+# `docs_only` — and builds only when the change touches something that decides
+# what the image is. The list and the argument for it are in `ci-scope.mjs`
+# beside `DECIDES_THE_IMAGE`.
+#
+# Measured first, on the run that added this file: the whole job is **1m31s**,
+# against 4m36s for `web (typecheck + tests)` and 5m37s for `browser journeys`,
+# and all three run at once. So the cost is not wall clock. It is not billed
+# minutes either — this repository is public and those are free, and AGENTS.md
+# says plainly not to decline a job worth having on that argument.
+#
+# What it costs is that every run installs the whole dependency tree from the
+# registry inside the container and produces 1.49 GB of layers, deliberately
+# with no cache (below). That, and the fact that a source change which breaks
+# the image breaks `npm run build` in `web (typecheck + tests)` first, in less
+# time and with a better message, is the whole of the case for the narrow list.
+# If that trade ever looks wrong, widening it is one word: guard these steps
+# with `steps.scope.outputs.docs_only != 'true'` like the other two jobs do.
+#
+# The local figure for the same build, for anyone reproducing it: 3m08s cold on
+# an eight-core machine, 2.9s warm. `docs/the-image.md`.
 on:
   pull_request:
   # So the whole rehearsal can be run at a commit somebody is about to tag,
