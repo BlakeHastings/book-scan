@@ -1577,10 +1577,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  *
  * So it is its own element, drawn before anything that carries a word, and it
  * is **atmosphere now and nothing else is allowed to depend on it.** It is a
- * gradient, so what it is worth depends on how high up it a thing sits, and
- * that is exactly how "Next book" came to measure 2.0 while "Done with this
- * book" measured 5.1 in the same corner of the same screen. Every word down
- * here beds itself.
+ * gradient, so what it is worth depends on how far up it a thing happens to
+ * sit, and that is exactly how the words under the photographs measured 3.7
+ * with no bed of their own while the line above them measured 2.9 with one.
+ * Every word down here beds itself.
  *
  * Its own inset rather than the bar's height, because the two no longer have to
  * agree about anything: one is where the light goes and the other is where the
@@ -3123,13 +3123,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * The word under each photograph, bedded (#530).
  *
- * "Back", "Front" and "Spine" are the two words on this screen that were
- * written straight onto the picture with nothing behind them: 1.1 to 1 over a
- * white page on their own. They measured 3.7 in the running app, and every bit
- * of that came from the bar's gradient happening to be near full strength at
- * the very bottom of the screen. That is a floor made of where a thing sits
- * rather than of what it is painted on, and the band above them is no longer
- * allowed to be anybody's floor.
+ * "Back", "Front" and "Spine" were written straight onto the picture with
+ * nothing behind them at all: 1.1 to 1 over a white page on their own. They
+ * measured 3.7 in the running app, and every bit of that came from the bar's
+ * gradient happening to be near full strength at the very bottom of the screen.
+ * That is a floor made of where a thing sits rather than of what it is painted
+ * on, and the band above them is no longer allowed to be anybody's floor.
  *
  * A chip the width of the word rather than a block behind the rail: this row is
  * the one place on the camera where the picture shows between the controls.
