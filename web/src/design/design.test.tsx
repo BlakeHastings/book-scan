@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { isValidElement, type ReactElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { AA_BODY_TEXT, BEHIND, contrast, over, parse } from './contrast'
+import { AA_BODY_TEXT, AA_NON_TEXT, BEHIND, contrast, over, parse, type Rgb } from './contrast'
 import { Doors, InHand, IN_HAND } from './Controls'
 import { SCREENS, TAB_SCREENS, type Go, type Screen } from './gallery/screens'
 import { MEDIAN_PAGES, spineWidth, spines } from './Shelf'
@@ -144,13 +144,42 @@ describe('no coloured rail down the side of a card', () => {
  * The words under the photographs were already there when this was written, at
  * 1.1 to 1 on their own.
  */
-describe('a word on the picture can be read whatever the lens is pointed at', () => {
-  /** Every definition of a custom property in `tokens.css`, in file order. */
-  function token(name: string): string[] {
-    const css = readFileSync(join(HERE, 'tokens.css'), 'utf8')
-    return [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))].map((m) => m[1]!.trim())
-  }
+/** Every definition of a custom property in `tokens.css`, in file order. */
+function token(name: string): string[] {
+  const css = readFileSync(join(HERE, 'tokens.css'), 'utf8')
+  return [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))].map((m) => m[1]!.trim())
+}
 
+/**
+ * `library.css` as a list of rules, with the comments taken out.
+ *
+ * Comments first, because this file argues with itself in prose and every one
+ * of those paragraphs quotes selectors, properties and colours that are not
+ * declarations. A reader that cannot tell a rule from a sentence about a rule
+ * measures the sentence.
+ *
+ * **It read every other rule until #553 and it now reads all of them.** The
+ * pattern was `/(?:^|\})([^{}]+)\{([^}]*)\}/g`, which consumes the closing brace
+ * of the rule before as well as its own, so the next match had to find another
+ * `}` before it could start and the rule immediately after every match was
+ * skipped. 260 of 520. The leading `\}` was never needed: `[^{}]` cannot cross a
+ * brace, so a selector already begins where the rule before it ended.
+ *
+ * That is worth more than the fix. It was written for the second assertion in
+ * the rule below, which passed its own revert — put the fade back on
+ * `.wf-view__found--empty` and it goes red, and it does because that rule
+ * happens to sit at an even count from the top of the file. **A check that
+ * reads half of what it says it reads passes exactly the same way a whole one
+ * does**, and the thing that found it was a second caller wanting a rule that
+ * landed on the odd half.
+ */
+function rules(): { selector: string; body: string }[] {
+  const css = readFileSync(join(HERE, 'library.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  return [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .map(([, selector, body]) => ({ selector: selector!.trim(), body: body! }))
+}
+
+describe('a word on the picture can be read whatever the lens is pointed at', () => {
   /**
    * The two beds a word on this screen is allowed to be written on.
    *
@@ -209,17 +238,14 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
    * pressed is saying so with the fade.
    */
   it('is not undone by fading something that beds itself', () => {
-    const css = readFileSync(join(HERE, 'library.css'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-    const rules = [...css.matchAll(/(?:^|\})([^{}]+)\{([^}]*)\}/g)]
-      .map(([, selector, body]) => ({ selector: selector!.trim(), body: body! }))
+    const found = rules()
 
     const classesIn = (selector: string): string[] =>
       [...selector.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((found) => found[1]!)
 
     /** Every class that paints the scrim for itself, wherever it does it. */
     const bedded = new Set(
-      rules
+      found
         .filter(({ body }) => /background:\s*var\(--picture-scrim\)/.test(body))
         .flatMap(({ selector }) => classesIn(selector)),
     )
@@ -229,13 +255,145 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
     const isBedded = (name: string): boolean =>
       [...bedded].some((one) => name === one || name.startsWith(`${one}--`))
 
-    const faded = rules
+    const faded = found
       .filter(({ body }) => /(^|[\s;])opacity\s*:/.test(body))
       .filter(({ selector }) => !selector.includes(':disabled'))
       .filter(({ selector }) => classesIn(selector).some(isBedded))
       .map(({ selector }) => selector)
 
     expect(faded, 'these fade the bed they are standing on').toEqual([])
+  })
+})
+
+/*
+ * ---------------------------------------------------------------------------
+ * The frame you aim the book inside can be seen whatever the lens is pointed
+ * at (#553)
+ * ---------------------------------------------------------------------------
+ *
+ * The twelfth rule, and the second taken from a measurement. It is the eleventh
+ * one's sibling and it is deliberately not the same rule, for two reasons that
+ * are both worth saying out loud.
+ *
+ * **It is not text, so it is not 4.5 to 1.** WCAG 1.4.11 asks 3:1 of a graphic
+ * somebody has to be able to make out; 1.4.3 asks 4.5:1 of something they have
+ * to read. A frame is aimed with rather than read, and inheriting the stricter
+ * number would have been a decision nobody made. This is the decision.
+ *
+ * **It cannot be answered with a bed, which is the whole of why #530 left it.**
+ * Everything else on this camera paints `--picture-scrim` behind itself and
+ * writes on that. A 1.5px border has nothing behind it, so it was cream on
+ * whatever the lens was pointed at, and over a white page that is 1.03 to 1 —
+ * the line's own pixels rgb(253,251,247) against rgb(255,255,255), read off the
+ * running app rather than computed. So the line carries its own opposite
+ * instead: a scrim ring on each side of the cream.
+ *
+ * **What this cannot see, said rather than hoped**, in the shape the rule above
+ * set and `styles.test.ts` set before it.
+ *
+ * It reads colours and multiplies them out, so it cannot see **thickness**: a
+ * keyline one tenth of a pixel wide computes exactly the same as this one, and
+ * a person sees nothing.
+ *
+ * It cannot see **the picture that decides this**. Both tones are measured
+ * against a flat white and a flat black, one at a time, and the photograph this
+ * camera really takes is a page held up in a room, where the two sides of the
+ * frame have different things behind them at the same moment. That is the case
+ * the ring exists for and no reading of a stylesheet contains it. `#framenow`,
+ * `#framedark`, `#framedim` and `#framekeyline` in the gallery are that case
+ * drawn four times, which is the other half of this and not a duplicate of it.
+ *
+ * It measures **`.wf-view__guide` and nothing else**. The three modifiers
+ * beside it are drawings of the candidates, two of them fail this on purpose,
+ * and a rule that swept up every selector mentioning the guide would have to be
+ * switched off to draw the argument for itself.
+ */
+describe('the frame you aim the book inside can be seen whatever the lens is pointed at', () => {
+  /** The one rule that paints it, which is the one the app renders. */
+  const guide = (): { selector: string; body: string } => {
+    const found = rules().find(({ selector }) => selector === '.wf-view__guide')
+    expect(found, 'nothing in library.css draws .wf-view__guide any more').toBeDefined()
+    return found!
+  }
+
+  /**
+   * Both sides, and this one is a decision rather than a sum.
+   *
+   * **The assertion below is not implied by the one after it, and the honest
+   * thing is to say so.** One ring passes the ratios: over an all-white picture
+   * an inset ring carries the frame, over an all-dark one the cream does, and
+   * where a page ends and a room begins the cream reads against whichever of the
+   * two is dark. What one ring costs is a line that is 3px thick where the tones
+   * fall its way and 1.5px where they do not, so the boundary somebody is lining
+   * a book up against changes weight and apparent position along its own length
+   * as the phone moves. The second ring costs 1.5px, and it buys not having to
+   * know which side of the line the book is on — which is a fact about a room.
+   *
+   * It is here rather than in a comment because "drop the redundant one" is the
+   * exact tidy-up a ratio-only rule would wave through.
+   */
+  it('carries a second tone on both sides of the line', () => {
+    const { body } = guide()
+    const shadow = body.match(/box-shadow:([^;]+);/)?.[1] ?? ''
+    const layers = shadow.split(/,(?![^()]*\))/).map((one) => one.trim()).filter(Boolean)
+
+    expect(
+      layers.filter((one) => !one.startsWith('inset')),
+      'the frame has no tone outside it, so it disappears into a dark room',
+    ).not.toEqual([])
+    expect(
+      layers.filter((one) => one.startsWith('inset')),
+      'the frame has no tone inside it, so it disappears into a white page',
+    ).not.toEqual([])
+  })
+
+  /**
+   * And that one of the tones is always the one you can see.
+   *
+   * Every tone the frame is drawn in, against both ends of what a photograph
+   * can be. It is a `max` and not a `min` on purpose: a two-tone line is legible
+   * when **either** of its tones clears the threshold, which is exactly what
+   * having two of them buys. Asking both to clear it at both ends is asking for
+   * a colour that is at once light enough for black and dark enough for white,
+   * and there is not one.
+   */
+  it.each(BEHIND)('is at least 3 to 1 over rgb(%s, %s, %s)', (...behind) => {
+    const { body } = guide()
+    /* `[0-9]` is not padding: `--picture-ink-2` is a real token and a plausible
+       thing to reach for here, and a pattern that could not spell it would have
+       counted it as no tone at all rather than as a failing one. */
+    const tones = [...new Set(
+      [...body.matchAll(/var\((--picture-[a-z0-9-]+)\)/g)].map((m) => m[1]!),
+    )]
+
+    expect(
+      tones.length,
+      'the frame is drawn in one tone, which is fine at one end of a photograph and gone at the other',
+    ).toBeGreaterThanOrEqual(2)
+
+    const ratios = tones.map((name) => {
+      /*
+       * One value and no second one under a dark block, for the reason the rule
+       * above gives about the beds and #451 gave about a literal: what is behind
+       * this frame is a photograph rather than a page, and a photograph is not a
+       * theme. A tone that followed the phone's would be chosen against the
+       * wrong thing twice over. `--picture-line` had never been asked this;
+       * `--picture-scrim` is asked twice now, here and above, and that costs
+       * nothing.
+       */
+      const values = token(name)
+      expect(new Set(values).size, `${name} changes with the theme`).toBe(1)
+
+      const paint = parse(values[0]!)
+      return { name, ratio: contrast(over(paint, behind as Rgb), behind as Rgb) }
+    })
+    const best = ratios.reduce((a, b) => (a.ratio > b.ratio ? a : b))
+
+    expect(
+      best.ratio,
+      `the best the frame manages over rgb(${behind.join(',')}) is ${best.name} at `
+      + `${best.ratio.toFixed(2)} to 1`,
+    ).toBeGreaterThanOrEqual(AA_NON_TEXT)
   })
 })
 
