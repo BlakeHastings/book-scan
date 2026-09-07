@@ -380,7 +380,10 @@ $ docker pull localhost:5533/blakehastings/book-scan@sha256:4bc28b1…
 Status: Downloaded newer image for …@sha256:4bc28b1…
 ```
 
-Then the two verification steps of the workflow, run as they are written:
+Then the two verification steps of the workflow, run as they were written on the
+day. **Since #549 they are `scripts/check-image.mjs`**, which makes the same two
+assertions from one file that both this workflow and the pull request job call,
+so the shell below is history rather than something to go looking for:
 
 ```
 $ docker run --rm --entrypoint cat $REF /app/deploy/contract.json > from-image.json
@@ -453,9 +456,10 @@ $ node scripts/check-deploy-contract.mjs
    setting on the package page. The job summary says so.
 3. **The release step has not run.** `gh release create` with an asset is
    ordinary, and it is untested here.
-4. **`docker/build-push-action` has never run in this repository.** The build it
-   performs is the same `docker build` proved above; the push through that action
-   is not.
+4. **The push through `docker/build-push-action` has not run.** Since #549 the
+   action itself does, on every pull request that touches what the image is made
+   of, with `push: false, load: true` — so what is unproven here narrowed from
+   the action to the one input that makes it publish.
 5. **The ancestry check has not been tripped.** It is four lines of `git
    merge-base` and it has not been made to refuse a tag off the default branch.
 
@@ -463,19 +467,71 @@ The way to close 1 through 4 in one go, when the owner is ready: push
 `v0.1.0-rc.1`. The workflow marks anything with a hyphen as a pre-release, and a
 release candidate is exactly what an unproven pipeline should publish first.
 
+### What the first tag will still be doing for the first time (#549)
+
+The list above is what it was before there was a rehearsal. This is what is left
+of it, and it is deliberately short, because the whole of #549 is that the two
+steps nobody can take back should be the only two that have never run:
+
+| Step | First run at the tag? |
+| --- | --- |
+| The ancestry check | Yes, but it is four lines of `git merge-base` and it runs before anything is created |
+| The two contract checks | No. Every pull request, and again here |
+| `docker/build-push-action` building | No. Every pull request that touches the image, from the same context with no cache |
+| **The same action pushing to `ghcr.io`** | **Yes.** The credential, the permission and the registry have never been exercised |
+| The pull-back by digest | Yes. The comparison it feeds has run on every such pull request, against a loaded image rather than a pulled one |
+| `scripts/check-image.mjs` | No. Same script, same assertions, same file |
+| The job summary | Yes, and it writes nothing anybody depends on |
+| **`gh release create`** | **Yes.** Nothing before it in this workflow creates a release |
+
+So: the push, the digest round trip, and the release. Two of those three are the
+irreversible pair, and the third is a `docker pull` of something that has just
+been pushed.
+
+> **The third one is where the rehearsal nearly reintroduced the failure it was
+> written to prevent, and it is worth reading before touching that script.** The
+> first version of `scripts/check-image.mjs` asked `docker image inspect` before
+> anything else and exited 1 when the answer was no. `docker image inspect` reads
+> the local store and does not pull. `image.yml` builds with `load: true`, so its
+> image is local and it passed there every time; `publish.yml` builds with
+> `push: true` and no `load:` on the `docker-container` driver, so **its image is
+> only ever in the registry** — that precheck would have refused the first tag
+> one step after the push, with the tag already immutable and public and no
+> release made. It was caught in review, before it ran. The fetch is now
+> something the script does and logs, `fetchIfItIsElsewhere`, and the reason is
+> written where somebody would meet it: in that script's header and beside the
+> step in `publish.yml`. The lesson is the same one this project keeps paying
+> for: **the two callers were assumed to differ only in the ref, and the
+> assumption was written down as a fact before anybody checked it.**
+
+That is the shape the issue asked for and it is worth keeping: if a
+future step is added to this workflow, add it to `image.yml` too, or add a line
+to this table saying why it cannot rehearse.
+
 ---
 
 ## What this does not do
 
 1. **It does not create the private repository or anything in it.** That is the
    owner's, and this repository's write boundary is this repository.
-2. **It does not build the image on pull requests.** A 1.49 GB build on every
-   change would be unkind and slow, so the `Dockerfile` is proved when a tag is
-   pushed — where the build runs before the push, so a broken tree fails and
-   publishes nothing. The cost is real and is named: a change that breaks the
-   image is not caught until somebody tags. If that bites, the fix is a build
-   step gated on the `Dockerfile` and `web/package-lock.json` changing, and it
-   should be an issue rather than a habit.
+2. **It builds the image on pull requests, and it did not until #549.** This
+   item used to say the opposite, and it named its own successor: a 1.49 GB
+   build on every change would be unkind and slow, so the `Dockerfile` was
+   proved when a tag was pushed, and if that ever bit, the fix was a build step
+   gated on the `Dockerfile` and `web/package-lock.json` changing.
+
+   > **It bit before this workflow had run once, 2026-09-07.** The build being
+   > the gate means the gate first ran at the moment something immutable and
+   > public was created, and three steps here come *after* the push, so a
+   > failure in any of them lands on a tag that the scheme above says
+   > deliberately cannot be moved or replaced.
+   > `.github/workflows/image.yml` now runs the build with `push: false, load:
+   > true`, and then the contract comparison and the checker against what it
+   > loaded, on every pull request that touches what the image is made of. That
+   > list is close to the one this item predicted and is written out beside
+   > `DECIDES_THE_IMAGE` in `scripts/ci-scope.mjs`. **Nothing about what a tag
+   > publishes changed**: the scheme, the registry, the visibility and the
+   > contract are all exactly as argued above.
 3. **It does not run the test suite before publishing.** The suite needs a
    Postgres, and it ran on the pull request the tagged commit came from. What the
    image build does run is `npm run build`, which typechecks, and the smoke check

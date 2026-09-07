@@ -158,6 +158,24 @@ files onnxruntime resolves at runtime and being wrong about it quietly if the
 package changes its layout. Named here so the next person shrinking this image
 starts where the weight actually is.
 
+**Re-measured on 2026-09-07 for #549, on a different machine, and the number did
+not move.** A cold build with nothing in the cache took **3m08s** on eight cores
+and produced the same **1.49 GB**, with 452 MB of that being the compressed
+content a registry would move. Both were worth checking rather than quoting: the
+figure above decides whether building this on every pull request is defensible,
+and it is what `.github/workflows/image.yml` is scoped around. That job now
+prints the size of what it built into its own step summary, so the next time
+this table is wrong it will be a line in a run rather than a rediscovery.
+
+**On a GitHub runner the same build is faster than either other check**, which
+was the surprise: the whole job, cold, is **1m31s** against 4m36s for `web
+(typecheck + tests)` and 5m37s for `browser journeys`, and 35s of that 91 is
+exporting the 1.49 GB into the runner's own daemon rather than building
+anything. `npm ci` inside the container takes 17s there against minutes here.
+So "the image is too slow to build on a pull request" is not true and should not
+be repeated; the reason that job is scoped narrowly is the whole dependency tree
+being fetched and 1.49 GB being written on every run, not the clock.
+
 ---
 
 ## What the image is not allowed to contain

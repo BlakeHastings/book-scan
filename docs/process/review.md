@@ -14,15 +14,27 @@ CI runs exactly these. If they are red, the work is not ready for review.
 - no scan data committed (`scripts/check-no-scan-data.sh`)
 - the merge guard and the CI scope rules behave (`scripts/guard-merge.test.mjs`,
   `scripts/ci-scope.test.mjs`)
+- the image builds, carries this repository's contract and runs the checker
+  inside it (`image (build + contract)`), on any change that touches what the
+  image is made of. It is the rehearsal for a version tag (#549) and it is the
+  one check here that `scripts/merge-pr.mjs` does not require, so it is also the
+  one a reviewer has to look at rather than trust the gate about.
 
 Never ask a reviewer to run these by hand. If a mechanical check is missing,
 adding it is cheaper than reviewing for it forever.
 
-**Three things a reviewer might assume are covered and are not.** There is no
-lint or format check: `eslint.config.mjs` exists but nothing runs it. The
-production build is never run in CI, only `tsc --noEmit` via typecheck, so a
-Vite build failure would reach master. And migrations are **not** reversible by
-design, so "reverts cleanly" is not a property to check for.
+**Two things a reviewer might assume are covered and are not.** There is no lint
+or format check: `eslint.config.mjs` exists but nothing runs it. And migrations
+are **not** reversible by design, so "reverts cleanly" is not a property to
+check for.
+
+There were three, and the third had been false since #512: this said the
+production build was never run in CI, only `tsc --noEmit` via typecheck, so a
+Vite build failure would reach master. `ci.yml` has run `npm run build` and then
+loaded what it built since that issue landed, and since #549 the image build
+runs the same script again inside `node:22-bookworm-slim`. Removed here rather
+than left as a warning about a hole that had been filled, because a reviewer
+acting on it would go looking for a failure CI has already had.
 
 **The schema stopped being append only at #228**, which dropped the ten
 photograph columns on `books` once `capture` was what the app read, and #227,
