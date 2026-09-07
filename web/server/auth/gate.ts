@@ -242,11 +242,18 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
    * is the whole page, with no link, no button and no way back but the address
    * bar. #557 found every one of the eleven exits below doing exactly that.
    *
-   * They therefore never answer with a body at all, whatever went wrong. That is
-   * a rule about these two routes rather than a fix applied to the branches
-   * somebody happened to notice, so an exit added under them next year cannot
+   * So every refusal either of them makes comes through here. That is a rule
+   * about these two routes rather than a fix applied to the branches somebody
+   * happened to notice, so an exit added under them next year cannot
    * reintroduce the defect by being forgotten: there is nothing here for it to
    * copy that would render.
+   *
+   * **An exception is not one of these and is deliberately left alone.** Both
+   * handlers end in `.catch(next)`, and a throw that reaches it is a defect in
+   * this server rather than a way a sign-in can fail. Redirecting a person past
+   * one would hide it and tell them something untrue at the same time, which is
+   * the `inTheBackground` argument in `AGENTS.md` about nets that log and carry
+   * on.
    *
    * The reason travels as a code and the provider as its id, and neither is ever
    * rendered: `shared/auth.ts` says why, and it is the difference between a
