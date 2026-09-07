@@ -18,7 +18,7 @@
 import '../instrumentation'
 
 import express from 'express'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs'
 import { basename, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import sharp from 'sharp'
@@ -861,8 +861,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * would otherwise show two photographs in a run of blank blocks, which
    * reads as missing data rather than as a design.
    *
-   * The photo files are immutable, their names carry a timestamp, and they
-   * are served with a long cache, so a row costs its requests once.
+   * The photo files never change once written — their names carry a
+   * timestamp — and they are cached for as long as somebody's right to see
+   * them can be assumed without asking, so a row costs its bytes once and a
+   * conditional request afterwards. See `COVER_CACHE`.
    */
   async function stripFor(
     range: 'fiction' | 'nonfiction',
@@ -900,8 +902,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * row is not an instruction with two landmarks either side of a gap: it is
    * the area drawn as it looks, and each spine is a way through to that book
    * (#81). A run of blank blocks with two photographs in it would be neither.
-   * The files are immutable and served with a long cache, so a row scrolled
-   * back to costs nothing the second time.
+   * The files never change once written, so a row scrolled back to costs no
+   * image bytes the second time. See `COVER_CACHE` for how long that holds
+   * before the browser asks again.
    *
    * "In the right place" means two things agree, not one. The sort key check
    * only says the save landed; it says nothing about the shelf, because a
@@ -1074,6 +1077,65 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   mountGate(app, signInDeps)
 
   /**
+   * How long a photograph may be held, and by whom. One string, both doors.
+   *
+   * It used to read `public, max-age=2592000, immutable` and it was written
+   * when nothing here was locked, which is when it was harmless (#556). #521
+   * then put both cover doors behind the gate and nobody revisited what the
+   * door hands out on the way through. Each of the three words was doing
+   * something, and two of them are now wrong.
+   *
+   * **`public` → `private`, because of what is coming rather than what is
+   * here.** `public` explicitly authorises an intermediary to store the
+   * response. `docs/running-from-a-build.md` decision 1 sanctions "a
+   * TLS-terminating proxy that forwards everything to this one origin", and a
+   * *caching* proxy in that position is entitled to keep somebody's book
+   * photographs and hand them to a request carrying no session. Nothing else
+   * in the response says otherwise. This costs a phone nothing: `private` bars
+   * shared caches and leaves the browser's own cache exactly as it was.
+   *
+   * **`immutable` and thirty days → five minutes, and this one has a price.**
+   * The bytes really are immutable — the filename carries a timestamp — but
+   * the reader's right to see them is not, and one `Cache-Control` governs
+   * both at once. There is no way to say "these bytes never change, but ask me
+   * whether you may still have them", so the freshness has to be set by the
+   * shorter of the two lifetimes, which is the permission.
+   *
+   * Thirty non-revalidating days is a client-side memory of being admitted,
+   * and this app decided twice that it will not keep one. `auth/gate.ts` reads
+   * `enabled` off the `user` row on every request "so disabling somebody takes
+   * effect on their very next request"; `app/gate.tsx` stores no admission at
+   * all because "a client that remembers being admitted is a client that will
+   * show the app to somebody who has just been disabled" (#524). A cover that
+   * is never re-requested has no next request, so both of those were false for
+   * the photographs. `coversAreBehindTheGate` cannot fire either: it watches
+   * for a cover that fails to load, and one served from cache does not fail.
+   *
+   * Five minutes rather than nought, because the cost is real and lands on the
+   * case the old header was written for: a phone at a bookshelf, on a slow
+   * connection, drawing neighbour spines on every scan. Within five minutes a
+   * scan-and-place run and a scroll through the gallery still cost nothing;
+   * after it, each visible cover costs one conditional request and no bytes.
+   * That is the whole trade, and it buys a revoked reader losing the
+   * photographs in minutes instead of in a month.
+   *
+   * `must-revalidate` because "and not a second longer" is the substance of
+   * the decision rather than decoration: a stale entry is one whose reader may
+   * no longer be a reader, and it must not be served while the origin cannot
+   * be reached.
+   *
+   * **No `Vary`, deliberately.** Under `private` it buys nothing against a
+   * shared cache, because `private` already forbids one storing this at all,
+   * and `Vary: Cookie` would *charge* the phone for the privilege: the
+   * browser's own cache honours `Vary` too, `admit()` mints a fresh session
+   * token on every sign-in, so every re-sign-in would throw away every cached
+   * cover. That is precisely what this header exists to avoid. An intermediary
+   * configured to ignore `private` is answered in that intermediary's
+   * configuration, not here.
+   */
+  const COVER_CACHE = 'private, max-age=300, must-revalidate'
+
+  /**
    * Ask for a picture smaller than the one on disk.
    *
    * Everything stored here is full size: a catalogue cover is up to 1000px
@@ -1087,11 +1149,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * request anybody can make. An open one would let a caller ask the server to
    * re-encode the whole catalogue at a hundred sizes it will never show.
    *
-   * Nothing is written. The resize happens per request and the answer is
-   * cached by the browser under the same immutable, thirty day policy as the
-   * original, so a cover is resized at most once per phone rather than once
-   * per scroll. A miss falls through to the static mount below, which is what
-   * turns it into the same 404 as the full size file.
+   * Nothing is written. The resize happens per request and the answer carries
+   * `COVER_CACHE`, the same policy as the original, so a cover is resized at
+   * most once per phone per window rather than once per scroll. A miss falls
+   * through to the static mount below, which is what turns it into the same
+   * 404 as the full size file.
    */
   const THUMB_WIDTHS = [160, 320, 640]
 
@@ -1104,31 +1166,77 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // both separators are refused outright so this reads the same everywhere.
     if (name.includes('/') || name.includes('\\')) return next()
     const file = join(coverDir, basename(name))
-    if (!existsSync(file)) return next()
+    let source: Stats
+    try {
+      source = statSync(file)
+    } catch {
+      // Missing, or something this process cannot read. Either way the static
+      // mount below is what answers, and it is what turns this into a 404.
+      return next()
+    }
+    if (!source.isFile()) return next()
+
+    /*
+     * The validator is taken from the file on disk and the width asked for,
+     * never from the resized body, and that is what makes revalidation
+     * affordable here.
+     *
+     * `res.send` will compute a weak ETag from whatever it is handed, but only
+     * after the resize has run: with the tag derived from the body, a
+     * conditional request costs a full re-encode and saves only the bytes.
+     * Measured on a 1000x1500 cover at `?w=320`: 15.8 ms for a 200 and 16.0 ms
+     * for the 304, which is to say the 304 was free for the phone and cost the
+     * server everything the 200 did. A gallery of a hundred covers coming back
+     * after the five minute window would be a hundred resizes for a hundred
+     * empty responses. From the file it is one `stat`.
+     *
+     * The width is in the tag because the same photograph at 160 and at 640
+     * are different bytes, and a cache holding both must not validate one
+     * against the other.
+     */
+    res.set('Cache-Control', COVER_CACHE)
+      .set('Last-Modified', source.mtime.toUTCString())
+      .set('ETag', `W/"${source.size.toString(16)}-${Math.floor(source.mtimeMs).toString(16)}-w${width}"`)
+    if (req.fresh) {
+      res.status(304).end()
+      return
+    }
 
     void sharp(file)
       .resize({ width, withoutEnlargement: true })
       .jpeg({ quality: 72 })
       .toBuffer()
       .then((body) => {
-        res.type('jpeg')
-          .set('Cache-Control', 'public, max-age=2592000, immutable')
-          .send(body)
+        res.type('jpeg').send(body)
       })
       // Not an image, or an image sharp cannot read. The full size file is
       // still there and still servable, so send that rather than failing.
       .catch(() => next())
   })
 
-  // Captured photos. Immutable once written (the filename carries a
-  // timestamp), so they can be cached hard: the placement card renders
-  // neighbour spines on every scan and should not refetch them.
+  /*
+   * Captured photos, the other cover door and the one that serves the
+   * originals.
+   *
+   * `setHeaders` rather than `express.static`'s own `maxAge` and `immutable`,
+   * because those two can only render `public, max-age=N[, immutable]` and the
+   * answer is no longer expressible in them. It runs before `send` writes its
+   * own `Cache-Control`, and `send` only writes one when nothing has, so this
+   * is the value that survives. The client mount at the bottom of this file
+   * sets its header the same way for the same reason.
+   *
+   * The same string as the thumbnail door above, and that is the point rather
+   * than a coincidence: the two doors serve the same photograph, so how long
+   * somebody may hold it is one question. `index.test.ts` asks both and
+   * compares them to each other.
+   */
   app.use(
     '/api/covers',
     express.static(coverDir, {
-      immutable: true,
-      maxAge: '30d',
       fallthrough: false,
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', COVER_CACHE)
+      },
     }),
   )
 
