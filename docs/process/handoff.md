@@ -7,16 +7,76 @@ project, and the review record on each pull request says what was actually
 verified. This file is only the residue: where the work stopped, and what a
 successor would otherwise have to reconstruct.
 
-**Written 2026-08-24, topped up 2026-09-06. Eighteen merges since the last
-top-up.** It rots quickly. Three merges from now, distrust the "in flight"
-section entirely and read `gh pr list` instead.
+**Written 2026-08-24, topped up 2026-09-07 on a different machine.** It rots
+quickly. Three merges from now, distrust the "in flight" section entirely and
+read `gh pr list` instead.
+
+## The loop is running on a second machine now, and half this file is about the other one
+
+**`vm-dev-01`, a Linux devbox.** 8 CPUs, 31 GB of RAM, 165 GB free, Docker
+29.1.3 with nothing running. Read that before you read anything below it,
+because **every memory warning in this file is about Blake's Windows desktop**:
+the commit limit, the 2 GB pagefile, `STATUS_COMMITMENT_LIMIT`, `hostfxr.dll`
+failing to load, PowerShell throwing `OutOfMemoryException` out of its own type
+initialiser, and the "two agents, deliberately" that came out of them. None of
+it constrains this box. **Three agents is the number in use here**, and the
+meter is `free -g`, which on Linux tells the truth. The two PowerShell lines
+that measure commit are still correct, and still only for the desktop.
+
+**`.git/factory/` did not travel, because it is not in the tree — which is the
+point of it.** The write boundary had to be recorded again here, and it is:
+**owned**, in `.git/factory/machine.md`, with the evidence and with the one
+thing held outside it. Expect to do this on every new checkout. It is two
+minutes and the alternative is inferring it from a git remote, which is the one
+thing that must never be done.
+
+**`scripts/check-backup-freshness.mjs` reports unconfigured on this machine and
+that is the correct answer, not a gap.** The catalogue, the covers and the dumps
+are all on the desktop. There is nothing here to watch, and pointing it at
+something local would arm a check that is watching nothing while looking armed.
+
+## Nothing has ever been published, and that is the gap between "deployable" and deployed
+
+The section below this one is true: the build, the image, the publishing
+workflow, the contract and the bind all exist. **What has never happened is any
+of it running.** Checked 2026-09-07:
+
+```
+git tag -l                              # nothing
+gh release list                         # nothing
+gh run list --workflow publish.yml      # nothing
+```
+
+So there is no image in the registry for the private repository to point at, and
+`.github/workflows/publish.yml` has zero runs. A reader of "this app is
+deployable now" would reasonably conclude otherwise, which is why this sits
+above it.
+
+**The shape of the risk is the ordering inside that workflow.** `Build and push`
+has `push: true`, and three steps come after it: the pull-back contract
+comparison, the checker inside the image, and `gh release create`. A run that
+fails in any of the three has already put an immutable tag in a public registry,
+and the tagging scheme deliberately has no way to move or replace one. The
+workflow's own comment calls the build "the gate" — and that gate first runs at
+the moment something irreversible is created.
+
+**#549 closes the half of that which is this repository's**: build the image,
+compare the contract and run the checker on a pull request, so that on the day a
+tag is pushed the only steps that have never run are the push and the release.
+Being worked.
+
+**Pushing the first tag is the owner's**, and it is asked once rather than
+assumed. It creates a public image and a public release under his name, and
+"owned" covers merging into this repository rather than publishing artefacts
+from it.
 
 ## In flight
 
 | Issue | Who has it |
 | --- | --- |
-| #518 | an agent. The projection check agrees with itself while both sides are wrong |
-| #348 | an agent. Saying when a catalogue source did not answer, which is the half that needs no key |
+| #549 | an agent. Everything a version tag does, except the push and the release, running before the tag |
+| #448 | an agent. The browser-journey flake, dispatched here because the machine that blocked it in August is not this machine |
+| #530 | an agent. The camera caption over a white page, which wants a drawing before a stylesheet |
 
 ## This app is deployable now, and that is the headline
 
@@ -64,6 +124,10 @@ Verified independently by fetching all three documents.
 
 ## What is the owner's, and three of them are about his live catalogue
 
+0. **The first version tag.** Asked 2026-09-07 and nothing has been published
+   without it. It creates a public image and a public release under his name,
+   which is why "owned" does not reach it. #549 should land first, so that the
+   tag is not also the first time the image is built.
 1. **The backup watch is off on the one deployment whose backup actually runs.**
    `BOOKSCAN_BACKUP_DIR` defaults to empty on `origin/stable` and the old
    launcher never set it.
@@ -71,8 +135,9 @@ Verified independently by fetching all three documents.
    never answered. It had to be set in a file outside the repository that nobody
    had a copy of. #544 fixed that shape.
 3. **Do not deploy `stable` until sign-in is configured for it.** `origin/stable`
-   is 60 commits behind with no `server/auth/`, and the launcher names no
-   provider. Zero providers is a login screen with no way in. The orchestrator has
+   is **64** commits behind as of 2026-09-07, was 60 the day before, and has no
+   `web/server/auth/` at all — re-checked here rather than copied forward, and
+   the number moves with every merge. The launcher names no provider. Zero providers is a login screen with no way in. The orchestrator has
    standing permission to deploy, so this is a hazard aimed at the orchestrator.
    #544 makes it a refusal rather than a surprise.
 4. Then: the settings file, repointing the scheduled task, and deleting the two
