@@ -6,7 +6,8 @@ cannot do at all.
 
 ## What CI already proves
 
-Three checks run on every pull request. Between them they cover:
+Four checks run on every pull request. Three of them gate the merge; the fourth
+is advisory and is marked as such below. Between them they cover:
 
 - **`web (typecheck + tests)`**: no database file and no scan images tracked in
   the tree, checked on the result rather than on the ignore rule; then
@@ -22,6 +23,13 @@ Three checks run on every pull request. Between them they cover:
   and the release, and it does that work only when the change touches what the
   image is made of. It has gated the merge since #552; before that a reviewer
   had to look at it by hand.
+- **`e2e (typecheck)`, advisory**: `tsc --noEmit` over the browser suite's own
+  sources, which nothing had ever compiled until #563. Playwright transpiles
+  TypeScript and does not check it, so a type error in `e2e/` was invisible to
+  the check it would eventually break. **It does not gate the merge**: it is not
+  in `REQUIRED` in `scripts/merge-pr.mjs` and not in the ruleset, deliberately,
+  on the ordering #549 and #552 set after #535. A reviewer should still read it,
+  because red here means the suite that proves everything else is itself broken.
 
 `no production data committed` used to be a third check with a job of its own.
 It took five seconds and GitHub bills a job rounded up to a whole minute, so it
@@ -30,14 +38,13 @@ merge in the `Provenance` workflow. Same check, run in more places, for less.
 
 ### A green board on a documentation change
 
-All three jobs always start on every pull request, but each one asks
+All four jobs always start on every pull request, but each one asks
 `scripts/ci-scope.mjs` what the change touched and skips its expensive steps
 when the answer is "markdown and `docs/` only". The image job asks a narrower
-question than the other two and builds only when the change touches what the
+question than the others and builds only when the change touches what the
 image is made of, but a docs change is below both thresholds. So a README change
-gets all three check names, all green, in seconds rather than five minutes:
-measured on #559, which changed one file under `docs/`, the image job took
-seven.
+gets every check name, all green, in seconds rather than five minutes: measured
+on #559, which changed one file under `docs/`, the image job took seven.
 
 The names must always appear, which is why the skipping happens **inside** the
 jobs rather than through a `paths:` filter or a job-level `if:`. `merge-pr.mjs`
@@ -46,9 +53,12 @@ reports SKIPPED, which it also refuses. Either would make documentation pull
 requests unmergeable. If you see a check name missing from a board, that is the
 bug, not a saving.
 
-**Do not re-run any of these by hand.** They gate the merge already:
+**Do not re-run any of these by hand.** The first three gate the merge already:
 `scripts/merge-pr.mjs` refuses a pull request unless each one is green, and a
-check that never ran counts as a refusal. A reviewer who runs the browser suite
+check that never ran counts as a refusal. The fourth does not gate it, so a red
+`e2e (typecheck)` is a reviewer's call rather than a wall — but it is the one
+name here whose failure the merge gate cannot see for you, so look at it rather
+than re-running something it already answered. A reviewer who runs the browser suite
 locally has spent minutes proving something the run already proved. If you catch
 yourself repeating a mechanical check on every review, that check belongs in CI,
 not in your head.

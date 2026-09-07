@@ -146,7 +146,9 @@ Never `npm run dev` in a worktree: it binds 3001 and 5173 and collides with
 whoever started first.
 
 Then exercise the change the way the real user would, and confirm the mechanical
-gates pass locally (typecheck, lint, tests, build).
+gates pass locally (typecheck, lint, tests, build). If you touched `e2e/`, run
+`npm run typecheck` in there too: `npm test` will not, because Playwright
+transpiles TypeScript without checking it.
 
 Tear down by explicit path when you are done, before your worktree is removed.
 An unscoped teardown stops every environment on the machine, including the ones
@@ -216,6 +218,12 @@ because `scripts/ci-scope.mjs` decides whether the steps inside them do any
 work. That shape is deliberate. A `paths:` filter drops the job from the rollup
 and a job-level `if:` reports SKIPPED, and the merge gate refuses both, which
 would make a README change unmergeable.
+
+A fourth name is on the board and does not gate: `e2e (typecheck)`, added by
+#563 because Playwright never typechecks the suite it runs. It is built in the
+same always-run, always-report shape so that it *can* be required later, and it
+is advisory until it has a run history, for the reason the next paragraph gives
+about the third one.
 
 **The third one is required by `merge-pr.mjs` and not yet by the ruleset**
 (#552). It was advisory from #549 until it had a run history, because #535 is

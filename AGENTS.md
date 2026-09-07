@@ -1082,6 +1082,25 @@ would also be safe. What is not safe is neither of them requiring it, which is
 where this stood until #552. Adding the name to the ruleset is a repository
 setting and so the owner's, per `docs/process/working-an-issue.md`.
 
+**A fourth name is on the board and gates nothing yet: `e2e (typecheck)`.** It
+runs `tsc --noEmit` over the browser suite's own sources, which nothing in this
+repository had ever compiled until #563. Playwright transpiles TypeScript with
+esbuild and never typechecks it, so `e2e/` was the one tree here that reached
+master untyped — while being the tree behind one of the three checks above.
+Shown on that tree rather than argued: with a deliberate type error appended to
+`e2e/support/paths.ts`, which `playwright.config.ts` imports directly,
+`playwright test --list` printed 62 tests and exited 0, and `tsc --noEmit`
+exited 2 naming the line.
+
+It is a job of its own rather than a step of `web (typecheck + tests)`, and not
+on cost: a cold `npm ci` in `e2e/` fetches 16 MB in under two seconds and the
+typecheck takes another two. It is separate because a step of a required job
+gates from its first run, and the ordering above is the one this repository has
+already paid to learn. So it is built in the only shape that can be promoted —
+always runs, always reports, no `paths:` filter, no job-level `if:` — and its
+name is deliberately in `ci.yml` and nowhere else. Promoting it means adding it
+to `REQUIRED` in `scripts/merge-pr.mjs`, on a run history, as its own change.
+
 The scan-data check that used to be a third name, `no production data
 committed`, is now the first step of `web (typecheck + tests)` and also runs
 after every merge in `provenance.yml`. It was a five second job, and GitHub
