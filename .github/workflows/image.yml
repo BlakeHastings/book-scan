@@ -1,0 +1,140 @@
+name: Image
+
+# Everything a version tag will do to the image, except the two steps that
+# cannot be taken back (#549).
+#
+# WHY THIS EXISTS
+# `.github/workflows/publish.yml` builds the image, and until this file it was
+# the only thing in this repository that did. Its own comment says the build is
+# the gate — `npm run build` typechecks, and the `production-tree` stage runs the
+# smoke check after the prune — and that is true and it is the problem: the gate
+# first ran at the moment something immutable and public was created. Worse, the
+# steps there are ordered so that three of them come *after* `push: true`, and
+# the tagging scheme in `docs/publishing.md` says there is deliberately no way to
+# move or replace a tag. So the first tag was the worst possible place to find
+# out that a native module had stopped building, that the prune dropped
+# something the smoke check needs, or that a checkout wrote CRLF into `deploy/`.
+#
+# This job is the same run without the two irreversible steps. The build runs
+# with `push: false, load: true`, the contract comparison and the checker run
+# against the loaded image instead of a pulled digest, and nothing is published
+# and no release is created. What that leaves for the tag to do for the first
+# time is: the push itself, and `gh release create`.
+#
+# THE STEPS ARE NOT COPIED, AND THAT IS THE POINT
+# Two copies of the contract comparison would drift, and the drift would be
+# invisible until somebody published. The assertions therefore live in
+# `scripts/check-image.mjs`, which both workflows call with the ref they have.
+# The build is genuinely two different things — one pushes and one loads — so it
+# is the one step written twice, six lines each, and the difference between them
+# is the whole subject of this file.
+#
+# IT IS NOT FILTERED BY PATH AND MUST NOT BE
+# `scripts/merge-pr.mjs` reads a required check that never appeared as a refusal
+# and a job skipped by `if:` reports SKIPPED, which it also refuses. So this job
+# always runs and always reports as `image (build + contract)`, and asks
+# `scripts/ci-scope.mjs` whether the steps inside it are worth doing. Read the
+# header of that script before reaching for either.
+#
+# WHEN IT DOES THE WORK
+# A 1.49 GB build is a different calculation from a test run: measured at 3m08s
+# on a developer's eight-core machine with an empty cache on 2026-09-07, against
+# about a minute for everything `web (typecheck + tests)` does. So this asks a
+# narrower question than the other two jobs — `image` rather than `docs_only` —
+# and builds only when the change touches something that decides what the image
+# is. The list and the argument for it are in `ci-scope.mjs` beside
+# `DECIDES_THE_IMAGE`.
+on:
+  pull_request:
+  # So the whole rehearsal can be run at a commit somebody is about to tag,
+  # without pushing the tag to find out. `ci-scope.mjs` answers every trigger
+  # that is not a pull request with "build it", so a dispatch is always the full
+  # run and cannot be hollowed out by the scope decision below.
+  workflow_dispatch:
+
+# Only what the scope script needs. Nothing here logs in to a registry, and
+# nothing here writes anything: no `packages:` and no `contents: write`, which
+# is the difference between a rehearsal and a publication said in permissions
+# rather than only in prose.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: image (build + contract)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Runs on the runner's preinstalled node, before anything is installed, so
+      # a change that does not touch the image pays for a checkout and nothing
+      # else. `--image` only chooses which of the script's two questions the log
+      # line talks about; both outputs are written either way.
+      - name: What this change needs
+        id: scope
+        run: node scripts/ci-scope.mjs --image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      # `!= 'false'` rather than `== 'true'`, so that anything unexpected — an
+      # output that never appeared, a value nobody planned for — builds the image
+      # rather than quietly skipping it.
+      - uses: docker/setup-buildx-action@v3
+        if: steps.scope.outputs.image != 'false'
+
+      # The same action, the same context and the same absence of a cache as the
+      # tag run, differing in the two words that make it a rehearsal: `push` is
+      # false and `load` is true, so the image lands in this runner's own daemon
+      # and nowhere else.
+      #
+      # No cache here either, and the reason is the one in `publish.yml` plus a
+      # second one that only applies here. The Actions cache is 10 GB for the
+      # whole repository and these layers are 1.49 GB, so caching them would
+      # evict the npm cache every pull request depends on. And a cached build
+      # proves less than a cold one: what this job is for is finding out that
+      # `npm ci` in `node:22-bookworm-slim` has stopped working, which is exactly
+      # the layer a cache would hand back without running.
+      #
+      # No `labels:`. The three the tag run sets are properties of a release --
+      # the version, the revision -- and there is no version here.
+      - name: Build
+        if: steps.scope.outputs.image != 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: book-scan:pr
+
+      # The same two assertions `publish.yml` makes, from the same file, against
+      # the image this job just built rather than one pulled back by digest.
+      # Everything they check is a property of the image: the contract inside it
+      # is this repository's byte for byte, and the checker inside it refuses an
+      # environment with no connection string and passes one that has it.
+      - name: The image carries this contract, and its checker runs
+        if: steps.scope.outputs.image != 'false'
+        run: node scripts/check-image.mjs book-scan:pr
+
+      # So the size is something CI observes rather than a figure in a document
+      # that was true in September. `docs/the-image.md` says 1.49 GB and where it
+      # goes; if this line starts saying something else, that is the note to go
+      # and change.
+      - name: Say what was built
+        if: steps.scope.outputs.image != 'false'
+        run: |
+          {
+            echo "## The image was built and not published"
+            echo
+            docker image ls book-scan:pr --format 'Size on disk: {{.Size}}'
+            echo
+            echo "A tag publishes this same build. What a tag still does for the first time is the"
+            echo "push itself and \`gh release create\`."
+          } >> "$GITHUB_STEP_SUMMARY"

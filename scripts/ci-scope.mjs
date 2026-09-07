@@ -27,6 +27,14 @@
 //       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 // then guard the expensive steps with
 //   if: steps.scope.outputs.docs_only != 'true'
+//
+// TWO QUESTIONS, ONE LIST OF CHANGED FILES
+// `docs_only` is the original one and every job asks it. `image` is the second
+// (#549) and only `.github/workflows/image.yml` asks it: a 1.49 GB build is
+// worth doing far less often than a test run, and it is answered from the same
+// list rather than from a second API call. Pass `--image` to make the log line
+// and the step summary talk about that question instead of the first one; both
+// outputs are written either way, so nothing depends on the flag being passed.
 
 import { appendFileSync } from 'node:fs'
 
@@ -71,6 +79,74 @@ export function classify(paths) {
   }
 }
 
+// The paths that decide what the image is, or decide what building it proves
+// (#549). A change touching one of these builds the image on the pull request;
+// a change touching none of them does not.
+//
+// WHY THIS IS A DIFFERENT QUESTION FROM `docs_only`
+// The image build is three minutes and 1.49 GB, against roughly one minute for
+// everything `web (typecheck + tests)` does. Running it on every change that is
+// not documentation would put it on almost every pull request here, and almost
+// every one of those is a source change whose failure mode the other two checks
+// already catch, in less time, with a better message.
+//
+// WHY A LIST OF WHAT MATTERS RATHER THAN A LIST OF WHAT DOES NOT
+// The rest of this file names what is inert and treats everything else as live,
+// because guessing wrong there costs a minute and guessing wrong the other way
+// lands an untested change. This one is written the other way round, and it can
+// be, for a reason that is a property of `.dockerignore` rather than a promise
+// anybody has to keep: that file excludes `*` and re-includes `web` and
+// `deploy`, so **a new build input cannot enter the image without a change to
+// `.dockerignore` or the `Dockerfile`**, both of which are on this list. The
+// list therefore cannot silently fall behind the image; it can only fall behind
+// on purpose.
+//
+// What is deliberately NOT here is the application itself, `web/src/` and
+// `web/server/`. They are copied into the image and built there by the same
+// `npm run build` against the same lock file that `web (typecheck + tests)`
+// runs, so a source change that cannot build fails that check first and this
+// one would be a slower second copy of the same red. The gap that leaves,
+// stated rather than hidden: a source file importing something `.dockerignore`
+// excludes (`web/data`, `web/dist`, `web/dist-server`, `web/.scratch-*`) would
+// build outside the image and fail inside it, and nothing imports from any of
+// those today.
+const DECIDES_THE_IMAGE = [
+  /^Dockerfile$/, // the recipe
+  /^\.dockerignore$/, // what the recipe is allowed to see
+  /^\.gitattributes$/, // holds `deploy/**` at LF, which is what makes the byte comparison mean anything
+  /^deploy\//, // the contract and the checker, both carried inside the image and both asserted about
+  /^web\/package\.json$/, // what `npm ci` installs and `npm prune --omit=dev` keeps
+  /^web\/package-lock\.json$/, // the same, exactly
+  /^web\/scripts\//, // the build and the smoke check the image's own stages run
+  /^scripts\/check-image\.mjs$/, // the assertions themselves
+  /^scripts\/ci-scope\.mjs$/, // this decision
+  /^\.github\/workflows\/image\.yml$/, // the job that asks
+]
+
+export function decidesTheImage(path) {
+  return !isInert(path) && DECIDES_THE_IMAGE.some((pattern) => pattern.test(path))
+}
+
+// Safe direction here too, and it is the opposite word: unclear means `image`
+// true, which means build it.
+export function classifyImage(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return { image: true, why: 'no changed files could be read, so building it' }
+  }
+
+  const deciding = paths.filter(decidesTheImage)
+  if (deciding.length > 0) {
+    const shown = deciding.slice(0, 5).join(', ')
+    const more = deciding.length > 5 ? ` and ${deciding.length - 5} more` : ''
+    return { image: true, why: `what the image is made of changed: ${shown}${more}` }
+  }
+
+  return {
+    image: false,
+    why: `none of the ${paths.length} changed file(s) decide what the image is`,
+  }
+}
+
 // GitHub truncates this endpoint at 3000 files. A truncated list could hide a
 // code change behind a wall of markdown, so stop asking and run everything.
 const MAX_PAGES = 30
@@ -106,19 +182,41 @@ async function changedFiles({ repo, prNumber, token }) {
   return [] // Truncated. classify() reads an empty list as "run everything".
 }
 
-function emit({ docsOnly, why }) {
-  const line = docsOnly
-    ? `Documentation only, so the expensive steps are skipped: ${why}.`
-    : `Full run: ${why}.`
+// Which question this run is being asked about, for the log line and the step
+// summary only. Both outputs are written whatever this says, so a workflow that
+// forgets the flag still gets the right answer, in a sentence about the other
+// job.
+const ASKED_ABOUT_THE_IMAGE = process.argv.includes('--image')
+
+function emit(docs, image) {
+  let line
+  if (ASKED_ABOUT_THE_IMAGE) {
+    line = image.image
+      ? `Building the image: ${image.why}.`
+      : `Not building the image: ${image.why}.`
+  } else {
+    line = docs.docsOnly
+      ? `Documentation only, so the expensive steps are skipped: ${docs.why}.`
+      : `Full run: ${docs.why}.`
+  }
 
   console.log(line)
 
   if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(process.env.GITHUB_OUTPUT, `docs_only=${docsOnly}\n`)
+    appendFileSync(process.env.GITHUB_OUTPUT, `docs_only=${docs.docsOnly}\nimage=${image.image}\n`)
   }
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`)
   }
+}
+
+// Every path that cannot answer either question properly answers both of them
+// the expensive way.
+function everything(why) {
+  return [
+    { docsOnly: false, why },
+    { image: true, why },
+  ]
 }
 
 async function main() {
@@ -127,7 +225,7 @@ async function main() {
   // "changed files" question to ask about those, and answering it wrongly would
   // silently hollow out the nightly.
   if (process.env.GITHUB_EVENT_NAME !== 'pull_request') {
-    emit({ docsOnly: false, why: `event is ${process.env.GITHUB_EVENT_NAME ?? 'not a pull request'}` })
+    emit(...everything(`event is ${process.env.GITHUB_EVENT_NAME ?? 'not a pull request'}`))
     return
   }
 
@@ -136,7 +234,7 @@ async function main() {
   const token = process.env.GH_TOKEN
 
   if (!repo || !prNumber || !token) {
-    emit({ docsOnly: false, why: 'GITHUB_REPOSITORY, PR_NUMBER or GH_TOKEN was missing' })
+    emit(...everything('GITHUB_REPOSITORY, PR_NUMBER or GH_TOKEN was missing'))
     return
   }
 
@@ -145,14 +243,14 @@ async function main() {
     paths = await changedFiles({ repo, prNumber, token })
   } catch (error) {
     // An API hiccup must not be able to skip a suite.
-    emit({ docsOnly: false, why: `could not list changed files (${error.message})` })
+    emit(...everything(`could not list changed files (${error.message})`))
     return
   }
 
-  emit(classify(paths))
+  emit(classify(paths), classifyImage(paths))
 }
 
-// Only when run directly, so the test can import the two pure functions without
+// Only when run directly, so the test can import the pure functions without
 // firing a network call. Compared on the entry path rather than on
 // `import.meta.url`, which needs a file:// URL dance to match on Windows.
 if (process.argv[1]?.endsWith('ci-scope.mjs')) {

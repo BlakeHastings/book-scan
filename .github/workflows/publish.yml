@@ -129,6 +129,12 @@ jobs:
       # the bundle after the prune. A tree that fails either one fails here,
       # before the push. What it does NOT run is the test suite, which needs a
       # Postgres; that ran on the pull request this commit came from.
+      #
+      # Since #549 that gate is no longer first met here. `image.yml` runs this
+      # same build on every pull request that touches what the image is made of,
+      # with `push: false, load: true`, so a tree that cannot build fails days
+      # before anybody tags it rather than after the tag is immutable and
+      # public.
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -148,43 +154,23 @@ jobs:
       # carries the contract that describes it. So this pulls back what was just
       # pushed, by digest rather than by tag, and compares the file inside it
       # against the file in this repository byte for byte. `.gitattributes`
-      # keeps `deploy/` at LF for this comparison.
-      - name: The image carries this exact contract
+      # keeps `deploy/` at LF for this comparison. It also runs the checker
+      # inside the image, rather than letting it merely be present: a file that
+      # is copied in and never executed is how a shipped tool turns out to have
+      # been broken for months.
+      #
+      # Both of those used to be shell written out here, and #549 moved them
+      # into `scripts/check-image.mjs` **so that this is not their first run.**
+      # `.github/workflows/image.yml` calls the same script on every pull
+      # request that can change the image, against the image it just built and
+      # loaded, and the only thing that differs between the two callers is the
+      # ref. A second copy of these twenty lines in that workflow would have
+      # drifted from this one, and the drift would not have surfaced until a tag,
+      # which is the failure this whole change is about.
+      - name: The image carries this exact contract, and its checker runs
         env:
           REF: ${{ steps.target.outputs.image }}@${{ steps.build.outputs.digest }}
-        run: |
-          docker run --rm --entrypoint cat "$REF" /app/deploy/contract.json > from-image.json
-          if ! diff -u deploy/contract.json from-image.json; then
-            echo "::error::The image's contract is not this repository's contract."
-            exit 1
-          fi
-          echo "The contract inside $REF is identical to deploy/contract.json."
-
-      # And the checker inside it runs, rather than merely being present. A file
-      # that is copied in and never executed is how a shipped tool turns out to
-      # have been broken for months.
-      - name: The checker inside the image runs
-        env:
-          REF: ${{ steps.target.outputs.image }}@${{ steps.build.outputs.digest }}
-        run: |
-          set +e
-          docker run --rm "$REF" node /app/deploy/check-config.mjs > empty.txt 2>&1
-          empty=$?
-          docker run --rm -e 'ConnectionStrings__bookscan=postgres://u:p@db:5432/bookscan' \
-            "$REF" node /app/deploy/check-config.mjs > ok.txt 2>&1
-          good=$?
-          set -e
-          cat empty.txt
-          if [ "$empty" -ne 1 ]; then
-            echo "::error::The checker accepted an environment with no connection string."
-            exit 1
-          fi
-          if [ "$good" -ne 0 ]; then
-            echo "::error::The checker refused a configuration that is correct."
-            cat ok.txt
-            exit 1
-          fi
-          echo "The checker refuses what it should and passes what it should."
+        run: node scripts/check-image.mjs "$REF"
 
       - name: Say what was published
         env:
