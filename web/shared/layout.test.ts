@@ -19,7 +19,7 @@ const sep = (
 ): Separator => ({ id, range: 'fiction', kind, startsAt, position: id })
 
 const labels = (books: { id: number; sortKey: string }[], separators: Separator[]) =>
-  layoutRange(books, separators).map((p) => p.label)
+  lay(books, separators).map((p) => p.label)
 
 describe('labels', () => {
   it('letters the areas, which are the planks inside one bookcase', () => {
@@ -86,14 +86,14 @@ describe('layoutRange', () => {
   })
 
   it('copes with no books at all', () => {
-    expect(layoutRange([], [sep(1, 'B')])).toEqual([])
+    expect(lay([], [sep(1, 'B')])).toEqual([])
   })
 })
 
 describe('overflow, when someone says a shelf is full', () => {
   it('moves the last book onto the next shelf', () => {
     const separators = [sep(1, 'C')]
-    const placed = layoutRange(run('ABCD'), separators)
+    const placed = lay(run('ABCD'), separators)
 
     const step = overflow(placed, separators, '1A')!
     expect(step.moved.sortKey).toBe('B')
@@ -104,14 +104,14 @@ describe('overflow, when someone says a shelf is full', () => {
   })
 
   it('creates the next shelf when there is not one yet', () => {
-    const placed = layoutRange(run('AB'), [])
+    const placed = lay(run('AB'), [])
     const step = overflow(placed, [], '1A')!
     expect(step.to).toBe('1B')
     expect(step.create).toEqual({ startsAt: 'B', kind: 'area' })
   })
 
   it('can start a whole new bookcase instead of the next plank', () => {
-    const placed = layoutRange(run('AB'), [])
+    const placed = lay(run('AB'), [])
     const step = overflow(placed, [], '1A', 'shelf')!
     // A new bookcase, so the area letter resets rather than advancing.
     expect(step.to).toBe('2A')
@@ -128,7 +128,7 @@ describe('overflow, when someone says a shelf is full', () => {
      * thing down.
      */
     const separators = [sep(1, 'B')]
-    const step = overflow(layoutRange(run('AB'), separators), separators, '1A')!
+    const step = overflow(lay(run('AB'), separators), separators, '1A')!
     expect(step.moved.sortKey).toBe('A')
     expect(step).toMatchObject({ from: '1A', to: '1B', shift: { id: 1, startsAt: 'A' } })
 
@@ -140,17 +140,17 @@ describe('overflow, when someone says a shelf is full', () => {
   })
 
   it('returns nothing for a shelf that does not exist', () => {
-    expect(overflow(layoutRange(run('AB'), []), [], '9Z')).toBeNull()
+    expect(overflow(lay(run('AB'), []), [], '9Z')).toBeNull()
   })
 
   it('walks along when applied repeatedly, which is the guided sequence', () => {
     // A1 full: B moves to A2. Then A2 full too: its last book moves to A3.
     let separators = [sep(1, 'C')]
-    const first = overflow(layoutRange(run('ABCD'), separators), separators, '1A')!
+    const first = overflow(lay(run('ABCD'), separators), separators, '1A')!
     separators = [{ ...separators[0]!, startsAt: first.shift!.startsAt }]
     expect(labels(run('ABCD'), separators)).toEqual(['1A', '1B', '1B', '1B'])
 
-    const second = overflow(layoutRange(run('ABCD'), separators), separators, '1B')!
+    const second = overflow(lay(run('ABCD'), separators), separators, '1B')!
     expect(second.moved.sortKey).toBe('D')
     expect(second.create).toEqual({ startsAt: 'D', kind: 'area' })
   })
@@ -159,7 +159,7 @@ describe('overflow, when someone says a shelf is full', () => {
 describe('groupByShelf', () => {
   it('groups a run into one entry per physical shelf', () => {
     const separators = [sep(7, 'B', 'shelf')]
-    const groups = groupByShelf(layoutRange(run('ABC'), separators), separators)
+    const groups = groupByShelf(lay(run('ABC'), separators), separators)
     expect(groups.map((g) => g.label)).toEqual(['1A', '2A'])
     expect(groups[1]!.books.map((b) => b.book.id)).toEqual([2, 3])
     // The boundary that opens the shelf, so the UI can offer to remove it.
@@ -174,7 +174,7 @@ describe('groupByShelf', () => {
    */
   it('draws each boundary line above the heading it opens', () => {
     const separators = [sep(1, 'B'), sep(2, 'C', 'shelf')]
-    const groups = groupByShelf(layoutRange(run('ABCD'), separators), separators)
+    const groups = groupByShelf(lay(run('ABCD'), separators), separators)
 
     expect(libraryRows(groups).map((row) =>
       row.row === 'divider' ? `${row.notice} (${row.separatorId})` : row.group.label))
@@ -187,7 +187,7 @@ describe('groupByShelf', () => {
 
   it('names the area each line opens, which is the heading beneath it', () => {
     const separators = [sep(1, 'B'), sep(2, 'C', 'shelf')]
-    const groups = groupByShelf(layoutRange(run('ABCD'), separators), separators)
+    const groups = groupByShelf(lay(run('ABCD'), separators), separators)
 
     expect(libraryRows(groups)
       .filter((row) => row.row === 'divider')
@@ -197,7 +197,7 @@ describe('groupByShelf', () => {
 
   it('counts what is on each shelf without predicting what fits', () => {
     const separators = [sep(1, 'C')]
-    expect(shelfLoads(layoutRange(run('ABCD'), separators), separators)).toEqual([
+    expect(shelfLoads(lay(run('ABCD'), separators), separators)).toEqual([
       { label: '1A', count: 2 },
       { label: '1B', count: 2 },
     ])
@@ -207,7 +207,7 @@ describe('groupByShelf', () => {
 describe('stripAround', () => {
   /** Lay a run out with the newcomer slotted in by sort key, as the server does. */
   const withNewcomer = (letters: string, key: string, separators: Separator[] = []) =>
-    layoutRange(
+    lay(
       [...run(letters), book(NEWCOMER_ID, key)]
         .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0)),
       separators,
@@ -246,14 +246,14 @@ describe('stripAround', () => {
   })
 
   it('returns nothing when the newcomer was never laid out', () => {
-    expect(stripAround(layoutRange(run('ABC'), []))).toBeNull()
+    expect(stripAround(lay(run('ABC'), []))).toBeNull()
   })
 })
 
 describe('stripAt', () => {
   it('finds a shelved book in its own row', () => {
     const separators = [sep(1, 'D')]
-    const found = stripAt(layoutRange(run('ABCDEF'), separators), 5)!
+    const found = stripAt(lay(run('ABCDEF'), separators), 5)!
     expect(found.label).toBe('1B')
     expect(found.books.map((p) => p.book.sortKey)).toEqual(['D', 'E', 'F'])
     expect(found.index).toBe(1)
@@ -262,13 +262,13 @@ describe('stripAt', () => {
   it('leaves the book in place rather than cutting it out', () => {
     // The difference from stripAround: a book already on the shelf is drawn
     // where it is, not as a hole where it would go.
-    const found = stripAt(layoutRange(run('ABC'), []), 1)!
+    const found = stripAt(lay(run('ABC'), []), 1)!
     expect(found.books).toHaveLength(3)
     expect(found.index).toBe(0)
   })
 
   it('returns nothing for a book that is not shelved here', () => {
-    expect(stripAt(layoutRange(run('ABC'), []), 99)).toBeNull()
+    expect(stripAt(lay(run('ABC'), []), 99)).toBeNull()
   })
 })
 
@@ -286,7 +286,7 @@ describe('a cascade across several shelves', () => {
     label: string,
     kind: 'shelf' | 'area' = 'area',
   ) => {
-    const step = overflow(layoutRange(books, separators), separators, label, kind)
+    const step = overflow(lay(books, separators), separators, label, kind)
     if (!step) return { step: null, separators }
     if (step.create) {
       return {
@@ -346,7 +346,7 @@ describe('a cascade across several shelves', () => {
       separators = apply(books, separators, label).separators
     }
 
-    const placed = layoutRange(books, separators)
+    const placed = lay(books, separators)
     // The invariant that matters: a shimmy moves boundaries, never books.
     expect(placed.map((p) => p.book.sortKey).join('')).toBe('ABCDEFGHIJKL')
     expect(placed).toHaveLength(12)
@@ -404,7 +404,7 @@ describe('boundaryMove', () => {
     id: number,
     direction: 'next' | 'previous',
   ) => {
-    const outcome = boundaryMove(layoutRange(books, separators), separators, id, direction)
+    const outcome = boundaryMove(lay(books, separators), separators, id, direction)
     if (!outcome.ok) return { outcome, separators }
 
     const shifted = new Map(outcome.move.shift.map((s) => [s.id, s.startsAt]))
@@ -422,7 +422,7 @@ describe('boundaryMove', () => {
     id: number,
     direction: 'next' | 'previous',
   ) => {
-    const outcome = boundaryMove(layoutRange(books, separators), separators, id, direction)
+    const outcome = boundaryMove(lay(books, separators), separators, id, direction)
     return outcome.ok ? '' : outcome.reason
   }
 
@@ -530,7 +530,7 @@ describe('boundaryMove', () => {
     const { separators: after } = carry(books, separators, 2, 'previous')
     expect(labels(books, after)).toEqual(['1A', '1A', '1C'])
 
-    const step = overflow(layoutRange(books, after), after, '1A', 'area')
+    const step = overflow(lay(books, after), after, '1A', 'area')
     const filled = after.map((s) =>
       s.id === step?.shift?.id ? { ...s, startsAt: step.shift!.startsAt } : s)
 
@@ -616,7 +616,7 @@ describe('boundaryMove', () => {
     const books = run('ABCD')
     const separators = [sep(1, 'C')]
 
-    const step = overflow(layoutRange(books, separators), separators, '1A', 'area')
+    const step = overflow(lay(books, separators), separators, '1A', 'area')
     const shuffled = separators.map((s) =>
       s.id === step?.shift?.id ? { ...s, startsAt: step.shift!.startsAt } : s)
 
@@ -632,7 +632,7 @@ describe('carryOn', () => {
     separators: Separator[],
     sortKey: string,
   ) =>
-    layoutRange(
+    lay(
       [...books, { id: NEWCOMER_ID, sortKey }]
         .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0)),
       separators,

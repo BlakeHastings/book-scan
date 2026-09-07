@@ -381,19 +381,29 @@ export class Shelves {
   }
 
   /**
-   * Which bookcase a range begins on.
+   * Which plank a range begins on, or null when no rule says.
    *
    * `shelf_ranges.start_shelf` until #232, and the rule that claims this range's
    * books now: it points at a fixture, and the fixture's position is the number
    * the column held. `0013` derived one from the other, so the two agree row for
    * row.
    *
-   * The fallback is the first bookcase, which is what a missing row gave. It is
-   * reachable on a collection whose rules point at furniture that has been taken
-   * out, and it is the answer that draws a shelf rather than none.
+   * **Null is the answer and not a hole to fill** (#479). This used to answer
+   * `{ shelf: 1, area: 0 }` for a range no rule claims, on the reasoning that
+   * drawing a shelf beats drawing none. It does not: bookcase 1 is a real piece
+   * of furniture standing in a room, usually the one fiction opens on, so the
+   * seven non-fiction books of a collection whose non-fiction rule had just been
+   * taken off were drawn standing on fiction's own entry plank, and the placing
+   * screen offered `1A` as the plank to start non-fiction at. Nothing said any
+   * of it was invented.
+   *
+   * Every reader below therefore asks and stops when the answer is null: a range
+   * with no rule has no run, so there is no run to lay books out along, no plank
+   * to name and no gap to point at. The screens say so, which is the part that
+   * makes it honest rather than merely empty.
    */
-  private async startOf(range: ShelfRange): Promise<RangeStart> {
-    return (await bandOf(this.db, range))?.start ?? { shelf: 1, area: 0 }
+  private async startOf(range: ShelfRange): Promise<RangeStart | null> {
+    return (await bandOf(this.db, range))?.start ?? null
   }
 
   /**
@@ -429,12 +439,23 @@ export class Shelves {
     return excludeId ? rows.filter((row) => row.id !== excludeId) : rows
   }
 
-  /** Every book in a range, with the shelf it lands on. */
+  /**
+   * Every book in a range, with the shelf it lands on.
+   *
+   * Empty when no rule says where the range begins (#479). Not "no books": the
+   * books are still there, still in order, still recorded wherever somebody
+   * last put them. What is missing is the run to lay them along, and a layout
+   * is a walk over a run. Every caller that draws this for a person has to say
+   * which of the two silences it is looking at, which is why `shelving` below
+   * hands `begins` back beside the boards.
+   */
   async layout(range: ShelfRange): Promise<Placed<ShelvedBook>[]> {
+    const start = await this.startOf(range)
+    if (!start) return []
     return layoutRange(
       (await this.booksIn(range)).map((row) => ({ ...row, sortKey: row.sort_key })),
       await this.list(range),
-      await this.startOf(range),
+      start,
     )
   }
 
@@ -481,10 +502,17 @@ export class Shelves {
    * off the first book standing at it. Taking a board's identity off its books
    * is the phantom bookcase #434 drew, and it stays out of here.
    *
-   * The fallback is `groupByShelf`'s own list, for a run the furniture has no
-   * planks for at all: a range whose rule points at a piece that has been taken
-   * out lays its books out from `{ shelf: 1, area: 0 }`, and drawing them is a
-   * better answer than drawing nothing.
+   * **There is no fallback to `groupByShelf`'s own list any more, and removing
+   * it is half of #479.** It read: a range whose rule points at a piece that has
+   * been taken out lays its books out from `{ shelf: 1, area: 0 }`, and drawing
+   * them is a better answer than drawing nothing. It is not. `{ shelf: 1,
+   * area: 0 }` is a real plank of a real bookcase, usually the one fiction opens
+   * on, and `RunPlanks.at` names a plank the run has no row for the way a
+   * cascade's proposed plank is named — so seven non-fiction books came back
+   * drawn on `1A`, standing on fiction's own entry plank, with `areaId: null`
+   * and nothing anywhere saying the address was invented. The run now has no
+   * start, so `layout` hands back nothing and this has nothing to fall back to:
+   * `planks.every()` is empty exactly when the layout is.
    */
   private standing<T extends LayoutInput>(
     planks: RunPlanks,
@@ -495,11 +523,8 @@ export class Shelves {
     const standingThere = new Map(groups.map((group) => [address(group), group]))
     const opens = new Map(separators.map((separator) => [separator.id, separator]))
 
-    const run = planks.every()
-    const boards = run.length
-      ? run.map((where) => standingThere.get(address(where))
-        ?? { ...where, label: '', books: [] as Placed<T>[], opensWith: null })
-      : groups
+    const boards = planks.every().map((where) => standingThere.get(address(where))
+      ?? { ...where, label: '', books: [] as Placed<T>[], opensWith: null })
 
     return boards.map((group) => {
       const where = { shelf: group.shelf, area: group.area }
@@ -539,14 +564,27 @@ export class Shelves {
      * and `loads` making of the layout.
      */
     planks: RunPlanks
+    /**
+     * What the plank this run opens at is called, or null when no rule says
+     * where the range begins (#479).
+     *
+     * Handed back because an empty `groups` has two causes and a screen drawing
+     * one of them has to know which: a range with nothing catalogued in it, and
+     * a range nothing says the whereabouts of. Both used to draw the same
+     * nothing, and before #479 the second drew something worse than nothing.
+     */
+    begins: string | null
   }> {
     const separators = await this.list(range)
-    const placed = layoutRange(
-      (await this.booksIn(range)).map((row) => ({ ...row, sortKey: row.sort_key })),
-      separators,
-      await this.startOf(range),
-    )
+    const start = await this.startOf(range)
     const planks = await this.planks(range)
+    const placed = start === null
+      ? []
+      : layoutRange(
+        (await this.booksIn(range)).map((row) => ({ ...row, sortKey: row.sort_key })),
+        separators,
+        start,
+      )
     const groups = this.standing(planks, groupByShelf(placed, separators), separators)
     // `shelfLoads` is `groupByShelf` and a count, so the count is taken off the
     // groups already in hand rather than by grouping the same layout again.
@@ -555,6 +593,7 @@ export class Shelves {
       separators,
       loads: groups.map((group) => ({ label: group.label, count: group.books.length })),
       planks,
+      begins: start === null ? null : planks.at(start).label,
     }
   }
 
@@ -595,15 +634,22 @@ export class Shelves {
   async shelvesForSortKeys(range: ShelfRange, sortKeys: string[]): Promise<string[]> {
     if (!sortKeys.length) return []
 
+    const labels = new Array<string>(sortKeys.length).fill('')
+
+    // Every key comes back empty when no rule says where the range begins
+    // (#479). Empty is what this already answers for a key it could not place,
+    // and every caller already reads it that way.
+    const start = await this.startOf(range)
+    if (!start) return labels
+
     // `layoutRange` requires sort order, so the keys are ordered and put back
     // afterwards by the position each one arrived in.
     const ordered = sortKeys
       .map((sortKey, at) => ({ id: at, sortKey }))
       .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
 
-    const placed = layoutRange(ordered, await this.list(range), await this.startOf(range))
+    const placed = layoutRange(ordered, await this.list(range), start)
 
-    const labels = new Array<string>(sortKeys.length).fill('')
     for (const one of placed) labels[one.book.id] = one.label
     return labels
   }
@@ -614,17 +660,22 @@ export class Shelves {
    * The rows are read first and the newcomer merged into the array that read
    * returned, so the sort still runs over one consistent snapshot of the range
    * rather than over rows fetched either side of it.
+   *
+   * Empty when no rule says where the range begins, for `layout`'s reason: the
+   * strip this draws is a row of spines on a plank, and there is no plank.
    */
   private async layoutWith(
     range: ShelfRange,
     sortKey: string,
     excludeId = 0,
   ): Promise<Placed<ShelvedBook>[]> {
+    const start = await this.startOf(range)
+    if (!start) return []
     const books = (await this.booksIn(range, excludeId))
       .map((row) => ({ ...row, sortKey: row.sort_key }))
     const merged = [...books, { id: NEWCOMER_ID, sortKey } as ShelvedBook]
       .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
-    return layoutRange(merged, await this.list(range), await this.startOf(range))
+    return layoutRange(merged, await this.list(range), start)
   }
 
   /**
@@ -915,9 +966,17 @@ export class Shelves {
     const step = plan.step!
     const books = (await this.booksIn(range))
       .map((row) => ({ ...row, sortKey: row.sort_key }))
-    const after = layoutRange(
-      books, this.separatorsAfter(plan.separators, step), await this.startOf(range),
-    )
+    /*
+     * Null start is unreachable from here and is answered anyway: `planOverflow`
+     * above walks the run and refuses before this line when there is none. It is
+     * `layoutRange`'s required argument that makes the impossible case visible
+     * rather than defaulted (#479), and a strip of nothing is what a run that
+     * does not exist looks like.
+     */
+    const start = await this.startOf(range)
+    const after = start === null
+      ? []
+      : layoutRange(books, this.separatorsAfter(plan.separators, step), start)
 
     return {
       ok: true,
@@ -1602,14 +1661,26 @@ export class Shelves {
    */
   async review(range: ShelfRange): Promise<ShelvingReview> {
     const faces = await areaFaces(this.db)
-    const placed = await this.layout(range)
-    const belongs = await this.areasForSortKeys(
-      range,
-      placed.map((one) => one.book.sortKey),
-    )
+    /*
+     * The books, not the layout, and it never needed the layout (#479). Both
+     * sides of this comparison are areas: where the book is comes off the
+     * ledger's projection on the row, and where it belongs comes off
+     * `areasForSortKeys`, which walks the run directly. The layout's own answer,
+     * the label it draws each book under, is read by nothing here.
+     *
+     * It mattered the day the layout stopped inventing a run for a range no rule
+     * claims. `layout` is empty then, and reading it here would have taken every
+     * book of that range off the one list that says a book is not where it
+     * belongs — silently, on exactly the state that produces the most of them.
+     * `areasForSortKeys` answers null for every key instead, which is
+     * `unplaceable`, which is what the review already says out loud.
+     */
+    const books = (await this.booksIn(range))
+      .map((row) => ({ ...row, sortKey: row.sort_key }))
+    const belongs = await this.areasForSortKeys(range, books.map((one) => one.sortKey))
 
-    const onShelf = placed.map((one, at) =>
-      toFiled(one.book, one.book.area_id, belongs[at] ?? null, faces, false))
+    const onShelf = books.map((book, at) =>
+      toFiled(book, book.area_id, belongs[at] ?? null, faces, false))
 
     const off = (
       await withPlacements(this.db, await this.db.all<FiledBookRow>(

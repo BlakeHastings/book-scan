@@ -431,6 +431,24 @@ export type PlacementKind =
    * in non-fiction" are both false of it. See `placementOnAPlank`.
    */
   | 'on-a-plank'
+  /**
+   * No rule says where this range begins, so nothing says where the book goes
+   * (#479).
+   *
+   * **Not an error and not a wait.** It is the state every collection is in
+   * before anybody has written a rule, and the state a collection returns to
+   * the moment a rule is taken off the last place that served a range, which
+   * the rule editor warns about in those words: "the library would have no rule
+   * saying where it begins". The book still has a range, the sequence still
+   * knows which two books it falls between, and what is missing is the one
+   * thing the rules alone can say.
+   *
+   * It is a kind rather than a null placement because the range is known. A
+   * book carrying no genre tag gets no placement at all, which is a different
+   * absence: there is no run for it to be in, rather than a run standing
+   * nowhere.
+   */
+  | 'range-has-no-start'
 
 export interface Placement {
   kind: PlacementKind
@@ -482,14 +500,43 @@ function describe(neighbour: Neighbour): string {
  * *must* go in a section, only which two books it belongs between. The
  * suggested location is a starting point the user can override, which is what
  * makes a full shelf a non-event.
+ *
+ * **`rangeStart` is null when no rule says where the range begins** (#479), and
+ * that answer is `bandsOf`'s rather than anything invented here or by either
+ * caller. It used to be a string either way, and the two callers each made up
+ * their own: `Shelves.startOf` said the first bookcase and `Store.rangeStart`
+ * said bookcase 4 for non-fiction, so the same missing rule produced two
+ * different planks. Neither had a specification behind it, and the owner
+ * settled that there is not supposed to be one: a range begins wherever the
+ * rule set says, and where the rule set says nothing there is nowhere.
  */
 export function buildPlacement(
   range: ShelfRange,
   predecessor: Neighbour | null,
   successor: Neighbour | null,
-  rangeStart: string,
+  rangeStart: string | null,
 ): Placement {
   const label = RANGE_LABEL[range]
+
+  /*
+   * Asked before the four sentences below, because every one of them names the
+   * range's start where a neighbour cannot be named, and there is no plank to
+   * name. The two books either side are still carried: they are the sequence,
+   * which is a fact about the books rather than about the furniture, and the
+   * screen draws them under a sentence that says why there is no place yet.
+   */
+  if (rangeStart === null) {
+    return {
+      kind: 'range-has-no-start',
+      range,
+      predecessor,
+      successor,
+      suggestedLocation: '',
+      instruction:
+        `Nothing says where ${label} begins, so there is nowhere to put this book. ` +
+        'Say what belongs on a bookcase or a shelf first.',
+    }
+  }
 
   if (predecessor && successor) {
     /*

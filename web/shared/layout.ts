@@ -149,10 +149,17 @@ export interface PlankAt {
   area: number
 }
 
-/** Where a range begins on the furniture. Non-fiction lives on bookcase 4. */
+/**
+ * Where a range begins on the furniture.
+ *
+ * **Nothing in this file decides one, and nothing here has a default for one.**
+ * Where a run begins is the answer of the rule that serves the range, read
+ * through `bandsOf` in `infrastructure/shelving/areas.ts`, and a range no rule
+ * serves has no start at all (#479). A caller that has no start has no run to
+ * lay out, which is why the parameter below is required rather than defaulted:
+ * a default here would be this file answering a question about the rules.
+ */
 export type RangeStart = PlankAt
-
-export const FIRST_SHELF: RangeStart = { shelf: 1, area: 0 }
 
 /**
  * Assign every book a shelf by filling each one to its recorded capacity.
@@ -160,17 +167,22 @@ export const FIRST_SHELF: RangeStart = { shelf: 1, area: 0 }
  * `books` must already be in sort order; that ordering is the shelf order.
  * Books past the last separator land on a final, open-ended shelf, which is
  * where everything sits before any capacity has been marked at all.
+ *
+ * `start` is required. It used to default to `{ shelf: 1, area: 0 }`, which is
+ * one of the three places that answered "where does a range begin when no rule
+ * claims it" with a literal; see `RangeStart` above and #479.
  */
 export function layoutRange<T extends LayoutInput>(
   books: T[],
   separators: Separator[],
-  start: RangeStart = FIRST_SHELF,
+  start: RangeStart,
 ): Placed<T>[] {
   const ordered = [...separators]
     .sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : 0))
 
-  // Ranges do not all begin at 1A. Non-fiction has its own bookcase, and
-  // laying both out from 1A gave two different planks the same name.
+  // Ranges do not all begin at the same plank: where each one begins is its
+  // rule's answer, and laying two runs out from one place gave two different
+  // planks the same name.
   let shelf = start.shelf
   let area = start.area
   let next = 0
