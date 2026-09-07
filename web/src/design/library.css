@@ -1424,10 +1424,17 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * So the line carries its own opposite. The cream keeps the border and the
  * scrim is laid as a ring on both sides of it, which makes the frame three
  * lines: dark, cream, dark. Whatever is behind it, one of the two tones is the
- * one you see. Read off the four gallery screens below rather than computed:
+ * one you see. Every number here is one rendered pixel against the one beside
+ * it, rather than a sum over two tokens:
  *
  *   over a white page   the scrim is 7.67 to 1, the cream 1.03
  *   over a dark room    the cream is 3.60 to 1, the scrim 1.04
+ *
+ * The first row is the running app at 414 by 896 with a white feed, and it is
+ * `#camerapage` too. The second is the room in `#framekeyline`, which is
+ * rgb(23,22,26) rather than black, because a room is not black. On the flat
+ * black of `#cameracover` the cream is 3.45, which is the worst this gets and
+ * still clears the threshold below.
  *
  * **A ring on both sides rather than a shadow on one, and the honest reason is
  * not the arithmetic.** One ring would pass this: over an all-white picture an
@@ -1516,8 +1523,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * `--dim` is the real alternative and the one worth arguing about, and drawing
  * it settled it in a way no description would have. Darkening everything
  * outside the frame says "put the book here" more plainly than any line does.
- * It also measures **exactly the same as the keyline at both ends**, 7.67 over a
- * page and 3.60 over a room, and it measures the same because it *is* the same:
+ * It also measures **within a rounding of the keyline at both ends** on the very
+ * same screenshot — 7.56 against 7.44 over the page, 3.60 against 3.60 over the
+ * room — and it measures the same because it *is* the same:
  * it is the outer ring with a spread of half a screen instead of 1.5px, and
  * what carries it over a dark room is still the cream border underneath. So the
  * two options are not "safe and safer". They are one answer at two prices, and
