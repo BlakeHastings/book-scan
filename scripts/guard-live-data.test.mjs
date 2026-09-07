@@ -104,9 +104,12 @@ const cases = [
   // The repo's own name, which is a prefix of the stable checkout's.
   [`cd ${MAIN} && npm test`, WORKTREE, 'allow'],
 
-  // --- No command, or no directory: nothing to say. ---
+  // --- No command: nothing to say. ---
   ['', WORKTREE, 'allow'],
-  ['docker stop book-scan-live-pg', '', 'allow'],
+  // A payload with no `cwd` used to live here, expecting `allow`. It is now a
+  // refusal instead, so it is asserted twice below: as `refuses('')` among the
+  // helpers, and spawned through the hook boundary, which is the only place
+  // that shows what an agent would actually meet. See #582.
 ]
 
 let failed = 0
@@ -134,7 +137,12 @@ const helpers = [
   [inAgentWorktree(WORKTREE), true, 'an agent worktree'],
   [inAgentWorktree(`${MAIN}/.CLAUDE/Worktrees/a`), true, 'casing'],
   [inAgentWorktree(MAIN), false, 'main checkout'],
-  [inAgentWorktree(''), false, 'no cwd'],
+  // #582. An absent working directory is the same question as an unplaceable
+  // one and now gets the same answer. It used to answer `false`, which is this
+  // helper's way of saying "the orchestrator", so a payload with no `cwd`
+  // allowed everything.
+  [refuses(''), true, 'an empty cwd is refused'],
+  [refuses(undefined), true, 'an absent cwd is refused'],
   // A caller handing over a relative path is a caller with a bug, and the
   // helper says so instead of completing it against wherever this process
   // stands. The second is the sharp one: resolved silently it would usually
@@ -192,6 +200,24 @@ const boundary = [
   ],
   [decidesAtTheBoundary('docker stop book-scan-live-pg', WORKTREE), true, 'the denial still arrives through the hook'],
   [decidesAtTheBoundary('npm run build', WORKTREE), false, 'ordinary work still passes through the hook'],
+  // #582, and it has to be spawned: `undefined` here leaves the field out of
+  // the JSON altogether, which is the payload shape the issue is about, and
+  // `verdict` cannot be handed a missing key by an import.
+  [
+    decidesAtTheBoundary('docker stop book-scan-live-pg', undefined),
+    true,
+    'a payload with no cwd field denies instead of allowing everything',
+  ],
+  // The cost of the line above, asserted rather than left to be discovered.
+  // The checkout is asked about before the command is read, so a payload with
+  // no `cwd` refuses ordinary work too. That is the loud failure this trades
+  // for the silent one, and it is only tolerable because no payload the
+  // harness sends is missing the field.
+  [
+    decidesAtTheBoundary('npm run build', undefined),
+    true,
+    'and it denies ordinary work too, which is the cost of that answer',
+  ],
 ]
 
 for (const [actual, expected, name] of [...helpers, ...boundary]) {

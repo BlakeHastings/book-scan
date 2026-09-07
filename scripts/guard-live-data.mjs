@@ -101,6 +101,45 @@ function deny(reason) {
  * orchestrator's or a person's. Normalised so separators and casing cannot
  * decide it.
  *
+ * **An absent `cwd` is refused too, and that is #582.** It used to return
+ * `false`, which is how this function says "the orchestrator at the main
+ * checkout", so a payload carrying no working directory allowed every command
+ * this file exists to deny, silently. That was the opposite answer to the one
+ * #572 had just given the neighbouring case, to the same question: the guard
+ * cannot place this command. Two answers to one question is this repository's
+ * most expensive defect family, so there is now one.
+ *
+ * **The deciding question was whether the harness ever sends such a payload,
+ * and it was measured rather than argued.** Claude Code 2.1.263, the binary
+ * this machine runs, declares one base hook input that every event extends,
+ * and it is emphatic about which fields may be missing:
+ *
+ *   c({session_id:s(),transcript_path:s(),cwd:s(),prompt_id:s().optional(),
+ *      permission_mode:s().optional(),agent_id:s().optional(), ...})
+ *
+ * `cwd` is required where four neighbours are explicitly optional, one
+ * function builds that object for every hook event, and every call site hands
+ * it the session's directory. Even the cloud-session path, the one place a
+ * translated payload could have lost the field, substitutes a directory rather
+ * than dropping it. Then the guard was asked directly, three times, in the one
+ * place its answer depends on `cwd`: `--probe` from an agent worktree is
+ * refused, which it can only be if the payload carried a `cwd` naming that
+ * worktree. Refused from a foreground command, from a backgrounded one, and
+ * from inside a subagent, whose payloads are a different shape again.
+ *
+ * So denying costs nothing that anybody sends, and it closes a gap that would
+ * otherwise have opened without a sound. **It is not free if that ever stops
+ * being true**: `verdict` asks this before it looks at the command, so a
+ * payload with no `cwd` denies every command rather than only the ones naming
+ * the live catalogue, and this file's header is emphatic about where denying
+ * too much leads. The alternative considered was to match the patterns first
+ * and ask about the checkout only for a command that names the live system,
+ * which would refuse exactly what needs refusing and never ordinary work. It
+ * was rejected because it also loosens what #572 landed the day before, on an
+ * input neither of us has ever seen, and because a payload this guard cannot
+ * read at all is a broken harness rather than a busy one: stopping loudly is
+ * the right thing to do in that state, and it says which field is missing.
+ *
  * **A path that is not absolute on this machine is refused rather than
  * completed**, and #572 is why. `resolve` on a relative path silently prepends
  * the directory this process happens to stand in, so the answer stops being a
@@ -126,7 +165,12 @@ function deny(reason) {
  * refusal means.
  */
 export function inAgentWorktree(cwd) {
-  if (!cwd) return false
+  if (!cwd) {
+    throw new TypeError(
+      'inAgentWorktree needs the directory the command runs in, and the payload carried none. '
+      + 'Every hook event this harness sends declares `cwd` as required.',
+    )
+  }
   if (!isAbsolute(cwd)) {
     throw new TypeError(
       `inAgentWorktree needs a path that is absolute on this machine, and was given ${JSON.stringify(cwd)}.`,
