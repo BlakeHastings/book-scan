@@ -312,7 +312,7 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
 
               No wireframe screen has an answer floating over a live picture,
               so where this sits is still the app's, exactly as `QueuedAlready`
-              beside it is: `.isbncam__choices` is an offset and a height and
+              beside it is: `.isbncam__choices` is a gap and a height and
               nothing else now, and `Viewfinder`'s `over` slot exists to be
               handed panels like this one. Everything inside it is the design
               system's, and it is deliberately the same arrangement the queued

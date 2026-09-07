@@ -1825,14 +1825,29 @@ const AIMING = (
   <div className="wf-view__picture wf-view__picture--held" aria-hidden="true" />
 )
 
+/**
+ * One camera, one picture, and whichever frame is being argued about.
+ *
+ * **The modifier goes in through `over` and not through `guide`** (#584). Those
+ * two slots stopped being interchangeable when the frame moved into the picture
+ * above the bar: `guide` is a fraction of the whole picture, because the camera
+ * that hands one in is handing in the crop it will really keep, and `over` is
+ * the region that ends where the controls start. Every screen here is a drawing
+ * of the frame this component draws itself, so `over` is the honest one, and
+ * `guide` is emptied rather than left to draw a second frame underneath.
+ *
+ * `#framescreen` is the exception and it uses `guide` on purpose, because the
+ * whole of what it draws is the frame measured against the screen.
+ */
 function aimedWith(guide: string) {
   return (go: Go) => (
     <div className="wf-screen wf-screen--camera">
       <Viewfinder
         shots={shotsOf(go)}
         picture={AIMING}
-        guide={<div className={`wf-view__guide${guide}`} aria-hidden="true" />}
-        over={inHand}
+        guide={<></>}
+        over={<div className={`wf-view__guide${guide}`} aria-hidden="true" />}
+        said={inHand}
         also={nextBook(go)}
         onLeave={() => go('home')}
         onDone={() => go('review')}
@@ -1848,6 +1863,49 @@ const FrameKeyline = aimedWith('')
 const FrameNow = aimedWith(' wf-view__guide--now')
 const FrameDark = aimedWith(' wf-view__guide--dark')
 const FrameDim = aimedWith(' wf-view__guide--dim')
+
+/**
+ * Two ways to keep the frame clear of the controls, on the same picture (#584).
+ *
+ * A different question from the four above and it deserves its own pair. Those
+ * are about what colour the line is; this is about where the bottom of it goes,
+ * and until this change it went 28% up from the bottom of the screen while the
+ * bar it had to clear is a 76px shutter and 44px and 36px buttons. A percentage
+ * of the screen and a stack of fixed heights cannot both be right on two phones.
+ *
+ * **This is the pair that cannot be settled in one screenshot**, which is the
+ * thing worth knowing before walking it. At 414 by 896 they draw very nearly the
+ * same rectangle, deliberately: the numbers were chosen so the phone this screen
+ * was drawn at gets its frame back unchanged. Make the window shorter and they
+ * come apart — at 375 by 667 the left-hand one has 20px of its bottom edge
+ * behind "Next book" and the right-hand one does not, because the right-hand one
+ * is measured against the picture above the bar and cannot reach a control at
+ * all.
+ *
+ * So walk them at both sizes. `docs/process/designing-a-screen.md` asks for the
+ * drawing rather than the paragraph, and this is a case where the drawing has to
+ * be walked twice to say anything.
+ */
+const FrameScreen = (go: Go) => (
+  <div className="wf-screen wf-screen--camera">
+    <Viewfinder
+      shots={shotsOf(go)}
+      picture={AIMING}
+      /* Through `guide`, which is a fraction of the whole picture: that is the
+         containing block this candidate is about, and drawn in the region the
+         same numbers would mean something else. */
+      guide={<div className="wf-view__guide wf-view__guide--screen" aria-hidden="true" />}
+      said={inHand}
+      also={nextBook(go)}
+      onLeave={() => go('home')}
+      onDone={() => go('review')}
+    />
+  </div>
+)
+
+/* The rule as it now stands, so the two sit side by side under one heading.
+   It draws nothing of its own: the frame is the one `Viewfinder` draws. */
+const FrameBar = aimedWith('')
 
 /**
  * What is in your hands, which the wireframe camera has never drawn.
@@ -5844,6 +5902,23 @@ export const SCREENS: Screen[] = [
     name: 'The line with a keyline',
     group: 'Four ways to draw the aiming frame',
     render: FrameKeyline,
+  },
+  /* A second group beside that one and not five screens inside it, because it
+     is a second question about the same rectangle: those four ask what colour
+     the line is, these two ask where the bottom of it goes. **Walk this pair
+     twice**, at 414x896 and then at something shorter — at one size they draw
+     nearly the same frame on purpose and there is nothing to see. */
+  {
+    id: 'framescreen',
+    name: 'Measured against the screen',
+    group: 'Two ways to keep the frame clear of the controls',
+    render: FrameScreen,
+  },
+  {
+    id: 'framebar',
+    name: 'Measured against the picture above the bar',
+    group: 'Two ways to keep the frame clear of the controls',
+    render: FrameBar,
   },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
   /* Beside it, because the top of that screen has two answers and both are

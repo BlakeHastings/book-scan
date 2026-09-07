@@ -193,12 +193,37 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   pointer-events: none;
 }
 
-/* Shows what the slot wants for a couple of seconds, then leaves. Pointer
-   events off so it can never swallow a tap meant for the shutter. */
+/*
+ * Shows what the slot wants for a couple of seconds, then leaves.
+ *
+ * ## It lay across "Next book", and 150px is why (#585)
+ *
+ * Pointer events are off, so it could never swallow a tap, and its own comment
+ * said so and stopped there. It still drew a hint over a control, which this
+ * file says twice elsewhere is the thing not to do, and it had since before any
+ * of the work on this screen.
+ *
+ * Measured in the running app, on the cataloguing camera, with the hint that
+ * comes up the moment the camera starts:
+ *
+ *   414 x 896   toast 103.5 to 310.5 across, "Next book" 310.9 to 402
+ *               they miss each other by 0.4px
+ *   375 x 667   toast 93.8 to 281.3, "Next book" 271.9 to 363
+ *               9px of the button under the hint
+ *
+ * Two numbers decided that and neither of them is about the controls: the
+ * toast's own `min(30ch, 100% - 32px)`, and 150px. It reads as a near miss at
+ * one size because 30ch of a 13px font happens to stop 0.4px short of a pill
+ * that is 92px wide on a 414 wide phone. Nothing there is a design.
+ *
+ * `var(--s3)` is a gap above the controls rather than a guess at them.
+ * `.wf-view__over` ends where the bar begins, so this cannot reach a control on
+ * any phone, whatever the hint says and however many controls that camera has.
+ */
 .cam__toast {
   position: absolute;
   left: 50%;
-  bottom: 150px;
+  bottom: var(--s3);
   transform: translateX(-50%);
   z-index: 2;
   max-width: min(30ch, calc(100% - 32px));
@@ -318,40 +343,36 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
  * **Position and nothing else.** No screen in the gallery has an answer over a
  * picture, so where these sit is the app's business the way the camera's own
  * error line and toast are, and `Viewfinder`'s `over` slot exists to be handed
- * exactly this. The offset clears the bottom band on both cameras: a shutter
- * with a button stacked above it on one, and the same again with a rail of
- * photographs beside it on the other.
+ * exactly this.
  *
  * Two names for one rule because the browser journeys tell the two answers
  * apart by them, and telling them apart is the point: a finding about work
  * somebody has already done is not a list of books to choose between.
  *
- * **It was 200px and it is 260px** (#554). The band gained a row: the line
- * saying what is in your hands used to float on the picture at its own offset
- * and it is inside the bar now, which makes the bar 48px taller when there is
- * something to say. At 200 this panel's lowest 44px lay across that line, and
- * it carries `z-index: 3` while the bar carries none, so it would have covered
- * it — the same defect this issue is about, one layer up and pointed the other
- * way. Measured at 414x896: the line runs from 208 to 244 off the bottom, and
- * 260 is that plus the gap the bar puts between its own rows.
+ * **It was 200px, then 260px, and now it is a gap** (#554, #585). Both of those
+ * numbers were arithmetic somebody did once and both were right on the day.
+ * 200 cleared a shutter with a button above it; then #554 put the line saying
+ * what is in your hands inside the bar, the bar grew 48px, and at 200 this
+ * panel's lowest 44px lay across that line — it carries `z-index: 3` where the
+ * bar carries none, so it would have covered the very sentence that issue was
+ * about. 260 was the line's own top edge plus the gap the bar puts between its
+ * rows, and it was correct until the next thing the bar has to hold.
  *
- * **And this is the offset that is left.** #554 deleted the two in
- * `library.css` because the box holding the controls is the thing that knows
- * how tall they are, and it cannot do the same for this one: this is drawn
- * through `over`, which is "somewhere on the picture", so it has no box to be
- * a row of. Making it one is a bigger change than a caption — `over` would have
- * to become a region that ends where the bar starts, and the camera-not-started
- * screen is passed through the same slot and has to cover the bar rather than
- * stop at it. That is #585, which also carries the one of these that is a live
- * defect: `.cam__toast` above lies across "Next book" and has since before any
- * of this.
+ * There is nothing left to keep in step. `over` is `.wf-view__over` now, a box
+ * that ends where the bar begins, so `bottom` in here is measured from the top
+ * of the controls and `var(--s3)` is a gap above them.
+ *
+ * `max-height` moved from 44 to 60 for one reason and it is not a taste: it is
+ * a percentage of the same box, and that box is now the picture above the bar
+ * rather than the whole screen. 60% of what is left is about the height 44% of
+ * the screen used to be, so the panel is the size it always was.
  */
 .queued,
 .isbncam__choices {
   position: absolute;
   left: 10px; right: 10px;
-  bottom: 260px;
-  max-height: 44%;
+  bottom: var(--s3);
+  max-height: 60%;
   overflow-y: auto;
 }
 

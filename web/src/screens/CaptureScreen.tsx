@@ -402,7 +402,9 @@ export function CaptureScreen() {
             )}
 
             {/* Transient, and above the bottom band rather than inside it, so
-                it costs nothing once it has faded. */}
+                it costs nothing once it has faded. Where it sits is
+                `.cam__toast`'s and it is a gap above the controls now rather
+                than a number that guessed at them (#585). */}
             {toast && <div className="cam__toast">{toast}</div>}
 
             {/* The book in your hands is already in the queue (#146). Drawn
@@ -450,7 +452,21 @@ export function CaptureScreen() {
                 . Saving it adds a second copy.
               </p>
             )}
+          </>
+        }
+        /*
+          The two things on this screen that have to cover the controls (#585).
 
+          Both were in `over` beside the toast and the panels, which worked only
+          because `over` was a list of siblings drawn across the whole screen.
+          It is the picture *above the bar* now, so anything in it stops where
+          the controls start, and these two must not: somebody who has not
+          granted a camera would be reading "Start camera" with a shutter under
+          it, and the sheet is a modal whose scrim would leave the shutter
+          outside itself and pressable.
+        */
+        across={
+          <>
             {!cameraOn && (
               <div className="wf-view__idle">
                 <h2 className="wf-view__idle-head">Photograph the book</h2>
