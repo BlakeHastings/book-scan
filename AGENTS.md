@@ -920,6 +920,38 @@ name it printed on start.
 The suite runs `aspire stop` without `--all`, so it stops only this checkout's
 AppHost. Unrelated Aspire apps are usually running on this machine.
 
+**A red journey is not always about this app** (#448).
+`leaving-books-where-they-are.feature` was reported as failing differently every
+run for a fortnight, and it is none of the things it looked like: not memory,
+not shared state between scenarios, not a race in a step. Chromium abandons
+every request in flight, with `net::ERR_NETWORK_CHANGED`, when the **host's**
+network configuration changes, and starting or stopping a container changes it:
+a container brings up a bridge and a veth pair, and removing it takes them away.
+`aspire start` and `aspire stop` each do that. Several agents share this machine,
+so somebody else's environment coming up while this suite's browser is fetching
+the two hundred modules a Vite dev server serves for one page abandons the page,
+and a page that has lost `/src/main.tsx` mounts nothing and draws white.
+
+Which scenario is loading at that moment is a coin toss, which is exactly what
+"a different scenario fails each run" means. That is why it read for a fortnight
+as scenarios interfering with each other. **They were interfering. It was
+agents, not scenarios.** Measured: opening the first screen sixty times against
+one already-running app lost one of them this way, and doing it while
+deliberately creating and removing a Docker network every three seconds lost
+five of forty.
+
+Two things follow and both are in the tree. `e2e/support/opening.ts` is the only
+place this suite loads a page: it waits for the screen the step is about to
+assert on **or** for the browser to say a request was abandoned that way, and
+loads the page again only for the second, saying so in the log. And a red
+scenario now prints what the browser reported, so the next one of these is a
+grep rather than a session.
+
+**Your own AppHost is one of these events.** Starting and stopping environments
+in a loop is aimed at whatever other agent's browser happens to be loading a
+page. That is not a reason not to; it is another reason to stop yours the moment
+you stop needing it.
+
 **When a resource never becomes healthy, the run says why** (#277). `aspire wait`
 reports only that a resource "failed to start", which is not enough to act on and
 is why the same failure was answered twice by re-running until green. So the

@@ -14,6 +14,7 @@ import type { DataTable } from 'playwright-bdd'
 
 import { Then, When } from './fixtures.js'
 import { homeScreen, leaveTheCamera, reviewScreen } from './app.steps.js'
+import { openTheApp } from '../support/opening.js'
 
 /** The queue reads a photograph in the background. Seconds, not milliseconds. */
 const QUEUE_TIMEOUT = 90 * 1000
@@ -131,7 +132,7 @@ Then('the queued book should be held by nobody', async ({ catalogue }) => {
  */
 When('I come back as somebody else', async ({ page, webUrl }) => {
   await page.evaluate(() => window.localStorage.removeItem('bookscan.device'))
-  await page.goto(webUrl)
+  await openTheApp(page, webUrl, homeScreen(page))
   await expect(homeScreen(page)).toBeVisible()
 })
 

@@ -10,6 +10,7 @@
 import { test as base, createBdd } from 'playwright-bdd'
 
 import { Catalogue } from '../support/database.js'
+import { describeCommitment } from '../support/machine.js'
 
 function fromEnvironment(name: string): string {
   const value = process.env[name]
@@ -23,6 +24,26 @@ function fromEnvironment(name: string): string {
 }
 
 export interface Fixtures {
+  /**
+   * Nothing a step uses. It watches the page and speaks only on a red scenario.
+   *
+   * ## Why a blank page had to start explaining itself (#448)
+   *
+   * A scenario that fails on `expect(locator).toBeVisible()` says the element
+   * was not there and stops. When the reason is that two of the sixty module
+   * requests behind that page were refused by the network stack, the person
+   * reading the failure is told about a heading and not about the page never
+   * having loaded, and the honest conclusions available to them are "the app is
+   * broken" and "the suite is flaky". Both are wrong and one of them ends in
+   * pressing re-run, which is the habit #448 is about.
+   *
+   * So every console error, every page error, every request the browser gave up
+   * on, **every response that came back at 400 or worse**, and the crash of a
+   * page or a whole context are collected for the length of a scenario and
+   * printed **only if that scenario fails**, with the machine's committed memory
+   * beside them. A green run says nothing new.
+   */
+  browserTrouble: void
   /** The app's Postgres catalogue, so a scenario can start clean and look. */
   catalogue: Catalogue
   /** Base URL of the API, for seeding shelves without photographing them. */
@@ -96,6 +117,61 @@ export const test = base.extend<Fixtures>({
     }])
     await use(context)
   },
+
+  browserTrouble: [async ({ page }, use, testInfo) => {
+    const trouble: string[] = []
+    const note = (line: string) => {
+      // A page that cannot load says the same thing sixty times. The reader
+      // needs the shape of it, not every instance.
+      if (trouble.length < 40) trouble.push(line)
+    }
+
+    page.on('console', (message) => {
+      if (message.type() === 'error') note(`console error: ${message.text()}`)
+    })
+    page.on('pageerror', (error) => note(`page error: ${error.message}`))
+    page.on('requestfailed', (request) => {
+      note(`request failed: ${request.failure()?.errorText ?? 'no reason given'} ${request.url()}`)
+    })
+    /*
+     * A request that arrived and was refused, which is the half `requestfailed`
+     * cannot see and the half that mattered here (#448).
+     *
+     * `requestfailed` fires when the network gave up. A `500` from Vite's proxy
+     * or a `401` from the gate is a perfectly successful round trip as far as
+     * the browser is concerned, `fetch` resolves, and this client turns it into
+     * a rejected promise that the first screen swallows. Without this line the
+     * scenario's whole account of a blank screen is "the browser reported no
+     * console error and no failed request", which reads as nothing having
+     * happened.
+     */
+    page.on('response', (response) => {
+      if (response.status() < 400) return
+      note(`answered ${response.status()}: ${response.url()}`)
+    })
+    page.on('crash', () => note('the page crashed'))
+    page.context().on('close', () => {
+      if (page.isClosed()) return
+      note('the browser context closed while the scenario was still running')
+    })
+
+    await use()
+
+    if (testInfo.status === testInfo.expectedStatus) return
+
+    const said = describeCommitment()
+    const lines = [
+      ...(trouble.length
+        ? ['[e2e] what the browser reported during this scenario:', ...trouble.map((l) => `  ${l}`)]
+        : ['[e2e] the browser reported no console error and no failed request.']),
+      ...(said ? [`[e2e] ${said}`] : []),
+    ]
+    console.log(lines.join('\n'))
+    await testInfo.attach('browser trouble', {
+      body: lines.join('\n'),
+      contentType: 'text/plain',
+    })
+  }, { auto: true }],
 
   catalogue: async ({}, use) => {
     const catalogue = new Catalogue(

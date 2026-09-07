@@ -23,6 +23,7 @@
 import { expect, type Page } from '@playwright/test'
 
 import { Then, When } from './fixtures.js'
+import { openTheApp } from '../support/opening.js'
 
 /** How far off the bottom of the glass the bar's own bottom edge is. */
 async function offTheGlass(page: Page): Promise<number> {
@@ -109,7 +110,7 @@ Then('nothing on the screen should be hidden behind them', async ({ page }) => {
  * against the app would have passed on the broken revision.
  */
 When('I open the wireframe of the library', async ({ page, webUrl }) => {
-  await page.goto(`${webUrl}#/design/library`)
+  await openTheApp(page, `${webUrl}#/design/library`, page.locator('.wf-next'))
   await expect(page.locator('.wf-next'), 'the wireframe draws no way on from here')
     .toBeVisible()
 })

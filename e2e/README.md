@@ -95,6 +95,41 @@ appearing once the queue has read the photograph, a button becoming enabled.
 correction is the scheme: the `web` endpoint is declared HTTP but Vite
 terminates TLS itself, so the browser is sent to `https://`.
 
+## The one thing that is not deterministic, and what is done about it
+
+Everything above removes a source of variance the suite can own: the camera, the
+catalogues, the ports, the database. **One is left, and it is the machine.**
+
+Chromium abandons every request in flight, with `net::ERR_NETWORK_CHANGED`, when
+the host's network configuration changes. Starting a container changes it: a
+bridge and a veth pair come up, and removing it takes them away. `aspire start`
+and `aspire stop` each do it, and where several checkouts are worked at once
+somebody else's environment comes up while this one's browser is fetching the
+two hundred modules a Vite dev server serves for a page. A page that loses
+`/src/main.tsx` mounts nothing and draws white, and the only thing the scenario
+can then say is that some element was not visible.
+
+Measured (#448): opening the first screen sixty times against one
+already-running app lost one of them this way, and repeating it while
+deliberately creating and removing a Docker network every three seconds lost
+five of forty. It is the whole of "a different scenario fails each run": which
+scenario is loading at that moment is a coin toss.
+
+`support/opening.ts` is the answer, and it is the only place this suite loads a
+page. It waits for the screen the step is about to assert on **or** for the
+browser to say a request was abandoned because the network moved, and it loads
+the page again only for the second. That is not a retry of a failing scenario:
+an app that is broken produces no such error, so the caller's own assertion
+fails with its own words at its own speed. Every reload prints a line, so a
+machine doing this constantly reads as a pile of lines rather than as silence.
+
+`steps/fixtures.ts` is the other half. A scenario that goes red prints what the
+browser reported while it ran — console errors, page errors, requests the
+browser gave up on and responses that came back at 400 or worse — because
+without that the account of a blank page is "a heading was not visible", and the
+honest conclusions available from that are "the app is broken" and "the suite is
+flaky". Both are wrong, and one of them ends in pressing re-run.
+
 ## State between scenarios
 
 The AppHost puts this run's database in `web/data/e2e/<run id>`, a directory
@@ -154,6 +189,9 @@ with a five second busy timeout.
 | `support/catalogue-stub.ts` | Open Library and Google Books, locally |
 | `support/books.ts` | The books this suite knows about |
 | `support/database.ts` | Reading and resetting the catalogue |
+| `support/opening.ts` | The only place a page is loaded, and why that needed a file |
+| `support/machine.ts` | What this machine has left to hand out, and which number that is |
+| `loop/run.sh` | One feature, N times, so a flake is a rate rather than an anecdote |
 | `global-setup.ts` | Wires all of the above together |
 
 ## Running beside another checkout

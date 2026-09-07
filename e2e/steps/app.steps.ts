@@ -13,6 +13,7 @@ import type { DataTable } from 'playwright-bdd'
 
 import { Then, When } from './fixtures.js'
 import { stubBookByTitle } from '../support/books.js'
+import { openTheApp } from '../support/opening.js'
 
 /** The queue decodes the barcode and looks it up. Seconds, not milliseconds. */
 const QUEUE_TIMEOUT = 90 * 1000
@@ -35,7 +36,7 @@ export function homeScreen(page: Page) {
 }
 
 When('I open the app', async ({ page, webUrl }) => {
-  await page.goto(webUrl)
+  await openTheApp(page, webUrl, homeScreen(page))
   await expect(homeScreen(page)).toBeVisible()
 })
 
