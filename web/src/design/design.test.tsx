@@ -317,13 +317,20 @@ describe('the frame you aim the book inside can be seen whatever the lens is poi
   }
 
   /**
-   * Both sides, which is the property rather than the spelling of it.
+   * Both sides, and this one is a decision rather than a sum.
    *
-   * A halo on the outside alone is right exactly when the room is lighter than
-   * the book, and a halo on the inside alone is right exactly when it is
-   * darker. Neither is a guarantee, and the difference between them is not
-   * visible in any ratio: it needs the frame to have a background on each side,
-   * which is the ordinary photograph and not the corner case.
+   * **The assertion below is not implied by the one after it, and the honest
+   * thing is to say so.** One ring passes the ratios: over an all-white picture
+   * an inset ring carries the frame, over an all-dark one the cream does, and
+   * where a page ends and a room begins the cream reads against whichever of the
+   * two is dark. What one ring costs is a line that is 3px thick where the tones
+   * fall its way and 1.5px where they do not, so the boundary somebody is lining
+   * a book up against changes weight and apparent position along its own length
+   * as the phone moves. The second ring costs 1.5px, and it buys not having to
+   * know which side of the line the book is on — which is a fact about a room.
+   *
+   * It is here rather than in a comment because "drop the redundant one" is the
+   * exact tidy-up a ratio-only rule would wave through.
    */
   it('carries a second tone on both sides of the line', () => {
     const { body } = guide()
@@ -365,7 +372,19 @@ describe('the frame you aim the book inside can be seen whatever the lens is poi
     ).toBeGreaterThanOrEqual(2)
 
     const ratios = tones.map((name) => {
-      const paint = parse(token(name)[0]!)
+      /*
+       * One value and no second one under a dark block, for the reason the rule
+       * above gives about the beds and #451 gave about a literal: what is behind
+       * this frame is a photograph rather than a page, and a photograph is not a
+       * theme. A tone that followed the phone's would be chosen against the
+       * wrong thing twice over. `--picture-line` had never been asked this;
+       * `--picture-scrim` is asked twice now, here and above, and that costs
+       * nothing.
+       */
+      const values = token(name)
+      expect(new Set(values).size, `${name} changes with the theme`).toBe(1)
+
+      const paint = parse(values[0]!)
       return { name, ratio: contrast(over(paint, behind as Rgb), behind as Rgb) }
     })
     const best = ratios.reduce((a, b) => (a.ratio > b.ratio ? a : b))

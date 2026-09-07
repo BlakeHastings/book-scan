@@ -1357,24 +1357,35 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * and it is a thing neither `--page` nor `--cover` can show, because on a flat
  * background both sides of a line are the same colour.
  *
- * The page is deliberately off-centre and smaller than the frame, which is what
- * aiming looks like a second before you get it right: the frame's left and top
- * edges each run off the page and on to the room part way along, and its right
- * and bottom edges are on the room for their whole length. One screenshot, both
- * cases, four times over as you walk the candidates.
+ * **The page is lined up with the frame and hanging out of the bottom of it**,
+ * which is what aiming looks like a moment before you get it right. It runs 12%
+ * to 88% across and 30% down to 85%; the frame is 12% to 88% and 14% to 72%. So
+ * one picture puts every arrangement a line can meet under some part of the same
+ * frame:
  *
- * The page is 6% to 76% across and 8% to 64% down, and the frame is 12% to 88%
- * and 14% to 72%, which is where those crossings come from. The positions are
- * written the way `background-position` means them: a percentage there is a
- * fraction of the room the image leaves over rather than of the picture, so
- * `20%` of the remaining `30%` is the `6%` this paragraph is about.
+ *   the top edge      dark on both sides, over the room
+ *   the bottom edge   white on both sides, over the page
+ *   the side edges    the room outside and the page inside, at once
+ *
+ * That is what makes the four candidates tell themselves apart rather than
+ * needing a caption. `--now` disappears along the bottom edge and `--dark`
+ * disappears along the top one, in the same screenshot, and neither of them
+ * needed a second picture to say so.
+ *
+ * The positions are written the way `background-position` means them: a
+ * percentage there is a fraction of the room the image leaves over rather than
+ * of the picture, so `50%` of the remaining `24%` is the `12%` this paragraph
+ * is about, and `66.7%` of the remaining `45%` is the `30%`.
  *
  * Literals for the same reason the two above are literals: they are the bound
  * the paint has to hold up against rather than a colour anything is painted in.
+ * The room is not pure black, because a room is not: it is dark enough that the
+ * scrim vanishes into it and light enough that a cream line reads on it, which
+ * is the pair of facts the frame above is built out of.
  */
 .wf-view__picture--held {
   background:
-    linear-gradient(#fff, #fff) 20% 18% / 70% 56% no-repeat,
+    linear-gradient(#fff, #fff) 50% 66.7% / 76% 55% no-repeat,
     #17161a;
 }
 
@@ -1413,18 +1424,21 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * So the line carries its own opposite. The cream keeps the border and the
  * scrim is laid as a ring on both sides of it, which makes the frame three
  * lines: dark, cream, dark. Whatever is behind it, one of the two tones is the
- * one you see.
+ * one you see. Read off the four gallery screens below rather than computed:
  *
- *   over a white page   the scrim is 7.66 to 1, the cream 1.03
- *   over a black cover  the cream is 3.47 to 1, the scrim 1.07
+ *   over a white page   the scrim is 7.67 to 1, the cream 1.03
+ *   over a dark room    the cream is 3.60 to 1, the scrim 1.04
  *
- * **Both sides, and that is the whole reason it is a ring rather than a
- * shadow.** The ordinary photograph this camera takes is a white page filling a
- * frame in a room that is not white, so the two sides of this line have
- * different backgrounds at the same moment: outside is dark and the outer ring
- * disappears into it while the cream carries; inside is white and the cream
- * disappears while the inner ring carries. One ring would be right half the
- * time, and which half would depend on the room. `#frameheld` in the gallery is
+ * **A ring on both sides rather than a shadow on one, and the honest reason is
+ * not the arithmetic.** One ring would pass this: over an all-white picture an
+ * inset ring carries it, over an all-dark one the cream carries it, and where
+ * the page ends and the room begins the cream reads against whichever of the two
+ * is dark. What one ring does not do is stay the same line. It makes the frame
+ * 3px thick where the tones fall its way and 1.5px where they do not, so the
+ * boundary a person is lining a book up against thickens and shifts along its
+ * own length as the phone moves. The second ring costs 1.5px and it means
+ * nothing here has to know which side of the line the book is on — which is a
+ * fact about somebody's room and not about this stylesheet. `#framekeyline` is
  * that picture, drawn so it can be looked at rather than believed.
  *
  * **Three to one and not four and a half.** This is the one thing on the camera
@@ -1499,13 +1513,17 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * enough, whichever tone it is. #530 met the same shape in `--picture-ink-2`
  * and #451 in a literal white: fine at one end, gone at the other.
  *
- * `--dim` is the real alternative and the one worth arguing about. Darkening
- * everything outside the frame makes the boundary a change of tone rather than
- * a line, so it cannot fail at either end, and it says "put the book here" more
- * plainly than any line does. It is not taken because of what this screen is
- * for: "as much space on the screen as we can should be the actual pass through
- * from the camera feed" is the sentence the whole camera was rebuilt around,
- * and this dims about half of it permanently. The keyline costs 3px.
+ * `--dim` is the real alternative and the one worth arguing about, and drawing
+ * it settled it in a way no description would have. Darkening everything
+ * outside the frame says "put the book here" more plainly than any line does.
+ * It also measures **exactly the same as the keyline at both ends**, 7.67 over a
+ * page and 3.60 over a room, and it measures the same because it *is* the same:
+ * it is the outer ring with a spread of half a screen instead of 1.5px, and
+ * what carries it over a dark room is still the cream border underneath. So the
+ * two options are not "safe and safer". They are one answer at two prices, and
+ * the price of this one is about half the picture, on the screen whose whole
+ * rebuild came out of "as much space on the screen as we can should be the
+ * actual pass through from the camera feed". The keyline costs 3px.
  *
  * A fourth was considered and is not drawn: four corner brackets, each bedded
  * on the scrim the way every word on this screen is. It reuses an existing

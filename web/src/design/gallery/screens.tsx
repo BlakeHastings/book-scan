@@ -1812,12 +1812,14 @@ function CameraOnACover(go: Go) {
  * first thing anybody tries and fails at the other end, `dim` is the real
  * alternative and costs half the picture, and `keyline` is what shipped.
  *
- * They all stand on `--held`, which is a page held up in a room rather than a
- * flat page or a flat cover. That is the picture that decides it: on a flat
- * background both sides of a line have the same thing behind them, and on this
- * one the frame's own left and top edges run off white on to dark part way
- * along. A frame is 340 by 540 on this phone. It is not small enough to be over
- * one colour.
+ * They all stand on `--held`, which is a book held up in a room rather than a
+ * flat page or a flat cover. That is the picture that decides it: a frame is 340
+ * by 540 on this phone, nothing that size is over one colour, and this one is
+ * arranged so that the frame's top edge is over the room, its bottom edge is
+ * over the page, and its sides have one of each. So each candidate fails, or
+ * does not, somewhere on its own screen — `now` goes at the bottom and `dark`
+ * goes at the top, in the same look. Neither of the two flat pictures #530 drew
+ * can put two backgrounds under one frame, which is why there is a third.
  */
 const AIMING = (
   <div className="wf-view__picture wf-view__picture--held" aria-hidden="true" />
