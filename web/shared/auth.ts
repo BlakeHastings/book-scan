@@ -86,6 +86,27 @@ export interface SignInProvider {
 export const SESSION_COOKIE = 'bookscan_session'
 
 /**
+ * How long a half-finished sign-in is allowed to sit unfinished.
+ *
+ * **Here, in `shared/`, because three places have to agree about it and one of
+ * them is a sentence somebody reads** (#557). The `sign_in_flow` row's expiry
+ * (`infrastructure/auth/auth-store.ts`) and the flow cookie's `Max-Age`
+ * (`server/auth/gate.ts`) were separately written tens, and the login screen was
+ * about to become the third.
+ *
+ * They are not merely tidier as one number: **which of the six a person is told
+ * depends on the two agreeing.** A sign-in left too long arrives with neither
+ * the row nor the cookie, so it lands on `stale` and is told about Back buttons
+ * and reopened links. Make the cookie outlive the row and the same wait lands on
+ * `already-used` instead, which says a sign-in was used when nobody used it. So
+ * a drift between them silently changes what this app says happened to somebody,
+ * which is the kind of disagreement nothing would ever report.
+ *
+ * Ten minutes: longer than a sign-in takes and shorter than a coffee.
+ */
+export const SIGN_IN_FLOW_MINUTES = 10
+
+/**
  * Why a sign-in did not finish, in the six words a screen knows how to say
  * (#557).
  *

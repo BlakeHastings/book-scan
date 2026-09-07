@@ -10,7 +10,9 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { SIGN_IN_TROUBLE, signInTroubleIn, troubleUrl } from '../../shared/auth'
+import {
+  SIGN_IN_FLOW_MINUTES, SIGN_IN_TROUBLE, signInTroubleIn, troubleUrl,
+} from '../../shared/auth'
 import { signInTroubleSaid } from './signInWords'
 
 describe('what may reach the words at all', () => {
@@ -114,6 +116,20 @@ describe('the words themselves', () => {
    * act that does not exist. A hopeful "try again" there would be the thing
    * `design/Gate.tsx` calls being sent round the sign-in loop for ever.
    */
+  /**
+   * The one number in these sentences, and it is a fact about the server.
+   *
+   * The flow row's expiry and the flow cookie's `Max-Age` are the same number as
+   * this, and #557 records what happens when they are not: the same wait lands
+   * on a different exit and somebody is told a sign-in was used that nobody
+   * used. So the sentence reads the constant, and this is the case that fails if
+   * somebody writes a fresh number into it.
+   */
+  it('says how long a sign-in lives from the constant that decides it', () => {
+    expect(signInTroubleSaid('stale').said).toContain('ten minutes')
+    expect(SIGN_IN_FLOW_MINUTES).toBe(10)
+  })
+
   it('does not tell somebody to try again where trying again will not help', () => {
     expect(signInTroubleSaid('refused', 'Google').said).toContain('same place')
     expect(signInTroubleSaid('unavailable', 'Google').said).toContain('trying again')

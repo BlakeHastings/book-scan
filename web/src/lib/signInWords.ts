@@ -46,7 +46,23 @@
  * when the provider list has not loaded or no longer holds that door.
  */
 
-import { type SignInTrouble } from '../../shared/auth'
+import { SIGN_IN_FLOW_MINUTES, type SignInTrouble } from '../../shared/auth'
+
+/** Ten, said the way somebody would say it rather than as a digit. */
+const NUMBERS: Record<number, string> = {
+  5: 'five', 10: 'ten', 15: 'fifteen', 20: 'twenty', 30: 'thirty', 60: 'sixty',
+}
+
+/**
+ * How long somebody has at the provider, in words.
+ *
+ * Read off the constant rather than typed into the sentence, because this is
+ * the fourth place that number would have been written down and the other three
+ * have to agree with each other for the sentence to be true at all. See
+ * `SIGN_IN_FLOW_MINUTES`. A value nobody has spelled falls back to the digits,
+ * which is honest rather than pretty.
+ */
+const HOW_LONG = NUMBERS[SIGN_IN_FLOW_MINUTES] ?? String(SIGN_IN_FLOW_MINUTES)
 
 /** What went wrong, and what that means, or nothing to say. */
 export interface SignInTroubleSaid {
@@ -89,7 +105,7 @@ const WORDS: Record<SignInTrouble, (who: string) => SignInTroubleSaid> = {
      */
     title: 'That sign-in did not finish in this browser',
     said: 'Pressing Back, opening a sign-in link a second time, or leaving one for '
-      + 'more than ten minutes all end here. Nothing has gone wrong. Start again.',
+      + `more than ${HOW_LONG} minutes all end here. Nothing has gone wrong. Start again.`,
   }),
 
   'already-used': () => ({

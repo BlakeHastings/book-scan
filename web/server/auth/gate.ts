@@ -59,7 +59,7 @@ import { createHash } from 'node:crypto'
 import type express from 'express'
 
 import {
-  REFUSAL_STATUS, SESSION_COOKIE, troubleUrl,
+  REFUSAL_STATUS, SESSION_COOKIE, SIGN_IN_FLOW_MINUTES, troubleUrl,
   type SessionAnswer, type SignInProvider, type SignInTrouble,
 } from '../../shared/auth'
 import type { AuthStore } from '../../infrastructure/auth/auth-store'
@@ -88,8 +88,15 @@ const FLOW_COOKIE = 'bookscan_signin'
 /** Thirty days, in seconds, for `Max-Age`. */
 const SESSION_MAX_AGE_MS = SESSION_DAYS * 24 * 60 * 60 * 1000
 
-/** Ten minutes. Longer than a sign-in takes and shorter than a coffee. */
-const FLOW_MAX_AGE_MS = 10 * 60 * 1000
+/**
+ * Exactly as long as the `sign_in_flow` row lives, from the one number.
+ *
+ * It has to be the same number rather than merely a similar one. If the cookie
+ * outlived the row, a sign-in left too long would arrive with a matching cookie
+ * and no row and be told it had already been used, which is a sentence about
+ * something nobody did. See `SIGN_IN_FLOW_MINUTES`.
+ */
+const FLOW_MAX_AGE_MS = SIGN_IN_FLOW_MINUTES * 60 * 1000
 
 /**
  * How a cookie is set here, in one place, so no door can spell it differently.

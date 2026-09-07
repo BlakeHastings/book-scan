@@ -30,6 +30,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, isNull, lt, sql } from 'drizzle-orm'
 
+import { SIGN_IN_FLOW_MINUTES } from '../../shared/auth'
 import type { Db } from '../../server/driver'
 import { build, statement } from '../db/query'
 import { session, signInFlow, user, userIdentity } from '../db/schema'
@@ -46,8 +47,15 @@ export const SESSION_DAYS = 30
  */
 export const RENEW_AFTER_MINUTES = 60
 
-/** How long a half-finished sign-in is allowed to sit unfinished. */
-export const FLOW_MINUTES = 10
+/**
+ * How long a half-finished sign-in is allowed to sit unfinished.
+ *
+ * The number is in `shared/auth.ts` because the flow cookie's `Max-Age` and a
+ * sentence on the login screen have to say the same thing, and #557 records what
+ * a drift between the first two would do: it changes which of six things a
+ * person is told happened to them.
+ */
+export const FLOW_MINUTES = SIGN_IN_FLOW_MINUTES
 
 /** ISO 8601, UTC, which is how every `_at` column in this schema is spelled. */
 const at = (when: Date): string => when.toISOString()
