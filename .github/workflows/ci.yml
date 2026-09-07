@@ -25,6 +25,11 @@ name: CI
 # copy needs a `gh api --method PUT` — as well as in `REQUIRED` in
 # `scripts/merge-pr.mjs`. There are now three places that name these two
 # strings, and a name that never reports makes master unmergeable.
+#
+# That applies to `web (typecheck + tests)` and not to the second job below.
+# `e2e (typecheck)` is named here and nowhere else on purpose (#563): it is
+# advisory until it has a run history, so it appears on the board and gates
+# nothing. Do not "complete" it by adding it to the other two files.
 on:
   pull_request:
 
@@ -352,3 +357,82 @@ jobs:
       - name: The usability harness judges a task correctly
         if: steps.scope.outputs.docs_only != 'true'
         run: node e2e/ux/tasks.test.mjs
+
+  # The browser suite's own sources, which until now nothing had ever compiled
+  # (#563). Playwright transpiles TypeScript with esbuild and never typechecks
+  # it, so `e2e/` was the one tree here that reached master untyped — while
+  # being one of the three checks standing between a pull request and master.
+  #
+  # Demonstrated rather than asserted, on this tree: with
+  # `const deliberateBreakage: number = 'not a number'` appended to
+  # `e2e/support/paths.ts`, which `playwright.config.ts` imports directly,
+  # `npx playwright test --list` printed "Total: 62 tests in 25 files" and
+  # exited 0. `tsc --noEmit` on the same tree exited 2 naming the line.
+  #
+  # WHY A JOB OF ITS OWN RATHER THAN A STEP OF `web (typecheck + tests)`
+  # The install is genuinely cheap, so cost is not the argument. Measured with
+  # an empty npm cache: `npm ci` in `e2e/` fetches 16 MB and takes under two
+  # seconds, and `tsc --noEmit` over the suite's 21 files takes another two.
+  # As a step of the job above it would be four seconds and no extra name.
+  #
+  # It is separate because a step of a required job gates the merge from its
+  # very first run, and #563 asks for the opposite ordering. #535 is what a
+  # required check that is red on every branch costs, and #549/#552 is the
+  # shape that answers it: advisory first, promoted once it has a run history.
+  # This name is deliberately NOT in `REQUIRED` in `scripts/merge-pr.mjs` and
+  # not in `docs/process/master-ruleset.json`. Adding it there is a later
+  # change, on evidence, and the argument for it is #552's.
+  #
+  # It is built now in the only shape that can ever be promoted: it always runs
+  # and always reports under this name, with no `paths:` filter and no
+  # job-level `if:`, because the merge gate reads an absent check as "never
+  # ran" and a SKIPPED one as not green. See the header of `ci-scope.mjs`.
+  #
+  # In `ci.yml` and not `e2e.yml`: this needs no browser, no Aspire and no
+  # database, and `e2e.yml` is a thirty-minute browser job that also runs
+  # nightly. Nothing here wants either of those.
+  #
+  # NO npm CACHE, unlike the two jobs that install `web/`. The caches there
+  # exist for the `restore-keys` delta install over a tree with native
+  # dependencies in it; 16 MB of pure JavaScript is smaller than the cache
+  # round trip that would fetch it.
+  e2e-typecheck:
+    name: e2e (typecheck)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # On the runner's preinstalled node, before setup-node, so a
+      # documentation only pull request pays for a checkout and nothing else.
+      # This decides whether the steps below do anything; it does not decide
+      # whether this job runs.
+      - name: What this change needs
+        id: scope
+        run: node scripts/ci-scope.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.docs_only != 'true'
+        with:
+          node-version: 22
+
+      # `e2e/` has its own `package.json` and its own lock file; its tree is not
+      # `web/`'s. Installed through the retrying wrapper for the same reason
+      # `e2e.yml` does (#342): a registry timeout must not read as a red gate.
+      - name: Install the suite
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: e2e
+        run: node ../scripts/npm-install.mjs
+
+      # `e2e/tsconfig.json` covers every hand-written TypeScript file in the
+      # suite: `steps/`, `support/`, `global-setup.ts` and
+      # `playwright.config.ts`, all 21 of them. It excludes `.features-gen`,
+      # which bddgen writes from the `.feature` files on every run and which
+      # bddgen itself refuses to generate when a step is undefined.
+      - name: Typecheck the suite
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: e2e
+        run: npm run typecheck
