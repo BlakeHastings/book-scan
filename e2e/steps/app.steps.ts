@@ -181,7 +181,10 @@ When('I start the camera', async ({ page }) => {
  * starting and may already be over.
  */
 When('I choose the {word} photograph', async ({ page }, side: string) => {
-  await page.getByRole('button', { name: `Photograph the ${side}`, exact: true }).click()
+  // By label rather than by role: each of these is a `<button>` carrying
+  // `role="listitem"`, so it is a list of photographs to anything reading the
+  // page and `getByRole('button')` finds none of them.
+  await page.getByLabel(`Photograph the ${side}`, { exact: true }).click()
 })
 
 When('I photograph the book', async ({ page }) => {

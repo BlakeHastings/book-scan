@@ -31,6 +31,13 @@ Feature: Nothing the camera draws is under a control
   Background:
     Given the catalogue is empty
     And the catalogue service knows about "Dune"
+    # One book, and deliberately not the one in front of the lens. The first
+    # screen offers the camera that finds a book you already own only once
+    # there is something to find, and the sentence the scenario below is about
+    # is the one that camera says when what you held up is not in the library.
+    And the catalogue already holds:
+      | title                | author           |
+      | Rendezvous with Rama | Arthur C. Clarke |
 
   Scenario: The frame you aim inside, on a short phone
     # The camera that finds a book you already own draws the design system's
