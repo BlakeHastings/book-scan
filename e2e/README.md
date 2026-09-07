@@ -29,6 +29,12 @@ Useful variants:
 | `npm run test:headed` | The same, with a visible browser |
 | `npm run test:ui` | Playwright's watch mode UI |
 | `npm run report` | Open the HTML report from the last run |
+| `npm run typecheck` | `tsc --noEmit` over this tree, in about two seconds |
+
+**Run the typecheck; `npm test` does not.** Playwright transpiles TypeScript
+with esbuild and never checks it, so a scenario can run green over a file that
+does not compile. Until #563 nothing ran it at all, and CI now does, as the
+advisory `e2e (typecheck)` check.
 
 Nothing needs to be running first. The suite starts the AppHost, waits for both
 resources to be healthy, discovers the ports Aspire assigned, and stops the
