@@ -199,6 +199,22 @@ const del = (path: string) => call(path, { method: 'DELETE' })
 
 const dataUrl = (buffer: Buffer) => `data:image/png;base64,${buffer.toString('base64')}`
 
+/** A real JPEG on disk, since the resize is real sharp and not a stub. */
+async function storeCover(name: string, width = 1000, height = 1500) {
+  const jpeg = await sharp({
+    create: { width, height, channels: 3, background: '#3a6ea5' },
+  }).jpeg().toBuffer()
+  writeFileSync(join(running.coverDir, name), jpeg)
+  return jpeg
+}
+
+/** A photograph asked for the way a browser asks for one: no JSON, a session. */
+const fetchCover = (path: string, init: RequestInit = {}) =>
+  fetch(`${running.baseUrl}${path}`, {
+    ...init,
+    headers: { cookie: running.cookie, ...init.headers },
+  })
+
 /**
  * Cut the fiction run into more planks, so a fixture has somewhere to put a book.
  *
@@ -2828,18 +2844,6 @@ describe('failure paths', () => {
    * for in the URL and the resize happens in the server.
    */
   describe('a cover asked for smaller than it is stored', () => {
-    /** A real JPEG on disk, since the resize is real sharp and not a stub. */
-    const storeCover = async (name: string, width = 1000, height = 1500) => {
-      const jpeg = await sharp({
-        create: { width, height, channels: 3, background: '#3a6ea5' },
-      }).jpeg().toBuffer()
-      writeFileSync(join(running.coverDir, name), jpeg)
-      return jpeg
-    }
-
-    const fetchCover = (path: string) =>
-      fetch(`${running.baseUrl}${path}`, { headers: { cookie: running.cookie } })
-
     it('sends the width the gallery asked for, and a fraction of the bytes', async () => {
       const full = await storeCover('big.jpg')
 
@@ -2849,9 +2853,10 @@ describe('failure paths', () => {
       expect(res.status).toBe(200)
       expect((await sharp(body).metadata()).width).toBe(320)
       expect(body.length).toBeLessThan(full.length)
-      // Cached as hard as the original, so a cover is resized at most once
-      // per phone rather than once per scroll past it.
-      expect(res.headers.get('cache-control')).toContain('immutable')
+      // Cached on the same terms as the original, so a cover is resized at
+      // most once per phone per window rather than once per scroll past it.
+      // The terms themselves are asserted below, at both doors together.
+      expect(res.headers.get('cache-control')).toContain('max-age')
     })
 
     it('never enlarges a cover that is already smaller than the tile', async () => {
@@ -2906,6 +2911,181 @@ describe('failure paths', () => {
     // The process, and the app inside it, are still alive.
     const health = await call('/api/health')
     expect(health.status).toBe(200)
+  })
+})
+
+/**
+ * What a photograph's answer says may be done with it afterwards (#556).
+ *
+ * The gate decides who may ask; `gate.routes.test.ts` proves that and this is
+ * not about it. This is the sentence the answer carries out of the door, and
+ * until #556 it was `public, max-age=2592000, immutable` at both doors. That
+ * was written when nothing in this app was locked, where it was harmless, and
+ * it was still being said after #521 locked everything: `public` invites the
+ * caching proxy `docs/running-from-a-build.md` decision 1 sanctions to keep
+ * somebody's book photographs and hand them to a request carrying no session,
+ * and thirty non-revalidating days is exactly the client-side memory of
+ * admission that `app/gate.tsx` refuses to keep for anything else.
+ *
+ * **This asserts the string rather than describing it.** A comment is what was
+ * there: the header outlived the assumption it was written under, said so in
+ * plain text on every response for months, and nothing was watching it.
+ *
+ * **Both doors in the same test, compared to each other as well as to the
+ * string.** They serve the same photograph, so how long somebody may hold it
+ * is one question, and a fix applied to one of them is this repository's most
+ * common defect: two answers that part company.
+ */
+describe('what a photograph says may be done with it', () => {
+  /**
+   * Written out rather than imported from the server.
+   *
+   * Importing `COVER_CACHE` would make this test agree with the code by
+   * construction and go green on any change to it, which is the thing that
+   * already happened once here.
+   */
+  const POLICY = 'private, max-age=300, must-revalidate'
+
+  const FULL = '/api/covers/policy.jpg'
+  const THUMB = '/api/covers/policy.jpg?w=320'
+
+  it('says the same thing at both doors, and it is not public and not immutable', async () => {
+    await storeCover('policy.jpg')
+
+    const full = await fetchCover(FULL)
+    const thumb = await fetchCover(THUMB)
+
+    expect(full.status).toBe(200)
+    expect(thumb.status).toBe(200)
+    expect(full.headers.get('cache-control')).toBe(POLICY)
+    expect(thumb.headers.get('cache-control')).toBe(POLICY)
+    // Said again as a comparison, because the two doors agreeing is the
+    // property, and two assertions against a constant would still both pass
+    // if somebody changed the constant for one of them.
+    expect(thumb.headers.get('cache-control')).toBe(full.headers.get('cache-control'))
+  })
+
+  /**
+   * No `Vary` naming the cookie, and this is a decision rather than an
+   * oversight: under `private` it buys nothing against a shared cache, and it
+   * would make the browser's own cache throw away every cover on every fresh
+   * sign-in, since `admit()` mints a new session token each time.
+   *
+   * This one passed before #556 as well, because nothing was setting a `Vary`
+   * then either. It is here to hold a rejected option rejected, not because it
+   * would have caught the defect.
+   */
+  it('does not key the photograph on the cookie', async () => {
+    await storeCover('policy.jpg')
+
+    for (const path of [FULL, THUMB]) {
+      expect((await fetchCover(path)).headers.get('vary') ?? '').not.toMatch(/cookie/i)
+    }
+  })
+
+  /**
+   * The whole of what the shortened window buys.
+   *
+   * A revalidation is a request, a request meets the gate, and the gate is
+   * where a revoked reader stops being a reader. Under the old header the
+   * browser was told not to make it for thirty days, so a person who signed
+   * out kept every photograph they had looked at and `coversAreBehindTheGate`
+   * never fired, because a cover served from cache does not fail to load.
+   *
+   * `cache: 'no-cache'` because undici's `fetch` silently drops a conditional
+   * header on a default request: with it omitted, both lines below answer 200
+   * and this test proves nothing. Verified by watching it do exactly that.
+   *
+   * This passed before #556 too — Express has always answered a conditional
+   * request, the browser was simply told never to make one. It is the
+   * mechanism the shortened window rests on, kept so that a later change
+   * cannot quietly let a validator past the gate.
+   */
+  it('answers a revalidation with 304 for a reader, and 401 for a stranger', async () => {
+    await storeCover('policy.jpg')
+
+    for (const path of [FULL, THUMB]) {
+      const first = await fetchCover(path)
+      const validator = first.headers.get('etag')
+      expect(validator).toBeTruthy()
+
+      const again = await fetchCover(path, {
+        cache: 'no-cache',
+        headers: { 'if-none-match': validator! },
+      })
+      expect(again.status).toBe(304)
+      expect((await again.arrayBuffer()).byteLength).toBe(0)
+
+      // The same conditional request, by somebody whose session has gone.
+      const stranger = await fetch(`${running.baseUrl}${path}`, {
+        cache: 'no-cache',
+        headers: { 'if-none-match': validator! },
+      })
+      expect(stranger.status).toBe(401)
+    }
+  })
+
+  /**
+   * The thumbnail door's validator comes from the file, not from the resize.
+   *
+   * Shortening the window is what makes this matter. `res.send` computes a tag
+   * from whatever it is handed, so a body-derived tag means every conditional
+   * request costs a full re-encode and saves only the bytes: measured at 15.8
+   * ms for the 200 and 16.0 ms for the 304 on a 1000x1500 cover at `?w=320`,
+   * which is a gallery of a hundred covers costing a hundred resizes to send a
+   * hundred empty responses.
+   *
+   * `Last-Modified` is what says where the validator came from. Before #556
+   * the thumbnail door sent none at all, because there is no modification time
+   * in a buffer; now it sends the source file's, which is the same one the
+   * static mount sends for the same photograph.
+   */
+  it('validates a thumbnail against the file on disk, not against the resize', async () => {
+    await storeCover('policy.jpg')
+
+    const full = await fetchCover(FULL)
+    const thumb = await fetchCover(THUMB)
+
+    expect(thumb.headers.get('last-modified')).toBeTruthy()
+    expect(thumb.headers.get('last-modified')).toBe(full.headers.get('last-modified'))
+  })
+
+  /**
+   * The same photograph at two widths is two different pictures, so a cache
+   * holding both must not validate one against the other.
+   */
+  it('validates each width of a photograph separately', async () => {
+    await storeCover('policy.jpg')
+
+    const at = async (width: number) =>
+      (await fetchCover(`/api/covers/policy.jpg?w=${width}`)).headers.get('etag')
+
+    const small = await at(160)
+    expect(small).toBeTruthy()
+    expect(small).not.toBe(await at(640))
+
+    const crossed = await fetchCover('/api/covers/policy.jpg?w=640', {
+      cache: 'no-cache',
+      headers: { 'if-none-match': small! },
+    })
+    expect(crossed.status).toBe(200)
+  })
+
+  /**
+   * A width asked of something sharp cannot read falls through to the static
+   * mount, which sends the whole file. The validator the thumbnail route wrote
+   * on the way past names a width, and `send` keeps an ETag it finds already
+   * set, so it has to be taken off again or the full file goes out described
+   * as a 320-wide rendering of itself.
+   */
+  it('does not describe a fallen-through file as the thumbnail it could not make', async () => {
+    writeFileSync(join(running.coverDir, 'notreally.jpg'), 'this is not a JPEG')
+
+    const res = await fetchCover('/api/covers/notreally.jpg?w=320')
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('this is not a JPEG')
+    expect(res.headers.get('etag')).not.toContain('w320')
   })
 })
 

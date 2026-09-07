@@ -183,6 +183,53 @@ queue.
 `gate.routes.test.ts` asks both doors in all three states, and the curl
 transcript below asks them too.
 
+### The sentence this section did not write, until #556
+
+**Who may ask is not the whole question. What the answer says may be done with
+it afterwards is the other half, and it went unread here for three months.**
+
+Look again at the transcript at the top of this document, the one the survey
+called the single most important line. The `200` is what everybody read. The
+line under it is this:
+
+```
+Cache-Control: public, max-age=2592000, immutable
+```
+
+and it was still being said, word for word, at both doors, after this issue
+locked them. It was written when nothing in this app was locked, and there it
+was harmless. Afterwards it was two things:
+
+- **`public` authorises an intermediary to store the photograph.** With no
+  `Vary` there is nothing keying the stored copy to a person either.
+  `docs/running-from-a-build.md` decision 1 sanctions "a TLS-terminating proxy
+  that forwards everything to this one origin", and a *caching* proxy in that
+  position was entitled to keep somebody's book photographs and hand them to a
+  request carrying no session. Nothing in the response said otherwise.
+- **Thirty non-revalidating days is a client-side memory of being admitted**,
+  which is the one thing this app decided twice it would not keep. `gate.ts`
+  reads `enabled` off the `user` row on every request "so disabling somebody
+  takes effect on their very next request", and `app/gate.tsx` stores no
+  admission at all because "a client that remembers being admitted is a client
+  that will show the app to somebody who has just been disabled" (#524). A
+  photograph the browser is told not to re-request has no next request, so both
+  of those were false for the photographs, and
+  `coversAreBehindTheGate` — the listener that reasks the gate when a cover
+  fails to load — could never fire, because a cover served from cache does not
+  fail.
+
+Both doors now say `private, max-age=300, must-revalidate`, and
+`server/index.test.ts` asserts that string at both of them and compares them to
+each other. The trade is real and was taken deliberately: inside five minutes a
+scan run and a scroll through the library still cost nothing, and after it each
+visible cover costs one conditional request and no image bytes. `COVER_CACHE`
+in `server/index.ts` carries the whole argument, including `Vary: Cookie`,
+which was considered and rejected.
+
+**None of this is a hole in the gate**, and the count below is unchanged. The
+gate was correct on the day it landed and its route test proved it. This is
+about what a correct answer says it may be used for once it has left.
+
 ---
 
 ## The count
