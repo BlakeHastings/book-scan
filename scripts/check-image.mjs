@@ -28,7 +28,7 @@
 // that can change what the image is. That is a better test than a fixture, and
 // it is the test #549 exists to add.
 
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -138,9 +138,9 @@ if (!ref) {
   process.exit(2)
 }
 
-try {
-  execFileSync('docker', ['image', 'inspect', ref], { stdio: 'ignore' })
-} catch {
+// Asked first, so that a ref nobody built says so once rather than twice in the
+// middle of two failing assertions.
+if (docker(['image', 'inspect', ref], { stdio: 'ignore' }).status !== 0) {
   wrong(`No image called ${ref} is present. It has to be built or pulled before this can ask it anything.`)
   process.exit(1)
 }
