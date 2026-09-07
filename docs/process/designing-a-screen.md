@@ -51,8 +51,8 @@ copied into the app is two components that agree until one of them is edited.
 
 ## The rules file
 
-`web/src/design/design.test.tsx` holds ten rules as tests. **Every one came from
-a real correction or a real defect**, and each carries the reason in its own
+`web/src/design/design.test.tsx` holds eleven rules as tests. **Every one came
+from a real correction or a real defect**, and each carries the reason in its own
 comment:
 
 - no emoji, anywhere
@@ -65,6 +65,17 @@ comment:
 - no two things in the library share a name
 - the first screen is counts, and every count goes somewhere
 - one row of books is one area
+- a word on the picture can be read whatever the lens is pointed at
+
+The eleventh is the first that came from a measurement rather than from
+something the owner said, and it is the one worth knowing the shape of. A ratio
+against a photograph looks unanswerable, and is not: the lens hands the screen
+eight-bit sRGB, so the background is a range with **both ends closed**, and a
+bed measured against white and black is measured against every book. So the
+gallery draws the camera at both ends (`#camerapage`, `#cameracover`) and the
+rule recomputes the bed from the token's own digits. The drawing and the sum are
+both needed: a number nobody can see goes stale politely, and a drawing nobody
+recomputes goes wrong quietly.
 
 These are load-bearing. An agent that finds a rule awkward is told the rule wins,
 because the alternative is relearning the same correction in three months. They

@@ -1712,11 +1712,11 @@ function Camera(go: Go) {
  * picture is `--picture`, a mid brown, and every word floating on this screen
  * reads beautifully against it: the cream is 13.0 to 1 there. The app puts a
  * photograph there instead, and the photograph somebody is most often holding
- * up is a page, which is white. Measured in the running app at 414 by 896 over
- * a white page, before this pair existed: the aiming frame 1.0 to 1, "Next
- * book" 2.0, the line saying what is in your hands 2.9, the shot labels 3.7,
- * the way out and "Camera" 3.9. One control on the screen cleared AA and it was
- * the one sitting lowest in the gradient.
+ * up is a page, which is white. Read off the rendered pixels in the running app
+ * at 414 by 896 over a white page, before this pair existed: the aiming frame
+ * 1.0 to 1, the line saying what is in your hands 2.9, the words under the
+ * photographs 3.7, the way out and "Camera" 3.9. Nothing that has to be read on
+ * that screen cleared AA.
  *
  * So the drawing is the measurement made lookable-at. Walk these two beside the
  * hatched one and the difference is the whole of the argument: a screen that
@@ -1732,6 +1732,8 @@ function CameraOnAPage(go: Go) {
       <Viewfinder
         shots={shotsOf(go)}
         picture={<div className="wf-view__picture wf-view__picture--page" aria-hidden="true" />}
+        over={inHand}
+        also={NEXT_BOOK}
         onLeave={() => go('home')}
         onDone={() => go('review')}
       />
@@ -1745,12 +1747,41 @@ function CameraOnACover(go: Go) {
       <Viewfinder
         shots={shotsOf(go)}
         picture={<div className="wf-view__picture wf-view__picture--cover" aria-hidden="true" />}
+        over={inHand}
+        also={NEXT_BOOK}
         onLeave={() => go('home')}
         onDone={() => go('review')}
       />
     </div>
   )
 }
+
+/**
+ * What is in your hands, which the wireframe camera has never drawn.
+ *
+ * The screen above it says a wireframe has nothing in its hands, and that was
+ * fine while the picture was a brown rectangle: the line reads perfectly there.
+ * It is the whole subject here. #530 is about this sentence over a photograph,
+ * so a drawing of the camera on a photograph that leaves it out is a drawing of
+ * everything except the question.
+ *
+ * **Drawing it is also what shows the second thing**, which is not about
+ * colour: this camera's near cluster is three controls tall, the offset under
+ * this line clears one, and so the line lies under "Done with this book"
+ * whatever it says. That was invisible for as long as the line was invisible.
+ * It is a place for it rather than a paint, so it is left where it is and drawn
+ * where somebody can react to it.
+ */
+const inHand = (
+  <p className="wf-view__found">
+    <strong>The Left Hand of Darkness</strong>
+    {' · Ursula K. Le Guin'}
+  </p>
+)
+
+/** The second answer this camera offers, which is what makes its cluster three
+    controls tall rather than two. */
+const NEXT_BOOK = { word: 'Next book 2/3' }
 
 /**
  * The same camera, pointed at the spine, which is the shot the frame changes
