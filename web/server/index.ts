@@ -72,7 +72,7 @@ import { filesOf } from './photographs'
 import { PAGE_LIMIT, Store, type DraftBook } from './store'
 // The gate (#521). One mount covers every route below it and both cover doors;
 // the five open doors are registered immediately above it. See server/auth/.
-import { mountGate, mountSignIn } from './auth/gate'
+import { mountCachePolicy, mountGate, mountSignIn } from './auth/gate'
 import { describeSignIn, signInFrom, type SignInConfig } from './auth/providers'
 // Which interface this listens on (#539). Loopback unless a deployment says
 // otherwise, and it refuses anything but the two words. See server/bind.ts.
@@ -1066,6 +1066,14 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * The client's own files are *not* under `/api` and are therefore open, which
    * is deliberate and is the login screen: see the mounts at the bottom of this
    * file.
+   *
+   * **`mountCachePolicy` is a third line above both of them and it is not a
+   * door** (#566). It answers nothing and refuses nothing: it says, once, on
+   * everything under `/api`, what an answer may be done with after it has left,
+   * which is the half of the question the gate does not ask. It is above the
+   * gate so the two refusals carry it too, and above `mountSignIn` so the five
+   * open doors do — a sign-in redirect carries a `state` and a nonce, and
+   * `GET /api/auth/session` is a response about a person. See `API_CACHE`.
    */
   const signInConfig = options.signIn ?? { providers: [], publicOrigin: '' }
   const signInDeps = {
@@ -1073,6 +1081,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     config: signInConfig,
     now: options.now,
   }
+  mountCachePolicy(app)
   mountSignIn(app, signInDeps)
   mountGate(app, signInDeps)
 
@@ -1132,6 +1141,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * cover. That is precisely what this header exists to avoid. An intermediary
    * configured to ignore `private` is answered in that intermediary's
    * configuration, not here.
+   *
+   * **This is the one answer that overrides `API_CACHE`** (#566), and the
+   * override is deliberate rather than incidental. `mountCachePolicy` says
+   * `private, no-cache` on everything under `/api`, which is the right default
+   * and the wrong answer here: it would take the five minute window away from
+   * the one screen the window was measured for, by sitting upstream of a
+   * decision that had already been argued out. Both doors set this string on
+   * the way out — the thumbnail route with `res.set` and the static mount with
+   * `setHeaders`, which `send` emits before writing a `Cache-Control` of its
+   * own — so this is what leaves. `index.test.ts` asserts both strings at all
+   * four doors so the two cannot part company.
    */
   const COVER_CACHE = 'private, max-age=300, must-revalidate'
 

@@ -186,18 +186,47 @@ describe('the count', () => {
 
     /*
      * Route layers are the five. Everything else above the gate is middleware
-     * that answers nothing, and there are exactly three of them:
+     * that answers nothing, and there are exactly four of them:
      *
      * - `query` and `expressInit`, which Express itself puts at the head of
      *   every app's stack. They parse the query string and set `req.res`.
      * - `jsonParser`, which is `express.json` reading a body.
+     * - `apiCache`, which is `mountCachePolicy` (#566). It sets one header and
+     *   calls `next`, and it is above the gate deliberately: the two refusals
+     *   are answers about a person too, and the five open doors below include a
+     *   sign-in redirect carrying a `state` and a nonce.
      *
      * The list is asserted rather than filtered, because the failure this is
      * here for is somebody mounting something above the gate, and a check that
-     * allowed "middleware in general" would allow exactly that.
+     * allowed "middleware in general" would allow exactly that. So a fourth
+     * name arriving here is a change somebody had to make on purpose, which is
+     * what this line is for.
      */
     const notRoutes = above.filter((layer) => !layer.route).map((layer) => layer.name)
-    expect(notRoutes).toEqual(['query', 'expressInit', 'jsonParser'])
+    expect(notRoutes).toEqual(['query', 'expressInit', 'jsonParser', 'apiCache'])
+  })
+
+  /**
+   * `apiCache` is above the gate and answers nothing, which is the property
+   * that makes it safe to be there.
+   *
+   * A middleware above the gate that could answer, or could fail to call
+   * `next`, would be a sixth open door however carefully it was written. This
+   * asks the same refusal `docs/auth-surface.md` measured as a `201`, and it
+   * has to still be a refusal.
+   */
+  it('does not open a door by adding a header above the gate', async () => {
+    const response = await fetch(`${baseUrl}/api/fixtures`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'A bookcase a stranger made', kind: 'bookcase' }),
+    })
+
+    expect(response.status).toBe(401)
+    // And the refusal itself says what may be done with it, which is the half
+    // that would otherwise be missing: a stored 401, served later to somebody
+    // who has since been let in, is the same defect from the other side.
+    expect(response.headers.get('cache-control')).toBe('private, no-cache')
   })
 })
 
