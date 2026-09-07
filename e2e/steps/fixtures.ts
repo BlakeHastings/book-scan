@@ -38,9 +38,10 @@ export interface Fixtures {
    * pressing re-run, which is the habit #448 is about.
    *
    * So every console error, every page error, every request the browser gave up
-   * on, and the crash of a page or a whole context are collected for the length
-   * of a scenario and printed **only if that scenario fails**, with the
-   * machine's committed memory beside them. A green run says nothing new.
+   * on, **every response that came back at 400 or worse**, and the crash of a
+   * page or a whole context are collected for the length of a scenario and
+   * printed **only if that scenario fails**, with the machine's committed memory
+   * beside them. A green run says nothing new.
    */
   browserTrouble: void
   /** The app's Postgres catalogue, so a scenario can start clean and look. */
@@ -131,6 +132,22 @@ export const test = base.extend<Fixtures>({
     page.on('pageerror', (error) => note(`page error: ${error.message}`))
     page.on('requestfailed', (request) => {
       note(`request failed: ${request.failure()?.errorText ?? 'no reason given'} ${request.url()}`)
+    })
+    /*
+     * A request that arrived and was refused, which is the half `requestfailed`
+     * cannot see and the half that mattered here (#448).
+     *
+     * `requestfailed` fires when the network gave up. A `500` from Vite's proxy
+     * or a `401` from the gate is a perfectly successful round trip as far as
+     * the browser is concerned, `fetch` resolves, and this client turns it into
+     * a rejected promise that the first screen swallows. Without this line the
+     * scenario's whole account of a blank screen is "the browser reported no
+     * console error and no failed request", which reads as nothing having
+     * happened.
+     */
+    page.on('response', (response) => {
+      if (response.status() < 400) return
+      note(`answered ${response.status()}: ${response.url()}`)
     })
     page.on('crash', () => note('the page crashed'))
     page.context().on('close', () => {
