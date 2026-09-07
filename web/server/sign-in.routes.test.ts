@@ -40,7 +40,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, openTestDatabase } from './testdb'
-import { AuthStore } from '../infrastructure/auth/auth-store'
+import { AuthStore, SESSION_DAYS } from '../infrastructure/auth/auth-store'
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { devProvider, signInFrom } from './auth/providers'
@@ -1200,6 +1200,146 @@ describe('the development door', () => {
       await shut.settled()
       await new Promise<void>((resolve) => { listener.close(() => resolve()) })
     }
+  })
+})
+
+/**
+ * The thirty days the browser is holding, which are the ones that decide (#558).
+ *
+ * `docs/the-gate.md` promises thirty days "renewed on use", and gives the reason
+ * in the owner's terms: "a phone at a bookshelf that asks for a sign-in every
+ * visit gets abandoned". The renewal was written and it wrote one of the two
+ * things it had to. The `session` row's window slid forward and the cookie
+ * addressing it never did, because `Max-Age` was set once, by `admit`, so a
+ * daily user was signed out on day thirty holding a row good to day sixty.
+ *
+ * **Nothing that existed could have gone red for it.** The row moved, which is
+ * what a test of `renewSession` asks about; the request was answered, which is
+ * what a test of the gate asks about; and the half that reaches a person was the
+ * absence of a header nobody was looking at. So this asks about the header, and
+ * it asks by comparison rather than by a literal: the sign-in door is driven for
+ * real, what `admit` wrote is kept, and the renewal is required to be that same
+ * cookie again. A renewal that quietly dropped `Secure` would then be a failure
+ * here rather than a deployment where the browser stops storing the credential
+ * and nobody can sign in (`deploy/contract.json`, `network.tls`).
+ *
+ * The development door is what it is driven through because it is the one whose
+ * sign-in is a single `GET` with no provider to stub, and `admit` is the same
+ * code whichever door reaches it.
+ */
+describe('the thirty days the browser is holding', () => {
+  let renewing: BookScanApp
+  let renewingServer: import('node:http').Server
+  let renewingUrl: string
+  /*
+   * Moved by the cases rather than waited for. The staleness the renewal hangs
+   * on is an hour, and a suite that waited for one would not be a suite.
+   */
+  let clock: Date
+
+  beforeEach(async () => {
+    clock = new Date()
+    renewing = createApp({
+      db,
+      coverDir,
+      startBackgroundWork: false,
+      signIn: { providers: [devProvider('a-returning-developer')], publicOrigin: '' },
+      now: () => clock,
+    })
+    renewingServer = renewing.listen(0)
+    await new Promise<void>((resolve) => renewingServer.once('listening', resolve))
+    renewingUrl = `http://127.0.0.1:${(renewingServer.address() as AddressInfo).port}`
+  })
+
+  afterEach(async () => {
+    await renewing.settled()
+    await new Promise<void>((resolve) => { renewingServer.close(() => resolve()) })
+  })
+
+  /**
+   * Everything a browser is told about a cookie except when it dies.
+   *
+   * `Expires` is dropped because it is the thing under test moving: a renewal
+   * two hours later is supposed to say a later date. `Max-Age` is kept, and is
+   * the assertion that matters, because it is the same thirty days counted from
+   * whenever it was said.
+   */
+  const keptFrom = (header: string | null) => {
+    const said = (header ?? '')
+      .split(/,(?=[^;]+=)/)
+      .map((one) => one.trim())
+      .find((one) => one.startsWith(`${SESSION_COOKIE}=`)) ?? ''
+    return said
+      .split(';')
+      .map((part) => part.trim())
+      .filter((part) => !/^expires=/i.test(part))
+  }
+
+  const signIn = async () => {
+    const back = await fetch(`${renewingUrl}/api/auth/dev/start`, { redirect: 'manual' })
+    expect(back.status).toBe(302)
+    return back.headers.get('set-cookie')
+  }
+
+  it('says nothing at all while the session is fresh', async () => {
+    const admitted = cookieIn(await signIn(), SESSION_COOKIE)
+
+    const soon = await fetch(`${renewingUrl}/api/health`, { headers: { cookie: admitted } })
+
+    expect(soon.status).toBe(200)
+    /*
+     * The half that keeps this affordable. Re-issuing on every request would
+     * put a `Set-Cookie` on every response including each of the twenty-five
+     * photographs a scan run asks for, and the staleness test is what stops it.
+     */
+    expect(soon.headers.get('set-cookie')).toBeNull()
+  })
+
+  it('hands back the very same cookie, thirty days on, once the row goes stale', async () => {
+    const written = await signIn()
+    const admitted = cookieIn(written, SESSION_COOKIE)
+
+    clock = new Date(clock.getTime() + 2 * 60 * 60 * 1000)
+    const later = await fetch(`${renewingUrl}/api/health`, { headers: { cookie: admitted } })
+
+    expect(later.status).toBe(200)
+    // The same credential, addressing the same row: a renewal that minted a new
+    // token would strand every request already in flight carrying the old one.
+    expect(cookieIn(later.headers.get('set-cookie'), SESSION_COOKIE)).toBe(admitted)
+    // And every attribute the sign-in wrote, `Secure` among them, said again.
+    expect(keptFrom(later.headers.get('set-cookie'))).toEqual(keptFrom(written))
+  })
+
+  /**
+   * The two windows move in the same breath, which is the whole defect said as
+   * a case: the row moving on its own is what #558 was, and it looked like this
+   * test passing on the row alone.
+   *
+   * **The browser is asked about `Max-Age` rather than about `Expires`**, and
+   * the reason is the injected clock above rather than a preference. Express
+   * computes `Expires` from the real `Date.now()` and the row's `expires_at`
+   * comes from `clock`, so under a fake clock the two are two hours apart and
+   * the difference is this file's, not this server's. `Max-Age` is counted from
+   * whenever the browser is told, so it is the same number either way, and it
+   * is also the one a browser prefers where both are present.
+   */
+  it('slides the row and the browser by the same thirty days', async () => {
+    const admitted = cookieIn(await signIn(), SESSION_COOKIE)
+    const digest = createHash('sha256')
+      .update(admitted.slice(`${SESSION_COOKIE}=`.length))
+      .digest('hex')
+    const before = await new AuthStore(db).liveSession(digest, clock)
+
+    clock = new Date(clock.getTime() + 2 * 60 * 60 * 1000)
+    const later = await fetch(`${renewingUrl}/api/health`, { headers: { cookie: admitted } })
+    const after = await new AuthStore(db).liveSession(digest, clock)
+
+    expect(before?.expires_at).toBeTruthy()
+    // Both are ISO 8601 in UTC, which sorts as text, and that is how every `_at`
+    // column in this schema is spelled.
+    expect((after?.expires_at ?? '') > (before?.expires_at ?? '')).toBe(true)
+    expect(keptFrom(later.headers.get('set-cookie')))
+      .toContain(`Max-Age=${SESSION_DAYS * 24 * 60 * 60}`)
   })
 })
 

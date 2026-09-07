@@ -755,10 +755,33 @@ export function mountGate(app: express.Express, deps: SignInDeps): void {
        * row per request is a gate that costs more than the route behind it.
        * `renewSession` carries the staleness test in its own `WHERE`, so two
        * requests arriving together cannot both decide to write.
+       *
+       * **Both halves are renewed here, and for three months only one of them
+       * was** (#558). The row's window slid and the cookie's did not: `Max-Age`
+       * was written once, by `admit`, so a browser dropped the credential on
+       * day thirty while the row it addressed was good to day sixty. Every part
+       * of the machinery above worked and none of it reached anybody. That is
+       * the shape of defect that gets found by the owner, on his phone, a month
+       * after this is hosted, and never by a test of the half that writes.
+       *
+       * **The staleness test is why this is affordable.** Re-issuing on every
+       * request is the obvious version of it and it puts a `Set-Cookie` on every
+       * response, including each of the twenty-five photographs a scan run asks
+       * for. Hung here it is one header per session per hour, on the one request
+       * an hour that was already going to write a row.
+       *
+       * **The same `cookieOptions`, so a renewal cannot downgrade what it is
+       * renewing.** `Secure` is the one to say out loud: `deploy/contract.json`
+       * builds four links on it, ending in a deployment where nobody can sign in
+       * at all, and a renewal that dropped it would hand a browser a cookie it
+       * would keep sending over plain http. Spelling the attributes here instead
+       * of calling that function is exactly how they would come apart, so this
+       * calls it, with the same token, which addresses the same row.
        */
       const staleFrom = new Date(clock().getTime() - RENEW_AFTER_MINUTES * 60_000)
       if (live.last_used_at < staleFrom.toISOString()) {
         await deps.store.renewSession(digest, clock())
+        res.cookie(SESSION_COOKIE, token, cookieOptions(SESSION_MAX_AGE_MS))
       }
 
       /*
