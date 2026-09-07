@@ -650,6 +650,107 @@ the Postgres volume is per checkout. The api prints the path on every start.
 
 ---
 
+## The two doors that answer a browser, and the six things they say (#557)
+
+Everything above is written as though the client reads these answers. Two of the
+five open doors are not read by anything: **`GET /api/auth/:provider/start` and
+`GET /api/auth/:provider/callback` are reached by a top-level navigation**, one
+because a button is a journey out of the page and the other because that is what
+a provider redirect is. So their response *is* the page, and nothing in
+`lib/api.ts` ever sees it.
+
+Both were answering with JSON. Press Cancel at Google and the browser landed on
+
+```
+/api/auth/google/callback?error=access_denied&state=…
+
+{"error":"Google did not complete the sign-in."}
+```
+
+which is the whole page: no link, no button, and no way out but the address bar.
+Eleven exits did that, and #557 is the count of them.
+
+### Why it survived every verification pass
+
+**The development door has no failure path.** `GET /api/auth/dev/start` finds or
+creates a user, opens a session and redirects: there is no provider to refuse, no
+flow row to expire and no token to check. It is the door every test and every
+driven check in this repository had used, so none of the eleven had ever been
+reached. Each was written correctly for an API, by somebody not thinking about a
+browser, and the defect lives in the join rather than in either piece.
+
+`sign-in.routes.test.ts`'s invented provider is what makes them reachable, and is
+the only thing here that can be a sign-in going wrong at all: a real Google or
+Microsoft credential cannot exist in this repository.
+
+### The shape: a redirect carrying a code, never a message
+
+Both doors now redirect to `/?signin=<one of six>&way=<provider id>`, whatever
+went wrong. Two properties are doing the work and they are the same two the gate
+itself rests on.
+
+**It is a rule about the routes, not a fix to the branches somebody noticed.**
+Neither door answers with a body in any circumstance, so an exit added under them
+next year is covered because of where it is rather than because anybody
+remembered. `sign-in.routes.test.ts` asks that property directly of every failing
+shape it can produce, on top of driving each exit.
+
+**The reason is a closed set and never a string that gets rendered.** What
+travels is one of six words `shared/auth.ts` holds; the client looks the word up
+and draws a constant this repository wrote. A word not in the set selects
+nothing, and the screen is then the ordinary login screen. The provider is
+carried as an **id**, and the client turns it into a label by looking it up in
+what `GET /api/auth/providers` just told it — so a stranger with a link can
+choose which of six true sentences the app says, and cannot make it say anything
+else. Driven: `/?signin=<img src=x onerror=alert(1)>` draws the plain login
+screen, and `way=<b>Barclays</b>` gets the sentence with no name in it.
+
+### Why six and not one, which is this document's own argument one storey down
+
+The three states are kept apart because a client that cannot tell `401` from
+`403` sends somebody round the sign-in loop for ever. The same holds here for the
+person rather than for the client: "you pressed Cancel" and "that sign-in did not
+start in this browser" are different situations, and the second reads as an
+accusation when it is almost always a Back button.
+
+They are six rather than eleven because the split is by **what the person is in a
+position to do next**, not by which line of `gate.ts` was reached:
+
+| Code | Which exits | What it means to a person |
+| --- | --- | --- |
+| `cancelled` | `error=access_denied` | You stopped it, which is fine. |
+| `refused` | any other `error=`, no code at all, the nonce mismatch, and every token this server would not accept | Something between this app and the provider is wrong. Pressing the button again lands here again. |
+| `stale` | the state missing or not matching the flow cookie | Back, a reopened link, or more than ten minutes. Nothing has gone wrong. |
+| `already-used` | the flow row spent or belonging to another provider | This sign-in works once and had been used. |
+| `unavailable` | the provider unreachable or slow, and every refusal in `discovery.ts` | Nobody could be asked. Worth trying again shortly. |
+| `no-such-way` | no provider of that name | The link named a door this app does not have. |
+
+**Nobody can act differently on "that ID token has expired" than on "Google
+answered without an ID token."** Both go to the log, where whoever runs this app
+is, and both are `refused` on the screen. That is the one place where exits were
+merged, and it is merged on the same test the three states are kept apart on.
+
+Two findings came out of reading every exit rather than the two #557 observed:
+
+- **The ten-minute timeout does not reach `already-used`.** The flow cookie is
+  cleared by the callback that spends it and lives exactly as long as the row, so
+  a sign-in left too long arrives with no cookie and lands on `stale` — the same
+  exit a Back press lands on. That is why `stale`'s words open by naming Back and
+  a reopened link: the branch is mostly innocent people. `already-used` is what a
+  replay of a whole callback reaches, cookie included, which no browser does.
+- **`access_denied` had to be told apart from the other `error=` values.** OAuth
+  2.0 §4.1.2.1 gives it one meaning and gives `server_error`,
+  `invalid_client` and the rest another. One comparison separates somebody who
+  chose to stop from somebody whose sign-in is broken, and without it one of the
+  two is told something untrue about themselves.
+
+The sentences are in `web/src/lib/signInWords.ts`, beside the other `Words` files
+and for their reason: a sentence that has to stay true to a state the server
+distinguishes is not written where it is drawn. `web/src/design/Gate.tsx` draws
+them with `Trouble`, the card the first screen already uses for bad news.
+
+---
+
 ## What this deliberately does not do
 
 - **It does not change the loopback bind.** `web/server/index.ts` still listens on
@@ -671,6 +772,12 @@ the Postgres volume is per checkout. The api prints the path on every start.
   error banner to a person with no session; the API is what this issue is about
   and it answers `401`, `403` or the route, with the state in the body, which is
   what a screen needs to choose itself.
+
+  > **#524 and #527 built them, and #557 found what neither of them joined.**
+  > Answering in the right shape is what this bullet promised and it was kept;
+  > what nobody noticed is that two of these five doors have no client reading
+  > them at all, so for those two the right shape was a redirect and not a body.
+  > See the section above.
 - **It does not touch `web/vite.config.ts`'s source maps.**
   `docs/running-from-a-build.md` named "this app becoming reachable by anybody who
   is not the owner" as what would flip that decision. This makes the app *less*

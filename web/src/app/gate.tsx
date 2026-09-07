@@ -43,8 +43,12 @@ import {
   type ReactNode,
 } from 'react'
 
-import type { SessionAnswer, SignInProvider } from '../../shared/auth'
+import {
+  signInTroubleIn, TROUBLE_PARAM, TROUBLE_WAY_PARAM,
+  type SessionAnswer, type SignInProvider,
+} from '../../shared/auth'
 import { api, whenTheGateRefuses, theGateSaid } from '../lib/api'
+import { signInTroubleSaid, type SignInTroubleSaid } from '../lib/signInWords'
 import { WaitingList, WayIn } from '../design/Gate'
 import { usePaper } from './paper'
 
@@ -185,6 +189,29 @@ export function GateProvider({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Why the last sign-in did not finish, read off this page's own address (#557).
+ *
+ * **The parameter selects a sentence and never supplies one.** Everything drawn
+ * from this is a constant in this repository: `signInTroubleIn` refuses anything
+ * that is not one of the six words `shared/auth.ts` holds, and the provider's
+ * name is looked up in the list the server just sent rather than taken from the
+ * URL. So the worst a stranger can do by handing somebody a link is choose which
+ * of six true sentences this app says about a sign-in that did not happen, which
+ * is what a closed set buys over a message in a query string.
+ *
+ * The address is read once and left alone. Stripping it would take a reload back
+ * to a screen that says nothing about why it is being looked at, and this
+ * sentence stays true however many times it is read.
+ */
+function troubleOnThisPage(ways: SignInProvider[]): SignInTroubleSaid | undefined {
+  const asked = new URLSearchParams(window.location.search)
+  const trouble = signInTroubleIn(asked.get(TROUBLE_PARAM))
+  if (!trouble) return undefined
+  const way = ways.find((one) => one.id === asked.get(TROUBLE_WAY_PARAM))
+  return signInTroubleSaid(trouble, way?.label ?? '')
+}
+
+/**
  * The way in, drawn from `GET /api/auth/providers`.
  *
  * The list is asked for rather than written here, which is what makes adding
@@ -192,6 +219,11 @@ export function GateProvider({ children }: { children: ReactNode }) {
  * the `start` path the server gave, and it has to be one: the provider answers
  * by redirecting the browser back, so this is a journey out of the page rather
  * than a request from inside it.
+ *
+ * **That is also why this screen is where a failed sign-in lands.** A journey
+ * out of the page comes back as a navigation, so nothing in `lib/api.ts` ever
+ * sees it and no `catch` in this codebase can. The server redirects here saying
+ * which of six things happened, and this is the one place that reads it.
  */
 function WayInScreen() {
   usePaper()
@@ -219,6 +251,7 @@ function WayInScreen() {
           onPress: () => { window.location.href = way.start },
         }))}
         said="These are somebody's own books. Sign in, and the person whose books they are can let you in."
+        trouble={troubleOnThisPage(ways)}
       />
     </div>
   )

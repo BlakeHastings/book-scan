@@ -59,8 +59,8 @@ import { createHash } from 'node:crypto'
 import type express from 'express'
 
 import {
-  REFUSAL_STATUS, SESSION_COOKIE,
-  type SessionAnswer, type SignInProvider,
+  REFUSAL_STATUS, SESSION_COOKIE, SIGN_IN_FLOW_MINUTES, troubleUrl,
+  type SessionAnswer, type SignInProvider, type SignInTrouble,
 } from '../../shared/auth'
 import type { AuthStore } from '../../infrastructure/auth/auth-store'
 import { RENEW_AFTER_MINUTES, SESSION_DAYS } from '../../infrastructure/auth/auth-store'
@@ -88,8 +88,15 @@ const FLOW_COOKIE = 'bookscan_signin'
 /** Thirty days, in seconds, for `Max-Age`. */
 const SESSION_MAX_AGE_MS = SESSION_DAYS * 24 * 60 * 60 * 1000
 
-/** Ten minutes. Longer than a sign-in takes and shorter than a coffee. */
-const FLOW_MAX_AGE_MS = 10 * 60 * 1000
+/**
+ * Exactly as long as the `sign_in_flow` row lives, from the one number.
+ *
+ * It has to be the same number rather than merely a similar one. If the cookie
+ * outlived the row, a sign-in left too long would arrive with a matching cookie
+ * and no row and be told it had already been used, which is a sentence about
+ * something nobody did. See `SIGN_IN_FLOW_MINUTES`.
+ */
+const FLOW_MAX_AGE_MS = SIGN_IN_FLOW_MINUTES * 60 * 1000
 
 /**
  * How a cookie is set here, in one place, so no door can spell it differently.
@@ -232,6 +239,42 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
   const redirectUri = (provider: SignInProviderConfig): string =>
     `${deps.config.publicOrigin}/api/auth/${provider.id}/callback`
 
+  /**
+   * Send the browser back to the login screen, saying which of the six this was.
+   *
+   * **The two routes below are the only ones in this app whose answer a browser
+   * renders as a page**, because a provider redirect and a pressed sign-in
+   * button are top-level navigations rather than requests `lib/api.ts` makes. So
+   * a JSON body here is not an API answer that a client will read and act on: it
+   * is the whole page, with no link, no button and no way back but the address
+   * bar. #557 found every one of the eleven exits below doing exactly that.
+   *
+   * So every refusal either of them makes comes through here. That is a rule
+   * about these two routes rather than a fix applied to the branches somebody
+   * happened to notice, so an exit added under them next year cannot
+   * reintroduce the defect by being forgotten: there is nothing here for it to
+   * copy that would render.
+   *
+   * **An exception is not one of these and is deliberately left alone.** Both
+   * handlers end in `.catch(next)`, and a throw that reaches it is a defect in
+   * this server rather than a way a sign-in can fail. Redirecting a person past
+   * one would hide it and tell them something untrue at the same time, which is
+   * the `inTheBackground` argument in `AGENTS.md` about nets that log and carry
+   * on.
+   *
+   * The reason travels as a code and the provider as its id, and neither is ever
+   * rendered: `shared/auth.ts` says why, and it is the difference between a
+   * screen that says one of six sentences and a screen that reads a stranger's
+   * text out loud.
+   */
+  function sendBack(
+    res: express.Response,
+    trouble: SignInTrouble,
+    provider?: SignInProviderConfig,
+  ): void {
+    res.redirect(302, troubleUrl(trouble, provider?.id))
+  }
+
   app.get('/api/auth/providers', (_req, res) => {
     const providers: SignInProvider[] = deps.config.providers.map((one) => ({
       id: one.id,
@@ -251,8 +294,13 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
   app.get('/api/auth/:provider/start', (req, res, next) => {
     void (async () => {
       const provider = byId(String(req.params.provider))
+      /*
+       * A stale bookmark, a hand-typed path, or a button drawn from a provider
+       * list this server has since stopped carrying. Whichever it was, somebody
+       * is looking at the answer, so it is the login screen and not a 404 body.
+       */
       if (!provider) {
-        res.status(404).json({ error: 'There is no such way to sign in.' })
+        sendBack(res, 'no-such-way')
         return
       }
       const next_ = safeNext(req.query.next)
@@ -279,8 +327,12 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
        * authority's own document here, cached for the process; one carrying an
        * issuer resolves to itself and touches nothing.
        */
-      const resolved = await settle(provider, res)
-      if (!resolved) return
+      const settled = await settle(provider)
+      if ('trouble' in settled) {
+        sendBack(res, settled.trouble, provider)
+        return
+      }
+      const resolved = settled.provider
 
       const state = opaque()
       const nonce = opaque()
@@ -302,7 +354,7 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
     void (async () => {
       const provider = byId(String(req.params.provider))
       if (!provider || provider.kind !== 'oidc') {
-        res.status(404).json({ error: 'There is no such way to sign in.' })
+        sendBack(res, 'no-such-way')
         return
       }
 
@@ -313,31 +365,55 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
        * The provider said no, and this is the ordinary case rather than an
        * exception: somebody pressed cancel. Its own words are not repeated,
        * because they are somebody else's text arriving in a query string.
+       *
+       * **`access_denied` is told apart from the rest and it is the whole of
+       * why this parameter is read at all** (#557). OAuth 2.0 §4.1.2.1 gives it
+       * one meaning, which is that the person or their provider did not grant
+       * this, and in practice that is somebody pressing Cancel. Every other code
+       * in that list — `server_error`, `invalid_client`, `unauthorized_client`,
+       * `invalid_scope` — is a fault on one side or the other that the person
+       * cannot do anything about. Telling somebody who pressed Cancel that
+       * something is misconfigured, or telling somebody whose sign-in is broken
+       * that they cancelled, are both this app saying something untrue about
+       * them, and it costs one comparison not to.
        */
       if (typeof req.query.error === 'string') {
-        res.status(400).json({ error: `${provider.label} did not complete the sign-in.` })
+        sendBack(res, req.query.error === 'access_denied' ? 'cancelled' : 'refused', provider)
         return
       }
 
       const state = typeof req.query.state === 'string' ? req.query.state : ''
       const carried = cookieFrom(req.headers.cookie, FLOW_COOKIE)
       if (!state || state !== carried) {
-        // Either half missing is the same answer. A state with no cookie behind
-        // it is a callback arriving in a browser that did not start the flow,
-        // which is a login CSRF; a cookie with no state is a stray request.
-        res.status(400).json({ error: 'That sign-in did not start here. Try again.' })
+        /*
+         * Either half missing is the same answer. A state with no cookie behind
+         * it is a callback arriving in a browser that did not start the flow,
+         * which is a login CSRF; a cookie with no state is a stray request.
+         *
+         * **It is also where the ordinary ones land**, which was worth finding
+         * out: pressing Back after signing in, opening the callback link a
+         * second time, and taking longer than `FLOW_MINUTES` over the provider
+         * all arrive here rather than at the exit below, because the flow cookie
+         * is cleared by the callback that spends it and lives exactly as long as
+         * the row does. So this refusal is mostly innocent people, and the words
+         * `stale` chooses are written for them rather than for the attack.
+         */
+        sendBack(res, 'stale', provider)
         return
       }
 
       const flow = await deps.store.takeFlow(state, now)
       if (!flow || flow.provider !== provider.id) {
-        res.status(400).json({ error: 'That sign-in has expired or was already used.' })
+        sendBack(res, 'already-used', provider)
         return
       }
 
       const code = typeof req.query.code === 'string' ? req.query.code : ''
       if (!code) {
-        res.status(400).json({ error: `${provider.label} did not send an authorization code.` })
+        // Neither an error nor a code, which is not a shape the specification
+        // allows a redirect back to have. Nothing was granted and nothing was
+        // refused, so it goes with the other things the provider got wrong.
+        sendBack(res, 'refused', provider)
         return
       }
 
@@ -348,8 +424,12 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
        * both come from the authority's document rather than from anything
        * written here, which is the whole of #537.
        */
-      const resolved = await settle(provider, res)
-      if (!resolved) return
+      const settled = await settle(provider)
+      if ('trouble' in settled) {
+        sendBack(res, settled.trouble, provider)
+        return
+      }
+      const resolved = settled.provider
 
       let identity
       try {
@@ -360,13 +440,24 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
         )
       } catch (error) {
         if (!(error instanceof SignInRefused)) throw error
+        /*
+         * The log keeps the exact message and the person gets one of six
+         * sentences. That split is deliberate: these messages name this
+         * server's checks — an issuer, an audience, a claim that would not
+         * parse — and a person who wants to look at some books can do nothing
+         * with any of them. Whoever runs this app can, and the log is where
+         * they are.
+         */
         console.warn('[auth] sign-in refused:', error.message)
-        res.status(400).json({ error: error.message })
+        sendBack(res, error.trouble, provider)
         return
       }
 
       if (identity.nonce !== flow.nonce) {
-        res.status(400).json({ error: 'That sign-in did not match the one that started.' })
+        // The token is real and belongs to some other authorization request of
+        // this client's, which is a token this server will not accept however
+        // many times it arrives.
+        sendBack(res, 'refused', provider)
         return
       }
 
@@ -390,30 +481,35 @@ export function mountSignIn(app: express.Express, deps: SignInDeps): void {
 }
 
 /**
- * A provider with its issuer and endpoints on it, or an answer already sent.
+ * A provider with its issuer and endpoints on it, or which of the six this was.
  *
- * **`502` and not `400`**, and the distinction is worth keeping: a token this
- * server refuses is a bad sign-in and is the caller's business, while an
- * authority that will not say what its issuer is has nothing to do with whoever
- * pressed the button. Answering `400` there would tell somebody their sign-in
- * was wrong when the truth is that this app cannot currently sign anybody in
- * through that door.
+ * **`unavailable` and not `refused`**, which is the same distinction this used
+ * to draw as `502` and not `400`, said in the vocabulary a person is told in
+ * (#557): a token this server refuses is a bad sign-in and is the caller's
+ * business, while an authority that will not say what its issuer is has nothing
+ * to do with whoever pressed the button. Telling them their sign-in was refused
+ * would be telling them something was wrong with it when the truth is that this
+ * app cannot currently sign anybody in through that door.
  *
  * Refusing rather than falling back is the point. There is no "carry on without
  * the issuer" branch, because carrying on without the issuer is the defect #537
  * exists to prevent.
+ *
+ * It answers rather than writing to the response, so the one place a browser is
+ * sent back from is `sendBack` and there is no second spelling of the redirect
+ * for somebody to get subtly different.
  */
-async function settle(
-  provider: SignInProviderConfig,
-  res: express.Response,
-): Promise<SignInProviderConfig | undefined> {
+type Settled =
+  | { provider: SignInProviderConfig }
+  | { trouble: SignInTrouble }
+
+async function settle(provider: SignInProviderConfig): Promise<Settled> {
   try {
-    return await resolveProvider(provider)
+    return { provider: await resolveProvider(provider) }
   } catch (error) {
     if (!(error instanceof SignInRefused)) throw error
     console.warn('[auth] provider could not be resolved:', error.message)
-    res.status(502).json({ error: error.message })
-    return undefined
+    return { trouble: error.trouble }
   }
 }
 

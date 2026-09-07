@@ -40,6 +40,7 @@
 import type { ReactNode } from 'react'
 import { Cat } from './Cat'
 import { Button } from './Controls'
+import { Trouble } from './Trouble'
 
 /**
  * The way in: whatever `GET /api/auth/providers` said, drawn as buttons.
@@ -48,10 +49,27 @@ import { Button } from './Controls'
  * makes adding a second provider a configuration change and not a screen change.
  * The development door is in that answer like any other and is deliberately not
  * special-cased here: if it ever needs distinguishing, the server says so.
+ *
+ * ## This is also where a sign-in that failed comes back to (#557)
+ *
+ * A provider redirect is a top-level navigation, so a sign-in that goes wrong
+ * ends on whatever the server answered with. It used to answer with JSON, and
+ * that JSON was the whole page. Now it redirects here carrying which of six
+ * things happened, and this screen has somewhere to put it.
+ *
+ * **It is drawn with `Trouble`, which is not a new pattern.** That component was
+ * built for the first screen's bad news and its argument fits exactly: words at
+ * the top of a card and no coloured rail, because a rail was named as an AI
+ * fingerprint and rejected. The one departure is that `Trouble` has no button
+ * and this one does — not on the card, but under it. That is not the rule being
+ * bent: the buttons are the way in, they are on this screen whether or not
+ * anything went wrong, and what the card must not do is grow an act of its own
+ * that pretends to fix something.
  */
 export function WayIn({
   ways,
   said,
+  trouble,
 }: {
   /** One button per provider, in the order the server listed them. */
   ways: { id: string; label: string; onPress?: () => void }[]
@@ -61,6 +79,11 @@ export function WayIn({
    * with the answer written twice.
    */
   said: ReactNode
+  /**
+   * Why the last sign-in did not finish, when somebody arrived from one.
+   * Absent on the ordinary first visit, which is most of them.
+   */
+  trouble?: { title: string; said: string }
 }) {
   return (
     <div className="wf-gate">
@@ -68,6 +91,18 @@ export function WayIn({
         <Cat pose="sitting" size={72} />
         <h1 className="wf-gate__title">Book scan</h1>
         <p className="wf-gate__said">{said}</p>
+
+        {/*
+          * Under the sentence that says where this is and above the buttons
+          * that are what to do about it. Ahead of the title it would be news
+          * with no page around it, and below the buttons it would be an
+          * explanation somebody reads after acting on it.
+          */}
+        {trouble && (
+          <div className="wf-gate__trouble">
+            <Trouble title={trouble.title}>{trouble.said}</Trouble>
+          </div>
+        )}
 
         {ways.length > 0 ? (
           <div className="wf-gate__acts">
