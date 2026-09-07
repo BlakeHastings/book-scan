@@ -197,6 +197,43 @@ const check = (name, actual, expected) => {
   check('and names the missing half', /no covers destination/.test(said[0]), true)
 }
 
+// --- Unless the machine has recorded that it holds no catalogue, which is a
+// --- different thing from having configured nothing yet. Nothing on a machine
+// --- can tell those apart, so one of them has to be written down, and the one
+// --- that is written down is the one that goes quiet (#567).
+{
+  const said = complaints({ dumps: null, covers: null, coversSource: null, catalogue: 'elsewhere' }, NOW)
+  check('a machine that records the catalogue elsewhere says nothing', said.length, 0)
+}
+{
+  // The crux, and the reason the declaration is worded that way round. If the
+  // record on the machine that does hold the catalogue loses its paths, nobody
+  // has declared anything, and this is exactly as loud as it was before.
+  const said = complaints({ dumps: null, covers: null, coversSource: null, catalogue: null }, NOW)
+  check('a machine that has declared nothing is still loud', said.length, 1)
+  check('and still names the variables', /BOOKSCAN_BACKUP_DIR/.test(said[0]), true)
+}
+{
+  // The declaration only holds while nothing here claims to be watched. One
+  // directory set is one directory to answer for, whatever the record says.
+  const said = complaints({
+    dumps: dumpsDir('claimed', 6), covers: null, coversSource: null, catalogue: 'elsewhere',
+  }, NOW)
+  check('a configured directory outranks the declaration', said.length, 1)
+  check('and names the missing half as usual', /no covers destination/.test(said[0]), true)
+}
+{
+  // And it never silences a complaint about a directory that exists.
+  const said = complaints({
+    dumps: dumpsDir('declared-d', 6),
+    covers: coversDir('declared-dest', 24 * 17),
+    coversSource: coversDir('declared-src', 20),
+    catalogue: 'elsewhere',
+  }, NOW)
+  check('a mirror that missed a copy complains whatever the record says', said.length, 1)
+  check('and it is still the mirror it names', /covers mirror is behind/.test(said[0]), true)
+}
+
 // --- Resolution order: the environment wins over the machine record.
 {
   mkdirSync(join(root, 'factory'), { recursive: true })
@@ -211,6 +248,22 @@ const check = (name, actual, expected) => {
   check('and the environment keeps the half it set', mixed.dumps, 'D:/from-env')
   const neither = directories({}, root)
   check('record answers when the environment is silent', neither.dumps, 'D:/from-record')
+  // A record that names paths declares nothing about the catalogue being
+  // elsewhere, which is what keeps the machine holding it loud.
+  check('a record naming paths declares nothing', neither.catalogue, null)
+}
+{
+  const dir = join(root, 'no-catalogue-here')
+  mkdirSync(join(dir, 'factory'), { recursive: true })
+  writeFileSync(join(dir, 'factory', 'backup-dirs.json'), JSON.stringify({ catalogue: 'elsewhere' }))
+  const said = directories({}, dir)
+  check('a record naming no directory still answers the catalogue question', said.catalogue, 'elsewhere')
+  check('and names no directories', said.dumps, null)
+}
+{
+  // Nothing at all on the machine: no record to read, nothing declared, loud.
+  const said = directories({}, join(root, 'no-such-factory-root'))
+  check('no record declares nothing', said.catalogue, null)
 }
 
 rmSync(root, { recursive: true, force: true })
