@@ -67,6 +67,17 @@ let received: URLSearchParams | undefined
 /** What the next token exchange gets back. A case sets this before calling. */
 let nextToken: string
 /**
+ * What the token endpoint answers with, and whether it answers at all (#557).
+ *
+ * Two more knobs on the stub, and they are here because the two shapes they
+ * produce are the two the callback has to tell apart: a provider that said no,
+ * and a provider that could not be asked. Nothing else in this file could
+ * produce either, which is why the difference between "try again in a minute"
+ * and "trying again will not help" had never been driven.
+ */
+let tokenStatus: number
+let tokenEndpointDown: boolean
+/**
  * How many discovery documents the stub has handed out, per authority (#537).
  *
  * Counted rather than assumed, because "the issuer is fetched rather than
@@ -142,8 +153,19 @@ beforeAll(async () => {
     req.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     req.on('end', () => {
       received = new URLSearchParams(body)
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ id_token: nextToken, token_type: 'Bearer' }))
+      /*
+       * Hung up on rather than answered, which is the only honest way to make
+       * `fetch` fail the way an unreachable host does. A stub that answered
+       * `503` would exercise the branch above this one instead.
+       */
+      if (tokenEndpointDown) {
+        req.socket.destroy()
+        return
+      }
+      res.writeHead(tokenStatus, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(
+        nextToken ? { id_token: nextToken, token_type: 'Bearer' } : { token_type: 'Bearer' },
+      ))
     })
   })
   provider.listen(0, '127.0.0.1')
@@ -180,6 +202,8 @@ function acme(): SignInProviderConfig {
 beforeEach(async () => {
   db = await openTestDatabase()
   received = undefined
+  tokenStatus = 200
+  tokenEndpointDown = false
   documentsAsked = {}
   authorities = freshAuthorities()
   forgetDiscovered()
@@ -388,29 +412,105 @@ describe('the exchange, which happens server to server', () => {
   })
 })
 
-describe('the refusals, each driven on its own', () => {
-  async function refusedBecause(over: Record<string, unknown>) {
-    const started = await begin()
-    nextToken = idToken(goodClaims(started.nonce, over))
-    const back = await callback({ state: started.state, cookie: started.flowCookie })
-    expect(cookieIn(back.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
-    return back.status
+/**
+ * Every way a sign-in can fail, driven one at a time, and what a browser is
+ * handed by each (#557).
+ *
+ * ## Why this block is where the answer had to be proved
+ *
+ * The defect these cases now pin was reachable by nobody. **The development door
+ * has no failure path**: `GET /api/auth/dev/start` finds or creates a user,
+ * opens a session and redirects, with no provider to refuse, no flow row to
+ * expire and no token to check. Every test in this repository and every driven
+ * verification of the gate had gone through that door, so eleven exits sat there
+ * for months answering a browser with a JSON body that filled the tab.
+ *
+ * `acme` is what makes them reachable. It is an invented provider run through
+ * the whole flow against a local stub, which is the only way this repository can
+ * hold a failing sign-in at all: a real Google or Microsoft credential cannot
+ * exist here, and these exits are precisely the ones a real one would be needed
+ * for.
+ *
+ * ## Each case reads the redirect and not the status
+ *
+ * These two routes are the only ones a browser reaches by a top-level
+ * navigation, so their answer is the page. Asserting a `400` would be asserting
+ * the shape of the defect, because a `400` carrying a JSON body is exactly what
+ * somebody was reading. What matters is that the browser is sent back to a
+ * screen and told which of the six this was.
+ */
+describe('every way a sign-in can fail, and what a browser is handed', () => {
+  /** The reason a redirect carries, or empty when it carries none. */
+  function troubleIn(response: Response): string {
+    const location = response.headers.get('location') ?? ''
+    return new URL(location, 'http://books.test').searchParams.get('signin') ?? ''
   }
 
+  /** Which way in the redirect named, so the screen can say the label. */
+  function wayIn(response: Response): string {
+    const location = response.headers.get('location') ?? ''
+    return new URL(location, 'http://books.test').searchParams.get('way') ?? ''
+  }
+
+  /**
+   * The property that is true of every case below, asked once.
+   *
+   * Three things and not just the status, because the defect was never a status
+   * code: it was a body somebody read. A route answering `302` while still
+   * writing an object would pass a status check and be exactly as broken for the
+   * one reader this is about.
+   *
+   * So: it redirects, it goes back to a screen on this origin carrying one of
+   * the six, and **it is not JSON**. Express writes `Found. Redirecting to ...`
+   * into every redirect it makes, which a browser never shows and which the
+   * successful sign-in has carried since #521; that is the courtesy line, not a
+   * message this app wrote for anybody, and the content type is what tells the
+   * two apart.
+   */
+  async function sendsBackSaying(response: Response, trouble: string) {
+    expect(response.status, 'answered a browser with something to render').toBe(302)
+    expect(response.headers.get('content-type') ?? '', 'answered a browser with JSON')
+      .not.toContain('application/json')
+    expect(response.headers.get('location') ?? '').toMatch(/^\/\?/)
+    expect(troubleIn(response)).toBe(trouble)
+    // No session was opened on the way past, whichever exit this was.
+    expect(cookieIn(response.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
+  }
+
+  function refusedBecause(over: Record<string, unknown>) {
+    return begin().then(async (started) => {
+      nextToken = idToken(goodClaims(started.nonce, over))
+      return callback({ state: started.state, cookie: started.flowCookie })
+    })
+  }
+
+  /*
+   * The five token checks and the nonce: six sentences in the log and one
+   * situation to a person.
+   *
+   * `refused` for all of them, and that is a decision rather than a shortcut.
+   * Nobody can act differently on "that ID token has expired" than on "Acme
+   * answered without an ID token"; both mean this app will not accept what came
+   * back, and both mean pressing the button again lands in the same place.
+   * `oidc.ts` keeps the exact sentence and sends it to the log, where whoever
+   * runs this app is.
+   */
   it('refuses a token from a different issuer', async () => {
-    expect(await refusedBecause({ iss: 'https://someone-else.test' })).toBe(400)
+    await sendsBackSaying(await refusedBecause({ iss: 'https://someone-else.test' }), 'refused')
   })
 
   it('refuses a token issued for a different application', async () => {
-    expect(await refusedBecause({ aud: 'somebody-elses-client' })).toBe(400)
+    await sendsBackSaying(await refusedBecause({ aud: 'somebody-elses-client' }), 'refused')
   })
 
   it('refuses a token that has expired', async () => {
-    expect(await refusedBecause({ exp: Math.floor(Date.now() / 1000) - 1 })).toBe(400)
+    await sendsBackSaying(
+      await refusedBecause({ exp: Math.floor(Date.now() / 1000) - 1 }), 'refused',
+    )
   })
 
   it('refuses a token that says nothing about who signed in', async () => {
-    expect(await refusedBecause({ sub: undefined })).toBe(400)
+    await sendsBackSaying(await refusedBecause({ sub: undefined }), 'refused')
   })
 
   /**
@@ -419,7 +519,40 @@ describe('the refusals, each driven on its own', () => {
    * client's would be accepted here.
    */
   it('refuses a token whose nonce is not the one that went out', async () => {
-    expect(await refusedBecause({ nonce: 'a-nonce-nobody-asked-for' })).toBe(400)
+    await sendsBackSaying(
+      await refusedBecause({ nonce: 'a-nonce-nobody-asked-for' }), 'refused',
+    )
+  })
+
+  it('refuses an exchange the provider itself said no to', async () => {
+    tokenStatus = 401
+    const started = await begin()
+    await sendsBackSaying(
+      await callback({ state: started.state, cookie: started.flowCookie }), 'refused',
+    )
+  })
+
+  it('refuses an answer from the token endpoint with no ID token in it', async () => {
+    nextToken = ''
+    const started = await begin()
+    await sendsBackSaying(
+      await callback({ state: started.state, cookie: started.flowCookie }), 'refused',
+    )
+  })
+
+  /**
+   * `unavailable` and not `refused`, and this pair of exits is the whole reason
+   * the two are separate words.
+   *
+   * Nobody was asked, so nothing about this sign-in was decided, and "try again
+   * in a minute" is real advice here and a lie in every case above.
+   */
+  it('says nobody could be asked when the token endpoint cannot be reached', async () => {
+    tokenEndpointDown = true
+    const started = await begin()
+    await sendsBackSaying(
+      await callback({ state: started.state, cookie: started.flowCookie }), 'unavailable',
+    )
   })
 
   it('refuses a callback whose state the browser was never given', async () => {
@@ -430,8 +563,7 @@ describe('the refusals, each driven on its own', () => {
     // login CSRF: an attacker completing their own authorization and feeding
     // the resulting URL to a victim.
     const back = await callback({ state: started.state, cookie: 'bookscan_signin=another-browser' })
-    expect(back.status).toBe(400)
-    expect(cookieIn(back.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
+    await sendsBackSaying(back, 'stale')
   })
 
   it('refuses a callback with no state at all', async () => {
@@ -440,35 +572,170 @@ describe('the refusals, each driven on its own', () => {
       redirect: 'manual',
       headers: { cookie: started.flowCookie },
     })
-    expect(back.status).toBe(400)
+    await sendsBackSaying(back, 'stale')
+  })
+
+  /**
+   * **Pressing Back after signing in, which is one of the two #557 observed, and
+   * it lands on `stale` rather than on `already-used`.**
+   *
+   * Worth a case of its own because the wording rests on it. The callback clears
+   * the flow cookie on its way past, so a browser going back to the callback URL
+   * carries a state and no cookie, which is the same exit an attacker's link
+   * reaches. That is why `stale` opens by naming Back and a reopened link: the
+   * branch is mostly innocent people, and the sentence `already-used` would give
+   * them is about a mechanism they never touched.
+   */
+  it('lands a Back press after a finished sign-in on the stale exit, not the used one', async () => {
+    const started = await begin()
+    nextToken = idToken(goodClaims(started.nonce))
+
+    const first = await callback({ state: started.state, cookie: started.flowCookie })
+    expect(first.status).toBe(302)
+    expect(first.headers.get('location')).toBe('/')
+    // The browser kept what the callback told it to keep, which is no flow
+    // cookie, and Back re-issues the same navigation without one.
+    const cleared = (first.headers.get('set-cookie') ?? '').includes('bookscan_signin=;')
+    expect(cleared, 'the callback did not clear the flow cookie').toBe(true)
+
+    await sendsBackSaying(await callback({ state: started.state, cookie: '' }), 'stale')
   })
 
   /**
    * Single use, which is why the flow is a row rather than a cookie: the row is
    * deleted by the callback that consumes it, so a replayed authorization code
    * arrives with nothing left to check it against.
+   *
+   * `already-used` rather than `stale` because the cookie is still presented,
+   * which no browser does after the case above. Something is replaying a whole
+   * callback, and the honest sentence for that is that the sign-in had been
+   * used.
    */
   it('refuses the same callback a second time', async () => {
     const started = await begin()
     nextToken = idToken(goodClaims(started.nonce))
 
     expect((await callback({ state: started.state, cookie: started.flowCookie })).status).toBe(302)
-    expect((await callback({ state: started.state, cookie: started.flowCookie })).status).toBe(400)
+    await sendsBackSaying(
+      await callback({ state: started.state, cookie: started.flowCookie }), 'already-used',
+    )
   })
 
-  it('refuses a provider it was never configured with', async () => {
-    expect((await fetch(`${baseUrl}/api/auth/google/start`, { redirect: 'manual' })).status).toBe(404)
-    expect((await fetch(`${baseUrl}/api/auth/google/callback?code=x&state=y`)).status).toBe(404)
+  /**
+   * Both doors, and this is the assertion that changed rather than being added.
+   *
+   * It read `404` on each of these, which is the right answer to a machine and
+   * the wrong one to the browser that is the only caller either route has. A
+   * person reaches this from a bookmark that outlived a provider, and a page
+   * saying `{"error":"There is no such way to sign in."}` is not an answer they
+   * can do anything with.
+   */
+  it('refuses a provider it was never configured with, on both doors', async () => {
+    await sendsBackSaying(
+      await fetch(`${baseUrl}/api/auth/google/start`, { redirect: 'manual' }), 'no-such-way',
+    )
+    await sendsBackSaying(
+      await fetch(`${baseUrl}/api/auth/google/callback?code=x&state=y`, { redirect: 'manual' }),
+      'no-such-way',
+    )
   })
 
-  it('refuses a sign-in the person cancelled, without repeating what it said', async () => {
+  /**
+   * **The case #557 opens with**, and the one that must not be told the same
+   * thing as the two above it. Somebody pressed Cancel. Nothing is broken, they
+   * did nothing irregular, and the sentence they get says so.
+   */
+  it('tells somebody who cancelled that they cancelled, and does not repeat what the provider said', async () => {
     const started = await begin()
     const back = await fetch(
       `${baseUrl}/api/auth/acme/callback?error=access_denied&state=${started.state}`,
       { redirect: 'manual', headers: { cookie: started.flowCookie } },
     )
-    expect(back.status).toBe(400)
-    expect(await back.text()).not.toContain('access_denied')
+    await sendsBackSaying(back, 'cancelled')
+    // The provider's own words are somebody else's text in a query string. That
+    // was already true of the body and now has to be true of the redirect.
+    expect(back.headers.get('location') ?? '').not.toContain('access_denied')
+  })
+
+  /**
+   * And every other value of that parameter is not a cancellation.
+   *
+   * `server_error`, `invalid_client` and the rest of OAuth 2.0 section 4.1.2.1
+   * are faults rather than choices, and telling somebody they cancelled when
+   * their sign-in is broken is this app saying something untrue about them. One
+   * comparison separates them.
+   */
+  it('does not tell somebody they cancelled when the provider reported a fault', async () => {
+    for (const said of ['server_error', 'invalid_client', 'temporarily_unavailable']) {
+      const started = await begin()
+      const back = await fetch(
+        `${baseUrl}/api/auth/acme/callback?error=${said}&state=${started.state}`,
+        { redirect: 'manual', headers: { cookie: started.flowCookie } },
+      )
+      await sendsBackSaying(back, 'refused')
+    }
+  })
+
+  it('refuses a callback carrying neither an error nor a code', async () => {
+    const started = await begin()
+    const back = await fetch(
+      `${baseUrl}/api/auth/acme/callback?state=${started.state}`,
+      { redirect: 'manual', headers: { cookie: started.flowCookie } },
+    )
+    await sendsBackSaying(back, 'refused')
+  })
+
+  /**
+   * Which way in it was, so the screen can name it.
+   *
+   * The id and never the label, and the client turns it into a label by looking
+   * it up in what `GET /api/auth/providers` sent. What travels in the URL
+   * selects a name this server published rather than supplying one, which is the
+   * property that keeps a screen from reading a stranger's text out loud.
+   */
+  it('names which way in it was, by id, on the exits that know', async () => {
+    const started = await begin()
+    const back = await fetch(
+      `${baseUrl}/api/auth/acme/callback?error=access_denied&state=${started.state}`,
+      { redirect: 'manual', headers: { cookie: started.flowCookie } },
+    )
+    expect(wayIn(back)).toBe('acme')
+    expect(back.headers.get('location')).not.toContain('Acme')
+  })
+
+  /** There is nothing knowable about a provider this server does not have. */
+  it('names no way in when there is no such way', async () => {
+    const back = await fetch(`${baseUrl}/api/auth/google/start`, { redirect: 'manual' })
+    expect(wayIn(back)).toBe('')
+  })
+
+  /**
+   * The rule rather than the branches, asserted as a rule.
+   *
+   * A reviewer can check every exit above one at a time and still miss the one
+   * added next year, which is exactly how these eleven came to exist: each was
+   * written correctly for an API, and none of their authors was thinking about a
+   * browser. So this asks the property directly of every failing shape this file
+   * can reach without a stub, and a new exit that answers with a body has to be
+   * written past a case saying it must not.
+   */
+  it('never answers either door with a body, whatever went wrong', async () => {
+    const started = await begin()
+    const asks = [
+      `${baseUrl}/api/auth/nobody/start`,
+      `${baseUrl}/api/auth/nobody/callback?code=x&state=y`,
+      `${baseUrl}/api/auth/acme/callback?error=access_denied&state=${started.state}`,
+      `${baseUrl}/api/auth/acme/callback?code=x&state=not-the-one`,
+      `${baseUrl}/api/auth/acme/callback?state=${started.state}`,
+      `${baseUrl}/api/auth/acme/callback`,
+    ]
+    for (const ask of asks) {
+      const back = await fetch(ask, { redirect: 'manual', headers: { cookie: started.flowCookie } })
+      expect(back.status, ask).toBe(302)
+      expect(back.headers.get('content-type') ?? '', ask).not.toContain('application/json')
+      expect(await back.text(), ask).not.toContain('"error"')
+      expect(troubleIn(back), ask).not.toBe('')
+    }
   })
 })
 
@@ -667,14 +934,22 @@ describe('a provider whose issuer is discovered rather than written down', () =>
       `${url}/api/auth/wellhouse/start?next=${encodeURIComponent(next)}`,
       { redirect: 'manual' },
     )
+    /*
+     * Against a base, because a start now redirects to one of two places: out
+     * to the authority, absolutely, or back to the login screen on a path
+     * (#557). Both are read the same way and the base is ignored by the first.
+     */
     const location = response.status === 302
-      ? new URL(response.headers.get('location') ?? '')
+      ? new URL(response.headers.get('location') ?? '', 'http://books.test')
       : undefined
     return {
       status: response.status,
       location,
       state: location?.searchParams.get('state') ?? '',
       nonce: location?.searchParams.get('nonce') ?? '',
+      // Which of the six, when this start was a refusal rather than a journey
+      // out. A start that worked redirects to the authority and carries none.
+      trouble: location?.searchParams.get('signin') ?? '',
       cookie: cookieIn(response.headers.get('set-cookie'), 'bookscan_signin'),
     }
   }
@@ -751,7 +1026,12 @@ describe('a provider whose issuer is discovered rather than written down', () =>
 
     const back = await comeBack(began.state, began.cookie)
 
-    expect(back.status).toBe(400)
+    // Sent back to the login screen like every other refusal (#557), and told
+    // `refused` rather than `cancelled`: nobody chose this and nobody undoes it
+    // by pressing the button again.
+    expect(back.status).toBe(302)
+    expect(new URL(back.headers.get('location') ?? '', 'http://books.test')
+      .searchParams.get('signin')).toBe('refused')
     expect(cookieIn(back.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
     expect(await new AuthStore(db).everybody()).toHaveLength(0)
   })
@@ -787,7 +1067,15 @@ describe('a provider whose issuer is discovered rather than written down', () =>
     await boot(wellhouse('templated'))
 
     const began = await start()
-    expect(began.status).toBe(502)
+    /*
+     * `unavailable`, which is what the `502` this used to assert became when
+     * these routes stopped answering a browser with a body (#557). The same
+     * distinction, said in the vocabulary a person is told in: an authority
+     * that will not say what its issuer is has nothing to do with whoever
+     * pressed the button.
+     */
+    expect(began.status).toBe(302)
+    expect(began.trouble).toBe('unavailable')
     expect(began.cookie).toBe('')
 
     // And nothing was half-started: no flow row to replay and no user.
@@ -797,12 +1085,12 @@ describe('a provider whose issuer is discovered rather than written down', () =>
 
   it('refuses an authority that names an issuer it does not own', async () => {
     await boot(wellhouse('elsewhere'))
-    expect((await start()).status).toBe(502)
+    expect((await start()).trouble).toBe('unavailable')
   })
 
   it('refuses an authority that is not there at all', async () => {
     await boot(wellhouse('an-authority-this-stub-has-never-heard-of'))
-    expect((await start()).status).toBe(502)
+    expect((await start()).trouble).toBe('unavailable')
   })
 
   /**
@@ -833,7 +1121,9 @@ describe('a provider whose issuer is discovered rather than written down', () =>
     })
     const back = await comeBack(began.state, began.cookie)
 
-    expect(back.status).toBe(502)
+    expect(back.status).toBe(302)
+    expect(new URL(back.headers.get('location') ?? '', 'http://books.test')
+      .searchParams.get('signin')).toBe('unavailable')
     expect(cookieIn(back.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
     expect(await new AuthStore(db).everybody()).toHaveLength(0)
     expect(documentsAsked.wellhouse).toBe(2)
@@ -897,7 +1187,11 @@ describe('the development door', () => {
     await new Promise<void>((resolve) => listener.once('listening', resolve))
     const url = `http://127.0.0.1:${(listener.address() as AddressInfo).port}`
     try {
-      expect((await fetch(`${url}/api/auth/dev/start`, { redirect: 'manual' })).status).toBe(404)
+      // Not a 404 any more (#557): a browser is what asks this, so it is sent
+      // back to the login screen, which on this server draws "there is no way
+      // to sign in to this app yet" and is the true thing to show.
+      const shutDoor = await fetch(`${url}/api/auth/dev/start`, { redirect: 'manual' })
+      expect(shutDoor.headers.get('location')).toBe('/?signin=no-such-way')
       expect(await (await fetch(`${url}/api/auth/providers`)).json()).toEqual({ providers: [] })
       // And with no way in, everything is refused. A server with no gate and a
       // server with no way through it look nothing alike.
