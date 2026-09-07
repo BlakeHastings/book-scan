@@ -43,6 +43,7 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 
+import type { SignInTrouble } from '../../shared/auth'
 import type { SignInProviderConfig } from './providers'
 
 /** How long this server waits on a provider before giving up. */
@@ -86,9 +87,28 @@ export function authorizationUrl(
   return url.href
 }
 
-/** What a provider refused with, in a shape a route can answer from. */
+/**
+ * What a provider refused with, in a shape a route can answer from.
+ *
+ * **`trouble` is required, and that is the point of it** (#557). Until these
+ * routes redirected, the message was the whole answer: it went into a JSON body
+ * a browser rendered as a page, so nothing downstream ever had to know which
+ * kind of refusal this was. Now the callback has to choose one of six sentences
+ * for a person, and the only place that choice can be made correctly is here,
+ * where the refusal is decided. A `catch` reading the message to work it out
+ * would be a string match on English, and the next throw added would quietly
+ * fall into whichever branch its wording happened to hit.
+ *
+ * So every `throw` names its reason, `grep` finds all of them at once, and a new
+ * one cannot be written without deciding what a person is told.
+ */
 export class SignInRefused extends Error {
-  constructor(message: string, readonly cause?: unknown) {
+  constructor(
+    message: string,
+    /** Which of the six a person is in. See `shared/auth.ts`. */
+    readonly trouble: SignInTrouble,
+    readonly cause?: unknown,
+  ) {
     super(message)
     this.name = 'SignInRefused'
   }
@@ -140,6 +160,9 @@ export async function exchange(
     if (!response.ok) {
       throw new SignInRefused(
         `${provider.label} refused the sign-in (HTTP ${response.status}).`,
+        // The provider answered, and its answer was no. Trying again gets the
+        // same no, which is what separates this from `unavailable` below.
+        'refused',
       )
     }
     payload = await response.json() as { id_token?: unknown }
@@ -150,6 +173,9 @@ export async function exchange(
       aborted
         ? `${provider.label} did not answer in time.`
         : `${provider.label} could not be reached.`,
+      // Nobody was asked, so nothing about this sign-in was decided. It is the
+      // one refusal here where trying again in a minute is real advice.
+      'unavailable',
       error,
     )
   } finally {
@@ -157,7 +183,7 @@ export async function exchange(
   }
 
   if (typeof payload.id_token !== 'string' || !payload.id_token) {
-    throw new SignInRefused(`${provider.label} answered without an ID token.`)
+    throw new SignInRefused(`${provider.label} answered without an ID token.`, 'refused')
   }
   return claimsFrom(payload.id_token, provider, now)
 }
@@ -193,23 +219,27 @@ export function claimsFrom(
 ): { subject: string; email: string; name: string; nonce: string } {
   const parts = idToken.split('.')
   if (parts.length !== 3 || !parts[1]) {
-    throw new SignInRefused(`${provider.label} sent something that is not an ID token.`)
+    throw new SignInRefused(
+      `${provider.label} sent something that is not an ID token.`, 'refused',
+    )
   }
 
   let claims: Claims
   try {
     claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Claims
   } catch (error) {
-    throw new SignInRefused(`${provider.label} sent an ID token that will not parse.`, error)
+    throw new SignInRefused(
+      `${provider.label} sent an ID token that will not parse.`, 'refused', error,
+    )
   }
 
   if (claims.iss !== provider.issuer) {
-    throw new SignInRefused(`That ID token was not issued by ${provider.label}.`)
+    throw new SignInRefused(`That ID token was not issued by ${provider.label}.`, 'refused')
   }
 
   const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
   if (!audience.includes(provider.clientId)) {
-    throw new SignInRefused('That ID token was issued for a different application.')
+    throw new SignInRefused('That ID token was issued for a different application.', 'refused')
   }
 
   // Seconds since the epoch, per the specification, and compared with no leeway.
@@ -217,11 +247,11 @@ export function claimsFrom(
   // and the tokens this reads are seconds old because this server asked for them
   // itself a moment ago.
   if (typeof claims.exp !== 'number' || claims.exp * 1000 <= now.getTime()) {
-    throw new SignInRefused('That ID token has expired.')
+    throw new SignInRefused('That ID token has expired.', 'refused')
   }
 
   if (typeof claims.sub !== 'string' || !claims.sub) {
-    throw new SignInRefused(`${provider.label} did not say who signed in.`)
+    throw new SignInRefused(`${provider.label} did not say who signed in.`, 'refused')
   }
 
   return {

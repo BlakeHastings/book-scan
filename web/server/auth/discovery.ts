@@ -89,6 +89,17 @@
  * tenant's issuer does not change; if it ever did, so did the deployment, and a
  * deployment is a restart. An expiry would buy a re-fetch nobody needs and a
  * second failure mode nobody would ever see happen.
+ *
+ * ## Every refusal in this file is `unavailable`, and it is one sentence why
+ *
+ * #557 made `SignInRefused` carry which of six things a person is told, decided
+ * where the refusal is decided rather than by a `catch` reading English. Ten
+ * throws here and one answer, because they are ten ways of saying the same thing
+ * to whoever pressed the button: **nobody could be asked.** A templated issuer,
+ * an endpoint on another origin and a document that would not load are three
+ * different notes for whoever configured this app, and to the person standing in
+ * front of the screen they are one situation with nothing in it they did or can
+ * undo. That is the same reason this half already answers `502` and not `400`.
  */
 
 import type { SignInProviderConfig } from './providers'
@@ -136,13 +147,16 @@ export function discoveredCount(): number {
  */
 export function readDiscovery(document: unknown, from: string, label: string): Discovered {
   if (typeof document !== 'object' || document === null || Array.isArray(document)) {
-    throw new SignInRefused(`${label} answered its discovery document with something that is not an object.`)
+    throw new SignInRefused(
+      `${label} answered its discovery document with something that is not an object.`,
+      'unavailable',
+    )
   }
 
   const said = document as Record<string, unknown>
   const issuer = said.issuer
   if (typeof issuer !== 'string' || !issuer.trim()) {
-    throw new SignInRefused(`${label}'s discovery document names no issuer.`)
+    throw new SignInRefused(`${label}'s discovery document names no issuer.`, 'unavailable')
   }
 
   /*
@@ -162,12 +176,15 @@ export function readDiscovery(document: unknown, from: string, label: string): D
       'many tenants and a token carries whichever tenant its owner belongs to, so there ' +
       'is nothing for this server to check the token against. Point this app at one ' +
       'authority whose issuer is a value.',
+      'unavailable',
     )
   }
 
   const origin = originOf(from)
   if (!origin) {
-    throw new SignInRefused(`${label} was configured with a discovery URL that is not a URL.`)
+    throw new SignInRefused(
+      `${label} was configured with a discovery URL that is not a URL.`, 'unavailable',
+    )
   }
 
   if (originOf(issuer) !== origin) {
@@ -175,6 +192,7 @@ export function readDiscovery(document: unknown, from: string, label: string): D
       `${label}'s discovery document names an issuer somewhere else (${issuer}). A ` +
       'document is only worth fetching because what it says about itself comes from ' +
       'itself, so an issuer on another origin is refused.',
+      'unavailable',
     )
   }
 
@@ -187,13 +205,14 @@ export function readDiscovery(document: unknown, from: string, label: string): D
 /** One endpoint out of a document, on the document's own origin or not at all. */
 function endpoint(value: unknown, name: string, origin: string, label: string): string {
   if (typeof value !== 'string' || !value.trim()) {
-    throw new SignInRefused(`${label}'s discovery document names no ${name}.`)
+    throw new SignInRefused(`${label}'s discovery document names no ${name}.`, 'unavailable')
   }
   if (originOf(value) !== origin) {
     throw new SignInRefused(
       `${label}'s discovery document points its ${name} at another origin (${value}). ` +
       'This server posts its client secret to the token endpoint, so a document that ' +
       'can move it elsewhere is refused.',
+      'unavailable',
     )
   }
   return value
@@ -235,6 +254,7 @@ export async function discover(
     if (!response.ok) {
       throw new SignInRefused(
         `${label} did not answer for its discovery document (HTTP ${response.status}).`,
+        'unavailable',
       )
     }
     document = await response.json()
@@ -245,6 +265,7 @@ export async function discover(
       aborted
         ? `${label} did not answer for its discovery document in time.`
         : `${label}'s discovery document could not be reached.`,
+      'unavailable',
       error,
     )
   } finally {
@@ -284,6 +305,7 @@ export async function resolveProvider(
       throw new SignInRefused(
         `${provider.label} is configured with neither an issuer nor a discovery URL, ` +
         'so there is nothing to check an ID token against.',
+        'unavailable',
       )
     }
     return provider
