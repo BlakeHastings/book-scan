@@ -80,20 +80,34 @@ evaluates.
 
 | Issue | Who has it |
 | --- | --- |
-| #572 | an agent. The live-data guard's test passes where CI runs it and fails where agents do |
-| #563 | an agent. The browser suite is required and its own sources are never typechecked |
-| #553, #554 | an agent. The aiming frame and the caption, both on the camera, both found by #530 |
+| #479 | an agent. A range with no rule has no start, resumed from work a session restart interrupted |
+| #584, #585 | an agent. The seam between the two camera changes, and two more things counting controls |
+| #577, #582 | an agent. The pruner's squash blind spot, and a hook payload with no working directory |
 
-**Fourteen pull requests merged on 2026-09-07, every one reviewed from this
-loop**: #551 (#549), #555 (#530), #560 (#448), #565 (#556), #564 (#557), #569
-(#552 script half), #570 (#566), #571 (#561), #573 (#567), #575 (#562), #574 and
-#576 (#558, split), plus four top-ups of this file. **#510 was closed on
-evidence**, not on its reviews.
+**Twenty pull requests merged on 2026-09-07**, every one reviewed from this loop:
+#551 (#549), #555 (#530), #560 (#448), #565 (#556), #564 (#557), #569 (#552
+script half), #570 (#566), #571 (#561), #573 (#567), #575 (#562), #574 and #576
+(#558, split), #579 (#563), #580 (#572), #583 (#553), #586 (#554), plus five
+top-ups of this file. **#510 was closed on evidence**, not on its reviews.
 
-**The merge gate now requires three checks**, `image (build + contract)` being
-the third. Its `REQUIRED` list is the single source of truth for what gates a
-merge, and it is deliberately stricter than the branch ruleset until the owner
-adds the same context there.
+## A session restart detached three agents mid-flight, and one had uncommitted work
+
+Second time in one day, and the recovery procedure below held. The new part is
+the case it had not met: **an agent that had done real work and committed none
+of it.**
+
+`git status --short` in each worktree is what found it. Two were clean at base
+and were redispatched; one held five modified files under `web/shared/` and
+`web/server/` with no commit and no branch. **The orchestrator committed it**,
+as `WIP:` with a commit message saying plainly that it does not compile and is a
+sketch rather than a proposal, and pushed the branch so a worktree was no longer
+the only copy. The successor agent was told where it is and that it may rework
+or discard any of it.
+
+**Commit somebody else's interrupted work before deciding what to do with it.**
+It costs one commit and it converts "somebody must look at this before we sweep"
+into an ordinary branch. Do not quietly finish it yourself; that rule is
+unchanged and is why the commit says who wrote what.
 
 ## The tag is rehearsed, and only three things are still first
 
@@ -503,6 +517,20 @@ thinking costs more and is guesswork.
 your first working change".** All three had that instruction. The one that had
 work had pushed it; the two that had none had none to lose. That is the second
 time this year that one sentence has been the whole difference.
+
+## The pruner's second blind spot now has an issue, and four live examples
+
+**It is the squash that causes it, and that is #577.** `merge-pr.mjs` squash
+merges, so a branch's own commits never appear in `master`'s history and
+`git log origin/master..HEAD` in the worktree still lists all of them. Then
+`master` moves on top of the same files and a content comparison finds a
+difference in the other direction. Both available signals therefore say
+"unlanded" about a branch that landed cleanly. It fired on **every** merged
+worktree in the 2026-09-07 wave.
+
+**Four of them are still on disk deliberately**, released of their working-tree
+residue but not removed, as fixtures for whoever works #577. Their content was
+each confirmed present in `master` by the grep below before they were left.
 
 ## The pruner has a second blind spot, and it is the opposite of the first
 
