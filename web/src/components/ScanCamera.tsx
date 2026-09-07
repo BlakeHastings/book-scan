@@ -282,16 +282,15 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
          * there being nothing to photograph. Unchanged from before #408.
          */
         shutterOff={reading || Boolean(error)}
+        /* What the last shot came to, when it came to something that is neither
+           a book nor a list. In the bar above the controls, the same place the
+           cataloguing camera says what is in your hands. It carried
+           `--wide` until #554, which was the offset for a near cluster two
+           controls tall; the bar measures itself now and the modifier is gone. */
+        said={message && !error ? <p className="wf-view__found">{message}</p> : undefined}
         over={
           <>
             {error && <div className="cam__error">{error}</div>}
-
-            {/* What the last shot came to, when it came to something that is
-                neither a book nor a list. One line above the bar, the same
-                place the cataloguing camera says what is in your hands. */}
-            {message && !error && (
-              <p className="wf-view__found wf-view__found--wide">{message}</p>
-            )}
 
             {/* The panel is shared with the Add flow, which asks the same
                 question from the other end (#146). One wording, one set of

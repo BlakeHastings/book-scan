@@ -82,8 +82,15 @@
  * going to keep, a torch, a settings sheet and the answer to "this book is
  * already in the queue". None of that is the wireframe's business, and none of
  * it is a second camera screen either: it is this frame with things handed to
- * it. So `picture`, `guide`, `top`, `far` and `over` are slots, each defaulting
- * to what the gallery already drew.
+ * it. So `picture`, `guide`, `top`, `far`, `over` and `said` are slots, each
+ * defaulting to what the gallery already drew.
+ *
+ * **Every one of them is a place**, and `said` was added because one of them was
+ * not (#554). The line telling you what is in your hands was handed in through
+ * `over`, which is "somewhere on the picture", and it then had to find the top
+ * of the controls with arithmetic — `--s7 + --tap`, which clears one control,
+ * on a screen whose near cluster is three. `said` is a row of the bar, so the
+ * bar is as tall as what is in it and nothing counts anything.
  *
  * A second component would be the mistake `Shots.tsx` was made to end: two
  * things emitting `.wf-view` and `.wf-shutter`, agreeing until one of them is
@@ -119,6 +126,7 @@ export function Viewfinder({
   top,
   far,
   over,
+  said,
   done = 'Done with this book',
   doneOff = false,
   also,
@@ -145,6 +153,25 @@ export function Viewfinder({
   far?: ReactNode
   /** Drawn over the picture and under the controls: sheets, findings, hints. */
   over?: ReactNode
+  /**
+   * The one line this screen has to say, in the bar and above the controls.
+   *
+   * A slot rather than an offset, and that is the whole of #554. It was drawn
+   * through `over` with `bottom: calc(--s7 + --tap + safe-area)` under it, which
+   * is 92px, which clears a shutter — so on the cataloguing camera, whose near
+   * cluster is three controls tall, it lay under "Done with this book" by 24px
+   * whatever it said, and the button is painted after it. There was a second
+   * offset for the cameras whose cluster is two tall, and a third would have
+   * been needed for this one.
+   *
+   * **The stylesheet cannot count the controls and the caller never had to.**
+   * The caller is the thing that passed `also`, `done` and `shots`, so it is the
+   * thing that knows how tall the near cluster is, and the way to use that
+   * knowledge is not to tell it a number: it is to put the line in the same box
+   * as the controls and let the box be as tall as its contents. Both `bottom`
+   * calculations are gone and nothing replaced them.
+   */
+  said?: ReactNode
   /** What the button beside the shutter says. */
   done?: ReactNode
   doneOff?: boolean
@@ -214,48 +241,63 @@ export function Viewfinder({
 
       <div className="wf-view__bar">
         {/*
-          A camera that keeps nothing draws no strip of what it kept, and one
-          of the two does keep nothing: the camera that reads a book already in
-          the collection takes a frame, answers with an identity and throws the
-          frame away. An empty rail there is a list announced as "Photographs"
-          with no photographs in it, and a gap where the bar expects a control.
-          The span holds the near cluster against its own edge.
+          What this screen has to say, above the controls and in the same box as
+          them (#554). Rendered only when there is something to say, so a camera
+          with nothing to say is exactly as tall as it was: the row is a row of
+          the bar's grid and an absent child takes no gap with it.
+
+          It is in the bar rather than above it because the bar is the one thing
+          on this screen that knows how tall the near cluster is, and it knows it
+          by holding it. Everything that tried to say so with a number got it
+          wrong for at least one of the three cameras.
         */}
-        {shots.length > 0 ? <Shots shots={shots} act on="picture" /> : <span />}
-        <div className="wf-view__near">
-          {also && (
+        {said}
+
+        <div className="wf-view__controls">
+          {/*
+            A camera that keeps nothing draws no strip of what it kept, and one
+            of the two does keep nothing: the camera that reads a book already in
+            the collection takes a frame, answers with an identity and throws the
+            frame away. An empty rail there is a list announced as "Photographs"
+            with no photographs in it, and a gap where the bar expects a control.
+            The span holds the near cluster against its own edge.
+          */}
+          {shots.length > 0 ? <Shots shots={shots} act on="picture" /> : <span />}
+          <div className="wf-view__near">
+            {also && (
+              <button
+                type="button"
+                className="wf-view__done wf-view__done--quiet"
+                onClick={also.onPress}
+                disabled={also.off}
+              >
+                {also.word}
+              </button>
+            )}
             <button
               type="button"
-              className="wf-view__done wf-view__done--quiet"
-              onClick={also.onPress}
-              disabled={also.off}
+              className="wf-view__done"
+              onClick={onDone}
+              disabled={doneOff}
             >
-              {also.word}
+              {done}
             </button>
-          )}
-          <button
-            type="button"
-            className="wf-view__done"
-            onClick={onDone}
-            disabled={doneOff}
-          >
-            {done}
-          </button>
-          {/*
-            The shutter waits on nothing. Nothing is put in front of it, it is
-            never behind a confirmation, and the only thing that disables it is
-            there being no stream to take a photograph from. See #294 for what
-            work sitting behind other work costs.
-          */}
-          <button
-            type="button"
-            className="wf-shutter"
-            aria-label={shutterName}
-            onClick={onShutter}
-            disabled={shutterOff}
-          >
-            <span className="wf-shutter__inner" />
-          </button>
+            {/*
+              The shutter waits on nothing. Nothing is put in front of it, it is
+              never behind a confirmation, and the only thing that disables it is
+              there being no stream to take a photograph from. See #294 for what
+              work sitting behind other work costs.
+            */}
+            <button
+              type="button"
+              className="wf-shutter"
+              aria-label={shutterName}
+              onClick={onShutter}
+              disabled={shutterOff}
+            >
+              <span className="wf-shutter__inner" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
