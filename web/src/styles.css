@@ -342,7 +342,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
  * a row of. Making it one is a bigger change than a caption — `over` would have
  * to become a region that ends where the bar starts, and the camera-not-started
  * screen is passed through the same slot and has to cover the bar rather than
- * stop at it. Worth doing and not here.
+ * stop at it. That is #585, which also carries the one of these that is a live
+ * defect: `.cam__toast` above lies across "Next book" and has since before any
+ * of this.
  */
 .queued,
 .isbncam__choices {
