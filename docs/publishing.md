@@ -380,7 +380,10 @@ $ docker pull localhost:5533/blakehastings/book-scan@sha256:4bc28b1…
 Status: Downloaded newer image for …@sha256:4bc28b1…
 ```
 
-Then the two verification steps of the workflow, run as they are written:
+Then the two verification steps of the workflow, run as they were written on the
+day. **Since #549 they are `scripts/check-image.mjs`**, which makes the same two
+assertions from one file that both this workflow and the pull request job call,
+so the shell below is history rather than something to go looking for:
 
 ```
 $ docker run --rm --entrypoint cat $REF /app/deploy/contract.json > from-image.json
