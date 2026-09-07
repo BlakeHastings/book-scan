@@ -486,7 +486,25 @@ steps nobody can take back should be the only two that have never run:
 
 So: the push, the digest round trip, and the release. Two of those three are the
 irreversible pair, and the third is a `docker pull` of something that has just
-been pushed. That is the shape the issue asked for and it is worth keeping: if a
+been pushed.
+
+> **The third one is where the rehearsal nearly reintroduced the failure it was
+> written to prevent, and it is worth reading before touching that script.** The
+> first version of `scripts/check-image.mjs` asked `docker image inspect` before
+> anything else and exited 1 when the answer was no. `docker image inspect` reads
+> the local store and does not pull. `image.yml` builds with `load: true`, so its
+> image is local and it passed there every time; `publish.yml` builds with
+> `push: true` and no `load:` on the `docker-container` driver, so **its image is
+> only ever in the registry** — that precheck would have refused the first tag
+> one step after the push, with the tag already immutable and public and no
+> release made. It was caught in review, before it ran. The fetch is now
+> something the script does and logs, `fetchIfItIsElsewhere`, and the reason is
+> written where somebody would meet it: in that script's header and beside the
+> step in `publish.yml`. The lesson is the same one this project keeps paying
+> for: **the two callers were assumed to differ only in the ref, and the
+> assumption was written down as a fact before anybody checked it.**
+
+That is the shape the issue asked for and it is worth keeping: if a
 future step is added to this workflow, add it to `image.yml` too, or add a line
 to this table saying why it cannot rehearse.
 

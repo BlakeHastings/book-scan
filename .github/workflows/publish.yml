@@ -159,7 +159,18 @@ jobs:
       # is copied in and never executed is how a shipped tool turns out to have
       # been broken for months.
       #
-      # Both of those used to be shell written out here, and #549 moved them
+      # **Nothing in this workflow puts the image on the runner.** The build
+      # above is `push: true` with no `load:`, on the `docker-container` driver,
+      # so what it made is in the registry and nowhere else, and the pull back is
+      # done by the script below. That is not an incidental detail: the first
+      # version of #549's script asked `docker image inspect` first, which reads
+      # the local store and does not pull, so it passed on every pull request and
+      # would have failed here — one step after an immutable public tag existed,
+      # with no release. Do not add such a precheck, and do not answer one by
+      # adding `load: true` above: loading 1.49 GB into the runner's daemon would
+      # remove the registry round trip that is half of what this step proves.
+      #
+      # Both of these used to be shell written out here, and #549 moved them
       # into `scripts/check-image.mjs` **so that this is not their first run.**
       # `.github/workflows/image.yml` calls the same script on every pull
       # request that can change the image, against the image it just built and

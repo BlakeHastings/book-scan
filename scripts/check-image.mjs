@@ -11,15 +11,32 @@
 // WHY THIS IS A SCRIPT AND NOT THE SHELL IT USED TO BE
 // It is run by `.github/workflows/publish.yml` against the image it has just
 // pushed, pulled back by digest, and by `.github/workflows/image.yml` against
-// the image a pull request has just built and loaded. Those two callers differ
-// in exactly one thing, which is the ref they hand it. Everything else about
-// the questions is the same, and #549 is about the tag run being the first time
-// any of it happens: the answer to that is not a second copy of the same
-// twenty lines of shell in a second workflow, because two copies drift and the
-// drift is invisible until a tag. So the assertions live here, once, and the
-// version that runs at a tag is the version a pull request has already run.
+// the image a pull request has just built and loaded. #549 is about the tag run
+// being the first time any of it happens: the answer to that is not a second
+// copy of the same twenty lines of shell in a second workflow, because two
+// copies drift and the drift is invisible until a tag. So the assertions live
+// here, once, and the version that runs at a tag is the version a pull request
+// has already run.
 //
-// It takes no options and knows nothing about either caller. A ref is a ref.
+// THE TWO CALLERS DIFFER IN MORE THAN THE REF, AND THE DIFFERENCE IS WHERE THE
+// IMAGE IS
+// This header used to say "a ref is a ref" and that they differed in exactly one
+// thing. They do not, and the first version of this script was refused in review
+// for it. `image.yml` builds with `load: true`, so its image is in the runner's
+// own daemon before this is called. `publish.yml` builds with `push: true` and
+// no `load:`, on the `docker-container` driver, so **its image exists only in
+// the registry** and there is no `docker pull` step anywhere in that workflow.
+// A precheck asking `docker image inspect` therefore passed on every pull
+// request and would have failed the first tag, one step after the push, with the
+// immutable public tag already created and the release never made: the exact
+// failure this issue exists to prevent, reintroduced by the fix for it.
+//
+// So the fetch is part of this script's job rather than an assumption it makes.
+// `fetchIfItIsElsewhere` pulls when the ref is not local and says which of the
+// two happened, because at a tag "what was just pushed came back" is itself
+// something the run is asserting, and an implicit pull inside a `docker run`
+// asserts it without ever saying so. That is what the old shell did, and it is
+// why the old shell worked.
 //
 // WHY THERE IS NO check-image.test.mjs BESIDE IT
 // Every branch in here is the exit code of a `docker run`, and a fixture that
@@ -49,6 +66,35 @@ function wrong(message) {
 
 function docker(args, options = {}) {
   return spawnSync('docker', args, { encoding: 'utf8', ...options })
+}
+
+/**
+ * Make sure the ref names something this machine can run, and say which way it
+ * got there.
+ *
+ * Both assertions below are `docker run`, which pulls a missing image on its
+ * own, so this is not what makes them work. What it buys is that the fetch is
+ * visible: at a tag the pull *is* the assertion — the image that comes back by
+ * digest is the one that was just pushed — and a pull that happens silently
+ * inside a `cat` cannot be read as one. It also keeps a missing image a single
+ * clear failure rather than two confusing ones.
+ */
+function fetchIfItIsElsewhere(ref) {
+  if (docker(['image', 'inspect', ref], { stdio: 'ignore' }).status === 0) {
+    console.log(`${ref} is already in this machine's image store.`)
+    return true
+  }
+
+  console.log(`${ref} is not in this machine's image store, so it is pulled back from the registry.`)
+  // Streamed rather than captured: a 1.49 GB pull is the longest thing this
+  // script does and a log that says nothing for two minutes reads as a hang.
+  if (docker(['pull', ref], { stdio: 'inherit' }).status !== 0) {
+    wrong(`Could not pull ${ref}. It is neither on this machine nor available to pull.`)
+    return false
+  }
+
+  console.log(`Pulled ${ref}.`)
+  return true
 }
 
 /**
@@ -138,12 +184,7 @@ if (!ref) {
   process.exit(2)
 }
 
-// Asked first, so that a ref nobody built says so once rather than twice in the
-// middle of two failing assertions.
-if (docker(['image', 'inspect', ref], { stdio: 'ignore' }).status !== 0) {
-  wrong(`No image called ${ref} is present. It has to be built or pulled before this can ask it anything.`)
-  process.exit(1)
-}
+if (!fetchIfItIsElsewhere(ref)) process.exit(1)
 
 // Both, always, rather than stopping at the first failure: they are independent
 // questions and a run that answers one of them is half a diagnosis.
