@@ -1072,7 +1072,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * everything under `/api`, what an answer may be done with after it has left,
    * which is the half of the question the gate does not ask. It is above the
    * gate so the two refusals carry it too, and above `mountSignIn` so the five
-   * open doors do — a sign-in redirect carries a `state` and a nonce, and
+   * open doors do: a sign-in redirect carries a `state` and a nonce, and
    * `GET /api/auth/session` is a response about a person. See `API_CACHE`.
    */
   const signInConfig = options.signIn ?? { providers: [], publicOrigin: '' }
@@ -1148,10 +1148,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * and the wrong answer here: it would take the five minute window away from
    * the one screen the window was measured for, by sitting upstream of a
    * decision that had already been argued out. Both doors set this string on
-   * the way out — the thumbnail route with `res.set` and the static mount with
+   * the way out: the thumbnail route with `res.set`, and the static mount with
    * `setHeaders`, which `send` emits before writing a `Cache-Control` of its
-   * own — so this is what leaves. `index.test.ts` asserts both strings at all
-   * four doors so the two cannot part company.
+   * own. So this is what leaves, and `index.test.ts` asserts both strings at
+   * all four doors so the two cannot part company.
    */
   const COVER_CACHE = 'private, max-age=300, must-revalidate'
 

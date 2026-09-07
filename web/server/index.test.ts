@@ -3096,10 +3096,10 @@ describe('what a photograph says may be done with it', () => {
  * that carries the collection itself. Until this, every gated route said
  * nothing at all: no `Cache-Control`, no `Expires`, no `Vary`, on
  * `/api/health`, on `/api/books`, on the `/api` catch-all 404 and on both of
- * the gate's refusals. Nothing is not the same as "do not cache" — a response
+ * the gate's refusals. Nothing is not the same as "do not cache": a response
  * with no freshness information is one a shared cache may store and reuse
  * under a heuristic of its own, and `404` is on the list of statuses that
- * applies to — so the safety came from what somebody else's product happens to
+ * applies to. So the safety came from what somebody else's product happens to
  * do by default, which is not a property of this application.
  *
  * **This asserts the string rather than describing it**, for #556's reason:
@@ -3183,9 +3183,14 @@ describe('what a JSON answer says may be done with it', () => {
    *
    * `mountCachePolicy` is mounted on `/api` above everything, so without the
    * two doors setting `COVER_CACHE` on the way out it would be the last word
-   * for the covers as well — which would take away the five minute window
-   * #556 measured on the one screen it was measured for, by putting a broad
-   * rule upstream of an argued one.
+   * for the covers as well, which would take away the five minute window #556
+   * measured on the one screen it was measured for, by putting a broad rule
+   * upstream of an argued one.
+   *
+   * This passes against the old code too, because nothing was setting a header
+   * upstream of the covers then. It is here as the guard against the fix for
+   * one surface breaking the other, which is the failure this repository keeps
+   * finding, not because it would have caught the defect being fixed.
    *
    * The `304` is asked as well as the `200` because they leave `send` by
    * different paths, and a conditional request is most of what the covers now
@@ -3198,7 +3203,6 @@ describe('what a JSON answer says may be done with it', () => {
       const first = await fetchCover(path)
       expect(first.status).toBe(200)
       expect(first.headers.get('cache-control')).toBe(COVER_POLICY)
-      expect(first.headers.get('cache-control')).not.toBe(JSON_POLICY)
 
       const validator = first.headers.get('etag')!
       const again = await fetchCover(path, {
@@ -3231,18 +3235,19 @@ describe('what a JSON answer says may be done with it', () => {
    * `no-cache` permits a stored copy and forbids reusing it without asking
    * this server first. So every *use* of a stored answer is a request, a
    * request meets the gate, and the gate is where a revoked reader stops being
-   * a reader — which is `gate.ts`'s own model ("disabling somebody takes
-   * effect on their very next request") said as a cache directive. It is also
-   * why the bytes are not paid twice: a reader's revalidation is a `304`.
+   * a reader. That is `gate.ts`'s own model ("disabling somebody takes effect
+   * on their very next request") said as a cache directive. It is also why the
+   * bytes are not paid twice: a reader's revalidation is a `304`.
    *
    * `cache: 'no-cache'` because undici's `fetch` silently drops a conditional
    * header on a default request, and with it omitted both lines below answer
    * `200` and this proves nothing.
    *
-   * This one would pass against the old code too — Express has always answered
-   * a conditional request, and nothing was telling the browser either way. It
-   * is here because it is the mechanism the chosen directive rests on, and a
-   * later change that let a validator past the gate would be silent otherwise.
+   * This one would pass against the old code too, because Express has always
+   * answered a conditional request and nothing was telling the browser either
+   * way. It is here because it is the mechanism the chosen directive rests on,
+   * and a later change letting a validator past the gate would be silent
+   * otherwise.
    */
   it('answers a revalidation with 304 for a reader, and 401 for a stranger', async () => {
     const first = await ask('/api/books')

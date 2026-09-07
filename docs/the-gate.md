@@ -45,11 +45,17 @@ check had to go, and there is now exactly one check there:
 ```ts
 app.use(express.json({ limit: '12mb' }))
 
+mountCachePolicy(app)          // what an answer may be done with (#566)
 mountSignIn(app, signInDeps)   // the five open doors
 mountGate(app, signInDeps)     // app.use('/api', gate)
 
 // ... seventy-one handlers, the thumbnail route, the cover mount, the 404 ...
 ```
+
+The first of those three is not a door and answers nothing: it sets one header
+on everything under `/api` and calls `next`. It is above the other two so that
+the refusals and the five open doors carry it as well. See the section on #566
+below.
 
 **Two properties of that arrangement are doing the work.**
 
@@ -65,7 +71,11 @@ Five `app.get`/`app.post` calls, then the gate. Everything below it is behind it
 
 `web/server/gate.routes.test.ts` walks the app's own router stack, finds the gate
 by name, and fails if anything but those five is above the line. That is the
-count below kept honest by the suite rather than restated by a person.
+count below kept honest by the suite rather than restated by a person. It names
+the middleware up there one by one as well, so the header-setting layer #566
+added could not be a sixth door by accident: a fourth name in that list is a
+change somebody had to make deliberately, and the same file asks the refusal it
+sits above to still be a refusal.
 
 ---
 
@@ -229,6 +239,73 @@ which was considered and rejected.
 **None of this is a hole in the gate**, and the count below is unchanged. The
 gate was correct on the day it landed and its route test proved it. This is
 about what a correct answer says it may be used for once it has left.
+
+---
+
+## The same sentence, said for the data (#566)
+
+#556 answered it for the photographs and deliberately left the rest, because
+the rest is a different surface and wanted its own decision. **Every gated JSON
+route said nothing at all**: no `Cache-Control`, no `Expires`, no `Vary`, on
+`/api/health`, on `/api/books`, on the `/api` catch-all 404, and on both of the
+gate's own refusals.
+
+**Nothing is not the same as "do not cache."** A response with no freshness
+information is one a cache may store and reuse under a heuristic of its own
+(RFC 9111 §4.2.2), and `404` is on the list of statuses that applies to
+(RFC 9110 §15.1). It was a smaller risk than #556's, for two reasons worth stating
+rather than assuming: a JSON route has no file extension, and the common
+default rules for edge caching key on extension and content type; and these
+responses carry no `Last-Modified`, so a heuristic lifetime had little to work
+from. **Neither of those is a property of this application**, which is the
+problem. The safety came from what somebody else's product happens to do by
+default, and `docs/running-from-a-build.md` decision 1 sanctions a
+TLS-terminating proxy in front of this one origin while #471 puts a CDN there.
+
+Every answer under `/api` now says **`private, no-cache`**. One
+`app.use('/api', ...)` above the gate, so it covers the seventy-odd handlers,
+the catch-all 404, the two refusals **and** the five open doors. Of those five,
+`GET /api/auth/session` is the one whose body names a person. `API_CACHE` in
+`server/auth/gate.ts` carries the argument; the short version is three points:
+
+- **`no-cache` is this gate's own model said as a cache directive.** It permits
+  a stored copy and forbids reusing it without revalidating here first, so
+  every *use* of a stored answer is a request, and a request meets the gate.
+  That is "disabling somebody takes effect on their very next request", exactly,
+  with none of the five minute window the photographs had to buy.
+- **It is the directive that degrades well.** A shared cache told to ignore
+  `private` still may not serve a `no-cache` response without asking this
+  origin, and it asks carrying the requester's own cookie, so it is told `401`.
+  A shared cache told to ignore `no-store` has nothing left to make it ask.
+- **`no-store` was the option with the price.** Measured in Chromium against
+  this server, asking `/api/books` three times on a seeded catalogue of 27
+  books: with no header at all the browser already stored and revalidated
+  (`200` 24,754 bytes, then `304` at 180 bytes twice); under `private, no-cache`
+  it does the same (`200` 24,788, then `304` at 214 twice); under
+  `private, no-store` it refetches the whole body every time (24,788 bytes,
+  three times). The cost of `no-store` is **not** the browser's back/forward
+  cache, which is blocked by `no-store` on a *document*, and nothing under
+  `/api` is a document. It is that listing, over and over, on a phone.
+
+**No `max-age`**, unlike the covers, and that is a decision. The window exists
+for a screen that asks for the same photograph twenty-five times in a run;
+nothing here is shaped like that, and a listing changes the moment somebody
+scans a book, so a window would show a person the catalogue as it was before
+the book they just shelved. **No `must-revalidate`** either: it governs a
+*stale* stored response, and `no-cache` leaves nothing in that state. **And no
+`Vary: Cookie`**, rejected for the two reasons `COVER_CACHE` rejects it.
+
+**The photographs keep their own answer**, and the interaction is asserted
+rather than assumed. `mountCachePolicy` sets a default; both cover doors
+overwrite it with `COVER_CACHE` on the way out, so the argued five minute
+window is not quietly replaced by the broader rule sitting upstream of it.
+`server/index.test.ts` asks all four doors and spells both strings out.
+
+**Nothing above the gate answers anything.** `apiCache` sets one header and
+calls `next`, and `gate.routes.test.ts` asserts by name the whole list of what
+may sit up there, which is now four middlewares rather than three beside the
+same five doors. That it answers nothing is proved by the refusal underneath it
+still being a refusal, in the same file.
 
 ---
 

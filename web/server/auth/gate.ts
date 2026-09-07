@@ -96,12 +96,12 @@ export const GATE_MOUNT = '/api'
  * the gate's own refusals.
  *
  * **"Nothing" is not "do not cache".** RFC 9111 §4.2.2 lets a cache with no
- * freshness information pick a heuristic lifetime of its own, and §4.2.3's
+ * explicit expiration pick a heuristic lifetime of its own, and RFC 9110 §15.1's
  * list of heuristically cacheable statuses includes `404`. So the safety came
- * entirely from what somebody else's product happens to do by default — JSON
- * has no file extension and these responses carry no `Last-Modified` for a
- * heuristic to work from — and neither of those is a property of this
- * application. `docs/running-from-a-build.md` decision 1 sanctions a
+ * entirely from what somebody else's product happens to do by default. Two
+ * things were doing it: JSON has no file extension, and these responses carry
+ * no `Last-Modified` for a heuristic to work from. Neither is a property of
+ * this application. `docs/running-from-a-build.md` decision 1 sanctions a
  * TLS-terminating proxy in front of this one origin and #471 puts a CDN there,
  * and a caching proxy in that position was entitled to store `/api/books`,
  * which is the collection, and hand it to somebody carrying no session.
@@ -130,29 +130,37 @@ export const GATE_MOUNT = '/api'
  *    The issue's complaint is that the safety currently rests on somebody
  *    else's defaults; the directive that keeps this server the authority on
  *    every reuse is the one that answers it.
- * 3. **It is cheaper than what happens today**, measured rather than assumed.
- *    Chromium stores none of these responses as the tree stands, so every
- *    reload of the app refetches all of them in full. Under `no-cache` it
- *    stores them and revalidates, and Express has always answered a conditional
- *    request with `304`, so the same reload costs the round trips and none of
- *    the bytes.
+ * 3. **It costs a phone nothing, where `no-store` costs it the whole body
+ *    every time.** Measured rather than assumed, against this server on a
+ *    seeded catalogue of 27 books, asking `/api/books` three times in
+ *    Chromium:
+ *
+ *    | what the answer said | first ask | second | third |
+ *    | --- | --- | --- | --- |
+ *    | nothing (the tree before this) | `200`, 24,754 bytes | `304`, 180 | `304`, 180 |
+ *    | `private, no-cache` | `200`, 24,788 bytes | `304`, 214 | `304`, 214 |
+ *    | `private, no-store` | `200`, 24,788 bytes | `200`, 24,788 | `200`, 24,788 |
+ *
+ *    So `no-cache` is not a saving. It is parity with what the browser was
+ *    already doing on its own, now said rather than guessed, and `no-store` is
+ *    the row that pays. That listing scales with the collection, and this is a
+ *    phone-first app on somebody's mobile data.
  *
  * **What `no-store` would have cost, said plainly**, because it is the option
- * a reader will reach for. Not the browser's back/forward cache: that is
- * blocked by `no-store` on a *document*, and nothing under `/api` is a
- * document. The document this app loads is `index.html`, which is outside
- * `/api` and already says `no-cache` at the bottom of `server/index.ts`. What
- * `no-store` would actually cost is point 3 — every conditional request becomes
- * a full body again — and point 2, and it would buy only that the bytes are
- * not written to the browser's own cache directory, which is a residue this
- * app already accepts for the photographs, and the photographs are the larger
- * disclosure.
+ * a reader will reach for. It is the third row above, and it is *not* the
+ * browser's back/forward cache: `no-store` blocks that when it is on a
+ * *document*, and nothing under `/api` is a document. The document this app
+ * loads is `index.html`, which is outside `/api` and already says `no-cache`
+ * at the bottom of `server/index.ts`. What `no-store` would buy for that price
+ * is only that the bytes are not written to the browser's own cache directory,
+ * a residue this app already accepts for the photographs, which are the larger
+ * disclosure of the two.
  *
  * **No `max-age`, and that is a decision rather than an omission.** The covers
  * take a five minute window because a placement card draws twenty-five
  * neighbour spines per scan and the same photograph is asked for over and over
  * within one run. Nothing here is shaped like that: a listing is fetched once
- * per screen, it is small, and it changes the moment somebody scans a book —
+ * per screen, it is small, and it changes the moment somebody scans a book,
  * which is the workflow. A window that helps the photographs would show
  * somebody the catalogue as it was before the book they just shelved.
  *
@@ -164,8 +172,8 @@ export const GATE_MOUNT = '/api'
  *
  * **And no `Vary: Cookie`**, rejected for the same two reasons #556 rejected it
  * on `COVER_CACHE`: under `private` it buys nothing against the party it would
- * be aimed at, and the browser's own cache honours it too, so a fresh sign-in —
- * `admit()` mints a new token every time — would throw away every stored copy.
+ * be aimed at, and the browser's own cache honours it too, so a fresh sign-in
+ * would throw away every stored copy, `admit()` minting a new token each time.
  * It is not needed for correctness here either: revalidation is what keeps a
  * stored response honest, and this app holds one catalogue rather than a
  * per-person view of it.
@@ -181,8 +189,8 @@ export const API_CACHE = 'private, no-cache'
  * Say it once, above everything else under `/api`.
  *
  * There are seventy-odd handlers and two cover doors, and a policy applied by
- * hand at each is a policy that will be missing from the next one — the exact
- * defect #556 found, three months after the header was written. This is
+ * hand at each is a policy that will be missing from the next one, which is
+ * the exact defect #556 found three months after the header was written. This is
  * mounted on the same path as the gate and immediately above it, so being
  * covered is a property of where a route is rather than of anybody having
  * remembered, which is the property `mountGate` was built for and the reason
