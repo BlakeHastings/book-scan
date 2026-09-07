@@ -73,6 +73,14 @@
  * opaque. WCAG 2.1 AA for body text is 4.5 to 1, and every one of these is set
  * below 18.66px, so that is the threshold rather than the 3 to 1 large-text one.
  *
+ * **The arithmetic itself is not here any more** (#530). It is
+ * `design/contrast.ts`, because the design system needed the same sum: every
+ * word `library.css` floats on the camera is bedded on `--picture-scrim`, and
+ * that bed was 3.3 to 1 over a white page. Same measurement, same two ends of
+ * what a photograph can be, different stylesheet. Two copies of a compositing
+ * function agree until one of them is edited, and a drifted copy here is a
+ * green test asserting the wrong number.
+ *
  * **The third one is a different defect wearing the same number** (#451), and
  * it is the reason this is a list rather than a pair. `.cam__sheet-meta` did
  * not leave its ink to the page; it wrote in a hardcoded white at four tenths
@@ -85,6 +93,14 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  AA_BODY_TEXT,
+  BEHIND,
+  contrast,
+  over,
+  parse,
+  type Paint,
+} from './design/contrast'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 const SHEET = join(HERE, 'styles.css')
@@ -174,10 +190,6 @@ describe('the app stylesheet paints nothing nobody draws', () => {
 // What floats on the camera, measured
 // ---------------------------------------------------------------------------
 
-const AA_BODY_TEXT = 4.5
-
-type Rgb = [number, number, number]
-
 /** One rule's declarations, by property. */
 function rule(selector: string): Record<string, string> {
   const css = readFileSync(SHEET, 'utf8')
@@ -201,51 +213,8 @@ function tokenValues(name: string): string[] {
   return [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))].map((m) => m[1]!.trim())
 }
 
-function parse(colour: string): { rgb: Rgb; alpha: number } {
-  const hex = colour.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
-  if (hex) {
-    const digits = hex[1]!.length === 3
-      ? hex[1]!.split('').map((c) => c + c).join('')
-      : hex[1]!
-    return {
-      rgb: [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16)) as Rgb,
-      alpha: 1,
-    }
-  }
-
-  const rgba = colour.match(/^rgba?\(([^)]+)\)$/)
-  if (!rgba) throw new Error(`${colour} is not a colour this test can measure`)
-  const parts = rgba[1]!.split(',').map((one) => Number(one.trim()))
-  return { rgb: parts.slice(0, 3) as Rgb, alpha: parts[3] ?? 1 }
-}
-
-const channel = (c: number): number => {
-  const v = c / 255
-  return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
-}
-
-const luminance = ([r, g, b]: Rgb): number =>
-  0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-
-function contrast(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-  return (hi! + 0.05) / (lo! + 0.05)
-}
-
-const over = (top: { rgb: Rgb; alpha: number }, under: Rgb): Rgb =>
-  top.rgb.map((c, i) => c * top.alpha + under[i]! * (1 - top.alpha)) as Rgb
-
-/**
- * What the camera can put behind a panel that is not quite opaque.
- *
- * A white page and a black paperback are both books somebody photographs, and a
- * panel at 94 per cent lets 6 per cent of either through. Measuring against both
- * is what says the answer does not depend on where the lens is pointed.
- */
-const BEHIND: Rgb[] = [[0, 0, 0], [255, 255, 255]]
-
 /** The ink a rule writes in, which must be a token and must not be missing. */
-function inkOf(selector: string): { rgb: Rgb; alpha: number } {
+function inkOf(selector: string): Paint {
   const colour = rule(selector).color
   expect(colour, `${selector} paints a background and leaves the ink to the page`)
     .toBeTruthy()

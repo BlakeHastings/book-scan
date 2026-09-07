@@ -200,6 +200,16 @@ export function Viewfinder({
         </button>
       )}
 
+      {/*
+        The bottom of the picture, darkened. Before `over` and not part of the
+        bar, and the order is the whole of why it is here (#530): as the bar's
+        own background it was painted on top of the line saying what is in your
+        hands, and a scrim over a word dims the word and the bed under it
+        together, which no strength of scrim can undo. Nothing may depend on it
+        for legibility; every word down here beds itself.
+      */}
+      <div className="wf-view__band" aria-hidden="true" />
+
       {over}
 
       <div className="wf-view__bar">

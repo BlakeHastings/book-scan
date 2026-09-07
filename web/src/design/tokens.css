@@ -127,8 +127,8 @@ body.wf-page {
    * set to dark is a label that disappears on a photograph of a black
    * paperback.
    *
-   * The scrim is what makes the cream readable over any of it. It is the only
-   * opaque thing on that screen and it is a gradient, so it costs no picture.
+   * The scrim is what makes the cream readable over any of it, and it is what
+   * every word on that screen is bedded on.
    */
   --picture: #332a22;
   --picture-ink: #fbf6ec;
@@ -146,7 +146,31 @@ body.wf-page {
    * trusting this sentence.
    */
   --picture-ink-2: rgba(251, 246, 236, 0.55);
-  --picture-scrim: rgba(20, 16, 11, 0.55);
+  /*
+   * The bed every word on the camera is written on, and the reason it is a
+   * number rather than a taste (#530).
+   *
+   * **A ratio against a photograph is a range, and the range is closed.** The
+   * lens hands this screen eight-bit sRGB, so nothing it is pointed at is
+   * lighter than white or darker than black. So the two ends are drawable, and
+   * they are: `#camerapage` and `#cameracover` in the gallery. Measure a bed
+   * against both and it is measured against every book.
+   *
+   * It was `0.55`, which is 18.6 to 1 on a black paperback and **3.9 to 1 on a
+   * white page**, and a book's page is white. That is the shape of this defect
+   * and it is the same shape as `--picture-ink-2` above: fine at one end,
+   * failing at the other, and nothing about switching themes finds either of
+   * them, because a photograph is not a theme.
+   *
+   * `0.72` is 7.1 to 1 over white and 18.2 over black, and the margin over 4.5
+   * is deliberate rather than timid. `0.60` clears it at 4.60 and would be a
+   * fix only the arithmetic could see: what a person is reading is antialiased
+   * type on a picture that moves in their hand, and the edge pixels of a glyph
+   * never reach the nominal ratio. The cost is picture, and it is paid only
+   * under the words: this is a bed under each control, not a wash over the
+   * frame you aim with.
+   */
+  --picture-scrim: rgba(20, 16, 11, 0.72);
   --picture-line: rgba(251, 246, 236, 0.4);
 
   /* --- The cat ---------------------------------------------------------- */

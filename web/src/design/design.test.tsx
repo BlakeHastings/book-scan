@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { isValidElement, type ReactElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { AA_BODY_TEXT, BEHIND, contrast, over, parse } from './contrast'
 import { Doors, InHand, IN_HAND } from './Controls'
 import { SCREENS, TAB_SCREENS, type Go, type Screen } from './gallery/screens'
 import { MEDIAN_PAGES, spineWidth, spines } from './Shelf'
@@ -106,6 +107,135 @@ describe('no coloured rail down the side of a card', () => {
     expect(css).not.toMatch(/border-right\s*:/)
     expect(css).not.toMatch(/border-inline-start\s*:/)
     expect(css).not.toMatch(/border-inline-end\s*:/)
+  })
+})
+
+/*
+ * ---------------------------------------------------------------------------
+ * A word on the picture can be read whatever the lens is pointed at (#530)
+ * ---------------------------------------------------------------------------
+ *
+ * The eleventh rule, and the first one taken from a measurement rather than
+ * from a sentence the owner said. Everything the camera floats on a photograph
+ * is the same cream on the same bed, and the bed was chosen against the one
+ * background this gallery ever drew: a mid brown, where the cream is 13 to 1.
+ * The app puts a photograph there. A book's page is white, and on white that
+ * bed was **3.9 to 1**.
+ *
+ * `#camerapage` and `#cameracover` are that measurement made lookable-at, and
+ * this is it made mechanical. What each has that the other has not is the
+ * point: a number nobody can see goes stale politely, and a drawing nobody
+ * recomputes goes wrong quietly.
+ *
+ * **What this cannot see, said rather than hoped, because it is what happened.**
+ * It reads two token values and multiplies them out. It cannot tell whether the
+ * bed a rule declares is the bed a person actually sees, and that was exactly
+ * the second half of #530: the controls bar's own background was a gradient
+ * drawn *after* the line saying what is in your hands, so that line had a 0.55
+ * scrim under it and a slice of the same scrim over it, and measured 2.9 to 1
+ * where this sum would have said 3.9. A scrim over a word dims the word and its
+ * bed together, so no strength of scrim answers it: at 0.85 the sentence still
+ * only reached 4.47. Nothing readable out of a stylesheet contains that; a
+ * rendered screen does. It is `.wf-view__band` now, drawn before anything that
+ * carries a word, and the rule that stands is that **nothing may be painted
+ * over a bed** — which is a rule this file cannot check.
+ *
+ * It also cannot see a *new* word arriving on the camera with no bed at all.
+ * The words under the photographs were already there when this was written, at
+ * 1.1 to 1 on their own.
+ */
+describe('a word on the picture can be read whatever the lens is pointed at', () => {
+  /** Every definition of a custom property in `tokens.css`, in file order. */
+  function token(name: string): string[] {
+    const css = readFileSync(join(HERE, 'tokens.css'), 'utf8')
+    return [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))].map((m) => m[1]!.trim())
+  }
+
+  /**
+   * The two beds a word on this screen is allowed to be written on.
+   *
+   * There are two rather than one because a camera has a sheet on it as well as
+   * a picture: `--picture` is opaque and lets nothing through, and
+   * `--picture-scrim` is the one every floating control paints for itself.
+   */
+  const BEDS = [
+    { bed: '--picture-scrim', what: 'the bed under every floating control' },
+    { bed: '--picture', what: 'the opaque one, under a sheet or a pressed chip' },
+  ]
+
+  it.each(BEDS)('$bed: $what', ({ bed }) => {
+    const values = token(bed)
+    /*
+     * One value and no second one under a dark block, which is the property
+     * being relied on rather than a coincidence, and it is the same argument
+     * `styles.test.ts` makes about `--picture-ink`: what is behind these is a
+     * photograph rather than a page, so a colour that followed the phone's
+     * theme would disappear on somebody's black paperback.
+     */
+    expect(new Set(values).size, `${bed} changes with the theme`).toBe(1)
+
+    const ink = parse(token('--picture-ink')[0]!)
+    const paint = parse(values[0]!)
+
+    for (const behind of BEHIND) {
+      const laid = over(paint, behind)
+      const ratio = contrast(over(ink, laid), laid)
+      expect(
+        ratio,
+        `--picture-ink on ${bed} is ${ratio.toFixed(2)} to 1 over rgb(${behind.join(',')})`,
+      ).toBeGreaterThanOrEqual(AA_BODY_TEXT)
+    }
+  })
+
+  /*
+   * The other way the floor comes out from under a word, and it happened twice
+   * in this one file: `opacity` on something that beds itself.
+   *
+   * It thins the bed at exactly the rate it thins the ink, so on a photograph
+   * it cannot demote a word, only hide it. Three quarters of a 0.72 scrim is a
+   * 0.54 scrim, which is the number this whole issue is about.
+   *
+   * **It has to follow the class rather than the rule, and getting that wrong
+   * was the first version of this test.** Neither of the two was written in the
+   * rule that painted its bed: the fade was on `.wf-view__found--empty` while
+   * the scrim was on `.wf-view__found`, and on
+   * `.wf-shots--picture .wf-shot__note` while the bed is on the rule beside it.
+   * A check that asked one rule for both would have passed over both of them,
+   * which is a check that cannot fail — worse than no check, because somebody
+   * builds on it.
+   *
+   * `:disabled` is the one carve-out and it is WCAG's own: 1.4.3 exempts an
+   * inactive component, and a control that has faded because it cannot be
+   * pressed is saying so with the fade.
+   */
+  it('is not undone by fading something that beds itself', () => {
+    const css = readFileSync(join(HERE, 'library.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+    const rules = [...css.matchAll(/(?:^|\})([^{}]+)\{([^}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector!.trim(), body: body! }))
+
+    const classesIn = (selector: string): string[] =>
+      [...selector.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((found) => found[1]!)
+
+    /** Every class that paints the scrim for itself, wherever it does it. */
+    const bedded = new Set(
+      rules
+        .filter(({ body }) => /background:\s*var\(--picture-scrim\)/.test(body))
+        .flatMap(({ selector }) => classesIn(selector)),
+    )
+    expect(bedded.size, 'nothing beds itself on the scrim at all').toBeGreaterThan(3)
+
+    /** A modifier of a bedded class is the same element, so it counts. */
+    const isBedded = (name: string): boolean =>
+      [...bedded].some((one) => name === one || name.startsWith(`${one}--`))
+
+    const faded = rules
+      .filter(({ body }) => /(^|[\s;])opacity\s*:/.test(body))
+      .filter(({ selector }) => !selector.includes(':disabled'))
+      .filter(({ selector }) => classesIn(selector).some(isBedded))
+      .map(({ selector }) => selector)
+
+    expect(faded, 'these fade the bed they are standing on').toEqual([])
   })
 })
 

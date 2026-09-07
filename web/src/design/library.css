@@ -1324,6 +1324,25 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
+ * The same wireframe picture at the two ends of what a photograph can be, drawn
+ * so somebody can look at the bound rather than be told it (#530).
+ *
+ * The camera hands this screen eight-bit sRGB, so nothing the lens is ever
+ * pointed at comes back lighter than white or darker than black. That is what
+ * makes "how readable is a word over a photograph" answerable at all: it is a
+ * range, and the range is closed at both ends, so a bed that survives these two
+ * survives every book. White is the end that fails and it is the ordinary one:
+ * a paperback's page under a lamp is most of what this camera sees.
+ *
+ * Literals rather than tokens, and it is the one place in this file where that
+ * is right. They are not a colour anything is painted in. They are the bound
+ * the paint has to hold up against, and a token would make them look like a
+ * choice somebody could retune.
+ */
+.wf-view__picture--page { background: #fff; }
+.wf-view__picture--cover { background: #000; }
+
+/*
  * The app's picture, which is a live stream rather than a drawing.
  *
  * Same place, same job. `cover` because the viewfinder is the screen: a
@@ -1457,7 +1476,24 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   text-align: center;
   text-wrap: balance;
 }
-.wf-view__found--empty { opacity: 0.75; }
+/*
+ * Nothing in hand yet, said in the same place the book's name will be said.
+ *
+ * **It carried `opacity: 0.75` and that is gone** (#530). Opacity on a bedded
+ * word thins the bed at exactly the rate it thins the ink, so on a photograph
+ * it cannot demote anything: it only takes the floor out from under it. Three
+ * quarters of a 0.72 scrim is a 0.54 scrim, which is where this started.
+ *
+ * There is no quieter voice available here either. `--picture-ink-2` is the
+ * demoted cream and it is 3.4 to 1 on this bed over a white page, so on a
+ * photograph the choice is a word that can be read or a word that cannot, and
+ * this is the one somebody meets first. It is already the quieter of the two
+ * states by being the one with no book's name in bold in it.
+ *
+ * **The class is still emitted and still earns its keep**, as the marker the
+ * browser journeys tell "nothing in hand" from "this book in hand" by
+ * (`e2e/steps/app.steps.ts`). It paints nothing, which is the point.
+ */
 
 /*
  * The same line where the near cluster is two controls tall and the sentence
@@ -1528,11 +1564,38 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
+ * The bottom of the picture, darkened, so the controls have somewhere to stand.
+ *
+ * **This used to be the bar's own background, and moving it out is the fix
+ * rather than a tidy-up** (#530). The bar is drawn after the `over` slot, so its
+ * background was painted on top of the one line that says what is in your hands,
+ * and a scrim over a word dims the word and its bed together. That is not a
+ * thing a stronger scrim can answer: at 0.55 the line measured 2.9 to 1 over a
+ * white page where the sum for its own bed said 3.9, and taking the scrim all
+ * the way to 0.85 leaves the worst point on that sentence at 4.47, still short
+ * of AA. Painting less over it is the only move there is.
+ *
+ * So it is its own element, drawn before anything that carries a word, and it
+ * is **atmosphere now and nothing else is allowed to depend on it.** It is a
+ * gradient, so what it is worth depends on how far up it a thing happens to
+ * sit, and that is exactly how the words under the photographs measured 3.7
+ * with no bed of their own while the line above them measured 2.9 with one.
+ * Every word down here beds itself.
+ *
+ * Its own inset rather than the bar's height, because the two no longer have to
+ * agree about anything: one is where the light goes and the other is where the
+ * controls go.
+ */
+.wf-view__band {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--picture-scrim), transparent 30%);
+}
+
+/*
  * The controls, along the bottom. The photographs at the far edge, the button
  * at the near one, and `row-reverse` is the whole of what left-handed means.
- *
- * The gradient is the only opaque thing on the screen and it is what makes a
- * cream label readable over a photograph of a white paperback.
  */
 .wf-view__bar {
   position: absolute;
@@ -1544,7 +1607,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   justify-content: space-between;
   gap: var(--s3);
   padding: var(--s6) var(--s3) calc(var(--s4) + env(safe-area-inset-bottom));
-  background: linear-gradient(to top, var(--picture-scrim), transparent);
 }
 .wf-view[data-hand="left"] .wf-view__bar { flex-direction: row-reverse; }
 
@@ -3003,7 +3065,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   line-height: 1.15;
   color: var(--ink-2);
 }
-.wf-shots--picture .wf-shot__note { color: var(--picture-ink); opacity: 0.8; }
+/* The same cream, and no `opacity: 0.8` any more (#530): it thinned the bed
+   this line now has at the same rate it thinned the ink. */
+.wf-shots--picture .wf-shot__note { color: var(--picture-ink); }
 
 /*
  * A kind nobody has taken, drawn as the empty shape of itself. The `:not` is
@@ -3056,6 +3120,25 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /* On the picture rather than on paper, and smaller there for the same reason
    the camera has no bar on it. */
 .wf-shots--picture .wf-shot { width: 46px; color: var(--picture-ink); }
+/*
+ * The word under each photograph, bedded (#530).
+ *
+ * "Back", "Front" and "Spine" were written straight onto the picture with
+ * nothing behind them at all: 1.1 to 1 over a white page on their own. They
+ * measured 3.7 in the running app, and every bit of that came from the bar's
+ * gradient happening to be near full strength at the very bottom of the screen.
+ * That is a floor made of where a thing sits rather than of what it is painted
+ * on, and the band above them is no longer allowed to be anybody's floor.
+ *
+ * A chip the width of the word rather than a block behind the rail: this row is
+ * the one place on the camera where the picture shows between the controls.
+ */
+.wf-shots--picture .wf-shot__word,
+.wf-shots--picture .wf-shot__note {
+  padding: 0 var(--s1);
+  border-radius: var(--r-sm);
+  background: var(--picture-scrim);
+}
 .wf-shots--picture .wf-shot__box { height: 60px; }
 .wf-shots--picture .wf-shot:not(.wf-shot--taken) .wf-shot__box {
   border-color: var(--picture-line);

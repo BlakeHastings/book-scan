@@ -1705,6 +1705,91 @@ function Camera(go: Go) {
 }
 
 /**
+ * The same camera with a real book in front of it, drawn twice, at the two ends
+ * of what a photograph can be (#530).
+ *
+ * **This is the state the hatched rectangle above cannot show.** The wireframe
+ * picture is `--picture`, a mid brown, and every word floating on this screen
+ * reads beautifully against it: the cream is 13.0 to 1 there. The app puts a
+ * photograph there instead, and the photograph somebody is most often holding
+ * up is a page, which is white. Read off the rendered pixels in the running app
+ * at 414 by 896 over a white page, before this pair existed: the aiming frame
+ * 1.0 to 1, the line saying what is in your hands 2.9, the words under the
+ * photographs 3.7, the way out and "Camera" 3.9. Nothing that has to be read on
+ * that screen cleared AA.
+ *
+ * So the drawing is the measurement made lookable-at. Walk these two beside the
+ * hatched one and the difference is the whole of the argument: a screen that
+ * only ever draws the middle case is a screen that will be rebuilt.
+ *
+ * The dark one is not decoration either. It is the other end, and it is what
+ * stops the answer being "darken it until it works": the same bed has to leave
+ * a black paperback still looking like a photograph of a black paperback.
+ */
+function CameraOnAPage(go: Go) {
+  return (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={shotsOf(go)}
+        picture={<div className="wf-view__picture wf-view__picture--page" aria-hidden="true" />}
+        over={inHand}
+        also={nextBook(go)}
+        onLeave={() => go('home')}
+        onDone={() => go('review')}
+      />
+    </div>
+  )
+}
+
+function CameraOnACover(go: Go) {
+  return (
+    <div className="wf-screen wf-screen--camera">
+      <Viewfinder
+        shots={shotsOf(go)}
+        picture={<div className="wf-view__picture wf-view__picture--cover" aria-hidden="true" />}
+        over={inHand}
+        also={nextBook(go)}
+        onLeave={() => go('home')}
+        onDone={() => go('review')}
+      />
+    </div>
+  )
+}
+
+/**
+ * What is in your hands, which the wireframe camera has never drawn.
+ *
+ * The screen above it says a wireframe has nothing in its hands, and that was
+ * fine while the picture was a brown rectangle: the line reads perfectly there.
+ * It is the whole subject here. #530 is about this sentence over a photograph,
+ * so a drawing of the camera on a photograph that leaves it out is a drawing of
+ * everything except the question.
+ *
+ * **Drawing it is also what shows the second thing**, which is not about
+ * colour: this camera's near cluster is three controls tall, the offset under
+ * this line clears one, and so the line lies under "Done with this book"
+ * whatever it says. That was invisible for as long as the line was invisible.
+ * It is a place for it rather than a paint, so it is left where it is and drawn
+ * where somebody can react to it.
+ */
+const inHand = (
+  <p className="wf-view__found">
+    <strong>The Left Hand of Darkness</strong>
+    {' · Ursula K. Le Guin'}
+  </p>
+)
+
+/**
+ * The second answer this camera offers, and the reason it is drawn here.
+ *
+ * It is what makes this camera's near cluster three controls tall rather than
+ * two, which is the half of the overlap above that the plain drawing cannot
+ * show. It leads to the camera with nothing in its hands, because that is what
+ * pressing it does: this book is finished with and the next one has not started.
+ */
+const nextBook = (go: Go) => ({ word: 'Next book 2/3', onPress: () => go('camera') })
+
+/**
  * The same camera, pointed at the spine, which is the shot the frame changes
  * shape for.
  *
@@ -5535,6 +5620,11 @@ export const SCREENS: Screen[] = [
   },
   { id: 'spine', name: 'Framing the spine', group: 'Cataloguing', render: SpineShot },
   { id: 'camera', name: 'The camera', group: 'Cataloguing', render: Camera },
+  /* Beside it, in the order somebody would walk them: the hatched picture, then
+     the two a real lens hands it. These are the same screen and not a variant
+     of it, which is why they carry the picture and nothing else different. */
+  { id: 'camerapage', name: 'The camera on a page', group: 'Cataloguing', render: CameraOnAPage },
+  { id: 'cameracover', name: 'The camera on a dark cover', group: 'Cataloguing', render: CameraOnACover },
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
   /* Beside it, because the top of that screen has two answers and both are
      ordinary: a book a catalogue holds a cover for, and a book nothing
