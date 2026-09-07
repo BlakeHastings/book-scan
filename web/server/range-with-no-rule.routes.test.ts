@@ -143,6 +143,25 @@ describe('the placing screen, for a range no rule serves', () => {
     expect(body.counts.nonfiction).toBe(1)
     expect((await store.getBook(body.id))?.title).toBe('Ways of Seeing')
   })
+
+  it('records no place for it, which is what a save with no answer owes', async () => {
+    await takeTheRuleOff('nonfiction')
+    const { body } = await post('/api/books', draft('Ways of Seeing'))
+
+    /*
+     * This one passes on the code before #479 as well, and it is here because of
+     * that rather than in spite of it. The issue's second comment says the
+     * disagreement is on the write paths, and that is why it matters more than a
+     * drawing. It turns out to have been saved by an accident: the automatic
+     * location write goes through `Shelves.areaOf`, which reads the plank the
+     * layout put the book on and asks the run for its id, and the invented
+     * `{ shelf: 1, area: 0 }` had no row in a run that does not exist. So the
+     * made-up plank reached two screens and never reached the ledger.
+     *
+     * Pinned here so the honest answer keeps the property the accident had.
+     */
+    expect((await store.getBook(body.id))?.location).toBe('')
+  })
 })
 
 describe('the shelves screen, for a range no rule serves', () => {
