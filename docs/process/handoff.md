@@ -60,10 +60,10 @@ and the tagging scheme deliberately has no way to move or replace one. The
 workflow's own comment calls the build "the gate" — and that gate first runs at
 the moment something irreversible is created.
 
-**#549 closes the half of that which is this repository's**: build the image,
-compare the contract and run the checker on a pull request, so that on the day a
-tag is pushed the only steps that have never run are the push and the release.
-Being worked.
+**#549 closed the half of that which is this repository's** and landed as #551:
+the image is built, the contract compared and the checker run on every pull
+request that can change the image. It was then run against `master` itself and
+was green. The section below has the detail.
 
 **Pushing the first tag is the owner's**, and it is asked once rather than
 assumed. It creates a public image and a public release under his name, and
@@ -74,9 +74,13 @@ from it.
 
 | Issue | Who has it |
 | --- | --- |
-| #448 | an agent. The browser-journey flake, dispatched here because the machine that blocked it in August is not this machine |
-| #556 | an agent. The cover cache header, which is the most important thing found today |
-| #557 | an agent. Every sign-in failure landing on raw JSON |
+| #566 | an agent. Every gated JSON route still says nothing about caching, which is #556 one surface over |
+| #561 | an agent. Every `aspire start` deletes `web/node_modules` and installs it again |
+| #552 | an agent. Making the image check actually gate a merge, now that it has twelve green runs |
+
+**Landed on 2026-09-07, all reviewed and merged from this loop**: #551 (#549),
+#555 (#530), #560 (#448), #565 (#556), #564 (#557), plus three documentation
+top-ups of this file. #510 was closed on evidence.
 
 ## The tag is rehearsed, and only three things are still first
 
@@ -102,9 +106,17 @@ callers differ in exactly one thing" had been written as a fact before anybody
 checked it. Found by reading the diff against what `publish.yml` actually does,
 and by running the three-line Docker experiment rather than reasoning about it.
 
-**#552 is the piece deliberately left**: nothing requires the new check to be
-green. Making a check required has made this repository unmergeable once, so it
-waits for several green runs.
+**#552 was the piece deliberately left**: nothing required the new check to be
+green, because making a check required has made this repository unmergeable once
+(#535). That bar is now met — **twelve green runs, no failures**, and it reports
+green in seven seconds on a documentation-only pull request, which is the case
+that would otherwise wedge the repository. Being worked.
+
+**One claim in #552 was mine and was wrong**, and the correction is on the issue:
+it said the script half and the ruleset half must land together or neither. They
+fail asymmetrically. `merge-pr.mjs` stricter than the ruleset is simply a tighter
+gate on the only path anybody uses, because `guard-merge.mjs` denies the others.
+So the script half lands alone and the ruleset stays the owner's.
 
 ## The login is finished, and a hunting pass found four things behind it
 
@@ -130,7 +142,12 @@ one is not a bug in the gate at all:
   harmless then**; #521 closed the doors and nobody revisited what a correct
   answer says it may be used for afterwards. Confirmed here by standing up
   `express.static` with those exact options and asking it.
-- **#557.** Every OIDC callback failure renders as raw JSON with no way back:
+- **#557, landed as #564, and the issue undercounted it badly.** The pass
+  observed two failure exits. There are **eleven, over two routes**, and the one
+  the issue never named is the sharper: a sign-in button is a top-level
+  navigation to `/api/auth/:provider/start`, so a discovery outage put a `502`
+  body in front of whoever pressed it. Every OIDC failure used to render as raw
+  JSON with no way back:
   pressing Cancel at the provider, pressing Back after signing in, a flow older
   than ten minutes. **It survived five verification passes because the
   development door has no failure path**, and that door is what every test uses.
@@ -398,6 +415,59 @@ fix. **A brief is a claim about the tree, and the tree is the authority.** The
 existing warning in this file is aimed at the orchestrator writing from a stale
 checkout; this is the same failure caught from the other end, and the agent is
 the cheaper place to catch it.
+
+## A session restart detaches every agent, and that is a different loss from the one below
+
+Happened 2026-09-07 with three agents running. **Not the harness dying**: the
+session simply came back with a new id, and the subagents were no longer attached
+to it. `ListAgents` showed none of them. They cannot be resumed, and the
+guidance below about transcripts does not apply, because there is no stopped
+agent to resume.
+
+**Nothing was lost, and the order in which that was established is the useful
+part.** Ask the cheapest question first and stop as soon as one answers:
+
+1. **`gh pr list`.** One of the three had finished and opened its pull request.
+   That work was never at risk and needed nothing.
+2. **`git worktree list`, then `git status --short` in each.** The other two were
+   clean at the base commit. They had done nothing at all, so there was nothing
+   to recover and redispatching was cheaper than any attempt to resume.
+3. Only if a worktree has changes does anything delicate arise, and then the
+   rule below applies: commit it before doing anything else.
+
+**Redispatch, do not resume, when the worktree is clean at base.** A fresh agent
+on the same issue costs one brief. Reconstructing what a detached agent was
+thinking costs more and is guesswork.
+
+**The dispatch that survives this is the one that says "branch and commit from
+your first working change".** All three had that instruction. The one that had
+work had pushed it; the two that had none had none to lose. That is the second
+time this year that one sentence has been the whole difference.
+
+## The pruner has a second blind spot, and it is the opposite of the first
+
+Its header warns that it cannot see commits made locally after a branch was
+pushed and merged. There is another, met twice on 2026-09-07:
+
+```
+Kept agent-aee7390cb1861a073: 2 file(s) differ from master
+  (docs/the-gate.md, web/server/auth/gate.ts), so this is unlanded work
+```
+
+**That work was landed.** What had happened is that `master` moved *on top of the
+same files* after the merge, so the worktree's copy differs from `master` while
+containing nothing `master` lacks. Comparing file contents cannot tell "this has
+work master has not got" from "master has work this has not got".
+
+**The refusal is still right and still worth reading rather than forcing.** The
+check that settles it is whether the distinguishing content is in `master`, which
+is one `grep`. Do that rather than reaching for `--force`, and if it is there,
+the worktree is safe to remove.
+
+**A rebase makes a finished agent's worktree look dirty**, for the same family of
+reason: rebasing the branch under a worktree leaves its working copy differing
+from its own new `HEAD`. `git reset --hard HEAD` inside that worktree is the fix,
+and it discards nothing, because the commits are what was rebased.
 
 ## The harness process exited, and took every agent with it
 
