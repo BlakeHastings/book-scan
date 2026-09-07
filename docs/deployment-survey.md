@@ -268,9 +268,9 @@ continuously.
 
 The second half, `vite build`, is run by **nothing in this repository**. It is
 not in `.github/workflows/ci.yml`, not in `.github/workflows/e2e.yml`, not in
-`apphost.mts`, and not in any script under `scripts/`. The only other mention of
-`npm run build` anywhere is `scripts/guard-live-data.test.mjs:81`, where it is a
-fixture in the guard's allow-list.
+`apphost.mts`, and not in any script under `scripts/`. The only other mentions of
+`npm run build` anywhere are `scripts/guard-live-data.test.mjs:103` and `:194`,
+where it is a fixture in the guard's allow-list.
 
 `web/vite.config.ts:42-45` configures it: `outDir: 'dist'`, `sourcemap: true`.
 

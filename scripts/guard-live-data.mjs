@@ -62,7 +62,7 @@
 // An agent writing "do not touch book-scan-live-pg" in a comment is not
 // touching it. That is why comments and heredoc bodies are stripped before
 // matching, and why the test file has more allow cases than deny cases.
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 
 /**
  * The live system, in the terms `AGENTS.md` uses for it: the container and its
@@ -100,9 +100,38 @@ function deny(reason) {
  * command under one is an agent's and a command anywhere else is the
  * orchestrator's or a person's. Normalised so separators and casing cannot
  * decide it.
+ *
+ * **A path that is not absolute on this machine is refused rather than
+ * completed**, and #572 is why. `resolve` on a relative path silently prepends
+ * the directory this process happens to stand in, so the answer stops being a
+ * fact about the caller's path and becomes a fact about the guard's own
+ * location. From inside a worktree that turns every relative path into "yes,
+ * an agent", including the path naming the main checkout.
+ *
+ * It cost nobody a row. The hook payload has always carried a real absolute
+ * path, so `resolve` is a normalisation here and never a completion. What it
+ * cost was the guard's own test, which read the opposite answer wherever an
+ * agent ran it, and a test that is red where agents work teaches them that red
+ * on this file is normal.
+ *
+ * So the completion is removed by refusing its input. `resolve` stays, because
+ * an absolute path can still be unnormalised (`/repo/x/../.claude/worktrees/a`)
+ * and never consults `process.cwd()` once it has a root to start from.
+ *
+ * Throwing rather than returning is deliberate, and it is safe only because the
+ * hook boundary below turns a throw into a denial. There is no third answer
+ * this could return: `false` would be the guard waving through a command it
+ * cannot place, and `true` would be it denying the orchestrator over a caller's
+ * bug. Refusing to answer is the honest one, and the caller decides what a
+ * refusal means.
  */
 export function inAgentWorktree(cwd) {
   if (!cwd) return false
+  if (!isAbsolute(cwd)) {
+    throw new TypeError(
+      `inAgentWorktree needs a path that is absolute on this machine, and was given ${JSON.stringify(cwd)}.`,
+    )
+  }
   return resolve(cwd).replace(/\\/g, '/').toLowerCase().includes('/.claude/worktrees/')
 }
 
@@ -195,7 +224,29 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`
     process.exit(0) // An unparseable payload is not this guard's problem.
   }
 
-  const said = verdict(parsed?.tool_input?.command ?? '', parsed?.cwd)
+  // A hook that throws is a hook that allows. It exits non-zero with nothing on
+  // stdout, which the harness reports as an error beside the tool call and then
+  // runs the command anyway. So an uncaught exception on the way to a decision
+  // is the most permissive outcome this file has, and a silent one. That is the
+  // exact state the header says this guard exists to end.
+  //
+  // This is not defensive padding for something that cannot happen: it is the
+  // other half of `inAgentWorktree` refusing a path it cannot place. The
+  // refusal is only allowed to be a throw because the throw lands here, and a
+  // command whose checkout is unknown is precisely the command that must not
+  // reach the live catalogue.
+  let said
+  try {
+    said = verdict(parsed?.tool_input?.command ?? '', parsed?.cwd)
+  } catch (error) {
+    deny(
+      'Blocked: this guard could not work out which checkout the command runs in,\n'
+      + 'so it refused rather than guessed.\n\n'
+      + `${error.message}\n\n`
+      + 'That is a defect in whatever produced this hook payload rather than in the\n'
+      + 'command. Say so in your report rather than working around it.',
+    )
+  }
   if (said) deny(said)
   process.exit(0)
 }
