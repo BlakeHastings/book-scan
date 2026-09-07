@@ -1733,7 +1733,7 @@ function CameraOnAPage(go: Go) {
         shots={shotsOf(go)}
         picture={<div className="wf-view__picture wf-view__picture--page" aria-hidden="true" />}
         over={inHand}
-        also={NEXT_BOOK}
+        also={nextBook(go)}
         onLeave={() => go('home')}
         onDone={() => go('review')}
       />
@@ -1748,7 +1748,7 @@ function CameraOnACover(go: Go) {
         shots={shotsOf(go)}
         picture={<div className="wf-view__picture wf-view__picture--cover" aria-hidden="true" />}
         over={inHand}
-        also={NEXT_BOOK}
+        also={nextBook(go)}
         onLeave={() => go('home')}
         onDone={() => go('review')}
       />
@@ -1779,9 +1779,15 @@ const inHand = (
   </p>
 )
 
-/** The second answer this camera offers, which is what makes its cluster three
-    controls tall rather than two. */
-const NEXT_BOOK = { word: 'Next book 2/3' }
+/**
+ * The second answer this camera offers, and the reason it is drawn here.
+ *
+ * It is what makes this camera's near cluster three controls tall rather than
+ * two, which is the half of the overlap above that the plain drawing cannot
+ * show. It leads to the camera with nothing in its hands, because that is what
+ * pressing it does: this book is finished with and the next one has not started.
+ */
+const nextBook = (go: Go) => ({ word: 'Next book 2/3', onPress: () => go('camera') })
 
 /**
  * The same camera, pointed at the spine, which is the shot the frame changes
