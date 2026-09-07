@@ -2970,6 +2970,10 @@ describe('what a photograph says may be done with it', () => {
    * oversight: under `private` it buys nothing against a shared cache, and it
    * would make the browser's own cache throw away every cover on every fresh
    * sign-in, since `admit()` mints a new session token each time.
+   *
+   * This one passed before #556 as well, because nothing was setting a `Vary`
+   * then either. It is here to hold a rejected option rejected, not because it
+   * would have caught the defect.
    */
   it('does not key the photograph on the cookie', async () => {
     await storeCover('policy.jpg')
@@ -2991,6 +2995,11 @@ describe('what a photograph says may be done with it', () => {
    * `cache: 'no-cache'` because undici's `fetch` silently drops a conditional
    * header on a default request: with it omitted, both lines below answer 200
    * and this test proves nothing. Verified by watching it do exactly that.
+   *
+   * This passed before #556 too — Express has always answered a conditional
+   * request, the browser was simply told never to make one. It is the
+   * mechanism the shortened window rests on, kept so that a later change
+   * cannot quietly let a validator past the gate.
    */
   it('answers a revalidation with 304 for a reader, and 401 for a stranger', async () => {
     await storeCover('policy.jpg')
@@ -3019,11 +3028,31 @@ describe('what a photograph says may be done with it', () => {
   /**
    * The thumbnail door's validator comes from the file, not from the resize.
    *
-   * `res.send` would compute one from the body, which means a conditional
+   * Shortening the window is what makes this matter. `res.send` computes a tag
+   * from whatever it is handed, so a body-derived tag means every conditional
    * request costs a full re-encode and saves only the bytes: measured at 15.8
-   * ms for the 200 and 16.0 ms for the 304 on a 1000x1500 cover at `?w=320`.
-   * Two widths of one file getting two tags is what says the tag is derived
-   * from something the route knows before it resizes.
+   * ms for the 200 and 16.0 ms for the 304 on a 1000x1500 cover at `?w=320`,
+   * which is a gallery of a hundred covers costing a hundred resizes to send a
+   * hundred empty responses.
+   *
+   * `Last-Modified` is what says where the validator came from. Before #556
+   * the thumbnail door sent none at all, because there is no modification time
+   * in a buffer; now it sends the source file's, which is the same one the
+   * static mount sends for the same photograph.
+   */
+  it('validates a thumbnail against the file on disk, not against the resize', async () => {
+    await storeCover('policy.jpg')
+
+    const full = await fetchCover(FULL)
+    const thumb = await fetchCover(THUMB)
+
+    expect(thumb.headers.get('last-modified')).toBeTruthy()
+    expect(thumb.headers.get('last-modified')).toBe(full.headers.get('last-modified'))
+  })
+
+  /**
+   * The same photograph at two widths is two different pictures, so a cache
+   * holding both must not validate one against the other.
    */
   it('validates each width of a photograph separately', async () => {
     await storeCover('policy.jpg')
@@ -3032,11 +3061,9 @@ describe('what a photograph says may be done with it', () => {
       (await fetchCover(`/api/covers/policy.jpg?w=${width}`)).headers.get('etag')
 
     const small = await at(160)
-    const large = await at(640)
-
     expect(small).toBeTruthy()
-    expect(small).not.toBe(large)
-    // And a cached 160 is not validated against the 640 by mistake.
+    expect(small).not.toBe(await at(640))
+
     const crossed = await fetchCover('/api/covers/policy.jpg?w=640', {
       cache: 'no-cache',
       headers: { 'if-none-match': small! },

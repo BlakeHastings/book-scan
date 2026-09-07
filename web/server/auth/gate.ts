@@ -25,6 +25,13 @@
  * route and the `express.static` mount — are under `/api/covers`, which is under
  * `/api`, which is behind this. `sign-in.routes.test.ts` proves it by asking.
  *
+ * **That cache header outlived this check by three months** (#556). It said
+ * `public`, which invites an intermediary to keep somebody's photographs, and
+ * `immutable`, which told the browser not to ask again for thirty days — so
+ * `enabled` being read here on every request, three paragraphs down, was not
+ * true of the one thing this comment calls the door most likely to be left
+ * open. See `COVER_CACHE` in `server/index.ts`.
+ *
  * ## The three states, and why both refusals are load-bearing
  *
  * | Who | What this answers |
