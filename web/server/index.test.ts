@@ -3090,6 +3090,205 @@ describe('what a photograph says may be done with it', () => {
 })
 
 /**
+ * What a JSON answer says may be done with it afterwards (#566).
+ *
+ * The same question #556 answered for the photographs, asked of the surface
+ * that carries the collection itself. Until this, every gated route said
+ * nothing at all: no `Cache-Control`, no `Expires`, no `Vary`, on
+ * `/api/health`, on `/api/books`, on the `/api` catch-all 404 and on both of
+ * the gate's refusals. Nothing is not the same as "do not cache": a response
+ * with no freshness information is one a shared cache may store and reuse
+ * under a heuristic of its own, and `404` is on the list of statuses that
+ * applies to. So the safety came from what somebody else's product happens to
+ * do by default, which is not a property of this application.
+ *
+ * **This asserts the string rather than describing it**, for #556's reason:
+ * this class of defect is a header outliving the assumption it was written
+ * under, saying so in plain text on every response, with nothing watching it.
+ *
+ * **And it asks the photographs in the same block.** A broad rule applied at
+ * the gate sits upstream of the answer #556 argued out for the covers, and
+ * "the fix for one surface broke the other" is this repository's most common
+ * defect. Both strings are here, at all four doors, so neither can move
+ * without the other being read.
+ */
+describe('what a JSON answer says may be done with it', () => {
+  /**
+   * Both written out rather than imported from the server.
+   *
+   * Importing `API_CACHE` and `COVER_CACHE` would make this file agree with
+   * `server/` by construction and go green on any change to either, which is
+   * the failure that already happened once here.
+   */
+  const JSON_POLICY = 'private, no-cache'
+  const COVER_POLICY = 'private, max-age=300, must-revalidate'
+
+  /**
+   * The whole response, not the parsed body: `call` above answers with a
+   * status and a body, and the header is the thing under test here.
+   */
+  const ask = (path: string, init: RequestInit = {}) =>
+    fetch(`${running.baseUrl}${path}`, {
+      ...init,
+      headers: { cookie: running.cookie, ...init.headers },
+    })
+
+  /**
+   * Every shape of answer under `/api`, not a route somebody chose.
+   *
+   * A listing, the deployment check, a 404 from the catch-all and the gate's
+   * own refusal are four different code paths to a response, and the one that
+   * would be missed by a policy applied by hand is whichever one nobody
+   * thought of. The 404 is here on purpose: it is the only one of the four a
+   * cache is allowed to guess a lifetime for.
+   */
+  it('says the same thing on a listing, on health, on a 404 and on a refusal', async () => {
+    const listing = await ask('/api/books')
+    const health = await ask('/api/health')
+    const missing = await ask('/api/nothing-answers-this')
+    const stranger = await fetch(`${running.baseUrl}/api/health`)
+
+    expect(listing.status).toBe(200)
+    expect(health.status).toBe(200)
+    expect(missing.status).toBe(404)
+    expect(stranger.status).toBe(401)
+
+    expect(listing.headers.get('cache-control')).toBe(JSON_POLICY)
+    expect(health.headers.get('cache-control')).toBe(JSON_POLICY)
+    expect(missing.headers.get('cache-control')).toBe(JSON_POLICY)
+    expect(stranger.headers.get('cache-control')).toBe(JSON_POLICY)
+  })
+
+  /**
+   * The five doors in front of the gate get it too.
+   *
+   * `GET /api/auth/session` is the one whose body is about a person: it names
+   * their email and their name. It cannot be behind the gate, because it is
+   * what tells a caller which of the three states they are in, so the only
+   * thing that can say an intermediary may not keep it is this.
+   */
+  it('says it above the gate as well as below it', async () => {
+    const session = await ask('/api/auth/session')
+    const providers = await ask('/api/auth/providers')
+
+    expect(session.status).toBe(200)
+    expect(providers.status).toBe(200)
+    expect(session.headers.get('cache-control')).toBe(JSON_POLICY)
+    expect(providers.headers.get('cache-control')).toBe(JSON_POLICY)
+  })
+
+  /**
+   * The photographs keep their own answer, and this is the interaction rather
+   * than a repeat of the block above.
+   *
+   * `mountCachePolicy` is mounted on `/api` above everything, so without the
+   * two doors setting `COVER_CACHE` on the way out it would be the last word
+   * for the covers as well, which would take away the five minute window #556
+   * measured on the one screen it was measured for, by putting a broad rule
+   * upstream of an argued one.
+   *
+   * This passes against the old code too, because nothing was setting a header
+   * upstream of the covers then. It is here as the guard against the fix for
+   * one surface breaking the other, which is the failure this repository keeps
+   * finding, not because it would have caught the defect being fixed.
+   *
+   * The `304` is asked as well as the `200` because they leave `send` by
+   * different paths, and a conditional request is most of what the covers now
+   * cost a phone.
+   */
+  it('does not overwrite what the photographs already say, at either door', async () => {
+    await storeCover('policy.jpg')
+
+    for (const path of ['/api/covers/policy.jpg', '/api/covers/policy.jpg?w=320']) {
+      const first = await fetchCover(path)
+      expect(first.status).toBe(200)
+      expect(first.headers.get('cache-control')).toBe(COVER_POLICY)
+
+      const validator = first.headers.get('etag')!
+      const again = await fetchCover(path, {
+        cache: 'no-cache',
+        headers: { 'if-none-match': validator },
+      })
+      expect(again.status).toBe(304)
+      expect(again.headers.get('cache-control')).toBe(COVER_POLICY)
+    }
+  })
+
+  /**
+   * A cover that is not there is a JSON answer, and it says the JSON thing.
+   *
+   * It leaves through the error handler rather than through `send`, so it is
+   * the one path under `/api/covers` that neither door writes a header on. A
+   * 404 is heuristically cacheable, which is what makes this worth asking.
+   */
+  it('answers a missing photograph the way it answers any other 404', async () => {
+    const missing = await fetchCover('/api/covers/never-existed.jpg')
+
+    expect(missing.status).toBe(404)
+    expect(missing.headers.get('cache-control')).toBe(JSON_POLICY)
+  })
+
+  /**
+   * The whole of what `no-cache` buys, and the reason it was chosen over
+   * `no-store`.
+   *
+   * `no-cache` permits a stored copy and forbids reusing it without asking
+   * this server first. So every *use* of a stored answer is a request, a
+   * request meets the gate, and the gate is where a revoked reader stops being
+   * a reader. That is `gate.ts`'s own model ("disabling somebody takes effect
+   * on their very next request") said as a cache directive. It is also why the
+   * bytes are not paid twice: a reader's revalidation is a `304`.
+   *
+   * `cache: 'no-cache'` because undici's `fetch` silently drops a conditional
+   * header on a default request, and with it omitted both lines below answer
+   * `200` and this proves nothing.
+   *
+   * This one would pass against the old code too, because Express has always
+   * answered a conditional request and nothing was telling the browser either
+   * way. It is here because it is the mechanism the chosen directive rests on,
+   * and a later change letting a validator past the gate would be silent
+   * otherwise.
+   */
+  it('answers a revalidation with 304 for a reader, and 401 for a stranger', async () => {
+    const first = await ask('/api/books')
+    const validator = first.headers.get('etag')
+    expect(validator).toBeTruthy()
+
+    const again = await fetch(`${running.baseUrl}/api/books`, {
+      cache: 'no-cache',
+      headers: { cookie: running.cookie, 'if-none-match': validator! },
+    })
+    expect(again.status).toBe(304)
+    expect((await again.arrayBuffer()).byteLength).toBe(0)
+
+    // The same conditional request, by somebody whose session has gone. A
+    // shared cache that stored this despite `private` still has to ask, and
+    // this is the answer it gets.
+    const stranger = await fetch(`${running.baseUrl}/api/books`, {
+      cache: 'no-cache',
+      headers: { 'if-none-match': validator! },
+    })
+    expect(stranger.status).toBe(401)
+  })
+
+  /**
+   * No `Vary` naming the cookie, rejected for the same two reasons #556
+   * rejected it on the photographs: under `private` a shared cache may not
+   * store the response at all, so it buys nothing against the party it would
+   * be aimed at, and the browser's own cache honours it too, so a fresh
+   * sign-in would throw away every stored answer.
+   *
+   * Held here as a rejected option rather than as a guard. Nothing was setting
+   * a `Vary` on these routes before either.
+   */
+  it('does not key a JSON answer on the cookie', async () => {
+    for (const path of ['/api/books', '/api/health', '/api/auth/session']) {
+      expect((await ask(path)).headers.get('vary') ?? '', path).not.toMatch(/cookie/i)
+    }
+  })
+})
+
+/**
  * Which database a process opens.
  *
  * There were four tests here through stages G and H, and three of them were

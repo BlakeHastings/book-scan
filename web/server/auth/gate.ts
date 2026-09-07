@@ -32,6 +32,13 @@
  * true of the one thing this comment calls the door most likely to be left
  * open. See `COVER_CACHE` in `server/index.ts`.
  *
+ * **And every JSON route said nothing at all**, which is not the same thing as
+ * saying do not cache: a response carrying no freshness information is one a
+ * shared cache may store and reuse under a heuristic of its own.
+ * `mountCachePolicy` below answers that for the whole path space, above the
+ * gate rather than below it so that the two refusals carry it too. See
+ * `API_CACHE` (#566).
+ *
  * ## The three states, and why both refusals are load-bearing
  *
  * | Who | What this answers |
@@ -78,6 +85,138 @@ import type { SignInConfig, SignInProviderConfig } from './providers'
  * `docs/the-gate.md` is kept honest rather than restated.
  */
 export const GATE_MOUNT = '/api'
+
+/**
+ * What an answer from this API says may be done with it once it has left.
+ *
+ * The gate decides who may ask. This is the other half of the same question,
+ * and #556 answered it for the photographs while every JSON route here still
+ * said nothing at all: no `Cache-Control`, no `Expires`, no `Vary`, on
+ * `/api/health`, on `/api/books`, on the `/api` catch-all 404 and on both of
+ * the gate's own refusals.
+ *
+ * **"Nothing" is not "do not cache".** RFC 9111 §4.2.2 lets a cache with no
+ * explicit expiration pick a heuristic lifetime of its own, and RFC 9110 §15.1's
+ * list of heuristically cacheable statuses includes `404`. So the safety came
+ * entirely from what somebody else's product happens to do by default. Two
+ * things were doing it: JSON has no file extension, and these responses carry
+ * no `Last-Modified` for a heuristic to work from. Neither is a property of
+ * this application. `docs/running-from-a-build.md` decision 1 sanctions a
+ * TLS-terminating proxy in front of this one origin and #471 puts a CDN there,
+ * and a caching proxy in that position was entitled to store `/api/books`,
+ * which is the collection, and hand it to somebody carrying no session.
+ *
+ * **`private`, for the reason the covers got it.** It is the only word that
+ * speaks to an intermediary, and it costs a phone nothing.
+ *
+ * **`no-cache` rather than `no-store`, and the two are genuinely different.**
+ * `no-store` forbids writing the response down at all; `no-cache` allows a
+ * stored copy that may not be reused without revalidating against this server
+ * first. Three things decided it:
+ *
+ * 1. **`no-cache` is the gate's own model, spelled as a cache directive.**
+ *    `gate` below reads `enabled` off the `user` row on every request so that
+ *    disabling somebody takes effect on their very next one, and `app/gate.tsx`
+ *    stores no admission because a client that remembers being admitted will
+ *    show the app to somebody who has just been disabled (#524). Under
+ *    `no-cache` every *use* of a stored response is a request that meets this
+ *    gate. That is the property #556 bought for the photographs with a five
+ *    minute window; here it is exact, with no window at all.
+ * 2. **It is the one that degrades well.** A shared cache that has been told to
+ *    ignore `private` still may not serve a `no-cache` response without asking
+ *    this origin, and the ask carries the requester's own cookie, so this
+ *    server answers `401` and the stored copy is not served. A shared cache
+ *    that has been told to ignore `no-store` has nothing left to make it ask.
+ *    The issue's complaint is that the safety currently rests on somebody
+ *    else's defaults; the directive that keeps this server the authority on
+ *    every reuse is the one that answers it.
+ * 3. **It costs a phone nothing, where `no-store` costs it the whole body
+ *    every time.** Measured rather than assumed, against this server on a
+ *    seeded catalogue of 27 books, asking `/api/books` three times in
+ *    Chromium:
+ *
+ *    | what the answer said | first ask | second | third |
+ *    | --- | --- | --- | --- |
+ *    | nothing (the tree before this) | `200`, 24,754 bytes | `304`, 180 | `304`, 180 |
+ *    | `private, no-cache` | `200`, 24,788 bytes | `304`, 214 | `304`, 214 |
+ *    | `private, no-store` | `200`, 24,788 bytes | `200`, 24,788 | `200`, 24,788 |
+ *
+ *    So `no-cache` is not a saving. It is parity with what the browser was
+ *    already doing on its own, now said rather than guessed, and `no-store` is
+ *    the row that pays. That listing scales with the collection, and this is a
+ *    phone-first app on somebody's mobile data.
+ *
+ * **What `no-store` would have cost, said plainly**, because it is the option
+ * a reader will reach for. It is the third row above, and it is *not* the
+ * browser's back/forward cache: `no-store` blocks that when it is on a
+ * *document*, and nothing under `/api` is a document. The document this app
+ * loads is `index.html`, which is outside `/api` and already says `no-cache`
+ * at the bottom of `server/index.ts`. What `no-store` would buy for that price
+ * is only that the bytes are not written to the browser's own cache directory,
+ * a residue this app already accepts for the photographs, which are the larger
+ * disclosure of the two.
+ *
+ * **No `max-age`, and that is a decision rather than an omission.** The covers
+ * take a five minute window because a placement card draws twenty-five
+ * neighbour spines per scan and the same photograph is asked for over and over
+ * within one run. Nothing here is shaped like that: a listing is fetched once
+ * per screen, it is small, and it changes the moment somebody scans a book,
+ * which is the workflow. A window that helps the photographs would show
+ * somebody the catalogue as it was before the book they just shelved.
+ *
+ * **No `must-revalidate` either.** It governs what a cache may do with a
+ * *stale* stored response, and under `no-cache` there is no such state: nothing
+ * may be reused without validating, full stop, so adding it would be
+ * decoration. The covers carry it because they carry a `max-age` for it to
+ * bite on.
+ *
+ * **And no `Vary: Cookie`**, rejected for the same two reasons #556 rejected it
+ * on `COVER_CACHE`: under `private` it buys nothing against the party it would
+ * be aimed at, and the browser's own cache honours it too, so a fresh sign-in
+ * would throw away every stored copy, `admit()` minting a new token each time.
+ * It is not needed for correctness here either: revalidation is what keeps a
+ * stored response honest, and this app holds one catalogue rather than a
+ * per-person view of it.
+ *
+ * **One string for the whole path space, including the five open doors.** They
+ * are the ones whose answers are most obviously not somebody else's to keep: a
+ * sign-in redirect carries a `state` and a nonce, and `GET /api/auth/session`
+ * is a response about a person, naming their email.
+ */
+export const API_CACHE = 'private, no-cache'
+
+/**
+ * Say it once, above everything else under `/api`.
+ *
+ * There are seventy-odd handlers and two cover doors, and a policy applied by
+ * hand at each is a policy that will be missing from the next one, which is
+ * the exact defect #556 found three months after the header was written. This is
+ * mounted on the same path as the gate and immediately above it, so being
+ * covered is a property of where a route is rather than of anybody having
+ * remembered, which is the property `mountGate` was built for and the reason
+ * this is a second `app.use(GATE_MOUNT, ...)` and not a line in each handler.
+ *
+ * **It sets a default rather than the last word.** A route with a considered
+ * answer of its own overwrites this one on the way out, and one does:
+ * `COVER_CACHE` in `server/index.ts`, at both cover doors, which #556 argued
+ * out and which must not be quietly replaced by a broader rule sitting
+ * upstream of it. `server/index.test.ts` asserts both strings, at all four
+ * doors, so the two cannot part company without the suite going red.
+ *
+ * **Above the gate rather than below it**, so the two refusals carry it as well
+ * as the routes. A stored `401` served later to somebody who has since been
+ * admitted is the same class of defect from the other side.
+ *
+ * Named rather than anonymous for the same reason `gate` is: Express records
+ * the function name on the layer, and `gate.routes.test.ts` asserts by name
+ * exactly what is allowed to sit above the gate.
+ */
+export function mountCachePolicy(app: express.Express): void {
+  app.use(GATE_MOUNT, function apiCache(_req, res, next) {
+    res.setHeader('Cache-Control', API_CACHE)
+    next()
+  })
+}
 
 /**
  * The cookie carrying the state of a sign-in that has gone out and not come

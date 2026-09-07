@@ -186,19 +186,27 @@ describe('the count', () => {
 
     /*
      * Route layers are the five. Everything else above the gate is middleware
-     * that answers nothing, and there are exactly three of them:
+     * that answers nothing, and there are exactly four of them:
      *
      * - `query` and `expressInit`, which Express itself puts at the head of
      *   every app's stack. They parse the query string and set `req.res`.
      * - `jsonParser`, which is `express.json` reading a body.
+     * - `apiCache`, which is `mountCachePolicy` (#566). It sets one header and
+     *   calls `next`, and it is above the gate deliberately: the two refusals
+     *   are answers about a person too, and the five open doors below include a
+     *   sign-in redirect carrying a `state` and a nonce.
      *
      * The list is asserted rather than filtered, because the failure this is
      * here for is somebody mounting something above the gate, and a check that
-     * allowed "middleware in general" would allow exactly that.
+     * allowed "middleware in general" would allow exactly that. So a fourth
+     * name arriving here is a change somebody had to make on purpose, which is
+     * what this line is for. That it answers nothing is not asserted here but
+     * below, by the refusal it sits above still being a refusal.
      */
     const notRoutes = above.filter((layer) => !layer.route).map((layer) => layer.name)
-    expect(notRoutes).toEqual(['query', 'expressInit', 'jsonParser'])
+    expect(notRoutes).toEqual(['query', 'expressInit', 'jsonParser', 'apiCache'])
   })
+
 })
 
 describe('the three states, asked rather than read', () => {
@@ -216,6 +224,16 @@ describe('the three states, asked rather than read', () => {
     // the network, with no credential of any kind.
     expect(response.status).toBe(401)
     expect(await response.json()).toMatchObject({ state: 'anonymous' })
+    /*
+     * And this line is also what says `apiCache` did not become a sixth door
+     * (#566). It is the one thing mounted above the gate that this repository
+     * wrote, and a middleware up there that answered, or that failed to call
+     * `next`, would turn this refusal into something else. It sets a header and
+     * gets out of the way, and the header is on the refusal because a stored
+     * `401`, served later to somebody who has since been let in, is the same
+     * defect from the other side.
+     */
+    expect(response.headers.get('cache-control')).toBe('private, no-cache')
   })
 
   it('answers a signed-in but not admitted person 403 on the same route', async () => {
