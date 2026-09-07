@@ -407,6 +407,27 @@ export class Shelves {
   }
 
   /**
+   * The same answer said for a person: what the plank this range opens at is
+   * called, or null when no rule says where the range begins.
+   *
+   * **The one reader outside this class, and it exists so there is not a
+   * second answerer** (#479, and #463's instruction before it). Two routes
+   * have to put the words "where does this range begin" in front of somebody:
+   * the shelves screen, which draws a whole run, and the placing screen, which
+   * offers a plank to start one at. Neither may work it out. `startOf` is
+   * `bandOf` and `bandOf` is the rules, so this is that answer named by
+   * `planks`, which is the same naming every other plank on both screens gets.
+   *
+   * Not a label to put a book on. Where a particular book lands is
+   * `areaForSortKey` and then `RunPlanks.labelOf`, which is a different
+   * question with a different answer for every book but the first.
+   */
+  async beginsAt(range: ShelfRange): Promise<string | null> {
+    const start = await this.startOf(range)
+    return start === null ? null : (await this.planks(range)).at(start).label
+  }
+
+  /**
    * The books on a shelf in this range, in order. Every layout, every strip,
    * every boundary decision and the misfile review are drawn from this one
    * statement, which is why it reads `shelved_books` and not `books` (#183).

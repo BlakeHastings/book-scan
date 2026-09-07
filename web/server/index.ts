@@ -757,9 +757,31 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       ? await shelves.shelfForSortKey(range, placement.sortKey)
       : planks.labelOf(derivedAreaId)
 
+    /*
+     * Where the range begins, asked of the one thing that answers it (#479).
+     *
+     * **This route is the fourth site the issue's two were part of, and it is
+     * the one a person actually reads.** `store.placementFor` above already
+     * asks `bandOf` and already answers `range-has-no-start` when nothing
+     * claims the range; this then restates the whole placement in the derived
+     * scheme and used to hand `derivedLocation` in as the range's start. Those
+     * are two different questions — where this book lands, and where the run
+     * opens — and they part company on exactly the collection #479 is about:
+     * `shelvesForSortKeys` answers `''` for every key of a range with no run,
+     * `''` is not null, and so the restatement came back "First book in
+     * fiction. Start at ." with an empty plank offered under it.
+     *
+     * So the start comes from `beginsAt` and the location stays the location.
+     * A null start makes `buildPlacement` say so, which is the sentence the
+     * placing screen draws instead of "working out where it goes".
+     */
+    const begins = await shelves.beginsAt(range)
+
     // Rebuilt rather than patched: the instruction has the old labels baked
     // into its wording.
-    const restated = buildPlacement(range, predecessor, successor, derivedLocation)
+    const restated = buildPlacement(
+      range, predecessor, successor, begins === null ? null : derivedLocation,
+    )
 
     return {
       ...placement,
@@ -2247,6 +2269,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       groups: drawn.groups,
       separators: drawn.separators,
       loads: drawn.loads,
+      /*
+       * Where this range opens, or null when no rule says (#479).
+       *
+       * On the wire because an empty `groups` has two causes and the screen
+       * drawing it cannot tell them apart from here: a range with nothing
+       * catalogued in it, and a range nothing says the whereabouts of. It said
+       * "Nothing catalogued in this range yet" for both, which is a sentence
+       * about the books and is false of a collection holding seven non-fiction
+       * books whose non-fiction rule was taken off an hour ago.
+       */
+      begins: drawn.begins,
       checkedOut: off.map((book, at) => ({
         book,
         areaId: areas[at] ?? null,

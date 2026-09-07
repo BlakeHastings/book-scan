@@ -2020,8 +2020,20 @@ export const api = {
       `/api/books/${id}`, { method: 'DELETE' },
     ),
 
+  /**
+   * A whole range drawn: its planks, what stands on each, and where it opens.
+   *
+   * `begins` is what the first plank of the run is called, and **null when no
+   * rule says where the range begins** (#479). It is the only thing that tells
+   * an empty `groups` apart from a range nothing places: both draw no planks,
+   * and only one of them is a collection with nothing catalogued in it.
+   */
   shelves: (range: ShelfRange) =>
-    request<{ groups: ShelfGroupDto[]; checkedOut: CheckedOutAt[] }>(
+    request<{
+      groups: ShelfGroupDto[]
+      checkedOut: CheckedOutAt[]
+      begins?: string | null
+    }>(
       `/api/shelves?range=${range}`,
     ),
 

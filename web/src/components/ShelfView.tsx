@@ -147,6 +147,19 @@ export function ShelfView({
    */
   const { look, setLook } = useBrowsing()
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
+  /*
+   * What the plank this range opens at is called, null when no rule says, and
+   * undefined until a read has answered (#479).
+   *
+   * Three states rather than two, because an empty screen has three causes and
+   * only one of them is "nothing catalogued here yet". The other two are a read
+   * that has not come back, which `loading` already covers, and a range no rule
+   * places, which nothing covered: the run has no planks, so the layout has no
+   * boards, so `groups` is empty exactly as it is for a range somebody has
+   * catalogued nothing into. The books are still there. It is the furniture
+   * that has nothing to say about them.
+   */
+  const [begins, setBegins] = useState<string | null | undefined>(undefined)
   const [moves, setMoves] = useState<Move[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -205,6 +218,7 @@ export function ShelfView({
         setGroups(shelves.groups)
         setOff(shelves.checkedOut)
         setReview(flagged)
+        setBegins(shelves.begins)
       })
       .catch((caught) => setError((caught as Error).message))
       .finally(() => setLoading(false))
@@ -335,6 +349,19 @@ export function ShelfView({
 
   /** The book somebody came back from, marked so the run opens on it. */
   const marked = arrivedWith.current?.bookId ?? 0
+
+  /**
+   * How many books are filed in this range, or null while nobody has said.
+   *
+   * The same tally the heading above already reads, taken here so the card that
+   * says a range has nowhere to stand can say the books are still there. Null
+   * rather than nought when the count has not arrived: a number nobody answered
+   * with, on a card about books somebody is worried they have lost, is the one
+   * thing that card must not invent.
+   */
+  const rangeCount = counts
+    ? (range === 'fiction' ? counts.fiction : counts.nonfiction)
+    : null
 
   /*
    * The piece the last board was on, so a heading is drawn where it changes
@@ -490,7 +517,44 @@ export function ShelfView({
       )}
 
       {loading && <Said>Loading...</Said>}
-      {!loading && groups.length === 0 && (
+
+      {/*
+        The two silences, told apart (#479).
+
+        `groups` is empty for both, and the sentence that was here said the one
+        thing that is a statement about the books: "Nothing catalogued in this
+        range yet". It is false of the case underneath it. A range whose rule
+        has been taken off still holds every book it held a minute ago; what it
+        has lost is the one thing the rules alone say, which is where it stands
+        in the room. Saying nothing is catalogued there reads as the books
+        having gone, on the screen somebody opens to look for them.
+
+        So the card names the state, says the books are still there, and says
+        what ends it. No button of its own: writing a rule is the furniture
+        screen, which is the quiet button already at the foot of this one, and a
+        second door to it would be a second answer to where rules are written.
+      */}
+      {!loading && groups.length === 0 && begins === null && (
+        <Card
+          kind="Nowhere to draw"
+          title={`Nothing says where ${range === 'fiction' ? 'fiction' : 'non-fiction'} begins`}
+        >
+          <p>
+            No rule points {range === 'fiction' ? 'fiction' : 'non-fiction'} at a
+            bookcase or a shelf, so there is no run to draw and no plank to put a
+            book on.{' '}
+            {rangeCount === null
+              ? 'Nothing has been changed.'
+              : rangeCount === 1
+                ? 'The one book filed here is still catalogued and has not moved.'
+                : `The ${rangeCount} books filed here are still catalogued and have `
+                  + 'not moved.'}{' '}
+            Describe the room and say what belongs where, and this fills in.
+          </p>
+        </Card>
+      )}
+
+      {!loading && groups.length === 0 && begins !== null && (
         <Nothing said="Nothing catalogued in this range yet." />
       )}
 
