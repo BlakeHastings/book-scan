@@ -395,6 +395,23 @@ stale, because a phone at a bookshelf that asks for a sign-in every visit gets
 abandoned and a gate that writes a row per request costs more than the route
 behind it. `HttpOnly`, `SameSite=Lax`, `Secure`, `Path=/`, revocable.
 
+**The cookie's thirty days slide with the row's, and until #558 they did not.**
+`Max-Age` was written once, at `admit`, and `renewSession` touched only the
+database, so the two windows started together and then parted: the row kept
+moving forward and the credential addressing it did not. Somebody using this
+every single day was signed out on day thirty anyway, holding a session the
+server would have honoured to day sixty. **Nothing about that was visible from
+either side.** The renewal ran, the row moved, the request was answered, and the
+hour-staleness optimisation built to make renewal cheap had, for three months,
+no effect any person could observe.
+
+The staleness test is now what both halves hang on. A stale request writes the
+row and re-issues the cookie together, in the same branch, through the same
+`cookieOptions` every other door uses, `Secure` included, which
+`deploy/contract.json` builds four links on. Re-issuing on every request instead
+would put a `Set-Cookie` on every response including each photograph; this is one
+header per session per hour, on the request that was already going to write.
+
 **`sign_in_flow`** — one sign-in between the redirect out and the redirect back,
 holding the PKCE verifier, the nonce and the state. A row rather than a cookie,
 because a row can be **single use**: the callback deletes it, so a replayed
