@@ -16,9 +16,11 @@ CI runs exactly these. If they are red, the work is not ready for review.
   `scripts/ci-scope.test.mjs`)
 - the image builds, carries this repository's contract and runs the checker
   inside it (`image (build + contract)`), on any change that touches what the
-  image is made of. It is the rehearsal for a version tag (#549) and it is the
-  one check here that `scripts/merge-pr.mjs` does not require, so it is also the
-  one a reviewer has to look at rather than trust the gate about.
+  image is made of. It is the rehearsal for a version tag (#549), and since #552
+  `scripts/merge-pr.mjs` requires it like the other two, so a reviewer does not
+  have to look at it separately. The ruleset on the default branch does not
+  require it yet; that is the owner's half and it changes nothing for a reviewer,
+  because nothing lands here except through the wrapper.
 
 Never ask a reviewer to run these by hand. If a mechanical check is missing,
 adding it is cheaper than reviewing for it forever.

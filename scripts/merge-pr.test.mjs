@@ -20,9 +20,34 @@
 // touched, and it still has to refuse, because the coupling was a type across
 // one TypeScript program rather than a line in a shared file. Any rule built on
 // "do the changed files overlap" passes that case and is worthless.
-import { judgeBase, COMPARE_FILE_LIMIT } from './merge-pr.mjs'
+//
+// The other half of this file is the required-check list, and it is newer than
+// the stale-base half by four hundred issues (#154 in August, #552 in
+// September). Nothing here read `REQUIRED` until then, which is the part worth
+// noticing: the stale-base gate was tested the day it was written, because it
+// was the new and clever half, while the plain "is it green" half that had been
+// there all along was never tested at all. The gate's two most basic refusals,
+// a check that is red and a check that is not on the board at all, had never
+// been exercised, so a misspelled name or a dropped one would have left every
+// test green while the gate waved the run through. The cases below are mostly
+// deny cases for that reason. The one allow case that matters as much as any
+// of them is the documentation-only board, because #535 is what a check that
+// cannot go green costs, and the way this change could go wrong is by making a
+// README pull request unmergeable.
+import { judgeBase, judgeChecks, REQUIRED, COMPARE_FILE_LIMIT } from './merge-pr.mjs'
 
 const named = (...paths) => paths.map((filename) => ({ filename }))
+
+/**
+ * A rollup as `gh pr view --json statusCheckRollup` reports one: every required
+ * name green, then whatever the case overrides. An override of `null` takes the
+ * name off the board entirely, which is a different failure from a red one and
+ * has to be tested as one.
+ */
+const board = (overrides = {}) =>
+  REQUIRED.map((name) => [name, name in overrides ? overrides[name] : 'SUCCESS'])
+    .filter(([, conclusion]) => conclusion !== null)
+    .map(([name, conclusion]) => ({ name, conclusion }))
 
 const cases = [
   // ---------------------------------------------------------------- allow --
@@ -172,9 +197,168 @@ if (!(other.why ?? '').includes('release/3') || (other.why ?? '').includes('mast
   console.error('FAIL  refusal hardcodes master instead of the pull request\'s base')
 }
 
+// ------------------------------------------------------------------------
+// The required-check gate.
+// ------------------------------------------------------------------------
+
+const IMAGE = 'image (build + contract)'
+
+// Named rather than derived, so that dropping one from `REQUIRED` fails here
+// instead of quietly shrinking what the tests below assert about.
+for (const name of ['web (typecheck + tests)', 'browser journeys', IMAGE]) {
+  if (!REQUIRED.includes(name)) {
+    failed++
+    console.error(`FAIL  REQUIRED no longer names "${name}"`)
+  }
+}
+if (new Set(REQUIRED).size !== REQUIRED.length) {
+  failed++
+  console.error('FAIL  REQUIRED lists a name twice')
+}
+
+const checkCases = [
+  // ---------------------------------------------------------------- allow --
+  {
+    // The board a documentation-only pull request gets. All three jobs start,
+    // `ci-scope.mjs` tells each of them there is nothing to prove, and all
+    // three report green in seconds. #559 changed one markdown file and the
+    // image job went green in about seven. If this case ever denies, the
+    // repository is unmergeable for docs changes, which is #535 again.
+    what: 'a documentation-only board: every required name present and green',
+    rollup: board(),
+    expect: 'allow',
+  },
+  {
+    what: 'NEUTRAL passes, which is what a job that did nothing reports',
+    rollup: board({ [IMAGE]: 'NEUTRAL' }),
+    expect: 'allow',
+  },
+  {
+    what: 'checks nobody requires are ignored, however they went',
+    rollup: [...board(), { name: 'some other status', conclusion: 'FAILURE' }],
+    expect: 'allow',
+  },
+  {
+    // The rollup lists a rerun after the run it replaces, so the last entry for
+    // a name wins. Judging a rerun on its first result would refuse a run that
+    // was fixed.
+    what: 'a rerun: the image check failed, was re-run, and is green now',
+    rollup: [
+      ...board({ [IMAGE]: 'FAILURE' }),
+      { name: IMAGE, conclusion: 'SUCCESS' },
+    ],
+    expect: 'allow',
+  },
+  {
+    what: 'an entry with no name at all is skipped rather than throwing',
+    rollup: [...board(), { conclusion: 'FAILURE' }],
+    expect: 'allow',
+  },
+
+  // ----------------------------------------------------------------- deny --
+  {
+    what: 'the image check is red',
+    rollup: board({ [IMAGE]: 'FAILURE' }),
+    expect: 'deny',
+    says: [IMAGE, 'failure'],
+  },
+  {
+    // Not the same failure as red, and the one that reads as a clean board: the
+    // name is simply not there. A `paths:` filter on `image.yml` produces this,
+    // which is why `ci-scope.mjs` skips steps and never the job.
+    what: 'the image check is absent from the rollup entirely',
+    rollup: board({ [IMAGE]: null }),
+    expect: 'deny',
+    says: [IMAGE, 'never ran'],
+  },
+  {
+    // What a job-level `if:` reports. Accepting it would make every guard on
+    // `image.yml` optional.
+    what: 'the image check reports SKIPPED',
+    rollup: board({ [IMAGE]: 'SKIPPED' }),
+    expect: 'deny',
+    says: [IMAGE, 'skipped'],
+  },
+  {
+    what: 'the image check has not finished yet',
+    rollup: board({ [IMAGE]: null }).concat({ name: IMAGE, status: 'IN_PROGRESS' }),
+    expect: 'deny',
+    says: [IMAGE, 'pending'],
+  },
+  {
+    what: 'the image build was cancelled, which is how a force-push leaves it',
+    rollup: board({ [IMAGE]: 'CANCELLED' }),
+    expect: 'deny',
+    says: [IMAGE, 'cancelled'],
+  },
+  {
+    what: 'the image build hit its 30 minute timeout',
+    rollup: board({ [IMAGE]: 'TIMED_OUT' }),
+    expect: 'deny',
+    says: [IMAGE, 'timed_out'],
+  },
+  {
+    what: 'no rollup at all, so nothing ran',
+    rollup: [],
+    expect: 'deny',
+    says: [IMAGE, 'web (typecheck + tests)', 'browser journeys', 'never ran'],
+  },
+  {
+    what: 'the field came back missing rather than empty',
+    rollup: undefined,
+    expect: 'deny',
+    says: ['never ran'],
+  },
+  {
+    what: 'the two older checks are green and only the new one is red',
+    rollup: board({ [IMAGE]: 'FAILURE' }),
+    expect: 'deny',
+    says: [IMAGE, 'do not merge around it'],
+  },
+]
+
+for (const { what, rollup: given, expect, says = [] } of checkCases) {
+  const verdict = judgeChecks(given)
+  const actual = verdict.green ? 'allow' : 'deny'
+
+  if (actual !== expect) {
+    failed++
+    console.error(`FAIL  expected ${expect}, got ${actual}:  ${what}`)
+    continue
+  }
+
+  if (actual === 'deny') {
+    const why = (verdict.why ?? '').toLowerCase()
+    for (const wanted of says) {
+      if (!why.includes(wanted.toLowerCase())) {
+        failed++
+        console.error(`FAIL  refusal never says "${wanted}":  ${what}\n${verdict.why}`)
+      }
+    }
+  }
+}
+
+// Every name in the list is load-bearing, and none of them is advisory. Taken
+// off the board one at a time, each must refuse by name. That is the property
+// #552 was about, stated so that adding a fourth name inherits it.
+for (const name of REQUIRED) {
+  const verdict = judgeChecks(board({ [name]: null }))
+  if (verdict.green || !(verdict.why ?? '').includes(`${name}: never ran`)) {
+    failed++
+    console.error(`FAIL  a missing "${name}" did not refuse by name`)
+  }
+  const red = judgeChecks(board({ [name]: 'FAILURE' }))
+  if (red.green || !(red.why ?? '').includes(`${name}: FAILURE`)) {
+    failed++
+    console.error(`FAIL  a red "${name}" did not refuse by name`)
+  }
+}
+
 if (failed > 0) {
   console.error(`\n${failed} check(s) behaved wrongly.`)
   process.exit(1)
 }
 
-console.log(`merge-pr: ${cases.length} cases behaved as expected.`)
+console.log(
+  `merge-pr: ${cases.length} base cases and ${checkCases.length} check cases behaved as expected.`,
+)

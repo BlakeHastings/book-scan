@@ -1021,28 +1021,43 @@ you fix a defect an e2e scenario covers, revert your fix, watch the scenario
 fail, then restore it. A test that only ever passed alongside a fix proves
 nothing about whether it would catch the fix being lost.
 
-Two checks must be green before a pull request is ready: `web (typecheck +
-tests)` and `browser journeys`. They are the names `scripts/merge-pr.mjs`
-requires. `npm run typecheck` and `npm test` take well under a minute between
-them, so there is no excuse for not having run them before pushing.
+Three checks must be green before a pull request is ready: `web (typecheck +
+tests)`, `browser journeys` and `image (build + contract)`. They are the names
+`scripts/merge-pr.mjs` requires. `npm run typecheck` and `npm test` take well
+under a minute between them, so there is no excuse for not having run them
+before pushing.
 
-**There is a third name on a pull request now, and it is not one of the two**
-(#549). `image (build + contract)` builds the Docker image, compares the
-contract inside it against `deploy/contract.json` and runs the checker inside
-it, which is everything a version tag does except pushing and releasing. It
-reports on every pull request and does the work only when the change touches
-what the image is made of, which is the `DECIDES_THE_IMAGE` list in
-`scripts/ci-scope.mjs` and is mostly the `Dockerfile`, `deploy/` and
-`web/package-lock.json`; a source change is answered by the two checks above,
-which build the same tree in less time. A full run is about three minutes
-locally, so if you touch one of those files, expect it and read it.
+**The third one arrived in #549 and started gating in #552.** `image (build +
+contract)` builds the Docker image, compares the contract inside it against
+`deploy/contract.json` and runs the checker inside it, which is everything a
+version tag does except pushing and releasing. It reports on every pull request
+and does the work only when the change touches what the image is made of, which
+is the `DECIDES_THE_IMAGE` list in `scripts/ci-scope.mjs` and is mostly the
+`Dockerfile`, `deploy/` and `web/package-lock.json`; a source change is answered
+by the two checks above, which build the same tree in less time. A full run is
+about three minutes locally, so if you touch one of those files, expect it and
+read it.
 
-**It is not in `REQUIRED` and not in the ruleset**, so `merge-pr.mjs` will land
-a pull request while it is red. That is deliberate for now rather than an
-oversight: making it gate is one line in `merge-pr.mjs` and a `gh api --method
-PUT` against a repository setting, and the second half is the owner's. Until
-that happens it is a check a person has to look at. Do not open a pull request
-with it red.
+**It was deliberately advisory first**, and that gap is worth keeping in mind
+the next time something like it is built. #535 is the precedent: a required
+check that was red on every branch made this repository unmergeable and the
+recovery was not quick. So the condition set for making this one gate was a run
+history rather than a review, and it was met before the line changed: thirteen
+consecutive successes across six unrelated pull requests and one manual
+dispatch, no failures, and two cancellations that were both force-pushes during
+a rebase. The other half of the condition is the case that decides whether
+requiring it is safe at all, and #559 is it: one markdown file changed, and the
+image job reported green in seven seconds. A required check that cannot appear
+on a docs change is the failure mode, not a slow one.
+
+**The ruleset still names only the first two, and that is the outstanding half
+of #552.** `merge-pr.mjs` is therefore stricter than GitHub is. The asymmetry is
+safe in this direction and only this one: `scripts/guard-merge.mjs` denies every
+other way to land a commit, so the wrapper is the path in use, and a stricter
+wrapper cannot let through anything the ruleset would have stopped. The reverse
+would also be safe. What is not safe is neither of them requiring it, which is
+where this stood until #552. Adding the name to the ruleset is a repository
+setting and so the owner's, per `docs/process/working-an-issue.md`.
 
 The scan-data check that used to be a third name, `no production data
 committed`, is now the first step of `web (typecheck + tests)` and also runs

@@ -6,7 +6,7 @@ cannot do at all.
 
 ## What CI already proves
 
-Two checks run on every pull request. Between them they cover:
+Three checks run on every pull request. Between them they cover:
 
 - **`web (typecheck + tests)`**: no database file and no scan images tracked in
   the tree, checked on the result rather than on the ignore rule; then
@@ -16,6 +16,12 @@ Two checks run on every pull request. Between them they cover:
 - **`browser journeys`**: every Gherkin scenario in `e2e/`, in a real browser,
   against the app started through Aspire, asserting on what reached the
   database rather than only on what rendered.
+- **`image (build + contract)`**: the Docker image built from this tree, the
+  contract inside it compared byte for byte against `deploy/contract.json`, and
+  the checker inside it run. It is everything a version tag does except the push
+  and the release, and it does that work only when the change touches what the
+  image is made of. It has gated the merge since #552; before that a reviewer
+  had to look at it by hand.
 
 `no production data committed` used to be a third check with a job of its own.
 It took five seconds and GitHub bills a job rounded up to a whole minute, so it
@@ -24,10 +30,14 @@ merge in the `Provenance` workflow. Same check, run in more places, for less.
 
 ### A green board on a documentation change
 
-Both jobs always start on every pull request, but each one asks
+All three jobs always start on every pull request, but each one asks
 `scripts/ci-scope.mjs` what the change touched and skips its expensive steps
-when the answer is "markdown and `docs/` only". So a README change gets both
-check names, both green, in about fifteen seconds each rather than five minutes.
+when the answer is "markdown and `docs/` only". The image job asks a narrower
+question than the other two and builds only when the change touches what the
+image is made of, but a docs change is below both thresholds. So a README change
+gets all three check names, all green, in seconds rather than five minutes:
+measured on #559, which changed one file under `docs/`, the image job took
+seven.
 
 The names must always appear, which is why the skipping happens **inside** the
 jobs rather than through a `paths:` filter or a job-level `if:`. `merge-pr.mjs`
