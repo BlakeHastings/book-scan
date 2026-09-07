@@ -123,6 +123,26 @@
  * whether there is one, and has no button, for all the same reasons as the two
  * above. `lib/catalogueWords.ts` holds the words and the argument.
  *
+ * ## And a fourth that is not news about the collection (#562)
+ *
+ * A card saying the app could not ask. It is the odd one out here in two ways
+ * and both are deliberate: it is drawn from an absence rather than from
+ * something the server said, and it is drawn first rather than in the order of
+ * what is worse, because it is the reason the rest of the screen is blank.
+ *
+ * **The blank screen is the whole of the defect it answers.** Nothing here is
+ * drawn until `counts` and `queue` have both answered, and until #562 the two
+ * reads behind them ended in a bare `.catch(() => {})`, so the screen a person
+ * got when nothing came back was the screen they get for the first half second
+ * of every visit, and it stayed. It looked like a collection with nothing in
+ * it, or like a screen still loading, and nothing distinguished either from a
+ * server that was not there.
+ *
+ * The gate's two refusals never reach it. A `401` or a `403` is answered by
+ * `app/gate.tsx` replacing this screen with the way in or the waiting screen,
+ * which is settled in `lib/api.ts` before the throw. `lib/reachWords.ts` holds
+ * the words and the rest of the argument.
+ *
  * ## The three doors, and what is deliberately not one
  *
  * **The book in your hand** (#355) is the camera you point at a book you
@@ -180,6 +200,7 @@ import { Trouble } from '../design/Trouble'
 import { troubleWith } from '../lib/backupWords'
 import { driftTrouble } from '../lib/driftWords'
 import { catalogueTrouble } from '../lib/catalogueWords'
+import { CANNOT_REACH } from '../lib/reachWords'
 import { grouped } from '../lib/say'
 import type {
   BackupWatch, CarryItem, Counts, LookupStandings, QueueCounts,
@@ -241,6 +262,18 @@ interface Props {
    * want of a key, and neither is a number.
    */
   lookups: LookupStandings | null
+  /**
+   * Whether the reads this screen is made of came back at all (#562).
+   *
+   * The one card here that is about this app rather than about the collection,
+   * and the only one drawn from an absence rather than from something the
+   * server said. Everything else on this screen waits politely for `counts` and
+   * `queue`, and both of those are null while a read is in flight **and** after
+   * one has failed, so without this the screen a person gets when nothing
+   * answered is the screen they get for the first half second: a top bar, a tab
+   * bar and nothing at all.
+   */
+  unreachable: boolean
   /** Photograph a book, which is what the fourth tab is for. */
   onAdd: () => void
   /**
@@ -309,7 +342,7 @@ function waitingIn(queue: QueueCounts): number {
 }
 
 export function HomePane({
-  counts, queue, carrying, unclaimed, backup, drifting, lookups,
+  counts, queue, carrying, unclaimed, backup, drifting, lookups, unreachable,
   onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onUnclaimed,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
@@ -376,8 +409,25 @@ export function HomePane({
    * described by one library instead of two.
    */
   const catalogues = catalogueTrouble(lookups)
-  const news = (trouble || drift || catalogues) && (
+  const news = (unreachable || trouble || drift || catalogues) && (
     <>
+      {/*
+        First, and out of the order the other three keep (#562).
+
+        They are ranked by what is worse, because they are three pieces of news
+        about the collection and a person reading them is deciding what to worry
+        about. This one is not news about the collection at all: it is the
+        reason the rest of the screen is empty, and an explanation that comes
+        after the thing it explains is an explanation somebody has already
+        stopped looking for.
+
+        Ordinarily it is alone here anyway. The three below are drawn from
+        reads against the same server, so a server that could not answer this
+        one did not answer those either and all three are null.
+      */}
+      {unreachable && (
+        <Trouble kind="Counts" title={CANNOT_REACH.title}>{CANNOT_REACH.said}</Trouble>
+      )}
       {trouble && <Trouble kind="Backups" title={trouble.title}>{trouble.said}</Trouble>}
       {drift && (
         <Trouble kind="Where books stand" title={drift.title}>{drift.said}</Trouble>

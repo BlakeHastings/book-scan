@@ -18,7 +18,7 @@ export function HomeScreen() {
   const { setRoute, openScanner, openQueueOn } = useNavigation()
   const { openLibraryShowing } = useBrowsing()
   const {
-    counts, queueCounts, carrying, unclaimed, backup, drifting, lookups,
+    counts, queueCounts, carrying, unclaimed, backup, drifting, lookups, unreachable,
   } = useSummary()
   /*
    * The corner, and the sheet it opens (#350). `HomePane` holds no state, so
@@ -39,6 +39,7 @@ export function HomeScreen() {
       backup={backup}
       drifting={drifting}
       lookups={lookups}
+      unreachable={unreachable}
       onAdd={() => setRoute('capture')}
       /*
        * The other camera (#355), through the one way in there is: `openScanner`

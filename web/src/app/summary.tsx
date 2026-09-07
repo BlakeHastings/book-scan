@@ -121,6 +121,33 @@ export interface Summary {
    * sees.
    */
   readonly lookups: LookupStandings | null
+  /**
+   * Whether either of the two reads the first screen is made of did not come
+   * back (#562).
+   *
+   * **This is where these two part company with the four fields above, and the
+   * argument is in the opening paragraph of this file.** Each of those four is
+   * either a claim that something is wrong or a door inviting a walk to a
+   * bookcase, so a failed read is set to null and the screen says nothing: a
+   * sentence written from a request that never came back is worth less than
+   * silence. Doing that here says nothing twice over. `counts` and `queueCounts`
+   * begin null, `HomePane` draws no count while either is null, so setting null
+   * on failure leaves the screen looking exactly as it did — a fix that reads
+   * correctly and changes nothing a person sees.
+   *
+   * And on the second read it would be worse than nothing. A count is the
+   * cheapest thing to be wrong about and the most obvious when it is, which is
+   * why they are re-read on every change of screen; dropping the whole of the
+   * first screen out of the layout because one re-read hiccuped is the fault
+   * `carrying` is kept here rather than in the screen to avoid. So the last
+   * answer stays on the screen and this says beside it that the app could not
+   * check just now.
+   *
+   * True while the last attempt failed and false again the moment one answers.
+   * Two pieces of state behind it rather than one, because they are two reads
+   * against one server and either can be the one that fails.
+   */
+  readonly unreachable: boolean
 }
 
 
@@ -135,19 +162,39 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
   const [backup, setBackup] = useState<BackupWatch | null>(null)
   const [drifting, setDrifting] = useState<number | null>(null)
   const [lookups, setLookups] = useState<LookupStandings | null>(null)
+  /**
+   * Which of the two reads the first screen is made of did not come back
+   * (#562). See `unreachable` above for why they answer a failure differently
+   * from the four reads below them.
+   *
+   * Two flags and not one. They are two requests, either can be the one that
+   * fails, and a single flag written by both would be whichever of them
+   * answered last rather than whether both came back.
+   */
+  const [countsLost, setCountsLost] = useState(false)
+  const [queueLost, setQueueLost] = useState(false)
 
   useEffect(() => {
     let live = true
     api.health()
       .then((h) => {
         if (!live) return
+        setCountsLost(false)
         setCounts(h.counts)
         // `?? null` rather than trusting the type: a server that predates the
         // standings answers without them, and the words this feeds must be able
         // to say nothing rather than read an absence as a nought.
         setLookups(h.lookups ?? null)
       })
-      .catch(() => {})
+      /*
+       * The counts and the standings are left exactly as they were, and only
+       * the failure is recorded. A `401` or a `403` never gets here in any
+       * useful sense: `lib/api.ts` tells `whenTheGateRefuses` before it throws,
+       * so `app/gate.tsx` has already replaced the whole app with the way in or
+       * the waiting screen, and there is no first screen left to draw anything
+       * on. What this catch is for is the server not being there.
+       */
+      .catch(() => { if (live) setCountsLost(true) })
     return () => { live = false }
   }, [route])
 
@@ -155,8 +202,12 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
     if (!READ_THE_QUEUE.includes(route)) return
     let live = true
     api.listCaptures()
-      .then((r) => { if (live) setQueueCounts(r.counts) })
-      .catch(() => {})
+      .then((r) => {
+        if (!live) return
+        setQueueLost(false)
+        setQueueCounts(r.counts)
+      })
+      .catch(() => { if (live) setQueueLost(true) })
     return () => { live = false }
   }, [route])
 
@@ -274,7 +325,7 @@ export function SummaryProvider({ children }: { children: ReactNode }) {
     <Context.Provider
       value={{
         counts, setCounts, queueCounts, setQueueCounts, carrying, unclaimed, backup,
-        drifting, lookups,
+        drifting, lookups, unreachable: countsLost || queueLost,
       }}
     >
       {children}
