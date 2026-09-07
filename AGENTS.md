@@ -994,6 +994,24 @@ tests)` and `browser journeys`. They are the names `scripts/merge-pr.mjs`
 requires. `npm run typecheck` and `npm test` take well under a minute between
 them, so there is no excuse for not having run them before pushing.
 
+**There is a third name on a pull request now, and it is not one of the two**
+(#549). `image (build + contract)` builds the Docker image, compares the
+contract inside it against `deploy/contract.json` and runs the checker inside
+it, which is everything a version tag does except pushing and releasing. It
+reports on every pull request and does the work only when the change touches
+what the image is made of, which is the `DECIDES_THE_IMAGE` list in
+`scripts/ci-scope.mjs` and is mostly the `Dockerfile`, `deploy/` and
+`web/package-lock.json`; a source change is answered by the two checks above,
+which build the same tree in less time. A full run is about three minutes
+locally, so if you touch one of those files, expect it and read it.
+
+**It is not in `REQUIRED` and not in the ruleset**, so `merge-pr.mjs` will land
+a pull request while it is red. That is deliberate for now rather than an
+oversight: making it gate is one line in `merge-pr.mjs` and a `gh api --method
+PUT` against a repository setting, and the second half is the owner's. Until
+that happens it is a check a person has to look at. Do not open a pull request
+with it red.
+
 The scan-data check that used to be a third name, `no production data
 committed`, is now the first step of `web (typecheck + tests)` and also runs
 after every merge in `provenance.yml`. It was a five second job, and GitHub

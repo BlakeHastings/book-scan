@@ -158,6 +158,15 @@ files onnxruntime resolves at runtime and being wrong about it quietly if the
 package changes its layout. Named here so the next person shrinking this image
 starts where the weight actually is.
 
+**Re-measured on 2026-09-07 for #549, on a different machine, and the number did
+not move.** A cold build with nothing in the cache took **3m08s** on eight cores
+and produced the same **1.49 GB**, with 452 MB of that being the compressed
+content a registry would move. Both were worth checking rather than quoting: the
+figure above decides whether building this on every pull request is defensible,
+and it is what `.github/workflows/image.yml` is scoped around. That job now
+prints the size of what it built into its own step summary, so the next time
+this table is wrong it will be a line in a run rather than a rediscovery.
+
 ---
 
 ## What the image is not allowed to contain
