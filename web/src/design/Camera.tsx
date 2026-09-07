@@ -82,8 +82,8 @@
  * going to keep, a torch, a settings sheet and the answer to "this book is
  * already in the queue". None of that is the wireframe's business, and none of
  * it is a second camera screen either: it is this frame with things handed to
- * it. So `picture`, `guide`, `top`, `far`, `over` and `said` are slots, each
- * defaulting to what the gallery already drew.
+ * it. So `picture`, `guide`, `top`, `far`, `over`, `said` and `across` are
+ * slots, each defaulting to what the gallery already drew.
  *
  * **Every one of them is a place**, and `said` was added because one of them was
  * not (#554). The line telling you what is in your hands was handed in through
