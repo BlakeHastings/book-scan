@@ -209,16 +209,28 @@ trivial, and even when you are confident.
 
 ## Merge discipline
 
-CI runs two required checks: `web (typecheck + tests)` and `browser journeys`.
-Both always run and always report, whatever the change touched: a docs-only
-pull request still gets both names, in seconds, because `scripts/ci-scope.mjs`
-decides whether the steps inside them do any work. That shape is deliberate. A
-`paths:` filter drops the job from the rollup and a job-level `if:` reports
-SKIPPED, and the merge gate refuses both, which would make a README change
-unmergeable.
+CI runs three required checks: `web (typecheck + tests)`, `browser journeys` and
+`image (build + contract)`. All three always run and always report, whatever the
+change touched: a docs-only pull request still gets all three names, in seconds,
+because `scripts/ci-scope.mjs` decides whether the steps inside them do any
+work. That shape is deliberate. A `paths:` filter drops the job from the rollup
+and a job-level `if:` reports SKIPPED, and the merge gate refuses both, which
+would make a README change unmergeable.
 
-**GitHub itself enforces them.** It has since 2026-09-04, and this paragraph
-used to say the opposite.
+**The third one is required by `merge-pr.mjs` and not yet by the ruleset**
+(#552). It was advisory from #549 until it had a run history, because #535 is
+what a required check that is red on every branch costs; thirteen consecutive
+green runs across six unrelated pull requests, and a seven-second green on a
+one-file markdown pull request, were the evidence for making it gate. The two
+mechanisms therefore disagree, and the disagreement is safe in this direction
+and only this one: `guard-merge.mjs` denies every other way to land a commit, so
+the wrapper is the path in use, and a wrapper stricter than the ruleset can only
+stop things the ruleset would have allowed. **Bringing the ruleset into line is the owner's half**, because it is a
+repository setting rather than a line in this repository. Until it happens, this
+is one required check GitHub will not stop you merging around by hand.
+
+**GitHub itself enforces the first two.** It has since 2026-09-04, and this
+paragraph used to say the opposite.
 
 What it said was that branch protection needs a paid plan on a private repo and
 that this repo cannot be public. Both halves are untrue. `gh repo view --json
@@ -245,12 +257,19 @@ moments:
 
 1. **The `default branch: pull request, green checks, squash` ruleset**, which
    is GitHub refusing rather than a script refusing. It requires a pull request
-   before anything reaches `master`, both checks green on it, squash as the only
-   merge method, and it blocks force-pushes to `master` and deleting it.
+   before anything reaches `master`, the checks it names green on it, squash as
+   the only merge method, and it blocks force-pushes to `master` and deleting
+   it. It names `web (typecheck + tests)` and `browser journeys`, which since
+   #552 is two of the three layer 2 requires.
    *Not covered:* nothing local. It cannot tell you why before you try, it needs
    the API to be up, and it says nothing about the *base* those checks ran
    against — which is the failure that produced #154 and the reason layer 2 is
-   still the sanctioned path rather than a convenience.
+   still the sanctioned path rather than a convenience. It also says nothing
+   about `image (build + contract)`. Adding that name is the owner's half of
+   #552 and the one thing outstanding from it.
+   `docs/process/master-ruleset.json` names two because that is the payload the
+   ruleset was created from, and it should keep saying what GitHub actually
+   evaluates rather than what it ought to.
 
    **It has no bypass actors, on purpose.** `current_user_can_bypass` reads
    `never` for the owner, who is the only human with access and the only account

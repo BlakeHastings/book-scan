@@ -6,8 +6,10 @@
 // over and it was wrong for months: this repository is public (`gh repo view
 // --json visibility`), and rulesets are free on a public repository. #540 added
 // one. Since 2026-09-04 GitHub itself refuses a merge to `master` that has no
-// pull request behind it, that has either required check not green, or that
-// uses any merge method but squash. See `docs/process/working-an-issue.md`.
+// pull request behind it, that has one of the checks it names not green, or
+// that uses any merge method but squash. See `docs/process/working-an-issue.md`.
+// The ruleset names two of the three in `REQUIRED` below; the note there says
+// why this script being the stricter of the two is safe.
 //
 // So this script is no longer the only thing standing between a red run and
 // `master`, and it is still the sanctioned way to land a pull request, for a
@@ -50,26 +52,100 @@ import { main as pruneWorktrees } from './prune-worktrees.mjs'
 // A name that never appears is treated as "never ran" and refuses the merge.
 // That is the safe direction, but a typo here looks like a broken script.
 //
-// Both of these appear on every pull request, including one that changes only
-// markdown. Their jobs are never filtered out by `paths:` and never skipped by
-// a job-level `if:`: they always start, and decide inside themselves whether
-// the expensive steps are worth running (`scripts/ci-scope.mjs`). If you are
-// tempted to make a job conditional, read the top of that file first, because
-// the version of this list that refuses to merge a README change is the one
-// this comment exists to prevent.
+// All three of these appear on every pull request, including one that changes
+// only markdown. Their jobs are never filtered out by `paths:` and never
+// skipped by a job-level `if:`: they always start, and decide inside themselves
+// whether the expensive steps are worth running (`scripts/ci-scope.mjs`). If
+// you are tempted to make a job conditional, read the top of that file first,
+// because the version of this list that refuses to merge a README change is the
+// one this comment exists to prevent.
 //
-// `no production data committed` was a third entry until #126. It was a
+// `image (build + contract)` was added by #552, six pull requests after #549
+// built it. It is the rehearsal for a version tag: it builds the image,
+// compares the contract inside it and runs the checker inside it, everything a
+// tag does except the push and the release. It was left advisory on purpose
+// until it had a run history, because #535 is what a required check that goes
+// red on every branch costs. When this line changed it had thirteen consecutive
+// successes across six unrelated pull requests and one manual dispatch, and no
+// failures. And it reported green in seven seconds on #559, which changed one
+// markdown file: that is the case that decides whether requiring it is safe at
+// all, because a required check that cannot appear on a docs change is what
+// made this repository unmergeable in #535.
+//
+// This list is now stricter than the ruleset on the default branch, which still
+// names the first two. That asymmetry is safe in this direction and only this
+// one: `scripts/guard-merge.mjs` denies every other way to land a commit, so
+// this script is the path in use, and a tighter gate on it cannot let anything
+// through that the ruleset would have stopped. Bringing the ruleset into line
+// is a repository setting and therefore the owner's, per
+// `docs/process/working-an-issue.md`.
+//
+// `no production data committed` was an entry here until #126. It was a
 // five second job billed as a whole minute, so it became the first step of
 // `web (typecheck + tests)` and also runs after a merge in `provenance.yml`.
 // The check still runs, on more commits than before; it no longer has a check
 // name of its own.
-const REQUIRED = ['web (typecheck + tests)', 'browser journeys']
+export const REQUIRED = ['web (typecheck + tests)', 'browser journeys', 'image (build + contract)']
 
 // The compare endpoint lists at most this many files. A list at the cap may be
 // truncated, and a truncated list could hide a code change behind a wall of
 // markdown, so it is read as "cannot tell" and refuses. Same direction
 // `ci-scope.mjs` takes with its own truncation, and for the same reason.
 export const COMPARE_FILE_LIMIT = 300
+
+/**
+ * Is every required check green on this pull request?
+ *
+ * `rollup` is the `statusCheckRollup` array from `gh pr view --json`, which is
+ * the rollup of the pull request's last commit: one entry per check run, with a
+ * `conclusion` once it has finished and a `state` while it has not.
+ *
+ * Exported and separated from `main` so the refusals can be exercised, which
+ * matters more here than the pass does. A gate is only worth what it stops, and
+ * until #552 nothing in this repository ran the stopping half: the test beside
+ * this file covered `judgeBase` and nothing at all read `REQUIRED`. So a name
+ * could be misspelled into this list, or dropped out of it, and every test
+ * would stay green.
+ *
+ * TWO WAYS A CHECK IS NOT GREEN, AND THEY ARE NOT THE SAME
+ * A check can be **present and not green**, which is the obvious case: FAILURE,
+ * CANCELLED, TIMED_OUT, SKIPPED, or still PENDING. Or it can be **absent** from
+ * the rollup entirely, because its workflow never ran, which reads as a board
+ * with nothing wrong on it. Absent is refused as "never ran", the safe direction:
+ * "did not run" must not read as "passed". Every entry in `REQUIRED` is treated
+ * identically in both directions; there is no name here that is advisory.
+ *
+ * NEUTRAL passes alongside SUCCESS, which is what a job that deliberately did
+ * nothing reports.
+ */
+export function judgeChecks(rollup) {
+  // Latest conclusion per check name; a rerun should not be judged on its first
+  // result, and the rollup lists reruns after the runs they replace.
+  const latest = new Map()
+  for (const check of rollup ?? []) {
+    const name = check.name ?? check.context
+    if (!name) continue
+    const state = check.conclusion || check.state || 'PENDING'
+    latest.set(name, state)
+  }
+
+  const problems = []
+  for (const name of REQUIRED) {
+    const state = latest.get(name)
+    if (state === undefined) problems.push(`${name}: never ran`)
+    else if (state !== 'SUCCESS' && state !== 'NEUTRAL') problems.push(`${name}: ${state}`)
+  }
+
+  if (problems.length === 0) return { green: true }
+
+  return {
+    green: false,
+    why:
+      `required checks are not green:\n    ${problems.join('\n    ')}\n\n` +
+      `  Fix the run, do not merge around it. If a check is wrong, change the check\n` +
+      `  in its own PR and say so.`,
+  }
+}
 
 /**
  * Did these checks run against the base as it stands now, and if not, could the
@@ -227,29 +303,8 @@ function main() {
   if (pr.mergeable === 'CONFLICTING')
     refuse(`it has conflicts with ${pr.baseRefName}. Rebase on ${pr.baseRefName} first.`)
 
-  // Latest conclusion per check name; a rerun should not be judged on its first result.
-  const latest = new Map()
-  for (const check of pr.statusCheckRollup ?? []) {
-    const name = check.name ?? check.context
-    if (!name) continue
-    const state = check.conclusion || check.state || 'PENDING'
-    latest.set(name, state)
-  }
-
-  const problems = []
-  for (const name of REQUIRED) {
-    const state = latest.get(name)
-    if (state === undefined) problems.push(`${name}: never ran`)
-    else if (state !== 'SUCCESS' && state !== 'NEUTRAL') problems.push(`${name}: ${state}`)
-  }
-
-  if (problems.length > 0) {
-    refuse(
-      `required checks are not green:\n    ${problems.join('\n    ')}\n\n` +
-        `  Fix the run, do not merge around it. If a check is wrong, change the check\n` +
-        `  in its own PR and say so.`,
-    )
-  }
+  const checks = judgeChecks(pr.statusCheckRollup)
+  if (!checks.green) refuse(checks.why)
 
   // Green, and asked second on purpose: a red pull request needs its run fixed,
   // and rebasing it would only produce a red run against a newer base.
