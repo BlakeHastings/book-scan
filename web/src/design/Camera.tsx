@@ -82,8 +82,8 @@
  * going to keep, a torch, a settings sheet and the answer to "this book is
  * already in the queue". None of that is the wireframe's business, and none of
  * it is a second camera screen either: it is this frame with things handed to
- * it. So `picture`, `guide`, `top`, `far`, `over` and `said` are slots, each
- * defaulting to what the gallery already drew.
+ * it. So `picture`, `guide`, `top`, `far`, `over`, `said` and `across` are
+ * slots, each defaulting to what the gallery already drew.
  *
  * **Every one of them is a place**, and `said` was added because one of them was
  * not (#554). The line telling you what is in your hands was handed in through
@@ -91,6 +91,28 @@
  * of the controls with arithmetic — `--s7 + --tap`, which clears one control,
  * on a screen whose near cluster is three. `said` is a row of the bar, so the
  * bar is as tall as what is in it and nothing counts anything.
+ *
+ * ## `over` is a box now, and `across` is what it is not (#584, #585)
+ *
+ * `said` fixed one line and left the shape of the fault standing: three more
+ * things floated on this picture and found the bottom of it by counting the
+ * controls they expected to be there. The frame you aim inside at 28% of the
+ * screen, the hint at 150px, the two answer panels at 260px. On a 375 by 667
+ * phone the frame ended 20px inside "Next book" and the hint was lying across
+ * it on every phone.
+ *
+ * So `over` stopped being a list of siblings and became **the picture above the
+ * bar**: `.wf-view` is two grid rows, the bar takes the height its own contents
+ * ask for, and everything handed to `over` is inside the row above it. `bottom`
+ * in there means "just above the controls", on every camera and every phone,
+ * and no number anywhere counts a control.
+ *
+ * `across` is the slot for the two things that must **not** stop at the bar:
+ * the camera you have not granted yet, and the sheet about the camera. A person
+ * who has not given this app a camera must not be looking at a shutter, and a
+ * sheet that stops above the controls is a sheet with the controls outside it.
+ * It is the whole screen, controls included, and what goes in it positions
+ * itself against that.
  *
  * A second component would be the mistake `Shots.tsx` was made to end: two
  * things emitting `.wf-view` and `.wf-shutter`, agreeing until one of them is
@@ -126,6 +148,7 @@ export function Viewfinder({
   top,
   far,
   over,
+  across,
   said,
   done = 'Done with this book',
   doneOff = false,
@@ -145,14 +168,47 @@ export function Viewfinder({
    * about to take and is a drawing; the app measures its own off the crop it
    * is really going to keep, because a boundary you cannot see is one you will
    * get wrong.
+   *
+   * **A frame handed in here is placed against the picture, and the one drawn
+   * by default is placed in the picture above the bar** (#584). That is not two
+   * ways of doing one thing, it is the difference between a drawing and a
+   * measurement. The default says roughly where to hold a book, so it belongs
+   * in the part of the screen a control can never be in front of. A frame a
+   * caller hands in is a fraction of the picture — the cataloguing camera's is
+   * the crop it is really going to keep — and a fraction of the picture drawn
+   * inside a shorter box is a rectangle that is not the one being kept, which
+   * is the one thing this frame must never be. So a caller that hands one in
+   * owns where it lands, and carries its own insets.
    */
   guide?: ReactNode
   /** Anything else floating along the top, beside the way out. */
   top?: ReactNode
   /** The far top corner. Defaults to the handedness switch. */
   far?: ReactNode
-  /** Drawn over the picture and under the controls: sheets, findings, hints. */
+  /**
+   * Drawn on the picture above the bar, and under the controls: findings,
+   * hints, the answer to "this book is already in the queue".
+   *
+   * **It is a box rather than a place beside everything else** (#585). Anything
+   * in here that anchors itself to the bottom anchors to the top of the bar, so
+   * `bottom: var(--s3)` is "just above the controls" and no camera's stylesheet
+   * has to know how many controls this camera has. That is the same fix `said`
+   * is, one layer out: the thing that knows how tall the controls are is the
+   * box that holds them, and the way to use that is to stop asking anybody else.
+   */
   over?: ReactNode
+  /**
+   * Drawn across the whole screen, the controls included.
+   *
+   * Two things need this and both of them would be wrong inside `over`: the
+   * camera you have not granted, because somebody who has not granted one must
+   * not be looking at a shutter, and the sheet about the camera, because a
+   * modal that stops above the controls leaves the controls outside it.
+   *
+   * What goes in here positions itself against the whole screen. It is drawn
+   * last, so it is in front of the bar without having to say so.
+   */
+  across?: ReactNode
   /**
    * The one line this screen has to say, in the bar and above the controls.
    *
@@ -203,12 +259,15 @@ export function Viewfinder({
   return (
     <div className="wf-view" data-hand={hand}>
       {picture ?? <div className="wf-view__picture" aria-hidden="true" />}
-      {guide ?? (
-        <div
-          className={`wf-view__guide${taking?.sliver ? ' wf-view__guide--slot' : ''}`}
-          aria-hidden="true"
-        />
-      )}
+
+      {/*
+        A frame handed in is a fraction of the picture, so it is drawn against
+        the picture and nothing here moves it. The frame this component draws
+        itself is a drawing rather than a crop, and it is further down, inside
+        the picture above the bar, where a control cannot be in front of it.
+        The prop above says why the two are not the same thing.
+      */}
+      {guide}
 
       <button type="button" className="wf-view__leave" aria-label="Back" onClick={onLeave}>
         <IconBack />
@@ -237,7 +296,20 @@ export function Viewfinder({
       */}
       <div className="wf-view__band" aria-hidden="true" />
 
-      {over}
+      {/*
+        The picture above the bar. Its bottom edge is the top of the controls,
+        because the bar is the row after it and takes its own height, so nothing
+        in here has to be told where the controls start (#584, #585).
+      */}
+      <div className="wf-view__over">
+        {guide === undefined && (
+          <div
+            className={`wf-view__guide${taking?.sliver ? ' wf-view__guide--slot' : ''}`}
+            aria-hidden="true"
+          />
+        )}
+        {over}
+      </div>
 
       <div className="wf-view__bar">
         {/*
@@ -300,6 +372,13 @@ export function Viewfinder({
           </div>
         </div>
       </div>
+
+      {/*
+        Last, and across everything, so a screen that has to cover the controls
+        does not have to say so with a z-index (#585). The camera nobody has
+        granted and the sheet about the camera are the two.
+      */}
+      {across}
     </div>
   )
 }
