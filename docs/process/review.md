@@ -91,6 +91,30 @@ covers what landed today. Confirm:
 does not load is a common and embarrassing outcome. Say what you actually did
 and what you actually saw.
 
+### When a change alters what a slot means, open every caller of that slot
+
+Learned on 2026-09-07 by merging a regression. #586 moved the camera's caption
+from a positioned `over` into a new `said` row of the bar. It changed the three
+cameras and the two gallery screens it touched, and the review checked those and
+called it good. **Four other drawings, added hours earlier by #583, were still
+passing the line through `over`**, which no longer positions anything — so on all
+four the caption drew across the top of the screen, 600px from where it belongs,
+and stayed that way through a merge.
+
+Nothing caught it. The suites were green, the changed callers were correct, and
+the reviewer looked at exactly the files the diff named.
+
+**So: when the shape of a prop, a slot, a class or a return value changes, the
+question is not "are the callers in this diff right". It is "who else calls
+this", and it is a grep rather than a judgement.** A caller the author did not
+have to edit is precisely the one nobody looks at, and it is the one that
+silently keeps the old meaning.
+
+The same rule reads the other way for the author, and #586's own argument is
+where it comes from: a slot exists so that nobody has to remember. The moment
+its meaning moves, every consumer that was relying on not having to remember is
+wrong at once.
+
 ## Lens 2: code quality, proven by comprehension
 
 **The reviewer must be able to explain what the code does without asking the
